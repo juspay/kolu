@@ -1,6 +1,6 @@
 ---
 title: hcom vs. kolu — what to adopt
-description: hcom hooks coding agents together through tool hooks and a shared SQLite event log, giving each agent an addressable inbox, an event feed, and subscriptions — the one thing kolu has no equivalent for. kolu's agent-drives-agent story today is screen-scraping (type keystrokes into a PTY, read the reply off the screen). The borrow is hcom's channel — an agent message surface built on the awareness surface kolu already ships; the thing we keep is kolu's substrate — first-party PTYs and typed surface-over-ssh, not a shared-PSK MQTT relay.
+description: hcom hooks coding agents together through per-tool hooks and a shared SQLite event log — an addressable inbox, event feed, and subscriptions kolu has no equivalent for. But kolu drives agents through the terminal it owns on purpose (agent-agnostic, zero-setup, nothing written to your ~/.claude). The honest borrow is a message channel for the plain text hand-off between turns; it does not remove screen-scraping, because the interactive prompts that matter most — AskUserQuestion, plan approval — are in no log and can't be answered by pasted text.
 parents: [comparison, pulam]
 status: proposed
 maturity: seedling
@@ -9,206 +9,166 @@ updated: 2026-07-01
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
 import Svg from "../../components/Svg.astro";
 import channel from "../../diagrams/hcom-vs-kolu-channel.svg?raw";
 
-*A read of [**hcom**](https://github.com/aannoo/hcom) (a single Rust binary that
-"hooks your coding agents together" — message, watch, and spawn each other
-across terminals) held against what kolu already is. Claims checked against both
-codebases. hcom and kolu chase the **same goal** — several coding agents working
-together across terminals — and bet on **opposite substrates** to get there. That
-makes hcom a clean reference for the one capability kolu is missing, and a clean
-foil for the two bets kolu should keep.*
+*A read of [**hcom**](https://github.com/aannoo/hcom) — a single Rust binary that
+"hooks your coding agents together" so they message, watch, and spawn each other
+across terminals — held against what kolu is. Claims checked against both
+codebases. hcom and kolu chase the **same goal** (several coding agents working
+together across terminals) and bet on **opposite substrates**, so hcom is a clean
+reference for the one capability kolu lacks — and a clean foil for the two bets
+kolu keeps.*
 
-<Svg svg={channel} caption="The same pair of agents, three channels between them. hcom routes messages through a shared event log; kolu today has one agent type into and read off another's screen; the proposal gives kolu a real channel without giving up its substrate." wide />
+<Svg svg={channel} caption="The same pair of agents, three channels between them. hcom routes messages through a shared event log; kolu today has one agent type into and read off another's screen; the proposal gives kolu a real channel for the text hand-off — without giving up its substrate." wide />
 
 ## Two bets on the same problem
 
 hcom owns **no terminal**. It rides each tool's hook system (Claude Code's
 `PostToolUse`/`Stop`, Gemini, Codex, OpenCode, Cursor, …) and writes everything —
 messages, status changes, file edits, tool calls — into a **local SQLite event
-log**. That single move buys every agent a queryable *identity*: a name, a
-status (active/blocked/listening), an **inbox**, a live event feed, and a
-transcript. Agents then `@mention` each other, tag messages with an **intent**
-(`request` → always reply, `inform` → reply if useful, `ack` → don't), isolate
-traffic into **threads**, and **subscribe** to events with a SQL predicate that
-auto-sends a message when it fires (`hcom events sub … --on-hit-text …`).
-Delivery is a hook injecting the message *mid-turn between tool calls*, or a wake
-that nudges an idle agent. Collision detection ships on by default: two agents
-editing the same file within 30 s both get pinged. It's a **coordination
-fabric** — agents talk *in a channel*.
+log**. That one move buys every agent a queryable identity: a name, a status, an
+**inbox**, an event feed, subscriptions. Agents `@mention` each other, tag turns
+with an **intent** (`request`/`inform`/`ack`), isolate traffic into **threads**,
+and **subscribe** to events that auto-send a message when they fire. It's a
+**coordination fabric** — agents talk *in a channel*. The price is stated plainly
+in hcom's own README: its hooks *"go into config dirs under `~/` on first run,"*
+and every tool needs its own hand-written hook and transcript parser.
 
-kolu made the other bet, and made it well. It **owns the PTYs** first-party:
-`kaval` is a daemon that holds every terminal and outlives its clients; `pulam`
-dials kaval and derives per-terminal **awareness** — git repo/branch/dirtiness,
-the branch's PR and CI checks, the live agent and *its state*, the foreground
-process — serving it as one typed `@kolu/surface` collection that mirrors across
-machines over ssh. The agent-state feed is real and precise: a closed set
-`{thinking, tool_use, running_background, awaiting_user, waiting}` folded from a
-memoryless producer (see [awareness as a fold](./awareness-derive-store.html)).
-kolu has a superb **substrate** — but no channel on top of it.
+kolu made the other bet **on purpose**, and its README names the two rules that
+force it:
 
-So how does one kolu agent drive another today? It **screen-scrapes.** The
-[`kolu` skill](./pulam-tui.html) is a `create → send → snapshot` loop: spawn the
-inner agent in a kaval PTY, `kaval-tui send` the prompt as **keystrokes**, a
-second `send --key Enter` to submit, `kaval-tui wait --until idle:<ms>` for the
-turn to go quiet, then `kaval-tui snapshot --viewport` and *read the reply off
-the screen*. The skill's own warnings are the tell of how much tax that is:
-`send` is **blind** (it writes whether or not the agent is ready); an Enter sent
-in the same breath as the text **races bracketed-paste and is silently dropped**;
-and idle **"≠ the reply is correct"** — quiescence can't tell "finished" from
-"blocked asking you a question," so you must snapshot and guess. That's the whole
-cost of coordinating through a screen instead of a channel: the message is bytes
-typed into a TUI and pixels read back out.
+- **Agent-agnostic** — *"no adapter to write, no per-agent code… run it once and
+  the next agent that ships works the same way."*
+- **Auto-detected, zero setup** — *"the surface grows with your workflow, not with
+  a preferences pane. If kolu knows something, it's because the shell already told
+  it."*
 
-<Callout kind="note" title="Not a competitor — a reference and a foil">
-hcom is the same first-mover bet as [herdr](./herdr-vs-kolu.html) in a different
-axis. herdr validated *first-party PTYs* (kolu's substrate). hcom validates the
-layer above it — *agents as addressable endpoints on a shared log*. kolu has the
-first and lacks the second. The borrow writes itself.
+So kolu **owns the terminal** and never touches your `~/.claude`. `kaval` holds
+every PTY; `pulam` derives per-terminal **awareness** — git · PR · agent-state ·
+foreground — as one typed `@kolu/surface` collection that mirrors over ssh. A
+superb substrate — with **no channel on top**. One kolu agent drives another by
+**screen-scraping**: the [`kolu` skill](./pulam-tui.html) types the prompt into a
+PTY as keystrokes (`kaval-tui send`), `wait --until idle` for quiet, then
+`snapshot --viewport` to read the reply off the screen. The skill's own warnings —
+`send` is blind, an Enter in the same breath *races bracketed-paste and is
+silently dropped*, idle *"≠ the reply is correct"* — are the tax of coordinating
+through a screen instead of a channel.
+
+## What a channel buys — and where it stops
+
+The borrow is hcom's **shape**, not its implementation: no parallel SQLite, no
+per-tool hook harness. On the surface `pulam` already serves, add a channel —
+
+- an **inbox** `Collection` + a **messages** `Event`, so `@name` routing is a
+  lookup over keys kolu already broadcasts (mirrored across machines for free by
+  `mirrorRemoteSurface`);
+- **subscriptions** over the surface `Event` primitive — *"when @codex finishes,
+  send it the next task"*, collision pings, the reactive topologies hcom's scripts
+  lean on;
+- an **intent** convention (`request`/`inform`/`ack`) that makes "whose turn" an
+  explicit contract instead of a guess inferred from terminal quiescence;
+- shipped as a **skill + workflow scripts** — kolu already has the vehicles (the
+  `kolu` skill, the `Workflow` tool).
+
+**But here is the boundary, and it is the honest heart of this note. A channel
+cleanly carries the *text hand-off between turns* — one agent finishes, passes
+text to the next. It does *not* abolish screen-scraping**, because the state that
+matters most for coordination is invisible to any log and un-answerable by text:
+
+<Callout kind="warning" title="The interactive-prompt hole — the screen is not optional">
+When Claude Code blocks on an **AskUserQuestion** or **plan-approval** prompt, its
+Agent SDK buffers that message *in memory* and flushes it to the JSONL only
+**after you answer** — so a log reader sees `waiting`, never `awaiting_user`
+(<Issue n={905} />). kolu already had to **read the rendered screen** to catch it
+(<PrLink pr={1160} />), matching literal strings (`Ready to code?`) plus the
+menu's shape — a brittle TUI match by nature. And you *answer* such a menu with
+**arrow keys and Enter** aimed at that layout, not pasted text. So a "message as a
+prompt" can neither *see* nor *answer* it. The channel **narrows** screen-scraping
+to the interactive prompts; it doesn't remove it — and hooks don't rescue this
+either (below).
 </Callout>
 
-## What to adopt — an agent message surface on `pulam`
+One thing kolu does **not** lose by refusing hcom's hooks: **mid-turn delivery**.
+hcom can drop a message between an agent's tool calls; kolu, delivering into a PTY
+at its prompt, is between-turns only. But turn-based coordination — debate,
+worker-reviewer, pipeline — *wants* each agent to finish before the next message
+lands. Between-turns is the **correct** semantics, not a limitation.
 
-The borrow is not hcom's *implementation* (a parallel SQLite database, a fresh
-hook harness per tool). kolu already has the primitives; the borrow is the
-**shape**. Build a message channel as a new capability on the surface `pulam`
-already serves — reusing the source of truth, not standing up a rival one.
+## `/debate` — the concrete case
 
-- **Addressable inbox — a surface `Collection`, not a new database.** `pulam`
-  already keys awareness by terminal id and every terminal already carries the
-  agent's name. Add an `inbox` collection (and a `messages` `Event`) to that same
-  surface. `@name` routing is a lookup over keys kolu already broadcasts. hcom
-  needed SQLite because it owns no shared state; kolu owns a typed reactive one
-  already — the mailbox is a few keys on it, mirrored across machines for free by
-  `mirrorRemoteSurface`.
+The `/debate` skill is built **directly** on the screen-scrape loop — its handoff
+is literally *"after your turn, ping the other terminal with `kaval-tui send` so
+it knows to proceed"* — so it's the sharpest test. Two clean wins from a channel,
+and the same honest limit:
 
-- **Subscriptions — "react when X."** hcom's highest-leverage feature is
-  `events sub`: a predicate plus an auto-sent message. kolu's awareness *is*
-  already an event stream folded over a log, and `@kolu/surface` ships an `Event`
-  primitive. Expose a subscribe verb over it and the reactive topologies hcom's
-  scripts lean on fall out: *"when @codex reaches `awaiting_user`, send it the
-  next task"*; *"notify me if a file I touched is edited by another agent within
-  30 s"* (collision detection — kolu already has the file-edit sensor, it just
-  never cross-references agents).
+- **The hand-off *is* the intent protocol.** "Ping so it knows to proceed" is
+  `request`; ending the round is `ack`. Today that ping is a blind keystroke nudge
+  that races bracketed-paste and has to be confirmed with a snapshot; as an
+  addressed message it just lands, and "whose turn" stops being inferred from
+  terminal quiescence.
+- **A turn longer than one screen becomes readable** — a *correctness* fix, not
+  ergonomics. `snapshot --viewport` returns **one screenful**, so a rebuttal
+  longer than the viewport is silently truncated. As a message the whole turn
+  arrives intact; the numbered turn-file record — the point of the layout — is
+  untouched.
+- **`--orchestrate` is hub-spoke, convergence is a subscription.** One coordinator
+  shuttling between N ≥ 2 debaters is hcom's hub-spoke topology; broadcast to
+  `@debaters-` plus a subscription that fires on the `AGREED` marker turns the
+  manual loop-until-consensus into a reactive one — the shape `/codex-debate`
+  already asks for (*"no round cap, loop until they agree"*).
 
-- **An intent protocol (`request` / `inform` / `ack`).** This is a pure
-  convention and it directly retires the screen-scrape loop's worst guess. Today
-  `kaval-tui wait --until idle` fires whether the agent *finished* or is *blocked
-  asking you something*, so the driver must snapshot and infer "is this a
-  question?" An `intent` tag on the message makes the turn contract explicit — the
-  driven agent knows whether a reply is owed — so the loop stops inferring
-  conversational state from terminal quiescence.
-
-- **Deliver as a prompt, not a keystroke.** hcom injects a message *between tool
-  calls* through the tool's own hooks; kolu injects *keystrokes into a PTY*, which
-  is exactly what races bracketed-paste. kolu already classifies agents
-  per-adapter in `@kolu/integrations/anyagent` (Claude Code / Codex / OpenCode
-  session watchers). Route delivery through that adapter as a **prompt**, and the
-  blind-write / dropped-Enter failure mode is gone by construction — the message
-  arrives as input the agent is *ready* to read, not bytes fired at a maybe-ready
-  TUI.
-
-- **Ship it as a skill + workflow scripts — the way hcom does.** hcom's reach
-  comes from a ~700-token bootstrap primer plus `hcom run debate|confess|ensemble`
-  bundled multi-agent scripts. kolu already has the delivery vehicles: the
-  [`kolu` skill](./pulam-tui.html), the `debate` skill, and the `Workflow` tool.
-  The message surface is what turns those from screen-scrape choreography into a
-  channel the scripts address directly — a `kolu-tui msg @name` verb the skill
-  teaches, worker-reviewer / ensemble / hub-spoke topologies the workflow scripts
-  compose.
-
-## `/debate` — the first consumer that stops screen-scraping
-
-The **`/debate` skill** is the sharpest proof, because it is
-built **directly** on the screen-scrape loop and inherits every one of its
-failure modes. Its handoff is literally *"after taking a turn, ping the other
-terminal with `kaval-tui send` so it knows to proceed,"* and it deliberately
-bans done-signal polling — *"do not use `pulam-tui`… the agents prompt each other
-directly with `kaval-tui send`."* A debate is nothing but turn-taking between
-agents on terminals, so it is exactly the workload a channel is for. Three
-concrete wins, each tied to a mechanic the skill already describes:
-
-- **The handoff *is* the intent protocol.** "Ping the other terminal so it knows
-  to proceed" is `--intent request`; ending the round is `ack`. Today that ping is
-  a blind keystroke nudge that races bracketed-paste (the loop's #1 failure) and
-  has to be confirmed with a snapshot. As an addressed `kolu-tui msg @opponent
-  --intent request` it lands reliably, and the turn contract is explicit instead of
-  inferred from terminal quiescence.
-
-- **A turn longer than one screen becomes readable.** This is a *correctness* bug,
-  not just ergonomics. To read the opponent's argument the skill snapshots the
-  terminal — but `snapshot --viewport` returns **one screenful**, so a rebuttal
-  longer than the viewport is silently truncated, and the alternative (a full
-  `snapshot`) hands back the entire scrollback to sift. When the turn arrives as a
-  *message* (or the debater writes its numbered turn-file and messages *"turn 03
-  ready"*), the whole argument comes through intact. The file record — the point of
-  the numbered-turn layout — is untouched; the channel just carries the handoff
-  signal.
-
-- **`--orchestrate` is hub-spoke, and convergence is a subscription.** Orchestrate
-  mode (one coordinator shuttling between N ≥ 2 debaters) is hcom's *hub-spoke*
-  topology verbatim; today the coordinator round-robin-snapshots each terminal to
-  see who has spoken. Broadcast to `@debaters-` plus a subscription that fires on
-  the convergence marker (an `AGREED` in the ledger) turns the manual
-  loop-until-consensus into a reactive one — the exact shape the
-  **`/codex-debate`** skill asks for (*"no round cap, no deadlock
-  exit — loop until they agree"*).
-
-Two honesties keep this from overreaching. The skill's ban on `pulam-tui` polling
-was to keep handoffs **direct** — agent prompts agent, no middle poller — and the
-message channel *preserves* that directness while removing the keystroke
-fragility; it's the mechanism the skill already reaches for, done right, not a
-new indirection. And the borrow is scoped to the **terminal** debates: the
-in-process review debates (**`/lens-debate`**'s lowy⇄hickey,
-`/codex-debate`'s Claude-author subagent) run through the `Agent`/`Workflow` tools,
-never touch a PTY, and so have nothing to screen-scrape and nothing to gain here.
+The limit holds here too: a debater that stops mid-argument on an AskUserQuestion
+is still screen-bound, to both see and answer. And the borrow is scoped to
+**terminal** debates — the in-process `/lens-debate` (lowy⇄hickey) and
+`/codex-debate` subagents run through the `Agent`/`Workflow` tools, never touch a
+PTY, and have nothing to screen-scrape.
 
 ## Where kolu keeps its own bet
 
-Two places the comparison says *don't* copy hcom — kolu is deliberately, and
-correctly, different.
+Two places the comparison says *don't* copy hcom.
 
-- **First-party PTYs, not per-emulator hooks.** hcom rides whatever terminal
-  emulator you launched and can close panes on only a subset (kitty, wezterm,
-  tmux, …). kolu *owns* the terminal through `kaval`, so it has the live screen,
-  scrollback, resize arbitration, and remote-over-ssh survival as guarantees, not
-  best-effort. This is the [herdr bet](./herdr-vs-kolu.html) again, and it's the
-  reason kolu can render the whole fleet on one canvas instead of N windows.
+- **Own the terminal; don't touch the config.** <Pill>keep</Pill> hcom's channel
+  is *bought* by hooks in your `~/.claude` and bespoke code per tool — exactly what
+  kolu's two rules forbid. <Issue n={905} /> is that philosophy in one frame: kolu
+  *had* the option to detect AskUserQuestion via a `PreToolUse` hook and
+  **deliberately chose to read the rendered screen instead** — *"detect by scraping
+  the rendered screen — zero-config"* — accepting the brittleness as the price of
+  never reconfiguring your agent. That's not kolu lagging hcom; it's kolu refusing
+  hcom's setup tax. (And it's why a hook wouldn't rescue the hole above: it would
+  spot the awaiting *call* earlier than the log, but still can't answer the menu
+  with a message — so it costs the config-touch and buys only half.)
 
-- **Typed surface-over-ssh, not a shared-PSK MQTT relay.** <Pill>keep</Pill> This
-  is the sharpest divergence. hcom's cross-device story is a shared-secret MQTT
-  relay on public brokers, and it is honest about the cost in its own README:
-  *"enrollment is total trust — a peer can launch, kill, and drive agents… treat
-  that as shell access on every enrolled device,"* with **no forward secrecy** (a
-  leaked PSK decrypts all past traffic) and **no revocation**. kolu's cross-machine
-  path is [`@kolu/surface-nix-host`](./remote-terminals.html): `nix copy` the
-  agent's closure to a host you already have ssh to, run it over a long-lived ssh
-  subprocess. Per-connection OS auth, no third-party broker, no single secret whose
-  leak is game-over. **Adopt hcom's channel; keep kolu's transport** — the message
-  surface rides `mirrorRemoteSurface` over that same ssh link, and the MQTT relay
-  never gets built.
+- **Typed surface-over-ssh, not a shared-PSK MQTT relay.** <Pill>keep</Pill>
+  hcom's cross-device story is a shared-secret MQTT relay on public brokers, and
+  its README is honest about the cost: *"enrollment is total trust… treat that as
+  shell access on every enrolled device,"* with **no forward secrecy** and **no
+  revocation**. kolu's path is [`@kolu/surface-nix-host`](./remote-terminals.html)
+  over ssh: per-connection OS auth, no third-party broker, no single secret whose
+  leak is game-over. Adopt the channel; keep the transport — the mailbox rides
+  `mirrorRemoteSurface` over that same ssh link, and the relay never gets built.
 
-- **The fold discipline stays.** hcom's SQLite log is authoritative shared mutable
-  state that every device writes. kolu's model is a **memoryless producer** whose
-  events *one* owner folds into stored state on its own clock
-  ([awareness as a fold](./awareness-derive-store.html)). A message surface must
-  honor that: messages are occurrences on an `Event`, folded into an `inbox`
-  collection by the receiving side — not a shared table many writers mutate. Same
-  capability as hcom, kept inside kolu's state model rather than importing hcom's.
+- **First-party PTYs and the fold discipline stay.** The [herdr
+  bet](./herdr-vs-kolu.html) (kolu *owns* the terminal, so live screen, scrollback,
+  resize, remote survival are guarantees) and kolu's [fold
+  model](./awareness-derive-store.html) (a memoryless producer whose events *one*
+  owner folds into stored state) are load-bearing. A message surface honors the
+  fold: messages are occurrences on an `Event`, folded into an `inbox` by the
+  receiver — not a shared table many writers mutate.
 
 ## The smallest first step
 
-One PR-sized proof, scoped to graduate the *one path that doesn't exist yet* — an
-agent addressing another agent by name over the surface, not by typing into its
-screen. Concretely: extend the `pulam` awareness surface with a `messages`
-`Event` and an `inbox` `Collection` keyed by agent name; add a `kolu-tui msg
-@name -- <text>` verb that publishes to it and a `kolu-tui inbox [--wait]` that
-folds and reads it; route delivery through the `anyagent` adapter as a prompt.
-The done-criterion that can only be met by hitting the real path: **two agents on
-two different hosts exchange a `request`/`ack` pair through the surface — mirrored
-over ssh by `mirrorRemoteSurface`, with no keystroke ever injected and no screen
-ever scraped.** Teach it in the `kolu` skill the same turn, so the loop that
-today says *"send, then snapshot and guess"* can instead say *"message, then wait
-for the reply."* Everything above it — subscriptions, collision detection,
-ensemble scripts — is additive once that channel exists.
+One PR-sized proof, scoped to the path that doesn't exist yet — an agent
+addressing another **by name over the surface**, not by typing into its screen.
+Add a `messages` `Event` and an `inbox` `Collection` to the `pulam` surface; a
+`kolu-tui msg @name -- <text>` verb and a `kolu-tui inbox [--wait]`; deliver into
+a terminal that's at its prompt. The done-criterion that can only be met by the
+real path: **two agents on two hosts exchange a `request`/`ack` through the
+surface — mirrored over ssh by `mirrorRemoteSurface`, no keystroke injected and no
+screen scraped *for that hand-off*.** State the boundary in the same breath:
+interactive prompts (AskUserQuestion, plan approval, permission dialogs) **stay
+screen-read** — a separate, unsolved problem this does not close. Everything above
+the channel — subscriptions, collision detection, ensemble scripts — is additive
+once it exists.

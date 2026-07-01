@@ -502,6 +502,59 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
+    <h2 class="kv-head">
+      why <span class="kv-prog">kaval-tui send</span>, not a message bus
+    </h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
+      Driving one agent from another means typing a prompt and{" "}
+      <span class="text-ink">pressing Enter</span> — raw bytes into the PTY, raw
+      output back — not some agent-to-agent protocol. That's a{" "}
+      <span class="text-ink">deliberate choice</span>, not a missing feature.
+      kolu's rule is to stay out of the agent's way: it never edits your{" "}
+      <code class="mono text-ink">~/.claude</code> (or codex / opencode) config and
+      ships <span class="text-ink">no per-agent glue</span>. The terminal is the
+      one interface every agent already speaks, so the honest substrate is
+      keystrokes and screen. Run any agent CLI once — <code class="mono text-ink"
+        >claude</code
+      >, <code class="mono text-ink">codex</code>, whatever ships next week — and
+      it drives the same way, with nothing to install and no adapter to write.
+    </p>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      Tools like <code class="mono text-ink">hcom</code> do get a real message
+      channel — by installing <span class="text-ink">hooks</span> into each
+      agent's config, one integration per tool. That buys nicer delivery, a
+      message dropped mid-turn — but it's a setup step, and per-agent code, that
+      kolu won't take on.
+    </p>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      And a channel wouldn't fully replace the screen anyway. When Claude Code
+      stops to ask you something — an <code class="mono text-ink"
+        >AskUserQuestion</code
+      > menu, a plan-approval prompt — that question isn't written to its session
+      log until <em>after</em> you answer, so the{" "}
+      <span class="text-ink">only</span> way to see "it's waiting on you" is to{" "}
+      <a
+        href="https://github.com/juspay/kolu/pull/1160"
+        class="text-amber hover:underline"
+        rel="noopener">read the rendered screen</a
+      >. And you answer that menu with <span class="text-ink">arrow keys and
+      Enter</span>, not pasted text. So keystrokes aren't a shortcut we skipped
+      replacing — for the prompts that matter most, they're the one thing that
+      always works.
+    </p>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      Where a channel <em>does</em> help is the plain hand-off between turns — one
+      agent finishes, passes text to the next. That's additive, and kept honest
+      about its limits, in the{" "}
+      <a
+        href="https://kolu.dev/atlas/hcom-vs-kolu.html"
+        class="text-amber hover:underline"
+        rel="noopener">hcom vs. kolu note</a
+      >.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
     <h2 class="kv-head">commands · <span class="kv-prog">kaval-tui</span></h2>
     {
       commands.map((c) => (
