@@ -110,6 +110,17 @@ export function boolPref(opts: {
 }): [Accessor<boolean>, Setter<boolean>] {
   return persistedPref<boolean>({
     ...opts,
+    // A corrupt/hand-edited/future-format stored value must NOT collapse to
+    // the fallback with zero signal (`caught-error-must-not-collapse-to-empty`):
+    // log it by default so the degraded-vs-first-run cases are distinguishable.
+    // A caller can override with its own handler (e.g. a toast).
+    onInvalid:
+      opts.onInvalid ??
+      ((err, raw) =>
+        console.warn(
+          `[boolPref] ignoring invalid stored value for "${opts.name}": ${JSON.stringify(raw)} — falling back to ${opts.fallback}`,
+          err,
+        )),
     parse: (raw) => {
       if (raw === "true") return true;
       if (raw === "false") return false;
