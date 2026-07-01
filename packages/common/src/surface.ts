@@ -516,12 +516,17 @@ export const SavedSessionSchema = z.object({
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 
-/** How each new terminal's theme is chosen — and which pool the ⌘J manual
- *  shuffle draws from. `off` disables auto-assignment; `random` spreads across
- *  the whole catalogue; `dark`/`light` restrict to that luminance family; `auto`
- *  tracks the app's resolved light/dark mode. */
-export const NewTerminalThemeSchema = z.enum([
-  "off",
+/** How a newly created terminal gets its theme. `inherit` copies the active
+ *  terminal's theme (like new terminals inherit its size — set one theme once
+ *  and every new terminal follows; the first terminal seeds from the server
+ *  default); `shuffle` auto-picks a distinct tint via {@link ShuffleBehaviorSchema}. */
+export const NewTerminalThemeSchema = z.enum(["inherit", "shuffle"]);
+
+/** Which themes a *shuffle* draws from — both a `shuffle` new terminal and the
+ *  ⌘⇧J "Shuffle theme" action. `random` spreads across the whole catalogue;
+ *  `dark`/`light` restrict to that luminance family; `auto` tracks the app's
+ *  resolved light/dark mode. */
+export const ShuffleBehaviorSchema = z.enum([
   "random",
   "dark",
   "light",
@@ -546,10 +551,12 @@ export const RightPanelPrefsSchema = z.object({
 export const PreferencesSchema = z.object({
   seenTips: z.array(z.string()),
   startupTips: z.boolean(),
-  /** How each new terminal's theme is chosen (and which pool the ⌘J shuffle
-   *  draws from) — see {@link NewTerminalThemeSchema}. `off` leaves every
-   *  terminal on the server default until the user picks one. */
+  /** How a new terminal gets its theme (inherit the active one, or shuffle a
+   *  distinct tint) — see {@link NewTerminalThemeSchema}. */
   newTerminalTheme: NewTerminalThemeSchema,
+  /** Which themes any shuffle draws from — a `shuffle` new terminal and the
+   *  ⌘⇧J action alike — see {@link ShuffleBehaviorSchema}. */
+  shuffleBehavior: ShuffleBehaviorSchema,
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
@@ -607,28 +614,22 @@ export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
 export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
+export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
 
-/** Plan for choosing a new terminal's theme, derived from the
- *  `newTerminalTheme` preference and the app's resolved dark mode. A
- *  discriminated union so an illegal combination is unrepresentable: when
- *  `assign` is `false` (server default) there is no `mode`; only the
- *  auto-picking arm carries an optional `mode` that restricts the candidate
- *  pool to that luminance family. The ⌘⇧J manual shuffle reads `mode` only —
- *  it always shuffles, ignoring `assign`. Single source of truth for both
- *  call sites. */
-export function resolveNewTerminalTheme(
-  pref: NewTerminalTheme,
+/** The luminance family a shuffle should restrict its candidate pool to, from
+ *  the `shuffleBehavior` preference and the app's resolved dark mode.
+ *  `undefined` means no restriction (`random` — the whole catalogue). The
+ *  single source of truth for every shuffle: a `shuffle` new terminal AND the
+ *  ⌘⇧J action both resolve their pool through here. */
+export function shuffleMode(
+  behavior: ShuffleBehavior,
   isDark: boolean,
-): { assign: false } | { assign: true; mode?: "light" | "dark" } {
-  return match(pref)
-    .with("off", () => ({ assign: false }))
-    .with("random", () => ({ assign: true }))
-    .with("dark", () => ({ assign: true, mode: "dark" as const }))
-    .with("light", () => ({ assign: true, mode: "light" as const }))
-    .with("auto", () => ({
-      assign: true,
-      mode: isDark ? ("dark" as const) : ("light" as const),
-    }))
+): "light" | "dark" | undefined {
+  return match(behavior)
+    .with("random", () => undefined)
+    .with("dark", () => "dark" as const)
+    .with("light", () => "light" as const)
+    .with("auto", () => (isDark ? ("dark" as const) : ("light" as const)))
     .exhaustive();
 }
 
@@ -676,7 +677,8 @@ export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   seenTips: [],
   startupTips: true,
-  newTerminalTheme: "auto",
+  newTerminalTheme: "shuffle",
+  shuffleBehavior: "auto",
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",

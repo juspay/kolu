@@ -2,7 +2,11 @@
  *  (`preferences()` / `updatePreferences(...)`). Only needs open/close state
  *  and trigger ref from the parent. */
 
-import type { NewTerminalTheme, Preferences } from "kolu-common/surface";
+import type {
+  NewTerminalTheme,
+  Preferences,
+  ShuffleBehavior,
+} from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {
@@ -52,25 +56,40 @@ const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
   dom: { text: "DOM renderer; lowest GPU, stable font on focus." },
 };
 
-/** New-terminal theme picker. `Auto` tracks the app's light/dark mode; `Dark`/
- *  `Light` force that family regardless; `Random` spreads across the whole
- *  catalogue; `Off` leaves new terminals on the default theme. */
+/** New-terminal creation strategy. `Inherit` copies the active terminal's
+ *  theme (set one, every new terminal follows); `Shuffle` auto-picks a distinct
+ *  tint via the Shuffle behaviour below. */
 const NEW_TERMINAL_THEME_OPTIONS: readonly SegmentedControlOption<NewTerminalTheme>[] =
   [
-    { value: "off", label: "Off" },
+    { value: "inherit", label: "Inherit" },
+    { value: "shuffle", label: "Shuffle" },
+  ];
+
+/** Reactive hint table — re-read on every new-terminal-theme change. */
+const NEW_TERMINAL_THEME_HINT: Record<NewTerminalTheme, Hint> = {
+  inherit: { text: "New terminals copy the active terminal's theme." },
+  shuffle: {
+    text: "New terminals get a distinct tint (see Shuffle behaviour).",
+  },
+};
+
+/** Shuffle pool — governs both a `Shuffle` new terminal and the ⌘⇧J action.
+ *  `Auto` tracks the app's light/dark mode; `Dark`/`Light` force that family;
+ *  `Random` spreads across the whole catalogue. */
+const SHUFFLE_BEHAVIOR_OPTIONS: readonly SegmentedControlOption<ShuffleBehavior>[] =
+  [
     { value: "random", label: "Random" },
     { value: "dark", label: "Dark" },
     { value: "light", label: "Light" },
     { value: "auto", label: "Auto" },
   ];
 
-/** Reactive hint table — re-read on every new-terminal-theme change. */
-const NEW_TERMINAL_THEME_HINT: Record<NewTerminalTheme, Hint> = {
-  off: { text: "New terminals use the default theme." },
-  random: { text: "New terminals pick a distinct tint, light or dark." },
-  dark: { text: "New terminals pick a distinct dark tint." },
-  light: { text: "New terminals pick a distinct light tint." },
-  auto: { text: "New terminals match the app's light/dark mode." },
+/** Reactive hint table — re-read on every shuffle-behaviour change. */
+const SHUFFLE_BEHAVIOR_HINT: Record<ShuffleBehavior, Hint> = {
+  random: { text: "Any tint, light or dark — the whole catalogue." },
+  dark: { text: "Dark tints only." },
+  light: { text: "Light tints only." },
+  auto: { text: "Match the app's light/dark mode." },
 };
 
 const SettingsPopover: Component<{
@@ -115,6 +134,17 @@ const SettingsPopover: Component<{
               value={preferences().newTerminalTheme}
               onChange={(v) => updatePreferences({ newTerminalTheme: v })}
               testIdPrefix="new-terminal-theme"
+            />
+          </SettingRow>
+          <SettingRow
+            label="Shuffle behaviour"
+            hint={SHUFFLE_BEHAVIOR_HINT[preferences().shuffleBehavior]}
+          >
+            <SegmentedControl
+              options={SHUFFLE_BEHAVIOR_OPTIONS}
+              value={preferences().shuffleBehavior}
+              onChange={(v) => updatePreferences({ shuffleBehavior: v })}
+              testIdPrefix="shuffle-behavior"
             />
           </SettingRow>
           <SettingRow

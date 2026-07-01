@@ -91,15 +91,19 @@ export function migrateLegacyTerminal_1_18_0(
 
 /** Convert a pre-1.30 `preferences` record — where the on/off `shuffleTheme`
  *  boolean chose whether new terminals auto-picked a distinct theme — to the
- *  5-way `newTerminalTheme` enum. `true` → `"auto"` (match the app's light/dark
- *  family, the closest to the old "distinct tint" intent without the jarring
- *  cross-mode picks, and the new default); `false` → `"off"`. The legacy field
- *  is dropped. Keyed off the PRESENCE of `shuffleTheme` and always wins over a
- *  spread-injected `newTerminalTheme` default: the 1.10.0 step spreads the
- *  current `DEFAULT_PREFERENCES` (which now carries `newTerminalTheme: "auto"`),
- *  so a very old record can arrive here with BOTH fields — `shuffleTheme` holds
- *  the user's real intent and must override the injected default. A record with
- *  no `shuffleTheme` (a fresh ≥1.30 install) is returned untouched.
+ *  two fields that replaced it: `newTerminalTheme` (`inherit` | `shuffle`, the
+ *  creation strategy) and `shuffleBehavior` (the pool a shuffle draws from).
+ *  `true` → `{ shuffle, auto }` (keep auto-picking a distinct tint, now
+ *  mode-matched — the old behaviour, minus the jarring cross-mode picks);
+ *  `false` → `{ inherit, auto }` (don't auto-shuffle — new terminals inherit
+ *  the active one, seeded from the server default, exactly as `false` behaved
+ *  until the user themes a tile). The legacy field is dropped.
+ *
+ *  Keyed off the PRESENCE of `shuffleTheme` and always wins over the values the
+ *  1.10.0 step spreads in (it spreads the current `DEFAULT_PREFERENCES`, which
+ *  now carries both new fields), so a very old record arriving with all three
+ *  still takes its real intent from `shuffleTheme`. A record with no
+ *  `shuffleTheme` (a fresh ≥1.30 install) is returned untouched.
  *
  *  Exported so `state.test.ts` can exercise the conversion directly without
  *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
@@ -107,17 +111,13 @@ export function migratePreferences_1_30_0(
   current: Record<string, unknown>,
 ): Record<string, unknown> {
   if (!("shuffleTheme" in current)) return current;
-  const { shuffleTheme, ...rest } = current as {
-    shuffleTheme?: unknown;
-    newTerminalTheme?: unknown;
+  const { shuffleTheme, ...rest } = current as { shuffleTheme?: unknown };
+  const newTerminalTheme = shuffleTheme === false ? "inherit" : "shuffle";
+  return {
+    ...rest,
+    newTerminalTheme,
+    shuffleBehavior: DEFAULT_PREFERENCES.shuffleBehavior,
   };
-  const newTerminalTheme =
-    shuffleTheme === false
-      ? "off"
-      : shuffleTheme === true
-        ? "auto"
-        : (rest.newTerminalTheme ?? DEFAULT_PREFERENCES.newTerminalTheme);
-  return { ...rest, newTerminalTheme };
 }
 
 // The per-field backfills the migration ladder runs (`backfillRemoteUrl` /
@@ -549,9 +549,10 @@ export const store = new Conf<PersistedState>({
     // `legacyMostRecent`, neither → absent (a bare shell). `agentSession` is dropped.
     "1.29.0": (store: Conf<PersistedState>) =>
       mapSessionTerminals(store, backfillSnapshotCutover),
-    // `shuffleTheme` (boolean) generalized to `newTerminalTheme` (5-way enum:
-    // off/random/dark/light/auto) — see `migratePreferences_1_30_0` for the
-    // conversion rationale (on→auto, off→off, legacy-field-wins ladder handling).
+    // `shuffleTheme` (boolean) split into `newTerminalTheme` (inherit|shuffle)
+    // + `shuffleBehavior` (random|dark|light|auto) — see
+    // `migratePreferences_1_30_0` for the conversion (on→{shuffle,auto},
+    // off→{inherit,auto}, legacy-field-wins ladder handling).
     "1.30.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       // `migratePreferences_1_30_0` self-guards (returns `current` untouched

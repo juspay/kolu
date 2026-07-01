@@ -116,33 +116,43 @@ describe("migrateLegacyTerminal_1_18_0", () => {
 });
 
 describe("migratePreferences_1_30_0", () => {
-  it("maps legacy shuffleTheme: true → newTerminalTheme: auto (the new default)", () => {
+  it("maps legacy shuffleTheme: true → { shuffle, auto } (the new default)", () => {
     const migrated = migratePreferences_1_30_0({
       shuffleTheme: true,
       scrollLock: true,
     });
-    expect(migrated).toEqual({ newTerminalTheme: "auto", scrollLock: true });
+    expect(migrated).toEqual({
+      newTerminalTheme: "shuffle",
+      shuffleBehavior: "auto",
+      scrollLock: true,
+    });
     expect(migrated).not.toHaveProperty("shuffleTheme");
   });
 
-  it("maps legacy shuffleTheme: false → newTerminalTheme: off", () => {
+  it("maps legacy shuffleTheme: false → { inherit, auto }", () => {
     const migrated = migratePreferences_1_30_0({ shuffleTheme: false });
-    expect(migrated).toEqual({ newTerminalTheme: "off" });
+    expect(migrated).toEqual({
+      newTerminalTheme: "inherit",
+      shuffleBehavior: "auto",
+    });
   });
 
-  it("legacy shuffleTheme wins over a spread-injected newTerminalTheme default", () => {
+  it("legacy shuffleTheme wins over spread-injected new-field defaults", () => {
     // A very old record re-runs the 1.10.0 step first, which spreads the
-    // current DEFAULT_PREFERENCES (newTerminalTheme: "auto") in alongside the
-    // still-present shuffleTheme. The user's real off/on intent must override.
+    // current DEFAULT_PREFERENCES (newTerminalTheme: "shuffle") in alongside the
+    // still-present shuffleTheme. The user's real off intent must override.
     const migrated = migratePreferences_1_30_0({
       shuffleTheme: false,
-      newTerminalTheme: "auto",
+      newTerminalTheme: "shuffle",
     });
-    expect(migrated).toEqual({ newTerminalTheme: "off" });
+    expect(migrated).toEqual({
+      newTerminalTheme: "inherit",
+      shuffleBehavior: "auto",
+    });
   });
 
   it("leaves a record with no shuffleTheme untouched (fresh ≥1.30 install)", () => {
-    const fresh = { newTerminalTheme: "dark", scrollLock: true };
+    const fresh = { newTerminalTheme: "inherit", shuffleBehavior: "dark" };
     expect(migratePreferences_1_30_0(fresh)).toEqual(fresh);
   });
 });

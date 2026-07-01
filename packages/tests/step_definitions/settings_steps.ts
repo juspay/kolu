@@ -48,6 +48,28 @@ Then(
 );
 
 When(
+  "I click the {string} shuffle behaviour button",
+  async function (this: KoluWorld, mode: string) {
+    await this.page.click(`[data-testid="shuffle-behavior-${mode}"]`);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the {string} shuffle behaviour button should be selected",
+  async function (this: KoluWorld, mode: string) {
+    await this.page.waitForFunction(
+      (m) =>
+        document
+          .querySelector(`[data-testid="shuffle-behavior-${m}"]`)
+          ?.getAttribute("aria-pressed") === "true",
+      mode,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When(
   "I click the {string} color scheme button",
   async function (this: KoluWorld, scheme: string) {
     await this.page.click(`[data-testid="color-scheme-${scheme}"]`);

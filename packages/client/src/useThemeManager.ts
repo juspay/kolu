@@ -5,7 +5,7 @@
  *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { resolveNewTerminalTheme } from "kolu-common/surface";
+import { shuffleMode } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -81,10 +81,11 @@ function init() {
    *  yellow. New-terminal creation uses spread mode instead —
    *  see {@link pickTheme} for the rationale.
    *
-   *  Honors the `newTerminalTheme` preference's light/dark pool (`dark`/
-   *  `light`/`auto` restrict the shuffle to that family); `off`/`random`
-   *  impose no restriction — ⌘J is an explicit action, so it always shuffles
-   *  even when auto-assignment is off. */
+   *  Draws from the `shuffleBehavior` preference's pool (`dark`/`light`/`auto`
+   *  restrict to a luminance family; `random` uses the whole catalogue) — the
+   *  same pool a `shuffle` new terminal uses. Independent of the
+   *  `newTerminalTheme` creation strategy: ⌘⇧J is an explicit action and always
+   *  shuffles, even when new terminals are set to `inherit`. */
   function handleShuffleTheme() {
     const id = store.activeId();
     if (id === null) return;
@@ -94,11 +95,7 @@ function init() {
     );
     if (!candidates) return;
     const excludeBgs = resolveThemeBgs(store.terminalIds(), getThemeName);
-    const plan = resolveNewTerminalTheme(
-      preferences().newTerminalTheme,
-      isDark(),
-    );
-    const mode = plan.assign ? plan.mode : undefined;
+    const mode = shuffleMode(preferences().shuffleBehavior, isDark());
     handleSetTheme(pickTheme(candidates, { excludeBgs, mode }));
   }
 

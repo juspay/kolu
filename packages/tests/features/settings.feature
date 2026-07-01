@@ -11,13 +11,15 @@ Feature: Settings Popover
     Then the settings popover should not be visible
     And there should be no page errors
 
-  Scenario: Select a new-terminal theme mode
+  Scenario: Choose the new-terminal strategy and shuffle behaviour
     When I click the settings button
     Then the settings popover should be visible
-    When I click the "light" new terminal theme button
-    Then the "light" new terminal theme button should be selected
-    When I click the "dark" new terminal theme button
-    Then the "dark" new terminal theme button should be selected
+    When I click the "shuffle" new terminal theme button
+    Then the "shuffle" new terminal theme button should be selected
+    When I click the "inherit" new terminal theme button
+    Then the "inherit" new terminal theme button should be selected
+    When I click the "dark" shuffle behaviour button
+    Then the "dark" shuffle behaviour button should be selected
     And there should be no page errors
 
   Scenario: Switch UI color scheme to light
