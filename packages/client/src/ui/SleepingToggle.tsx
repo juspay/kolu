@@ -10,7 +10,7 @@
  *  accent/neutral/strike colouring are baked in because their meaning is
  *  the same wherever the toggle lives. */
 
-import { type Component, Show } from "solid-js";
+import { type Component } from "solid-js";
 import { setShowSleeping, showSleeping } from "../terminal/showSleeping";
 import { FILTER_CHIP_BASE, filterChipAccent } from "./filterChip";
 
@@ -58,9 +58,7 @@ export const SleepingToggle: Component<{
       >
         ☾
       </span>
-      <Show when={props.count > 0}>
-        <span aria-hidden="true">{props.count}</span>
-      </Show>
+      <span aria-hidden="true">{props.count}</span>
     </button>
   );
 };
