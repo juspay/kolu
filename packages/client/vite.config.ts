@@ -1,4 +1,5 @@
 import { constants as zlibConstants } from "node:zlib";
+import { ASSET_DIR } from "@kolu/surface-app";
 import { surfaceApp } from "@kolu/surface-app/vite";
 import tailwindcss from "@tailwindcss/vite";
 import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
@@ -51,12 +52,15 @@ export default defineConfig({
     // Emit `.br` + `.gz` siblings for the immutable hashed assets at BUILD time,
     // so the production server (`@kolu/surface-app` installFreshStatic →
     // serve-static `precompressed`) serves them with the right `Content-Encoding`
-    // and zero per-request CPU — the ~2.56 MB eager bundle drops to ~700 kB on
-    // every cold / remote / phone load. Scoped to `assets/*` compressible types
-    // ONLY (js/css/svg/json/wasm/…), never `index.html`: the shell's commit stamp
-    // is seded post-build (koluStamped in default.nix), so a compressed shell
-    // would strand returning browsers on a stale stamp (kolu#1319). Brotli at max
-    // quality since the cost is paid once at build, not per request.
+    // and zero per-request CPU — the ~2.56 MB eager bundle drops to ~571 kB on
+    // every cold / remote / phone load. Scoped to the `${ASSET_DIR}/` prefix — the
+    // SAME immutable-asset dir surface-app serves precompressed under
+    // (`DEFAULT_ASSET_PREFIX`) — so the build's compress-scope and the server's
+    // serve-scope share one source of truth: nothing outside it gets a dead sibling
+    // the server would never negotiate (the `no-store` `index.html` shell, whose
+    // stamp is seded post-build — kolu#1319; the `public/` fonts + favicon the
+    // server serves identity). Brotli at max quality since the cost is paid once at
+    // build, not per request.
     compression({
       algorithms: [
         defineAlgorithm("brotliCompress", {
@@ -64,8 +68,11 @@ export default defineConfig({
         }),
         "gzip",
       ],
-      include: [/\.(?:js|mjs|css|json|svg|wasm|ico)$/],
-      exclude: [/\.map$/, /index\.html$/],
+      include: [
+        new RegExp(
+          `(?:^|/)${ASSET_DIR}/.+\\.(?:js|mjs|css|json|svg|wasm|ico)$`,
+        ),
+      ],
       threshold: 1024,
       skipIfLargerOrEqual: true,
     }) as PluginOption,
