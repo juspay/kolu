@@ -98,23 +98,28 @@ const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
  *  `process.env`, whose real value the recording path still needs. */
 const RECORDING = !!process.env.KOLU_X11CAP;
 
-/** e2e's throwaway $HOME must NOT sit under the OS temp dir. On Linux
- *  `os.tmpdir()` is `/tmp`, and a home under it makes every *default-cwd*
- *  terminal (a new PTY opens in `$HOME`) report a cwd containing the substring
- *  `/tmp` — which pollutes the workspace-switcher's cwd search: a scenario that
- *  `cd /tmp` then searches `"/tmp"` also matches the home-cwd terminals, so
- *  "show 1 card" sees 2. Production homes aren't under `/tmp`, so the fake one
- *  mustn't be either — else the e2e env diverges from production and quietly
- *  breaks substring-cwd assertions. Root it on the tmpfs `/dev/shm` on Linux
- *  (ephemeral, not under `/tmp`, wiped in AfterAll); `os.tmpdir()` elsewhere
- *  (macOS's `/var/folders/…/T` doesn't contain `/tmp`). Real dotfiles stay
- *  untouched — HISTFILE resolves to `<fixtureHome>/.bash_history`. If `/dev/shm`
- *  is absent the `mkdtempSync` throws loudly rather than silently falling back
- *  to a `/tmp` path that would reintroduce the collision. */
-const fixtureHomeRoot = process.platform === "linux" ? "/dev/shm" : os.tmpdir();
+/** e2e's throwaway $HOME must NOT sit under any `/tmp` path. A new PTY opens in
+ *  `$HOME`, so a home under `/tmp` makes every default-cwd terminal report a cwd
+ *  containing the substring `/tmp` — which pollutes the workspace-switcher's cwd
+ *  search: a scenario that `cd /tmp` then searches `"/tmp"` also matches the
+ *  home-cwd terminals, so "show 1 card" sees 2. Production homes aren't under
+ *  `/tmp`, so the fake one mustn't be either, else the e2e env diverges from
+ *  production and quietly breaks substring-cwd assertions.
+ *
+ *  Root it on a per-platform path guaranteed NOT under `/tmp`:
+ *   - Linux → the tmpfs `/dev/shm` (ephemeral, off `/tmp`, and — crucially —
+ *     off the developer's own `~`, since `just test` runs on their Linux box).
+ *   - macOS (CI only, on `rasam`) → `os.homedir()`. We can't use `os.tmpdir()`
+ *     here: over the CI ssh session `$TMPDIR` is unset, so Node's `os.tmpdir()`
+ *     falls back to `/tmp` — the exact collision. The `.`-prefixed name keeps it
+ *     a hidden, self-cleaning dir under that box's home.
+ *  Wiped in AfterAll. Real dotfiles stay untouched — HISTFILE resolves to
+ *  `<fixtureHome>/.bash_history`. */
+const fixtureHomeRoot =
+  process.platform === "linux" ? "/dev/shm" : os.homedir();
 const fixtureHome = RECORDING
   ? undefined
-  : fs.mkdtempSync(path.join(fixtureHomeRoot, "kolu-e2e-home-"));
+  : fs.mkdtempSync(path.join(fixtureHomeRoot, ".kolu-e2e-home-"));
 
 const AGENT_DIR_VARS = [
   "KOLU_CLAUDE_SESSIONS_DIR",
