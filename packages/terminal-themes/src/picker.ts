@@ -76,6 +76,13 @@ function labIsDark(lab: OkLab): boolean {
   return lab.L < DARK_L_MAX;
 }
 
+/** Which luminance family an OkLab background belongs to. The one place this
+ *  classification lives — both `themeMode` and the picker's mode filter read
+ *  it — so the two can't drift if the split ever gains nuance. */
+function labFamily(lab: OkLab): "light" | "dark" {
+  return labIsDark(lab) ? "dark" : "light";
+}
+
 /** Classify a theme as `"light"` / `"dark"` by its background luminance, or
  *  `undefined` when the background is missing / unparseable. Used to restrict
  *  the picker's candidate pool to one luminance family (see `pickTheme`'s
@@ -83,7 +90,7 @@ function labIsDark(lab: OkLab): boolean {
 export function themeMode(t: NamedTheme): "light" | "dark" | undefined {
   const bg = t.theme.background;
   const lab = bg ? getLab(bg) : undefined;
-  return lab ? (labIsDark(lab) ? "dark" : "light") : undefined;
+  return lab ? labFamily(lab) : undefined;
 }
 
 /** Luminance is DIVIDED by this factor when computing distance, so
@@ -131,7 +138,7 @@ function filterEligible(
       if (excludeBgs?.has(bg)) return false;
       const lab = getLab(bg);
       if (lab === undefined || chroma(lab) > MAX_CANDIDATE_CHROMA) return false;
-      if (mode && (labIsDark(lab) ? "dark" : "light") !== mode) return false;
+      if (mode && labFamily(lab) !== mode) return false;
       return true;
     }),
   );
