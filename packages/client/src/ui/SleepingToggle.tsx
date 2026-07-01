@@ -10,7 +10,7 @@
  *  accent/neutral/strike colouring are baked in because their meaning is
  *  the same wherever the toggle lives. */
 
-import { type Component } from "solid-js";
+import type { Component } from "solid-js";
 import { setShowSleeping, showSleeping } from "../terminal/showSleeping";
 import { FILTER_CHIP_BASE, filterChipAccent } from "./filterChip";
 
@@ -30,6 +30,9 @@ export const SleepingToggle: Component<{
   class?: string;
 }> = (props) => {
   const hidden = () => !showSleeping();
+  // Screen-reader / tooltip text names the noun, so pluralize it off the
+  // count — "1 sleeping terminal", "3 sleeping terminals".
+  const noun = () => (props.count === 1 ? "terminal" : "terminals");
   return (
     <button
       type="button"
@@ -39,8 +42,8 @@ export const SleepingToggle: Component<{
       classList={filterChipAccent(hidden())}
       aria-label={
         hidden()
-          ? `${props.count} sleeping terminals hidden — show them`
-          : `Hide ${props.count} sleeping terminals`
+          ? `${props.count} sleeping ${noun()} hidden — show them`
+          : `Hide ${props.count} sleeping ${noun()}`
       }
       title={
         hidden()

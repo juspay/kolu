@@ -141,6 +141,22 @@ Feature: Sleeping terminals
     Then the dock should show 1 sleeping row
     And there should be no page errors
 
+  Scenario: The dock's 'show all' reset re-shows hidden sleeping terminals
+    # The combined `N hidden · show all` reset is a primary behavior of this
+    # change: it relaxes BOTH filters in one click. Hide the sleeping row via
+    # the ☾ toggle (which makes the reset appear, since a filter is now hiding
+    # a row), click `show all`, and assert the sleeping row returns — proving
+    # the combined reset actually un-hides sleeping, not just the window.
+    Given the terminal is ready
+    When I sleep the active terminal via the tile sleep button
+    Then the slept terminal should be sleeping
+    And the dock should show 1 sleeping row
+    When I toggle the dock's sleeping-terminal filter
+    Then the dock should show 0 sleeping rows
+    When I click the dock's show-all filter reset
+    Then the dock should show 1 sleeping row
+    And there should be no page errors
+
   Scenario: A sleeping terminal offers no kaval-tui attach command in the Inspector
     # A slept terminal released its PTY, so it is no longer one of kaval's
     # terminals — a kaval-tui attach/snapshot command would have nothing to reach.
