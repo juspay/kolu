@@ -101,10 +101,18 @@ Feature: Theme switching
     And I select "Set theme" in the palette
     And I type "Dracula" in the palette
     And I press Enter
-    And I create a terminal
-    Then the header should show theme "Tomorrow Night"
-    # Select the newly created terminal (index 1 in createdTerminalIds),
-    # then switch back to it after selecting the background terminal by workspace switcher position.
+    Then the header should show theme "Dracula"
+    # A new terminal inherits the active terminal's theme (the `inherit`
+    # strategy — the deterministic test default), so it opens on Dracula.
+    When I create a terminal
+    Then the header should show theme "Dracula"
+    # Re-theming the new terminal is independent — the original keeps Dracula.
+    When I open the command palette
+    And I select "Set theme" in the palette
+    And I type "Nord" in the palette
+    And I press Enter
+    Then the header should show theme "Nord"
+    # Entry 1 is the original terminal; it still carries its own Dracula.
     When I select workspace switcher entry 1
     Then the header should show theme "Dracula"
 
