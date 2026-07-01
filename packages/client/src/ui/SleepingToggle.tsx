@@ -1,4 +1,4 @@
-/** SleepingToggle — the dock footer's ☾ button that shows or hides
+/** SleepingToggle — the dock footer's moon button that shows or hides
  *  sleeping terminals. A sibling to `ActivityWindowChip`: both are
  *  filters over the same dock, so they share the footer strip and the
  *  same colour grammar — accent when a filter is *active* (here: sleeping
@@ -6,13 +6,16 @@
  *
  *  A boolean toggle, so it's a plain button (no `OptionMenu` popover the
  *  window chip needs for its five values). The caller passes `class` to
- *  size it into the surrounding strip; the ☾ glyph + count and the
- *  accent/neutral/strike colouring are baked in because their meaning is
- *  the same wherever the toggle lives. */
+ *  size it into the surrounding strip. The moon glyph is the shared
+ *  `MoonIcon` — the same crescent the tile Sleep/Wake buttons and the
+ *  minimap's hide-parked toggle use, so the "sleeping" concept has one
+ *  registered icon everywhere. State reads by colour (accent when hiding),
+ *  matching the window chip's grammar; the count sits beside it. */
 
 import type { Component } from "solid-js";
 import { setShowSleeping, showSleeping } from "../terminal/showSleeping";
 import { FILTER_CHIP_BASE, filterChipAccent } from "./filterChip";
+import { MoonIcon } from "./Icons";
 
 export const SleepingToggle: Component<{
   /** How many sleeping terminals the dock holds (shown or hidden). Shown
@@ -52,15 +55,9 @@ export const SleepingToggle: Component<{
       }
       onClick={() => setShowSleeping((prev) => !prev)}
     >
-      {/* The ☾ dims and strikes through when hidden, so the glyph itself
-       *  reads "these are tucked away" at a glance — the count stays
-       *  legible beside it. */}
-      <span
-        aria-hidden="true"
-        classList={{ "line-through opacity-70": hidden() }}
-      >
-        ☾
-      </span>
+      {/* MoonIcon inherits the button's `currentColor`, so it turns accent
+       *  along with the count when the filter is actively hiding. */}
+      <MoonIcon class="w-3.5 h-3.5" />
       <span aria-hidden="true">{props.count}</span>
     </button>
   );
