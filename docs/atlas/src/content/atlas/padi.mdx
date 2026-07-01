@@ -1,0 +1,193 @@
+---
+title: padi — the per-host terminal-workspace daemon
+description: The architecture that replaces the R9/R10 finale plan for remote terminals (#951). Extract kolu-server's entire terminal domain into padi — one workspace daemon per (host, state-root), atop kaval — serving ONE complete surface (padiSurface). kolu-server thins to a web shell holding per-connection host bindings; the canvas is single-host per view (model A+ — instant switch, cross-host badges via OS notifications). The host owns its state — layout, memory, fold, clock. pulam and pulam-web dissolve; PRs #1637–#1640 close. Phases W0–W4.
+parents: [remote-terminals]
+status: proposed
+maturity: seedling
+updated: 2026-07-01
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import Svg from "../../components/Svg.astro";
+import Phase from "../../components/Phase.astro";
+import PhaseTree from "../../components/PhaseTree.astro";
+import arch from "../../diagrams/padi-architecture.svg?raw";
+
+**The ground-up re-architecture for <Issue n={951} /> — remote terminals — and the extraction that untangles kolu-server and the client along the way.** The [finale plan](remote-terminals-finale.html) (PR-1 · PR-2 · PR-3 · F-REMOTE · R10) threaded a per-terminal `HostLocation` through every seam of kolu-server because it assumed tiles from several hosts share one canvas. Stepping back dissolved the premise: **"which host" is a property of the *connection*, not of a *terminal*.** One daemon per host — **padi** (படி, the stepped stand a koḷu is arranged on) — owns everything about that host's terminals and serves it as one complete surface; kolu-server becomes a thin web shell that *binds* to a padi per client view. The four prep PRs (<PrLink pr={1637} /> <PrLink pr={1638} /> <PrLink pr={1639} /> <PrLink pr={1640} />) are closed as superseded; pulam and pulam-web dissolve into padi. This design was hardened by a 7-lens adversarial review (state-and-time, Löwy, Hickey, a defect-constructing adversary, feasibility-against-code, an A-vs-B adjudicator, a completeness critic — every finding independently skeptic-verified) plus a persona-driven UX evaluation; the load-bearing outcomes of both are baked in below.
+
+export const PAL = { txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", violet: "#a78bfa" };
+
+export const HostChip = ({ name, active, badge, remote }) => (
+  <span style={`display:inline-flex;align-items:center;gap:.5ch;padding:.18rem .65rem;border-radius:6px;font-size:.85em;${active ? `background:rgba(126,198,153,.13);color:${PAL.txt};border:1px solid rgba(126,198,153,.4)` : `color:${PAL.dim};border:1px solid #222838`}`}>
+    {remote && <span style={`color:${PAL.violet};font-size:.85em`}>ssh</span>}
+    {name}
+    {badge && <span style={`background:${PAL.amber};color:#0f1117;border-radius:8px;padding:0 .55ch;font-weight:700;font-size:.8em`}>{badge}</span>}
+  </span>
+);
+
+export const Switcher = () => (
+  <div style="font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;overflow:hidden;margin:1.2rem 0;max-width:44rem;box-shadow:0 10px 34px rgba(0,0,0,.4)">
+    <div style="display:flex;align-items:center;gap:.45rem;padding:.5rem .8rem;background:#0d0f15;border-bottom:1px solid #1c2231">
+      <span style="color:#5b6678;font-size:.8em">host</span>
+      <HostChip name="local" />
+      <HostChip name="nix@prod" active remote />
+      <HostChip name="pu-kolu-3" badge="2" remote />
+      <span style="margin-left:.2rem;color:#3f4858">+ host</span>
+      <span style="margin-left:auto;color:#5b6678;font-size:.8em">⌥H switch</span>
+    </div>
+    <div style="padding:.7rem .9rem;color:#8b94a6">
+      The whole canvas is <span style={`color:${PAL.violet}`}>nix@prod</span>'s — its own layout, its own dock, exactly as any other device sees it.
+      <span style={`color:${PAL.amber}`}> pu-kolu-3</span> has 2 agents awaiting you: the chip badge, the PWA app badge, and an OS notification all say so —
+      clicking the notification switches the view and focuses the tile (one action).
+    </div>
+  </div>
+);
+
+## User-facing description
+
+<Switcher />
+
+Nothing changes until W3. Then: the ChromeBar grows a **host switcher** — *kinda like tmux sessions*. A canvas shows **one host's terminals**; switching hosts swaps the whole canvas instantly (bindings stay warm server-side). A host's arrangement — tile layout, names, themes, remembered agent commands — **lives on that host**, so your desktop, laptop, and phone all see the same canvas for `nix@prod`, and a teammate-free second kolu (or a future kolu-tui) joins the same arrangement. A remote canvas is a **full peer** of the local one: Code tab, binary preview, paste/upload, transcript export, sleep/wake, session restore — all against the terminal's own host, nothing silently wrong-host.
+
+While you're parked on one host, the others reach you through the channels an installed PWA already owns: the **app badge** aggregates awaiting-agents across all bound hosts, the **switcher chips** carry per-host counts, and an **OS notification's click is one action** — switch binding + focus the tile. (The per-terminal plumbing — `setAppBadge`, service-worker notifications — already exists; W3 aggregates it across bindings.)
+
+Two personas anchor the design, and both get the same shape: an **ephemeral cloud box** (a pu-style instance per project — teardown removes the host from the picker as one clean unit, never wreckage on a shared canvas) and a **permanent headless server** (days-long agents; hop local⇄server many times a day — instant switch + 1-action notification response is the tmux-grade loop that persona lives in).
+
+<Callout kind="note" title="Why not hybrid tiles (several hosts on one canvas)? Evaluated, deferred — not foreclosed">
+A persona-driven UX pass compared switch (A), warm-multi-binding switch (A+, this design), and hybrid (B). A+ captures ~90% of B's user value — triage, response latency (within one instant switch), multi-device coherence, teardown, reconnect — and is strictly better on **wrong-host safety**: this persona's dominant shape is the same repo cloned on two machines, where two tiles named `kolu · master · ~/code/kolu` differ only by a badge, and the dock (repo-keyed, no host axis) would interleave them. When the PWA is backgrounded — most of the day — B's on-canvas pips are invisible anyway; both models converge on the OS notification. What **only** B gives: live side-by-side of two hosts' terminals in one window. That is deferred, demand-driven (W4), and stays *additive*: the daemons are host-complete, so B is an aggregation layer over N bindings touching only kolu-server + client. The first escalation if switching proves insufficient is not B but the **cross-host dock** (W4): foreign hosts' rows rendered in the dock, click = switch + focus — attention wants a cross-host *dock*, not a cross-host *canvas*. The dock projection carries an optional host axis from W1 so that lands without a contract break.
+</Callout>
+
+## Architecture-level changes
+
+<Svg svg={arch} caption="The padi architecture. Every host runs kaval (PTY survivor, unchanged role) + padi (the workspace authority: registry, one fold on the host's clock, lifecycle, fs/git+bytes, persistence, kaval supervision) serving padiSurface — the ONE complete surface. kolu-server is a web shell holding a pool of warm bindings; each client connection is scoped to one binding, so a host switch closes one scope and opens another — no global rebind exists. Local and remote legs are byte-identical; remote adds ssh + frontDaemonOverStdio + Nix provisioning." />
+
+**The volatility, named.** kaval serves PTY; pulam serves awareness + fs/git *by re-dialing kaval*; and the authored record, memory, restore target, session persistence, sleep/wake and boot adoption live only inside kolu-server — **nothing serves the complete terminal state of one host from one place**. That gap is why the old plan had to thread `HostLocation` per-terminal through ~11 dispatch sites behind two parallel seams (`resolveTerminalEndpoint` + `localOnly`) with two discriminators (`hostId` for daemon connections, `HostLocation` for records) — N-site handling of a 1-seam volatility. Meanwhile the client is *already* single-host by construction: one websocket to one origin, every RPC keyed by `id`/`repoPath`, `location` read by zero non-test code. padi closes the gap at the right altitude: **host-complete daemon below, connection-scoped binding above, nothing per-terminal anywhere.**
+
+### The three layers, and what each owns
+
+| layer | owns | explicitly does NOT own |
+| --- | --- | --- |
+| **kaval** (per padi) | PTYs, screen mirror, VT taps, inventory — unchanged role, byte-minimal; one planned contract rev (the W0 overflow frame) | awareness, git, sleep, persistence (as today) |
+| **padi** (per host × state-root) | the registry (**`terminals` = authored ⋈ snapshot, composed server-side**); the **one fold** + `AgentMemory` on **the host's clock**; `restoreTarget`; lifecycle (create · kill · sleep/wake · boot adoption · inventory reconcile); spawn-policy composition against its kaval's `system.info`; fs/git endpoint + watcher pulses; byte procedures (`previewRead` · `scratch.write`); `transcript.exportHtml` (the agent loaders run host-side — codex/opencode transcripts are **SQLite queries**, not file reads); **worktree create/remove**; the **MRU activity feed** (`recentRepos`/`recentAgents` — host-fs facts written inside the fold's emit path); session persistence in its state-root; **kaval supervision**; status cells (kaval `daemonStatus`, `expectedKaval`); the **urgency projection** (awaiting counts + ids — no recency); the frozen **control core** (hello · version · drain · `clock.now`) | serving browsers; user preferences; which client looks at it |
+| **kolu-server** | HTTP · static · PWA · websocket; user-scoped preferences; buildInfo (minus `expectedKaval`, which moves to padi); the **binding pool** (dial + supervise-or-front padis; per-connection scope; re-serve); binding/link status on its own shell surface; notification fan-in across bindings | **terminals — it writes nothing about them.** No registry, no fold, no adoption, no terminal-derived cells — with one read-only exception: the **cross-binding urgency sum** for badges, sourced solely from each padi's urgency-projection member |
+| **client** | one padiSurface consumer per view + the shell surface; ages recency against the **bind-time clock offset** (never the browser clock vs a foreign clock) | per-terminal host routing — inexpressible; `HostLocation` is deleted from records and create input |
+
+**padi's identity is the state-root, and binders never recycle.** kaval is deliberately namespaced per kolu-server listen port (`kaval-<port>`, the #1313 prod-incident fix) because its supervisor recycles on skew. padi inverts the relationship: **one padi per (host, state-root)**. Prod binds the host's default state-root; a dev kolu-server and each e2e worker pass a **private state-root** — which brings its own private kaval. So "dev recycles prod" is unspellable, and "a second kolu sees the same arrangement" is true by construction — both, because isolation-vs-sharing became an explicit axis instead of a port accident. The mechanics, each pinned by a round-2 adversarial finding:
+
+- **Identity is persistent; the rendezvous is not.** The state-root is *persistent* storage (it must survive host reboots — the restore flows depend on it). The socket + atomic pid-gate live in the **runtime dir, keyed by a digest of the state-root path** (`$XDG_RUNTIME_DIR/padi-<digest>/`, and `kaval-<digest>/` for padi's kaval) — tmpfs auto-invalidates gates at boot, so a recycled PID can never read as a live holder (`kill(pid,0)`→EPERM wedging every bind), and the 108-byte `sun_path` limit can't bite an arbitrarily-deep state-root. A small manifest in each runtime dir (digest → state-root) keeps `kaval-tui`'s flag-less **discovery** working: `discoverKavalCandidates` scans the `kaval-<digest>` pattern and labels candidates honestly — discovery + labels are a named W2 deliverable, not a release-note casualty.
+- **The default state-root is spelled by the padi binary, on the host** — a fixed derivation in one place (the `getRuntimeSocketPath` discipline), never re-derived by a binder or transmitted over the wire, so two entry paths (login shell vs ssh non-interactive env) cannot silently mint two "defaults". Binders pass nothing (default) or an explicit absolute root (dev/e2e).
+- **Binders hold adopt-or-spawn right, never recycle right** — a **new, third supervisor policy** (the existing endpoint ships only always-recycle and adopt-or-*recycle*-on-skew; W2 names adopt-or-spawn-or-refuse explicitly so an implementer doesn't reach for the recycling one). The empty-gate race is already safe (`link(2)`-atomic acquisition; the loser exits clean and dials the winner).
+- **Version convergence is monotonic, through a frozen control core.** padiSurface grows; a versioned handshake alone would dead-end (a contract-revving deploy makes `padi.restart` unreachable inside the very contract that refused). So padi serves a tiny **version-agnostic control core** — hello/identity/version/**drain** — frozen forever, beside padiSurface. Rule: a binder *older* than the running padi gets the typed skew refusal (upgrade your kolu — loud, per #1034); a binder *newer* may invoke control-core **drain** (padi persists state and exits; PTYs survive in kaval) and spawn its own newer closure. Newest-wins is monotonic: two binders at different versions converge instead of livelocking, and no path ever kill-9s a padi.
+
+### The state model — what survives from the awareness design, and what moves
+
+The [observe-vs-remember cut](awareness-derive-store.html) survives intact **inside** padi: `startSensors` stays the memoryless producer (it still cannot spell memory, by type), `fold` stays the one fold, `TerminalSnapshot`/`AgentMemory`/`Known<T>`/`RestoreTarget` are reused verbatim. What moves is the **home of remembering**: producer and fold are now co-resident in padi, so *no fold crosses a wire* — the framer / `seq`/`gap` frames / consumer-arm apparatus (#1638) is deleted unbuilt, and the #1614 fold-clobber class loses its second writer (kolu-server holds no competing copy; it re-serves). Two consequences are re-settled deliberately, not silently:
+
+- **Owner-clock replaces consumer-clock.** Memory is stamped by the *host's* clock. Within one canvas that clock is the only one — cross-host recency comparison is unrepresentable because no view ever holds two padis' terminals. For display ("2m ago", staleness buckets), the client ages against a **clock offset measured once per bind** — a control-core `clock.now()` exchange, RTT-halved, re-measured on rebind — so a skewed host cannot mis-bucket *its own* terminals against the browser's clock. (Deliberately **not** a served ticking `now` cell: a cell replays its last *written* value — stale by padi's uptime at bind — and ticking one is a permanent frame across every warm binding, the tick-push class the persistence path already engineered out.) Anything cross-host (switcher badges, the W4 cross-host dock) is **urgency-only** — counts and awaiting-states, no recency on any multi-host wire — keeping the settled dashboards-are-urgency-only rule.
+- **The reader-join retires.** R8's `authored ⋈ snapshots` client join existed because two processes wrote the two halves. In padi one process writes both, so padi serves a single composed **`terminals`** collection (the compose is `composeTerminalMetadata`, moved server-side; disk persistence keeps using the same compose). The authored/snapshot split remains as padi-internal types — the fence that keeps the producer unable to write memory — it just stops being a wire shape.
+
+### Session state and restore — the host restores itself
+
+Today, session state lives in kolu-server's conf-store and **restore is client-driven**: after a server restart the browser's `useSessionRestore` loop re-creates saved terminals one `create` RPC at a time (with a known respawn-vs-surviving-PTY race the old plan had to design around). Under padi, session state moves to the entity that can actually guarantee it (P5), and restore stops involving the client entirely:
+
+| state | lives | survives |
+| --- | --- | --- |
+| live PTYs + scrollback | **kaval** (RAM) | padi restarts, kolu-server restarts, ssh blips |
+| terminal session — authored records (layout · chrome · active tile · panel sizes · memory · `restoreTarget`) + the restore-relevant awareness projection | **padi's state-root, on the host** (persistent storage — pinned) | **host reboots included** — at a reboot only the PTYs die (kaval's row); the records park for restore |
+| user preferences · binding pool (which hosts, last binding per view) | **kolu-server** conf-store | kolu-server has no terminal state to lose |
+| per-tab view posture (canvas-maximized, minimap-expanded, …) | **browser localStorage, namespaced per binding** | host switches don't collide two hosts' view-state. (Active tile + panel sizes are NOT here — they ride padi's authored session via the chrome procedures, as today's `setActive`/`setSubPanel` persistence does) |
+
+The four restore flows, each owned by the layer that knows:
+
+1. **padi restarts** (deploy, crash): on boot it adopts surviving kaval PTYs by id, reconciles them against its persisted session, re-seeds fold memory from its store, and re-runs sensors fresh (the #1031 posture). By the time any client binds, the canvas is already whole — no client participates.
+2. **Host reboots** (kaval's PTYs are gone): padi's boot reconcile finds the saved records with no live PTYs and parks them under a **distinct `parked` record state** — deliberately-slept records stay `sleeping` and are *not* touched (waking them resumes their agents; parking must not erase that distinction — the two arms restore oppositely, exactly as today's restore treats active vs sleeping records). padi **never auto-respawns agents with nobody watching**, and a warm pool binding is *not* a watcher — so restore is **never a bind side-effect**: the browser renders today's restore card over the served parked state and the user's click calls `session.restore({resumeIds})` (per-terminal agent-resume opt-out preserved). The respawn+resume then executes *inside padi as one writer*, idempotent (the parked→active flip per record is the idempotency token, so two simultaneous binds serialize harmlessly) — the client-loop respawn race is structurally gone. "Import session" likewise becomes a padi procedure.
+3. **kolu-server restarts**: nothing happens to terminals at all — padi's registry stays warm (strictly better than today, where every restart re-derives all metadata). The browser reconnects and rebinds; the canvas is byte-identical.
+4. **Browser reload / device switch**: pure re-subscribe. The client no longer contains respawn logic of any kind; a reload against a rebooted *remote* host lands in flow 2 on that host's padi, same as local.
+
+### padiSurface — one contract, with per-member forwarding semantics
+
+padi serves a **new** surface, `padiSurface` 1.0 (`terminalWorkspaceSurface` 3.0 is frozen and dies with its pulam-era consumers in W0/W2 — growing it would force three packages slated for deletion to implement every new member in lockstep, since `implementSurface` fail-fast throws on any unimplemented primitive). Members: `version` + status cells; the composed `terminals` collection (record states `active | sleeping | parked`; the dock projection carries the optional host axis, reserved); the **urgency projection** (awaiting counts + terminal ids, recency-free — the sole thing kolu-server reads from *every* warm binding, for badge fan-in); `activity` stream; repo/file `{seq}` pulses; fs/git procedures (incl. worktree ops); byte procedures; `transcript.exportHtml`; lifecycle + chrome procedures; `session.restore` / `session.import`; `terminalExit` event; **`terminalAttach`**. Beside the surface, the frozen **control core** (hello · version · drain · `clock.now`) that never versions.
+
+**Per-connection binding scope is new machinery, named as such.** Today the surface framework binds every member's handlers to one store at build time, and kolu-server upgrades every websocket into one module-level router — nothing is per-connection. W2/W3 build the scope: **per-binding mirror stores** (shared by all connections parked on the same host) + router instantiation **keyed by the connection's declared binding**, and the client's module-level wire singletons (`wire.ts`, `useTerminalStore`) become **binding-scoped** so an in-app switch rebuilds them against the new scope (v1 of the switch may be a reload — the fused-lifecycle degenerate case — but the wire scoping is designed in from the start). Whatever lands in `@kolu/surface*` rides the same drishti gate as the forwarding helpers.
+
+The contract's one structural novelty, forced by the adversarial review: **members are typed by forwarding policy**. Value-bearing members (cells, collections, pulses) may be mirrored hold-open-and-rebind — a rebind just replays current values. **Delta-bearing streams (`terminalAttach`, `activity`) are fail-through**: a mid-chain disconnect (padi↔kolu-server) MUST terminate the downstream browser stream, so the client's existing retry re-attaches end-to-end and a scrollback **snapshot is only ever the first frame of a fresh stream** — a hold-open forwarder splicing a replayed snapshot into a live xterm as bytes becomes a type error in the re-serve helper, not a convention. Attach thus keeps today's deliberate carve-out (a dedicated per-subscriber stream, 1:1 through each hop: browser→kolu-server→padi→kaval), and the W0 overflow frame rides it unchanged. The forwarding helpers this needs (per-member policy; input-keyed stream forward) graduate from pulam-web's `reserve` into the surface stack — the one piece of genuine *electricity* this plan mints (domain-agnostic, real transport volatility, second consumer = kolu-server itself); that change is drishti-gated as usual.
+
+### Rejected shapes (each killed by a specific review finding)
+
+- **Per-terminal `HostLocation` threading** (the finale plan): N-site handling of a connection-level volatility; the client never needed it. Closed with #1637–#1640.
+- **Merging kaval into padi**: padi bundles the system's highest-churn code (agent sensors, fs/git serving); kaval earns "restarts only on contract change" by containing nothing that churns. Fusing them means sensor churn kills PTYs. padi restarts are instead *cheap by design*: re-seed from the state-root + fresh sensors (the #1031 posture — warm across web-shell churn, honestly re-derived across padi churn).
+- **Server-global binding with a "rebind + client reset" switch** (the brief's own first draft): behind a constant origin, in-flight id/repoPath-keyed calls and every other device silently straddle a rebind — a two-actor temporal convention with a race window. Replaced by **per-connection binding scope**: a call minted under one binding cannot reach another, and other devices are untouched by your switch.
+- **Local padi as in-process library, process only for remote**: keeps two assemblies (the drift the one-library-two-homes era already suffered), keeps kolu-server fat, and forfeits warm-across-restart metadata and multi-client (kolu-tui) for the local host.
+
+## Implementation details
+
+<Phase id="W0" name="decks cleared — freeze the old contract, retire pulam-web, land the overflow frame, close the PRs" status="todo" />
+<Phase id="W1" name="the padi seam, in place — padiSurface served in-process, client migrated, root oRPC dispositioned" status="todo" needs={["W0"]} />
+<Phase id="W2" name="padi the process — state-root identity, owns kaval, on-host persistence; kolu-server binds + re-serves" status="todo" needs={["W1"]} />
+<Phase id="W3" name="remote + the switch — ssh/Nix leg, host picker, per-view bindings, cross-host badges" status="todo" needs={["W2"]} />
+<Phase id="W4" name="demand-driven — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W3"]} />
+
+export const PT = [
+  { d: 0, g: "○", c: "prog", l: "W0 · decks cleared — old contract frozen · pulam-web retired · overflow frame in kaval · PRs closed", m: "parallel-friendly prereqs" },
+  { d: 0, g: "○", c: "prog", l: "W1 · the seam in place — padiSurface 1.0 in-process · client migrated · root oRPC dispositioned", m: "byte-identical UX" },
+  { d: 0, g: "○", c: "prog", l: "W2 · padi the process — state-root identity · owns kaval · on-host persistence · re-serve", m: "byte-identical UX · warm restarts" },
+  { d: 0, g: "○", c: "prog", l: "W3 · remote + the switch — ssh/Nix · host picker · per-view bindings · badges + deep-link", m: "the user-visible feature" },
+  { d: 0, g: "○", c: "last", l: "W4 · demand-driven — cross-host dock · kolu-tui · hybrid only if earned", m: "" },
+];
+
+<PhaseTree title="ROADMAP — padi (replaces R9/R10)" phases={PT} />
+
+### W0 — decks cleared *(three independent, parallel-friendly moves)*
+
+1. **Freeze `terminalWorkspaceSurface` at 3.0** — no member is ever added to it (this alone breaks the lockstep: padiSurface is new, so nothing forces members through the dying consumers) — and **retire pulam-web** (delete the package *and* its flake/nix wiring in the same change). **pulam-tui and the pulam daemon survive until W2**: `pulam-tui wait` is the agent-drives-agent done-signal (the `/kolu` and `/debate` skills, the dock-fleet-mirror rule, and the home-manager module all depend on it), so they retire only when W2 re-homes that signal.
+2. **Land the overflow frame** — <PrLink pr={1591} /> rebased: kaval's attach output grows the typed *overflow → re-attach* signal (contract `4.0 → 4.1`, the one planned kaval rev this whole plan implies) + the client's fresh-snapshot re-attach. Done-criterion: the slow-subscriber e2e recovers a live terminal with fresh scrollback, distinguishable from PTY exit.
+3. **Close <PrLink pr={1637} /> <PrLink pr={1638} /> <PrLink pr={1639} /> <PrLink pr={1640} />** with a pointer here; mark the [finale](remote-terminals-finale.html) superseded (done alongside this note). #1577 (kaval transcript memory) is orthogonal and unaffected.
+
+### W1 — the padi seam, in place *(strangler; several small PRs; UX byte-identical)*
+
+Define **`padiSurface` 1.0** and serve it **in-process** from kolu-server's existing terminal domain; migrate the client member-by-member. The phase exists to prove one path — *the client runs entirely on padiSurface + the shell surface, with the in-process server behind the same contract a remote padi will serve* — so its done-criterion is an **import-seal test** (à la #1640's `sealedDispatch`, re-derived): no client-facing serving code imports the terminal domain except through the padiSurface implementation, and `koluSurface`'s fs/git value streams are deleted. The **root oRPC namespace dies entirely**, per-member:
+
+| root oRPC member | disposition |
+| --- | --- |
+| `terminal.create/kill/sleep/wake/discardSleeping/restoreSleeping/setTheme/setIntent/setCanvasLayout/setSubPanel/setRightPanel/setActive/setParent/killAll/resize/sendInput` | padiSurface lifecycle + chrome procedures (`create` **loses the client-supplied `lastActivityAt`** — padi stamps; the client-driven restore loop is deleted, re-homed as padi's boot reconcile + the `session.restore`/`session.import` procedures — see the restore section above) |
+| `terminal.attach` | `padiSurface.terminalAttach` — the fail-through per-subscriber stream (the carve-out, kept) |
+| `terminal.screenState/screenText` | padiSurface procedures |
+| `terminal.pasteImage/uploadFile` | `scratch.write` + a paste procedure (bytes land on the terminal's host) |
+| `terminal.exportTranscriptHtml` | `transcript.exportHtml({terminalId, mode}) → {html, filename}` — loaders (claude JSONL, codex/opencode SQLite) run in padi |
+| `git.worktreeCreate/worktreeRemove` | padiSurface git procedures (they are the host's fs volatility — a worktree materializing on the wrong machine becomes unspellable) |
+| `daemon.restart` | a binding procedure: *restart the bound padi* (drain-and-exit; PTYs survive) |
+| `server.info` | stays — web shell |
+
+The Code tab moves from value-bearing streams to **procedure + `{seq}` pulse** (re-deriving #1639's client half: `createPolledQuery`, selection-stability guard, client-side binary-preview orchestration). The dock projection lands **with its optional host axis** (unused until W4). The composed `terminals` collection replaces the client-side join (`useTerminalMetadata` reads one collection; `composeTerminalMetadata` moves server-side, still shared with disk-save).
+
+### W2 — padi the process *(local; UX byte-identical; restarts get warm)*
+
+Extract the domain into `packages/padi`; identity per the architecture section — persistent state-root, **digest-keyed runtime rendezvous** (`padi-<digest>/`, `kaval-<digest>/`; gates auto-invalidate at boot), default root spelled by the padi binary, the frozen **control core**, and **adopt-or-spawn-or-refuse as a new supervisor policy** (the existing endpoint's skew arm recycles — it must not be reused). padi **spawns-or-adopts its kaval** under its digest namespace (retiring `kaval-<port>`); `kaval-tui`'s **discovery + labels move to the digest pattern + manifest in the same PR** — a flag-less `kaval-tui` keeps working throughout. Session persistence moves into the state-root — padi's boot imports kolu-server's saved-session file once if its store is empty, then hard cutover (`SCHEMA_VERSION` bump, no fallback). Boot adoption, inventory reconcile, and the MRU feed run inside padi. kolu-server binds and re-serves via the new **per-binding mirror stores + binding-keyed router** with the typed forwarding policy. The e2e harness gives each cucumber worker a **private state-root** (its sandboxed `$HOME` already exists; the agent-dir env vars now flow into padi's spawn). **pulam-tui and the pulam daemon retire here**, with the `wait`/`status` done-signal **re-homed onto padi** (a thin padi-fed `wait`, or kaval-tui growing it) and the home-manager module, flake default, and the `/kolu`/`/debate` skills updated in the same change — the agent-drives-agent workflow never loses its precise done-signal.
+
+Done-criteria, each a test: (a) UX byte-identical, all e2e green; (b) **kolu-server restart keeps metadata warm** (new differential test — the registry survives in padi); (c) **kill-the-middle-hop**: killing padi mid-attach terminates the browser stream and the retry re-attaches with a fresh snapshot (never spliced bytes); killing kolu-server and rebinding adopts, never respawns; (d) the fold differential test pins local awareness byte-identical pre/post extraction; (e) two kolu-servers with distinct state-roots on one box never touch each other's padi/kaval (the #1313 property, now by construction).
+
+### W3 — remote + the switch *(the user-visible feature)*
+
+- **Provision + dial**: arch-keyed drv maps for padi and kaval (two drvs, one `provisionAgent` dial — padi spawns kaval from its own closure reference); `getHostSession` + `frontDaemonOverStdio` front the remote padi exactly as kaval-tui fronts kaval; blip-survival from `HostSession` reconnect + the durable daemon.
+- **The switch**: binding pool in kolu-server; per-connection binding declared in the wire scope; the client's wire singletons rebuilt **per binding** (the in-app instant switch — W2 laid the server-side scope); the **clock offset measured at each bind** (control-core `clock.now()`); ChromeBar host picker (ssh-config sourced + free-text); persisted last-binding per view; #1034 loud connecting/degraded/skew states; create refused while the binding warms (today's `refuseIfWarming`, per binding).
+- **Cross-host attention (the A+ bar, from the UX evaluation)**: OS notification whose click = switch + focus (1 action); PWA app badge aggregated across bindings; per-host switcher-chip counts — all summed by kolu-server from each padi's **urgency-projection member**, the one thing it reads from every warm binding. **Urgency-only** on any multi-host wire.
+- Done: a remote-canvas **parity checklist e2e** — PTY echo · Code tab git/diff/tree · binary preview · paste/upload · transcript export (all three agent kinds) · sleep/wake · worktree flow · kolu-server restart re-adopt · browser reload re-dial · notification deep-link — every axis against a real ssh host, plus all local e2e green.
+
+### W4 — demand-driven
+
+**Cross-host dock** (B-lite: foreign hosts' rows, urgency-ranked, click = switch + focus — the host axis is already in the contract) is the first escalation if switching proves insufficient. **kolu-tui** — the graduation proof: consume padiSurface over the socket/ssh *without kolu-server*; done only when that named path renders a live canvas (the path, not the feature, is the unit of done). **Hybrid canvas** (model B) only if one-window side-by-side proves a recurring demand — it stays an aggregation layer over N bindings, zero daemon changes.
+
+### Risks, named, with mitigations
+
+- **Attach latency gains a local hop** (kaval→padi→kolu-server vs kaval→kolu-server). Measure typing-echo p99 before/after W2 with a budget (&lt; 5ms added); if breached, the carve-out permits a raw-byte relay on the padi→kolu-server leg (frontDaemonOverStdio-style, no decode) without touching the contract.
+- **Sensor churn forces padi restarts** (padi hashes its whole package). Accepted: a padi restart re-seeds from the state-root + re-runs sensors (seconds, PTYs untouched). If deploy cadence makes this hurt, the sensors split into a padi-hosted, non-hashed volatility — an observed decision, not a pre-paid one.
+- **Multi-client writes** (two kolu-servers, one padi): padi serializes all chrome/layout procedures — one writer, last-write-wins, concurrent editors see each other's moves live. Accepted semantics (same as any shared session).
+- **drishti gate**: the graduated forwarding helpers (per-member policy, input-keyed forward) and any per-connection scope machinery landing in `@kolu/surface*` — paired drishti PR, pinned to final kolu HEAD, per `.claude/rules/surface.md`.
+- **N warm bindings have a standing cost** (one ssh session + one urgency subscription per host, even while parked elsewhere). Bounded: the pool holds only user-added hosts, the subscription is the count-sized urgency member (never `terminals`), and an unreachable host degrades its chip, not the app. Costed explicitly rather than discovered in production.
+- **Session-file migration**: one-shot import at padi's first boot, then hard cutover — a failed import crashes loudly (fail-fast), never silently starts empty.
+
+### Superseded by this note
+
+The [finale](remote-terminals-finale.html) (whole plan: PR-1/2/3, F-REMOTE, R10) — closed PRs <PrLink pr={1637} />, <PrLink pr={1638} />, <PrLink pr={1639} />, <PrLink pr={1640} />. Partially superseded: [awareness-derive-store](awareness-derive-store.html) (the fold's *home* moves to padi; owner-clock replaces consumer-clock; producer, fold, and types survive verbatim) and [the terminal model](terminal-metadata-model.html) (the reader-join collapses into padi's composed `terminals` collection; the authored/snapshot split stays as padi-internal types). Unaffected: kaval's design ([pty-daemon](pty-daemon.html)) apart from the W0 `4.1` overflow frame; #1577.

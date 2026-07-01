@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#8b94a6"/>
+    </marker>
+    <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#7ec699"/>
+    </marker>
+  </defs>
+  <rect width="960" height="620" fill="#0f1117"/>
+
+  <!-- clients -->
+  <rect x="110" y="16" width="300" height="56" rx="8" fill="#151823" stroke="#2a3145"/>
+  <text x="126" y="38" fill="#c8d0de" font-size="13" font-weight="600">PWA window · view = local</text>
+  <text x="126" y="58" fill="#8b94a6">canvas · dock · Code tab</text>
+
+  <rect x="550" y="16" width="300" height="56" rx="8" fill="#151823" stroke="#2a3145"/>
+  <text x="566" y="38" fill="#c8d0de" font-size="13" font-weight="600">PWA window · view = nix@prod</text>
+  <text x="566" y="58" fill="#8b94a6">same client · other binding</text>
+
+  <line x1="260" y1="72" x2="260" y2="124" stroke="#8b94a6" stroke-width="1.4" marker-end="url(#arr)"/>
+  <line x1="700" y1="72" x2="700" y2="124" stroke="#8b94a6" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="480" y="102" fill="#56b6c2" text-anchor="middle">per-connection binding — a switch swaps scopes, never a global rebind</text>
+
+  <!-- kolu-server -->
+  <rect x="100" y="128" width="760" height="100" rx="10" fill="#131722" stroke="#56b6c2" stroke-width="1.2"/>
+  <text x="120" y="152" fill="#56b6c2" font-size="13" font-weight="700">kolu-server — the web shell (no terminal state)</text>
+  <text x="120" y="172" fill="#8b94a6">HTTP · PWA · preferences · notification fan-in</text>
+  <text x="120" y="192" fill="#c8d0de">bindings: <tspan fill="#7ec699">local ●</tspan>  <tspan fill="#7ec699">nix@prod ●</tspan>  <tspan fill="#5b6678">pu-box-3 ○</tspan>  — adopt-or-spawn, never recycle</text>
+  <text x="120" y="212" fill="#8b94a6">re-serve: <tspan fill="#7ec699">values hold-open</tspan> · <tspan fill="#e6a23c">delta streams fail-through</tspan></text>
+
+  <!-- links to hosts -->
+  <line x1="260" y1="228" x2="260" y2="284" stroke="#7ec699" stroke-width="1.4" marker-end="url(#arrg)"/>
+  <text x="274" y="260" fill="#8b94a6">unix socket</text>
+  <line x1="700" y1="228" x2="700" y2="284" stroke="#a78bfa" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="714" y="252" fill="#a78bfa">ssh · frontDaemonOverStdio</text>
+  <text x="714" y="270" fill="#8b94a6">Nix-provisioned</text>
+
+  <!-- local host -->
+  <rect x="55" y="288" width="415" height="288" rx="10" fill="#0d0f15" stroke="#222838"/>
+  <text x="75" y="310" fill="#5b6678" font-weight="600">HOST · this machine</text>
+
+  <rect x="75" y="320" width="375" height="132" rx="8" fill="#151823" stroke="#7ec699" stroke-width="1.2"/>
+  <text x="91" y="342" fill="#7ec699" font-size="13" font-weight="700">padi — the workspace authority</text>
+  <text x="91" y="362" fill="#c8d0de">terminals (authored ⋈ snapshot)</text>
+  <text x="91" y="380" fill="#c8d0de">the ONE fold + memory — host clock</text>
+  <text x="91" y="398" fill="#c8d0de">lifecycle · fs/git · bytes · restore</text>
+  <text x="91" y="416" fill="#c8d0de">session store · supervises kaval</text>
+  <text x="91" y="440" fill="#5b6678">serves padiSurface · 0700 · pid-gate</text>
+
+  <line x1="260" y1="452" x2="260" y2="480" stroke="#8b94a6" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="274" y="470" fill="#8b94a6">taps · attach 1:1</text>
+
+  <rect x="75" y="484" width="375" height="48" rx="8" fill="#151823" stroke="#2a3145"/>
+  <text x="91" y="504" fill="#c8d0de" font-weight="600">kaval — PTY survivor (unchanged)</text>
+  <text x="91" y="522" fill="#8b94a6">PTYs outlive padi + kolu restarts</text>
+
+  <rect x="75" y="542" width="375" height="22" rx="5" fill="#0f1117" stroke="#2a3145" stroke-dasharray="4 3"/>
+  <text x="91" y="557" fill="#5b6678">state-root/ = identity · store · kaval ns</text>
+
+  <!-- remote host -->
+  <rect x="490" y="288" width="415" height="288" rx="10" fill="#0d0f15" stroke="#3a3355"/>
+  <text x="510" y="310" fill="#a78bfa" font-weight="600">HOST · nix@prod — same stack</text>
+
+  <rect x="510" y="320" width="375" height="132" rx="8" fill="#151823" stroke="#7ec699" stroke-width="1.2"/>
+  <text x="526" y="342" fill="#7ec699" font-size="13" font-weight="700">padi — identical closure</text>
+  <text x="526" y="362" fill="#c8d0de">its own fold · clock · store</text>
+  <text x="526" y="380" fill="#c8d0de">cross-host clocks never compared</text>
+  <text x="526" y="398" fill="#c8d0de">the host owns its koḷu —</text>
+  <text x="526" y="416" fill="#c8d0de">every device sees the same canvas</text>
+  <text x="526" y="440" fill="#5b6678">ephemeral pu-box or permanent server</text>
+
+  <line x1="700" y1="452" x2="700" y2="480" stroke="#8b94a6" stroke-width="1.4" marker-end="url(#arr)"/>
+
+  <rect x="510" y="484" width="375" height="48" rx="8" fill="#151823" stroke="#2a3145"/>
+  <text x="526" y="504" fill="#c8d0de" font-weight="600">kaval — PTY survivor</text>
+  <text x="526" y="522" fill="#8b94a6">survives ssh blips + padi restarts</text>
+
+  <rect x="510" y="542" width="375" height="22" rx="5" fill="#0f1117" stroke="#2a3145" stroke-dasharray="4 3"/>
+  <text x="526" y="557" fill="#5b6678">state-root/ — the host owns its state</text>
+
+  <!-- footer -->
+  <text x="480" y="602" fill="#5b6678" font-size="11" text-anchor="middle">dead: HostLocation · resolveTerminalEndpoint · localOnly · terminalEvents wire · pulam · pulam-web</text>
+</svg>
