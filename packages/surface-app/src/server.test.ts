@@ -147,6 +147,16 @@ describe("installFreshStatic — precompressed asset negotiation", () => {
     expect(res.headers.get("Content-Encoding")).toBeNull();
     expect(await res.text()).toBe("<!doctype html>identity shell");
   });
+
+  it("throws fail-fast when a caller's assetPrefix would capture the shell (guards the kolu#1319 invariant)", () => {
+    // The precompressed route's shell-safety is mechanical ONLY while assetPrefix
+    // is disjoint from the shell, so a shell-capturing override (`/`) must fail
+    // loud at install time — never silently degrade into serving a compressed shell.
+    const app = new Hono();
+    expect(() => installFreshStatic(app, { root, assetPrefix: "/" })).toThrow(
+      /kolu#1319|stale/,
+    );
+  });
 });
 
 describe("installSurfaceApp — forwards the serviceWorker option to /sw.js", () => {
