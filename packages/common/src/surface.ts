@@ -609,15 +609,17 @@ export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
 
 /** Plan for choosing a new terminal's theme, derived from the
- *  `newTerminalTheme` preference and the app's resolved dark mode. `assign`
- *  gates whether a new terminal auto-picks at all (`false` → server default);
- *  `mode`, when set, restricts the candidate pool to that luminance family.
- *  The ⌘⇧J manual shuffle reads `mode` only — it always shuffles, ignoring
- *  `assign`. Single source of truth for both call sites. */
+ *  `newTerminalTheme` preference and the app's resolved dark mode. A
+ *  discriminated union so an illegal combination is unrepresentable: when
+ *  `assign` is `false` (server default) there is no `mode`; only the
+ *  auto-picking arm carries an optional `mode` that restricts the candidate
+ *  pool to that luminance family. The ⌘⇧J manual shuffle reads `mode` only —
+ *  it always shuffles, ignoring `assign`. Single source of truth for both
+ *  call sites. */
 export function resolveNewTerminalTheme(
   pref: NewTerminalTheme,
   isDark: boolean,
-): { assign: boolean; mode?: "light" | "dark" } {
+): { assign: false } | { assign: true; mode?: "light" | "dark" } {
   return match(pref)
     .with("off", () => ({ assign: false }))
     .with("random", () => ({ assign: true }))

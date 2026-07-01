@@ -125,11 +125,11 @@ export const useTerminalCrud = createSharedRoot(() => {
     // server's default theme for a frame, which we don't want scored as a
     // peer against itself. `assign` gates auto-pick; `mode` restricts the pool
     // to the chosen (or app-resolved, for "auto") light/dark family.
-    const { assign, mode } = resolveNewTerminalTheme(
+    const plan = resolveNewTerminalTheme(
       preferences().newTerminalTheme,
       isDark(),
     );
-    const peerBgs = assign
+    const peerBgs = plan.assign
       ? resolveThemeBgs(
           store.terminalIds(),
           (id) => store.getMetadata(id)?.themeName,
@@ -137,8 +137,8 @@ export const useTerminalCrud = createSharedRoot(() => {
       : null;
     const theme =
       initial?.themeName ??
-      (peerBgs
-        ? pickTheme(availableThemes, { spread: true, peerBgs, mode })
+      (plan.assign && peerBgs
+        ? pickTheme(availableThemes, { spread: true, peerBgs, mode: plan.mode })
         : undefined);
     // Inherit the active tile's size for the new terminal. Set BEFORE
     // the create RPC — the server push during the await triggers the

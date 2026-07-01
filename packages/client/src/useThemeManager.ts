@@ -94,10 +94,11 @@ function init() {
     );
     if (!candidates) return;
     const excludeBgs = resolveThemeBgs(store.terminalIds(), getThemeName);
-    const { mode } = resolveNewTerminalTheme(
+    const plan = resolveNewTerminalTheme(
       preferences().newTerminalTheme,
       isDark(),
     );
+    const mode = plan.assign ? plan.mode : undefined;
     handleSetTheme(pickTheme(candidates, { excludeBgs, mode }));
   }
 
