@@ -9,7 +9,7 @@ Run e2e tests scoped to the current branch's changes.
 
 ## Steps
 
-1. **Identify changed files**: Run `git diff master...HEAD --name-only` to list files changed on this branch.
+1. **Identify changed files**: Run `git fetch -q origin && git diff origin/master...HEAD --name-only` to list files changed on this branch. Diff against `origin/master` (the freshly fetched remote), **never** the bare local `master` ref — in kolu's bare-worktree setup local `master` is never pulled, so it goes stale and silently over-selects unrelated files.
 2. **Select relevant feature files**: Match changed files to `.feature` files under `packages/tests/features/`. Use file names, component names, and domain knowledge to find the right scenarios.
 3. **Decide whether to run e2e**:
    - If changes touch `packages/client/src/`, `packages/tests/`, or `packages/common/src/` — run the matching feature files.

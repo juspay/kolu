@@ -70,34 +70,54 @@ const codexDir = mkSubDir("codex");
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
 
-/** The agent-dir overrides that point kolu at the mock harnesses' temp dirs.
- *  KOLU_X11CAP recordings launch the REAL claude/codex (whose sessions land in
- *  the real ~/.claude/projects + ~/.codex), so every one of these must be ABSENT
- *  — both deleted from `process.env` (so an inherited developer export can't
- *  shadow the real dir) AND mapped to `undefined` in the server child env (so the
- *  `...process.env` spread can't re-introduce one). The invariant — "this exact
- *  set of vars is the temp-dir mapping normally, all-undefined under X11CAP" —
- *  lives here once; the loop below mutates `process.env` from it and BeforeAll
- *  spreads it into the child env. Add a new agent dir → add it here only. */
+/** The everyday-e2e vs recording (KOLU_X11CAP) divergence for the server's
+ *  environment, decided ONCE here so no `if (KOLU_X11CAP)` has to be re-derived
+ *  downstream (before this, the agent dirs branched here and HOME branched at
+ *  the spawn site — two costumes of one decision, drifting apart).
+ *
+ *  Everyday e2e must touch NOTHING real: point the agent-session dirs at the
+ *  mock harnesses' temp dirs AND give the server a throwaway $HOME, so a
+ *  scenario typing into a terminal can't append to the real `~/.bash_history`
+ *  or make the suite depend on the developer's personal dotfiles. (kolu
+ *  forwards HOME into every PTY it spawns: `cleanEnv` whitelists it → `ptyHost`
+ *  reads `env.HOME` → `prepareShellInit`'s `replay` sources `$HOME/.bashrc`
+ *  etc. — so a real HOME is the leak.) Both the fake dirs and the fake home sit
+ *  under `testBaseDir`, which AfterAll wipes.
+ *
+ *  Recording is the exact opposite: it launches the REAL claude/codex to
+ *  capture footage, so the agent dirs must be ABSENT (the server then resolves
+ *  them off the real `~/.claude` / `~/.codex` via `os.homedir()`) and HOME must
+ *  stay inherited (real) so those agents find their login. Absent agent-dir
+ *  keys are BOTH deleted from `process.env` (so a developer export can't shadow
+ *  the real dir) and left out of the child env below.
+ *
+ *  `AGENT_DIR_VARS` names the exact agent-dir set the loop mutates onto
+ *  `process.env` for step defs that read it directly — add a new agent dir
+ *  there. HOME is child-env ONLY: never mutated onto the harness's own
+ *  `process.env`, whose real value the recording path still needs. */
+const RECORDING = !!process.env.KOLU_X11CAP;
 const AGENT_DIR_VARS = [
   "KOLU_CLAUDE_SESSIONS_DIR",
   "KOLU_CLAUDE_PROJECTS_DIR",
   "KOLU_CODEX_DIR",
 ] as const;
-const agentDirEnv: Record<(typeof AGENT_DIR_VARS)[number], string | undefined> =
-  process.env.KOLU_X11CAP
-    ? {
-        KOLU_CLAUDE_SESSIONS_DIR: undefined,
-        KOLU_CLAUDE_PROJECTS_DIR: undefined,
-        KOLU_CODEX_DIR: undefined,
-      }
-    : {
-        KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
-        KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
-        KOLU_CODEX_DIR: codexDir,
-      };
+const serverModeEnv: Record<
+  (typeof AGENT_DIR_VARS)[number],
+  string | undefined
+> & { HOME?: string } = RECORDING
+  ? {
+      KOLU_CLAUDE_SESSIONS_DIR: undefined,
+      KOLU_CLAUDE_PROJECTS_DIR: undefined,
+      KOLU_CODEX_DIR: undefined,
+    }
+  : {
+      KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
+      KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+      KOLU_CODEX_DIR: codexDir,
+      HOME: mkSubDir("home"),
+    };
 for (const name of AGENT_DIR_VARS) {
-  const value = agentDirEnv[name];
+  const value = serverModeEnv[name];
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
@@ -598,11 +618,11 @@ async function startServerChild(koluServer: string): Promise<void> {
           // run on a box with no systemd user session (where the production
           // `systemd-run --user` path would fail).
           KOLU_KAVAL_SPAWN: "detached",
-          // The agent-dir overrides, derived once above: temp dirs normally,
-          // all-undefined under X11CAP so the `...process.env` spread can't
-          // re-introduce an inherited value and the server watches the real
-          // ~/.claude/projects + ~/.codex (the dock then tracks the live agent).
-          ...agentDirEnv,
+          // The everyday-e2e vs recording env divergence, decided once above:
+          // mock agent dirs + a throwaway HOME normally; agent dirs absent and
+          // HOME inherited (real) under X11CAP so the real claude/codex resolve
+          // their sessions + login from the real home. See `serverModeEnv`.
+          ...serverModeEnv,
           KOLU_OPENCODE_DB: opencodeDbPath,
         },
       },
