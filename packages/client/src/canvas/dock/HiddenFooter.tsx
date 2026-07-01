@@ -24,7 +24,7 @@
  *  a filter is hiding rows), the same way the window's old "show all"
  *  only appeared when it would relax something. */
 
-import { type Component, createMemo, Show } from "solid-js";
+import { batch, type Component, createMemo, Show } from "solid-js";
 import { setActivityWindow } from "../../terminal/activityWindow";
 import { setShowSleeping } from "../../terminal/showSleeping";
 import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
@@ -36,19 +36,24 @@ import { SleepingToggle } from "../../ui/SleepingToggle";
  *  both layouts (rail + cards) reference it — neither branch can drift. */
 const DOCK_HIDDEN_FOOTER_TESTID = "dock-hidden-footer";
 
+/** Shared chip shell — the radius + hover both filters wear in every
+ *  layout, so it's written once here and can't drift between the sizing
+ *  tiers below (keeping the two chips visually identical is the whole
+ *  point of the `Filters` group). Only the sizing tail differs per tier. */
+const CHIP_SHELL = "rounded-md hover:bg-surface-2/70";
+
 /** The one chip chrome BOTH filters wear — size, shape, radius, hover —
  *  so the activity-window chip and the ☾ chip are visually identical and
  *  can't drift apart. Only the sizing tier differs (touch vs pointer);
  *  each chip bakes in its own accent-vs-neutral colour. */
 function filterChipClass(compact: boolean | undefined): string {
   return compact === true
-    ? "rounded-md hover:bg-surface-2/70 h-6 min-w-6 px-1.5 text-[0.75rem]"
-    : "rounded-md hover:bg-surface-2/70 h-5 min-w-5 px-1 text-[0.65rem]";
+    ? `${CHIP_SHELL} h-6 min-w-6 px-1.5 text-[0.75rem]`
+    : `${CHIP_SHELL} h-5 min-w-5 px-1 text-[0.65rem]`;
 }
 
 /** Rail chip chrome — one class for both stacked chips in the 44px rail. */
-const RAIL_CHIP_CLASS =
-  "rounded-md hover:bg-surface-2/70 h-5 min-w-5 px-1 text-[0.6rem] leading-none";
+const RAIL_CHIP_CLASS = `${CHIP_SHELL} h-5 min-w-5 px-1 text-[0.6rem] leading-none`;
 
 /** The ☾ chip's testid prefix tracks the window chip's surface — both
  *  share the footer, so one derivation keeps the desktop/mobile split in
@@ -90,13 +95,15 @@ export const HiddenFooter: Component<{
   // BOTH filters are hiding right now. `showReset` gates the single
   // `show all`, which relaxes BOTH filters — the only way to truly reveal
   // every terminal, since leaving the window at `24h` would keep parked
-  // rows hidden. One reactive node, read by both layouts.
-  const hiddenCount = () => props.hiddenCount;
-  const showReset = createMemo(() => hiddenCount() > 0);
-  const resetAll = () => {
-    setActivityWindow("all");
-    setShowSleeping(true);
-  };
+  // rows hidden.
+  const showReset = createMemo(() => props.hiddenCount > 0);
+  // Both writes feed the one `useDockOrder` memo, so batch them into a
+  // single dock-tree recompute instead of two.
+  const resetAll = () =>
+    batch(() => {
+      setActivityWindow("all");
+      setShowSleeping(true);
+    });
   // `props.rail` flips when the dock toggles rail ↔ cards while this
   // footer instance stays mounted (the parent never remounts it). A
   // bare `if (props.rail)` would read the prop once at create time and
@@ -111,7 +118,7 @@ export const HiddenFooter: Component<{
           compact={props.compact}
           testId={props.testId}
           chipTestIdPrefix={props.chipTestIdPrefix}
-          hiddenCount={hiddenCount}
+          hiddenCount={props.hiddenCount}
           showReset={showReset}
           resetAll={resetAll}
         />
@@ -132,10 +139,10 @@ export const HiddenFooter: Component<{
             data-testid="dock-hidden-show-all"
             onClick={resetAll}
             class="tabular-nums text-[0.6rem] leading-none text-accent cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-            aria-label={`${hiddenCount()} terminals hidden by dock filters — show all`}
-            title={`${hiddenCount()} hidden by filters — show all`}
+            aria-label={`${props.hiddenCount} terminals hidden by dock filters — show all`}
+            title={`${props.hiddenCount} hidden by filters — show all`}
           >
-            <span aria-hidden="true">{hiddenCount()}</span>
+            <span aria-hidden="true">{props.hiddenCount}</span>
           </button>
         </Show>
         {/* Two matched chips, stacked: the activity window then the ☾
@@ -168,9 +175,10 @@ const CardsLayout: Component<{
   compact?: boolean;
   testId?: string;
   chipTestIdPrefix?: "dock-window" | "mobile-dock-window";
-  /** Combined filter state hoisted into HiddenFooter so both layouts read
-   *  one reactive node rather than re-deriving it. */
-  hiddenCount: () => number;
+  /** Combined hidden-row count from the tree (props stay reactive, so the
+   *  child reads it directly). `showReset`/`resetAll` are shared
+   *  reactive/handler nodes hoisted from HiddenFooter. */
+  hiddenCount: number;
   showReset: () => boolean;
   resetAll: () => void;
 }> = (props) => {
@@ -213,7 +221,7 @@ const CardsLayout: Component<{
        *  aligned — renders only when something is actually hidden. */}
       <Show when={props.showReset()}>
         <div class="ml-auto flex items-center gap-1.5 tabular-nums shrink-0">
-          <span>{props.hiddenCount()} hidden</span>
+          <span>{props.hiddenCount} hidden</span>
           <span aria-hidden="true">·</span>
           <button
             type="button"

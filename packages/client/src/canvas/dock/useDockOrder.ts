@@ -33,11 +33,16 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   // choices are read HERE (staleness threshold via `isStale`, sleeping
   // visibility via `showSleeping`) and threaded in as arguments, keeping the
   // tree builder a testable pure projection.
+  //
+  // Split across two memos so the ☾ toggle doesn't re-do the ranking: the
+  // O(n log n) rank+sort depends only on the tiles and staleness, so it's
+  // memoized on its own. Flipping `showSleeping` invalidates only the outer
+  // `buildDockTree` pass (an O(n) filter+group over the already-ranked rows),
+  // not the sort.
+  const ranked = createMemo(() =>
+    rankDockRows(tileStore.tileIds(), store.getMetadata, isStale),
+  );
   return createMemo(() =>
-    buildDockTree(
-      rankDockRows(tileStore.tileIds(), store.getMetadata, isStale),
-      store.getDisplayInfo,
-      !showSleeping(),
-    ),
+    buildDockTree(ranked(), store.getDisplayInfo, !showSleeping()),
   );
 });

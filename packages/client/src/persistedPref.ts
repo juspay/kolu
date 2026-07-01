@@ -94,3 +94,26 @@ export function persistedPref<T>(
   });
   return [value, setValue];
 }
+
+/** Strict-boolean persisted pref — a boolean-shaped {@link persistedPref}.
+ *  The default `serialize` writes the literal `"true"`/`"false"` (see
+ *  {@link defaultSerialize}'s boolean note), so a boolean pref MUST parse
+ *  exactly those two — never `Boolean(raw)` / `JSON.parse` + truthiness, which
+ *  read the stored `"false"` back as `true` (the canvas-maximized bug). That
+ *  strict parse lives here once so every boolean pref (`kolu-canvas-maximized`,
+ *  `kolu-show-sleeping`, …) shares one seam instead of re-hand-rolling it. */
+export function boolPref(opts: {
+  name: string;
+  fallback: boolean;
+  onInvalid?: (err: unknown, raw: string) => void;
+  storage?: Storage;
+}): [Accessor<boolean>, Setter<boolean>] {
+  return persistedPref<boolean>({
+    ...opts,
+    parse: (raw) => {
+      if (raw === "true") return true;
+      if (raw === "false") return false;
+      throw new Error(`expected boolean pref "true"/"false", got: ${raw}`);
+    },
+  });
+}

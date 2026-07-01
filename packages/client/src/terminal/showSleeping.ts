@@ -13,20 +13,13 @@
  *  reachable to toggle them back. Localstorage-backed via `persistedPref`
  *  so the choice survives reloads, exactly like `activityWindow`. */
 
-import { persistedPref } from "../persistedPref";
+import { boolPref } from "../persistedPref";
 
 /** Per-device choice: show sleeping terminals in the dock, or hide them.
  *  Singleton — one persisted store the dock footer's ☾ toggle writes and
- *  `useDockOrder` reads. */
-export const [showSleeping, setShowSleeping] = persistedPref<boolean>({
+ *  `useDockOrder` reads. `boolPref` carries the strict `"true"`/`"false"`
+ *  parse so the stored `"false"` never reads back truthy. */
+export const [showSleeping, setShowSleeping] = boolPref({
   name: "kolu-show-sleeping",
   fallback: true,
-  // `persistedPref`'s default serialize writes the literal "true"/"false"
-  // (see persistedPref.ts) — so parse must accept exactly those, never a
-  // `Boolean(raw)` truthiness check that reads the stored "false" as true.
-  parse: (raw) => {
-    if (raw === "true") return true;
-    if (raw === "false") return false;
-    throw new Error(`unrecognized show-sleeping pref: ${raw}`);
-  },
 });
