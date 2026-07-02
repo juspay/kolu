@@ -85,11 +85,23 @@ import {
  *  and `snapshotSession` skips parked (a save would be a no-op at best). */
 export function parkSavedSession(): void {
   const saved = getSavedSession();
-  if (!saved) return;
+  log.info(
+    { saved: saved ? saved.terminals.length : null },
+    `session-trace park: getSavedSession=${saved ? `${saved.terminals.length} terminals` : "null"}`,
+  );
+  if (!saved) {
+    log.warn({}, "session-trace park: no saved session, nothing to park");
+    return;
+  }
+  let seeded = 0;
   for (const record of saved.terminals) {
-    if (record.state === "active") seedParkedTerminal(record);
+    if (record.state === "active") {
+      seedParkedTerminal(record);
+      seeded++;
+    }
   }
   restoreActiveTerminalId(saved.activeTerminalId ?? null);
+  log.info({ seeded }, `session-trace park: seeded ${seeded} parked`);
 }
 
 /** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and

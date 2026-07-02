@@ -49,6 +49,19 @@ export function cancelPendingAutosave(): void {
 
 /** Write the session blob (or clear it). The surface owns persist+publish. */
 function writeSession(next: SavedSession | null): void {
+  // DIAGNOSTIC (log-only): every write is traced; a destructive clear (next=null)
+  // is a WARN carrying the call stack so it is never silent. `grep session-trace`.
+  if (next === null) {
+    log.warn(
+      { stack: new Error("session clear").stack },
+      "session-trace writeSession: clearing session (next=null)",
+    );
+  } else {
+    log.info(
+      { terminals: next.terminals.length },
+      `session-trace writeSession: ${next.terminals.length} terminals`,
+    );
+  }
   padiSurfaceCtx.cells.session.set(next);
 }
 
@@ -65,9 +78,17 @@ export interface SessionSnapshot {
  *  otherwise stamps `savedAt`. */
 export function saveSession(snapshot: SessionSnapshot): void {
   if (snapshot.terminals.length === 0) {
+    log.warn(
+      { terminals: 0 },
+      "session-trace saveSession: empty snapshot → clearing (empty→null)",
+    );
     writeSession(null);
     return;
   }
+  log.info(
+    { terminals: snapshot.terminals.length },
+    `session-trace saveSession: writing ${snapshot.terminals.length} terminals`,
+  );
   writeSession({
     terminals: snapshot.terminals,
     activeTerminalId: snapshot.activeTerminalId,
@@ -138,7 +159,17 @@ export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
   cancelPendingAutosave();
   // Empty live registry → there is nothing fresher to persist; keep whatever
   // session is already saved rather than clearing the user's only restore data.
-  if (snapshot.terminals.length === 0) return;
+  if (snapshot.terminals.length === 0) {
+    log.info(
+      { snapshot: 0 },
+      "session-trace capture: snapshot=0 → empty-preserve early-return (existing session left intact)",
+    );
+    return;
+  }
+  log.info(
+    { snapshot: snapshot.terminals.length },
+    `session-trace capture: snapshot=${snapshot.terminals.length} → persisting`,
+  );
   saveSession(snapshot);
 }
 
@@ -173,8 +204,21 @@ export function initSessionAutoSave(snapshot: () => SessionSnapshot): void {
           // "restore pending" marker; the blob stays put until `session.restore`
           // consumes it or the user forfeits. Once resolved (no parked left), the
           // autosave resumes and a genuine user close still clears normally.
-          if (hasParkedTerminals()) return;
-          saveSession(snapshot());
+          const parked = hasParkedTerminals();
+          const snap = snapshot();
+          log.info(
+            { parked, snapshot: snap.terminals.length },
+            `session-trace autosave: parked=${parked} snapshot=${snap.terminals.length}`,
+          );
+          if (parked) {
+            log.info({}, "session-trace autosave: skipped (parked)");
+            return;
+          }
+          log.info(
+            { terminals: snap.terminals.length },
+            `session-trace autosave: writing ${snap.terminals.length}`,
+          );
+          saveSession(snap);
         }, 500);
       }
     } catch (err) {

@@ -32,6 +32,7 @@
  * See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B3.2 — supervised restart).
  */
 
+import { log } from "../log.ts";
 import { setSavedSessionFromSnapshot } from "../session.ts";
 import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { killAllTerminals, snapshotSession } from "../terminals.ts";
@@ -45,16 +46,19 @@ export function restartLocalDaemon(): Promise<void> {
   return restartLocalEndpoint({
     // Snapshot + persist BEFORE the kill — the session must outlive the daemon.
     capture: async () => {
+      log.info({}, "session-trace restart: capture");
       setSavedSessionFromSnapshot(snapshotSession());
     },
     // Tear down kolu's terminal layer; the recycle takes the PTYs themselves.
     drain: async () => {
+      log.info({}, "session-trace restart: drain (killAll)");
       await killAllTerminals();
     },
     // B3.2: nothing survives a daemon kill — park the captured session so the
     // restore card shows and `session.restore` re-spawns it (W1.R6). Same
     // no-survivor parking the cold boot runs. (B3.3 adopts survivors here.)
     reattach: async () => {
+      log.info({}, "session-trace restart: reattach (park)");
       parkSavedSession();
     },
   });
