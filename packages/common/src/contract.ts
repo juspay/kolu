@@ -147,6 +147,13 @@ export const contract = oc.router({
   // producing `{ surface: { kolu: …, surfaceApp: …, terminalWorkspace: … } }` —
   // wire paths are `surface.<key>.<prim>.<verb>`.
   // `surfaces` is the single source shared with the server + client.
+  //
+  // `padiSurface` (the padi plan of record, PR #1649) is NOT here — it lives in
+  // `@kolu/padi`, which depends on kolu-common (the terminal schemas that
+  // eventually move to it), so kolu-common must not depend BACK on it. Once W1.R
+  // wires the serving, kolu-server extends this contract with the `padi` sibling
+  // locally (`server/src/surface.ts`) and serves it; the client consumes the
+  // padi-less contract (zero consumers).
   ...composeSurfaceContracts(surfaces),
   server: {
     info: oc.output(ServerInfoSchema),

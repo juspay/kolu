@@ -12,7 +12,6 @@
 import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { log } from "./log.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
-import { store } from "./state.ts";
 import { surfaceCtx } from "./surfaceCtx.ts";
 
 /** Pending autosave timer — declared at module top so `setSavedSession`
@@ -75,9 +74,16 @@ export function saveSession(snapshot: SessionSnapshot): void {
   });
 }
 
-/** Get the saved session, or null if none exists. */
+/** Get the saved session, or null if none exists. Reads the session through the
+ *  surface cell (`surfaceCtx.cells.session`) — the framework-owned handle that
+ *  is itself backed by `confStore(store, "session")` — rather than the raw conf
+ *  store. That severs this module's direct dependency on packages/server's
+ *  `state.ts`, so the terminal domain can relocate into `@kolu/padi` (the conf
+ *  store stays kolu-server's single source of truth until W2.2 gives padi its
+ *  own state-root); the value read is identical because the cell delegates
+ *  straight to the same store key. */
 export function getSavedSession(): SavedSession | null {
-  const session = store.get("session");
+  const session = surfaceCtx.cells.session.get();
   if (!session || session.terminals.length === 0) return null;
   return session;
 }

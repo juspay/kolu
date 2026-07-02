@@ -1,0 +1,29 @@
+{
+  "name": "@kolu/padi",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/surface.ts",
+  "types": "./src/surface.ts",
+  "exports": {
+    "./surface": "./src/surface.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@kolu/surface": "workspace:*",
+    "@kolu/terminal-workspace": "workspace:*",
+    "kolu-common": "workspace:*",
+    "kolu-git": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.0"
+  }
+}
