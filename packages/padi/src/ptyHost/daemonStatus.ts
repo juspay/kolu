@@ -2,15 +2,16 @@
  * The server-owned store + publisher for per-host pty-host daemon status.
  *
  * The supervisor endpoint (in `./index.ts`) reports every transition through
- * `publishDaemonStatus`, which records it here and publishes it on the
+ * `publishDaemonStatus`, which records it here and publishes it on padi's
  * `daemonStatus` surface collection so the rail's KAVAL column and the
  * DegradedCanvas can subscribe. The store is the source of truth the surface
- * collection's `readAll`/`readOne` read from (mirroring how the `authored`
- * collection reads the terminal registry).
+ * collection's `readAll`/`readOne` read from (mirroring how padi's `terminals`
+ * collection reads the terminal registry). padi supervises its kaval, so the
+ * daemon-liveness collection is padi's to serve (W1.R7 — it left koluSurface).
  */
 
 import type { DaemonStatus } from "kolu-common/surface";
-import { surfaceCtx } from "../surfaceCtx.ts";
+import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 
 const store = new Map<string, DaemonStatus>();
 
@@ -47,7 +48,7 @@ export function publishDaemonStatus(
     ? { ...status, socketPath: localSocketPath }
     : status;
   store.set(hostId, full);
-  surfaceCtx.collections.daemonStatus.upsert(hostId, full);
+  padiSurfaceCtx.collections.daemonStatus.upsert(hostId, full);
 }
 
 /** Fold the boot's adopted-terminal count (B3.3) onto the host's CURRENT status

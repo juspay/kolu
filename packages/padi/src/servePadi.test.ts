@@ -2,9 +2,9 @@
  * Differential gate for W1.R1 — the served `terminals` collection MUST be
  * byte-identical to the client reader-join it replaced.
  *
- * Before R1 the client joined two halves at read time —
- * `composeTerminalMetadata(app.collections.authored[id],
- * workspace.collections.snapshots[id])`. R1 deleted that client join and moved the
+ * Before R1 the client joined two halves at read time — the now-retired
+ * `kolu.authored` record (deleted at W1.R7) and `terminalWorkspace.snapshots`,
+ * folded by `composeTerminalMetadata`. R1 deleted that client join and moved the
  * compose SERVER-side: padi's `terminals` collection reads the registry and folds
  * the two halves that share the one entry. This test pins that the served backing
  * (`readAll` / `readOne`) produces EXACTLY the record the deleted client join would

@@ -5,11 +5,12 @@
  * module for the cycle-break + TDZ-safe-Proxy rationale (#1005).
  *
  * `surface.ts` calls `setSurfaceCtx(implementSurfaces(...).ctx.kolu)` once at
- * startup. Domain modules mutate only kolu's OWN primitives (preferences,
- * activityFeed, session, terminalList, authored, terminalExit) — surface-app's
- * buildInfo/identity live on the sibling `surfaceApp` surface and are driven by the
- * runtime (the buildInfo cell's `.connect`), not by domain code — so this holder is
- * typed against the `kolu` surface ctx.
+ * startup. Domain modules mutate only kolu's OWN NON-terminal primitives
+ * (activityFeed, session, terminalList, terminalExit) — the terminal record,
+ * urgency, and daemon status ride padi's own ctx (`padiSurfaceCtx`) after W1.R,
+ * and surface-app's buildInfo/identity live on the sibling `surfaceApp` surface,
+ * driven by the runtime (the buildInfo cell's `.connect`), not by domain code —
+ * so this holder is typed against the `kolu` surface ctx.
  */
 
 import type { koluSurface } from "kolu-common/surface";

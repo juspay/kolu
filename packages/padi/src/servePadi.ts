@@ -22,6 +22,7 @@ import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
 import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
 import { quietActivity } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
+import { currentPtyHostIdentity } from "kaval";
 import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
@@ -29,6 +30,7 @@ import { readPreview } from "./preview.ts";
 import { importSession, restoreSession } from "./sessionRestore.ts";
 import {
   DEFAULT_PADI_VERSION,
+  type PadiStatus,
   type PadiTerminal,
   type padiSurface,
 } from "./surface.ts";
@@ -95,11 +97,26 @@ export function buildPadiSurfaceDeps(deps: {
   // the padi ctx; `equals` dedups then. Zero consumers at R0.
   let currentUrgency = recomputeUrgency();
 
+  // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
+  // read from kaval's `currentPtyHostIdentity`). Mirrors the guard the server's
+  // retired surface-app buildInfo axis used: off-nix the id is "" (no baked
+  // identity), so omit `expectedKaval` then and the client's currency nudge stays
+  // silent. Seeded once at boot into a read-only cell — a build constant never
+  // changes at runtime, so there is no write-trigger (unlike urgency).
+  const identity = currentPtyHostIdentity();
+  const status: PadiStatus = {
+    expectedKaval: identity.staleKey ? identity : undefined,
+  };
+
   return {
     cells: {
       // Read-only version handshake — same shape as terminalWorkspace's version
       // cell.
       version: { store: inMemoryStore(DEFAULT_PADI_VERSION) },
+      // Read-only build-currency axis — the expected-kaval identity, a build
+      // constant seeded once at boot (the client's `kavalUpdatePending` nudge
+      // reads it against the connected daemon's reported `daemonStatus.identity`).
+      status: { store: inMemoryStore(status) },
       urgency: {
         store: {
           get: () => currentUrgency,

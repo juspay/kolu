@@ -37,7 +37,11 @@ describe("padiSurface 1.0 contract", () => {
 
   it("pins the EXACT member list — every member from the surface section", () => {
     const spec = padiSurface.spec;
-    expect(Object.keys(spec.cells ?? {})).toEqual(["version", "urgency"]);
+    expect(Object.keys(spec.cells ?? {})).toEqual([
+      "version",
+      "urgency",
+      "status",
+    ]);
     expect(Object.keys(spec.collections ?? {})).toEqual([
       "terminals",
       "daemonStatus",

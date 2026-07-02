@@ -758,28 +758,22 @@ export function applyPreferencesPatch(
   };
 }
 
-// ── Build identity (surface-app's skew axis, extended) ─────────────────
+// ── kaval identity (the pty-host build identity) ───────────────────────
 //
-// surface-app's `buildInfo` cell carries "what build is the server?" as
-// reactive server state (server-pushed, read with `{ authority: "server" }`).
-// The library default is `{ commit }`; kolu EXTENDS it with `expectedKaval` —
-// the identity of the kaval the server WOULD spawn (its own baked
-// `KAVAL_BUILD_ID`/`KAVAL_COMMIT_HASH`: closure `staleKey` + git-navigable
-// commit). `defineBuildInfo` is generic over the schema, so the extra axis is
-// type-checked end to end.
+// The identity of a kaval pty-host daemon — closure `staleKey` (the nix-baked
+// source-closure hash) + git-navigable commit. Two consumers read it:
+//   - the connected daemon's REPORTED identity rides `DaemonStatus.identity` on
+//     the `daemonStatus` collection (served by padi);
+//   - the *expected* identity — the kaval THIS host WOULD spawn (its own baked
+//     `KAVAL_BUILD_ID`/`KAVAL_COMMIT_HASH`) — rides padi's `status.expectedKaval`
+//     cell. W1.R7 moved it off the surface-app `buildInfo` cell so a kaval read
+//     no longer crosses `packages/server` (the package-boundary seal); `buildInfo`
+//     now carries only `commit` + `version`.
 //
-// `expectedKaval` is the SERVER'S OWN constant (the build it bundles), NOT the
-// connected daemon's reported identity — that rides `DaemonStatus.identity` on
-// the `daemonStatus` collection, which the rail reads directly. So expected (one
-// server fact, here) and reported (a per-host daemon fact, there) read distinctly.
-//
-// B3.4 — currency: kaval's `staleKey` is a staleness input now. B3.3 adoption
-// keeps a wire-compatible-but-older daemon ALIVE across a redeploy (the
-// always-recycle premise that once made this display-only is gone), so the read
-// site compares `expectedKaval.staleKey !== daemonStatus.identity.staleKey` to
-// nudge "update pending" on the `kaval` column — a SEPARATE signal, deliberately
-// NOT folded into `isStale` (which stays the library-default clean-ref COMMIT
-// comparison driving the client's `≠ srv`). Keyed on the closure-hash staleKey,
+// B3.4 — currency: the client's read-site nudge compares
+// `expectedKaval.staleKey !== daemonStatus.identity.staleKey` to flag "update
+// pending" on the `kaval` column — a SEPARATE signal from `buildInfo`'s clean-ref
+// COMMIT comparison (the client's `≠ srv`). Keyed on the closure-hash staleKey,
 // never the per-deploy commit, so a server-/client-only deploy never nudges
 // (#1034); off-nix the id is "" on both sides, so the read-site guard stays silent.
 export const PtyHostIdentitySchema = z.object({
@@ -886,21 +880,15 @@ export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
    *  commit. Optional only in the library-seeded default (`{ commit }`); once
    *  the async buildInfo patch resolves it's always present — `pkg.version`,
-   *  even in dev. */
+   *  even in dev. The `expectedKaval` axis this cell once carried moved to padi's
+   *  `status` cell in W1.R7 (so a kaval read no longer crosses `packages/server`). */
   version?: string;
-  /** The identity of the kaval the server would spawn — its own baked closure
-   *  `staleKey` + commit (B3.4). Optional only in the library-seeded `{ commit }`
-   *  default and off-nix (no baked id); under nix it's always present. The
-   *  read-site currency nudge compares its `staleKey` against the connected
-   *  daemon's reported `DaemonStatus.identity.staleKey`. */
-  expectedKaval?: z.infer<typeof PtyHostIdentitySchema>;
 }
 
 export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
   schema: z.object({
     commit: z.string(),
     version: z.string().optional(),
-    expectedKaval: PtyHostIdentitySchema.optional(),
   }),
   default: { commit: "" },
 });
@@ -909,16 +897,18 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //
 // kolu now serves THREE sibling surfaces over one transport (kolu#1197, R8):
 //
-//   - `koluSurface` — every primitive kolu OWNS (preferences, activityFeed,
-//     session, terminalList; the per-terminal `authored` record; the git/fs
-//     streams; the terminalExit event). Served under the `kolu` key. The eight
-//     AWARENESS fields are NOT here — they ride `terminalWorkspace.snapshots`,
-//     and the client JOINS the two halves at read time (no fused record on the
-//     wire).
+//   - `koluSurface` — the primitives kolu OWNS that are NOT part of the terminal
+//     domain: the `preferences` / `activityFeed` / `session` / `terminalList` /
+//     `processMemory` cells and the `terminalExit` event. Served under the `kolu`
+//     key. Every terminal-domain member (the per-terminal record, urgency, daemon
+//     status, the expected-kaval axis) relocated to `@kolu/padi` across W1.R (the
+//     package-boundary seal) — so koluSurface has NO collections, and the terminal
+//     RECORD rides padi's `terminals` collection, not here.
 //   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
-//     build-identity `buildInfo` cell extended with kolu's `expectedKaval`
-//     axis, plus the `identity.info` restart probe). Served under the `surfaceApp`
-//     key. Its wire path is `surface.surfaceApp.{buildInfo,identity}`.
+//     build-identity `buildInfo` cell — `commit` + `version` — plus the
+//     `identity.info` restart probe). Served under the `surfaceApp` key. Its wire
+//     path is `surface.surfaceApp.{buildInfo,identity}`. The `expectedKaval` axis
+//     it once extended `buildInfo` with moved to padi's `status` cell (W1.R7).
 //   - `terminalWorkspaceSurface` — the GENERIC `@kolu/terminal-workspace` surface
 //     (awareness collection + version cell + activity flow + fs/git procedures &
 //     watcher streams), served under the `terminalWorkspace` key so a viewer reads
@@ -937,8 +927,11 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 /** surface-app served as a sibling, extended with kolu's build identity. */
 export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
 
-/** Every primitive kolu OWNS — its own cells, collection, streams, and event.
- *  surface-app's buildInfo/identity ride the sibling surface above, not here. */
+/** The primitives kolu OWNS that are NOT part of the terminal domain — its cells
+ *  and the terminalExit event. The terminal record, urgency, daemon status, and
+ *  the expected-kaval axis all relocated to `@kolu/padi` across W1.R (the seal),
+ *  so this surface serves NO collections. surface-app's buildInfo/identity ride
+ *  the sibling surface above, not here. */
 export const koluSurface = defineSurface({
   cells: {
     /** User preferences — local-authority on the client; server-canonical
@@ -994,34 +987,6 @@ export const koluSurface = defineSurface({
         kavalMemory: { status: "absent" },
       } satisfies z.infer<typeof ProcessMemorySchema>,
       verbs: ["get"],
-    },
-  },
-  collections: {
-    /** Per-terminal AUTHORED record — the kolu-owned half of a terminal:
-     *  `location` + memory + the `restoreTarget` + client/UI chrome + the
-     *  active|sleeping discriminant. The five OBSERVED awareness fields (cwd · git ·
-     *  pr · agent · foreground) ride the GENERIC
-     *  `terminalWorkspace.snapshots` collection, NOT here — the client JOINS the
-     *  two halves at read time via `composeTerminalMetadata`
-     *  (`useTerminalMetadata`), so there is no server-side re-fusion and no fused
-     *  record on the wire. Each terminal is independently observable; mutations
-     *  come from server-side providers writing through the publisher channel —
-     *  clients don't call `upsert` on this collection directly. */
-    authored: {
-      keySchema: TerminalIdSchema,
-      schema: AuthoredTerminalSchema,
-      // Only the streaming reads are exposed; writes are server-internal.
-      verbs: ["keys", "get"],
-    },
-
-    /** Per-host pty-host daemon (kaval) status, keyed by hostId — a map of one
-     *  (`local`) today, host-count-agnostic by construction for R-2's ssh hosts.
-     *  The supervisor's endpoint is the sole writer (server-internal); the rail
-     *  and DegradedCanvas subscribe so the UI never lies about the daemon. */
-    daemonStatus: {
-      keySchema: z.string(),
-      schema: DaemonStatusSchema,
-      verbs: ["keys", "get"],
     },
   },
   events: {

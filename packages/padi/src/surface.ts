@@ -67,6 +67,7 @@ import {
   InitialTerminalMetadataSchema,
   KoluAuthoredFieldsSchema,
   PersistedSnapshotSchema,
+  PtyHostIdentitySchema,
   RightPanelPerTerminalStateSchema,
   SavedSessionSchema,
   SavedSleepingTerminalSchema,
@@ -112,6 +113,27 @@ export type PadiVersion = z.infer<typeof PadiVersionSchema>;
 export const DEFAULT_PADI_VERSION: PadiVersion = {
   contractVersion: PADI_SURFACE_VERSION,
 };
+
+// ── Status (the per-host build-currency axis) ─────────────────────────────
+
+/** The `status` cell payload — host-side facts the dock's kaval column reads
+ *  that are NEITHER a daemon-liveness transition (that rides the `daemonStatus`
+ *  collection) NOR a terminal record. Today just `expectedKaval` — the identity
+ *  of the kaval THIS padi would spawn (its own baked closure `staleKey` + git
+ *  `navigableCommit`), the *expected* operand of B3.4's read-site currency nudge
+ *  (`expectedKaval.staleKey !== daemonStatus.identity.staleKey`). A build
+ *  CONSTANT (never changes at runtime), so padi seeds it once at boot; off-nix
+ *  the id is "" and the field is omitted, so the nudge stays silent. This is the
+ *  member that lets the last kaval read leave `packages/server` (W1.R7 — the
+ *  expected identity was the surface-app `buildInfo` cell's extra axis before). */
+export const PadiStatusSchema = z.object({
+  expectedKaval: PtyHostIdentitySchema.optional(),
+});
+export type PadiStatus = z.infer<typeof PadiStatusSchema>;
+
+/** The value a fresh `status` subscriber sees before padi seeds it — no expected
+ *  kaval known yet. */
+export const DEFAULT_PADI_STATUS: PadiStatus = {};
 
 // ── The composed `terminals` value — active | sleeping | parked ───────────
 
@@ -334,6 +356,14 @@ export const padiSurface = defineSurface({
       default: { awaiting: 0, awaitingIds: [] } satisfies PadiUrgency,
       verbs: ["get"],
     },
+    /** Host-side build-currency facts — today the `expectedKaval` axis (the kaval
+     *  this padi would spawn). Read-only on the client; padi seeds it once at boot
+     *  (a build constant). */
+    status: {
+      schema: PadiStatusSchema,
+      default: DEFAULT_PADI_STATUS,
+      verbs: ["get"],
+    },
   },
   collections: {
     /** The composed terminal record — `authored ⋈ snapshot`, one writer, keyed
@@ -510,6 +540,7 @@ export const PADI_FORWARDING_POLICY = {
   // cells
   version: "value",
   urgency: "value",
+  status: "value",
   // collections
   terminals: "value",
   daemonStatus: "value",

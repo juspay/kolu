@@ -51,7 +51,6 @@ import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
   ActivityFeed,
-  AuthoredTerminal,
   KoluBuildInfo,
   Preferences,
   ProcessMemory,
@@ -71,8 +70,6 @@ import {
   getTerminal,
   listTerminals,
   publisher,
-  readDaemonStatus,
-  readDaemonStatuses,
   registryMap,
   resolveTerminalEndpoint,
   setPadiSurfaceCtx,
@@ -81,11 +78,6 @@ import {
   terminalNotFound,
 } from "@kolu/padi/assembly";
 import { store } from "./state.ts";
-// kaval's OWN identity assembler — read in the SERVER process it returns the
-// server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
-// spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
-// *reported* identity, which rides `daemonStatus.identity`, not buildInfo.
-import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 
 // Resolved through the one `HostLocation` seam (R9.1). Eager at module-eval,
 // exactly as the prior direct reference was — the late-bound surface ctx
@@ -247,51 +239,6 @@ const koluDeps: Omit<
     },
   },
 
-  collections: {
-    authored: {
-      // Design-S: kolu serves the AUTHORED half (location + client chrome + the
-      // active|sleeping discriminant) straight off the registry — NO awareness,
-      // NO compose. The AWARENESS half rides the sibling
-      // `terminalWorkspace.snapshots` collection below, and the client joins the
-      // two at read time (`useTerminalMetadata`). There is no server-side
-      // re-fusion: the wire never carries a single fused record.
-      // Exclude PARKED entries (W1.R6): the legacy koluSurface `authored`
-      // collection's schema is the `active | sleeping` `AuthoredTerminal` union,
-      // and its (retiring) client consumers never learned the boot-only `parked`
-      // arm — a parked record belongs only to padi's `terminals` collection. The
-      // registry now holds parked entries (a reboot's restore-card backing), so
-      // filter them out of this legacy backing rather than serve an arm its
-      // schema would reject.
-      readAll: () => {
-        const map = new Map<string, AuthoredTerminal>();
-        for (const [id, meta] of registryMap((t) => t.meta)) {
-          if (meta.state !== "parked") map.set(id, meta);
-        }
-        return map;
-      },
-      readOne: (key) => {
-        const meta = getTerminal(key as string)?.meta;
-        return meta && meta.state !== "parked" ? meta : undefined;
-      },
-      // Server-internal collection: clients can't write. The registry IS the
-      // store, so the `upsert`/`remove` no-ops only fan out to subscribers —
-      // `terminalEndpoint/metadata.ts` calls `surfaceCtx.collections.authored
-      // .upsert` on every authored flip (spawn / sleep / wake / client field).
-      upsert: () => {},
-      remove: () => {},
-    },
-
-    daemonStatus: {
-      readAll: () => readDaemonStatuses(),
-      readOne: (key) => readDaemonStatus(key as string),
-      // Server-internal: `publishDaemonStatus` writes the store before calling
-      // `surfaceCtx.collections.daemonStatus.upsert`, so these are no-ops (the
-      // store is the authority, mirroring `authored`).
-      upsert: () => {},
-      remove: () => {},
-    },
-  },
-
   events: {
     terminalExit: {
       // Single-yield-then-close: validate the terminal exists at subscribe
@@ -324,14 +271,13 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   // `/surface/kolu/…` and `/surface/surfaceApp/…` with a key-namespaced channel
   // per surface (so neither's `*:changed` channels collide on the wire).
   //
-  // kolu seeds the buildInfo cell with `{ commit }` and patches the rest
-  // (`version` + `expectedKaval`) over it. `surfaceAppServer` returns the
-  // buildInfo cell carrying `.connect` — the surface runtime fires it once the
-  // cell ctx is built, republishing the resolved `{ commit, version,
-  // expectedKaval }` through the same fragment when it settles (server-pushed,
-  // so the `srv · kaval` rail fills in without a client reload). `expectedKaval`
-  // is the server's OWN baked build constant, not the connected daemon's
-  // reported identity (that rides `daemonStatus.identity`). No app-visible
+  // kolu seeds the buildInfo cell with `{ commit }` and patches `version` over
+  // it. `surfaceAppServer` returns the buildInfo cell carrying `.connect` — the
+  // surface runtime fires it once the cell ctx is built, republishing the
+  // resolved `{ commit, version }` through the same fragment when it settles
+  // (server-pushed, so the `srv` rail fills in without a client reload). The
+  // `expectedKaval` axis this cell once carried moved to padi's `status` cell
+  // (W1.R7 — a kaval read no longer crosses `packages/server`). No app-visible
   // connect to call, no hand-written `ctx.cells.buildInfo.set`.
   implementSurfaces(
     // `surfacesWithPadi` (the keyed Surface map PLUS `padi`) is served here so
@@ -357,40 +303,28 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     },
     {
       // ── surface-app's server deps (sibling under `surfaceApp`) ───────────
-      // The build-identity cell's server fragment (skew axis), extended with
-      // kolu's `expectedKaval` axis, PLUS the `identity.info` restart probe
-      // pinned to kolu's boot UUID. `commit` is kolu's single source
-      // (`serverCommit` ← `KOLU_COMMIT_HASH`); `expectedKaval` is a build
-      // CONSTANT (the server's own baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH — the
-      // build it would spawn), so it lands as a `Partial<KoluBuildInfo>` patch
-      // over the library-seeded `{ commit }`. The connected daemon's *reported*
-      // identity is NOT here — it rides `daemonStatus.identity`. Per-key deps are
-      // typed against the surface's own spec, so this needs no cast.
+      // The build-identity cell's server fragment (skew axis) PLUS the
+      // `identity.info` restart probe pinned to kolu's boot UUID. `commit` is
+      // kolu's single source (`serverCommit` ← `KOLU_COMMIT_HASH`); `version`
+      // lands as a `Partial<KoluBuildInfo>` patch over the library-seeded
+      // `{ commit }`. The kaval `expectedKaval` axis this cell once carried moved
+      // to padi's `status` cell (W1.R7 — a kaval read no longer crosses
+      // `packages/server`). Per-key deps are typed against the surface's own spec,
+      // so this needs no cast.
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
-        buildInfo: async () => {
-          // The kaval the server WOULD spawn — its OWN baked identity (a build
-          // constant), the *expected* operand of B3.4's read-site currency nudge
-          // (`expectedKaval.staleKey !== daemonStatus.identity.staleKey`). Off-nix
-          // the id is "" — omit it then (nix-first, no dev identity), so the rail
-          // shows no expected and the nudge stays silent.
-          const expectedKaval = expectedKavalIdentity();
-          return {
-            version: serverVersion,
-            ...(expectedKaval.staleKey ? { expectedKaval } : {}),
-          };
-        },
+        buildInfo: async () => ({ version: serverVersion }),
         commit: serverCommit,
         // surface-app's identity probe (restart axis) —
         // `surface.surfaceApp.identity.info`. Pin it to the existing boot UUID
         // (`serverProcessId`) so the value is stable within a process and
         // changes on restart. Composed, not hand-written.
         processId: serverProcessId,
-        // `expectedKaval` is a build constant — this read can't fail — but keep
-        // the fragment's error sink for the cell's contract.
+        // `version` is a build constant — this read can't fail — but keep the
+        // fragment's error sink for the cell's contract.
         onError: (err) =>
           log.error(
             { err: err instanceof Error ? err.message : String(err) },
-            "buildInfo expectedKaval axis failed",
+            "buildInfo version axis failed",
           ),
       }),
 
@@ -407,8 +341,8 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // against `terminalWorkspaceSurface.spec`, so this needs no cast.
       terminalWorkspace: serveTerminalWorkspace({
         // Project the awareness half straight off the registry — `.snapshot`
-        // exactly as `authored` projects `.meta` (the two halves share one
-        // backing entry). Writes go through the sink's
+        // exactly as padi's `terminals` collection composes off the same entry.
+        // Writes go through the sink's
         // `installSnapshot`/`updateServer*Metadata` (which call
         // `workspaceSurfaceCtx.collections.snapshots.upsert`), so the framework's
         // `upsert`/`remove` are no-ops (the registry is the authority).
@@ -446,9 +380,10 @@ setSurfaceCtx(surfaceCtxBuilt.kolu);
 // The awareness sink (`terminalEndpoint/metadata.ts`) publishes onto the
 // `terminalWorkspace` surface's `awareness` collection, so register that ctx too.
 setWorkspaceSurfaceCtx(surfaceCtxBuilt.terminalWorkspace);
-// W1.R1: turn ON padi's live publish. The composed-terminal seam
-// (`terminalEndpoint/metadata.ts`) now publishes onto padi's `terminals`
-// collection + `urgency` cell, so register padi's ctx. The kolu `authored` +
-// terminalWorkspace `snapshots` collections stay SERVED (retire at R7) — the seam
-// simply stops WRITING to them.
+// padi's live publish. The composed-terminal seam
+// (`terminalEndpoint/metadata.ts`) publishes onto padi's `terminals` collection +
+// `urgency` cell, and the kaval supervisor's `publishDaemonStatus` onto padi's
+// `daemonStatus` collection (W1.R7 — the last terminal-domain members left
+// koluSurface, which now serves NO collections). The terminalWorkspace
+// `snapshots` collection stays served for the generic awareness surface.
 setPadiSurfaceCtx(surfaceCtxBuilt.padi);

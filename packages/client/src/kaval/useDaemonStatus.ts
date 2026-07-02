@@ -19,7 +19,7 @@ import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
-import { app } from "../wire";
+import { app, padi } from "../wire";
 import {
   DAEMON_STATE_PRESENTATION,
   liveDownState,
@@ -72,7 +72,12 @@ export function daemonTransportLive(): boolean {
   return sharedDaemonTransportLive()();
 }
 
-const sub = app.collections.daemonStatus.use({
+// The daemon-liveness collection rides padi now (W1.R7 — padi supervises its
+// kaval, so it serves `daemonStatus`; it left koluSurface). Transport liveness
+// (`daemonTransportLive`, `app.health().live`) is unchanged: padi and kolu are
+// siblings over the ONE socket, so the ws that delivers this is the same one
+// `app.health()` watches.
+const sub = padi.collections.daemonStatus.use({
   keys: () => [LOCAL_HOST],
   onError: (err) => toast.error(`Daemon status error: ${err.message}`),
 });

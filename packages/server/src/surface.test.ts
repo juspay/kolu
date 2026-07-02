@@ -22,16 +22,19 @@ describe("surfaces map — three siblings (R8)", () => {
     expect(spec.procedures?.git).toBeDefined();
   });
 
-  it("kolu serves the `authored` half only — the fused `terminalMetadata` is gone (no re-fusion)", () => {
-    const spec = surfaces.kolu.spec;
-    // Design-S: kolu serves the AUTHORED half; the client joins it with
-    // `terminalWorkspace.snapshots` at read time. The fused `terminalMetadata`
-    // collection is REMOVED, so a server-side recompose is unspellable — there is
-    // no `surfaceCtx.collections.terminalMetadata` to push a fused record onto.
-    expect(spec.collections?.authored).toBeDefined();
-    expect(
-      (spec.collections as Record<string, unknown>)?.terminalMetadata,
-    ).toBeUndefined();
+  it("kolu serves NO collections — the terminal domain relocated to padi (W1.R7 seal)", () => {
+    // `collections` is dropped from the spec type entirely (not an empty object),
+    // so read it through a widened view.
+    const spec = surfaces.kolu.spec as {
+      collections?: Record<string, unknown>;
+    };
+    // W1.R7 retired the last terminal-domain members from koluSurface: `authored`
+    // and `daemonStatus` moved to padi's `terminals` / `daemonStatus`, so kolu
+    // serves no collections at all. Its terminal RECORD rides padi now — there is
+    // no `kolu.authored`, and no fused `terminalMetadata` to recompose.
+    expect(spec.collections).toBeUndefined();
+    expect(spec.collections?.authored).toBeUndefined();
+    expect(spec.collections?.daemonStatus).toBeUndefined();
   });
 });
 

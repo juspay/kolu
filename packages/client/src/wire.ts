@@ -108,8 +108,9 @@ const link = conn.link;
 const clients = conn.clients;
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,
- *  `app.collections.authored.use(...)`, `app.cells.terminalList.use(...)`,
- *  etc. Every existing `app.*` call site reaches kolu's own primitives. */
+ *  `app.cells.activityFeed.use(...)`, `app.cells.terminalList.use(...)`, etc.
+ *  Every `app.*` call site reaches kolu's own NON-terminal primitives; the
+ *  terminal record, urgency, and daemon status ride `padi.*` after W1.R. */
 export const app = clients.kolu;
 
 /** surface-app's surface client — the build-identity `buildInfo` cell (read via
@@ -128,11 +129,13 @@ export const surfaceApp = clients.surfaceApp;
 export const workspace = clients.terminalWorkspace;
 
 /** The `@kolu/padi` surface client (`padiSurface` served natively beside the
- *  siblings, W1.R0). INERT at R0 — no consumers yet: nothing reads `padi.*`, so
- *  the client still reads koluSurface/terminalWorkspace/surfaceApp exactly as
- *  before, and padi opens no eager subscriptions (it declares no `liveWhen`
- *  readiness cell). R1–R7 migrate one member's reader onto `padi.*` per commit.
- *  Procedures resolve via `padiRpc(padi)` (the cast beside `padiSurface`). */
+ *  siblings). W1.R migrated the terminal domain's readers onto it one member per
+ *  commit: `padi.collections.terminals` (the composed record), `.daemonStatus`
+ *  (kaval liveness), `padi.cells.status` (the expected-kaval axis) + `.urgency`,
+ *  and every lifecycle/chrome/screen/fs/git/session procedure via
+ *  `padiRpc(padi)`. Its subscriptions ride the SAME socket as `app` (siblings
+ *  over one transport), so `app.health().live` is the shared-socket liveness for
+ *  padi's members too. */
 export const padi = clients.padi;
 
 /** Convenience alias — the FULL combined link. `client.terminal.create(...)`,

@@ -10,28 +10,37 @@
  *  unchanged.
  *
  *  The derivation ({@link kavalStale}) is a read-site join of two raw facts —
- *  `expected` (the server's `buildInfo.expectedKaval`) and `reported` (the
- *  connected daemon's `daemonStatus.identity`) — never stored, never folded into
- *  the client-vs-server `≠ srv` signal (which stays the commit comparison). */
+ *  `expected` (padi's `status.expectedKaval`) and `reported` (the connected
+ *  daemon's `daemonStatus.identity`) — never stored, never folded into the
+ *  client-vs-server `≠ srv` signal (which stays the commit comparison). */
 
-import { useSurfaceApp } from "@kolu/surface-app/solid";
+import type { PadiStatus } from "@kolu/padi/surface";
 import type { Component } from "solid-js";
-import type { KoluBuildInfo } from "kolu-common/surface";
+import { toast } from "solid-sonner";
+import { padi } from "../wire";
 import { kavalStale } from "./kavalCurrency";
 import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
 
-/** The server's *expected* kaval identity — the build it would spawn
- *  (`buildInfo.expectedKaval`: closure `staleKey` + git `navigableCommit`). Named
- *  once here so every read site (the `kavalUpdatePending` predicate and the
+// A module-level standing subscription to padi's `status` cell (the same pattern
+// useDaemonStatus uses for the daemonStatus collection). The `expectedKaval` axis
+// rides HERE now — it left the surface-app `buildInfo` cell in W1.R7 so a kaval
+// read no longer crosses `packages/server`. Read-only; padi seeds it once at boot.
+const padiStatus = padi.cells.status.use({
+  onError: (err) => toast.error(`Kaval status error: ${err.message}`),
+});
+
+/** The *expected* kaval identity — the build padi would spawn
+ *  (`padi.cells.status.expectedKaval`: closure `staleKey` + git `navigableCommit`).
+ *  Named once here so every read site (the `kavalUpdatePending` predicate and the
  *  dialog's running-vs-expected commit links + "what changed" history link) joins
- *  the surface path through one accessor. Must be called under `<SurfaceAppProvider>`. */
-export const expectedKaval = (): KoluBuildInfo["expectedKaval"] =>
-  useSurfaceApp<KoluBuildInfo>().server()?.expectedKaval;
+ *  the surface path through one accessor. */
+export const expectedKaval = (): PadiStatus["expectedKaval"] =>
+  padiStatus.value()?.expectedKaval;
 
 /** True when the running kaval daemon is provably a build behind the server's
- *  expected build. Reads the surface-app model (`buildInfo.expectedKaval`) and
- *  the live `daemonStatus` — must be called under `<SurfaceAppProvider>`. Gate
- *  the nudge on this: `<Show when={kavalUpdatePending()}><KavalUpdateBadge /></Show>`. */
+ *  expected build. Reads padi's `status` cell (`status.expectedKaval`) and the
+ *  live `daemonStatus`. Gate the nudge on this:
+ *  `<Show when={kavalUpdatePending()}><KavalUpdateBadge /></Show>`. */
 export const kavalUpdatePending = (): boolean => {
   // Floored on transport liveness like the kaval dot beside it: over a dead/half-open
   // link the retained daemon identity is stale, so the "a newer build is available;
