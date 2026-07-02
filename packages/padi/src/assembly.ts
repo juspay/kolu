@@ -81,6 +81,11 @@ export {
   surfaceCtx,
 } from "./surfaceCtx.ts";
 export { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
+export {
+  __resetPadiSurfaceCtxForTest,
+  padiSurfaceCtx,
+  setPadiSurfaceCtx,
+} from "./padiSurfaceCtx.ts";
 
 // ── scratch / roots ─────────────────────────────────────────────────────
 export {

@@ -83,6 +83,7 @@ import {
   readDaemonStatuses,
   registryMap,
   resolveTerminalEndpoint,
+  setPadiSurfaceCtx,
   setSurfaceCtx,
   setWorkspaceSurfaceCtx,
   terminalNotFound,
@@ -498,3 +499,9 @@ setSurfaceCtx(surfaceCtxBuilt.kolu);
 // The awareness sink (`terminalEndpoint/metadata.ts`) publishes onto the
 // `terminalWorkspace` surface's `awareness` collection, so register that ctx too.
 setWorkspaceSurfaceCtx(surfaceCtxBuilt.terminalWorkspace);
+// W1.R1: turn ON padi's live publish. The composed-terminal seam
+// (`terminalEndpoint/metadata.ts`) now publishes onto padi's `terminals`
+// collection + `urgency` cell, so register padi's ctx. The kolu `authored` +
+// terminalWorkspace `snapshots` collections stay SERVED (retire at R7) — the seam
+// simply stops WRITING to them.
+setPadiSurfaceCtx(surfaceCtxBuilt.padi);

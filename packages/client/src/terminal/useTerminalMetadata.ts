@@ -14,16 +14,14 @@
  *  terminal leaves the list. No manual Map, AbortController, or version
  *  signals needed at this call site. */
 
-import {
-  type AuthoredTerminal,
-  composeTerminalMetadata,
-  type TerminalId,
-  type TerminalInfo,
-  type TerminalMetadata,
+import type {
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
 } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { app, workspace } from "../wire";
+import { padi } from "../wire";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -53,15 +51,14 @@ export function sameTerminalIdOrder(
 export function useTerminalMetadata(deps: {
   list: Accessor<TerminalInfo[] | undefined>;
 }) {
-  // Design-S: a terminal's record is a JOIN of two halves served on two
-  // collections — the kolu-owned AUTHORED record (`kolu.authored`: location +
-  // client chrome + the active|sleeping discriminant) and the GENERIC AWARENESS
-  // value (`terminalWorkspace.snapshots`: the eight sensor fields). Both subscribe
-  // to the SAME key set (the live terminal list); `getMetadata` recomposes them at
-  // read time via `composeTerminalMetadata` — the ONE join, shared with disk
-  // persist (`snapshotSession`). There is no server-side re-fusion: the bisection
-  // reaches HERE, the consumer. R9 (remote snapshots) swaps the snapshots backing
-  // remote-side behind `terminalWorkspace.snapshots` with no change at this seam.
+  // W1.R1: a terminal's record is served ALREADY COMPOSED. padi's `terminals`
+  // collection folds the two halves that share the one registry entry — the
+  // AUTHORED record (location + client chrome + the active|sleeping discriminant)
+  // and the GENERIC AWARENESS value (the sensor fields) — server-side via
+  // `composeTerminalMetadata` (the ONE join, shared with disk persist
+  // `snapshotSession`). The client's former reader-join collapsed to this single
+  // read; there is no client-side re-fusion. R9 (remote snapshots) swaps the
+  // snapshot backing remote-side behind the server compose with no change here.
   // Memoized so the id array is computed once per list change, not re-mapped on
   // every `.use({ keys })` read, every `terminalIds` recompute, and every
   // `getSubTerminalIds` call (the last runs O(terminals) times per display
@@ -69,40 +66,39 @@ export function useTerminalMetadata(deps: {
   const keys = createMemo<TerminalId[]>(
     () => deps.list()?.map((t) => t.id) ?? [],
   );
-  const authored = app.collections.authored.use({
+  const terminals = padi.collections.terminals.use({
     keys,
     onError: (err) => toast.error(`Metadata error: ${err.message}`),
   });
-  const snapshots = workspace.collections.snapshots.use({
-    keys,
-    onError: (err) => toast.error(`Awareness error: ${err.message}`),
-  });
 
-  /** Recompose a terminal's wire shape from its two halves — `undefined` until
-   *  BOTH the authored record and the snapshots value have arrived (the join
-   *  can't be materialized from one half alone). The two `byKey` reads are
-   *  reactive, so this re-runs as either half updates. The result is a fresh
-   *  object per call (no cached reference): every one of the ~20 consumers reads
-   *  it field-wise inside its own tracking scope — none compares it by identity —
-   *  so identity-freshness is sound, and per-key reactivity stays granular (a
-   *  change to one terminal's half notifies only readers of that terminal). */
+  // padi's `terminals` collection is typed `PadiTerminal` — a SUPERSET of
+  // `TerminalMetadata`: it adds the reserved cross-host `host` axis (never
+  // populated on a single-host canvas) and a reserved `parked` arm (produced only
+  // from W1.R6's boot reconcile). At R1 the server composes and serves ONLY the
+  // `active|sleeping` arms with `host` absent, so the served value IS a valid
+  // `TerminalMetadata` for every one of the ~20 downstream consumers. This is the
+  // ONE type bridge where the padi wire shape meets the client's domain type;
+  // narrow it here so the consumers stay unchanged.
+  const readComposed = (id: TerminalId): TerminalMetadata | undefined =>
+    terminals.byKey(id)?.() as TerminalMetadata | undefined;
+
+  /** A terminal's composed wire shape — `undefined` until the server-composed
+   *  record has arrived. The `byKey` read is reactive, so this re-runs as the
+   *  record updates. The stored reference is read field-wise by every one of the
+   *  ~20 consumers inside its own tracking scope — none compares it by identity —
+   *  so per-key reactivity stays granular (a change to one terminal notifies only
+   *  readers of that terminal). */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    const a = authored.byKey(id)?.();
-    const w = snapshots.byKey(id)?.();
-    return a && w ? composeTerminalMetadata(a, w) : undefined;
+    return readComposed(id);
   }
 
-  /** A terminal's AUTHORED record once BOTH halves have arrived — the cheap read
-   *  the ordering filters below need. `parentId` lives only on `authored`, so the
-   *  joined record's value always equals `authored.parentId`; reading it here
-   *  (rather than `getMetadata`) skips the full join — no spread on the active
-   *  arm, no zod parse on the sleeping arm — on the per-tick reactivity keystone.
-   *  Gated on snapshots presence too (same `a && w` gate as `getMetadata`), so a
-   *  still-loading terminal is excluded from the order exactly as before. */
-  function authoredIfReady(id: TerminalId): AuthoredTerminal | undefined {
-    const a = authored.byKey(id)?.();
-    const w = snapshots.byKey(id)?.();
-    return a && w ? a : undefined;
+  /** A terminal's composed record once it has arrived — the read the ordering
+   *  filters below need for `parentId`. The server serves the join already
+   *  materialized, so this is the same single read as `getMetadata`; presence
+   *  (record arrived) is the gate that excludes a still-loading terminal from the
+   *  order, exactly as the two-half `a && w` gate did before. */
+  function authoredIfReady(id: TerminalId): TerminalMetadata | undefined {
+    return readComposed(id);
   }
 
   // --- Order: server Map insertion order, filtered by parent relationship ---

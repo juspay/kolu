@@ -1,13 +1,14 @@
 /**
  * Publish-routing + type-fence tests for the awareness/metadata write seam.
  *
- * The firehose fence MOVED with the awareness-derive-store cutover. The fold's
- * two commit seams (`commitSnapshot`, `updateMemory`) NEVER fire
- * `terminals:dirty` — the fold's WATCH LOOP arms autosave itself, but only on a
- * restore-relevant VALUE change, so a bare snapshot/memory tick must stay
- * silent. The client/lifecycle seams (`updateClientMetadata`,
- * `publishTerminalState`) DO fire dirty. The type fences pin the structural
- * guarantee that the split has ONE writer per half:
+ * W1.R1 collapsed the two per-half publishes into ONE composed publish onto padi's
+ * `terminals` collection, but the `terminals:dirty` fence is unchanged: the fold's
+ * two commit seams (`commitSnapshot`, `updateMemory`) NEVER fire `terminals:dirty`
+ * — the fold's WATCH LOOP arms autosave itself, but only on a restore-relevant
+ * VALUE change, so a bare snapshot/memory tick must stay silent. The
+ * client/lifecycle seams (`updateClientMetadata`, `publishTerminalState`) DO fire
+ * dirty. The type fences pin the structural guarantee that the split has ONE writer
+ * per half:
  *   - an `TerminalSnapshot` commit can't carry a REMEMBERED memory field;
  *   - `updateMemory`'s `AgentMemory` can't carry an OBSERVED field;
  *   - `entry.meta` (now AUTHORED) names NO snapshot field — `entry.meta.cwd = x`
@@ -24,15 +25,10 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import {
-  __resetSurfaceCtxForTest,
-  noopSurfaceCtxForTest,
-  setSurfaceCtx,
-} from "../surfaceCtx.ts";
-import {
-  __resetWorkspaceSurfaceCtxForTest,
-  noopWorkspaceSurfaceCtxForTest,
-  setWorkspaceSurfaceCtx,
-} from "../workspaceSurfaceCtx.ts";
+  __resetPadiSurfaceCtxForTest,
+  noopPadiSurfaceCtxForTest,
+  setPadiSurfaceCtx,
+} from "../padiSurfaceCtx.ts";
 import {
   commitSnapshot,
   installSnapshot,
@@ -82,17 +78,15 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(async () => {
-  // surface.ts is not imported here; supply no-op ctxes so the publish paths
-  // (the `kolu` authored collection + the `terminalWorkspace` awareness
-  // collection) don't throw.
-  setSurfaceCtx(noopSurfaceCtxForTest());
-  setWorkspaceSurfaceCtx(noopWorkspaceSurfaceCtxForTest());
+  // surface.ts is not imported here; supply a no-op padi ctx so the composed
+  // publish path (padi's `terminals` collection + `urgency` cell) doesn't throw.
+  setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
   // The commit seams key on id and land on `entry.snapshot` / `entry.meta`; the
-  // wire publish reads the registry. Register the entry (carrying BOTH halves),
-  // then fan its snapshot out.
+  // composed publish reads the registry. Register the entry (carrying BOTH halves),
+  // then fan its composed record out.
   const entry = fakeTerminal();
   registerTerminal(ID, entry);
-  installSnapshot(ID, entry.snapshot);
+  installSnapshot(ID);
   dirtyCount = 0;
   stopWatch = terminalsDirtyChannel.consume({
     onEvent: () => {
@@ -108,8 +102,7 @@ afterEach(() => {
   stopWatch?.();
   // Dropping the entry drops its awareness too (one backing store now).
   unregisterTerminal(ID);
-  __resetSurfaceCtxForTest();
-  __resetWorkspaceSurfaceCtxForTest();
+  __resetPadiSurfaceCtxForTest();
 });
 
 describe("metadata publish routing", () => {
@@ -179,8 +172,7 @@ describe("metadata publish routing", () => {
   });
 
   it("publishTerminalState fires terminals:dirty (a lifecycle flip arms autosave)", async () => {
-    const entry = getTerminal(ID) as ActiveTerminalProcess;
-    publishTerminalState(entry, ID);
+    publishTerminalState(ID);
     await settle();
     expect(dirtyCount).toBe(1);
   });
@@ -220,53 +212,34 @@ describe("metadata publish routing", () => {
   });
 });
 
-// A surface ctx whose ONE named collection's `upsert` THROWS — to prove the commit
-// seams guard the publish at the boundary: a throwing subscriber must not propagate
-// back into the producer's emit (which would freeze a sensor), and the accepted value
-// must still land on the registry entry (no desync). Built off the no-op ctx,
-// overriding only the offending collection's `upsert`.
-function throwingWorkspaceCtx(): ReturnType<
-  typeof noopWorkspaceSurfaceCtxForTest
-> {
-  const base = noopWorkspaceSurfaceCtxForTest();
+// A padi ctx whose `terminals` collection `upsert` THROWS — to prove the commit
+// seams guard the composed publish at the boundary: a throwing subscriber must not
+// propagate back into the producer's emit (which would freeze a sensor), and the
+// accepted value must still land on the registry entry (no desync). Built off the
+// no-op ctx, overriding only the `terminals` collection's `upsert`.
+function throwingTerminalsCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
+  const base = noopPadiSurfaceCtxForTest();
   return {
     ...base,
     collections: new Proxy({} as never, {
       get: (_t, name) =>
-        name === "snapshots"
+        name === "terminals"
           ? {
               upsert: () => {
-                throw new Error("snapshot subscriber boom");
+                throw new Error("terminals subscriber boom");
               },
               remove: () => {},
             }
           : (base.collections as Record<string, unknown>)[name as string],
     }),
-  } as ReturnType<typeof noopWorkspaceSurfaceCtxForTest>;
-}
-
-function throwingAuthoredCtx(): ReturnType<typeof noopSurfaceCtxForTest> {
-  const base = noopSurfaceCtxForTest();
-  return {
-    ...base,
-    collections: new Proxy({} as never, {
-      get: (_t, name) =>
-        name === "authored"
-          ? {
-              upsert: () => {
-                throw new Error("authored subscriber boom");
-              },
-            }
-          : (base.collections as Record<string, unknown>)[name as string],
-    }),
-  } as ReturnType<typeof noopSurfaceCtxForTest>;
+  } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
 }
 
 describe("commit seams guard the publish boundary (emit stays infallible)", () => {
-  it("commitSnapshot: a throwing snapshot subscriber does NOT propagate, and the snapshot is still committed", () => {
-    // Swap the beforeEach no-op ctx for one whose awareness upsert throws.
-    __resetWorkspaceSurfaceCtxForTest();
-    setWorkspaceSurfaceCtx(throwingWorkspaceCtx());
+  it("commitSnapshot: a throwing terminals subscriber does NOT propagate, and the snapshot is still committed", () => {
+    // Swap the beforeEach no-op ctx for one whose composed upsert throws.
+    __resetPadiSurfaceCtxForTest();
+    setPadiSurfaceCtx(throwingTerminalsCtx());
     const accepted = { ...snapshot(), cwd: "/accepted-despite-throw" };
     // The producer advanced its baseline before calling emit; if this threw, the
     // sensor loop would freeze AND the fold would desync. It must not throw —
@@ -276,9 +249,9 @@ describe("commit seams guard the publish boundary (emit stays infallible)", () =
     expect(getTerminal(ID)?.snapshot.cwd).toBe("/accepted-despite-throw");
   });
 
-  it("updateMemory: a throwing authored subscriber does NOT propagate, and the memory is still committed", () => {
-    __resetSurfaceCtxForTest();
-    setSurfaceCtx(throwingAuthoredCtx());
+  it("updateMemory: a throwing terminals subscriber does NOT propagate, and the memory is still committed", () => {
+    __resetPadiSurfaceCtxForTest();
+    setPadiSurfaceCtx(throwingTerminalsCtx());
     expect(() =>
       updateMemory(
         ID,

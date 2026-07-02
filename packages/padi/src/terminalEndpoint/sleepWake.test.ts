@@ -43,6 +43,11 @@ import {
   setSurfaceCtx,
 } from "../surfaceCtx.ts";
 import {
+  __resetPadiSurfaceCtxForTest,
+  noopPadiSurfaceCtxForTest,
+  setPadiSurfaceCtx,
+} from "../padiSurfaceCtx.ts";
+import {
   type ActiveTerminalProcess,
   snapshotFor,
   getTerminal,
@@ -50,11 +55,6 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { snapshotSession } from "../terminals.ts";
-import {
-  __resetWorkspaceSurfaceCtxForTest,
-  noopWorkspaceSurfaceCtxForTest,
-  setWorkspaceSurfaceCtx,
-} from "../workspaceSurfaceCtx.ts";
 import {
   beginSleepLocal,
   discardLocalSleeping,
@@ -84,14 +84,14 @@ const EXACT_TARGET: RestoreTarget = {
   agent: RESUME_AGENT,
 };
 
-/** A surface ctx that RECORDS every `authored.upsert` into `sink` (id + state),
- *  so a test can assert the AUTHORED record was actually PUSHED to the collection
- *  on a lifecycle flip — not merely that a `terminals:dirty` trigger fired. Built
- *  off the no-op ctx, overriding only the collections proxy. */
-function recordingSurfaceCtx(
+/** A padi ctx that RECORDS every `terminals.upsert` into `sink` (id + state), so a
+ *  test can assert the composed record was actually PUSHED to the collection on a
+ *  lifecycle flip — not merely that a `terminals:dirty` trigger fired. Built off the
+ *  no-op ctx, overriding only the collections proxy. */
+function recordingPadiCtx(
   sink: Array<{ id: string; state: AuthoredTerminal["state"] }>,
-): ReturnType<typeof noopSurfaceCtxForTest> {
-  const base = noopSurfaceCtxForTest();
+): ReturnType<typeof noopPadiSurfaceCtxForTest> {
+  const base = noopPadiSurfaceCtxForTest();
   return {
     ...base,
     collections: new Proxy({} as never, {
@@ -99,19 +99,21 @@ function recordingSurfaceCtx(
         const inner = (base.collections as Record<string, unknown>)[
           name as string
         ];
-        return name === "authored"
+        return name === "terminals"
           ? {
               ...(inner as object),
-              // Production upserts the AUTHORED record on a lifecycle flip; type
-              // `value` as an `AuthoredTerminal` so the signature matches what it
-              // receives (the snapshot lives on the snapshots collection).
-              upsert: (id: string, value: AuthoredTerminal) =>
-                sink.push({ id, state: value.state }),
+              // Production upserts the COMPOSED record on a lifecycle flip; the
+              // composed `active|sleeping` value carries its `state` discriminant,
+              // so record it off the value.
+              upsert: (
+                id: string,
+                value: { state: AuthoredTerminal["state"] },
+              ) => sink.push({ id, state: value.state }),
             }
           : inner;
       },
     }),
-  } as ReturnType<typeof noopSurfaceCtxForTest>;
+  } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
 }
 
 /** An active registry entry — the AUTHORED half (location + client chrome + the
@@ -170,19 +172,22 @@ function snapshotActive(): TerminalSnapshot {
 function seedActive(): void {
   const entry = authoredActive();
   registerTerminal(ID, entry);
-  installSnapshot(ID, entry.snapshot);
+  installSnapshot(ID);
 }
 
 beforeEach(() => {
+  // The kolu ctx backs the `terminalList` cell (`emitTerminalListChanged`); the
+  // padi ctx backs the composed `terminals` collection + `urgency` cell (the W1.R1
+  // publish seam). Both are no-ops here — surface.ts isn't imported.
   setSurfaceCtx(noopSurfaceCtxForTest());
-  setWorkspaceSurfaceCtx(noopWorkspaceSurfaceCtxForTest());
+  setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
 });
 
 afterEach(() => {
   // Dropping the entry drops its awareness too (one backing store now).
   unregisterTerminal(ID);
   __resetSurfaceCtxForTest();
-  __resetWorkspaceSurfaceCtxForTest();
+  __resetPadiSurfaceCtxForTest();
 });
 
 describe("beginSleep — flip active → sleeping in place", () => {
@@ -308,7 +313,7 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     // — `none` is read as a bare shell, never the most-recent fallback (model B).
     const entry = authoredActive({ restoreTarget: { kind: "none" } });
     registerTerminal(ID, entry);
-    installSnapshot(ID, entry.snapshot);
+    installSnapshot(ID);
     expect(beginSleepLocal(ID)).toBe(true);
 
     wakeLocalTerminal(ID);
@@ -329,7 +334,7 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
       },
     });
     registerTerminal(ID, entry);
-    installSnapshot(ID, entry.snapshot);
+    installSnapshot(ID);
     expect(beginSleepLocal(ID)).toBe(true);
 
     wakeLocalTerminal(ID);
@@ -404,12 +409,12 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
   let upserts: Array<{ id: string; state: AuthoredTerminal["state"] }>;
 
   beforeEach(() => {
-    // Replace the suite-wide no-op `kolu` ctx with a recording one (the
-    // double-call guard forbids swapping ctx without a reset first). The
-    // `terminalWorkspace` ctx stays the suite-wide no-op.
-    __resetSurfaceCtxForTest();
+    // Replace the suite-wide no-op `padi` ctx with a recording one (the
+    // double-call guard forbids swapping ctx without a reset first). The `kolu`
+    // ctx stays the suite-wide no-op (it backs `terminalList`, not `terminals`).
+    __resetPadiSurfaceCtxForTest();
     upserts = [];
-    setSurfaceCtx(recordingSurfaceCtx(upserts));
+    setPadiSurfaceCtx(recordingPadiCtx(upserts));
   });
 
   afterEach(() => {

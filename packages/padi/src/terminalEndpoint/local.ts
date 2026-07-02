@@ -123,7 +123,7 @@ function emitTerminalListChanged(): void {
  *  site, exactly as `finalizeRemoval`'s callers keep their preamble. */
 function registerAndInstall(id: TerminalId, entry: TerminalProcess): void {
   registerTerminal(id, entry);
-  installSnapshot(id, entry.snapshot);
+  installSnapshot(id);
 }
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
@@ -503,7 +503,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // `publishTerminalState` for why `terminals:dirty` alone can't reach the
     // client. A WAKE flips `entry.meta` to active on the SAME id the sleep last
     // pushed as sleeping; fresh spawns push their birth record through here too.
-    publishTerminalState(entry, id);
+    publishTerminalState(id);
     emitTerminalListChanged();
 
     void this.spawnAndWire(id, opts, proxy, entry, prior, tlog);
@@ -695,7 +695,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // to the collection so subscribers see the restored dormant value (the wake
       // had fanned out the active one). Do NOT drop it.
       registerAndInstall(id, prior);
-      publishTerminalState(prior, id);
+      publishTerminalState(id);
       emitTerminalListChanged();
       return;
     }
@@ -1001,7 +1001,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       snapshot: entry.snapshot,
     };
     registerTerminal(id, sleeping);
-    publishTerminalState(sleeping, id);
+    publishTerminalState(id);
     emitTerminalListChanged();
     log
       .child({ terminal: id })
