@@ -194,19 +194,42 @@ fails loud too (exit 3 — the agent you were driving died); `--json` →
 > is the **raw** multiplexer — a plain `$SHELL`, no hooks by design — so an agent
 > you spawn that way often isn't detected, and `wait` will just time out. `wait`
 > is reliable when you drive **already-hooked** terminals: the ones a running
-> **kolu-server** spawned (point `kaval-tui --socket $XDG_RUNTIME_DIR/kolu/pty-host.sock`
-> at them), or a future `kolu-tui`. For a raw `kaval-tui create` loop, use
+> **kolu-server** spawned (find them with `kaval-tui list` autodiscovery — see
+> *Reach* below), or a future `kolu-tui`. For a raw `kaval-tui create` loop, use
 > **`kaval-tui wait --until idle:<ms>`** above — it needs no hooks.
 
 ## Reach — which daemon you're driving
 
-Bare `kaval-tui` **autodiscovers** a running daemon on this machine. Two ways to
-point it elsewhere:
+**Lead with `kaval-tui list`.** With no `--socket`, it autodiscovers every
+running daemon on this machine and prints each with a human label — `kolu-server
+on port 7692`, `standalone kaval` — so you pick the right one without knowing any
+path. This is the cross-platform, self-labeling answer to "which daemon am I
+driving", and the reliable path on macOS (where `$XDG_RUNTIME_DIR` is unset). If
+exactly one daemon is up, every command autodiscovers it — no flag needed.
 
-- **`--socket <path>`** targets a specific local daemon — e.g. a running
-  **kolu-server's** kaval (`$XDG_RUNTIME_DIR/kolu/pty-host.sock`), to drive the
-  terminals you have open in kolu (these ARE hooked, so `pulam-tui wait` works
-  against them once a `pulam` reads that kaval).
+> **Flags go AFTER the subcommand.** It's `kaval-tui list --socket <path>` and
+> `kaval-tui snapshot <id> --socket <path>` — **not** `kaval-tui --socket <path>
+> list`. A flag before the subcommand fails with "no command"; the CLI error says
+> so, but write them in the right order to begin with.
+
+Two ways to point at a specific daemon instead of autodiscovering:
+
+- **`--socket <path>`** targets one local daemon — e.g. a running **kolu-server's**
+  kaval, to drive the terminals you have open in kolu (these ARE hooked, so
+  `pulam-tui wait` works against them once a `pulam` reads that kaval). Prefer
+  `kaval-tui list` to find the path; kolu-server namespaces its kaval **by listen
+  port** (`kaval-<port>/`), so there's no single fixed path — which is exactly why
+  `list` is the way in. The layout, per platform:
+
+  | daemon | Linux (`$XDG_RUNTIME_DIR` set) | macOS / `$XDG_RUNTIME_DIR` unset |
+  | --- | --- | --- |
+  | kolu-server on `<port>` | `$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock` | `/tmp/kaval-<port>-<uid>/pty-host.sock` |
+  | standalone kaval | `$XDG_RUNTIME_DIR/kaval/pty-host.sock` | `/tmp/kaval-<uid>/pty-host.sock` |
+
+  On macOS `$XDG_RUNTIME_DIR` is unset, so the path is the `/tmp/kaval-<port>-<uid>/`
+  form — e.g. `/tmp/kaval-7692-501/pty-host.sock` for kolu-server on port 7692. (The
+  old `$XDG_RUNTIME_DIR/kolu/…` was wrong on every platform — kolu-server never
+  serves under `kolu/` — and on macOS it collapses to a broken `/kolu/…`.)
 - **`--host <ssh>`** reaches a daemon on another machine (provisioned with Nix);
   a remote PTY survives the link.
 
