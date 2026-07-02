@@ -13,23 +13,33 @@ import {
 } from "./create.ts";
 
 describe("buildCreateInput", () => {
+  // The socket this daemon was dialed on — stamped into the terminal as
+  // KAVAL_SOCKET so a process inside can reach the daemon that owns it.
+  const SOCK = "/tmp/kaval-501/pty-host.sock";
+
   it("composes a fully-specified plain-shell input — argv=[$SHELL], no rcfiles", () => {
     const input = buildCreateInput({
       id: "abc",
       cwd: "/work",
       env: { SHELL: "/bin/zsh", FOO: "bar" },
+      kavalSocket: SOCK,
     });
     expect(input).toEqual({
       id: "abc",
       argv: ["/bin/zsh"],
       cwd: "/work",
-      env: { SHELL: "/bin/zsh", FOO: "bar" },
+      env: { SHELL: "/bin/zsh", FOO: "bar", KAVAL_SOCKET: SOCK },
       initFiles: [],
     });
   });
 
   it("falls back to /bin/sh when the env names no SHELL", () => {
-    const input = buildCreateInput({ id: "x", cwd: "/", env: { FOO: "bar" } });
+    const input = buildCreateInput({
+      id: "x",
+      cwd: "/",
+      env: { FOO: "bar" },
+      kavalSocket: SOCK,
+    });
     expect(input.argv).toEqual(["/bin/sh"]);
   });
 
@@ -39,6 +49,7 @@ describe("buildCreateInput", () => {
       cwd: "/",
       env: { SHELL: "/bin/zsh" },
       command: ["htop", "-d", "5"],
+      kavalSocket: SOCK,
     });
     // argv IS the command — the shell is not consulted when one is passed.
     expect(input.argv).toEqual(["htop", "-d", "5"]);
@@ -50,6 +61,7 @@ describe("buildCreateInput", () => {
       cwd: "/",
       env: { SHELL: "/bin/zsh" },
       command: [],
+      kavalSocket: SOCK,
     });
     expect(input.argv).toEqual(["/bin/zsh"]);
   });
@@ -59,14 +71,34 @@ describe("buildCreateInput", () => {
       id: "x",
       cwd: "/",
       env: { SHELL: "/bin/sh", KEEP: "1", GONE: undefined },
+      kavalSocket: SOCK,
     });
-    expect(input.env).toEqual({ SHELL: "/bin/sh", KEEP: "1" });
+    expect(input.env).toEqual({
+      SHELL: "/bin/sh",
+      KEEP: "1",
+      KAVAL_SOCKET: SOCK,
+    });
     expect("GONE" in input.env).toBe(false);
+  });
+
+  it("stamps KAVAL_SOCKET, overwriting any value inherited from the env", () => {
+    // If this CLI is itself running inside a kaval terminal, its process.env
+    // already carries the OUTER daemon's KAVAL_SOCKET. The spawned terminal is
+    // owned by the daemon we dialed, so its stamp must win.
+    const input = buildCreateInput({
+      id: "x",
+      cwd: "/",
+      env: { KAVAL_SOCKET: "/tmp/kaval-OUTER-501/pty-host.sock" },
+      kavalSocket: SOCK,
+    });
+    expect(input.env.KAVAL_SOCKET).toBe(SOCK);
   });
 
   it("passes the caller-minted id straight through (so the host echoes ours)", () => {
     const id = newPtyId();
-    expect(buildCreateInput({ id, cwd: "/", env: {} }).id).toBe(id);
+    expect(
+      buildCreateInput({ id, cwd: "/", env: {}, kavalSocket: SOCK }).id,
+    ).toBe(id);
   });
 });
 

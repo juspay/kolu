@@ -38,6 +38,15 @@ export function setLocalSocketPath(path: string): void {
   localSocketPath = path;
 }
 
+/** The local kaval's socket path — the same boot-recorded constant the dialog
+ *  reads, reused to stamp `KAVAL_SOCKET` into every terminal this daemon spawns
+ *  (so an agent running inside can reach the kaval that owns it, the `$TMUX`
+ *  convention). `undefined` until boot records it; the spawn path guards that at
+ *  its point of use (see `buildTerminalSpawnInput`). */
+export function getLocalSocketPath(): string | undefined {
+  return localSocketPath;
+}
+
 function publishFullDaemonStatus(hostId: string, status: DaemonStatus): void {
   store.set(hostId, status);
   surfaceCtx.collections.daemonStatus.upsert(hostId, status);

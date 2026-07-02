@@ -449,6 +449,40 @@ describe("kaval daemon — process-boundary behaviour", () => {
     await reap(d);
   }, 30000);
 
+  it("kaval-tui create: stamps KAVAL_SOCKET so a process inside can reach its daemon", async () => {
+    const d = track(await startDaemon());
+
+    // The whole point of the $TMUX-style stamp: a shell spawned in this daemon
+    // has KAVAL_SOCKET pointing at the very socket that owns it, so an agent
+    // running inside can drive its siblings without scanning /tmp. Echo it from
+    // the spawned shell and read it back off the screen — proving the full chain
+    // (CLI resolves the socket → buildCreateInput stamps it → host spawns → the
+    // shell inherits it), which no unit test on buildCreateInput alone can.
+    const created = await runKavalTui([
+      "create",
+      "--socket",
+      d.socketPath,
+      "--json",
+      "--",
+      "sh",
+      "-c",
+      'echo "KS=[$KAVAL_SOCKET]"; sleep 100',
+    ]);
+    expect(created.code).toBe(0);
+    const { id } = JSON.parse(created.stdout) as { id: string };
+
+    const conn = await connect(d.socketPath);
+    let screen = "";
+    for (let i = 0; i < 100 && !screen.includes("KS=["); i++) {
+      screen = (await conn.client.surface.terminal.getScreenText({ id })).text;
+      if (!screen.includes("KS=[")) await sleep(50);
+    }
+    expect(screen).toContain(`KS=[${d.socketPath}]`);
+    await conn.dispose();
+
+    await reap(d);
+  }, 30000);
+
   it("a flag BEFORE the subcommand fails with a flag-order hint, not silent help", async () => {
     // cleye binds flags only after the subcommand, so `--socket X list` makes it
     // lose the command. Rather than print bare help (which read as a no-op), the

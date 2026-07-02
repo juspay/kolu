@@ -48,7 +48,13 @@ let killAll: () => Promise<unknown>;
 async function spawnCat(): Promise<string> {
   const id = newPtyId();
   await conn.client.surface.terminal.spawn(
-    buildCreateInput({ id, cwd: tmpdir(), env: process.env, command: ["cat"] }),
+    buildCreateInput({
+      id,
+      cwd: tmpdir(),
+      env: process.env,
+      command: ["cat"],
+      kavalSocket: "/tmp/kaval-test/pty-host.sock",
+    }),
   );
   return id;
 }
