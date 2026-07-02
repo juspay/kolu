@@ -1,4 +1,8 @@
-import type { TerminalId, TerminalInfo } from "kolu-common/surface";
+import type {
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
@@ -223,6 +227,70 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             expect(rpc.restoreSleeping).not.toHaveBeenCalled();
             expect(rpc.sendInput).not.toHaveBeenCalled();
 
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+});
+
+describe("useSessionRestore — multi-terminal restore seeds the server-active tile", () => {
+  // A 2-terminal restore where the server-active is the SECOND-listed terminal
+  // (B), not the first (A). `hydrateFromTerminals` must prefer the server's
+  // persisted active id, so B is activated + placed first in the MRU.
+  //
+  // This guards the server-active PREFERENCE with the full restored set present.
+  // The incremental-list-delivery race (list arriving [A] then [A,B]) is
+  // separately verified NOT to bite: the per-terminal metadata subscription opens
+  // reactively off the list (`keys` in useTerminalMetadata), and all restore list
+  // frames are published in ONE synchronous server tick (spawnPty is sync), so the
+  // full `[A,B]` frame reaches the client before any terminal's metadata
+  // round-trip completes — the "wait for all listed metadata" gate can never latch
+  // on a partial set with the active id missing.
+  function makeMetaStore(opts: {
+    list: TerminalInfo[];
+    meta: Record<string, TerminalMetadata>;
+  }) {
+    let active: string | null = null;
+    const setActiveSilently = vi.fn((id: string | null) => {
+      active = id;
+    });
+    const setMruOrder = vi.fn();
+    const listSub = Object.assign(() => opts.list, { pending: () => false });
+    const store = {
+      listSub,
+      terminalIds: () => opts.list.map((t) => t.id) as TerminalId[],
+      getMetadata: (id: TerminalId) => opts.meta[id],
+      setActiveSilently,
+      activeId: () => active,
+      setMruOrder,
+    } as unknown as TerminalStore;
+    return { store, setActiveSilently, setMruOrder };
+  }
+
+  it("activates the server-active terminal (B), not the first-listed (A)", async () => {
+    const activeMeta = (): TerminalMetadata =>
+      ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
+    h.sessionPending = false;
+    h.savedSession = { terminals: [], activeTerminalId: "B", savedAt: 1 };
+    const { store, setActiveSilently, setMruOrder } = makeMetaStore({
+      list: [{ id: "A" }, { id: "B" }] as TerminalInfo[],
+      meta: { A: activeMeta(), B: activeMeta() },
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(setActiveSilently).toHaveBeenCalledWith("B");
+            expect(setMruOrder).toHaveBeenCalledWith(["B", "A"]);
             dispose();
             resolve();
           } catch (err) {
