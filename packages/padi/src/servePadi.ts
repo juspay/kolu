@@ -92,11 +92,6 @@ export function buildPadiSurfaceDeps(deps: {
   const { endpoint, log } = deps;
   const fsGit = fsGitSurfaceDeps(endpoint, log);
 
-  // In-memory urgency store, seeded from the registry fold. The write-triggers
-  // that call `set(recomputeUrgency())` on the agent firehose land in R1 with
-  // the padi ctx; `equals` dedups then. Zero consumers at R0.
-  let currentUrgency = recomputeUrgency();
-
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
   // read from kaval's `currentPtyHostIdentity`). Mirrors the guard the server's
   // retired surface-app buildInfo axis used: off-nix the id is "" (no baked
@@ -117,13 +112,11 @@ export function buildPadiSurfaceDeps(deps: {
       // constant seeded once at boot (the client's `kavalUpdatePending` nudge
       // reads it against the connected daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
+      // In-memory urgency store, seeded from the registry fold. The write-triggers
+      // that call `.set(recomputeUrgency())` on the agent firehose land in R1 with
+      // the padi ctx; `equals` dedups then. Zero consumers at R0.
       urgency: {
-        store: {
-          get: () => currentUrgency,
-          set: (value) => {
-            currentUrgency = value;
-          },
-        },
+        store: inMemoryStore(recomputeUrgency()),
         equals: urgencyEqual,
       },
     },
