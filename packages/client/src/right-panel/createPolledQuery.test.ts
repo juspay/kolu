@@ -255,27 +255,28 @@ describe("createPolledQuery", () => {
     // toast over a forever-"Loading…". Reverting the pulse effect to the old
     // onError-only path leaves error() undefined + pending() stuck true here.
     const seen: string[] = [];
-    const res = await new Promise<{ err: string | undefined; pending: boolean }>(
-      (resolve) => {
-        createRoot(async (dispose) => {
-          const { client, pulseProc, failPulse } = fakeClient();
-          const q = createPolledQuery({
-            input: () => ({ repoPath: "A" }),
-            client,
-            pulseName: "test",
-            pulseProc,
-            pulseInput: (i) => ({ repoPath: i.repoPath }),
-            query: async () => "unused", // no frame fires; pending stays true until the pulse errors
-            onError: (err) => seen.push(err.message),
-          });
-          await flush();
-          failPulse(new Error("ENOSPC")); // the watcher install fails after subscribe
-          await flush();
-          resolve({ err: q.error()?.message, pending: q.pending() });
-          dispose();
+    const res = await new Promise<{
+      err: string | undefined;
+      pending: boolean;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        const { client, pulseProc, failPulse } = fakeClient();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: "A" }),
+          client,
+          pulseName: "test",
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async () => "unused", // no frame fires; pending stays true until the pulse errors
+          onError: (err) => seen.push(err.message),
         });
-      },
-    );
+        await flush();
+        failPulse(new Error("ENOSPC")); // the watcher install fails after subscribe
+        await flush();
+        resolve({ err: q.error()?.message, pending: q.pending() });
+        dispose();
+      });
+    });
     expect(res.err).toBe("ENOSPC"); // routed into error() — undefined before the fix
     expect(res.pending).toBe(false); // unstuck — stayed true before the fix
     expect(seen).toEqual(["ENOSPC"]); // the single onError still fires once
