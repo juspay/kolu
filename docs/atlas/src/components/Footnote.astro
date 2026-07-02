@@ -1,0 +1,140 @@
+---
+// An inline footnote that opens in a hover / click popover — the Atlas's tool
+// for keeping the main text lean: park a caveat, a citation, a number, or a
+// verification note in a superscript marker the reader reveals *in place*,
+// instead of swelling the sentence or exiling the detail to a list at the foot
+// of the page.
+//
+//   Kolu is N-dominated.<Footnote>Of 66 raw findings, 35 survived verification.</Footnote>
+//
+// Reveal      hover the marker, or keyboard-focus it (Tab).
+// Pin         click the marker — the popover stays until you click away or press
+//             Escape. This is also the touch path, where there is no hover.
+// Numbering   pure CSS counters (`kolu-footnote`, reset per page on `.prose` in
+//             AtlasLayout), so it needs no JS and renumbers automatically when
+//             footnotes are added, removed, or reordered.
+// Content     any MDX — links, <code>, <PrLink>, <Cite>, short paragraphs.
+//
+// Reveal (hover/focus) and numbering are pure CSS, so a footnote is readable
+// even before — or without — JS. The behaviour CSS can't express (click-to-pin,
+// outside-click / Escape dismiss, a viewport clamp so a marker near the right or
+// bottom edge doesn't push its popover off-screen) is a single page-level
+// `is:inline` runtime rendered once by AtlasLayout (FootnoteRuntime.astro), so N
+// footnotes share one script instead of duplicating it N times.
+---
+
+<span class="fn" data-fn>
+  <button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote"
+    ><span class="fn-num" aria-hidden="true"></span></button
+  ><span class="fn-pop" role="tooltip"><span class="fn-pop-inner"><slot /></span></span>
+</span>
+
+<style>
+  .fn {
+    position: relative;
+    display: inline;
+  }
+
+  /* ── the superscript marker ─────────────────────────────── */
+  .fn-ref {
+    font: inherit;
+    cursor: pointer;
+    /* raised + smaller, but a real (non-zero) box so it stays a usable click
+       and touch target — never line-height:0, which collapses the hit area */
+    display: inline-block;
+    vertical-align: super;
+    font-size: 0.72em;
+    line-height: 1;
+    margin: 0 0.05em;
+    padding: 0.1em 0.2em;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--amber);
+    font-family: var(--mono);
+    font-weight: 650;
+    /* CSS counter → auto-number, reset per page on .prose. No JS. */
+    counter-increment: kolu-footnote;
+  }
+  .fn-num::before {
+    content: counter(kolu-footnote);
+  }
+  .fn-ref:hover,
+  .fn-ref:focus-visible {
+    color: var(--alert);
+    background: var(--code-bg);
+  }
+  .fn-ref:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+  .fn.is-pinned .fn-ref {
+    color: var(--alert);
+  }
+
+  /* ── the popover ────────────────────────────────────────── */
+  .fn-pop {
+    display: none;
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 0.45rem);
+    left: 50%;
+    /* JS nudges --fn-x to pull an edge-hugging popover back on-screen */
+    transform: translateX(calc(-50% + var(--fn-x, 0px)));
+    width: max-content;
+    max-width: min(23rem, 88vw);
+    padding: 0.7rem 0.85rem;
+    text-align: left;
+    white-space: normal;
+    cursor: auto;
+    color: var(--ink-dim);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    box-shadow:
+      0 8px 28px rgba(16, 24, 40, 0.16),
+      0 2px 6px rgba(16, 24, 40, 0.08);
+  }
+  /* flipped above the marker when it would overflow the bottom edge */
+  .fn-pop.fn-pop-above {
+    top: auto;
+    bottom: calc(100% + 0.45rem);
+  }
+  .fn:hover > .fn-pop,
+  .fn:focus-within > .fn-pop,
+  .fn.is-pinned > .fn-pop {
+    display: block;
+  }
+
+  .fn-pop-inner {
+    display: block;
+    font-family: var(--sans);
+    font-weight: 400;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    /* a numbered tab so a pinned popover still says which note it is */
+  }
+  .fn-pop-inner::before {
+    content: counter(kolu-footnote);
+    float: left;
+    margin: 0.05rem 0.5rem 0.1rem 0;
+    padding: 0 0.4em;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--amber);
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+  }
+  .fn-pop-inner :global(> :first-child) {
+    margin-top: 0;
+  }
+  .fn-pop-inner :global(> :last-child) {
+    margin-bottom: 0;
+  }
+  .fn-pop-inner :global(p) {
+    margin: 0 0 0.5rem;
+  }
+</style>
