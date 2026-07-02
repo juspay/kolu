@@ -38,7 +38,7 @@ import {
   setPadiSurfaceCtx,
 } from "@kolu/padi/assembly";
 import type { ActivityFeed, SavedSession } from "@kolu/padi/surface";
-import { LOCAL_LOCATION, surfacesWithPadi } from "@kolu/padi/surface";
+import { LOCAL_LOCATION } from "@kolu/padi/surface";
 import {
   type CellStore,
   composeSurfaceContracts,
@@ -56,7 +56,11 @@ import type {
   Preferences,
   ProcessMemory,
 } from "kolu-common/surface";
-import { bytesToWholeMB, type koluSurface } from "kolu-common/surface";
+import {
+  bytesToWholeMB,
+  type koluSurface,
+  surfacesWithPadi,
+} from "kolu-common/surface";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import { store } from "./state.ts";

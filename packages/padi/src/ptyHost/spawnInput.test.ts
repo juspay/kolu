@@ -19,7 +19,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_MIRROR_SCROLLBACK, type PtyHostSystemInfo } from "kaval";
-import { DEFAULT_SCROLLBACK } from "kolu-common/config";
+// The client's VISIBLE xterm scrollback (kolu-common/config `DEFAULT_SCROLLBACK`).
+// Inlined, not imported: padi's dependency cone must not reach into the app
+// (kolu-common) — the seal's fifth arm enforces it. This test asserts padi's
+// spawned MIRROR scrollback is decoupled from (and smaller than) that visible
+// value; the literal below is the app-side number it compares against.
+const CLIENT_VISIBLE_SCROLLBACK = 50_000;
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { composeSpawnInput, setSpawnServerVersion } from "./index.ts";
 
@@ -113,7 +118,7 @@ describe("composeSpawnInput mirror scrollback (the OOM-fix decouple)", () => {
     // before the decouple (the input carried DEFAULT_SCROLLBACK).
     const input = composeSpawnInput({ id: "T-mirror" }, info());
     expect(input.scrollback).toBe(DEFAULT_MIRROR_SCROLLBACK);
-    expect(input.scrollback).toBeLessThan(DEFAULT_SCROLLBACK);
+    expect(input.scrollback).toBeLessThan(CLIENT_VISIBLE_SCROLLBACK);
   });
 });
 

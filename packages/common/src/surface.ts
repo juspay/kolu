@@ -28,6 +28,7 @@
  * without a migration ladder.
  */
 
+import { padiSurface } from "@kolu/padi/surface";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import {
   type BuildInfo,
@@ -395,6 +396,21 @@ export const koluSurface = defineSurface({
 export const surfaces = {
   kolu: koluSurface,
   surfaceApp: surfaceAppSurface_kolu,
+} as const;
+
+/** The sibling map PLUS the `padi` terminal-workspace surface — the ONE composed
+ *  registry kolu-server serves (`composeSurfaceContracts` widens the wire
+ *  contract; `implementSurfaces` serves the deps) and the client dials
+ *  (`connectSurfaces<contract, typeof surfacesWithPadi>`). This composition is an
+ *  APP concern — the app assembles its own `surfaces` with padi's authored
+ *  surface — so it lives here in kolu-common, importing `padiSurface` FROM
+ *  `@kolu/padi` (the post-flip arrow: the app consumes padi; padi never depends
+ *  back on the app). The padi-LESS `surfaces` above is what `kolu-common/contract`
+ *  composes (the client consumes that); kolu-server extends the SERVED contract
+ *  with this padi-ful map locally. */
+export const surfacesWithPadi = {
+  ...surfaces,
+  padi: padiSurface,
 } as const;
 
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────

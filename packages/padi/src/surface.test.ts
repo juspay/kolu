@@ -1,5 +1,4 @@
 import { isContractVersionCompatible } from "@kolu/surface/define";
-import { surfaces } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
   CONTROL_CORE_VERSION,
@@ -14,7 +13,6 @@ import {
   padiControlCore,
   padiMemberKeys,
   padiSurface,
-  surfacesWithPadi,
 } from "./surface.ts";
 
 describe("padiSurface 1.0 contract", () => {
@@ -201,16 +199,5 @@ describe("padiSurface 1.0 contract", () => {
       controlCoreVersion: CONTROL_CORE_VERSION,
     };
     expect(PadiHelloSchema.parse(hello)).toEqual(hello);
-  });
-
-  it("gathers BESIDE koluSurface — surfacesWithPadi adds `padi` to the sibling map", () => {
-    // The padi-less `surfaces` map (what the client consumes) is unchanged; the
-    // combined map kolu-server serves adds exactly the `padi` sibling.
-    expect(Object.keys(surfaces)).not.toContain("padi");
-    expect(Object.keys(surfacesWithPadi)).toEqual([
-      ...Object.keys(surfaces),
-      "padi",
-    ]);
-    expect(surfacesWithPadi.padi).toBe(padiSurface);
   });
 });

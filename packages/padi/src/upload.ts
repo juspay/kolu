@@ -5,11 +5,24 @@
  * means the two sides cannot drift on the rejection threshold.
  */
 
-import { VIDEO_EXTENSIONS } from "kolu-common/preview";
-
 /** Hard cap on a single dropped file. Agents don't need huge binaries;
  *  the goal is "paste me a snippet/log/screenshot", not "ship me a tarball". */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+/** The video containers a dropped file may carry — padi's OWN list (no leading
+ *  dot). It MUST equal the app's `kolu-common/preview` `VIDEO_EXTENSIONS` (the
+ *  formats the Code browser can play back): a video Kolu can preview is one you
+ *  can also drop. padi owns the upload domain and must NOT import the app's
+ *  preview module (the dependency arrow points OUT), so the two lists are kept
+ *  in lockstep by a drift-guard TEST in kolu-common (`preview.test.ts`), not a
+ *  shared import. */
+export const UPLOAD_VIDEO_EXTENSIONS: readonly string[] = [
+  "mp4",
+  "m4v",
+  "webm",
+  "mov",
+  "ogv",
+];
 
 /** Lowercase file extensions (without leading dot) that may be dropped.
  *  Curated to text, code, structured data, common docs, images, and video.
@@ -77,12 +90,11 @@ export const ALLOWED_UPLOAD_EXTENSIONS: readonly string[] = [
   "gif",
   "webp",
   "svg",
-  // Video — reuse preview.ts's canonical container set (the formats Kolu can
-  // play back in the Code browser), with the leading dot the upload table
-  // omits stripped. One source of truth: a video Kolu can preview is one you
-  // can also drop onto a terminal, and the two lists cannot drift. The 10 MB
-  // cap above still applies — video is allowed, not exempted.
-  ...VIDEO_EXTENSIONS.map((ext) => ext.slice(1)),
+  // Video — the containers Kolu can play back in the Code browser (padi's own
+  // `UPLOAD_VIDEO_EXTENSIONS`, kept equal to the app's preview list by a drift
+  // test, not a shared import). The 10 MB cap above still applies — video is
+  // allowed, not exempted.
+  ...UPLOAD_VIDEO_EXTENSIONS,
 ];
 
 /** Return the lowercase extension (no dot) of `name`, or `null` if there

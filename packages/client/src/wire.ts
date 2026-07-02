@@ -26,7 +26,6 @@ import {
   type RecentAgent,
   type RecentRepo,
   type SavedSession,
-  surfacesWithPadi,
 } from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { createSubscription, type Subscription } from "@kolu/surface/solid";
@@ -36,6 +35,7 @@ import {
   DEFAULT_PREFERENCES,
   type Preferences,
   type PreferencesPatch,
+  surfacesWithPadi,
   type TerminalId,
 } from "kolu-common/surface";
 import type { WebSocket as PartySocket } from "partysocket";

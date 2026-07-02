@@ -62,7 +62,6 @@ import {
 } from "@kolu/terminal-workspace/surface";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
-import { surfaces } from "kolu-common/surface";
 import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
@@ -659,16 +658,9 @@ export const padiControlCore = {
   clockNow: { output: PadiClockNowSchema },
 } as const;
 
-// ── The sibling map, with padi ─────────────────────────────────────────────
-
-/** The sibling surfaces served over one transport, PLUS `padi`. Read by
- *  kolu-server to extend the wire contract (`composeSurfaceContracts`) and to
- *  serve (`implementSurfaces`) so `padiSurface` serves BESIDE `koluSurface` at
- *  `surface.padi.*` — once W1.R wires the serving. kolu-common's own `contract`
- *  deliberately composes the padi-LESS `surfaces` (the client consumes that) —
- *  so this contract has ZERO client consumers; kolu-server adds the `padi`
- *  sibling on top locally. */
-export const surfacesWithPadi = {
-  ...surfaces,
-  padi: padiSurface,
-} as const;
+// The composed sibling registry (`surfacesWithPadi = { ...surfaces, padi }`)
+// lives in `kolu-common/surface` now, NOT here: composing the app's `surfaces`
+// with padi's authored surface is an APP concern, and building it here would
+// force padi to import the app's `surfaces` registry — the exact backwards
+// arrow the seal forbids. `@kolu/padi` exports `padiSurface`; the app assembles
+// the registry FROM it.

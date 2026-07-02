@@ -6,8 +6,23 @@
  * with the schemas they exercise.)
  */
 
+import { padiSurface } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
-import { shuffleMode } from "./surface.ts";
+import { shuffleMode, surfaces, surfacesWithPadi } from "./surface.ts";
+
+describe("surfacesWithPadi — the app composes its registry FROM padi", () => {
+  it("adds exactly the `padi` sibling to the padi-less `surfaces` map", () => {
+    // The padi-less `surfaces` (what `kolu-common/contract` + the client consume)
+    // is unchanged; the composed map kolu-server serves adds exactly `padi`,
+    // pulling `padiSurface` from @kolu/padi — the post-flip arrow (app→padi).
+    expect(Object.keys(surfaces)).not.toContain("padi");
+    expect(Object.keys(surfacesWithPadi)).toEqual([
+      ...Object.keys(surfaces),
+      "padi",
+    ]);
+    expect(surfacesWithPadi.padi).toBe(padiSurface);
+  });
+});
 
 describe("shuffleMode", () => {
   it("random imposes no family restriction", () => {
