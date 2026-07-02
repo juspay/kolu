@@ -1,43 +1,30 @@
-/** Kolu glue for the iframe-preview file surface
- *  (`FsReadFileOutput.kind === "binary"`). The actual file serving (range,
- *  content-type, lexical guard) is the agnostic `@kolu/serve-dir`; this module
- *  owns the kolu-specific bits the consumer injects into it:
- *    - the per-terminal preview URL shape (the `?v=<mtime>` cache key +
- *      route-shape constants), shared with the client (which builds the same
- *      URLs to resolve repo-relative Markdown image srcs);
- *    - the realpath/symlink-escape guard kolu wires into `createDirServer`
- *      (`previewRealpathGuard`), defined once here so `index.ts` and its test
- *      use the SAME shipped adapter rather than each re-deriving it. */
+/** Kolu glue for the iframe-preview file route
+ *  (`FsReadFileOutput.kind === "binary"`). The byte read itself (range,
+ *  content-type, lexical + realpath guard) is now padi's `readPreview` — the
+ *  SAME impl `padiSurface.procedures.preview.read` serves, which the Hono route
+ *  in `index.ts` re-backs onto (one impl, two callers). What remains here are
+ *  the two PURE web-shell URL helpers the route needs to hand `readPreview` a
+ *  correct, un-normalized file tail:
+ *    - `rawTargetFromContext` selects the RAW request target
+ *      (`c.env.incoming.url`), the origin-form URL before WHATWG normalization;
+ *    - `previewTailFromRawUrl` slices the terminal-scoped file path out of it,
+ *      keeping `%`-encoding intact so serve-dir's single decode recovers the
+ *      real name and the per-segment `..`/`%2f` traversal guard still fires.
+ *  Both are unit-tested in `iframePreviewRoute.test.ts`; the realpath/symlink
+ *  guard's 403 coverage now lives against padi's `readPreview`. */
 
 import type { HttpBindings } from "@hono/node-server";
-import { rawPathname, type RealpathGuard } from "@kolu/serve-dir";
+import { rawPathname } from "@kolu/serve-dir";
 import type { Context } from "hono";
 import {
-  buildTerminalFileUrl,
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
-import { assertRealpathUnder } from "kolu-git";
-
-/** Canonical URL shape for the iframe-served file route, used in
- *  `FsReadFileOutput.kind === "binary"` and matched by the Hono route in
- *  `index.ts`. `mtimeMs` is rounded down so a stable file always produces the
- *  same URL (the browser caches the iframe content per URL; an mtime bump mints
- *  a fresh URL → fresh fetch). */
-export function buildIframePreviewUrl(
-  terminalId: string,
-  filePath: string,
-  mtimeMs: number,
-): string {
-  return `${buildTerminalFileUrl(terminalId, filePath)}?v=${Math.floor(mtimeMs)}`;
-}
 
 /** The RAW, un-normalized request target `previewTailFromRawUrl` must slice —
  *  resolved here so the selection lives in ONE place the route and its test both
- *  call (sibling to `previewRealpathGuard`'s rule: one shipped adapter, not two
- *  copies that drift). Returns the Node `IncomingMessage.url`
- *  (`c.env.incoming.url`), the origin-form target @hono/node-server receives
- *  before any normalization.
+ *  call. Returns the Node `IncomingMessage.url` (`c.env.incoming.url`), the
+ *  origin-form target @hono/node-server receives before any normalization.
  *
  *  Returns `undefined` (a no-match sentinel) when `incoming` is absent. We do
  *  NOT fall back to `c.req.raw.url`: that value is built via `new URL(...).href`
@@ -72,14 +59,4 @@ export function previewTailFromRawUrl(
   const prefix = `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/`;
   const pathname = rawPathname(rawUrl);
   return pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "";
-}
-
-/** The filesystem-authority guard kolu injects into `@kolu/serve-dir` for a
- *  given root: resolve symlinks and reject anything whose real path escapes the
- *  root (a repo-local `leak.html -> /etc/passwd` an agent could plant). Wraps
- *  kolu-git's `assertRealpathUnder` into the `RealpathGuard` shape. Defined here
- *  — not inlined at the route — so the route and its test exercise one shipped
- *  adapter, not two copies that can drift. */
-export function previewRealpathGuard(root: string): RealpathGuard {
-  return async (abs) => (await assertRealpathUnder(root, abs)).ok;
 }

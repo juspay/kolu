@@ -68,6 +68,10 @@ export {
 
 // ── native serving (W1.R0) ──────────────────────────────────────────────
 export { buildPadiSurfaceDeps } from "./servePadi.ts";
+// The range-capable serve-dir read kolu-server's re-backed Hono preview route
+// calls — the STREAMING form (`previewFile`, bounded heap), the same read
+// `preview.read` serves through its base64 wire-wrapper (`readPreview`).
+export { previewFile } from "./preview.ts";
 
 // ── publisher / surface ctx holders ─────────────────────────────────────
 export {

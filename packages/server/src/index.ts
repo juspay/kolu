@@ -2,7 +2,6 @@ import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
-import { createDirServer } from "@kolu/serve-dir";
 import {
   acceptSurfaceSocket,
   installFreshStatic,
@@ -30,7 +29,6 @@ import { configureNixShellEnv } from "kolu-pty";
 import { type WebSocket, WebSocketServer } from "ws";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import {
-  previewRealpathGuard,
   previewTailFromRawUrl,
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
@@ -46,6 +44,7 @@ import {
   publishDaemonStatus,
   publisherSize,
   readDaemonStatus,
+  previewFile,
   setKoluServerProcessId,
   setSpawnServerVersion,
   shutdownCleanup,
@@ -280,17 +279,26 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const root = snapshotFor(terminalId)?.git?.repoRoot;
   if (!root) return c.text("terminal has no repo", 404);
 
-  // The agnostic receptacle owns range/content-type/the lexical guard and
-  // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
-  // above) rewrites it downstream for text/html. Range header is read from the
-  // request inside. We inject kolu's realpath guard (`previewRealpathGuard`)
-  // so a repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
-  // rejected with 403 before any byte is read — the stage the lexical guard
-  // inside `@kolu/serve-dir` can't cover.
-  return createDirServer(root, previewRealpathGuard(root)).fetch(
-    rawTail,
-    c.req.raw,
-  );
+  // Re-backed onto padi's `previewFile` — the SAME serve-dir read + realpath
+  // guard `preview.read` serves, but the STREAMING form: it returns serve-dir's
+  // `ServeResult` verbatim (a `ReadableStream` body on 2xx), so this route
+  // streams disk→socket with bounded heap exactly as the retired
+  // `createDirServer` bypass did. Forwarding the browser's `Range` keeps a
+  // `<video>` seek answering 206 ranged bytes, and — crucially — a whole-file
+  // (`bytes=0-` / unranged) read is NOT materialized in memory (the OOM the
+  // base64 `readPreview` wire-form would cause on a large video). The guard
+  // rejects a repo-local symlink escaping the root (`leak.html -> /etc/passwd`)
+  // with 403 before any byte is read. The artifact-sdk HTML decorator (mounted
+  // above) rewrites text/html downstream.
+  const r = await previewFile({
+    repoPath: root,
+    filePath: rawTail,
+    range: c.req.header("range"),
+  });
+  return new Response(r.body as BodyInit, {
+    status: r.status,
+    headers: r.headers,
+  });
 });
 
 // --- Dynamic PWA manifest (includes hostname) ---

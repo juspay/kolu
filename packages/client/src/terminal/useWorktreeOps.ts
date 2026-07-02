@@ -3,7 +3,7 @@
 import { padiRpc } from "@kolu/padi/surface";
 import { sleepingArm, type TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { client, padi } from "../wire";
+import { padi } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useWorktreeOps(deps: {
@@ -25,7 +25,10 @@ export function useWorktreeOps(deps: {
   ) {
     const id = toast.loading("Creating worktree…");
     try {
-      const result = await client.git.worktreeCreate({ repoPath, name });
+      const result = await padiRpc(padi).surface.git.worktreeCreate({
+        repoPath,
+        name,
+      });
       toast.success(`Created worktree at ${result.path}`, { id });
       const newTerminalId = await deps.handleCreate(result.path);
       // Recent repos update reactively via trackRecentRepo → publishSystem
@@ -90,7 +93,7 @@ export function useWorktreeOps(deps: {
     if (worktreePath) {
       const tid = toast.loading("Removing worktree…");
       try {
-        await client.git.worktreeRemove({ worktreePath });
+        await padiRpc(padi).surface.git.worktreeRemove({ worktreePath });
         toast.success("Worktree removed", { id: tid });
       } catch (err) {
         toast.error(`Failed to remove worktree: ${(err as Error).message}`, {

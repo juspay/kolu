@@ -18,8 +18,6 @@
  * `surfaceApp`).
  */
 
-import type { RealpathGuard } from "@kolu/serve-dir";
-import { serveFile } from "@kolu/serve-dir";
 import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
 import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
 import { quietActivity } from "@kolu/terminal-workspace/serveTerminalWorkspace";
@@ -28,7 +26,7 @@ import { composeTerminalMetadata } from "kolu-common/surface";
 import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
-import { previewRealpathGuard } from "./preview.ts";
+import { readPreview } from "./preview.ts";
 import { importSession, restoreSession } from "./sessionRestore.ts";
 import {
   DEFAULT_PADI_VERSION,
@@ -335,27 +333,14 @@ export function buildPadiSurfaceDeps(deps: {
         }),
       },
 
-      // Range-capable, serve-dir-shaped byte read. The streaming
-      // `ServeResult.body` is buffered whole to base64 so it rides the
-      // procedure wire; the `..`/`%2f`/symlink 403 guard is re-enforced by
-      // padi's own `previewRealpathGuard`.
+      // Range-capable, serve-dir-shaped byte read — the SAME `readPreview`
+      // kolu-server's re-backed Hono preview route calls (one impl, two
+      // callers), so the surface procedure and the HTTP bypass are
+      // byte-identical. The streaming body is buffered whole to base64 so it
+      // rides the procedure wire; the `..`/`%2f`/symlink 403 guard is
+      // re-enforced inside `readPreview` by padi's own `previewRealpathGuard`.
       preview: {
-        read: async ({ input }) => {
-          const guard: RealpathGuard = previewRealpathGuard(input.repoPath);
-          const r = await serveFile(
-            input.repoPath,
-            input.filePath,
-            input.range,
-            guard,
-          );
-          const bodyBase64 =
-            typeof r.body === "string"
-              ? Buffer.from(r.body, "utf8").toString("base64")
-              : Buffer.from(await new Response(r.body).arrayBuffer()).toString(
-                  "base64",
-                );
-          return { status: r.status, headers: r.headers, bodyBase64 };
-        },
+        read: ({ input }) => readPreview(input),
       },
 
       transcript: {

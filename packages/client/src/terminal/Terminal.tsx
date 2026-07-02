@@ -51,7 +51,7 @@ import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { wireScrollIntent } from "../scrollLockWiring";
 import { isTouch } from "../useMobile";
-import { client, padi, preferences } from "../wire";
+import { padi, preferences } from "../wire";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
@@ -60,7 +60,11 @@ import ScrollToBottom from "./ScrollToBottom";
 import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
-import { isTerminalQueryResponse } from "@kolu/terminal-protocol";
+import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+  isTerminalQueryResponse,
+} from "@kolu/terminal-protocol";
 import { createRenderRecovery } from "./renderRecovery";
 import { createSnapshotBoundary } from "./snapshotBoundary";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
@@ -964,6 +968,24 @@ const Terminal: Component<{
           // images while text paste falls through to xterm. Uses the native
           // paste event (not navigator.clipboard.read) so no explicit
           // clipboard-read permission is needed.
+          // Write decoded bytes into the terminal's on-disk scratch dir, then
+          // bracketed-paste the returned path into the PTY — the client-side
+          // recomposition of the old server `pasteImage`/`uploadFile` handlers
+          // (`scratch.write` + `lifecycle.sendInput`). The size gate stays a
+          // client precheck on each caller (below), matching the old
+          // BAD_REQUEST behavior.
+          async function writeScratchAndPaste(name: string, base64: string) {
+            const { path } = await padiRpc(padi).surface.scratch.write({
+              terminalId: props.terminalId,
+              name,
+              data: base64,
+            });
+            await padiRpc(padi).surface.lifecycle.sendInput({
+              id: props.terminalId,
+              data: `${BRACKETED_PASTE_START}${path}${BRACKETED_PASTE_END}`,
+            });
+          }
+
           async function uploadPastedImage(file: File) {
             const reason = sizeRejectionFor("clipboard image", file.size);
             if (reason !== null) {
@@ -972,10 +994,7 @@ const Terminal: Component<{
             }
             try {
               const base64 = bufferToBase64(await file.arrayBuffer());
-              await client.terminal.pasteImage({
-                id: props.terminalId,
-                data: base64,
-              });
+              await writeScratchAndPaste("image.png", base64);
             } catch (err) {
               toast.error(`Failed to upload clipboard image: ${errMsg(err)}`);
             }
@@ -1016,11 +1035,7 @@ const Terminal: Component<{
             }
             try {
               const base64 = bufferToBase64(await file.arrayBuffer());
-              await client.terminal.uploadFile({
-                id: props.terminalId,
-                name: file.name,
-                data: base64,
-              });
+              await writeScratchAndPaste(file.name, base64);
             } catch (err) {
               toast.error(`Failed to upload "${file.name}": ${errMsg(err)}`);
             }

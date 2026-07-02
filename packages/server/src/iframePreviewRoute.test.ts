@@ -3,10 +3,14 @@
  *    1. kolu's `BINARY_PREVIEWABLE_EXTENSIONS` classifier is fully covered by
  *       serve-dir's Content-Type map (and the per-family MIME invariants the
  *       client's `<video>`/`<img>` dispatch relies on);
- *    2. the realpath guard kolu actually ships (`previewRealpathGuard`, the
- *       adapter `index.ts` injects into `createDirServer`) rejects a symlink
- *       whose real target escapes the root — exercising the shipped adapter, not
- *       a re-derived copy. */
+ *    2. the pure web-shell URL helpers (`previewTailFromRawUrl` /
+ *       `rawTargetFromContext`) hand padi's `previewFile` a correct, un-
+ *       normalized file tail — including end-to-end through the real
+ *       @hono/node-server adapter, where the RAW target must survive WHATWG
+ *       normalization.
+ *  The realpath/symlink-escape 403 coverage now lives against padi's
+ *  `readPreview` (`packages/padi/src/preview.test.ts`), since the guard moved
+ *  there when the Hono route was re-backed onto that read. */
 
 import http from "node:http";
 import fs from "node:fs";
@@ -14,11 +18,8 @@ import os from "node:os";
 import path from "node:path";
 import { serve } from "@hono/node-server";
 import type { HttpBindings } from "@hono/node-server";
-import {
-  contentTypeForPath,
-  createDirServer,
-  serveFile,
-} from "@kolu/serve-dir";
+import { previewFile } from "@kolu/padi/assembly";
+import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
 import { Hono } from "hono";
 import {
   BINARY_PREVIEWABLE_EXTENSIONS,
@@ -31,7 +32,6 @@ import {
 } from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  previewRealpathGuard,
   previewTailFromRawUrl,
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
@@ -68,59 +68,6 @@ describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifi
     expect(contentTypeForPath(`file${ext}`)).not.toBe(
       "application/octet-stream",
     );
-  });
-});
-
-describe("previewRealpathGuard (the guard index.ts injects) blocks symlink escape", () => {
-  let tmpRoot: string;
-
-  beforeAll(() => {
-    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-preview-guard-"));
-  });
-
-  afterAll(() => {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
-  });
-
-  it("403s a symlink whose real target escapes the root (no content leaks)", async () => {
-    // Drives the SHIPPED adapter — the same `previewRealpathGuard(root)` value
-    // `index.ts` hands to `createDirServer` — through `serveFile`, so this
-    // verifies what runs in production, not a hand-rolled mirror.
-    const outside = fs.mkdtempSync(
-      path.join(os.tmpdir(), "kolu-preview-guard-outside-"),
-    );
-    try {
-      const secret = path.join(outside, "secret.html");
-      fs.writeFileSync(secret, "<!doctype html><h1>SECRET</h1>");
-      fs.symlinkSync(secret, path.join(tmpRoot, "leak.html"));
-      const res = await serveFile(
-        tmpRoot,
-        "leak.html",
-        undefined,
-        previewRealpathGuard(tmpRoot),
-      );
-      expect(res.status).toBe(403);
-      expect(res.body.toString()).not.toContain("SECRET");
-    } finally {
-      fs.rmSync(outside, { recursive: true, force: true });
-    }
-  });
-
-  it("allows an in-root file through the same guard", async () => {
-    fs.writeFileSync(
-      path.join(tmpRoot, "ok.html"),
-      "<!doctype html><h1>ok</h1>",
-    );
-    const res = await serveFile(
-      tmpRoot,
-      "ok.html",
-      undefined,
-      previewRealpathGuard(tmpRoot),
-    );
-    expect(res.status).toBe(200);
-    // Success bodies stream (200 and 206 alike), so read the stream rather than
-    // `.toString()`-ing it directly.
-    expect(await readServeBody(res.body)).toContain("ok");
   });
 });
 
@@ -249,8 +196,9 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
     // Drive the SAME shipped target-selection adapter production uses
     // (`rawTargetFromContext`, which reads the RAW `c.env.incoming.url` and
     // fails CLOSED to a 500 when `incoming` is absent rather than serving the
-    // WHATWG-normalized `c.req.raw.url`), slice the tail, hand it to serve-dir
-    // with the shipped realpath guard — so this test can't drift from index.ts.
+    // WHATWG-normalized `c.req.raw.url`), slice the tail, hand it to padi's
+    // `readPreview`, and reconstruct the Response — the exact re-backed route
+    // shape from `index.ts`, so this test can't drift from it.
     const app = new Hono<{ Bindings: HttpBindings }>();
     const pattern = `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
     app.get(pattern, async (c) => {
@@ -260,10 +208,15 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
         return c.text("raw request target unavailable", 500);
       }
       const rawTail = previewTailFromRawUrl(rawTarget, id);
-      return createDirServer(tmpRoot, previewRealpathGuard(tmpRoot)).fetch(
-        rawTail,
-        c.req.raw,
-      );
+      const r = await previewFile({
+        repoPath: tmpRoot,
+        filePath: rawTail,
+        range: c.req.header("range"),
+      });
+      return new Response(r.body as BodyInit, {
+        status: r.status,
+        headers: r.headers,
+      });
     });
 
     server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" });
