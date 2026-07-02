@@ -90,6 +90,7 @@ let
       ./packages/kaval-tui
       ./packages/pulam
       ./packages/pulam-tui
+      ./packages/padi
       ./packages/server
       ./packages/client
       ./packages/transcript-core
