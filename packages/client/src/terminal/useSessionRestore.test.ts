@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
 const rpc = vi.hoisted(() => ({
   restore: vi.fn(async () => {}),
   import: vi.fn(async () => {}),
+  forfeit: vi.fn(async () => {}),
   create: vi.fn(async () => {}),
   restoreSleeping: vi.fn(async () => {}),
   sendInput: vi.fn(async () => {}),
@@ -31,7 +32,11 @@ const rpc = vi.hoisted(() => ({
 vi.mock("@kolu/padi/surface", () => ({
   padiRpc: () => ({
     surface: {
-      session: { restore: rpc.restore, import: rpc.import },
+      session: {
+        restore: rpc.restore,
+        import: rpc.import,
+        forfeit: rpc.forfeit,
+      },
       lifecycle: {
         create: rpc.create,
         restoreSleeping: rpc.restoreSleeping,
@@ -273,6 +278,62 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
               "Restored 2 terminals, resumed 1 agent",
               expect.anything(),
             );
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+});
+
+describe("useSessionRestore — forfeit fires session.forfeit and dismisses the card", () => {
+  it("issues session.forfeit({}) and clears the saved session", async () => {
+    rpc.forfeit.mockClear();
+
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            // Empty canvas + a saved session in hand → the hydration effect sets
+            // the restore card's `savedSession` signal, so the forfeit path has
+            // something to discard.
+            h.listPending = false;
+            h.list = [];
+            h.terminalIds = [];
+            h.sessionPending = false;
+            h.savedSession = {
+              terminals: [
+                {
+                  id: "0",
+                  state: "active",
+                  cwd: "/a",
+                  git: null,
+                  pr: { kind: "absent" },
+                  location: { kind: "local" },
+                  lastActivityAt: 0,
+                },
+              ],
+              activeTerminalId: "0",
+              savedAt: 1,
+            };
+            const session = mount();
+            // Let the hydration effect flush so `savedSession()` is populated.
+            await new Promise((r) => setTimeout(r, 0));
+            expect(session.savedSession()).toEqual(h.savedSession);
+
+            await session.handleForfeitSession();
+
+            // ONE server call — the explicit discard — with the empty input the
+            // contract declares.
+            expect(rpc.forfeit).toHaveBeenCalledTimes(1);
+            expect(rpc.forfeit).toHaveBeenCalledWith({});
+            // The card is dismissed optimistically.
+            expect(session.savedSession()).toBeNull();
 
             dispose();
             resolve();

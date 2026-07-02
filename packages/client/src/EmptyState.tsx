@@ -66,6 +66,11 @@ interface EmptyStateProps {
    *  reveal. */
   isRestoring?: boolean;
   onRestore?: (options: { resumeIds: ReadonlySet<string> }) => void;
+  /** Explicit "start fresh" — discard the saved session (server-side forfeit).
+   *  Rendered as a secondary action below Restore, only while there IS a
+   *  `savedSession` to forfeit. Creating a terminal no longer forfeits
+   *  implicitly, so this is the user's one deliberate discard path. */
+  onForfeit?: () => void;
   /** Open the "New terminal" flow. On desktop the always-mounted empty Dock
    *  carries the clickable `+` (#1202), so the button below renders only on the
    *  touch layouts (phone + compact), where there is no Dock and the shortcut
@@ -232,6 +237,21 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                     </Show>
                   </Show>
                 </button>
+                {/* Explicit forfeit — the deliberate "discard my previous
+                    session" path. Kept visually secondary to Restore (a bare
+                    text button, no fill) so it never competes with the primary
+                    action. Only rendered when the parent wires `onForfeit`. */}
+                <Show when={props.onForfeit}>
+                  <button
+                    type="button"
+                    data-testid="forfeit-session"
+                    disabled={props.isRestoring}
+                    class="mt-2 w-full px-3 py-1.5 text-xs text-fg-3 hover:text-fg-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    onClick={() => props.onForfeit?.()}
+                  >
+                    Start fresh
+                  </button>
+                </Show>
               </div>
             );
           }}

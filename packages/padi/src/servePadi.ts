@@ -37,7 +37,11 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { cancelPendingAutosave } from "./session.ts";
-import { importSession, restoreSession } from "./sessionRestore.ts";
+import {
+  forfeitSession,
+  importSession,
+  restoreSession,
+} from "./sessionRestore.ts";
 import {
   DEFAULT_PADI_VERSION,
   type PadiStatus,
@@ -53,7 +57,6 @@ import {
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
-  discardAllLocalParked,
   discardLocalSleeping,
   seedSleepingTerminal,
   wakeLocalTerminal,
@@ -255,11 +258,16 @@ export function buildPadiSurfaceDeps(deps: {
             rightPanel: input.rightPanel,
             intent: input.intent,
           });
-          // FORFEIT the restore: creating a fresh terminal instead of restoring
-          // discards any parked entries boot reconcile left, so they don't linger
-          // invisibly forever. `session.restore` takes the OTHER path — it consumes
-          // each parked entry via the parked→active flip, never reaching here.
-          discardAllLocalParked();
+          // Creating a fresh terminal DOES NOT forfeit the restore: the parked
+          // entries (and the saved session on disk they stand for) survive, so the
+          // restore stays offered — a user who reaches for a new terminal has not
+          // decided to throw their previous session away. Forfeit is now the
+          // EXPLICIT `session.forfeit` act (discard parked + clear the blob together).
+          // The old create-time `discardAllLocalParked()` traded a cosmetic parked
+          // leak for silent data loss: with parked records invisible to
+          // `snapshotSession`, a create then a close shrank the blob to nothing (PATH
+          // B). `session.restore` still takes the OTHER path — it CONSUMES each parked
+          // entry via the parked→active flip, never reaching here.
           return info;
         },
         kill: async ({ input }) => {
@@ -455,6 +463,7 @@ export function buildPadiSurfaceDeps(deps: {
       session: {
         restore: ({ input }) => restoreSession(input),
         import: ({ input }) => importSession(input),
+        forfeit: () => forfeitSession(),
       },
     },
   };

@@ -14,9 +14,15 @@
  */
 
 import { resumeFormFor } from "anyagent/cli";
-import { getSavedSession, saveSession, setSavedSession } from "./session.ts";
+import {
+  clearSavedSession,
+  getSavedSession,
+  saveSession,
+  setSavedSession,
+} from "./session.ts";
 import { getActiveTerminal, getTerminal } from "./terminal-registry.ts";
 import {
+  discardAllLocalParked,
   discardLocalParked,
   seedSleepingTerminal,
 } from "./terminalEndpoint/local.ts";
@@ -151,6 +157,20 @@ export async function restoreSession(input: {
     savedActive === null ? null : (oldToNew.get(savedActive) ?? savedActive),
   );
   saveSession(snapshotSession());
+}
+
+/** FORFEIT the pending restore — the EXPLICIT "start fresh / discard my previous
+ *  session" act behind `padiSurface.procedures.session.forfeit`. Discards every
+ *  parked restore-card entry AND clears the saved session on disk, TOGETHER, as one
+ *  user-intended step: the parked entries and the blob they stand for are the same
+ *  restore offer, so forfeiting means dropping both atomically. Distinct from
+ *  `lifecycle.create` (which no longer forfeits — creating a terminal leaves the
+ *  restore offered) and from `restoreSession` (which CONSUMES the parked entries via
+ *  the parked→active flip and re-persists the live session). A no-op-safe idempotent
+ *  call: with no parked entries and no saved session it clears nothing. */
+export function forfeitSession(): void {
+  discardAllLocalParked();
+  clearSavedSession();
 }
 
 /** Import a session blob and restore it host-side — the diagnostic "Import

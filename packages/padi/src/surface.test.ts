@@ -103,7 +103,11 @@ describe("padiSurface 1.0 contract", () => {
     expect(Object.keys(procs.scratch ?? {})).toEqual(["write"]);
     expect(Object.keys(procs.preview ?? {})).toEqual(["read"]);
     expect(Object.keys(procs.transcript ?? {})).toEqual(["exportHtml"]);
-    expect(Object.keys(procs.session ?? {})).toEqual(["restore", "import"]);
+    expect(Object.keys(procs.session ?? {})).toEqual([
+      "restore",
+      "import",
+      "forfeit",
+    ]);
   });
 
   it("annotates EVERY member with a forwarding policy — no gap, no orphan", () => {

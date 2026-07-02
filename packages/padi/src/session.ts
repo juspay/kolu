@@ -12,6 +12,7 @@
 import { log } from "./log.ts";
 import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
+import { hasParkedTerminals } from "./terminal-registry.ts";
 import type { SavedSession, SavedTerminal } from "./vocab.ts";
 
 /** Pending autosave timer — declared at module top so `setSavedSession`
@@ -163,6 +164,16 @@ export function initSessionAutoSave(snapshot: () => SessionSnapshot): void {
         if (saveTimer) continue;
         saveTimer = setTimeout(() => {
           saveTimer = undefined;
+          // A restore PENDING (parked entries stand in for the saved session on
+          // disk) freezes the blob: `snapshot()` excludes parked records
+          // (`snapshotSession` skips them), so persisting it here would SHRINK the
+          // saved session — destroying the restore source of truth while the user
+          // still has terminal activity (creating/closing a fresh terminal, agent
+          // churn) that arms this autosave (PATH B). The parked entries ARE the
+          // "restore pending" marker; the blob stays put until `session.restore`
+          // consumes it or the user forfeits. Once resolved (no parked left), the
+          // autosave resumes and a genuine user close still clears normally.
+          if (hasParkedTerminals()) return;
           saveSession(snapshot());
         }, 500);
       }

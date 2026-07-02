@@ -514,10 +514,15 @@ export const padiSurface = defineSurface({
         output: ExportTranscriptHtmlOutputSchema,
       },
     },
-    /** Session restore/import — executes host-side (padi as one writer). */
+    /** Session restore/import/forfeit — executes host-side (padi as one writer). */
     session: {
       restore: { input: PadiSessionRestoreInputSchema },
       import: { input: PadiSessionImportInputSchema },
+      /** Explicitly discard the pending restore — drop the parked restore-card
+       *  entries AND clear the saved session together. The deliberate "start fresh"
+       *  act (the restore card's dismiss), distinct from `restore` (consumes) and
+       *  `lifecycle.create` (which no longer forfeits). Takes no input. */
+      forfeit: { input: z.object({}) },
     },
   },
 });

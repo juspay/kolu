@@ -229,6 +229,27 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     }
   }
 
+  /** Explicit forfeit — the user chose "Start fresh" over the saved session.
+   *  One server call discards the parked entries AND clears the saved session
+   *  together (creating a terminal no longer forfeits implicitly, W1). On
+   *  success the server pushes a `null` saved-session snapshot, which the
+   *  re-fetch effect above folds into `savedSession` and dismisses the card;
+   *  we also clear it optimistically so the card drops immediately. */
+  async function handleForfeitSession() {
+    const session = savedSession();
+    if (!session) return;
+    // Optimistic dismissal: the card is gone the moment the user commits.
+    setSavedSession(null);
+    await padiRpc(padi)
+      .surface.session.forfeit({})
+      .catch((err: Error) => {
+        // Surface the failure and restore the card so the user can retry —
+        // a caught error must not collapse silently to the empty state.
+        setSavedSession(session);
+        toast.error(`Failed to start fresh: ${err.message}`);
+      });
+  }
+
   return {
     // Loading is true until we can make an HONEST empty-vs-restore decision.
     // The terminal count alone isn't enough: `store.terminalIds()` (the
@@ -254,5 +275,6 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     savedSession,
     isRestoring,
     handleRestoreSession,
+    handleForfeitSession,
   };
 }

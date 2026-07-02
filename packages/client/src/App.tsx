@@ -458,6 +458,7 @@ const App: Component = () => {
                 savedSession={session.savedSession() ?? undefined}
                 isRestoring={session.isRestoring()}
                 onRestore={(opts) => void session.handleRestoreSession(opts)}
+                onForfeit={() => void session.handleForfeitSession()}
                 onCreate={dockPalette.onCreate}
               />
             </div>

@@ -163,6 +163,18 @@ export function parkedTerminalIds(): TerminalId[] {
   return ids;
 }
 
+/** Does the registry hold ANY parked entry — i.e. is a restore still PENDING? The
+ *  autosave reads this to freeze the saved blob while parked entries stand in for
+ *  it: a parked record is not persisted (`snapshotSession` skips it), so an autosave
+ *  firing while parked entries linger would persist a snapshot that OMITS them and
+ *  shrink the saved session on disk (the restore source of truth) — the PATH-B data
+ *  loss. Cheap early-out over the map (stops at the first parked entry). */
+export function hasParkedTerminals(): boolean {
+  for (const entry of terminals.values())
+    if (entry.meta.state === "parked") return true;
+  return false;
+}
+
 /** Number of registry RECORDS — active + sleeping. Cheap counter; the registry
  *  size. NOT a live-process count: a sleeping record holds no PTY/sensors/xterm,
  *  so heap diagnostics that correlate a column with live-terminal memory must use

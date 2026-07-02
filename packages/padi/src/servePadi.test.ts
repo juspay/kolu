@@ -27,7 +27,7 @@ import {
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
-import { getSavedSession } from "./session.ts";
+import { getSavedSession, setSavedSession } from "./session.ts";
 import { PadiParkedTerminalSchema } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
@@ -48,6 +48,7 @@ import {
   composeTerminalMetadata,
   LOCAL_LOCATION,
   PersistedSnapshotSchema,
+  type SavedActiveTerminal,
   type SavedSession,
 } from "./vocab.ts";
 
@@ -404,9 +405,84 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
   });
 });
 
-// ── lifecycle.create forfeits parked entries (K) ────────────────────────────
-describe("padi lifecycle.create forfeits lingering parked entries (K)", () => {
-  beforeEach(() => setPadiSurfaceCtx(noopPadiSurfaceCtxForTest()));
+// ── create preserves the restore; session.forfeit is the explicit discard (K) ──
+//
+// The prior behaviour (a plain create FORFEITED the restore by discarding every
+// parked entry) was the PATH-B data-loss bug: parked records are invisible to
+// `snapshotSession`, so once a create dropped them, the next autosave shrank the
+// saved blob (the restore source of truth) to whatever was live — and a close then
+// nulled it. The new semantics: creating a terminal leaves the restore OFFERED (the
+// parked entries + the saved session survive), and forfeit is the EXPLICIT
+// `session.forfeit` act that drops the parked entries AND clears the blob together.
+describe("padi restore forfeit — create preserves, session.forfeit discards (K)", () => {
+  /** A padi ctx whose `session` cell is a real in-memory store, so
+   *  `setSavedSession` / `getSavedSession` / `clearSavedSession` round-trip; every
+   *  other member no-op. */
+  function sessionBackedCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
+    const b = noopPadiSurfaceCtxForTest();
+    let session: SavedSession | null = null;
+    return {
+      ...b,
+      cells: new Proxy({} as never, {
+        get: (_t, name) =>
+          name === "session"
+            ? {
+                get: () => session,
+                set: (v: SavedSession | null) => {
+                  session = v;
+                },
+                patch: () => {},
+              }
+            : (b.cells as Record<string, unknown>)[name as string],
+      }),
+    } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
+  }
+
+  const savedActive = (id: string, cwd: string): SavedActiveTerminal => ({
+    id,
+    state: "active",
+    cwd,
+    git: null,
+    pr: { kind: "absent" },
+    location: LOCAL_LOCATION,
+    lastActivityAt: 1,
+    restoreTarget: { kind: "none" },
+  });
+  // The pre-reboot session the restore card offers — two ACTIVE records (one of
+  // which PARKED_ID stands in for), on disk since parkSavedSession seeded parked.
+  const savedBlob = (): SavedSession => ({
+    terminals: [
+      savedActive(PARKED_ID, "/work/parked"),
+      savedActive(ACTIVE_ID, "/b"),
+    ],
+    activeTerminalId: null,
+    savedAt: 1,
+  });
+
+  function serve() {
+    const deps = buildPadiSurfaceDeps({ endpoint: fakeEndpoint, log: stubLog });
+    const create = deps.procedures?.lifecycle?.create as
+      | ((a: { input: Record<string, never> }) => unknown)
+      | undefined;
+    const forfeit = deps.procedures?.session?.forfeit as
+      | ((a: { input: Record<string, never> }) => unknown)
+      | undefined;
+    if (!create || !forfeit)
+      throw new Error(
+        "padi deps must serve lifecycle.create + session.forfeit",
+      );
+    return { create, forfeit };
+  }
+
+  function seedParked(): void {
+    registerTerminal(PARKED_ID, {
+      info: { id: PARKED_ID, pid: 0 },
+      meta: parkedMeta,
+      snapshot: parkedSnapshot,
+    } as ParkedTerminalProcess);
+  }
+
+  beforeEach(() => setPadiSurfaceCtx(sessionBackedCtx()));
   afterEach(async () => {
     // The kaval-less fresh spawn's async tail rejects on a later microtask (the
     // failed-spawn path); let it settle, then drain any entry the create left.
@@ -415,26 +491,34 @@ describe("padi lifecycle.create forfeits lingering parked entries (K)", () => {
     __resetPadiSurfaceCtxForTest();
   });
 
-  it("a plain create discards a lingering parked entry", () => {
-    // A parked restore-card row left by boot reconcile (the user never restored).
-    registerTerminal(PARKED_ID, {
-      info: { id: PARKED_ID, pid: 0 },
-      meta: parkedMeta,
-      snapshot: parkedSnapshot,
-    } as ParkedTerminalProcess);
+  it("(v) a plain create does NOT forfeit — parked entries + saved blob both survive, restore stays offered", () => {
+    setSavedSession(savedBlob());
+    seedParked();
     expect(getTerminal(PARKED_ID)?.meta.state).toBe("parked");
 
-    const deps = buildPadiSurfaceDeps({ endpoint: fakeEndpoint, log: stubLog });
-    const create = deps.procedures?.lifecycle?.create as
-      | ((args: { input: Record<string, never> }) => unknown)
-      | undefined;
-    if (!create) throw new Error("padi deps must serve lifecycle.create");
-
-    // A fresh create is the FORFEIT path (NOT session.restore). The discard runs
-    // synchronously in the handler after the (kaval-less) spawn registers.
+    const { create } = serve();
     create({ input: {} });
 
-    // The parked entry was forfeited — it no longer lingers invisibly.
+    // The parked entry SURVIVES — creating a terminal is no longer a forfeit.
+    expect(getTerminal(PARKED_ID)?.meta.state).toBe("parked");
+    // The saved session (the restore source of truth) is untouched — all N held.
+    expect(getSavedSession()?.terminals.length).toBe(2);
+    // The freshly-created terminal is NOT a parked record.
+    const freshParked = [...terminalEntries()].filter(
+      ([, e]) => e.meta.state === "parked",
+    );
+    expect(freshParked.map(([id]) => id)).toEqual([PARKED_ID]);
+  });
+
+  it("(vii) session.forfeit discards the parked entries AND clears the saved session, atomically", () => {
+    setSavedSession(savedBlob());
+    seedParked();
+
+    const { forfeit } = serve();
+    forfeit({ input: {} });
+
+    // Both the parked entries and the blob are gone, together — one user act.
     expect(getTerminal(PARKED_ID)).toBeUndefined();
+    expect(getSavedSession()).toBeNull();
   });
 });
