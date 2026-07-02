@@ -73,8 +73,7 @@ import { recomputeUrgency, urgencyEqual } from "./urgency.ts";
 type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
 
 /** Get a terminal (active OR sleeping) or throw the typed not-found fault —
- *  the chrome setters' shared guard, the padi twin of `router.ts`'s
- *  `requireTerminal`. */
+ *  padi's own active-or-sleeping guard, shared by the chrome setters. */
 function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
   if (!entry) throw terminalNotFound(id);
@@ -136,8 +135,9 @@ export function buildPadiSurfaceDeps(deps: {
         remove: () => {},
       },
 
-      // Per-host kaval status — identical backing to `koluDeps.collections
-      // .daemonStatus`; the store is the authority, so upsert/remove are no-ops.
+      // Per-host kaval status — backed by padi's own `readDaemonStatuses` /
+      // `readDaemonStatus` (`./ptyHost/daemonStatus.ts`, the source of truth); the
+      // store is the authority, so upsert/remove are no-ops.
       daemonStatus: {
         readAll: () => readDaemonStatuses(),
         readOne: (key) => readDaemonStatus(key),
