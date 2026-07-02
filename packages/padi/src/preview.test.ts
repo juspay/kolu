@@ -118,3 +118,49 @@ describe("readPreview forwards Range → 206 ranged bytes", () => {
     expect(decodeBody(res.bodyBase64)).toBe("0123456789");
   });
 });
+
+describe("readPreview caps an unranged/open-ended read (no unbounded inline buffer)", () => {
+  let tmpRoot: string;
+
+  beforeAll(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "padi-preview-cap-"));
+    fs.writeFileSync(path.join(tmpRoot, "small.bin"), "0123456789");
+    // A SPARSE file just OVER the 64 MiB inline cap — `ftruncate` sizes it
+    // without writing 64 MiB of bytes, so the test stays fast and the
+    // Content-Length gate can reject it before any byte is read.
+    const fd = fs.openSync(path.join(tmpRoot, "big.bin"), "w");
+    fs.ftruncateSync(fd, 64 * 1024 * 1024 + 1);
+    fs.closeSync(fd);
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("throws PAYLOAD_TOO_LARGE for an open-ended range over the cap (via Content-Length)", async () => {
+    await expect(
+      readPreview({
+        repoPath: tmpRoot,
+        filePath: "big.bin",
+        range: "bytes=0-",
+      }),
+    ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
+  });
+
+  it("leaves a BOUNDED range over the same big file unchanged (206, just those bytes)", async () => {
+    const res = await readPreview({
+      repoPath: tmpRoot,
+      filePath: "big.bin",
+      range: "bytes=0-3",
+    });
+    expect(res.status).toBe(206);
+    // 4 sparse bytes → non-empty base64; the bounded path is never capped.
+    expect(res.bodyBase64.length).toBeGreaterThan(0);
+  });
+
+  it("serves a small unranged file whole (200) — comfortably under the cap", async () => {
+    const res = await readPreview({ repoPath: tmpRoot, filePath: "small.bin" });
+    expect(res.status).toBe(200);
+    expect(decodeBody(res.bodyBase64)).toBe("0123456789");
+  });
+});
