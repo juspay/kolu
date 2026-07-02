@@ -4,8 +4,9 @@
  * An endpoint owns the relationship between a supervising process (kolu-server;
  * the odu CLI) and one surface daemon it spawns and watches: it takes the
  * daemon from nothing to a live, handshaken connection, and reports — on every
- * transition — an honest `{ state, identity, startedAt }` the supervisor's
- * surface projects so the UI never lies about whether the daemon is there.
+ * transition — an honest `{ state, identity, startedAt, metadata }` the
+ * supervisor's surface projects so the UI never lies about whether the daemon is
+ * there.
  *
  *   connecting → connected            (spawned, socket up, handshake passed)
  *   connecting → dead                 (couldn't recycle / spawn / connect)
@@ -41,12 +42,14 @@ import { waitForPidGone } from "./waitForPidGone.ts";
 // endpoint re-exports them so existing supervisor consumers keep their import.
 export { ENDPOINT_STATES, type EndpointState };
 
-export interface EndpointStatus<I> {
+export interface EndpointStatus<I, M = undefined> {
   state: EndpointState;
   /** Present once `connected`: the daemon's self-declared identity. */
   identity?: I;
   /** Present once `connected`: the daemon's boot time (ms epoch), for uptime. */
   startedAt?: number;
+  /** Present once `connected`: caller-owned metadata from the handshake. */
+  metadata?: M;
 }
 
 /**
@@ -88,10 +91,11 @@ export function isContractSkewError(
 
 /** A live, handshaken connection to a daemon. The injected `connect` builds it;
  *  the endpoint holds it and tears it down. */
-export interface DaemonConnection<C, I> {
+export interface DaemonConnection<C, I, M = undefined> {
   client: C;
   identity: I;
   startedAt: number;
+  metadata?: M;
   /** Drop the transport. */
   dispose(): void;
   /** Subscribe to the transport dropping (the daemon exited / the socket
@@ -99,7 +103,7 @@ export interface DaemonConnection<C, I> {
   onClose(cb: () => void): void;
 }
 
-export interface EndpointSpec<C, I> {
+export interface EndpointSpec<C, I, M = undefined> {
   /** Which host this endpoint is for. The status is reported per-host so the
    *  shapes stay host-count-agnostic (one local host today; ssh hosts at R-2). */
   hostId: string;
@@ -117,10 +121,10 @@ export interface EndpointSpec<C, I> {
    *  unreadable handshake read) rejects with a plain error, which the endpoint
    *  treats as possibly-transient: `ensure` reports `dead`, and `adoptOrEnsure`
    *  retries it without ever killing the survivor (F4). */
-  connect(): Promise<DaemonConnection<C, I>>;
+  connect(): Promise<DaemonConnection<C, I, M>>;
   log: Logger;
   /** Called on every state transition — the supervisor publishes it. */
-  onStatus(hostId: string, status: EndpointStatus<I>): void;
+  onStatus(hostId: string, status: EndpointStatus<I, M>): void;
   /** Ceiling for the freshly-spawned daemon's socket to start accepting.
    *  Default 30_000ms. */
   socketReadyMs?: number;
@@ -137,7 +141,7 @@ export interface EndpointSpec<C, I> {
   adoptConnectRetryMs?: number;
 }
 
-export interface Endpoint<C, I> {
+export interface Endpoint<C, I, M = undefined> {
   /** Take the daemon to a live connection under the always-recycle boot policy.
    *  Throws (after reporting `dead`) if it cannot. */
   ensure(): Promise<void>;
@@ -155,7 +159,7 @@ export interface Endpoint<C, I> {
   adoptOrEnsure(): Promise<boolean>;
   /** The live connection, or `undefined` before `ensure()` or after the daemon
    *  died (`degraded`). */
-  current(): DaemonConnection<C, I> | undefined;
+  current(): DaemonConnection<C, I, M> | undefined;
   /** Run `body` (a session-preserving restart's inner sequence) with the status
    *  **held at `restarting`** — the emit-guard. While held, the transient
    *  transitions the recycle would otherwise surface (the old connection's
@@ -208,12 +212,14 @@ function socketAccepting(socketPath: string): Promise<boolean> {
   );
 }
 
-export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
+export function createEndpoint<C, I, M = undefined>(
+  spec: EndpointSpec<C, I, M>,
+): Endpoint<C, I, M> {
   const socketReadyMs = spec.socketReadyMs ?? 30_000;
   const socketPollMs = spec.socketPollMs ?? 50;
   const adoptConnectAttempts = spec.adoptConnectAttempts ?? 3;
   const adoptConnectRetryMs = spec.adoptConnectRetryMs ?? 100;
-  let conn: DaemonConnection<C, I> | undefined;
+  let conn: DaemonConnection<C, I, M> | undefined;
 
   // The emit-guard flag: true only while `holdRestarting` is running a
   // supervised restart's inner sequence. See `emit` for what it coerces.
@@ -228,6 +234,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
     state: EndpointState,
     identity?: I,
     startedAt?: number,
+    metadata?: M,
   ): void => {
     // While a restart is held, the recycle's transient transitions — the old
     // connection closing (`degraded`) and the fresh daemon coming up
@@ -239,7 +246,12 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
         ? "restarting"
         : state;
     lastReported = reported;
-    spec.onStatus(spec.hostId, { state: reported, identity, startedAt });
+    spec.onStatus(spec.hostId, {
+      state: reported,
+      identity,
+      startedAt,
+      metadata,
+    });
   };
 
   // The gate-holder check shared by every boot policy: return the live holder
@@ -295,7 +307,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
   // `adoptOrEnsure` (a survivor connected to WITHOUT a spawn) — so an adopted
   // daemon reports `connected` identically to a fresh one and neither path
   // re-implements the close→degrade wiring.
-  const holdConnection = (next: DaemonConnection<C, I>): void => {
+  const holdConnection = (next: DaemonConnection<C, I, M>): void => {
     conn = next;
     next.onClose(() => {
       // Only the CURRENT connection's close demotes us — a stale close from a
@@ -309,7 +321,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
         emit("degraded");
       }
     });
-    emit("connected", next.identity, next.startedAt);
+    emit("connected", next.identity, next.startedAt, next.metadata);
   };
 
   // Spawn a fresh daemon, wait for its socket, run the injected handshake, and
@@ -340,7 +352,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       );
     }
 
-    let next: DaemonConnection<C, I>;
+    let next: DaemonConnection<C, I, M>;
     try {
       next = await spec.connect();
     } catch (err) {
@@ -374,7 +386,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
   //                caller must NOT kill it (that would destroy live PTYs); it
   //                reports `degraded` and leaves the survivor be.
   type SurvivorConnect =
-    | { kind: "adopted"; conn: DaemonConnection<C, I> }
+    | { kind: "adopted"; conn: DaemonConnection<C, I, M> }
     | { kind: "skew"; err: unknown }
     | { kind: "unreachable"; err: unknown };
 
@@ -452,7 +464,8 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
         if (lastReported === "restarting") {
           // restartHold is still true here, but `connected`/`dead` are never
           // coerced by `emit`, so the recovery reports honestly.
-          if (conn) emit("connected", conn.identity, conn.startedAt);
+          if (conn)
+            emit("connected", conn.identity, conn.startedAt, conn.metadata);
           else emit("dead");
         }
         throw err;

@@ -1,44 +1,66 @@
-import * as assert from "node:assert";
 import { Then } from "@cucumber/cucumber";
+import type { Locator } from "playwright";
 import type { KoluWorld } from "../support/world.ts";
 
-/** Each rail column's memory readout carries its own `data-testid` and renders a
- *  compact whole-MB string (e.g. "142 MB"). The figure only appears once a real
- *  value lands — server/client are present immediately under Chromium; kaval
- *  fills in once the daemon's first `system.processMemory` poll returns.
- *
- *  The compact rail keeps these figures out of the always-visible row, so the
- *  test waits for an attached telemetry node rather than a visible chip. */
-async function assertMemoryReadout(
+/** Memory details live on the actual identity chip tooltip/aria-label rather
+ *  than hidden test-only DOM. The figure only appears once a real value lands —
+ *  server/client are present immediately under Chromium; kaval fills in once the
+ *  daemon's first `system.processMemory` poll returns. */
+async function assertChipMemoryLabel(
   world: KoluWorld,
+  testid: "kolu-identity-chip" | "kaval-identity-chip",
+  pattern: RegExp,
+): Promise<void> {
+  const chip = world.page.locator(`[data-testid="${testid}"]`);
+  await assertLabelEventually(chip, pattern, testid);
+}
+
+async function assertLabelEventually(
+  locator: Locator,
+  pattern: RegExp,
   testid: string,
 ): Promise<void> {
-  const readout = world.page.locator(`[data-testid="${testid}"]`);
-  await readout.waitFor({ state: "attached", timeout: 15_000 });
-  const text = await readout.textContent();
-  assert.ok(
-    text && /\d+\s*MB/.test(text),
-    `Rail readout "${testid}" should show a MB figure, got ${JSON.stringify(text)}`,
+  await locator.waitFor({ state: "attached", timeout: 15_000 });
+  await locator.page().waitForFunction(
+    ({ selector, source, flags }) => {
+      const text =
+        document.querySelector(selector)?.getAttribute("aria-label") ?? "";
+      return new RegExp(source, flags).test(text);
+    },
+    {
+      selector: `[data-testid="${testid}"]`,
+      source: pattern.source,
+      flags: pattern.flags,
+    },
+    { timeout: 15_000 },
   );
 }
 
 Then(
   "the identity rail details include server memory usage",
   async function (this: KoluWorld) {
-    await assertMemoryReadout(this, "server-memory");
+    await assertChipMemoryLabel(
+      this,
+      "kolu-identity-chip",
+      /server RSS \d+\s*MB/,
+    );
   },
 );
 
 Then(
   "the identity rail details include client memory usage",
   async function (this: KoluWorld) {
-    await assertMemoryReadout(this, "client-memory");
+    await assertChipMemoryLabel(
+      this,
+      "kolu-identity-chip",
+      /client heap \d+\s*MB/,
+    );
   },
 );
 
 Then(
   "the identity rail details include kaval memory usage",
   async function (this: KoluWorld) {
-    await assertMemoryReadout(this, "kaval-memory");
+    await assertChipMemoryLabel(this, "kaval-identity-chip", /RSS \d+\s*MB/);
   },
 );

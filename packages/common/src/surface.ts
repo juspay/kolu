@@ -780,10 +780,10 @@ export const DaemonStatusSchema = z.object({
   // below stays kolu's (it is the soul).
   state: z.enum(ENDPOINT_STATES),
   identity: PtyHostIdentitySchema.optional(),
-  /** The pty-host wire contract this daemon reported at handshake. This is the
-   *  honest "kaval version" the browser can show: kaval has its own build
-   *  identity below, but the thing kolu-server must agree on before talking to
-   *  it is the contract version. Present only once a daemon is connected. */
+  /** The pty-host wire contract this daemon reported at handshake. Kaval's build
+   *  identity is `identity.navigableCommit`; this is the protocol version
+   *  kolu-server must agree on before talking to it. Present only once a daemon
+   *  is connected. */
   contractVersion: z.string().optional(),
   /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
   startedAt: z.number().optional(),
@@ -791,7 +791,8 @@ export const DaemonStatusSchema = z.object({
    *  only on the `connected` status of an adopt-boot (a fresh / recycled boot
    *  omits it). Drives the client's one-shot "N reattached" confirmation.
    *  kolu's soul, not the spine: the supervisor's `EndpointStatus` never carries
-   *  it; the server folds it onto this kolu-owned status after reconciling.
+   *  adoption results; the server folds them onto this kolu-owned status after
+   *  reconciling.
    *  Optional + additive, so it forces no contract bump. */
   adopted: z.number().optional(),
   /** B3.3: the ms-epoch the server stamped when it surfaced THIS adoption — a

@@ -5,6 +5,7 @@ import { isCleanRef } from "@kolu/surface-app";
 import type { DaemonStatus } from "kolu-common/surface";
 import type { Component, JSX } from "solid-js";
 import { Show } from "solid-js";
+import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "../ui/Commit";
 import { CloseIcon, OpenIcon } from "../ui/Icons";
 import ModalDialog from "../ui/ModalDialog";
@@ -44,6 +45,7 @@ const KavalInfoDialog: Component<{
   onOpenChange: (open: boolean) => void;
   status: DaemonStatus | undefined;
 }> = (props) => {
+  const clockNow = getClockNow();
   const pending = (): boolean =>
     kavalStale(
       expectedKaval()?.staleKey,
@@ -111,7 +113,7 @@ const KavalInfoDialog: Component<{
                   <Show when={daemonTransportLive() && s().startedAt}>
                     {(t) => (
                       <span class="truncate text-[11px] tabular-nums text-fg-3">
-                        up {formatUptime(Date.now() - t())}
+                        up {formatUptime(clockNow() - t())}
                       </span>
                     )}
                   </Show>

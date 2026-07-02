@@ -9,9 +9,10 @@
  * collection reads the terminal registry).
  */
 
+import type { EndpointStatus } from "@kolu/surface-daemon-supervisor";
 import type { DaemonStatus } from "kolu-common/surface";
 import { surfaceCtx } from "../surfaceCtx.ts";
-import { connectedKavalContractVersion } from "./connect.ts";
+import type { KavalConnectionMetadata } from "./connect.ts";
 
 const store = new Map<string, DaemonStatus>();
 
@@ -37,22 +38,27 @@ export function setLocalSocketPath(path: string): void {
   localSocketPath = path;
 }
 
+function publishFullDaemonStatus(hostId: string, status: DaemonStatus): void {
+  store.set(hostId, status);
+  surfaceCtx.collections.daemonStatus.upsert(hostId, status);
+}
+
 /** Record + publish a host's daemon status. The endpoint's `onStatus` sink. Folds
  *  the local socket path on (a constant server fact) so the client need not — and
  *  can't — derive it. */
 export function publishDaemonStatus(
   hostId: string,
-  status: DaemonStatus,
+  status: EndpointStatus<DaemonStatus["identity"], KavalConnectionMetadata>,
 ): void {
-  const contractVersion =
-    status.state === "connected" ? connectedKavalContractVersion() : undefined;
+  const { metadata, ...baseStatus } = status;
   const full: DaemonStatus = {
-    ...status,
-    ...(contractVersion ? { contractVersion } : {}),
+    ...baseStatus,
+    ...(metadata?.contractVersion
+      ? { contractVersion: metadata.contractVersion }
+      : {}),
     ...(localSocketPath ? { socketPath: localSocketPath } : {}),
   };
-  store.set(hostId, full);
-  surfaceCtx.collections.daemonStatus.upsert(hostId, full);
+  publishFullDaemonStatus(hostId, full);
 }
 
 /** Fold the boot's adopted-terminal count (B3.3) onto the host's CURRENT status
@@ -83,5 +89,9 @@ export function publishDaemonStatus(
 export function setAdoptedCount(hostId: string, adopted: number): void {
   const current = store.get(hostId);
   if (!current) return;
-  publishDaemonStatus(hostId, { ...current, adopted, adoptedAt: Date.now() });
+  publishFullDaemonStatus(hostId, {
+    ...current,
+    adopted,
+    adoptedAt: Date.now(),
+  });
 }

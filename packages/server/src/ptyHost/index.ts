@@ -33,7 +33,7 @@ import {
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
 import { log } from "../log.ts";
-import { connectKaval } from "./connect.ts";
+import { connectKaval, type KavalConnectionMetadata } from "./connect.ts";
 import { setLocalSocketPath } from "./daemonStatus.ts";
 import {
   kavalGatePath,
@@ -51,14 +51,23 @@ type Identity = PtyHostIdentity | undefined;
  *  local endpoint carries `{ kind: "local" }`, not this string. */
 export const LOCAL_HOST_ID = "local";
 
-let endpoint: Endpoint<PtyHostClient, Identity> | undefined;
+let endpoint:
+  | Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>
+  | undefined;
 
 /** The serialized, emit-guarded restart trigger, bound to the live endpoint by
  *  `ensureLocalEndpoint`. Held here (not rebuilt per call) so its coalescing
  *  state is shared: concurrent restart requests ride one in-flight recycle. The
  *  soul's restart steps reach it through `restartLocalEndpoint`. */
 let triggerRestart:
-  | (<Ctx>(steps: RestartSteps<PtyHostClient, Identity, Ctx>) => Promise<void>)
+  | (<Ctx>(
+      steps: RestartSteps<
+        PtyHostClient,
+        Identity,
+        Ctx,
+        KavalConnectionMetadata
+      >,
+    ) => Promise<void>)
   | undefined;
 
 /** The live socket client, or a thrown error if the endpoint isn't connected
@@ -117,7 +126,10 @@ export async function ensureLocalEndpoint(opts: {
   /** This server's HTTP listen port — namespaces the kaval socket per instance
    *  (`kaval-<port>`), so a second kolu-server never recycles this one's daemon. */
   port: number;
-  onStatus: (hostId: string, status: EndpointStatus<Identity>) => void;
+  onStatus: (
+    hostId: string,
+    status: EndpointStatus<Identity, KavalConnectionMetadata>,
+  ) => void;
   /** Run after the boot ADOPTS a surviving daemon (B3.3) — reconcile its live
    *  PTYs against the saved session. Injected (not imported) so this composition
    *  root stays free of the terminal-endpoint layer, which imports back from
@@ -139,7 +151,7 @@ export async function ensureLocalEndpoint(opts: {
   // Surface where this kaval listens, so the dialog can show it (and `kaval-tui`
   // users can target it explicitly). Set before the endpoint's first status emit.
   setLocalSocketPath(socketPath);
-  const ep = createEndpoint<PtyHostClient, Identity>({
+  const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
     hostId: LOCAL_HOST_ID,
     gatePath: kavalGatePath(socketPath),
     socketPath,
@@ -195,7 +207,7 @@ export async function ensureLocalEndpoint(opts: {
  *  forwards them through the endpoint's coalescing + emit-guard trigger. Throws
  *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run). */
 export function restartLocalEndpoint<Ctx>(
-  steps: RestartSteps<PtyHostClient, Identity, Ctx>,
+  steps: RestartSteps<PtyHostClient, Identity, Ctx, KavalConnectionMetadata>,
 ): Promise<void> {
   if (!triggerRestart) {
     throw new Error("kaval endpoint not initialized — cannot restart");

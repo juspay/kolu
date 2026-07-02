@@ -34,14 +34,11 @@ import {
  *  the field stays compatible), so the endpoint's identity type is nullable. */
 export type KavalConnection = DaemonConnection<
   PtyHostClient,
-  PtyHostIdentity | undefined
+  PtyHostIdentity | undefined,
+  KavalConnectionMetadata
 >;
 
-let lastConnectedContractVersion: string | undefined;
-
-export function connectedKavalContractVersion(): string | undefined {
-  return lastConnectedContractVersion;
-}
+export type KavalConnectionMetadata = { contractVersion: string };
 
 /** Dial kaval at `socketPath`, handshake, and return the live connection.
  *
@@ -90,8 +87,6 @@ export async function connectKaval(
       `pty-host contract skew: kaval speaks ${version.contractVersion}, server needs ${PTY_HOST_CONTRACT_VERSION}`,
     );
   }
-  lastConnectedContractVersion = version.contractVersion;
-
   let closed = false;
   socket.once("close", () => {
     closed = true;
@@ -100,6 +95,7 @@ export async function connectKaval(
     client,
     identity: version.identity,
     startedAt: version.startedAt,
+    metadata: { contractVersion: version.contractVersion },
     dispose: () => socket.destroy(),
     onClose: (cb) => {
       if (closed) queueMicrotask(cb);

@@ -45,46 +45,19 @@ const Divider: Component = () => (
   <span class="h-4 w-px self-center bg-edge-bright/60" />
 );
 
-/** A hidden whole-MB memory readout for e2e coverage. The visible rail now keeps
- *  memory in hover text; this span preserves the data-testid contract without
- *  adding visual noise. */
-const MemReadout: Component<{
-  bytes: number | null;
-  testid: string;
-}> = (props) => (
-  <Show when={props.bytes}>
-    {(bytes) => (
-      <span data-testid={props.testid} class="hidden" aria-hidden="true">
-        {formatMBCompact(bytes())}
-      </span>
-    )}
-  </Show>
-);
-
-/** Kaval memory keeps the same data-testid contract. A poll error is visible
- *  because it is an actionable diagnostic anomaly; normal MB values stay in the
- *  tooltip. */
+/** A kaval memory poll error is visible because it is an actionable diagnostic
+ *  anomaly; normal MB values stay in the real chip tooltip/aria-label. */
 const KavalMemReadout: Component = () => (
-  <>
-    <Show
-      when={(() => {
-        const d = kavalMemoryDisplay();
-        return d?.kind === "ok" ? d.rssBytes : null;
-      })()}
-    >
-      {(bytes) => <MemReadout bytes={bytes()} testid="kaval-memory" />}
-    </Show>
-    <Show when={kavalMemoryDisplay()?.kind === "error"}>
-      <Tip label="kaval daemon memory poll failed — the daemon reports connected but didn't answer its memory probe">
-        <span
-          data-testid="kaval-memory-error"
-          class="rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning"
-        >
-          mem ?
-        </span>
-      </Tip>
-    </Show>
-  </>
+  <Show when={kavalMemoryDisplay()?.kind === "error"}>
+    <Tip label="kaval daemon memory poll failed — the daemon reports connected but didn't answer its memory probe">
+      <span
+        data-testid="kaval-memory-error"
+        class="rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning"
+      >
+        mem ?
+      </span>
+    </Tip>
+  </Show>
 );
 
 function mbText(bytes: number | null): string {
@@ -175,6 +148,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
     <div class="inline-flex items-center gap-1 rounded-lg border border-edge bg-surface-2/60 px-1.5 py-0.5 font-mono text-xs shadow-sm shadow-black/20">
       <button
         type="button"
+        data-testid="kolu-identity-chip"
         onClick={() => setKoluDialogOpen(true)}
         class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 leading-4 text-fg-2 transition-colors hover:bg-surface-3/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         title={koluTip()}
@@ -189,16 +163,15 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           {(v) => <span class="tabular-nums text-fg-3">v{v()}</span>}
         </Show>
       </button>
-      <MemReadout bytes={serverRssBytes()} testid="server-memory" />
       <Show when={stale()}>
         <StaleBadge />
       </Show>
-      <MemReadout bytes={clientHeapUsedBytes()} testid="client-memory" />
 
       <Divider />
 
       <button
         type="button"
+        data-testid="kaval-identity-chip"
         onClick={() => setKavalDialogOpen(true)}
         class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 leading-4 text-fg-2 transition-colors hover:bg-surface-3/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         title={kavalTip()}
@@ -212,7 +185,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         />
         <span>Kaval</span>
         <Show when={kavalVersion()}>
-          {(v) => <span class="tabular-nums text-fg-3">v{v()}</span>}
+          {(v) => <span class="tabular-nums text-fg-3">contract v{v()}</span>}
         </Show>
       </button>
       <KavalMemReadout />

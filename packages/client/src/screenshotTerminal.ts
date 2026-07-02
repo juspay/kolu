@@ -38,7 +38,6 @@ const DOT_MARGIN_LEFT = 16;
 const DOT_MACOS = ["#ff5f57", "#febc2e", "#28c840"] as const;
 const BRAND_RIGHT_MARGIN = 14;
 const BRAND_LOGO_URL = new URL("../favicon.svg", import.meta.url).href;
-const BRAND_LOGO_ASPECT = 372 / 340;
 let brandLogoPromise: Promise<HTMLImageElement> | undefined;
 
 function loadBrandLogo(): Promise<HTMLImageElement> {
@@ -235,13 +234,13 @@ export async function screenshotTerminal(
   // silently fall back to the browser's default glyphs and produce an
   // image that visually mismatches the live terminal.
   if (document.fonts?.ready) await document.fonts.ready;
-  let brandLogo: HTMLImageElement;
+  let brandLogo: HTMLImageElement | undefined;
   try {
     brandLogo = await loadBrandLogo();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    toast.error(msg);
-    return;
+    console.warn(msg);
+    toast.warning("Kolu logo unavailable; copying screenshot without it");
   }
   const buffer = xterm.buffer.active;
   const cols = xterm.cols;
@@ -332,14 +331,18 @@ export async function screenshotTerminal(
   ctx.font = `600 ${brandFontSize}px ${fontFamily}`;
   const brandTextWidth = ctx.measureText(brandText).width;
   const logoH = TITLE_H - 12;
-  const logoW = logoH * BRAND_LOGO_ASPECT;
+  const logoW = brandLogo
+    ? logoH *
+      ((brandLogo.naturalWidth || brandLogo.width) /
+        (brandLogo.naturalHeight || brandLogo.height))
+    : 0;
   const logoY = (TITLE_H - logoH) / 2;
   const brandTextX = logicalW - BRAND_RIGHT_MARGIN;
-  const logoX = brandTextX - brandTextWidth - 6 - logoW;
+  const logoX = brandTextX - brandTextWidth - (brandLogo ? 6 : 0) - logoW;
   ctx.textAlign = "end";
   ctx.fillStyle = titleTextColor;
   ctx.fillText(brandText, brandTextX, dotY + 1);
-  ctx.drawImage(brandLogo, logoX, logoY, logoW, logoH);
+  if (brandLogo) ctx.drawImage(brandLogo, logoX, logoY, logoW, logoH);
 
   ctx.textAlign = "start";
   ctx.textBaseline = "alphabetic";
