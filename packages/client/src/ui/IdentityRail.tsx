@@ -16,6 +16,7 @@
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
+import { match, P } from "ts-pattern";
 import { getClockNow } from "../time/clock";
 import KavalInfoDialog from "../kaval/KavalInfoDialog";
 import {
@@ -126,11 +127,14 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   };
 
   const kavalMemoryText = (): string => {
-    const display = kavalMemoryDisplay();
-    if (display?.kind === "ok")
-      return `RSS ${formatMBCompact(display.rssBytes)}`;
-    if (display?.kind === "error") return "memory poll failed";
-    return "memory unavailable";
+    return match(kavalMemoryDisplay())
+      .with(
+        { kind: "ok" },
+        (display) => `RSS ${formatMBCompact(display.rssBytes)}`,
+      )
+      .with({ kind: "error" }, () => "memory poll failed")
+      .with(P.nullish, () => "memory unavailable")
+      .exhaustive();
   };
 
   const kavalTip = createMemo((): string =>

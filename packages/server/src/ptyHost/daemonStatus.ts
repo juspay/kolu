@@ -50,14 +50,20 @@ export function publishDaemonStatus(
   hostId: string,
   status: EndpointStatus<DaemonStatus["identity"], KavalConnectionMetadata>,
 ): void {
-  const { metadata, ...baseStatus } = status;
-  const full: DaemonStatus = {
-    ...baseStatus,
-    ...(metadata?.contractVersion
-      ? { contractVersion: metadata.contractVersion }
-      : {}),
-    ...(localSocketPath ? { socketPath: localSocketPath } : {}),
-  };
+  const socket = localSocketPath ? { socketPath: localSocketPath } : {};
+  const full: DaemonStatus =
+    status.state === "connected"
+      ? {
+          state: "connected",
+          identity: status.identity,
+          startedAt: status.startedAt,
+          contractVersion: status.metadata.contractVersion,
+          ...socket,
+        }
+      : {
+          state: status.state,
+          ...socket,
+        };
   publishFullDaemonStatus(hostId, full);
 }
 
@@ -88,7 +94,7 @@ export function publishDaemonStatus(
  *  deliberately-accepted cost. */
 export function setAdoptedCount(hostId: string, adopted: number): void {
   const current = store.get(hostId);
-  if (!current) return;
+  if (!current || current.state !== "connected") return;
   publishFullDaemonStatus(hostId, {
     ...current,
     adopted,

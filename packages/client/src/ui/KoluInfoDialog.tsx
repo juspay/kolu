@@ -2,6 +2,7 @@ import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
+import { match, P } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
 import Commit, { REPO_URL } from "./Commit";
 import { OpenIcon } from "./Icons";
@@ -11,10 +12,12 @@ import { clientStale, StaleBadge } from "./StaleBadge";
 import { clientHeapUsedBytes, serverRssBytes } from "./useMemoryUsage";
 
 function statusLabel(status: WsStatus, live: boolean): string {
-  if (status === "open" && !live) return "reconnecting";
-  if (status === "open") return "connected";
-  if (status === "connecting") return "connecting";
-  return "disconnected";
+  return match<[WsStatus, boolean], string>([status, live])
+    .with(["open", true], () => "connected")
+    .with(["open", false], () => "reconnecting")
+    .with(["connecting", P._], () => "connecting")
+    .with(["closed", P._], () => "disconnected")
+    .exhaustive();
 }
 
 const KoluInfoDialog: Component<{

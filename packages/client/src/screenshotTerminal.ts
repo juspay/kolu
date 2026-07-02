@@ -240,7 +240,9 @@ export async function screenshotTerminal(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(msg);
-    toast.warning("Kolu logo unavailable; copying screenshot without it");
+    toast.warning(
+      `Kolu logo unavailable; copying screenshot without it: ${msg}`,
+    );
   }
   const buffer = xterm.buffer.active;
   const cols = xterm.cols;

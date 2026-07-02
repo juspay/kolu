@@ -46,6 +46,8 @@ function persistedMark(storage: Storage) {
 
 const adoptedStatus = (adoptedAt: number): DaemonStatus => ({
   state: "connected",
+  contractVersion: "5.0",
+  startedAt: 1,
   adopted: 3,
   adoptedAt,
 });
