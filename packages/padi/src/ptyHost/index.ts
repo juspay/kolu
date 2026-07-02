@@ -55,8 +55,24 @@ export const LOCAL_HOST_ID = "local";
  *  bundled `package.json`: padi's own `package.json` version (0.1.0) is NOT the
  *  app version, so reading it would corrupt the identity — kolu-server injects
  *  its `serverVersion` (the single source of truth) instead, keeping the
- *  dependency arrow out of `packages/server`. */
-let spawnServerVersion = "";
+ *  dependency arrow out of `packages/server`.
+ *
+ *  `undefined` until boot injects it: a READ before the set is a boot-order bug,
+ *  so {@link requireSpawnServerVersion} crashes loudly rather than stamping a
+ *  spawned PTY with an unset/stale version. */
+let spawnServerVersion: string | undefined;
+
+/** The injected app version, or a loud crash if a spawn composed before boot set
+ *  it. Fail-fast: a never-set read must surface, not silently stamp a blank
+ *  `TERM_PROGRAM_VERSION`. */
+function requireSpawnServerVersion(): string {
+  if (spawnServerVersion === undefined) {
+    throw new Error(
+      "spawnServerVersion read before setSpawnServerVersion() — kolu-server boot must inject it before ensureLocalEndpoint",
+    );
+  }
+  return spawnServerVersion;
+}
 
 /** Inject the kolu app version used for the spawned PTY's identity env. Called
  *  once at boot, BEFORE {@link ensureLocalEndpoint}. */
@@ -267,7 +283,7 @@ export function composeSpawnInput(
   const shell = env.SHELL ?? info.shell;
   const home = env.HOME ?? info.home;
   const cwd = args.cwd || home || "/";
-  Object.assign(env, koluIdentityEnv(spawnServerVersion));
+  Object.assign(env, koluIdentityEnv(requireSpawnServerVersion()));
   const plan = prepareShellInit({
     shell,
     home,

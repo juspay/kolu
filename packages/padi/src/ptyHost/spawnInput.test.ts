@@ -21,7 +21,13 @@ import { join } from "node:path";
 import { DEFAULT_MIRROR_SCROLLBACK, type PtyHostSystemInfo } from "kaval";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { composeSpawnInput } from "./index.ts";
+import { composeSpawnInput, setSpawnServerVersion } from "./index.ts";
+
+// The spawned PTY's identity version is boot-injected; these env-layering tests
+// don't assert on it, but `composeSpawnInput` now fail-fasts on a read before the
+// set, so inject a version once for the whole file. The read-before-set crash is
+// pinned separately in `spawnServerVersion.test.ts`.
+setSpawnServerVersion("9.9.9-test");
 
 const RC_DIR = mkdtempSync(join(tmpdir(), "spawn-input-rc-"));
 

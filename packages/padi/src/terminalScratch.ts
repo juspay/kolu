@@ -12,7 +12,7 @@ import { basename, join, parse } from "node:path";
 import { koluScratchDir } from "./koluRoot.ts";
 
 function dirFor(terminalId: string): string {
-  return join(koluScratchDir, terminalId);
+  return join(koluScratchDir(), terminalId);
 }
 
 /** Strip everything but the basename and collapse any character that
