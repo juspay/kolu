@@ -19,6 +19,7 @@ import {
   readDaemonStatus,
   setKoluServerProcessId,
   setPadiActivityFeedStore,
+  setPadiLastPairedDaemonStore,
   setPadiSessionStore,
   setSpawnServerVersion,
   shutdownCleanup,
@@ -63,6 +64,7 @@ import { appRouter } from "./router.ts";
 import {
   activityFeedStore,
   koluSurfaceCtx,
+  lastPairedDaemonStore,
   savedSessionStore,
 } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
@@ -133,6 +135,10 @@ setSpawnServerVersion(serverVersion);
 // truth until W2.2 gives padi its own state-root.
 setPadiSessionStore(savedSessionStore);
 setPadiActivityFeedStore(activityFeedStore);
+// The persisted last-paired-daemon store — the boot reads it to tell our survivor
+// from a REPLACED kaval before converging (so an empty replacement can't erase the
+// saved session), and re-records the current pairing at boot-settled below.
+setPadiLastPairedDaemonStore(lastPairedDaemonStore);
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
 initSessionAutoSave(snapshotSession);

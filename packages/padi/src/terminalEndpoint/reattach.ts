@@ -36,10 +36,15 @@
 import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 import { log } from "../log.ts";
+import {
+  getLastPairedDaemon,
+  isReplacedDaemon,
+  recordPairedDaemon,
+} from "../pairedDaemon.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
-import { getSavedSession, saveSession } from "../session.ts";
+import { clearSavedSession, getSavedSession, saveSession } from "../session.ts";
 import { getTerminal } from "../terminal-registry.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
 import {
@@ -104,6 +109,35 @@ export async function adoptSurvivingSession(): Promise<void> {
   const live = (await ptyHostClient.surface.terminal.list({})).entries;
 
   const saved = getSavedSession();
+
+  // Is the adopted daemon OUR survivor, or a REPLACED kaval (restarted out-of-band,
+  // reachable at the same socket)? `adoptOrEnsure` adopts on gate + socket +
+  // handshake alone and cannot tell — so gate the converge on daemon IDENTITY. A
+  // replacement's live PTYs are not our saved session's, and converging against them
+  // (an empty daemon → an empty registry → `saveSession([])`'s empty→null) ERASES the
+  // saved session with no restore card ever shown — the zest incident. Compare the
+  // connected daemon's per-process `startedAt` against the pairing we persisted last
+  // boot; `recordCurrentPairing` (onBootSettled) records THIS daemon for next time.
+  const currentStartedAt = readDaemonStatus(LOCAL_HOST_ID)?.startedAt;
+  if (
+    isReplacedDaemon({
+      currentStartedAt,
+      lastPaired: getLastPairedDaemon(),
+      live,
+      saved,
+    })
+  ) {
+    // A replaced daemon is a NO-SURVIVOR boot in disguise: preserve the saved
+    // session and PARK its actives for the restore card — the exact `onNotAdopted`
+    // flow. Never reach the converge below (that is the erase).
+    log.warn(
+      { currentStartedAt },
+      "boot adopted a REPLACED kaval (not our survivor) — preserving saved session, parking for restore",
+    );
+    parkSavedSession();
+    return;
+  }
+
   const { adopt, adoptOrphans, reapSleeping } = reconcile(live, saved);
 
   // Adopt every live PTY — never reap (F1). A survivor WITH a saved record rides
@@ -165,14 +199,29 @@ export async function adoptSurvivingSession(): Promise<void> {
 
   // Converge the saved session to exactly what is now live or dormant: exited
   // terminals drop out (no stale restore card), and the active marker is kept iff
-  // its terminal is still present (adopted active OR seeded sleeping). An empty
-  // registry clears the session (`saveSession` empty→null).
+  // its terminal is still present (adopted active OR seeded sleeping).
   restoreActiveTerminalId(
     saved?.activeTerminalId && getTerminal(saved.activeTerminalId)
       ? saved.activeTerminalId
       : null,
   );
-  saveSession(snapshotSession());
+  // An empty registry here means our GENUINE survivor (identity-gated above)
+  // reported all its PTYs exited during downtime — the terminals truly ended, so
+  // clear, exactly `handleExit`'s behaviour (2b). Spelled as an explicit clear
+  // rather than an incidental `saveSession([])` empty→null so it reads as an
+  // OBSERVED all-exited on a daemon we KNOW is ours — the only boot writer allowed
+  // to empty the session, and only because the replaced-daemon path returned above
+  // (2c). Every other empty is a spurious transient that must never clear.
+  const converged = snapshotSession();
+  if (converged.terminals.length === 0) clearSavedSession();
+  else saveSession(converged);
+
+  // Record THIS daemon as our confirmed survivor — recorded only here, on the
+  // survivor path (never when parking a replaced/no-survivor session onto a fresh
+  // daemon), so the next boot's `startedAt` tiebreak sees the process that actually
+  // held our terminals. It only decides the empty-live case (2b clear vs replaced);
+  // a live-PTY id match makes the pairing moot on every other path.
+  recordPairedDaemon(currentStartedAt);
 
   if (adoptedCount > 0) {
     setAdoptedCount(LOCAL_HOST_ID, adoptedCount);

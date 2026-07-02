@@ -33,6 +33,7 @@
 
 import {
   buildPadiSurfaceDeps,
+  type PairedDaemon,
   publisher,
   resolveTerminalEndpoint,
   setPadiSurfaceCtx,
@@ -103,6 +104,13 @@ export const activityFeedStore: CellStore<ActivityFeed> =
   confStore<ActivityFeed>(store, "activityFeed");
 export const savedSessionStore: CellStore<SavedSession | null> =
   confStore<SavedSession | null>(store, "session");
+// The last kaval kolu-server paired with (its per-process `startedAt`), persisted
+// so a boot can tell "our survivor" from "a REPLACED daemon at the same socket" and
+// not erase the saved session against an empty replacement (the session-clobber
+// fix). Injected into padi at boot like `session`/`activityFeed`; storage stays
+// kolu-server's until W2.2.
+export const lastPairedDaemonStore: CellStore<PairedDaemon | null> =
+  confStore<PairedDaemon | null>(store, "lastPairedDaemon");
 
 // ── processMemory cell: live metric, in-memory backing + whole-MB dedup ──
 //

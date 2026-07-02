@@ -20,8 +20,13 @@
 // truth until W2.2). The `requireX` getters stay padi-internal.
 export {
   setPadiActivityFeedStore,
+  setPadiLastPairedDaemonStore,
   setPadiSessionStore,
 } from "./confStores.ts";
+// The persisted survivor pairing's type — kolu-server builds the conf-backed store
+// for it (`surface.ts`) and injects it via `setPadiLastPairedDaemonStore`. The
+// pairing is READ + RECORDED entirely inside padi's boot reconcile.
+export type { PairedDaemon } from "./pairedDaemon.ts";
 // ── scratch / roots ─────────────────────────────────────────────────────
 export {
   ensureKoluRoot,

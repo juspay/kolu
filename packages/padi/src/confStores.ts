@@ -17,6 +17,7 @@
  */
 
 import type { CellStore } from "@kolu/surface/server";
+import type { PairedDaemon } from "./pairedDaemon.ts";
 import type { ActivityFeed, SavedSession } from "./vocab.ts";
 
 /** The injected `session` conf store, or `undefined` until boot sets it. */
@@ -24,6 +25,9 @@ let sessionStore: CellStore<SavedSession | null> | undefined;
 
 /** The injected `activityFeed` conf store, or `undefined` until boot sets it. */
 let activityFeedStore: CellStore<ActivityFeed> | undefined;
+
+/** The injected `lastPairedDaemon` conf store, or `undefined` until boot sets it. */
+let lastPairedDaemonStore: CellStore<PairedDaemon | null> | undefined;
 
 /** Inject the `session` conf store. Called once at kolu-server boot, before any
  *  serve / reconcile path reads it. */
@@ -37,6 +41,14 @@ export function setPadiSessionStore(
  *  any serve / MRU-tracker path reads it. */
 export function setPadiActivityFeedStore(store: CellStore<ActivityFeed>): void {
   activityFeedStore = store;
+}
+
+/** Inject the `lastPairedDaemon` conf store. Called once at kolu-server boot,
+ *  before the first boot adoption reads it. */
+export function setPadiLastPairedDaemonStore(
+  store: CellStore<PairedDaemon | null>,
+): void {
+  lastPairedDaemonStore = store;
 }
 
 /** The injected `session` store, or a loud crash if a read beat the boot-time
@@ -60,4 +72,17 @@ export function requirePadiActivityFeedStore(): CellStore<ActivityFeed> {
     );
   }
   return activityFeedStore;
+}
+
+/** The injected `lastPairedDaemon` store, or a loud crash if a read beat the
+ *  boot-time set. Fail-fast, mirroring {@link requirePadiSessionStore}: a boot that
+ *  can't read the prior pairing must surface, not silently skip replacement
+ *  detection (which would re-open the session-clobber path). */
+export function requirePadiLastPairedDaemonStore(): CellStore<PairedDaemon | null> {
+  if (lastPairedDaemonStore === undefined) {
+    throw new Error(
+      "padi lastPairedDaemon store read before setPadiLastPairedDaemonStore() — kolu-server boot must inject it before adopting",
+    );
+  }
+  return lastPairedDaemonStore;
 }
