@@ -37,8 +37,11 @@ import {
 import { ImageRenderer } from "@kolu/solid-fileview/renderers/image";
 import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
 import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
+import { padiRpc } from "@kolu/padi/surface";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import {
+  buildTerminalFileUrl,
+  isBinaryPreviewable,
   isMarkdown,
   isRasterImage,
   isSandboxPreviewable,
@@ -61,8 +64,9 @@ import { resolveWikilink } from "@kolu/solid-markdown";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { app } from "../wire";
+import { padi } from "../wire";
 import BrowseFileView from "./BrowseFileView";
+import { createPolledQuery } from "./createPolledQuery";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
@@ -113,17 +117,49 @@ export type BrowseFileDispatcherProps = {
   onOpenExternal?: (url: string) => void;
 };
 
+/** The client-side text|binary partition, moved off the wire. `padiSurface`'s
+ *  `fs.readFile` is TEXT-ONLY (`{ content, truncated }`) — deliberately not the
+ *  union `koluSurface.fsReadFile` returned — so the dispatcher decides binary vs
+ *  text itself, exactly as the old server backing did. A binary-previewable file
+ *  reads its mtime (`fs.statFileMtimeMs`) and builds the `/api/terminals/:id/file`
+ *  URL with the `?v=<mtime>` cache-key (the same route + shape the server built,
+ *  still served until W1.R5) so a save bumps the URL and the img/iframe reloads;
+ *  a text file reads its content. Either way the `subscribeFileChange` pulse
+ *  requeries on change, so the preview stays live. */
+type BrowseFileContent =
+  | { kind: "text"; content: string; truncated: boolean }
+  | { kind: "binary"; url: string };
+
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
-  const fileContent = app.streams.fsReadFile.use(
-    () => ({
+  const fileContent = createPolledQuery({
+    input: () => ({
       terminalId: props.terminalId,
       repoPath: props.repoPath,
       filePath: props.filePath,
     }),
-    {
-      onError: (err) => toast.error(`File content stream: ${err.message}`),
+    client: padi,
+    pulseName: "Code tab: file content pulse",
+    pulseProc: padiRpc(padi).surface.subscribeFileChange.get,
+    pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
+    query: async (i, signal): Promise<BrowseFileContent> => {
+      if (isBinaryPreviewable(i.filePath)) {
+        const mtimeMs = await padiRpc(padi).surface.fs.statFileMtimeMs(
+          { repoPath: i.repoPath, filePath: i.filePath },
+          { signal },
+        );
+        return {
+          kind: "binary",
+          url: `${buildTerminalFileUrl(i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
+        };
+      }
+      const { content, truncated } = await padiRpc(padi).surface.fs.readFile(
+        { repoPath: i.repoPath, filePath: i.filePath },
+        { signal },
+      );
+      return { kind: "text", content, truncated };
     },
-  );
+    onError: (err) => toast.error(`File content stream: ${err.message}`),
+  });
 
   // ── Wikilink navigation ────────────────────────────────────────────
   // A `[[Note]]` click resolves pathless against the whole repo (`repoVault`),

@@ -61,16 +61,7 @@ import {
   type koluSurface,
   LOCAL_LOCATION,
 } from "kolu-common/surface";
-import {
-  type FsReadFileOutput,
-  fsListAllOutputEqual,
-  fsReadFileOutputEqual,
-  gitDiffOutputEqual,
-  gitStatusOutputEqual,
-} from "kolu-git";
-import { isBinaryPreviewable } from "kolu-common/preview";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
-import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import {
   buildPadiSurfaceDeps,
@@ -284,69 +275,6 @@ const koluDeps: Omit<
     },
   },
 
-  streams: {
-    // fs/git streams are per-host one-shot ops bound to this endpoint. For now
-    // they read the LOCAL endpoint off the `localEndpoint` alias
-    // (`resolveTerminalEndpoint(LOCAL_LOCATION)`); R9.5's Code-tab rewrite makes
-    // them resolve per-terminal so a remote tile's fs/git dials its host behind
-    // the same TerminalEndpointFs / TerminalEndpointGit seam.
-    gitStatus: {
-      read: async (input) =>
-        localEndpoint.git.getStatus(input.repoPath, input.mode),
-      install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
-      isEqual: gitStatusOutputEqual,
-    },
-    gitDiff: {
-      read: async (input) =>
-        localEndpoint.git.getDiff(
-          input.repoPath,
-          input.filePath,
-          input.mode,
-          input.oldPath,
-        ),
-      install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
-      isEqual: gitDiffOutputEqual,
-    },
-    fsListAll: {
-      read: async (input) => localEndpoint.fs.listAll(input.repoPath),
-      install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
-      isEqual: fsListAllOutputEqual,
-    },
-    fsReadFile: {
-      read: async (input): Promise<FsReadFileOutput> => {
-        if (isBinaryPreviewable(input.filePath)) {
-          const mtimeMs = await localEndpoint.fs.statFileMtimeMs(
-            input.repoPath,
-            input.filePath,
-          );
-          return {
-            kind: "binary",
-            url: buildIframePreviewUrl(
-              input.terminalId,
-              input.filePath,
-              mtimeMs,
-            ),
-          };
-        }
-        const { content, truncated } = await localEndpoint.fs.readFile(
-          input.repoPath,
-          input.filePath,
-        );
-        return { kind: "text", content, truncated };
-      },
-      install: (input, cb) =>
-        localEndpoint.fs.subscribeFileChange(
-          input.repoPath,
-          input.filePath,
-          cb,
-        ),
-      isEqual: fsReadFileOutputEqual,
-    },
-  },
-
   events: {
     terminalExit: {
       // Single-yield-then-close: validate the terminal exists at subscribe
@@ -398,10 +326,12 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     {
       channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
-      // Default subsequent-read error handler for poll-shape streams.
-      // All four Kolu streams (gitStatus, gitDiff, fsListAll, fsReadFile)
-      // log transient read failures the same way; per-stream overrides
-      // are absent so this fires for every poll-shape stream.
+      // Default subsequent-read error handler for poll-shape streams. kolu's own
+      // fs/git value streams retired at W1.R4 (the Code tab now pulse-then-
+      // requeries padiSurface's procedures), so the poll-shape streams this now
+      // covers are padi's `subscribeRepoChange`/`subscribeFileChange` pulses and
+      // terminalWorkspace's watchers; per-stream overrides are absent so this
+      // fires for every poll-shape stream.
       onStreamReadError: (err, info) =>
         log.error(
           { err: err instanceof Error ? err.message : String(err), ...info },

@@ -108,7 +108,7 @@ const link = conn.link;
 const clients = conn.clients;
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,
- *  `app.collections.authored.use(...)`, `app.streams.gitStatus.use(...)`,
+ *  `app.collections.authored.use(...)`, `app.cells.terminalList.use(...)`,
  *  etc. Every existing `app.*` call site reaches kolu's own primitives. */
 export const app = clients.kolu;
 
