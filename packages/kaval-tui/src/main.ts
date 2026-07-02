@@ -103,7 +103,7 @@ const endpointFlags = { ...socketFlag, ...hostFlag } as const;
 type Endpoint =
   | { kind: "host"; host: string }
   | { kind: "socket"; socket: string }
-  | { kind: "default" };
+  | { kind: "default"; socket: string };
 
 /** The flag suffix that re-targets a later command at the SAME endpoint — the
  *  empty string for the default discovered socket (bare `attach` finds it). The
@@ -392,10 +392,6 @@ async function cmdCreate(
   endpoint: Endpoint,
   command: readonly string[],
   json: boolean,
-  /** The resolved local socket (for a local endpoint), stamped as KAVAL_SOCKET so
-   *  a process inside the new terminal can reach the daemon that owns it. Non-null
-   *  exactly for local endpoints — the remote (`--host`) path leaves it unset. */
-  localSocket: string | undefined,
 ): Promise<void> {
   // Compose the WHOLE fully-specified input client-side (the host derives
   // nothing since B0). We mint the id so the returned `id` echoes ours — the
@@ -416,18 +412,16 @@ async function cmdCreate(
     });
     home = info.home;
   } else {
-    // A local endpoint always carries a resolved socket (main() sets it in the
-    // same branch that leaves `endpoint.kind !== "host"`). Assert rather than
-    // silently spawn a terminal with no KAVAL_SOCKET.
-    if (localSocket === undefined) {
-      fail("internal: local `create` reached without a resolved socket");
-    }
+    // A local endpoint carries its resolved socket in the endpoint itself (main()
+    // fills it at construction), so TS narrows both local arms to a present
+    // string — no unset case to guard. Stamp it as KAVAL_SOCKET so a process
+    // inside the new terminal can reach the daemon that owns it.
     input = buildCreateInput({
       id: newPtyId(),
       cwd: process.cwd(),
       env: process.env,
       command,
-      kavalSocket: localSocket,
+      kavalSocket: endpoint.socket,
     });
     home = homedir();
   }
@@ -828,26 +822,24 @@ async function main(): Promise<void> {
     };
   }
   // The endpoint this command targets — its transport AND the suffix that
-  // re-targets a later `attach` at the same daemon (see `endpointHint`).
-  const endpoint: Endpoint =
-    argv.flags.host !== undefined
-      ? { kind: "host", host: argv.flags.host }
-      : argv.flags.socket !== undefined
-        ? { kind: "socket", socket: argv.flags.socket }
-        : { kind: "default" };
-  // For a local endpoint, resolve the socket ONCE up front: we dial it AND (for
-  // `create`) stamp it as KAVAL_SOCKET into the spawned terminal, so an agent
-  // inside can reach the daemon that owns it (the $TMUX convention). `undefined`
-  // for a remote endpoint — the remote daemon's socket path isn't ours to know.
-  let localSocket: string | undefined;
+  // re-targets a later `attach` at the same daemon (see `endpointHint`). A local
+  // endpoint resolves its socket ONCE here, up front, and CARRIES it: we dial it
+  // AND (for `create`) stamp it as KAVAL_SOCKET into the spawned terminal, so an
+  // agent inside can reach the daemon that owns it (the $TMUX convention). The
+  // resolved path lives on the endpoint itself, so both local arms are known to
+  // carry a socket — no parallel nullable to reconcile.
+  let endpoint: Endpoint;
   let conn: Connection;
-  if (endpoint.kind === "host") {
+  if (argv.flags.host !== undefined) {
+    endpoint = { kind: "host", host: argv.flags.host };
     conn = await connectHost(endpoint.host);
   } else {
-    localSocket = resolveSocketPath(
-      endpoint.kind === "socket" ? endpoint.socket : undefined,
-    );
-    conn = await connectLocal(localSocket);
+    const socket = resolveSocketPath(argv.flags.socket);
+    endpoint =
+      argv.flags.socket !== undefined
+        ? { kind: "socket", socket }
+        : { kind: "default", socket };
+    conn = await connectLocal(socket);
   }
 
   try {
@@ -858,13 +850,7 @@ async function main(): Promise<void> {
     // not in its registry; this guards OUR omissions.)
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
     else if (argv.command === "create")
-      await cmdCreate(
-        conn,
-        endpoint,
-        argv._.command,
-        argv.flags.json,
-        localSocket,
-      );
+      await cmdCreate(conn, endpoint, argv._.command, argv.flags.json);
     else if (argv.command === "snapshot") {
       // `--viewport`, `--tail`, and `--lines` (a synonym for `--tail`) each
       // bound the output differently, so more than one is ambiguous — crash
