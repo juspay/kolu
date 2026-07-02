@@ -14,8 +14,6 @@
  */
 
 import { resumeFormFor } from "anyagent/cli";
-import type { SavedSession, SavedTerminal } from "kolu-common/surface";
-import { backfillSavedSession, SavedSessionSchema } from "kolu-common/surface";
 import { getSavedSession, saveSession, setSavedSession } from "./session.ts";
 import { getActiveTerminal, getTerminal } from "./terminal-registry.ts";
 import {
@@ -27,6 +25,8 @@ import {
   restoreActiveTerminalId,
   snapshotSession,
 } from "./terminals.ts";
+import type { SavedSession, SavedTerminal } from "./vocab.ts";
+import { backfillSavedSession, SavedSessionSchema } from "./vocab.ts";
 
 /** Re-spawn one saved ACTIVE record as a FRESH live terminal, forwarding its
  *  restore-relevant chrome + the saved recency, and (opt-in) resuming its agent.

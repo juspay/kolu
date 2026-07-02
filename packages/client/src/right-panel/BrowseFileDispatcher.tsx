@@ -28,6 +28,8 @@
  *  HTML/SVG follows (phase 4) with zero changes here beyond the renderer
  *  list. */
 
+import { padiRpc } from "@kolu/padi/surface";
+import { resolveLinkHref } from "@kolu/solid-browser";
 import {
   type FileData,
   FileView,
@@ -37,9 +39,9 @@ import {
 import { ImageRenderer } from "@kolu/solid-fileview/renderers/image";
 import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
 import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
-import { padiRpc } from "@kolu/padi/surface";
-import { ORPCError } from "@orpc/client";
+import { resolveWikilink } from "@kolu/solid-markdown";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
+import { ORPCError } from "@orpc/client";
 import {
   buildTerminalFileUrl,
   isBinaryPreviewable,
@@ -60,15 +62,13 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
-import { resolveLinkHref } from "@kolu/solid-browser";
-import { resolveWikilink } from "@kolu/solid-markdown";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
 import { padi } from "../wire";
 import BrowseFileView from "./BrowseFileView";
-import { createPolledQuery } from "./createPolledQuery";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
+import { createPolledQuery } from "./createPolledQuery";
 import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 import { openInCodeTab } from "./openInCodeTab";

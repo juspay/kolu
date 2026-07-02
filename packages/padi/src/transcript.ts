@@ -15,17 +15,17 @@ import { ORPCError } from "@orpc/server";
 import { prValue } from "anyforge/schemas";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
-import type {
-  ExportTranscriptHtmlInput,
-  ExportTranscriptHtmlOutput,
-  Transcript,
-  TranscriptPr,
-} from "kolu-common/transcript";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { log } from "./log.ts";
 import { requireActiveTerminal } from "./terminal-registry.ts";
+import type {
+  ExportTranscriptHtmlInput,
+  ExportTranscriptHtmlOutput,
+  Transcript,
+  TranscriptPr,
+} from "./transcriptSchema.ts";
 
 /** Export a terminal's live agent session as an HTML transcript.
  *

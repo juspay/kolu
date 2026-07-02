@@ -29,11 +29,11 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { getPtyHostSocketPath, kavalNamespace } from "kaval";
 import {
   type DaemonDriver,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { getPtyHostSocketPath, kavalNamespace } from "kaval";
 
 /** The socket kaval serves and the server dials, namespaced **per kolu-server
  *  instance by its listen port** — `$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`.

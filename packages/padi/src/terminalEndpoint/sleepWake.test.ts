@@ -27,15 +27,12 @@
  * failed-wake path, asserted below.
  */
 
+import type {
+  AgentIdentity,
+  RestoreTarget,
+  TerminalSnapshot,
+} from "@kolu/terminal-workspace/schema";
 import { resumeFormFor } from "anyagent/cli";
-import {
-  type AgentIdentity,
-  type AuthoredTerminal,
-  LOCAL_LOCATION,
-  type TerminalSnapshot,
-  type RestoreTarget,
-  SavedTerminalSchema,
-} from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setKoluServerProcessId } from "../koluRoot.ts";
 import {
@@ -45,12 +42,17 @@ import {
 } from "../padiSurfaceCtx.ts";
 import {
   type ActiveTerminalProcess,
-  snapshotFor,
   getTerminal,
   registerTerminal,
+  snapshotFor,
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { snapshotSession } from "../terminals.ts";
+import {
+  type AuthoredTerminal,
+  LOCAL_LOCATION,
+  SavedTerminalSchema,
+} from "../vocab.ts";
 import {
   beginSleepLocal,
   discardLocalSleeping,

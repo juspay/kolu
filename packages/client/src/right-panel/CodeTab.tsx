@@ -14,18 +14,18 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
-import { padiRpc } from "@kolu/padi/surface";
+import {
+  CODE_TAB_VIEW_ORDER,
+  type CodeTabView,
+  padiRpc,
+  type TerminalMetadata,
+  viewLabel,
+} from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
 import { ORPCError } from "@orpc/client";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import {
-  CODE_TAB_VIEW_ORDER,
-  type CodeTabView,
-  type TerminalId,
-  type TerminalMetadata,
-  viewLabel,
-} from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type Component,
@@ -45,7 +45,8 @@ import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
-import { isDesktop, isTouch } from "../useMobile";
+import { realSizes } from "../ui/corvuResizable";
+import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import {
   ChevronRightIcon,
   FileBrowseIcon,
@@ -53,30 +54,29 @@ import {
   GitBranchIcon,
 } from "../ui/Icons";
 import { resolveRef } from "../ui/lineRef";
-import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
-import SegmentedControl, {
-  type SegmentedControlOption,
-} from "../ui/SegmentedControl";
 import {
   pierreIconConfig,
   pierreTreesShadowCss,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
-import { realSizes } from "../ui/corvuResizable";
+import SegmentedControl, {
+  type SegmentedControlOption,
+} from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
+import { isDesktop, isTouch } from "../useMobile";
 import { padi } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
-import { createRepoPolledQuery } from "./createRepoPolledQuery";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
+import { createRepoPolledQuery } from "./createRepoPolledQuery";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
-import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import {
   type OpenInCodeTabRequest,
   openInCodeTab,
   pendingOpen,
 } from "./openInCodeTab";
+import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { type BrowserLocation, useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {

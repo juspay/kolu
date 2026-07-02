@@ -46,11 +46,8 @@ import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
 } from "@kolu/terminal-workspace/endpoint";
-import type {
-  InitialTerminalMetadata,
-  TerminalId,
-  TerminalInfo,
-} from "./surface.ts";
+import type { TerminalId } from "@kolu/terminal-workspace/schema";
+import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
 
 /** A late-joining client's view of a terminal: the screen state at attach
  *  time plus the live output stream from exactly that point forward. The

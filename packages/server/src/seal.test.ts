@@ -22,9 +22,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { contract } from "kolu-common/contract";
 import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { contract } from "kolu-common/contract";
 import { appRouter } from "./router.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));

@@ -14,7 +14,7 @@
  * subscription and the accessors over it.
  */
 
-import type { DaemonStatus } from "kolu-common/surface";
+import type { DaemonStatus } from "@kolu/padi/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";

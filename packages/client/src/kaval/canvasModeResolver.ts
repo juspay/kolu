@@ -14,7 +14,7 @@
  *      would spawn/restore into the daemon the recycle is about to kill
  *      (terminal creation must wait for `connected`). */
 
-import type { DaemonState } from "kolu-common/surface";
+import type { DaemonState } from "@kolu/padi/surface";
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
  *  the down sub-state and the warming label travel WITH the choice — the

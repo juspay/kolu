@@ -14,8 +14,12 @@
  *  terminal leaves the list. No manual Map, AbortController, or version
  *  signals needed at this call site. */
 
-import type { PadiParkedTerminal, PadiTerminal } from "@kolu/padi/surface";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type {
+  PadiParkedTerminal,
+  PadiTerminal,
+  TerminalMetadata,
+} from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { padi } from "../wire";

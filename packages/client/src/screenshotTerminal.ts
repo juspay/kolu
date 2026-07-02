@@ -15,7 +15,8 @@
  *  Chrome, "black image" reports in real Chrome). Painting cells directly
  *  sidesteps that entire surface. */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";

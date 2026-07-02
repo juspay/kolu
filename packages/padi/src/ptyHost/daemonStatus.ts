@@ -10,8 +10,8 @@
  * daemon-liveness collection is padi's to serve (W1.R7 — it left koluSurface).
  */
 
-import type { DaemonStatus } from "kolu-common/surface";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
+import type { DaemonStatus } from "../vocab.ts";
 
 const store = new Map<string, DaemonStatus>();
 

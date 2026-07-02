@@ -696,6 +696,9 @@ importers:
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty
+      kolu-transcript-core:
+        specifier: workspace:*
+        version: link:../transcript-core
       kolu-transcript-html:
         specifier: workspace:*
         version: link:../transcript-html
@@ -1588,6 +1591,9 @@ importers:
       '@cucumber/cucumber':
         specifier: ^12.8.1
         version: 12.8.1
+      '@kolu/padi':
+        specifier: workspace:*
+        version: link:../padi
       get-port:
         specifier: ^7.2.0
         version: 7.2.0

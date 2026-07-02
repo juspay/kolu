@@ -5,7 +5,7 @@
  * means the two sides cannot drift on the rejection threshold.
  */
 
-import { VIDEO_EXTENSIONS } from "./preview.ts";
+import { VIDEO_EXTENSIONS } from "kolu-common/preview";
 
 /** Hard cap on a single dropped file. Agents don't need huge binaries;
  *  the goal is "paste me a snippet/log/screenshot", not "ship me a tarball". */

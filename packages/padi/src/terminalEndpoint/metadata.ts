@@ -41,20 +41,22 @@
  * unchanged too), so the fold could never change the projection there.
  */
 
-import {
-  type AgentMemory,
-  composeTerminalMetadata,
-  PersistedSnapshotSchema,
-  type TerminalSnapshot,
-  type RestoreTarget,
-  type TerminalClientMetadata,
-} from "kolu-common/surface";
+import type {
+  AgentMemory,
+  RestoreTarget,
+  TerminalSnapshot,
+} from "@kolu/terminal-workspace/schema";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { PadiParkedTerminalSchema, type PadiTerminal } from "../surface.ts";
 import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
 import { recomputeUrgency } from "../urgency.ts";
+import {
+  composeTerminalMetadata,
+  PersistedSnapshotSchema,
+  type TerminalClientMetadata,
+} from "../vocab.ts";
 
 /** Compose a registry entry into the served `PadiTerminal` value — the ONE
  *  server-side `authored ⋈ snapshot` join, with an EXPLICIT `parked` branch.

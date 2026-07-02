@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL } from "../support/buffer.ts";
-import { POLL_TIMEOUT } from "../support/world.ts";
 import type { KoluWorld } from "../support/world.ts";
+import { POLL_TIMEOUT } from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 /** Print the marker as a tall block of identical rows. The zoom hit-test

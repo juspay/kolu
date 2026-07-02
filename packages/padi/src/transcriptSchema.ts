@@ -5,9 +5,8 @@
  *  source of truth. kolu-common re-exports it for consumer convenience
  *  (the client and server both already import from kolu-common). */
 
-import { z } from "zod";
-
 import { TRANSCRIPT_HTML_MODES } from "kolu-transcript-core";
+import { z } from "zod";
 
 export {
   MODE_LABEL,

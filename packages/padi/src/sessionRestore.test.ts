@@ -21,13 +21,8 @@
  * before that tail runs, then a macrotask lets the rejections settle.
  */
 
-import {
-  LOCAL_LOCATION,
-  type SavedActiveTerminal,
-  type SavedSession,
-  type SavedTerminal,
-} from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setKoluServerProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -35,13 +30,18 @@ import {
 } from "./padiSurfaceCtx.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
 import { restoreSession } from "./sessionRestore.ts";
-import { setKoluServerProcessId } from "./koluRoot.ts";
-import { seedParkedTerminal } from "./terminalEndpoint/local.ts";
 import {
   getTerminal,
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
+import { seedParkedTerminal } from "./terminalEndpoint/local.ts";
+import {
+  LOCAL_LOCATION,
+  type SavedActiveTerminal,
+  type SavedSession,
+  type SavedTerminal,
+} from "./vocab.ts";
 
 // Restore drives the discard path (`cleanupTerminalScratch`), which reads the
 // per-instance scratch root. Boot injects the server id before any of this runs;

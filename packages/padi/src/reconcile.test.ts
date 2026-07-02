@@ -1,11 +1,11 @@
 import type { PtyHostListEntry } from "kaval";
+import { describe, expect, it } from "vitest";
+import { reconcile } from "./reconcile.ts";
 import {
   LOCAL_LOCATION,
   type SavedSession,
   type SavedTerminal,
-} from "kolu-common/surface";
-import { describe, expect, it } from "vitest";
-import { reconcile } from "./reconcile.ts";
+} from "./vocab.ts";
 
 // reconcile joins on `id` only — these builders carry just enough shape.
 function live(id: string, pid = 1000): PtyHostListEntry {

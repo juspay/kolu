@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
 import type { TerminalId } from "kolu-common/surface";
+import { describe, expect, it, vi } from "vitest";
 import { deliverScratchPaste } from "./pasteDelivery";
 
 const base = {

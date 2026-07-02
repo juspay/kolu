@@ -44,22 +44,29 @@
  * second daemon ever adopts them (electricity test ③: proof before extraction).
  *
  * BROWSER-SAFE face: like `koluSurface`/`terminalWorkspaceSurface` this imports
- * only `@kolu/surface/define`, zod-only schema modules (`kolu-common/surface`,
- * `kolu-common/transcript`, `kolu-git/schemas`, `@kolu/terminal-workspace/surface`),
+ * only `@kolu/surface/define`, zod-only schema modules (its own `./vocab.ts` +
+ * `./transcriptSchema.ts`, `kolu-git/schemas`, `@kolu/terminal-workspace/surface`),
  * and `zod` — no `node:`/kaval runtime (that lives beside this, in the node-only
- * side the motion stage adds). It depends on kolu-common for the terminal
- * schemas (which eventually migrate here); the arrow points
- * `@kolu/padi → kolu-common`, never back.
+ * side the motion stage adds). The terminal VOCABULARY now lives HERE (`./vocab.ts`,
+ * re-exported below): the arrow points `kolu-common → @kolu/padi`, never back. The
+ * one remaining edge into kolu-common is the `surfaces` config registry (the
+ * coordinator restructures that next).
  */
 
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
 } from "@kolu/terminal-workspace/surface";
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
+import type { ContractRouterClient } from "@orpc/contract";
+import { surfaces } from "kolu-common/surface";
+import {
+  ExportTranscriptHtmlInputSchema,
+  ExportTranscriptHtmlOutputSchema,
+} from "./transcriptSchema.ts";
 import {
   ActiveTerminalSchema,
   ActivityFeedSchema,
@@ -74,15 +81,9 @@ import {
   SavedSessionSchema,
   SavedSleepingTerminalSchema,
   SleepingTerminalSchema,
-  surfaces,
-  TerminalIdSchema,
   TerminalInfoSchema,
   TerminalOnExitOutputSchema,
-} from "kolu-common/surface";
-import {
-  ExportTranscriptHtmlInputSchema,
-  ExportTranscriptHtmlOutputSchema,
-} from "kolu-common/transcript";
+} from "./vocab.ts";
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
@@ -95,6 +96,11 @@ import {
   WorktreeRemoveInputSchema,
 } from "kolu-git/schemas";
 import { z } from "zod";
+
+// The terminal VOCABULARY (schemas · records · pure helpers) now lives HERE, in
+// `@kolu/padi` — the terminal-domain authority. Re-exported from this browser-safe
+// entry so consumers reach the schemas as `@kolu/padi/surface`.
+export * from "./vocab.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
 

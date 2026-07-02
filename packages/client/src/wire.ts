@@ -21,7 +21,13 @@
  * consumer reads the same singleton without per-component lookups.
  */
 
-import { padiRpc, surfacesWithPadi } from "@kolu/padi/surface";
+import {
+  padiRpc,
+  type RecentAgent,
+  type RecentRepo,
+  type SavedSession,
+  surfacesWithPadi,
+} from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { createSubscription, type Subscription } from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
@@ -30,9 +36,6 @@ import {
   DEFAULT_PREFERENCES,
   type Preferences,
   type PreferencesPatch,
-  type RecentAgent,
-  type RecentRepo,
-  type SavedSession,
   type TerminalId,
 } from "kolu-common/surface";
 import type { WebSocket as PartySocket } from "partysocket";

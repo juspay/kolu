@@ -28,10 +28,7 @@ import * as assert from "node:assert";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
-import {
-  LOCAL_LOCATION,
-  type SavedSleepingTerminal,
-} from "kolu-common/surface";
+import { LOCAL_LOCATION, type SavedSleepingTerminal } from "@kolu/padi/surface";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";

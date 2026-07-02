@@ -3,7 +3,7 @@ import {
   backfillRemoteUrl,
   backfillTerminalState,
   LOCAL_LOCATION,
-} from "kolu-common/surface";
+} from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import {
   migrateLegacyTerminal_1_18_0,

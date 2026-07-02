@@ -1,5 +1,5 @@
+import type { TerminalId } from "@kolu/terminal-workspace/schema";
 import type { PtyHostInventoryEvent, PtyHostListEntry } from "kaval";
-import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import {
   dispatchInventoryFrame,

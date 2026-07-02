@@ -1,14 +1,13 @@
 /** Terminal alerts — reactively detect agent state transitions and fire notifications.
  *  Watches metadata subscriptions for agent state changes (any AI coding agent). */
 
-import { makeEventListener } from "@solid-primitives/event-listener";
+import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { SW_MESSAGE_TYPE } from "@kolu/surface-app";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import {
-  activeArm,
   type AgentInfo,
   alertClass,
   type TerminalId,
-  type TerminalMetadata,
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { type Accessor, createEffect, on } from "solid-js";

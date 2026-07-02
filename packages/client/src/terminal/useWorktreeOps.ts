@@ -1,7 +1,7 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
-import { padiRpc } from "@kolu/padi/surface";
-import { sleepingArm, type TerminalId } from "kolu-common/surface";
+import { padiRpc, sleepingArm } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { padi } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";

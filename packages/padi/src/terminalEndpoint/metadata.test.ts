@@ -15,8 +15,13 @@
  *     is a compile error.
  */
 
-import { LOCAL_LOCATION, type TerminalSnapshot } from "kolu-common/surface";
+import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  __resetPadiSurfaceCtxForTest,
+  noopPadiSurfaceCtxForTest,
+  setPadiSurfaceCtx,
+} from "../padiSurfaceCtx.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import {
   type ActiveTerminalProcess,
@@ -24,11 +29,7 @@ import {
   registerTerminal,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import {
-  __resetPadiSurfaceCtxForTest,
-  noopPadiSurfaceCtxForTest,
-  setPadiSurfaceCtx,
-} from "../padiSurfaceCtx.ts";
+import { LOCAL_LOCATION } from "../vocab.ts";
 import {
   commitSnapshot,
   installSnapshot,

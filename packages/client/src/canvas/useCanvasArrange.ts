@@ -16,12 +16,12 @@ import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
 import { getBucketFor } from "./placementPolicy";
 import { arrangeRepoIslands, type RepoIslandTile } from "./repoIslands";
+import { layoutsEqual, type TileLayout } from "./TileLayout";
 import {
   DEFAULT_TILE_H,
   DEFAULT_TILE_W,
   findFreeTilePosition,
 } from "./tilePlacement";
-import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { usePendingLayouts } from "./usePendingLayouts";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 

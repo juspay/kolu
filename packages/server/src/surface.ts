@@ -32,6 +32,14 @@
  */
 
 import {
+  buildPadiSurfaceDeps,
+  publisher,
+  resolveTerminalEndpoint,
+  setPadiSurfaceCtx,
+} from "@kolu/padi/assembly";
+import type { ActivityFeed, SavedSession } from "@kolu/padi/surface";
+import { LOCAL_LOCATION, surfacesWithPadi } from "@kolu/padi/surface";
+import {
   type CellStore,
   composeSurfaceContracts,
   confStore,
@@ -40,30 +48,17 @@ import {
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
-import { surfacesWithPadi } from "@kolu/padi/surface";
 import { oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
-  ActivityFeed,
   KoluBuildInfo,
   Preferences,
   ProcessMemory,
-  SavedSession,
 } from "kolu-common/surface";
-import {
-  bytesToWholeMB,
-  type koluSurface,
-  LOCAL_LOCATION,
-} from "kolu-common/surface";
+import { bytesToWholeMB, type koluSurface } from "kolu-common/surface";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
-import {
-  buildPadiSurfaceDeps,
-  publisher,
-  resolveTerminalEndpoint,
-  setPadiSurfaceCtx,
-} from "@kolu/padi/assembly";
 import { store } from "./state.ts";
 
 // Resolved through the one `HostLocation` seam (R9.1). Eager at module-eval,

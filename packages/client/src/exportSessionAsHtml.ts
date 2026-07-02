@@ -11,8 +11,8 @@
  *  on the server because the transcript only exists there. */
 
 import { padiRpc } from "@kolu/padi/surface";
+import { MODE_LABEL, type TranscriptHtmlMode } from "@kolu/padi/transcript";
 import type { TerminalId } from "kolu-common/surface";
-import { MODE_LABEL, type TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
 import { padi } from "./wire";

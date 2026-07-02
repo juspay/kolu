@@ -1,8 +1,5 @@
-import type {
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
-} from "kolu-common/surface";
+import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 

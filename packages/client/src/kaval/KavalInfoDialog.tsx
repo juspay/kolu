@@ -9,8 +9,8 @@
  */
 
 import Dialog from "@corvu/dialog";
+import type { DaemonStatus } from "@kolu/padi/surface";
 import { isCleanRef } from "@kolu/surface-app";
-import type { DaemonStatus } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import Commit, { REPO_URL } from "../ui/Commit";

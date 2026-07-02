@@ -16,14 +16,14 @@ import { createDraggable } from "@thisbeyond/solid-dnd";
 import { type Component, createMemo, For, type JSX, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
+import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
 import {
   Z_CANVAS_TILE_ACTIVE,
   Z_CANVAS_TILE_INACTIVE,
 } from "../ui/stackLayers";
-import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
-import type { TileAura } from "./tileAura";
 import type { TileLayout } from "./TileLayout";
+import type { TileAura } from "./tileAura";
 import {
   type TileTheme,
   tileChromeButton,

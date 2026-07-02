@@ -2,17 +2,41 @@ import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
+import { startHeapDiagnostics } from "@kolu/heap-diag";
 import {
-  acceptSurfaceSocket,
-  installFreshStatic,
-  installPwaManifest,
-} from "@kolu/surface-app/server";
+  activeTerminalCount,
+  adoptSurvivingSession,
+  countActiveClaudeSessions,
+  ensureKoluRoot,
+  ensureLocalEndpoint,
+  initSessionAutoSave,
+  LOCAL_HOST_ID,
+  parkSavedSession,
+  previewFile,
+  ptyHostClient,
+  publishDaemonStatus,
+  publisherSize,
+  readDaemonStatus,
+  setKoluServerProcessId,
+  setPadiActivityFeedStore,
+  setPadiSessionStore,
+  setSpawnServerVersion,
+  shutdownCleanup,
+  snapshotFor,
+  snapshotSession,
+  startInventoryReconciler,
+} from "@kolu/padi/assembly";
+import { log as padiLog } from "@kolu/padi/log";
 import {
   gateHttpRpcOrigin,
   gateWsOrigin,
   parseAllowedOrigins,
 } from "@kolu/surface/ws-origin";
-import { startHeapDiagnostics } from "@kolu/heap-diag";
+import {
+  acceptSurfaceSocket,
+  installFreshStatic,
+  installPwaManifest,
+} from "@kolu/surface-app/server";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -32,39 +56,15 @@ import {
   previewTailFromRawUrl,
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
-import {
-  activeTerminalCount,
-  adoptSurvivingSession,
-  countActiveClaudeSessions,
-  ensureKoluRoot,
-  ensureLocalEndpoint,
-  initSessionAutoSave,
-  LOCAL_HOST_ID,
-  parkSavedSession,
-  ptyHostClient,
-  publishDaemonStatus,
-  publisherSize,
-  readDaemonStatus,
-  previewFile,
-  setKoluServerProcessId,
-  setPadiActivityFeedStore,
-  setPadiSessionStore,
-  setSpawnServerVersion,
-  shutdownCleanup,
-  snapshotFor,
-  snapshotSession,
-  startInventoryReconciler,
-} from "@kolu/padi/assembly";
-import { log as padiLog } from "@kolu/padi/log";
 import { log } from "./log.ts";
+import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { appRouter } from "./router.ts";
 import {
   activityFeedStore,
   koluSurfaceCtx,
   savedSessionStore,
 } from "./surface.ts";
-import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { pwaIdentityForHostname } from "./pwaIdentity.ts";
-import { appRouter } from "./router.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({

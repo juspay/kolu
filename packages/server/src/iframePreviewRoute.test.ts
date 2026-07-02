@@ -12,12 +12,12 @@
  *  `readPreview` (`packages/padi/src/preview.test.ts`), since the guard moved
  *  there when the Hono route was re-backed onto that read. */
 
-import http from "node:http";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { serve } from "@hono/node-server";
 import type { HttpBindings } from "@hono/node-server";
+import { serve } from "@hono/node-server";
 import { previewFile } from "@kolu/padi/assembly";
 import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
 import { Hono } from "hono";

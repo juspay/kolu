@@ -1,4 +1,4 @@
-import { LOCAL_LOCATION, type TerminalMetadata } from "kolu-common/surface";
+import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { chipInitials } from "./chipInitials";

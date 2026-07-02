@@ -13,8 +13,8 @@
  *  and (2) past the cap, admission is bounded by recency so live contexts never
  *  exceed Chrome's limit. */
 
-import { describe, expect, it } from "vitest";
 import type { TerminalId } from "kolu-common/surface";
+import { describe, expect, it } from "vitest";
 import {
   admitWebglTiles,
   isActiveSplit,

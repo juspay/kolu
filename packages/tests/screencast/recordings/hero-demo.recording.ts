@@ -3,9 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  annotate,
   CLAUDE_SONNET,
   CODEX_AUTONOMOUS,
-  annotate,
   clearAnnotations,
   clearCanvas,
   clickWithArrow,

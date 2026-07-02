@@ -19,7 +19,7 @@
  *  test runner — so the guard + toast semantics can only be unit-tested as a
  *  standalone unit. */
 
-import type { SavedSession } from "kolu-common/surface";
+import type { SavedSession } from "@kolu/padi/surface";
 import { toast } from "solid-sonner";
 
 export function createImportSessionAction(deps: {

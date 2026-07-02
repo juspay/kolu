@@ -19,20 +19,20 @@
  *  Callers read/write for the *active* terminal — the API is parameterless,
  *  resolving the current terminal id from `useTerminalStore` internally. */
 
-import { padiRpc } from "@kolu/padi/surface";
+import {
+  type CodeTabView,
+  DEFAULT_RIGHT_PANEL_PER_TERMINAL,
+  padiRpc,
+  type RightPanelPerTerminalState,
+  type RightPanelTab,
+  rightPanelView,
+} from "@kolu/padi/surface";
 import {
   type Browser,
   createBrowser,
   DEFAULT_MAX_ENTRIES,
 } from "@kolu/solid-browser";
-import {
-  type CodeTabView,
-  DEFAULT_RIGHT_PANEL_PER_TERMINAL,
-  type RightPanelPerTerminalState,
-  type RightPanelTab,
-  rightPanelView,
-  type TerminalId,
-} from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";

@@ -11,9 +11,9 @@
  * fragment and the two remaining raw RPCs.
  */
 
+import { restartLocalDaemon } from "@kolu/padi/assembly";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
-import { restartLocalDaemon } from "@kolu/padi/assembly";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 

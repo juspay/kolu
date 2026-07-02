@@ -12,7 +12,7 @@
  */
 
 import { agentBucket } from "@kolu/terminal-workspace/agentProjection";
-import type { TerminalId } from "kolu-common/surface";
+import type { TerminalId } from "@kolu/terminal-workspace/schema";
 import type { PadiUrgency } from "./surface.ts";
 import { terminalEntries } from "./terminal-registry.ts";
 

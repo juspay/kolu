@@ -1,4 +1,4 @@
-import type { DaemonState } from "kolu-common/surface";
+import type { DaemonState } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import {
   DAEMON_STATE_PRESENTATION,

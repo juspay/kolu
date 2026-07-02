@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as os from "node:os";
 import { Given, Then, When } from "@cucumber/cucumber";
-import { LOCAL_LOCATION, type SavedTerminal } from "kolu-common/surface";
+import { LOCAL_LOCATION, type SavedTerminal } from "@kolu/padi/surface";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,

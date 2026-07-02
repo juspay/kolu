@@ -12,8 +12,10 @@
  *  sidebar's selection bar, the card eyebrow, and the card border —
  *  three echoes of the same truth. */
 
+import { activeArm, activePr } from "@kolu/padi/surface";
+import { StatePip } from "@kolu/solid-statepip";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { activeArm, activePr, type TerminalId } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -40,7 +42,6 @@ import {
   type DockEntry,
   type DockSourceEntry,
 } from "../dockModel";
-import { StatePip } from "@kolu/solid-statepip";
 import { agentLabel, metaLine, tokenLine } from "./dockRowChrome";
 import { pipVariant } from "./pipVariant";
 

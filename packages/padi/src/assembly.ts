@@ -14,6 +14,65 @@
  * INJECTED via `setKoluServerProcessId` / `setSpawnServerVersion`, not imported.
  */
 
+// ── injected conf stores (session + activityFeed) ───────────────────────
+// kolu-server boot injects the real `confStore`-backed stores here BEFORE serving
+// (padi does not import packages/server; the STORAGE stays kolu-server's source of
+// truth until W2.2). The `requireX` getters stay padi-internal.
+export {
+  setPadiActivityFeedStore,
+  setPadiSessionStore,
+} from "./confStores.ts";
+// ── scratch / roots ─────────────────────────────────────────────────────
+export {
+  ensureKoluRoot,
+  setKoluServerProcessId,
+  shutdownCleanup,
+} from "./koluRoot.ts";
+export {
+  __resetPadiSurfaceCtxForTest,
+  padiSurfaceCtx,
+  setPadiSurfaceCtx,
+} from "./padiSurfaceCtx.ts";
+// The range-capable serve-dir read kolu-server's re-backed Hono preview route
+// calls — the STREAMING form (`previewFile`, bounded heap), the same read
+// `preview.read` serves through its base64 wire-wrapper (`readPreview`).
+export { previewFile } from "./preview.ts";
+export {
+  publishDaemonStatus,
+  readDaemonStatus,
+  readDaemonStatuses,
+} from "./ptyHost/daemonStatus.ts";
+// ── kaval supervision ───────────────────────────────────────────────────
+export {
+  ensureLocalEndpoint,
+  LOCAL_HOST_ID,
+  ptyHostClient,
+  setSpawnServerVersion,
+} from "./ptyHost/index.ts";
+export { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
+// ── publisher / surface ctx holder ──────────────────────────────────────
+export {
+  publisher,
+  publisherSize,
+  terminalsDirtyChannel,
+} from "./publisher.ts";
+
+// ── native serving (W1.R0) ──────────────────────────────────────────────
+export { buildPadiSurfaceDeps } from "./servePadi.ts";
+// ── session persistence ─────────────────────────────────────────────────
+export {
+  cancelPendingAutosave,
+  clearSavedSession,
+  getSavedSession,
+  initSessionAutoSave,
+  saveSession,
+  setSavedSession,
+  setSavedSessionFromSnapshot,
+} from "./session.ts";
+export type {
+  ActiveTerminalProcess,
+  TerminalProcess,
+} from "./terminal-registry.ts";
 // ── registry / lifecycle ────────────────────────────────────────────────
 export {
   activeTerminalCount,
@@ -26,10 +85,21 @@ export {
   snapshotFor,
   terminalNotFound,
 } from "./terminal-registry.ts";
-export type {
-  ActiveTerminalProcess,
-  TerminalProcess,
-} from "./terminal-registry.ts";
+export { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
+// ── endpoint bindings ───────────────────────────────────────────────────
+export {
+  discardLocalParked,
+  discardLocalSleeping,
+  seedParkedTerminal,
+  seedSleepingTerminal,
+  wakeLocalTerminal,
+} from "./terminalEndpoint/local.ts";
+export {
+  adoptSurvivingSession,
+  parkSavedSession,
+} from "./terminalEndpoint/reattach.ts";
+export { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
+export { saveTerminalFile } from "./terminalScratch.ts";
 export {
   createTerminal,
   killAllTerminals,
@@ -44,79 +114,3 @@ export {
   sleepTerminal,
   snapshotSession,
 } from "./terminals.ts";
-
-// ── endpoint bindings ───────────────────────────────────────────────────
-export {
-  discardLocalParked,
-  discardLocalSleeping,
-  seedParkedTerminal,
-  seedSleepingTerminal,
-  wakeLocalTerminal,
-} from "./terminalEndpoint/local.ts";
-export { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-export {
-  adoptSurvivingSession,
-  parkSavedSession,
-} from "./terminalEndpoint/reattach.ts";
-export { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
-
-// ── session persistence ─────────────────────────────────────────────────
-export {
-  cancelPendingAutosave,
-  clearSavedSession,
-  getSavedSession,
-  initSessionAutoSave,
-  saveSession,
-  setSavedSession,
-  setSavedSessionFromSnapshot,
-} from "./session.ts";
-
-// ── native serving (W1.R0) ──────────────────────────────────────────────
-export { buildPadiSurfaceDeps } from "./servePadi.ts";
-// The range-capable serve-dir read kolu-server's re-backed Hono preview route
-// calls — the STREAMING form (`previewFile`, bounded heap), the same read
-// `preview.read` serves through its base64 wire-wrapper (`readPreview`).
-export { previewFile } from "./preview.ts";
-
-// ── publisher / surface ctx holder ──────────────────────────────────────
-export {
-  publisher,
-  publisherSize,
-  terminalsDirtyChannel,
-} from "./publisher.ts";
-export {
-  __resetPadiSurfaceCtxForTest,
-  padiSurfaceCtx,
-  setPadiSurfaceCtx,
-} from "./padiSurfaceCtx.ts";
-
-// ── injected conf stores (session + activityFeed) ───────────────────────
-// kolu-server boot injects the real `confStore`-backed stores here BEFORE serving
-// (padi does not import packages/server; the STORAGE stays kolu-server's source of
-// truth until W2.2). The `requireX` getters stay padi-internal.
-export {
-  setPadiActivityFeedStore,
-  setPadiSessionStore,
-} from "./confStores.ts";
-
-// ── scratch / roots ─────────────────────────────────────────────────────
-export {
-  ensureKoluRoot,
-  setKoluServerProcessId,
-  shutdownCleanup,
-} from "./koluRoot.ts";
-export { saveTerminalFile } from "./terminalScratch.ts";
-
-// ── kaval supervision ───────────────────────────────────────────────────
-export {
-  ensureLocalEndpoint,
-  LOCAL_HOST_ID,
-  ptyHostClient,
-  setSpawnServerVersion,
-} from "./ptyHost/index.ts";
-export {
-  publishDaemonStatus,
-  readDaemonStatus,
-  readDaemonStatuses,
-} from "./ptyHost/daemonStatus.ts";
-export { restartLocalDaemon } from "./ptyHost/restartLocal.ts";

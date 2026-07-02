@@ -13,8 +13,8 @@
  *  the client side of the `@kolu/solid-markdown` dependency arrow; the package
  *  only routes the click. */
 
-import { createEventListener } from "@solid-primitives/event-listener";
 import { bindMarkdownLinks } from "@kolu/solid-markdown";
+import { createEventListener } from "@solid-primitives/event-listener";
 import { type Component, createMemo, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "../ui/Surface";

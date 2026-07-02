@@ -31,11 +31,16 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
-import { padiRpc } from "@kolu/padi/surface";
+import { activeArm, padiRpc } from "@kolu/padi/surface";
+import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
 import { unenrolledStreamCall } from "@kolu/surface/client";
+import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+  isTerminalQueryResponse,
+} from "@kolu/terminal-protocol";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
-import { activeArm, type TerminalId } from "kolu-common/surface";
-import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
+import type { TerminalId } from "kolu-common/surface";
 import { FONT_FAMILY } from "terminal-themes";
 import {
   ACTIONS,
@@ -46,32 +51,27 @@ import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
-import type { LineRef } from "../ui/lineRef";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { wireScrollIntent } from "../scrollLockWiring";
+import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
 import { padi, preferences } from "../wire";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
 } from "./fileRefLinkProvider";
-import ScrollToBottom from "./ScrollToBottom";
-import { applyStickyModifiers } from "./stickyModifiers";
-import SearchBar from "./SearchBar";
-import { enableSoftKeyboardInput } from "./softKeyboardInput";
-import {
-  BRACKETED_PASTE_END,
-  BRACKETED_PASTE_START,
-  isTerminalQueryResponse,
-} from "@kolu/terminal-protocol";
-import { createRenderRecovery } from "./renderRecovery";
-import { createSnapshotBoundary } from "./snapshotBoundary";
-import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
-import { registerDiagnostics } from "./useTerminalDiagnostics";
-import { useTerminalActivity } from "./useTerminalActivity";
-import { useTerminalStore } from "./useTerminalStore";
 import { deliverScratchPaste } from "./pasteDelivery";
+import { createRenderRecovery } from "./renderRecovery";
+import ScrollToBottom from "./ScrollToBottom";
+import SearchBar from "./SearchBar";
+import { createSnapshotBoundary } from "./snapshotBoundary";
+import { enableSoftKeyboardInput } from "./softKeyboardInput";
+import { applyStickyModifiers } from "./stickyModifiers";
+import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
+import { useTerminalActivity } from "./useTerminalActivity";
+import { registerDiagnostics } from "./useTerminalDiagnostics";
+import { useTerminalStore } from "./useTerminalStore";
 import {
   trackCreate,
   trackDispose,

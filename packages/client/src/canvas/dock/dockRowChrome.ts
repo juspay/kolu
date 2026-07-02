@@ -1,4 +1,5 @@
-import { activeArm, type AgentInfo } from "kolu-common/surface";
+import { activeArm } from "@kolu/padi/surface";
+import type { AgentInfo } from "kolu-common/surface";
 import { agentNames, stateLabels } from "../../ui/agentDisplay";
 import type { DockEntry } from "../dockModel";
 

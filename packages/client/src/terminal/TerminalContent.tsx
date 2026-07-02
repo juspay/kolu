@@ -5,8 +5,8 @@
  *  sub-panel state internally — callers provide only the shell. */
 
 import Resizable from "@corvu/resizable";
+import { sleepingArm } from "@kolu/padi/surface";
 import type { ITheme } from "@xterm/xterm";
-import { sleepingArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { realSizes } from "../ui/corvuResizable";

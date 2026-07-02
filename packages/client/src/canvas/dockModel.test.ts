@@ -1,9 +1,11 @@
 import {
-  activeArm,
   type ActiveTerminal,
+  activeArm,
+  LOCAL_LOCATION,
+} from "@kolu/padi/surface";
+import {
   type AgentInfo,
   agentBucket as projectionBucket,
-  LOCAL_LOCATION,
 } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";

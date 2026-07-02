@@ -18,21 +18,24 @@
  * W2.2 gives padi its own state-root, but the wire members live here.
  */
 
+import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
 import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
 import { quietActivity } from "@kolu/terminal-workspace/serveTerminalWorkspace";
-import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
-import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
-import { base64DecodedLength, rejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import {
   requirePadiActivityFeedStore,
   requirePadiSessionStore,
 } from "./confStores.ts";
+import type { TerminalEndpoint } from "./endpoint.ts";
 import { readPreview } from "./preview.ts";
+import {
+  readDaemonStatus,
+  readDaemonStatuses,
+} from "./ptyHost/daemonStatus.ts";
 import { cancelPendingAutosave } from "./session.ts";
 import { importSession, restoreSession } from "./sessionRestore.ts";
 import {
@@ -41,15 +44,6 @@ import {
   type PadiTerminal,
   type padiSurface,
 } from "./surface.ts";
-import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
-import { saveTerminalFile } from "./terminalScratch.ts";
-import {
-  discardAllLocalParked,
-  discardLocalSleeping,
-  seedSleepingTerminal,
-  wakeLocalTerminal,
-} from "./terminalEndpoint/local.ts";
-import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import {
   getActiveTerminal,
   getTerminal,
@@ -58,6 +52,15 @@ import {
   requireTerminal,
   terminalNotFound,
 } from "./terminal-registry.ts";
+import {
+  discardAllLocalParked,
+  discardLocalSleeping,
+  seedSleepingTerminal,
+  wakeLocalTerminal,
+} from "./terminalEndpoint/local.ts";
+import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
+import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
+import { saveTerminalFile } from "./terminalScratch.ts";
 import {
   createTerminal,
   killAllTerminals,
@@ -71,11 +74,8 @@ import {
   setTerminalTheme,
   sleepTerminal,
 } from "./terminals.ts";
-import {
-  readDaemonStatus,
-  readDaemonStatuses,
-} from "./ptyHost/daemonStatus.ts";
 import { exportTranscriptHtml } from "./transcript.ts";
+import { base64DecodedLength, rejectionFor } from "./upload.ts";
 import { recomputeUrgency, urgencyEqual } from "./urgency.ts";
 
 type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;

@@ -1,4 +1,4 @@
-import { LOCAL_LOCATION, type SavedTerminal } from "kolu-common/surface";
+import { LOCAL_LOCATION, type SavedTerminal } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import { resumableTerminalIds } from "./restoreModel.ts";
 

@@ -3,22 +3,23 @@
  *  Uses plain oRPC client calls. Server signals propagate list/metadata
  *  changes via the live subscriptions — no optimistic cache needed. */
 
+import type { InitialTerminalMetadata } from "@kolu/padi/surface";
 import { padiRpc } from "@kolu/padi/surface";
-import type { InitialTerminalMetadata, TerminalId } from "kolu-common/surface";
+import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
+import type { TerminalId } from "kolu-common/surface";
 import { shuffleMode } from "kolu-common/surface";
-import type { TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
+import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { createSharedRoot } from "../createSharedRoot";
-import { useColorScheme } from "../settings/useColorScheme";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { useColorScheme } from "../settings/useColorScheme";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { padi, preferences } from "../wire";
 import {
   createEvictionDedup,

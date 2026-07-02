@@ -33,8 +33,8 @@
  * offers to re-spawn it) is left untouched — B2 behavior, unchanged.
  */
 
+import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
-import { TerminalIdSchema } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";

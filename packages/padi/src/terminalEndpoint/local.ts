@@ -25,48 +25,34 @@
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
   agentIdentityChanged,
-  type TerminalEvent,
-  type SensorSignals,
   type CommandRunSample,
-  fold,
   type FoldCtx,
-  type TerminalState,
+  fold,
   restoreTargetEqual,
   restoreTargetOf,
+  type SensorSignals,
   seedSnapshot,
   startSensors,
+  type TerminalEvent,
+  type TerminalState,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
+import type {
+  AgentIdentity,
+  TerminalId,
+  TerminalSnapshot,
+} from "@kolu/terminal-workspace/schema";
+import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { ZodType } from "zod";
-import type {
-  AgentIdentity,
-  AuthoredActiveTerminal,
-  TerminalSnapshot,
-  SavedActiveTerminal,
-  SavedSleepingTerminal,
-  TerminalId,
-  TerminalInfo,
-} from "kolu-common/surface";
-import {
-  AuthoredActiveSchema,
-  AuthoredParkedSchema,
-  AuthoredSleepingSchema,
-  createAuthoredActive,
-  LOCAL_LOCATION,
-  PersistedSnapshotSchema,
-  SavedActiveTerminalSchema,
-  SavedSleepingTerminalSchema,
-  TerminalIdSchema,
-} from "kolu-common/surface";
+import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import type {
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
   TerminalHandle,
-} from "kolu-common/terminalEndpoint";
-import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
+} from "../endpoint.ts";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
@@ -80,11 +66,27 @@ import {
   parkedTerminalIds,
   registerTerminal,
   type SleepingTerminalProcess,
-  terminalNotFound,
   type TerminalProcess,
+  terminalNotFound,
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
+import type {
+  AuthoredActiveTerminal,
+  SavedActiveTerminal,
+  SavedSleepingTerminal,
+  TerminalInfo,
+} from "../vocab.ts";
+import {
+  AuthoredActiveSchema,
+  AuthoredParkedSchema,
+  AuthoredSleepingSchema,
+  createAuthoredActive,
+  LOCAL_LOCATION,
+  PersistedSnapshotSchema,
+  SavedActiveTerminalSchema,
+  SavedSleepingTerminalSchema,
+} from "../vocab.ts";
 import {
   commitSnapshot,
   dropSnapshot,

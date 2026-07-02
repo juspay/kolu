@@ -13,33 +13,21 @@
  * renders different bytes than it did pre-migration.
  */
 
-import { ORPCError } from "@orpc/server";
 import { inMemoryStore } from "@kolu/surface/server";
-import {
-  AuthoredParkedSchema,
-  AuthoredSleepingSchema,
-  type AuthoredActiveTerminal,
-  type AuthoredParkedTerminal,
-  type AuthoredSleepingTerminal,
-  composeTerminalMetadata,
-  LOCAL_LOCATION,
-  PersistedSnapshotSchema,
-  type SavedSession,
-  type TerminalSnapshot,
-} from "kolu-common/surface";
-import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
-import { MAX_UPLOAD_BYTES } from "kolu-common/upload";
+import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
+import { ORPCError } from "@orpc/server";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setPadiSessionStore } from "./confStores.ts";
+import type { TerminalEndpoint } from "./endpoint.ts";
 import { setKoluServerProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
-import { getSavedSession } from "./session.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
+import { getSavedSession } from "./session.ts";
 import { PadiParkedTerminalSchema } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
@@ -50,6 +38,18 @@ import {
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
+import { MAX_UPLOAD_BYTES } from "./upload.ts";
+import {
+  type AuthoredActiveTerminal,
+  AuthoredParkedSchema,
+  type AuthoredParkedTerminal,
+  AuthoredSleepingSchema,
+  type AuthoredSleepingTerminal,
+  composeTerminalMetadata,
+  LOCAL_LOCATION,
+  PersistedSnapshotSchema,
+  type SavedSession,
+} from "./vocab.ts";
 
 // The parked-forfeit path drives `cleanupTerminalScratch`, which reads the
 // per-instance scratch root; boot injects the server id before any of this runs.

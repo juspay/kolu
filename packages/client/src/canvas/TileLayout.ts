@@ -2,7 +2,7 @@
  *  Domain-agnostic alias of CanvasLayout so the canvas module doesn't
  *  leak the kolu-common type into its props API. */
 
-import type { CanvasLayout } from "kolu-common/surface";
+import type { CanvasLayout } from "@kolu/padi/surface";
 
 export type TileLayout = CanvasLayout;
 

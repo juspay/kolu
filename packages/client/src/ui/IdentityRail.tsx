@@ -22,7 +22,6 @@
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
 import { type Component, createSignal, Match, Show, Switch } from "solid-js";
-import { getClockNow } from "../time/clock";
 import KavalInfoDialog from "../kaval/KavalInfoDialog";
 import {
   KavalUpdateBadge,
@@ -37,6 +36,7 @@ import {
   serverDot,
 } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
+import { getClockNow } from "../time/clock";
 import Commit from "./Commit";
 import { formatMBCompact } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";

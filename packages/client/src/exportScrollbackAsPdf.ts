@@ -10,7 +10,8 @@
  *  serializing there would produce unstyled HTML. */
 
 import { escapeHtml } from "@kolu/html-escape";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";

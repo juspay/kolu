@@ -7,14 +7,11 @@
   "sideEffects": false,
   "exports": {
     "./surface": "./src/surface.ts",
-    "./terminalEndpoint": "./src/terminalEndpoint.ts",
     "./contract": "./src/contract.ts",
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",
     "./terminalKey": "./src/terminalKey.ts",
-    "./transcript": "./src/transcript.ts",
     "./test-hooks": "./src/test-hooks.ts",
-    "./upload": "./src/upload.ts",
     "./preview": "./src/preview.ts"
   },
   "scripts": {

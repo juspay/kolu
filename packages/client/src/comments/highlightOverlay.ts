@@ -25,8 +25,8 @@ import {
   createUniqueId,
   onCleanup,
 } from "solid-js";
-import { useCommentScrollRequest } from "./scrollRequest";
 import { walkShadowRoots } from "../dom/shadowWalk";
+import { useCommentScrollRequest } from "./scrollRequest";
 import type { Comment } from "./types";
 
 /** Resolve the root the highlight overlay should walk for re-find +

@@ -5,7 +5,7 @@
  *  `daemonStatus` subscription. {@link KavalUpdateBadge}'s `kavalUpdatePending`
  *  accessor joins the live `expected`/`reported` sources and calls this. */
 
-import type { DaemonState } from "kolu-common/surface";
+import type { DaemonState } from "@kolu/padi/surface";
 
 /** True when the running daemon is provably a build behind the kaval the server
  *  would spawn (B3.4 — "update pending"): the link is `live`, it's `connected`, both

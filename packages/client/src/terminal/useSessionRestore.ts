@@ -1,12 +1,11 @@
 /** Session restore — hydration from server state, session restore handler. */
 
-import { padiRpc } from "@kolu/padi/surface";
 import {
-  resumableCommand,
+  padiRpc,
   type SavedSession,
-  type TerminalId,
   type TerminalMetadata,
-} from "kolu-common/surface";
+} from "@kolu/padi/surface";
+import { resumableCommand, type TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { useRightPanel } from "../right-panel/useRightPanel";

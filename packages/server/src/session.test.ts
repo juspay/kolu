@@ -1,11 +1,4 @@
 import * as assert from "node:assert";
-import { confStore } from "@kolu/surface/server";
-import {
-  LOCAL_LOCATION,
-  type SavedSession,
-  type SavedTerminal,
-} from "kolu-common/surface";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   __resetPadiSurfaceCtxForTest,
   clearSavedSession,
@@ -17,6 +10,13 @@ import {
   setSavedSessionFromSnapshot,
   terminalsDirtyChannel,
 } from "@kolu/padi/assembly";
+import {
+  LOCAL_LOCATION,
+  type SavedSession,
+  type SavedTerminal,
+} from "@kolu/padi/surface";
+import { confStore } from "@kolu/surface/server";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { store } from "./state.ts";
 
 /** A padi surface ctx whose `session` cell is backed by the real conf store, so

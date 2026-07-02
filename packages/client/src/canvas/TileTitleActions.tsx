@@ -8,7 +8,8 @@
  *  search singletons — per `no-preference-prop-drilling`. The only prop is the
  *  tile `id`. Extracted from App.tsx per kolu#626. */
 
-import { activeArm, sleepingArm, type TerminalId } from "kolu-common/surface";
+import { activeArm, sleepingArm } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { screenshotTerminal } from "../screenshotTerminal";
@@ -19,7 +20,6 @@ import { useSubPanel } from "../terminal/useSubPanel";
 import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalSearch } from "../terminal/useTerminalSearch";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { useCommandPalette } from "../useCommandPalette";
 import {
   MoonIcon,
   ScreenshotIcon,
@@ -27,6 +27,7 @@ import {
   SplitToggleIcon,
 } from "../ui/Icons";
 import Tip from "../ui/Tip";
+import { useCommandPalette } from "../useCommandPalette";
 import { useThemeManager } from "../useThemeManager";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows

@@ -1,11 +1,11 @@
-import { VIDEO_EXTENSIONS } from "kolu-common/preview";
 import {
   ALLOWED_UPLOAD_EXTENSIONS,
   extensionOf,
   isAllowedUploadName,
   MAX_UPLOAD_BYTES,
   rejectionFor,
-} from "kolu-common/upload";
+} from "@kolu/padi/upload";
+import { VIDEO_EXTENSIONS } from "kolu-common/preview";
 import { describe, expect, it } from "vitest";
 
 describe("extensionOf", () => {

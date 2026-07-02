@@ -10,7 +10,10 @@
   "exports": {
     "./surface": "./src/surface.ts",
     "./assembly": "./src/assembly.ts",
-    "./log": "./src/log.ts"
+    "./endpoint": "./src/endpoint.ts",
+    "./log": "./src/log.ts",
+    "./transcript": "./src/transcriptSchema.ts",
+    "./upload": "./src/upload.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -34,6 +37,7 @@
     "kolu-git": "workspace:*",
     "kolu-opencode": "workspace:*",
     "kolu-pty": "workspace:*",
+    "kolu-transcript-core": "workspace:*",
     "kolu-transcript-html": "workspace:*",
     "pino": "^10.3.1",
     "pino-pretty": "^13.1.3",

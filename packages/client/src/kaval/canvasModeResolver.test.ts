@@ -6,7 +6,7 @@
  *  resolver only, so the precedence is exercised without mounting the
  *  daemon-status subscription. */
 
-import type { DaemonState } from "kolu-common/surface";
+import type { DaemonState } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import { type CanvasFacts, resolveCanvasMode } from "./canvasModeResolver";
 

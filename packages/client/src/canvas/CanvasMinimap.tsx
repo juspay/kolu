@@ -1,5 +1,6 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
+import { sleepingArm } from "@kolu/padi/surface";
 import {
   type Component,
   createMemo,
@@ -8,7 +9,6 @@ import {
   type JSX,
   Show,
 } from "solid-js";
-import { sleepingArm } from "kolu-common/surface";
 import { MOONLIT } from "../terminal/moonlit";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";

@@ -15,16 +15,14 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
+import type { TerminalId } from "@kolu/terminal-workspace/schema";
+import { terminalsDirtyChannel } from "./publisher.ts";
+import { type SessionSnapshot, saveSession } from "./session.ts";
+import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import {
-  composeTerminalMetadata,
-  type InitialTerminalMetadata,
-  LOCAL_LOCATION,
-  type RightPanelPerTerminalState,
-  type SavedTerminal,
-  SavedTerminalSchema,
-  type TerminalId,
-  type TerminalInfo,
-} from "kolu-common/surface";
+  beginSleepLocal,
+  releaseSleptLocalPty,
+} from "./terminalEndpoint/local.ts";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
 // converge with `localTerminalEndpoint` already initialized by the time
@@ -34,16 +32,19 @@ import {
 // `localTerminalEndpoint`.
 // biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
-import {
-  beginSleepLocal,
-  releaseSleptLocalPty,
-} from "./terminalEndpoint/local.ts";
 // `resolve.ts` re-imports the already-evaluated `local.ts`, so it stays AFTER it
 // to preserve the metadata→local order the TDZ note above depends on.
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-import { terminalsDirtyChannel } from "./publisher.ts";
-import { getTerminal, terminalEntries } from "./terminal-registry.ts";
-import { type SessionSnapshot, saveSession } from "./session.ts";
+import {
+  composeTerminalMetadata,
+  type InitialTerminalMetadata,
+  LOCAL_LOCATION,
+  type RightPanelPerTerminalState,
+  type SavedTerminal,
+  SavedTerminalSchema,
+  type TerminalInfo,
+} from "./vocab.ts";
+
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
 // A single local endpoint today, resolved through the one `HostLocation` seam.

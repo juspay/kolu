@@ -55,12 +55,13 @@ export const contract = oc.router({
   // `surfaces` is the single source shared with the server + client.
   //
   // `padiSurface` (the padi plan of record, PR #1649) is NOT here — it lives in
-  // `@kolu/padi`, which depends on kolu-common (the terminal schemas that
-  // eventually move to it), so kolu-common must not depend BACK on it. kolu-server
-  // extends this contract with the `padi` sibling locally (`server/src/surface.ts`)
-  // and serves it; the client consumes the padi-less contract. The terminal
-  // domain's root `terminal.*` / `git.*` procedures moved ONTO `padiSurface` and
-  // were deleted here at W1.R7 — only `server` + `daemon` remain beside `surface`.
+  // `@kolu/padi`, which OWNS the terminal vocabulary (its `./vocab.ts` schemas);
+  // the arrow points `kolu-common → @kolu/padi`, so kolu-common must not depend
+  // BACK on `padiSurface`. kolu-server extends this contract with the `padi`
+  // sibling locally (`server/src/surface.ts`) and serves it; the client consumes
+  // the padi-less contract. The terminal domain's root `terminal.*` / `git.*`
+  // procedures moved ONTO `padiSurface` and were deleted here at W1.R7 — only
+  // `server` + `daemon` remain beside `surface`.
   ...composeSurfaceContracts(surfaces),
   server: {
     info: oc.output(ServerInfoSchema),

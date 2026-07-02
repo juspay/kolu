@@ -7,19 +7,19 @@ import Dialog from "@corvu/dialog";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
-import { PAINT_STALL_WARN_MS } from "./terminal/renderRecovery";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
+import { PAINT_STALL_WARN_MS } from "./terminal/renderRecovery";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import { writeTextToClipboard } from "./ui/clipboard";
 import { createDisclosure } from "./ui/createDisclosure";
-import { formatMB, readJsHeap } from "./ui/memory";
-import { kavalMemoryDisplay, serverRssBytes } from "./ui/useMemoryUsage";
 import ModalDialog from "./ui/ModalDialog";
+import { formatMB, readJsHeap } from "./ui/memory";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
 import { surface } from "./ui/Surface";
+import { kavalMemoryDisplay, serverRssBytes } from "./ui/useMemoryUsage";
 import { layoutMode } from "./useMobile";
 
 /** WebGL2 support detection creates a throwaway canvas + WebGL context

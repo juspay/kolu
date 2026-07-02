@@ -9,16 +9,18 @@
  * endpoint itself, not on `TerminalProcess`.
  */
 
+import type {
+  TerminalId,
+  TerminalSnapshot,
+} from "@kolu/terminal-workspace/schema";
 import { ORPCError } from "@orpc/server";
+import type { TerminalHandle } from "./endpoint.ts";
 import type {
   AuthoredActiveTerminal,
   AuthoredParkedTerminal,
   AuthoredSleepingTerminal,
-  TerminalSnapshot,
-  TerminalId,
   TerminalInfo,
-} from "kolu-common/surface";
-import type { TerminalHandle } from "kolu-common/terminalEndpoint";
+} from "./vocab.ts";
 
 /** An ACTIVE terminal process — a running PTY with its live control surface.
  *  `info` is the wire shape sent in the `terminalList` cell snapshot; `meta` is
