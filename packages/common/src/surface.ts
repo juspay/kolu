@@ -339,7 +339,11 @@ const KoluAuthoredServerFieldsSchema = z
   })
   .merge(AgentMemorySchema);
 
-const KoluAuthoredFieldsSchema = KoluAuthoredServerFieldsSchema.merge(
+/** The authored record MINUS the active|sleeping discriminant — `location` +
+ *  memory + `restoreTarget` + client/UI chrome. Exported so `padiSurface`'s
+ *  `parked` arm (the padi plan of record, PR #1649) can be built from the same
+ *  authored base the `active`/`sleeping` arms share, rather than a parallel copy. */
+export const KoluAuthoredFieldsSchema = KoluAuthoredServerFieldsSchema.merge(
   ClientPersistedTerminalFieldsSchema,
 );
 
