@@ -642,18 +642,51 @@ importers:
 
   packages/padi:
     dependencies:
+      '@kolu/serve-dir':
+        specifier: workspace:*
+        version: link:../serve-dir
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../surface-daemon-supervisor
       '@kolu/terminal-workspace':
         specifier: workspace:*
         version: link:../terminal-workspace
+      '@orpc/experimental-publisher':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.21.0)
+      anyagent:
+        specifier: workspace:*
+        version: link:../integrations/anyagent
+      anyforge:
+        specifier: workspace:*
+        version: link:../integrations/anyforge
+      kaval:
+        specifier: workspace:*
+        version: link:../kaval
       kolu-common:
         specifier: workspace:*
         version: link:../common
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
+      pino-pretty:
+        specifier: ^13.1.3
+        version: 13.1.3
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
