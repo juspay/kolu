@@ -1,10 +1,12 @@
 import {
   type ActiveTerminal,
+  LOCAL_LOCATION,
+  type TerminalMetadata,
+} from "@kolu/padi/surface";
+import {
   type AgentInfo,
   agentUrgency,
-  LOCAL_LOCATION,
   type TerminalId,
-  type TerminalMetadata,
   URGENCY_RANK,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";

@@ -28,15 +28,17 @@ let
   # The kaval rendezvous dir for this server instance, as alice's daemon creates it.
   ns = ''$XDG_RUNTIME_DIR/${nsPrefix}${port}'';
 
-  # "Open a terminal over the app's terminal.create RPC and return its id" — the
-  # application-contract prologue both seed scripts share. Sets `id` on success;
-  # calls the caller-provided `fail` on any error (so each script keeps its own
-  # FAIL-tag and result-file path).
+  # "Open a terminal over the app's padiSurface lifecycle.create RPC and return
+  # its id" — the application-contract prologue both seed scripts share. The root
+  # `terminal.*` namespace moved onto `padiSurface` in W1.R (served at
+  # `/rpc/surface/padi/lifecycle/*`). Sets `id` on success; calls the
+  # caller-provided `fail` on any error (so each script keeps its own FAIL-tag and
+  # result-file path).
   openTerminal = ''
-    id=$(${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/terminal/create" \
+    id=$(${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/create" \
            -H 'content-type: application/json' -d '{"json":{}}' \
-         | ${jq} -r '.json.id') || fail "terminal.create RPC errored"
-    [ -n "$id" ] && [ "$id" != null ] || fail "terminal.create returned no id"
+         | ${jq} -r '.json.id') || fail "lifecycle.create RPC errored"
+    [ -n "$id" ] && [ "$id" != null ] || fail "lifecycle.create returned no id"
   '';
 
   # The survival VM node: a NixOS guest with kolu (via home-manager), alice

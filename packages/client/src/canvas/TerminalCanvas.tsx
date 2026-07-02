@@ -40,7 +40,6 @@ import { useTileStore } from "../tile/useTileStore";
 import { savedSessionSub } from "../wire";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
-import { useTileAura } from "./useTileAura";
 import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
@@ -52,6 +51,7 @@ import {
 } from "./tilePlacement";
 import { useCanvasFocus } from "./useCanvasFocus";
 import { usePendingLayouts } from "./usePendingLayouts";
+import { useTileAura } from "./useTileAura";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
@@ -337,16 +337,31 @@ const TerminalCanvas: Component<{
   createEffect(() => {
     const ids = props.tileIds;
     if (ids.length === 0 || !isDefaultViewport()) return;
-    // Wait for `session.get` to yield before deciding between "centre on
-    // saved active" and "bbox fallback". `terminalList.get` (which feeds
-    // `tileIds`) can win the race against `session.get` on cold load —
-    // running the bbox fallback now would pan the viewport off-default,
-    // and the `isDefaultViewport()` guard above would then block any
-    // re-centre once `useSessionRestore` calls `setActiveSilently` with
-    // the persisted id. Once `pending()` flips false, `useSessionRestore`'s
-    // hydration effect runs synchronously (registered earlier) and assigns
-    // the active id, so this effect re-runs and observes it.
-    if (savedSessionSub.pending() && tileStore.activeId() === null) return;
+    // Wait for the active id to hydrate before deciding between "centre on
+    // saved active" and "bbox fallback". Running the bbox fallback while the
+    // active is still in flight pans the viewport off-default, and the
+    // `isDefaultViewport()` guard above then blocks any re-centre once
+    // `useSessionRestore` calls `setActiveSilently` with the persisted id —
+    // leaving a restored session centred on the bbox instead of its active tile.
+    //
+    // TWO windows produce "tiles present, active not yet assigned":
+    //   - COLD LOAD: `terminalList.get` (which feeds `tileIds`) beats
+    //     `session.get`, so `session` is still `pending()`.
+    //   - RESTORE FROM CARD (W1.R6): `session.get` has ALREADY yielded (the card
+    //     needed it), so `pending()` is false — but the restored tiles arrive on
+    //     the `terminals` collection AFTER the click, and `useSessionRestore`'s
+    //     hydration assigns the active a tick later. A `pending()`-only guard
+    //     misses this window.
+    // So wait whenever there's no active yet AND one is expected — either the
+    // session snapshot is still in flight, or it names an `activeTerminalId`.
+    // Hydration always assigns SOME active when top-level tiles exist (it falls
+    // back to the first tile), so this can't wait forever.
+    const savedActiveId = savedSessionSub()?.activeTerminalId ?? null;
+    if (
+      tileStore.activeId() === null &&
+      (savedSessionSub.pending() || savedActiveId !== null)
+    )
+      return;
     const active = tileStore.activeId();
     const activeLayout = active ? layoutOf(active) : undefined;
     if (activeLayout) {

@@ -6,9 +6,9 @@ import Dialog from "@corvu/dialog";
 import {
   activePr,
   sleepingArm,
-  type TerminalId,
   type TerminalMetadata,
-} from "kolu-common/surface";
+} from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { prTooltip } from "./terminal/prTooltip";

@@ -10,8 +10,8 @@
  *  ships no styled components. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import type { Component } from "solid-js";
 import type { KoluBuildInfo } from "kolu-common/surface";
+import type { Component } from "solid-js";
 
 /** True when this browser's build provably differs from the server's. Reads the
  *  surface-app model — must be called under `<SurfaceAppProvider>`. Gate the chip

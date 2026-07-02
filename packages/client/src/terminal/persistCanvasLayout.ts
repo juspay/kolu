@@ -7,16 +7,18 @@
  *  `TerminalMetadata.canvasLayout` (no schema change); this is just where the
  *  write itself lives. */
 
-import type { CanvasLayout, TerminalId } from "kolu-common/surface";
+import type { CanvasLayout } from "@kolu/padi/surface";
+import { padiRpc } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { client } from "../wire";
+import { padi } from "../wire";
 
 export function persistCanvasLayout(
   id: TerminalId,
   layout: CanvasLayout,
 ): void {
-  void client.terminal
-    .setCanvasLayout({ id, layout })
+  void padiRpc(padi)
+    .surface.chrome.setCanvasLayout({ id, layout })
     .catch((err: Error) =>
       toast.error(`Failed to save canvas layout: ${err.message}`),
     );

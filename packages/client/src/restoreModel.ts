@@ -13,7 +13,8 @@
  *  here even if its target would resume. Sub-terminals (parented) never resume
  *  independently. */
 
-import { resumableCommand, type SavedTerminal } from "kolu-common/surface";
+import type { SavedTerminal } from "@kolu/padi/surface";
+import { resumableCommand } from "kolu-common/surface";
 
 export function resumableTerminalIds(
   terminals: readonly SavedTerminal[],

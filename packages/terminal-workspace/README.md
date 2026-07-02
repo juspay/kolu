@@ -77,15 +77,16 @@ than imported, so the package names no host package and reaches only for the
 vendor-neutral source libraries it builds on (`anyforge` for PRs, `kolu-git` for
 git/fs, the per-agent packages for agent state).
 
-`kolu-server` embeds it (the producer in-process; fs/git bound to its local
-`TerminalEndpoint`, the reads re-exposed on `koluSurface`'s value-bearing streams)
-AND — since **R8** — serves `terminalWorkspaceSurface` itself, in-process: kolu
-**folds** each terminal's observation stream and publishes the snapshot half (an
-`TerminalSnapshot`) onto its `awareness` collection, while the fold's two remembered
-facts ride kolu's **authored** record on its own `koluSurface.authored`
-collection, and the browser **joins the two halves at read time**
-(`composeTerminalMetadata`) — there is no server-side re-fusion. `pulam` serves
-the same surface remotely. The **awareness** half of
+`kolu-server` still serves `terminalWorkspaceSurface`'s generic awareness half
+in-process — kolu **folds** each terminal's observation stream and publishes the
+snapshot half (a `TerminalSnapshot`) onto its `snapshots` collection, the SAME
+surface `pulam` serves remotely. But W1 (the padi plan) relocated the kolu-side
+consumer — the producer host, the `fold`, the `authored ⋈ snapshot` compose
+(`composeTerminalMetadata`), the local `TerminalEndpoint`, and the Code tab's
+fs/git — into **`@kolu/padi`**, which now composes each terminal's record
+**server-side** and serves it on `padiSurface`'s `terminals` collection (the
+browser reads that one composed record; there is no client-side join). The
+**awareness** half of
 "one surface, both homes" is closed in R8; the Code tab's value-bearing fs/git
 streams move onto this surface's procedure+pulse in R9.
 

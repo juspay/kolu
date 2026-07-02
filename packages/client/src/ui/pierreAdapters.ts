@@ -10,15 +10,15 @@
  *  pure porcelain→word git-status mapping lives in `gitStatusEntries.ts`, kept
  *  toast-free so it stays unit-testable in a plain node env.) */
 
-import type {
-  ContextMenuItem,
-  ContextMenuOpenContext,
-} from "@kolu/solid-pierre";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
   viewLabel,
-} from "kolu-common/surface";
+} from "@kolu/padi/surface";
+import type {
+  ContextMenuItem,
+  ContextMenuOpenContext,
+} from "@kolu/solid-pierre";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "./clipboard";
 

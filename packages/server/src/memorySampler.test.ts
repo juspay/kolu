@@ -1,5 +1,5 @@
-import { BYTES_PER_MB as MB } from "kolu-common/surface";
 import type { ProcessMemory } from "kolu-common/surface";
+import { BYTES_PER_MB as MB } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import {
   guardOverlap,

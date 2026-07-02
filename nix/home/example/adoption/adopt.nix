@@ -44,7 +44,7 @@ let
     fail() { echo "FAIL(seed): $*" > ${seedResultFile}; exit 1; }
     ns="${ns}"
 
-    # 1) create a terminal via the app contract's terminal.create RPC.
+    # 1) create a terminal via the app contract's padiSurface lifecycle.create RPC.
     ${openTerminal}
 
     # 2) wait for the PTY to go live on the daemon (a real pid in the list).
@@ -64,9 +64,9 @@ let
     #    is correct).
     body=$(${jq} -nc --arg id "$id" '{json:{id:$id,data:"echo ${nonce}\r"}}') \
       || fail "jq failed to build the sendInput request body"
-    ${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/terminal/sendInput" \
+    ${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/sendInput" \
       -H 'content-type: application/json' -d "$body" >/dev/null \
-      || fail "terminal.sendInput RPC errored"
+      || fail "lifecycle.sendInput RPC errored"
 
     # 4) confirm the output reached the scrollback before we restart.
     #    Plain `grep` (output discarded), NOT `grep -q`: under `pipefail`, `-q`

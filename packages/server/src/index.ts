@@ -2,18 +2,42 @@ import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
-import { createDirServer } from "@kolu/serve-dir";
+import { startHeapDiagnostics } from "@kolu/heap-diag";
 import {
-  acceptSurfaceSocket,
-  installFreshStatic,
-  installPwaManifest,
-} from "@kolu/surface-app/server";
+  activeTerminalCount,
+  adoptSurvivingSession,
+  countActiveClaudeSessions,
+  ensureKoluRoot,
+  ensureLocalEndpoint,
+  initSessionAutoSave,
+  LOCAL_HOST_ID,
+  parkSavedSession,
+  previewFile,
+  ptyHostClient,
+  publishDaemonStatus,
+  publisherSize,
+  readDaemonStatus,
+  setKoluServerProcessId,
+  setPadiActivityFeedStore,
+  setPadiLastPairedDaemonStore,
+  setPadiSessionStore,
+  setSpawnServerVersion,
+  shutdownCleanup,
+  snapshotFor,
+  snapshotSession,
+  startInventoryReconciler,
+} from "@kolu/padi/assembly";
+import { log as padiLog } from "@kolu/padi/log";
 import {
   gateHttpRpcOrigin,
   gateWsOrigin,
   parseAllowedOrigins,
 } from "@kolu/surface/ws-origin";
-import { startHeapDiagnostics } from "@kolu/heap-diag";
+import {
+  acceptSurfaceSocket,
+  installFreshStatic,
+  installPwaManifest,
+} from "@kolu/surface-app/server";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -30,35 +54,19 @@ import { configureNixShellEnv } from "kolu-pty";
 import { type WebSocket, WebSocketServer } from "ws";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import {
-  previewRealpathGuard,
   previewTailFromRawUrl,
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
-import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { publisherSize } from "./publisher.ts";
-import {
-  publishDaemonStatus,
-  readDaemonStatus,
-} from "./ptyHost/daemonStatus.ts";
-import {
-  ensureLocalEndpoint,
-  LOCAL_HOST_ID,
-  ptyHostClient,
-} from "./ptyHost/index.ts";
-import { surfaceCtx } from "./surfaceCtx.ts";
-import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
-import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
-import { initSessionAutoSave } from "./session.ts";
-import { snapshotFor } from "./terminal-registry.ts";
 import {
-  activeTerminalCount,
-  countActiveClaudeSessions,
-  snapshotSession,
-} from "./terminals.ts";
+  activityFeedStore,
+  koluSurfaceCtx,
+  lastPairedDaemonStore,
+  savedSessionStore,
+} from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({
@@ -112,10 +120,35 @@ const PWA_BACKGROUND_COLOR = "#0c0c0e";
 // from the `Host` it forwards. See `gateWsOrigin` / `gateHttpRpcOrigin` below.
 const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
 
+// Inject the two server-owned identities the relocated terminal domain (now in
+// @kolu/padi) needs, BEFORE anything in it runs: the shared per-process id (also
+// the log serverId, surface identity.info.processId, and stale-tab gate) that
+// names koluRoot's on-disk dir, and the app version stamped as the spawned PTY's
+// TERM_PROGRAM_VERSION. Padi does not import kolu-server, so the arrow stays out.
+setKoluServerProcessId(serverProcessId);
+setSpawnServerVersion(serverVersion);
+// Inject the conf-backed session + activityFeed stores INTO padi BEFORE anything
+// serves or reconciles (padi's `session`/`activityFeed` cells + boot reconcile
+// read them; a read before this crashes loudly). kolu-server keeps the ONE
+// `confStore` per key (built in `./surface.ts`); padi does not import
+// packages/server, so the arrow stays out. Storage stays kolu-server's source of
+// truth until W2.2 gives padi its own state-root.
+setPadiSessionStore(savedSessionStore);
+setPadiActivityFeedStore(activityFeedStore);
+// The persisted last-paired-daemon store — the boot reads it to tell our survivor
+// from a REPLACED kaval before converging (so an empty replacement can't erase the
+// saved session), and re-records the current pairing at boot-settled below.
+setPadiLastPairedDaemonStore(lastPairedDaemonStore);
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
-if (argv.flags.verbose) log.level = "debug";
+// `--verbose` must drop BOTH loggers to debug — the server's own and padi's
+// (which the relocated domain code logs through), else moved-code debug lines
+// are silently dropped.
+if (argv.flags.verbose) {
+  log.level = "debug";
+  padiLog.level = "debug";
+}
 
 const app = new Hono();
 
@@ -267,17 +300,26 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const root = snapshotFor(terminalId)?.git?.repoRoot;
   if (!root) return c.text("terminal has no repo", 404);
 
-  // The agnostic receptacle owns range/content-type/the lexical guard and
-  // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
-  // above) rewrites it downstream for text/html. Range header is read from the
-  // request inside. We inject kolu's realpath guard (`previewRealpathGuard`)
-  // so a repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
-  // rejected with 403 before any byte is read — the stage the lexical guard
-  // inside `@kolu/serve-dir` can't cover.
-  return createDirServer(root, previewRealpathGuard(root)).fetch(
-    rawTail,
-    c.req.raw,
-  );
+  // Re-backed onto padi's `previewFile` — the SAME serve-dir read + realpath
+  // guard `preview.read` serves, but the STREAMING form: it returns serve-dir's
+  // `ServeResult` verbatim (a `ReadableStream` body on 2xx), so this route
+  // streams disk→socket with bounded heap exactly as the retired
+  // `createDirServer` bypass did. Forwarding the browser's `Range` keeps a
+  // `<video>` seek answering 206 ranged bytes, and — crucially — a whole-file
+  // (`bytes=0-` / unranged) read is NOT materialized in memory (the OOM the
+  // base64 `readPreview` wire-form would cause on a large video). The guard
+  // rejects a repo-local symlink escaping the root (`leak.html -> /etc/passwd`)
+  // with 403 before any byte is read. The artifact-sdk HTML decorator (mounted
+  // above) rewrites text/html downstream.
+  const r = await previewFile({
+    repoPath: root,
+    filePath: rawTail,
+    range: c.req.header("range"),
+  });
+  return new Response(r.body as BodyInit, {
+    status: r.status,
+    headers: r.headers,
+  });
 });
 
 // --- Dynamic PWA manifest (includes hostname) ---
@@ -343,6 +385,10 @@ await ensureLocalEndpoint({
   port,
   onStatus: publishDaemonStatus,
   onAdopted: adoptSurvivingSession,
+  // No-survivor boot (fresh / recycled daemon): park the saved session so the
+  // restore card shows and `session.restore` re-spawns it (W1.R6). Replaces the
+  // old no-op that left the client to respawn off the raw saved session.
+  onNotAdopted: parkSavedSession,
   // Subscribe to the daemon's inventory feed so a terminal created out-of-band
   // (a `kaval-tui create` against this server's kaval) shows up as a tile while
   // kolu runs — not only after the next restart's boot adoption (B3.5). Runs
@@ -360,7 +406,7 @@ startMemorySampler(
   liveSamplerDeps({
     client: ptyHostClient,
     daemonState: () => readDaemonStatus(LOCAL_HOST_ID)?.state,
-    publish: (m) => surfaceCtx.cells.processMemory.set(m),
+    publish: (m) => koluSurfaceCtx.cells.processMemory.set(m),
     // A believed-connected daemon whose processMemory poll throws/times out is a
     // real failed RPC, not a benign degradation — log at ERROR with the full
     // error object (stack preserved), and the rail surfaces it as a distinct

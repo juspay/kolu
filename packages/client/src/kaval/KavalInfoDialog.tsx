@@ -1,7 +1,7 @@
 /** KavalInfoDialog - compact identity panel for the Kaval rail chip. */
 
+import type { DaemonStatus } from "@kolu/padi/surface";
 import { isCleanRef } from "@kolu/surface-app";
-import type { DaemonStatus } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import { getClockNow } from "../time/clock";

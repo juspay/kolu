@@ -70,6 +70,9 @@ importers:
       '@kolu/html-escape':
         specifier: workspace:*
         version: link:../html-escape
+      '@kolu/padi':
+        specifier: workspace:*
+        version: link:../padi
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
@@ -230,6 +233,9 @@ importers:
 
   packages/common:
     dependencies:
+      '@kolu/padi':
+        specifier: workspace:*
+        version: link:../padi
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -640,6 +646,88 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/padi:
+    dependencies:
+      '@kolu/serve-dir':
+        specifier: workspace:*
+        version: link:../serve-dir
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../surface-daemon-supervisor
+      '@kolu/terminal-workspace':
+        specifier: workspace:*
+        version: link:../terminal-workspace
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/experimental-publisher':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.21.0)
+      anyagent:
+        specifier: workspace:*
+        version: link:../integrations/anyagent
+      anyforge:
+        specifier: workspace:*
+        version: link:../integrations/anyforge
+      kaval:
+        specifier: workspace:*
+        version: link:../kaval
+      kolu-claude-code:
+        specifier: workspace:*
+        version: link:../integrations/claude-code
+      kolu-codex:
+        specifier: workspace:*
+        version: link:../integrations/codex
+      kolu-git:
+        specifier: workspace:*
+        version: link:../integrations/git
+      kolu-opencode:
+        specifier: workspace:*
+        version: link:../integrations/opencode
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
+      kolu-transcript-core:
+        specifier: workspace:*
+        version: link:../transcript-core
+      kolu-transcript-html:
+        specifier: workspace:*
+        version: link:../transcript-html
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
+      pino-pretty:
+        specifier: ^13.1.3
+        version: 13.1.3
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/pulam:
     dependencies:
       '@kolu/surface':
@@ -735,6 +823,9 @@ importers:
       '@kolu/heap-diag':
         specifier: workspace:*
         version: link:../heap-diag
+      '@kolu/padi':
+        specifier: workspace:*
+        version: link:../padi
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir
@@ -1500,6 +1591,9 @@ importers:
       '@cucumber/cucumber':
         specifier: ^12.8.1
         version: 12.8.1
+      '@kolu/padi':
+        specifier: workspace:*
+        version: link:../padi
       get-port:
         specifier: ^7.2.0
         version: 7.2.0

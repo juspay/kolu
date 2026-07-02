@@ -7,7 +7,7 @@
  *  transient/down state). Imports the pure module only — no daemonStatus
  *  subscription, no DOM. */
 
-import type { DaemonState } from "kolu-common/surface";
+import type { DaemonState } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import { kavalStale } from "./kavalCurrency";
 

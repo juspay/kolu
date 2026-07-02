@@ -1,16 +1,13 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
-import {
-  activeArm,
-  type RecentAgent,
-  sleepingArm,
-  type TerminalId,
-} from "kolu-common/surface";
+import { activeArm, type RecentAgent, sleepingArm } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor, Component } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
+import { aboutDialog } from "./AboutDialog";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -19,24 +16,23 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
-import { aboutDialog } from "./AboutDialog";
 import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
 import type { DockSourceEntry } from "./canvas/dockModel";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
-import { welcomeDialog } from "./WelcomeDialog";
 import {
   ACTIONS,
   type ActionContext,
   actionPaletteCommand,
 } from "./input/actions";
-import { iconForCommand } from "./ui/agentDisplay";
-import { TerminalIcon } from "./ui/Icons";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { daemonWarming } from "./kaval/useDaemonStatus";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
+import { iconForCommand } from "./ui/agentDisplay";
+import { TerminalIcon } from "./ui/Icons";
+import { welcomeDialog } from "./WelcomeDialog";
 import { recentAgents, recentRepos } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures
@@ -331,7 +327,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   : []),
               ]
             : []),
-          // Theme is a per-active-terminal property (`client.terminal.setTheme`
+          // Theme is a per-active-terminal property (padi's `chrome.setTheme`
           // takes a terminal id), so both the drill-in chooser and the
           // shuffle action live alongside the other active-terminal
           // commands rather than in a global "Appearance" bucket.

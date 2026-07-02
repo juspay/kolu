@@ -1,8 +1,9 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
-import { sleepingArm, type TerminalId } from "kolu-common/surface";
+import { padiRpc, sleepingArm } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { client } from "../wire";
+import { padi } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useWorktreeOps(deps: {
@@ -24,7 +25,10 @@ export function useWorktreeOps(deps: {
   ) {
     const id = toast.loading("Creating worktree…");
     try {
-      const result = await client.git.worktreeCreate({ repoPath, name });
+      const result = await padiRpc(padi).surface.git.worktreeCreate({
+        repoPath,
+        name,
+      });
       toast.success(`Created worktree at ${result.path}`, { id });
       const newTerminalId = await deps.handleCreate(result.path);
       // Recent repos update reactively via trackRecentRepo → publishSystem
@@ -41,8 +45,11 @@ export function useWorktreeOps(deps: {
       // signal (OSC 133;A prompt mark) — a contract change deliberately
       // deferred out of phase 2 scope.
       if (initialCommand !== undefined) {
-        await client.terminal
-          .sendInput({ id: newTerminalId, data: `${initialCommand}\r` })
+        await padiRpc(padi)
+          .surface.lifecycle.sendInput({
+            id: newTerminalId,
+            data: `${initialCommand}\r`,
+          })
           .catch((err: Error) =>
             toast.error(`Failed to start agent: ${err.message}`),
           );
@@ -86,7 +93,7 @@ export function useWorktreeOps(deps: {
     if (worktreePath) {
       const tid = toast.loading("Removing worktree…");
       try {
-        await client.git.worktreeRemove({ worktreePath });
+        await padiRpc(padi).surface.git.worktreeRemove({ worktreePath });
         toast.success("Worktree removed", { id: tid });
       } catch (err) {
         toast.error(`Failed to remove worktree: ${(err as Error).message}`, {

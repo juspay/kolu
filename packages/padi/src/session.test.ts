@@ -1,0 +1,276 @@
+/**
+ * Session-clobber data-loss guards — the autosave loop must NOT shrink the saved
+ * session while a restore is pending (parked entries stand in for the on-disk
+ * blob), yet must persist / clear normally when nothing is parked.
+ *
+ * The PATH-B bug: parked records are boot-produced restore-card rows that
+ * `snapshotSession` deliberately EXCLUDES. Without a guard, a `terminals:dirty`
+ * autosave firing while parked entries linger persists a snapshot that omits them
+ * — shrinking (or nulling) the saved session on disk, the restore source of
+ * truth. The fix is one line in `session.ts`'s autosave callback:
+ *   `if (hasParkedTerminals()) return;`
+ * Tests (vi) and (iv) are red-when-reverted against that line; the two control
+ * cases pin that the guard is scoped (normal autosave still persists / clears).
+ *
+ * Async-timer pattern mirrors `packages/server/src/session.test.ts`'s
+ * `initSessionAutoSave` test: REAL timers, a `terminalsDirtyChannel.publish({})`
+ * to arm the loop, a short tick to let it schedule the 500 ms timer, then a
+ * longer wait to pass the autosave window.
+ */
+
+import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { setKoluServerProcessId } from "./koluRoot.ts";
+import {
+  __resetPadiSurfaceCtxForTest,
+  noopPadiSurfaceCtxForTest,
+  setPadiSurfaceCtx,
+} from "./padiSurfaceCtx.ts";
+import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
+import { LOCAL_HOST_ID } from "./ptyHost/index.ts";
+import { terminalsDirtyChannel } from "./publisher.ts";
+import {
+  cancelPendingAutosave,
+  getSavedSession,
+  initSessionAutoSave,
+  setSavedSession,
+} from "./session.ts";
+import {
+  type ActiveTerminalProcess,
+  type ParkedTerminalProcess,
+  registerTerminal,
+  terminalEntries,
+  unregisterTerminal,
+} from "./terminal-registry.ts";
+import { snapshotSession } from "./terminals.ts";
+import {
+  type AuthoredActiveTerminal,
+  AuthoredParkedSchema,
+  type AuthoredParkedTerminal,
+  LOCAL_LOCATION,
+  type SavedActiveTerminal,
+  type SavedSession,
+} from "./vocab.ts";
+
+// Boot injects the server id before any of this runs; some registry paths read
+// the per-instance scratch root, so seed it here as the other padi tests do.
+setKoluServerProcessId("padi-session-test");
+
+const ACTIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const PARKED_A = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const PARKED_B = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+const activeMeta: AuthoredActiveTerminal = {
+  state: "active",
+  location: LOCAL_LOCATION,
+  lastActivityAt: 42,
+  themeName: "rose",
+  intent: "fix the auth race",
+};
+
+const activeSnapshot: TerminalSnapshot = {
+  cwd: "/work/repo",
+  git: null,
+  pr: { kind: "pending" },
+  agent: null,
+  foreground: null,
+};
+
+// Parse through the authored-parked schema so the fixture is a VALID parked arm —
+// the boot reconcile builds this same authored base off a saved ACTIVE record.
+const parkedMeta: AuthoredParkedTerminal = AuthoredParkedSchema.parse({
+  state: "parked",
+  parkedAt: 999,
+  location: LOCAL_LOCATION,
+  lastActivityAt: 55,
+  lastAgentCommand: "claude --model opus",
+  themeName: "nord",
+});
+
+const parkedSnapshot: TerminalSnapshot = {
+  cwd: "/work/parked",
+  git: null,
+  pr: { kind: "absent" },
+  agent: null,
+  foreground: null,
+};
+
+const base = {
+  git: null,
+  pr: { kind: "absent" } as const,
+  location: LOCAL_LOCATION,
+};
+
+/** One ACTIVE saved record — the on-disk shape the restore card offers. */
+function savedActive(id: string, cwd: string): SavedActiveTerminal {
+  return {
+    ...base,
+    id,
+    state: "active",
+    cwd,
+    lastActivityAt: 5,
+    restoreTarget: { kind: "none" },
+  };
+}
+
+/** The pre-reboot session on disk — two ACTIVE records the restore card offers. */
+function savedBlob(): SavedSession {
+  return {
+    terminals: [
+      savedActive("11111111-1111-4111-8111-111111111111", "/a"),
+      savedActive("22222222-2222-4222-8222-222222222222", "/b"),
+    ],
+    activeTerminalId: null,
+    savedAt: 1,
+  };
+}
+
+/** A padi ctx whose `session` cell is a real in-memory store, so
+ *  `setSavedSession` / `getSavedSession` round-trip; every other member no-op.
+ *  Copied from `servePadi.test.ts` / `reattach.test.ts`. */
+function sessionBackedCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
+  const b = noopPadiSurfaceCtxForTest();
+  let session: SavedSession | null = null;
+  return {
+    ...b,
+    cells: new Proxy({} as never, {
+      get: (_t, name) =>
+        name === "session"
+          ? {
+              get: () => session,
+              set: (v: SavedSession | null) => {
+                session = v;
+              },
+              patch: () => {},
+            }
+          : (b.cells as Record<string, unknown>)[name as string],
+    }),
+  } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
+}
+
+function registerParked(id: string): void {
+  registerTerminal(id, {
+    info: { id, pid: 0 },
+    meta: parkedMeta,
+    snapshot: parkedSnapshot,
+  } as ParkedTerminalProcess);
+}
+
+function registerActive(id: string): void {
+  registerTerminal(id, {
+    info: { id, pid: 1 },
+    meta: activeMeta,
+    snapshot: activeSnapshot,
+    handle: {} as ActiveTerminalProcess["handle"],
+  });
+}
+
+const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Arm the autosave loop once and let it pass the 500 ms window: publish a dirty
+ *  event, tick so the loop schedules the timer, then wait past the window. */
+async function fireAutosave(): Promise<void> {
+  terminalsDirtyChannel.publish({});
+  await tick(10);
+  await tick(650);
+}
+
+// The autosave loop subscribes exactly ONCE — register it here, not per test, and
+// give the async subscription a moment to attach before the first publish.
+beforeAll(async () => {
+  initSessionAutoSave(snapshotSession);
+  await tick(10);
+});
+
+beforeEach(() => {
+  setPadiSurfaceCtx(sessionBackedCtx());
+  cancelPendingAutosave();
+});
+
+afterEach(() => {
+  for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
+  cancelPendingAutosave();
+  __resetPadiSurfaceCtxForTest();
+});
+
+describe("session autosave — the PATH-B session-clobber guard", () => {
+  it("(vi) autosave while parked entries exist NEVER shrinks the saved blob (property over dirty events)", async () => {
+    // The on-disk pre-reboot session: 2 active records the restore card offers.
+    setSavedSession(savedBlob());
+    // The pending restore: 2 PARKED entries stand in for those records. The live
+    // registry has NO active terminals — only parked.
+    registerParked(PARKED_A);
+    registerParked(PARKED_B);
+
+    // Property: no number of dirty events (create/close/agent churn arms the
+    // autosave) may shrink the blob while the restore is pending.
+    for (let i = 0; i < 3; i++) {
+      terminalsDirtyChannel.publish({});
+      await tick(10);
+      await tick(650);
+    }
+
+    // The blob never shrank — still 2. Red-when-reverted: without the
+    // `hasParkedTerminals()` guard, `snapshotSession()` (which excludes parked) is
+    // [] so `saveSession` clears the blob to null and this length is undefined.
+    expect(getSavedSession()?.terminals.length).toBe(2);
+  });
+
+  it("(iv) an autosave whose snapshot is empty preserves the saved session while a restore is pending", async () => {
+    setSavedSession(savedBlob());
+    // A single PARKED entry, nothing else → `snapshotSession()` is [].
+    registerParked(PARKED_A);
+
+    await fireAutosave();
+
+    // The saved session survives (NOT null). Red-when-reverted: guard removed →
+    // the empty snapshot clears it to null.
+    expect(getSavedSession()).not.toBeNull();
+  });
+
+  it("(control-A) with NO parked entries, an autosave persists the live terminals normally (guard is scoped)", async () => {
+    expect(getSavedSession()).toBeNull();
+    // One ACTIVE terminal, no parked entries.
+    registerActive(ACTIVE_ID);
+
+    await fireAutosave();
+
+    // The live terminal was persisted — the guard does not over-block normal
+    // autosave. (Byte-identity guard: passes with AND without the fix.)
+    expect(getSavedSession()?.terminals.length).toBe(1);
+  });
+
+  it("(control-B) with NO parked entries, closing the last terminal (empty snapshot) still clears the session", async () => {
+    setSavedSession(savedBlob());
+    // Registry EMPTY, NO parked entries — a genuine user close-to-empty.
+
+    await fireAutosave();
+
+    // A real user close still clears normally; the guard only holds while parked
+    // entries are pending. (Byte-identity guard: passes with AND without the fix.)
+    expect(getSavedSession()).toBeNull();
+  });
+
+  it("(iii) an out-of-band daemon-death (degraded status) under a live server does NOT touch the saved session (R-3 status quo)", () => {
+    setSavedSession(savedBlob());
+    registerActive(ACTIVE_ID);
+    registerActive(PARKED_A); // a second live active — reuse the id as a distinct live entry
+
+    const registryBefore = [...terminalEntries()].map(([id, e]) => [
+      id,
+      e.meta.state,
+    ]);
+    const savedBefore = getSavedSession();
+
+    // The supervisor flips the local kaval to degraded on daemon death.
+    publishDaemonStatus(LOCAL_HOST_ID, { state: "degraded" });
+
+    // The degraded transition writes ONLY status — never the session, never the
+    // registry. Nobody wires a session-clobber into the degraded path.
+    expect(getSavedSession()).toEqual(savedBefore);
+    expect(getSavedSession()?.terminals.length).toBe(2);
+    expect([...terminalEntries()].map(([id, e]) => [id, e.meta.state])).toEqual(
+      registryBefore,
+    );
+  });
+});

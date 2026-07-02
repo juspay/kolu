@@ -14,7 +14,7 @@
 // Requires `ffmpeg-full` (the x11grab input device; plain nixpkgs `ffmpeg` is
 // built --disable-xlib) and `Xvfb` on PATH — provided by `./shell.nix`, which
 // the `just record` recipe layers onto the e2e shell.
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 

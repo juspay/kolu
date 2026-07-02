@@ -12,11 +12,11 @@
  * and canvas reflect progress without this hook tracking it.
  */
 
-import type { DaemonStatus } from "kolu-common/surface";
+import type { DaemonStatus } from "@kolu/padi/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { daemonTransportLive, liveWarming } from "./useDaemonStatus";
 import { client } from "../wire";
+import { daemonTransportLive, liveWarming } from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
 // window immediately (before the surface state flips) so a double-click can't

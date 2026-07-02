@@ -14,17 +14,18 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
+import {
+  CODE_TAB_VIEW_ORDER,
+  type CodeTabView,
+  padiRpc,
+  type TerminalMetadata,
+  viewLabel,
+} from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
 import { ORPCError } from "@orpc/client";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import {
-  CODE_TAB_VIEW_ORDER,
-  type CodeTabView,
-  type TerminalId,
-  type TerminalMetadata,
-  viewLabel,
-} from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type Component,
@@ -44,7 +45,8 @@ import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
-import { isDesktop, isTouch } from "../useMobile";
+import { realSizes } from "../ui/corvuResizable";
+import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import {
   ChevronRightIcon,
   FileBrowseIcon,
@@ -52,29 +54,29 @@ import {
   GitBranchIcon,
 } from "../ui/Icons";
 import { resolveRef } from "../ui/lineRef";
-import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
-import SegmentedControl, {
-  type SegmentedControlOption,
-} from "../ui/SegmentedControl";
 import {
   pierreIconConfig,
   pierreTreesShadowCss,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
-import { realSizes } from "../ui/corvuResizable";
+import SegmentedControl, {
+  type SegmentedControlOption,
+} from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
-import { app } from "../wire";
+import { isDesktop, isTouch } from "../useMobile";
+import { padi } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
+import { createRepoPolledQuery } from "./createRepoPolledQuery";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
-import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import {
   type OpenInCodeTabRequest,
   openInCodeTab,
   pendingOpen,
 } from "./openInCodeTab";
+import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { type BrowserLocation, useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
@@ -311,32 +313,32 @@ const CodeTab: Component<{
   // later `git fetch` would never revive it because the failed initial server
   // read tore the stream down before its repo-change watcher was installed
   // (server.ts `pollOnEvent`).
-  const localStatus = app.streams.gitStatus.use(
-    () => {
+  const localStatus = createRepoPolledQuery({
+    input: () => {
       const p = repoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
-    {
-      onError: (err) => toast.error(`Git status stream: ${err.message}`),
-    },
-  );
+    pulseName: "Code tab: local status pulse",
+    query: (i, signal) => padiRpc(padi).surface.git.getStatus(i, { signal }),
+    onError: (err) => toast.error(`Git status stream: ${err.message}`),
+  });
   // Passive branch status — feeds the Branch badge/count, branch base/ref, and
   // the browse overlay, never the active Branch file list. The un-fetched-base
   // case is *expected* here (the badge just reads no count / the overlay falls
   // back to the local layer), so it's swallowed; any *other* failure
   // (GIT_FAILED, permission, transport) is a real fault and still toasts.
-  const branchStatus = app.streams.gitStatus.use(
-    () => {
+  const branchStatus = createRepoPolledQuery({
+    input: () => {
       const p = repoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
-    {
-      onError: (err) => {
-        if (isUnfetchedBase(err)) return;
-        toast.error(`Git status stream: ${err.message}`);
-      },
+    pulseName: "Code tab: branch status pulse",
+    query: (i, signal) => padiRpc(padi).surface.git.getStatus(i, { signal }),
+    onError: (err) => {
+      if (isUnfetchedBase(err)) return;
+      toast.error(`Git status stream: ${err.message}`);
     },
-  );
+  });
 
   // Active-view status: a fresh, view-keyed read for whichever diff mode is
   // showing (browse reads neither — it's a file tree, not a diff). Keying the
@@ -346,32 +348,32 @@ const CodeTab: Component<{
   // actively in this mode, so even the un-fetched-base case is actionable —
   // "run git fetch"). `status`/`statusPending`/`statusError` preserve the shape
   // the rest of the component consumed off the old single subscription.
-  const activeStatus = app.streams.gitStatus.use(
-    () => {
+  const activeStatus = createRepoPolledQuery({
+    input: () => {
       const p = repoPath();
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    {
-      onError: (err) => toast.error(`Git status stream: ${err.message}`),
-    },
-  );
+    pulseName: "Code tab: active status pulse",
+    query: (i, signal) => padiRpc(padi).surface.git.getStatus(i, { signal }),
+    onError: (err) => toast.error(`Git status stream: ${err.message}`),
+  });
   const status = () => activeStatus();
   const statusPending = () => activeStatus.pending();
   const statusError = () => activeStatus.error();
 
-  const allPaths = app.streams.fsListAll.use(
-    () => {
+  const allPaths = createRepoPolledQuery({
+    input: () => {
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
-    {
-      onError: (err) => toast.error(`File list stream: ${err.message}`),
-    },
-  );
+    pulseName: "Code tab: file list pulse",
+    query: (i, signal) => padiRpc(padi).surface.fs.listAll(i, { signal }),
+    onError: (err) => toast.error(`File list stream: ${err.message}`),
+  });
 
-  const diff = app.streams.gitDiff.use(
-    () => {
+  const diff = createRepoPolledQuery({
+    input: () => {
       const p = repoPath();
       const s = selectedPath();
       const m = diffMode();
@@ -380,10 +382,10 @@ const CodeTab: Component<{
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    {
-      onError: (err) => toast.error(`Git diff stream: ${err.message}`),
-    },
-  );
+    pulseName: "Code tab: diff pulse",
+    query: (i, signal) => padiRpc(padi).surface.git.getDiff(i, { signal }),
+    onError: (err) => toast.error(`Git diff stream: ${err.message}`),
+  });
 
   // Clear the filename filter when the slot changes — the search needle
   // was scoped to the previous file set and rarely makes sense post-

@@ -1,22 +1,49 @@
 import * as assert from "node:assert";
-import { confStore } from "@kolu/surface/server";
 import {
-  LOCAL_LOCATION,
-  type SavedSession,
-  type SavedTerminal,
-} from "kolu-common/surface";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { terminalsDirtyChannel } from "./publisher.ts";
-import {
+  __resetPadiSurfaceCtxForTest,
   clearSavedSession,
   getSavedSession,
   initSessionAutoSave,
   saveSession,
+  setPadiSurfaceCtx,
   setSavedSession,
   setSavedSessionFromSnapshot,
-} from "./session.ts";
+  terminalsDirtyChannel,
+} from "@kolu/padi/assembly";
+import {
+  LOCAL_LOCATION,
+  type SavedSession,
+  type SavedTerminal,
+} from "@kolu/padi/surface";
+import { confStore } from "@kolu/surface/server";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { store } from "./state.ts";
-import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
+
+/** A padi surface ctx whose `session` cell is backed by the real conf store, so
+ *  `writeSession`/`getSavedSession` (which read `padiSurfaceCtx.cells.session`)
+ *  round-trip to disk; every other member is a no-op. The `session` cell moved
+ *  onto `padiSurface` (W1 padi seam), so the ctx these tests inject is padi's, not
+ *  kolu's. */
+function sessionBackedPadiCtx(): never {
+  const sessionStore = confStore<SavedSession | null>(store, "session");
+  return {
+    cells: new Proxy({} as never, {
+      get: (_, key) =>
+        key === "session"
+          ? sessionStore
+          : { get: () => undefined, set: () => {}, patch: () => {} },
+    }),
+    collections: new Proxy({} as never, {
+      get: () => ({
+        upsert: () => {},
+        remove: () => {},
+        readAll: () => new Map(),
+        readOne: () => undefined,
+      }),
+    }),
+    events: new Proxy({} as never, { get: () => ({ publish: () => {} }) }),
+  } as never;
+}
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json to route
 // conf state into $TMPDIR, keeping ~/.config clean. state.ts reads it at
@@ -45,32 +72,15 @@ const terminal: SavedTerminal = {
 describe("session persistence", () => {
   beforeAll(() => {
     // surface.ts is not imported by this test module (no full backend init),
-    // so we supply a minimal ctx where cells.session is backed by the real
-    // confStore. This makes writeSession → surfaceCtx.cells.session.set(v)
+    // so we supply a minimal PADI ctx where cells.session is backed by the real
+    // confStore. This makes writeSession → padiSurfaceCtx.cells.session.set(v)
     // actually persist to the conf store, which getSavedSession() reads back.
-    const sessionStore = confStore<SavedSession | null>(store, "session");
-    setSurfaceCtx({
-      cells: new Proxy({} as never, {
-        get: (_, key) =>
-          key === "session"
-            ? sessionStore
-            : { get: () => undefined, set: () => {}, patch: () => {} },
-      }),
-      collections: new Proxy({} as never, {
-        get: () => ({
-          upsert: () => {},
-          remove: () => {},
-          readAll: () => new Map(),
-          readOne: () => undefined,
-        }),
-      }),
-      events: new Proxy({} as never, { get: () => ({ publish: () => {} }) }),
-    } as never);
+    setPadiSurfaceCtx(sessionBackedPadiCtx());
   });
 
   afterAll(() => {
     clearSavedSession();
-    __resetSurfaceCtxForTest();
+    __resetPadiSurfaceCtxForTest();
   });
 
   it("returns null when no session is saved", () => {
@@ -264,29 +274,12 @@ describe("session persistence", () => {
 // clobbering it.
 describe("setSavedSessionFromSnapshot — the F1 receptacle", () => {
   beforeAll(() => {
-    const sessionStore = confStore<SavedSession | null>(store, "session");
-    setSurfaceCtx({
-      cells: new Proxy({} as never, {
-        get: (_, key) =>
-          key === "session"
-            ? sessionStore
-            : { get: () => undefined, set: () => {}, patch: () => {} },
-      }),
-      collections: new Proxy({} as never, {
-        get: () => ({
-          upsert: () => {},
-          remove: () => {},
-          readAll: () => new Map(),
-          readOne: () => undefined,
-        }),
-      }),
-      events: new Proxy({} as never, { get: () => ({ publish: () => {} }) }),
-    } as never);
+    setPadiSurfaceCtx(sessionBackedPadiCtx());
   });
 
   afterAll(() => {
     clearSavedSession();
-    __resetSurfaceCtxForTest();
+    __resetPadiSurfaceCtxForTest();
   });
 
   it("PRESERVES an existing saved session when the snapshot is empty (F1)", () => {

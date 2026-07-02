@@ -11,8 +11,8 @@
 
 import {
   type Component,
-  type JSX,
   createSignal,
+  type JSX,
   onCleanup,
   Show,
 } from "solid-js";

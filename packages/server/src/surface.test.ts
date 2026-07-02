@@ -2,36 +2,34 @@ import { BYTES_PER_MB as MB, surfaces } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { processMemoryMbEqual } from "./surface.ts";
 
-describe("surfaces map — three siblings (R8)", () => {
-  it("serves exactly the kolu / surfaceApp / terminalWorkspace siblings", () => {
-    expect(Object.keys(surfaces).sort()).toEqual([
-      "kolu",
-      "surfaceApp",
-      "terminalWorkspace",
+describe("surfaces map — two siblings (the W1 padi seam)", () => {
+  it("serves exactly the kolu / surfaceApp siblings — terminalWorkspace retired", () => {
+    // The dormant `terminalWorkspace` sibling was retired: the client reads padi's
+    // `terminals` collection, and pulam-tui dials the pulam daemon directly, so
+    // kolu-server's copy had zero consumers. kolu-server adds `padi` locally.
+    expect(Object.keys(surfaces).sort()).toEqual(["kolu", "surfaceApp"]);
+    expect(Object.keys(surfaces)).not.toContain("terminalWorkspace");
+  });
+
+  it("koluSurface serves ONLY preferences + processMemory — no terminal-derived member", () => {
+    const spec = surfaces.kolu.spec as {
+      cells?: Record<string, unknown>;
+      collections?: Record<string, unknown>;
+      events?: Record<string, unknown>;
+    };
+    // Every terminal-derived wire member — `session`, `activityFeed`, `terminalList`,
+    // and the `terminalExit` event — relocated onto `padiSurface` (the W1 padi
+    // seam). koluSurface keeps only its two non-terminal cells, no collections, no
+    // events.
+    expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
+      "preferences",
+      "processMemory",
     ]);
-  });
-
-  it("terminalWorkspace exposes version + awareness + activity + fs/git + watcher streams", () => {
-    const spec = surfaces.terminalWorkspace.spec;
-    expect(spec.cells?.version).toBeDefined();
-    expect(spec.collections?.snapshots).toBeDefined();
-    expect(spec.streams?.activity).toBeDefined();
-    expect(spec.streams?.subscribeRepoChange).toBeDefined();
-    expect(spec.streams?.subscribeFileChange).toBeDefined();
-    expect(spec.procedures?.fs).toBeDefined();
-    expect(spec.procedures?.git).toBeDefined();
-  });
-
-  it("kolu serves the `authored` half only — the fused `terminalMetadata` is gone (no re-fusion)", () => {
-    const spec = surfaces.kolu.spec;
-    // Design-S: kolu serves the AUTHORED half; the client joins it with
-    // `terminalWorkspace.snapshots` at read time. The fused `terminalMetadata`
-    // collection is REMOVED, so a server-side recompose is unspellable — there is
-    // no `surfaceCtx.collections.terminalMetadata` to push a fused record onto.
-    expect(spec.collections?.authored).toBeDefined();
-    expect(
-      (spec.collections as Record<string, unknown>)?.terminalMetadata,
-    ).toBeUndefined();
+    expect(spec.cells?.session).toBeUndefined();
+    expect(spec.cells?.activityFeed).toBeUndefined();
+    expect(spec.cells?.terminalList).toBeUndefined();
+    expect(spec.collections).toBeUndefined();
+    expect(spec.events).toBeUndefined();
   });
 });
 

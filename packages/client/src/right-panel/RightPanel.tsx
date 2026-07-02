@@ -12,11 +12,8 @@
  *  when `!visible` so e2e selectors can assert collapse state without
  *  inspecting widths. */
 
-import type {
-  RightPanelTabKind,
-  TerminalId,
-  TerminalMetadata,
-} from "kolu-common/surface";
+import type { RightPanelTabKind, TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
 import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";

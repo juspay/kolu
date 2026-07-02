@@ -9,7 +9,7 @@
  *  store, so derivations like `getDisplayInfo` and `getMetadata` flow
  *  without prop-drilling lookup functions through layout components. */
 
-import { activeArm } from "kolu-common/surface";
+import { activeArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";

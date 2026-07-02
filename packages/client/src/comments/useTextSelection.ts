@@ -26,8 +26,8 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { useComposer } from "./composerState";
 import { walkShadowRoots } from "../dom/shadowWalk";
+import { useComposer } from "./composerState";
 
 /** Debounced live-selection snapshot. The pill placement only needs the
  *  rect — the real W3C Locator is built lazily in `activate()` from the

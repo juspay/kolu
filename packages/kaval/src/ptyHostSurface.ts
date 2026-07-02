@@ -217,7 +217,8 @@ const ForegroundMsgSchema = z.object({
  *  hash of the `kaval` source closure (nix bakes `KAVAL_BUILD_ID`) — it flips
  *  iff a restart would load different pty-host wire/behaviour code, the
  *  *reported* operand of B3.4's "update pending" currency nudge (compared at
- *  the read site against the server's *expected* `buildInfo.expectedKaval`).
+ *  the read site against the *expected* axis on padiSurface's `status`
+ *  cell, `status.expectedKaval`).
  *  `navigableCommit` is the git ref this kaval was built from
  *  (`KAVAL_COMMIT_HASH`), the GitHub-clickable identity. */
 export const PtyHostIdentitySchema = z.object({

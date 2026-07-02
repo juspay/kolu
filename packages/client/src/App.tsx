@@ -12,9 +12,10 @@
  *  agent indicator, screenshot, split toggle) lives on the tile title bar via
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
+import Resizable from "@corvu/resizable";
+import { padiRpc, sleepingArm } from "@kolu/padi/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
-import { sleepingArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -30,8 +31,7 @@ import AboutDialog from "./AboutDialog";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
-import { realSizes } from "./ui/corvuResizable";
-import Resizable from "@corvu/resizable";
+import CompactTileView from "./CompactTileView";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import Dock from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
@@ -40,16 +40,17 @@ import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { createCommands } from "./commands";
-import DegradedCanvas from "./kaval/DegradedCanvas";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import ExportSessionDialog, {
   exportSessionDialog,
 } from "./ExportSessionDialog";
-import CompactTileView from "./CompactTileView";
+import { createImportSessionAction } from "./importSessionAction";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
+import DegradedCanvas from "./kaval/DegradedCanvas";
+import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import WebcamOverlay from "./recorder/WebcamOverlay";
@@ -67,17 +68,17 @@ import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useTerminals } from "./terminal/useTerminals";
 import { useTileStore } from "./tile/useTileStore";
+import { realSizes } from "./ui/corvuResizable";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
-import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
-import { isDesktop, layoutMode } from "./useMobile";
 import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
+import { isDesktop, layoutMode } from "./useMobile";
 import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { savedSession as serverSavedSession } from "./wire";
+import { padi, savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -190,6 +191,20 @@ const App: Component = () => {
     setCloseConfirmTarget({ id, meta, splitCount, worktreeRemoval });
   }
 
+  // Import runs host-side now (padi is the one restore writer): replace the
+  // persisted session with the picked blob and restore it in one RPC. The
+  // client-side view-state seeds via the hydration effect once the restored
+  // terminals arrive, exactly as `session.restore` does. The re-entry guard +
+  // loading/success/error toast round-trip live in `createImportSessionAction`
+  // (a plain closure, so it doesn't spend the shell's reactive-primitive
+  // budget; see App.shell.test.ts). Created once at setup so the in-flight
+  // guard persists across invocations.
+  const runImportSession = createImportSessionAction({
+    pick: importSession,
+    runImport: ({ session }) =>
+      padiRpc(padi).surface.session.import({ session }),
+  });
+
   const commands = createCommands({
     ...actionContext,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
@@ -213,10 +228,7 @@ const App: Component = () => {
     },
     handleResetActiveTileSize: arrange.resetActiveTileSize,
     handleExportSession: () => exportSession(serverSavedSession()),
-    handleImportSession: () =>
-      void importSession().then(
-        (s) => s && session.handleRestoreSession({ session: s }),
-      ),
+    handleImportSession: () => void runImportSession(),
     simulateAlert: alerts.simulateAlert,
     canvasCenterActive: arrange.centerActive,
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
@@ -446,6 +458,7 @@ const App: Component = () => {
                 savedSession={session.savedSession() ?? undefined}
                 isRestoring={session.isRestoring()}
                 onRestore={(opts) => void session.handleRestoreSession(opts)}
+                onForfeit={() => void session.handleForfeitSession()}
                 onCreate={dockPalette.onCreate}
               />
             </div>

@@ -12,7 +12,7 @@
  *    expressed on desktop.
  *  - **Per-terminal task state** (activeTab, codeMode, per-mode selected
  *    file) lives in an in-memory store keyed by terminal id; mutations
- *    push to the server via `client.terminal.setRightPanel`, which writes
+ *    push to the server via padi's `chrome.setRightPanel`, which writes
  *    `TerminalMetadata.rightPanel` for session restore. Pattern mirrors
  *    `useSubPanel.ts` exactly.
  *
@@ -20,24 +20,25 @@
  *  resolving the current terminal id from `useTerminalStore` internally. */
 
 import {
+  type CodeTabView,
+  DEFAULT_RIGHT_PANEL_PER_TERMINAL,
+  padiRpc,
+  type RightPanelPerTerminalState,
+  type RightPanelTab,
+  rightPanelView,
+} from "@kolu/padi/surface";
+import {
   type Browser,
   createBrowser,
   DEFAULT_MAX_ENTRIES,
 } from "@kolu/solid-browser";
-import {
-  type CodeTabView,
-  DEFAULT_RIGHT_PANEL_PER_TERMINAL,
-  type RightPanelPerTerminalState,
-  type RightPanelTab,
-  rightPanelView,
-  type TerminalId,
-} from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { isDesktop } from "../useMobile";
-import { client, preferences, updatePreferences } from "../wire";
+import { padi, preferences, updatePreferences } from "../wire";
 
 /** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
  *  history records. `mode` is the All/Local/Branch sub-view, carried *inside*
@@ -161,8 +162,8 @@ function ensureState(id: TerminalId): void {
 function reportToServer(id: TerminalId): void {
   const s = perTerminal[id];
   if (!s) return;
-  void client.terminal
-    .setRightPanel({
+  void padiRpc(padi)
+    .surface.chrome.setRightPanel({
       id,
       activeTab: s.activeTab,
       codeMode: s.codeMode,

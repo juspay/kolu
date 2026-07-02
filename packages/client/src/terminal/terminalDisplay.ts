@@ -3,7 +3,8 @@
  *  Identity-and-presentation come from `terminalKey()` in `kolu-common`;
  *  this module only adds the decorations. */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import {
   computeTerminalKeys,
   type TerminalKey,

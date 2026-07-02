@@ -24,12 +24,14 @@
 
 import {
   activeArm,
-  agentPaintClass,
-  type AgentPaintClass,
-  agentUrgency,
   sleepingArm,
-  type TerminalId,
   type TerminalMetadata,
+} from "@kolu/padi/surface";
+import {
+  type AgentPaintClass,
+  agentPaintClass,
+  agentUrgency,
+  type TerminalId,
   URGENCY_RANK,
 } from "kolu-common/surface";
 
