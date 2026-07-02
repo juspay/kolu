@@ -46,8 +46,46 @@ import {
   adoptLocalOrphan,
   adoptLocalTerminal,
   reapUnrepresentablePty,
+  seedParkedTerminal,
   seedSleepingTerminal,
 } from "./local.ts";
+
+/** Park the saved session on the NO-SURVIVOR boot / restart path — the twin of
+ *  `adoptSurvivingSession` for a FRESH (recycled) daemon, where nothing live
+ *  survives. Runs when `adoptOrEnsure` did NOT adopt (a cold boot, or the
+ *  supervised daemon restart's reattach step), REPLACING the old no-op that left
+ *  the saved session for the client to respawn.
+ *
+ *  Seeds a PARKED registry entry for every saved ACTIVE record (copying its
+ *  `lastActivityAt` — RISK Q6) so:
+ *    - the restore card's "resume" rows are backed by live registry records the
+ *      client filters OUT of the canvas tile set (a parked record never renders
+ *      as a tile), keeping the canvas EMPTY so the restore card shows;
+ *    - `session.restore` re-spawns each terminal by CONSUMING its parked entry
+ *      (the parked→active flip is the restore idempotency token).
+ *
+ *  SLEEPING records are DELIBERATELY NOT seeded here (RISK Q3 — never park a
+ *  sleeping record, and don't render it as a dormant tile either). Seeding a
+ *  sleeping record would flip the canvas to `workspace` (a dormant tile counts as
+ *  a tile) and hide the restore card — breaking the byte-identical no-survivor UX
+ *  (a slept-only session must still surface the restore card after a restart, and
+ *  `restoreSession` re-seeds the sleeper dormant on click). The sleeping rows on
+ *  the restore card ride the saved session the client still reads; the SURVIVOR
+ *  path (`adoptSurvivingSession`) DOES seed sleeping, because there it renders as
+ *  a dormant tile ALONGSIDE the adopted live tiles (no restore card) — unchanged.
+ *
+ *  Sets the active marker (WITHOUT firing `terminals:dirty`) so a later restore's
+ *  `snapshotSession` keeps the active tile; does NOT persist here — the saved
+ *  session already holds the pre-reboot records the parked entries stand in for,
+ *  and `snapshotSession` skips parked (a save would be a no-op at best). */
+export function parkSavedSession(): void {
+  const saved = getSavedSession();
+  if (!saved) return;
+  for (const record of saved.terminals) {
+    if (record.state === "active") seedParkedTerminal(record);
+  }
+  restoreActiveTerminalId(saved.activeTerminalId ?? null);
+}
 
 /** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
  *  adopt the survivors. See the module doc. Called from `ensureLocalEndpoint`

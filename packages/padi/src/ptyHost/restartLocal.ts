@@ -18,16 +18,22 @@
  *     registry. The daemon (about to be recycled) takes the PTYs with it; this
  *     just clears kolu's side so the canvas goes honestly empty. It fires no
  *     `terminals:dirty`, so it arms no autosave that could race the capture.
- *   - **reattach** — a no-op here, by design. A B3.2 restart kills the daemon,
- *     so *nothing survives*: every terminal is one you still want, restored from
- *     the captured session on the now-empty canvas (no live survivors, no
- *     autosave race). The client's existing restore card drives that restore.
- *     (B3.3's adoption is what fills `reattach` — adopt the survivors.)
+ *   - **reattach** — PARK the captured session (W1.R6). A B3.2 restart kills the
+ *     daemon, so *nothing survives*: every terminal is one you still want,
+ *     restored from the captured session on the now-empty canvas (no live
+ *     survivors, no autosave race). `parkSavedSession` seeds a parked registry
+ *     entry per saved active record so the restore card shows and
+ *     `session.restore` re-spawns them — the same no-survivor parking the cold
+ *     boot runs (`ensureLocalEndpoint`'s `onNotAdopted`). Previously a no-op that
+ *     left the client to drive restore off the raw saved session; the parked
+ *     entries are now the restore idempotency token. (B3.3's adoption is what
+ *     fills `reattach` on the SURVIVOR path instead.)
  *
  * See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B3.2 — supervised restart).
  */
 
 import { setSavedSessionFromSnapshot } from "../session.ts";
+import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { killAllTerminals, snapshotSession } from "../terminals.ts";
 import { restartLocalEndpoint } from "./index.ts";
 
@@ -45,8 +51,11 @@ export function restartLocalDaemon(): Promise<void> {
     drain: async () => {
       await killAllTerminals();
     },
-    // B3.2: nothing survives a daemon kill — the empty canvas + preserved
-    // session is the restore surface; the client drives it. (B3.3 adopts here.)
-    reattach: async () => {},
+    // B3.2: nothing survives a daemon kill — park the captured session so the
+    // restore card shows and `session.restore` re-spawns it (W1.R6). Same
+    // no-survivor parking the cold boot runs. (B3.3 adopts survivors here.)
+    reattach: async () => {
+      parkSavedSession();
+    },
   });
 }

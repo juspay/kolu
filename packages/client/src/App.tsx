@@ -77,7 +77,8 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { savedSession as serverSavedSession } from "./wire";
+import { padiRpc } from "@kolu/padi/surface";
+import { padi, savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -215,7 +216,11 @@ const App: Component = () => {
     handleExportSession: () => exportSession(serverSavedSession()),
     handleImportSession: () =>
       void importSession().then(
-        (s) => s && session.handleRestoreSession({ session: s }),
+        // Import runs host-side now (padi is the one restore writer): replace the
+        // persisted session with the picked blob and restore it in one RPC. The
+        // client-side view-state seeds via the hydration effect once the restored
+        // terminals arrive, exactly as `session.restore` does.
+        (s) => s && padiRpc(padi).surface.session.import({ session: s }),
       ),
     simulateAlert: alerts.simulateAlert,
     canvasCenterActive: arrange.centerActive,

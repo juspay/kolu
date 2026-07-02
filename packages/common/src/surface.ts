@@ -350,6 +350,30 @@ export const AuthoredSleepingSchema = KoluAuthoredFieldsSchema.merge(
   SleepingDiscriminantSchema,
 );
 
+/** The `parked` discriminant — a reboot-killed ACTIVE record padi's boot
+ *  reconcile parks (its PTY died with the host; the record survives so the
+ *  restore card can bring it back). Distinct from `sleeping`: parked is PRODUCED
+ *  at boot and NEVER persisted, and restores by re-spawning a FRESH active PTY,
+ *  whereas sleeping is a deliberate dormant state that resumes its agent on wake.
+ *  `parkedAt` is the ms-epoch padi parked the record. */
+export const ParkedDiscriminantSchema = z.object({
+  state: z.literal("parked"),
+  /** Epoch-millis padi parked this record at boot reconcile. */
+  parkedAt: z.number(),
+});
+
+/** The authored PARKED arm — `location` + memory + client fields + the `parked`
+ *  discriminant. No snapshot field. Built from the SAME `KoluAuthoredFields` base
+ *  the active/sleeping arms share, so the three authored arms can't drift. It is
+ *  NOT part of {@link AuthoredTerminalSchema} (which `composeTerminalMetadata` +
+ *  disk persist consume — parked is never persisted): parked rides the registry
+ *  as its own arm and is composed into the served `parked` value by an explicit
+ *  branch, never by the two-arm compose. */
+export const AuthoredParkedSchema = KoluAuthoredFieldsSchema.merge(
+  ParkedDiscriminantSchema,
+);
+export type AuthoredParkedTerminal = z.infer<typeof AuthoredParkedSchema>;
+
 /** The authored terminal as a sum — `entry.meta`'s static type. Discriminated on
  *  `state`, naming no snapshot field. */
 export const AuthoredTerminalSchema = z.discriminatedUnion("state", [

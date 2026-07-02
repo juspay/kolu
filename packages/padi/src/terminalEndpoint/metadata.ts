@@ -41,6 +41,7 @@
 import {
   type AgentMemory,
   composeTerminalMetadata,
+  PersistedSnapshotSchema,
   type TerminalSnapshot,
   type RestoreTarget,
   type TerminalClientMetadata,
@@ -48,8 +49,29 @@ import {
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
+import { PadiParkedTerminalSchema, type PadiTerminal } from "../surface.ts";
 import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
 import { recomputeUrgency } from "../urgency.ts";
+
+/** Compose a registry entry into the served `PadiTerminal` value — the ONE
+ *  server-side `authored ⋈ snapshot` join, with an EXPLICIT `parked` branch.
+ *
+ *  `composeTerminalMetadata` (reused at the client read + disk persist) only
+ *  emits the `active | sleeping` arms — its `AuthoredTerminal` input can't carry
+ *  the boot-only `parked` authored arm — so a parked entry is composed HERE from
+ *  the restore-relevant snapshot projection + the authored parked arm, exactly
+ *  `PadiParkedTerminalSchema`'s shape. Shared by the live publish seam
+ *  (`publishComposedTerminal`) and the collection backing (`servePadi`), so the
+ *  served value can never differ between a delta and a snapshot. */
+export function composePadiTerminal(entry: TerminalProcess): PadiTerminal {
+  if (entry.meta.state === "parked") {
+    return PadiParkedTerminalSchema.parse({
+      ...PersistedSnapshotSchema.parse(entry.snapshot),
+      ...entry.meta,
+    });
+  }
+  return composeTerminalMetadata(entry.meta, entry.snapshot);
+}
 
 /** Publish a terminal's COMPOSED record — `composeTerminalMetadata(entry.meta,
  *  entry.snapshot)` — onto padi's `terminals` collection. The SOLE channel a
@@ -65,7 +87,7 @@ function publishComposedTerminal(terminalId: string): void {
   if (!entry) return;
   padiSurfaceCtx.collections.terminals.upsert(
     terminalId,
-    composeTerminalMetadata(entry.meta, entry.snapshot),
+    composePadiTerminal(entry),
   );
 }
 

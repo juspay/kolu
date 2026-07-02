@@ -51,6 +51,7 @@ import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
   ActivityFeed,
+  AuthoredTerminal,
   KoluBuildInfo,
   Preferences,
   ProcessMemory,
@@ -254,8 +255,24 @@ const koluDeps: Omit<
       // `terminalWorkspace.snapshots` collection below, and the client joins the
       // two at read time (`useTerminalMetadata`). There is no server-side
       // re-fusion: the wire never carries a single fused record.
-      readAll: () => registryMap((t) => t.meta),
-      readOne: (key) => getTerminal(key as string)?.meta,
+      // Exclude PARKED entries (W1.R6): the legacy koluSurface `authored`
+      // collection's schema is the `active | sleeping` `AuthoredTerminal` union,
+      // and its (retiring) client consumers never learned the boot-only `parked`
+      // arm — a parked record belongs only to padi's `terminals` collection. The
+      // registry now holds parked entries (a reboot's restore-card backing), so
+      // filter them out of this legacy backing rather than serve an arm its
+      // schema would reject.
+      readAll: () => {
+        const map = new Map<string, AuthoredTerminal>();
+        for (const [id, meta] of registryMap((t) => t.meta)) {
+          if (meta.state !== "parked") map.set(id, meta);
+        }
+        return map;
+      },
+      readOne: (key) => {
+        const meta = getTerminal(key as string)?.meta;
+        return meta && meta.state !== "parked" ? meta : undefined;
+      },
       // Server-internal collection: clients can't write. The registry IS the
       // store, so the `upsert`/`remove` no-ops only fan out to subscribers —
       // `terminalEndpoint/metadata.ts` calls `surfaceCtx.collections.authored

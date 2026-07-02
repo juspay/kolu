@@ -78,21 +78,37 @@ export {
  *  so its presence is TOTAL by type — a plain `.map`, no per-entry guard. Order is
  *  `Map` insertion order — terminals appear in the sequence they were created. */
 export function snapshotSession(): SessionSnapshot {
-  const snappedTerminals = [...terminalEntries()].map(
-    // The JOIN of the two halves — the AUTHORED `entry.meta` (location + client
-    // chrome + discriminant) and the entry's AWARENESS value. Spread order matches
-    // `composeTerminalMetadata`: awareness FIRST, authored LAST — the authored record
-    // names no snapshot field, so it never clobbers the observation. On the sleeping
-    // arm the saved discriminated union keeps only the restore-relevant projection
-    // (`pr` rides it now — no frozen-`pr` special case) and strips the live half
-    // (agent detail + foreground) structurally, so a future live field can never
-    // silently ride to disk.
-    ([id, entry]): SavedTerminal =>
-      SavedTerminalSchema.parse({
-        ...composeTerminalMetadata(entry.meta, entry.snapshot),
-        id,
-      }),
-  );
+  const snappedTerminals = [...terminalEntries()]
+    // PARKED records are boot-produced and NEVER persisted — they exist only so
+    // the restore card can re-spawn a reboot-killed active terminal, and their
+    // authored arm (`state: "parked"`) is not a `SavedTerminal` state. Skip them
+    // here so a `terminals:dirty` autosave that fires while parked records linger
+    // (before restore) can't try to persist one (a `SavedTerminalSchema.parse`
+    // throw) or clobber the saved session with a parked-shaped record. The saved
+    // session on disk already holds the pre-reboot ACTIVE record each parked entry
+    // stands in for; restore re-spawns from that.
+    .filter(([, entry]) => entry.meta.state !== "parked")
+    .map(
+      // The JOIN of the two halves — the AUTHORED `entry.meta` (location + client
+      // chrome + discriminant) and the entry's AWARENESS value. Spread order matches
+      // `composeTerminalMetadata`: awareness FIRST, authored LAST — the authored record
+      // names no snapshot field, so it never clobbers the observation. On the sleeping
+      // arm the saved discriminated union keeps only the restore-relevant projection
+      // (`pr` rides it now — no frozen-`pr` special case) and strips the live half
+      // (agent detail + foreground) structurally, so a future live field can never
+      // silently ride to disk.
+      ([id, entry]): SavedTerminal =>
+        SavedTerminalSchema.parse({
+          ...composeTerminalMetadata(
+            // The filter above leaves only active | sleeping arms, which
+            // `composeTerminalMetadata` accepts; narrow away the parked arm the
+            // union carries.
+            entry.meta as Exclude<typeof entry.meta, { state: "parked" }>,
+            entry.snapshot,
+          ),
+          id,
+        }),
+    );
   return { terminals: snappedTerminals, activeTerminalId };
 }
 

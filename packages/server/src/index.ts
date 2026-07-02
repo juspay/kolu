@@ -40,6 +40,7 @@ import {
   ensureLocalEndpoint,
   initSessionAutoSave,
   LOCAL_HOST_ID,
+  parkSavedSession,
   ptyHostClient,
   publishDaemonStatus,
   publisherSize,
@@ -365,6 +366,10 @@ await ensureLocalEndpoint({
   port,
   onStatus: publishDaemonStatus,
   onAdopted: adoptSurvivingSession,
+  // No-survivor boot (fresh / recycled daemon): park the saved session so the
+  // restore card shows and `session.restore` re-spawns it (W1.R6). Replaces the
+  // old no-op that left the client to respawn off the raw saved session.
+  onNotAdopted: parkSavedSession,
   // Subscribe to the daemon's inventory feed so a terminal created out-of-band
   // (a `kaval-tui create` against this server's kaval) shows up as a tile while
   // kolu runs — not only after the next restart's boot adoption (B3.5). Runs

@@ -47,12 +47,17 @@ export {
 
 // ── endpoint bindings ───────────────────────────────────────────────────
 export {
+  discardLocalParked,
   discardLocalSleeping,
+  seedParkedTerminal,
   seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
 export { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-export { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
+export {
+  adoptSurvivingSession,
+  parkSavedSession,
+} from "./terminalEndpoint/reattach.ts";
 export { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
 
 // ── session persistence ─────────────────────────────────────────────────

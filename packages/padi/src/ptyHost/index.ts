@@ -137,6 +137,14 @@ export async function ensureLocalEndpoint(opts: {
    *  root stays free of the terminal-endpoint layer, which imports back from
    *  here. Skipped on a fresh / recycled boot (no survivors to reconcile). */
   onAdopted?: () => Promise<void>;
+  /** Run on the NO-SURVIVOR boot — a fresh / recycled daemon where nothing live
+   *  survives (adoption reported `false`), OR after a failed adoption forces a
+   *  recycle. PARKS the saved session (W1.R6): seeds a parked registry entry per
+   *  saved active record so the restore card shows and `session.restore` can
+   *  re-spawn them. Injected for the same reason as `onAdopted` (keep this root
+   *  free of the terminal-endpoint layer). Replaces the old no-op that left the
+   *  saved session untouched for the client to respawn. */
+  onNotAdopted?: () => void;
   /** Run after the boot try/catch settles, REGARDLESS of outcome — NOT on
    *  connection. Even when the daemon came up `dead` this fires; the name says
    *  "boot settled," not "connected," precisely because there is no connection
@@ -185,7 +193,14 @@ export async function ensureLocalEndpoint(opts: {
           "surviving-session reconciliation failed — recycling the adopted daemon",
         );
         await ep.ensure();
+        // The recycle spawned a FRESH daemon — nothing live survives now, so this
+        // is the no-survivor path: park the saved session for the restore card.
+        opts.onNotAdopted?.();
       }
+    } else if (!adopted) {
+      // Fresh / recycled boot — no survivors. Park the saved session so the
+      // restore card can re-spawn it (W1.R6, replacing the old no-op).
+      opts.onNotAdopted?.();
     }
   } catch (err) {
     // The endpoint already reported `dead`; don't crash the server boot.

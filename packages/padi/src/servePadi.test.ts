@@ -14,19 +14,24 @@
  */
 
 import {
+  AuthoredParkedSchema,
   AuthoredSleepingSchema,
   type AuthoredActiveTerminal,
+  type AuthoredParkedTerminal,
   type AuthoredSleepingTerminal,
   composeTerminalMetadata,
   LOCAL_LOCATION,
+  PersistedSnapshotSchema,
   type TerminalSnapshot,
 } from "kolu-common/surface";
 import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
 import type { Logger } from "pino";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
+import { PadiParkedTerminalSchema } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
+  type ParkedTerminalProcess,
   registerTerminal,
   type SleepingTerminalProcess,
   unregisterTerminal,
@@ -34,6 +39,7 @@ import {
 
 const ACTIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SLEEPING_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const PARKED_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 /** A stub logger — construction of the deps threads it through, but the
  *  `terminals` read handlers never call it. */
@@ -96,6 +102,25 @@ const sleepingSnapshot: TerminalSnapshot = {
   foreground: null,
 };
 
+// Parse through the authored-parked schema so the fixture is a VALID parked arm —
+// the boot reconcile builds this same authored base off a saved ACTIVE record.
+const parkedMeta: AuthoredParkedTerminal = AuthoredParkedSchema.parse({
+  state: "parked",
+  parkedAt: 999,
+  location: LOCAL_LOCATION,
+  lastActivityAt: 55,
+  lastAgentCommand: "claude --model opus",
+  themeName: "nord",
+});
+
+const parkedSnapshot: TerminalSnapshot = {
+  cwd: "/work/parked",
+  git: null,
+  pr: { kind: "absent" },
+  agent: null,
+  foreground: null,
+};
+
 function seed(): void {
   registerTerminal(ACTIVE_ID, {
     info: { id: ACTIVE_ID, pid: 1 },
@@ -108,6 +133,11 @@ function seed(): void {
     meta: sleepingMeta,
     snapshot: sleepingSnapshot,
   } as SleepingTerminalProcess);
+  registerTerminal(PARKED_ID, {
+    info: { id: PARKED_ID, pid: 0 },
+    meta: parkedMeta,
+    snapshot: parkedSnapshot,
+  } as ParkedTerminalProcess);
 }
 
 /** Build the deps and narrow the `terminals` collection reads out of the
@@ -128,7 +158,17 @@ function terminalsBacking(): {
 afterEach(() => {
   unregisterTerminal(ACTIVE_ID);
   unregisterTerminal(SLEEPING_ID);
+  unregisterTerminal(PARKED_ID);
 });
+
+/** The served `parked` value — the explicit branch in `composePadiTerminal`
+ *  (NOT `composeTerminalMetadata`, which only emits active|sleeping): the
+ *  restore-relevant snapshot projection joined with the authored parked arm. */
+const parkedProjection = () =>
+  PadiParkedTerminalSchema.parse({
+    ...PersistedSnapshotSchema.parse(parkedSnapshot),
+    ...parkedMeta,
+  });
 
 describe("padi terminals collection backing == the deleted client reader-join", () => {
   it("readOne produces exactly composeTerminalMetadata(meta, snapshot) for each arm", () => {
@@ -143,20 +183,34 @@ describe("padi terminals collection backing == the deleted client reader-join", 
     );
   });
 
+  it("readOne composes the PARKED arm via the explicit branch (state=parked)", () => {
+    seed();
+    const { readOne } = terminalsBacking();
+
+    const parked = readOne(PARKED_ID) as { state?: string };
+    // The parked value is the restore-relevant snapshot projection + the authored
+    // parked arm — `state: "parked"` with `parkedAt`, its `lastActivityAt`
+    // preserved (RISK Q6), and NO live agent/foreground fields (dropped by the
+    // persisted-snapshot projection).
+    expect(parked).toEqual(parkedProjection());
+    expect(parked.state).toBe("parked");
+  });
+
   it("readAll produces the composed record for every entry, in registry order", () => {
     seed();
     const { readAll } = terminalsBacking();
 
     const all = readAll();
-    expect(all.size).toBe(2);
+    expect(all.size).toBe(3);
     expect(all.get(ACTIVE_ID)).toEqual(
       composeTerminalMetadata(activeMeta, activeSnapshot),
     );
     expect(all.get(SLEEPING_ID)).toEqual(
       composeTerminalMetadata(sleepingMeta, sleepingSnapshot),
     );
-    // Insertion order is the client's display ordering — active first.
-    expect([...all.keys()]).toEqual([ACTIVE_ID, SLEEPING_ID]);
+    expect(all.get(PARKED_ID)).toEqual(parkedProjection());
+    // Insertion order is the client's display ordering.
+    expect([...all.keys()]).toEqual([ACTIVE_ID, SLEEPING_ID, PARKED_ID]);
   });
 
   it("readOne is undefined for an absent id (no entry to compose)", () => {

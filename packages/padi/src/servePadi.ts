@@ -22,7 +22,6 @@ import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
 import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
 import { quietActivity } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
-import { composeTerminalMetadata } from "kolu-common/surface";
 import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
@@ -33,6 +32,7 @@ import {
   type PadiTerminal,
   type padiSurface,
 } from "./surface.ts";
+import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import {
   discardLocalSleeping,
@@ -117,15 +117,10 @@ export function buildPadiSurfaceDeps(deps: {
       // R1). The registry is the authority, so `upsert`/`remove` are no-ops that
       // fan out to subscribers once R1 wires the publish seam.
       terminals: {
-        readAll: () =>
-          registryMap<PadiTerminal>((entry) =>
-            composeTerminalMetadata(entry.meta, entry.snapshot),
-          ),
+        readAll: () => registryMap<PadiTerminal>(composePadiTerminal),
         readOne: (key) => {
           const entry = getTerminal(key);
-          return entry
-            ? composeTerminalMetadata(entry.meta, entry.snapshot)
-            : undefined;
+          return entry ? composePadiTerminal(entry) : undefined;
         },
         upsert: () => {},
         remove: () => {},

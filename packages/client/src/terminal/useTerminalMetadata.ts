@@ -48,6 +48,19 @@ export function sameTerminalIdOrder(
   return a.length === b.length && a.every((id, i) => id === b[i]);
 }
 
+/** Whether a composed record is a PARKED restore-pending record (W1.R6). padi's
+ *  boot reconcile parks each reboot-killed active terminal so `session.restore`
+ *  can re-spawn it; a parked record rides the `terminals` collection (typed here
+ *  as `TerminalMetadata`, though its runtime `state` is the reserved `"parked"`
+ *  arm) but must NOT render as a canvas tile — it is a restore-card row, not a
+ *  live/dormant tile. Excluding it here keeps the canvas EMPTY while a reboot's
+ *  session awaits restore, so the restore card shows (byte-identical to the
+ *  pre-R6 registry-empty restore-pending state). The read is a widened `.state`
+ *  check because the domain `TerminalMetadata` union names only active|sleeping. */
+function isParked(m: TerminalMetadata): boolean {
+  return (m as { state: string }).state === "parked";
+}
+
 export function useTerminalMetadata(deps: {
   list: Accessor<TerminalInfo[] | undefined>;
 }) {
@@ -116,15 +129,20 @@ export function useTerminalMetadata(deps: {
     () =>
       keys().filter((id) => {
         const a = authoredIfReady(id);
-        return a && !a.parentId;
+        // Exclude PARKED records — they are restore-card rows, not tiles (W1.R6).
+        return a !== undefined && !isParked(a) && !a.parentId;
       }),
     [],
     { equals: sameTerminalIdOrder },
   );
 
-  /** Sub-terminal IDs for a parent, in server-provided order. */
+  /** Sub-terminal IDs for a parent, in server-provided order. A parked record is
+   *  never a live split (it awaits restore), so it is excluded here too. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
-    return keys().filter((id) => authoredIfReady(id)?.parentId === parentId);
+    return keys().filter((id) => {
+      const a = authoredIfReady(id);
+      return a !== undefined && !isParked(a) && a.parentId === parentId;
+    });
   }
 
   /** True if any terminal outside of `excludeId`'s tree is also on

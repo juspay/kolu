@@ -1,9 +1,9 @@
 /**
  * `@kolu/padi/sessionRestore` — host-side session restore / import behind
- * `padiSurface.procedures.session.restore` / `.import`. The thin real impl W1.R0
- * lands (the full parked-state production + boot reconcile is R6): it moves the
- * client respawn loop (`useSessionRestore.ts`) server-side so padi is the ONE
- * writer.
+ * `padiSurface.procedures.session.restore` / `.import`. This is the ONE writer of
+ * the restore path: it replaces the deleted client respawn loop
+ * (`useSessionRestore.ts`), so the browser fires a single `session.restore` and
+ * padi re-spawns every terminal server-side.
  *
  * Lives in its OWN module — not `session.ts` — deliberately: restore reaches
  * DOWN into the lifecycle façade (`createTerminal`/`snapshotSession`), while
@@ -17,21 +17,81 @@ import { resumeFormFor } from "anyagent/cli";
 import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { backfillSavedSession, SavedSessionSchema } from "kolu-common/surface";
 import { getSavedSession, saveSession, setSavedSession } from "./session.ts";
-import { getActiveTerminal } from "./terminal-registry.ts";
-import { seedSleepingTerminal } from "./terminalEndpoint/local.ts";
+import { getActiveTerminal, getTerminal } from "./terminal-registry.ts";
+import {
+  discardLocalParked,
+  seedSleepingTerminal,
+} from "./terminalEndpoint/local.ts";
 import {
   createTerminal,
   restoreActiveTerminalId,
   snapshotSession,
 } from "./terminals.ts";
 
-/** Restore the persisted session HOST-SIDE — the thin real impl W1.R0 lands.
- *  Reads the saved session, re-creates each terminal (active → spawn + optional
- *  agent-resume; sleeping → seed dormant), re-parents sub-terminals onto their
- *  freshly-spawned parents, then re-persists the live snapshot. Mirrors the
- *  client loop's essential structure MINUS the client-only canvas/active-tile
- *  protocol (a server has no viewport to center). Full parked-state + boot
- *  reconcile lands in R6.
+/** Re-spawn one saved ACTIVE record as a FRESH live terminal, forwarding its
+ *  restore-relevant chrome + the saved recency, and (opt-in) resuming its agent.
+ *  Returns the new id, or null when this record is a REPEAT restore that must be
+ *  skipped (its parked token was already consumed, or a live PTY already stands
+ *  for it — the parked→active flip's idempotency: a double `session.restore`
+ *  never duplicates a terminal).
+ *
+ *  The parked entry padi's boot reconcile produced under this id IS the
+ *  idempotency token: consume it (`discardLocalParked`) as the terminal flips to
+ *  a fresh active PTY. Two cases have no parked token yet still restore exactly
+ *  once: (a) a session set AFTER boot (the e2e `test__set`, no parking ran) —
+ *  restore directly; (b) a repeat restore whose terminal is already live —
+ *  skip. */
+function respawnActive(
+  t: SavedTerminal,
+  parentId: string | undefined,
+  resume: boolean,
+): string | null {
+  const existing = getTerminal(t.id);
+  if (existing?.meta.state === "parked") {
+    // The parked→active flip — consume the token so a concurrent/repeat restore
+    // finds it gone and skips this record (no duplicate terminal).
+    discardLocalParked(t.id);
+  } else if (getActiveTerminal(t.id)) {
+    // Already restored to a live PTY (a repeat restore after the flip) — skip.
+    return null;
+  }
+  const info = createTerminal(t.cwd, parentId, {
+    themeName: t.themeName,
+    canvasLayout: t.canvasLayout,
+    subPanel: t.subPanel,
+    rightPanel: t.rightPanel,
+    intent: t.intent,
+    // Preserve the saved recency across the restart (RISK Q6) — without this the
+    // fold reseeds the restored terminal to `lastActivityAt: 0` and the dock's
+    // recency ranking permanently collapses after a `session.restore`. The parked
+    // record already copied this off the saved active record at park time; here
+    // it rides the fresh spawn. (Distinct from the client-facing `lifecycle
+    // .create`, which drops it so a genuinely fresh terminal gets padi's clock.)
+    lastActivityAt: t.lastActivityAt,
+  });
+  // Auto-launch the resume form of the previously captured agent command, if the
+  // user didn't opt out. `resumeFormFor` switches on the fold-derived
+  // `restoreTarget` (the SAME composition the wake path feeds a fresh spawn, so
+  // restore and wake can't drift): `exact` re-targets the exact conversation,
+  // `legacyMostRecent` the most-recent fallback, `none`/absent a bare shell. The
+  // proxy handle queues the write until the PTY spawn resolves.
+  if (resume) {
+    const resumeForm = resumeFormFor(t.restoreTarget);
+    if (resumeForm) getActiveTerminal(info.id)?.handle.write(`${resumeForm}\r`);
+  }
+  return info.id;
+}
+
+/** Restore the persisted session HOST-SIDE — the ONE restore writer (the client
+ *  respawn loop is deleted). Reads the saved session, re-creates each terminal
+ *  (active → spawn a FRESH PTY + optional agent-resume; sleeping → seed dormant),
+ *  re-parents sub-terminals onto their freshly-spawned parents, then re-persists
+ *  the live snapshot. Mirrors the client loop's essential structure MINUS the
+ *  client-only canvas/active-tile protocol (a server has no viewport to center).
+ *
+ *  IDEMPOTENT: an ACTIVE record restores by CONSUMING the parked registry entry
+ *  padi's boot reconcile produced (`respawnActive`), so a concurrent/repeat
+ *  `session.restore` finds the token gone and no-ops rather than duplicating.
  *
  *  `resumeIds` is the per-terminal agent-resume opt-in set: a terminal absent
  *  from it wakes to a bare shell; ABSENT (`undefined`) resumes all — the SAME
@@ -43,52 +103,57 @@ export async function restoreSession(input: {
   if (!saved) return;
   const resumeAll = input.resumeIds === undefined;
   const resumeSet = new Set(input.resumeIds ?? []);
-  // Old id → new id: an active terminal gets a NEW id on respawn, so a sub-
-  // terminal must re-parent onto the fresh id; a sleeping one keeps its stable
-  // id (Wake respawns later).
+  const optedIn = (id: string) => resumeAll || resumeSet.has(id);
+  // Old id → new id: a restored active terminal gets a NEW id, so a sub-terminal
+  // re-parents onto the fresh id; a sleeping one keeps its stable id.
   const oldToNew = new Map<string, string>();
   const topLevel = saved.terminals.filter((t) => !t.parentId);
   const subTerminals = saved.terminals.filter(
     (t): t is SavedTerminal & { parentId: string } => t.parentId !== undefined,
   );
+
   for (const t of topLevel) {
     if (t.state === "sleeping") {
+      // A SLEEPING record restores DORMANT — seed it (no PTY spawn, no resume;
+      // Wake does that later). It keeps its saved id (idempotent seed), so its
+      // canvas layout and the active marker map 1:1. The restore card brings
+      // back BOTH arms.
       seedSleepingTerminal(t);
       oldToNew.set(t.id, t.id);
       continue;
     }
-    const info = createTerminal(t.cwd, undefined, {
-      themeName: t.themeName,
-      canvasLayout: t.canvasLayout,
-      subPanel: t.subPanel,
-      rightPanel: t.rightPanel,
-      intent: t.intent,
-      // Preserve the saved recency across the restart — WITHOUT this, the fold
-      // reseeds every restored terminal to `lastActivityAt: 0` (spawnPty's
-      // `seedMemory` default) and the snapshot sensor deliberately does NOT bump
-      // on a resuming wake, so the dock's recency ranking would permanently
-      // collapse after a `session.restore`. This host-side restore is the twin
-      // of the client loop it replaces, which forwarded `lastActivityAt` too.
-      // (Distinct from the client-facing `lifecycle.create`, which drops it so a
-      // FRESH terminal is stamped with padi's own clock.)
-      lastActivityAt: t.lastActivityAt,
-    });
-    oldToNew.set(t.id, info.id);
-    // Auto-launch the resume form of the previously captured agent command, if
-    // the user didn't opt out. `resumeFormFor` switches on the fold-derived
-    // `restoreTarget` (SAME composition the server's wake path feeds a fresh
-    // spawn, so restore and wake can't drift): `exact` re-targets the exact
-    // conversation, `legacyMostRecent` the most-recent fallback, `none`/absent a
-    // bare shell.
-    const optedIn = resumeAll || resumeSet.has(t.id);
-    const resumeForm = optedIn ? resumeFormFor(t.restoreTarget) : null;
-    if (resumeForm) getActiveTerminal(info.id)?.handle.write(`${resumeForm}\r`);
+    const newId = respawnActive(t, undefined, optedIn(t.id));
+    if (newId) oldToNew.set(t.id, newId);
   }
+
   for (const t of subTerminals) {
+    // A sub whose parent didn't restore (skipped as a repeat) is dropped —
+    // there is no live parent to hang it off (F3).
     const parentId = oldToNew.get(t.parentId);
-    if (parentId) createTerminal(t.cwd, parentId, {});
+    if (parentId === undefined) continue;
+    if (t.state === "sleeping") {
+      // SLEPT SUB-TERMINAL (#1651): honor the saved state — a slept sub restores
+      // as SLEEPING under its (now-live) parent, NOT as a fresh active split.
+      // Re-parent onto the FRESH parent id, respecting F3 (a sub hangs off a LIVE
+      // parent — the restored parent is that live parent; a slept parent closes
+      // its splits on sleep, so a slept-sub-under-slept-parent never occurs). Wake
+      // brings the sub's agent back later, exactly like a top-level sleeper.
+      seedSleepingTerminal({ ...t, parentId });
+      oldToNew.set(t.id, t.id);
+      continue;
+    }
+    const newId = respawnActive(t, parentId, optedIn(t.id));
+    if (newId) oldToNew.set(t.id, newId);
   }
-  restoreActiveTerminalId(saved.activeTerminalId ?? null);
+
+  // Preserve the active marker across the restart (RISK Q1 host-side): map the
+  // saved active id through `oldToNew` so it names the RESTORED terminal (a fresh
+  // id for an active, the stable id for a sleeper), then persist the now-live
+  // session so a later reload hydrates onto the right tile.
+  const savedActive = saved.activeTerminalId ?? null;
+  restoreActiveTerminalId(
+    savedActive === null ? null : (oldToNew.get(savedActive) ?? savedActive),
+  );
   saveSession(snapshotSession());
 }
 

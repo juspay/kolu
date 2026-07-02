@@ -12,6 +12,7 @@
 import { ORPCError } from "@orpc/server";
 import type {
   AuthoredActiveTerminal,
+  AuthoredParkedTerminal,
   AuthoredSleepingTerminal,
   TerminalSnapshot,
   TerminalId,
@@ -59,13 +60,38 @@ export interface SleepingTerminalProcess {
   handle?: never;
 }
 
-/** The one registry's value — `Terminal = active | sleeping` made concrete as a
- *  process. Sleep flips an active entry to a sleeping one IN PLACE (same id,
- *  same map slot, persisted base preserved, live overlay + handle released);
- *  wake flips it back by re-spawning. Presence reads the union off the map;
- *  liveness narrows to `ActiveTerminalProcess` via `entry.handle` (or
- *  `getActiveTerminal`). */
-export type TerminalProcess = ActiveTerminalProcess | SleepingTerminalProcess;
+/** A PARKED terminal process — a reboot-killed ACTIVE record padi's boot
+ *  reconcile parks: the host died, so the PTY/handle is gone (`handle?: never`,
+ *  the same by-type liveness fence the sleeping arm uses), but the record
+ *  survives so the restore card can bring the terminal back. Its metadata is the
+ *  authored parked arm (persisted base + `parkedAt`). PRODUCED at boot from a
+ *  saved active record, NEVER persisted — `snapshotSession` skips it — and
+ *  CONSUMED at restore (`restoreSession` re-spawns a fresh active PTY and drops
+ *  the parked entry, the parked→active flip that is the restore idempotency
+ *  token). The client filters it out of the tile set, so a parked record never
+ *  renders as a canvas tile; only the restore card reads it. */
+export interface ParkedTerminalProcess {
+  info: TerminalInfo;
+  meta: AuthoredParkedTerminal;
+  /** The restore-relevant `TerminalSnapshot` (cwd · git · pr) carried over from
+   *  the parked active record, so the restore card recomposes its cwd / branch /
+   *  pr off it — the agent detail + foreground are dead data while parked. */
+  snapshot: TerminalSnapshot;
+  handle?: never;
+}
+
+/** The one registry's value — `Terminal = active | sleeping | parked` made
+ *  concrete as a process. Sleep flips an active entry to a sleeping one IN PLACE
+ *  (same id, same map slot, persisted base preserved, live overlay + handle
+ *  released); wake flips it back by re-spawning. `parked` is a boot-produced arm:
+ *  the reboot no-survivor path parks each saved active record so the restore card
+ *  can re-spawn it. Presence reads the union off the map; liveness narrows to
+ *  `ActiveTerminalProcess` via `entry.handle` (or `getActiveTerminal`) — a
+ *  sleeping OR parked entry has no handle by type. */
+export type TerminalProcess =
+  | ActiveTerminalProcess
+  | SleepingTerminalProcess
+  | ParkedTerminalProcess;
 
 const terminals = new Map<TerminalId, TerminalProcess>();
 

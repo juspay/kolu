@@ -50,10 +50,12 @@ import type {
 } from "kolu-common/surface";
 import {
   AuthoredActiveSchema,
+  AuthoredParkedSchema,
   AuthoredSleepingSchema,
   createAuthoredActive,
   LOCAL_LOCATION,
   PersistedSnapshotSchema,
+  SavedActiveTerminalSchema,
   SavedSleepingTerminalSchema,
   TerminalIdSchema,
 } from "kolu-common/surface";
@@ -1071,6 +1073,22 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     return true;
   }
 
+  /** Discard a PARKED terminal: drop the parked record + its snapshot. The PTY
+   *  died with the host at reboot, so there is nothing to kill — this scrubs any
+   *  leftover scratch (the dead PTY's) and removes the entry. The consume half of
+   *  the parked→active flip: `restoreSession` re-spawns a FRESH active terminal
+   *  (new id) and drops the old parked record here, so a concurrent restore finds
+   *  no parked entry and no-ops (the idempotency token). Returns false when `id`
+   *  is not parked. */
+  discardParked(id: TerminalId): boolean {
+    const entry = getTerminal(id);
+    if (!entry || entry.meta.state !== "parked") return false;
+    cleanupTerminalScratch(id);
+    this.finalizeRemoval(id);
+    log.child({ terminal: id }).info("discarded parked terminal");
+    return true;
+  }
+
   async killAllTerminals(): Promise<void> {
     const ids = listTerminals().map((info) => info.id);
     log.info({ count: ids.length }, "killing all terminals");
@@ -1163,6 +1181,12 @@ export function discardLocalSleeping(id: TerminalId): boolean {
   return localEndpointImpl.discardSleeping(id);
 }
 
+/** Discard a parked terminal's record — the consume half of the parked→active
+ *  flip (`restoreSession`). No PTY to kill (it died at reboot). */
+export function discardLocalParked(id: TerminalId): boolean {
+  return localEndpointImpl.discardParked(id);
+}
+
 /** Seed a SLEEPING terminal into the registry from its saved record — the dormant
  *  analogue of adoption (there is no PTY to re-wire). Used by BOTH boot paths: the
  *  surviving-daemon reconcile (`adoptSurvivingSession`) and the cold-boot restore
@@ -1206,6 +1230,62 @@ export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
   registerAndInstall(id, {
     info: { id, pid: 0 },
     meta: AuthoredSleepingSchema.parse(parsed),
+    snapshot,
+  });
+  emitTerminalListChanged();
+  return true;
+}
+
+/** Seed a PARKED terminal into the registry from a saved ACTIVE record — the
+ *  reboot no-survivor analogue of adoption for a terminal whose PTY died with the
+ *  host. Mirrors {@link seedSleepingTerminal} (a handle-less registry entry, no
+ *  PTY to re-wire), differing only in the arm: state `parked` (+ `parkedAt`)
+ *  rather than `sleeping` (+ `sleptAt`).
+ *
+ *  COPIES `lastActivityAt` (and the whole authored base — location, restore
+ *  target, client chrome) off the saved record onto the parked meta, so the
+ *  restore card's recency ranking survives the reboot and the parked→active flip
+ *  can forward it to the fresh spawn — without it the fold would reseed the
+ *  restored terminal to `lastActivityAt: 0` and the dock's recency would collapse
+ *  after a reboot.
+ *
+ *  Tolerates a malformed record by DROPPING it (returns false, never throws), and
+ *  is idempotent (re-seeding a present id is a no-op) — the same read-boundary
+ *  tolerance `seedSleepingTerminal` carries. Fires only `emitTerminalListChanged`
+ *  (the wire), NEVER the autosave dirty: parked records are never persisted
+ *  (`snapshotSession` skips them), so a save here would be meaningless. */
+export function seedParkedTerminal(record: SavedActiveTerminal): boolean {
+  const idParsed = TerminalIdSchema.safeParse(record.id);
+  const recordParsed = SavedActiveTerminalSchema.safeParse(record);
+  if (!idParsed.success || !recordParsed.success) {
+    log.warn(
+      { id: record.id },
+      "dropping malformed active record at the park boundary",
+    );
+    return false;
+  }
+  const id = idParsed.data;
+  if (getTerminal(id)) return false;
+  const parsed = recordParsed.data;
+  // Seed the OBSERVATION from the saved restore-relevant projection (cwd / git /
+  // pr); live agent + foreground reset (they are dead data while parked). Same
+  // shape `seedSleepingTerminal` builds.
+  const snapshot: TerminalSnapshot = {
+    ...PersistedSnapshotSchema.parse(parsed),
+    agent: null,
+    foreground: null,
+  };
+  registerAndInstall(id, {
+    info: { id, pid: 0 },
+    // The authored parked arm — the saved active record's authored base
+    // (location + memory incl. `lastActivityAt` + restore target + client chrome)
+    // with the discriminant flipped to `parked`. The saved `state: "active"` is
+    // overridden here; zod strips the snapshot fields (cwd/git/pr/id).
+    meta: AuthoredParkedSchema.parse({
+      ...parsed,
+      state: "parked",
+      parkedAt: Date.now(),
+    }),
     snapshot,
   });
   emitTerminalListChanged();

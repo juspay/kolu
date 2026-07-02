@@ -90,11 +90,7 @@ export function useTerminals() {
   );
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
 
-  const session = useSessionRestore({
-    store,
-    handleCreate: crud.handleCreate,
-    handleCreateSubTerminal: crud.handleCreateSubTerminal,
-  });
+  const session = useSessionRestore({ store });
 
   const worktree = useWorktreeOps({
     store,
