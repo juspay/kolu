@@ -168,6 +168,12 @@ export const PadiParkedTerminalSchema = PersistedSnapshotSchema.merge(
   .merge(ParkedDiscriminantSchema)
   .merge(PadiHostAxisSchema);
 
+/** The `parked` arm as a standalone type — the reboot-killed active record padi
+ *  parks at boot. Exported so a client type-guard (`isParked` in
+ *  `useTerminalMetadata.ts`) can narrow the composed `PadiTerminal` union to it
+ *  at the single client bridge, instead of re-deriving a widened `.state` cast. */
+export type PadiParkedTerminal = z.infer<typeof PadiParkedTerminalSchema>;
+
 /** The composed terminal record padi serves — `active | sleeping | parked`,
  *  discriminated on `state`. The server-side `authored ⋈ snapshot` join
  *  (`composeTerminalMetadata`) produces the `active`/`sleeping` arms; `parked`

@@ -17,6 +17,7 @@ import {
   savedSession as serverSavedSession,
 } from "../wire";
 import { useSubPanel } from "./useSubPanel";
+import { isParked } from "./useTerminalMetadata";
 import type { TerminalStore } from "./useTerminalStore";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
@@ -92,9 +93,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // A PARKED record is a restore-card row, not a canvas tile (W1.R6) — never
     // seed the view from one. Seed only once a REAL (active/sleeping) terminal
     // exists: the initial live load, or once a restore consumes the parked set.
-    const real = joined.filter(
-      ({ m }) => (m as { state: string }).state !== "parked",
-    );
+    const real = joined.filter(({ m }) => !isParked(m));
     if (real.length === 0) return;
     viewSeeded = true;
     hydrateFromTerminals(real, fromServer?.activeTerminalId ?? null);

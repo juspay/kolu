@@ -14,6 +14,7 @@
  *  terminal leaves the list. No manual Map, AbortController, or version
  *  signals needed at this call site. */
 
+import type { PadiParkedTerminal, PadiTerminal } from "@kolu/padi/surface";
 import type {
   TerminalId,
   TerminalInfo,
@@ -48,17 +49,23 @@ export function sameTerminalIdOrder(
   return a.length === b.length && a.every((id, i) => id === b[i]);
 }
 
-/** Whether a composed record is a PARKED restore-pending record (W1.R6). padi's
- *  boot reconcile parks each reboot-killed active terminal so `session.restore`
- *  can re-spawn it; a parked record rides the `terminals` collection (typed here
- *  as `TerminalMetadata`, though its runtime `state` is the reserved `"parked"`
- *  arm) but must NOT render as a canvas tile — it is a restore-card row, not a
- *  live/dormant tile. Excluding it here keeps the canvas EMPTY while a reboot's
- *  session awaits restore, so the restore card shows (byte-identical to the
- *  pre-R6 registry-empty restore-pending state). The read is a widened `.state`
- *  check because the domain `TerminalMetadata` union names only active|sleeping. */
-function isParked(m: TerminalMetadata): boolean {
-  return (m as { state: string }).state === "parked";
+/** Whether a composed record is a PARKED restore-pending record (W1.R6) — a
+ *  genuine type-guard over padi's honest 3-arm `PadiTerminal` union, not a widened
+ *  cast. padi's boot reconcile parks each reboot-killed active terminal so
+ *  `session.restore` can re-spawn it; a parked record rides the `terminals`
+ *  collection but must NOT render as a canvas tile — it is a restore-card row, not
+ *  a live/dormant tile. Excluding it here keeps the canvas EMPTY while a reboot's
+ *  session awaits restore, so the restore card shows (byte-identical to the pre-R6
+ *  registry-empty restore-pending state).
+ *
+ *  Reads the `state` discriminant directly on the wire type (`PadiTerminal` =
+ *  `active | sleeping | parked`), so the narrowing is SOUND. A `TerminalMetadata`
+ *  (the client's `active | sleeping` domain view) is assignable to `PadiTerminal`,
+ *  so this module's ordering filters AND `useSessionRestore.ts` both pass their
+ *  `TerminalMetadata` records through this ONE narrowing point — neither re-derives
+ *  a `(m as { state }).state` cast independently. */
+export function isParked(m: PadiTerminal): m is PadiParkedTerminal {
+  return m.state === "parked";
 }
 
 export function useTerminalMetadata(deps: {
