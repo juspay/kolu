@@ -33,7 +33,12 @@
  */
 
 import { log } from "../log.ts";
-import { setSavedSessionFromSnapshot } from "../session.ts";
+import {
+  cancelPendingAutosave,
+  freezeSessionForRestart,
+  setSavedSessionFromSnapshot,
+  unfreezeSessionForRestart,
+} from "../session.ts";
 import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { killAllTerminals, snapshotSession } from "../terminals.ts";
 import { restartLocalEndpoint } from "./index.ts";
@@ -47,6 +52,11 @@ export function restartLocalDaemon(): Promise<void> {
     // Snapshot + persist BEFORE the kill — the session must outlive the daemon.
     capture: async () => {
       log.info({}, "session-trace restart: capture");
+      // Freeze the autosave for the WHOLE critical section before anything can arm
+      // it: the drain below kills the PTYs → they fire `terminals:dirty` → the 500ms
+      // autosave would fire in the recycle GAP with an empty registry and no parked
+      // entries yet, nulling the session we're about to capture, before park runs.
+      freezeSessionForRestart();
       setSavedSessionFromSnapshot(snapshotSession());
     },
     // Tear down kolu's terminal layer; the recycle takes the PTYs themselves.
@@ -61,5 +71,12 @@ export function restartLocalDaemon(): Promise<void> {
       log.info({}, "session-trace restart: reattach (park)");
       parkSavedSession();
     },
+  }).finally(() => {
+    // Park has seeded the parked entries (`hasParkedTerminals()` guards the autosave
+    // from here), OR the restart FAILED before park — either way lift the freeze and
+    // cancel any drain-armed timer, so a failed restart can't null the captured
+    // session after the freeze lifts.
+    unfreezeSessionForRestart();
+    cancelPendingAutosave();
   });
 }

@@ -47,6 +47,28 @@ export function cancelPendingAutosave(): void {
   }
 }
 
+/** True while a daemon RESTART is in its critical section (capture→drain→park). The
+ *  autosave callback bails on it, so a `terminals:dirty` the drain fires (the PTYs
+ *  exiting as the daemon is killed) can't arm a save that runs in the drain→park GAP
+ *  — the window where the registry is empty AND no parked entries exist yet, so the
+ *  `hasParkedTerminals()` guard is inert and `saveSession([])` would null the
+ *  just-captured session before park runs (the zest restart-path clobber). Park then
+ *  seeds the parked entries and `hasParkedTerminals()` takes over. */
+let restartInFlight = false;
+
+/** Freeze the autosave for a restart's critical section — set at `capture` (before
+ *  the drain can arm anything), lifted after `park` (see `restartLocalDaemon`). */
+export function freezeSessionForRestart(): void {
+  restartInFlight = true;
+}
+
+/** Lift the restart freeze. Safe to call on the restart's success OR failure path;
+ *  a failed restart pairs it with `cancelPendingAutosave` so a drain-armed timer
+ *  can't clobber the captured session after the freeze lifts. */
+export function unfreezeSessionForRestart(): void {
+  restartInFlight = false;
+}
+
 /** Write the session blob (or clear it). The surface owns persist+publish. */
 function writeSession(next: SavedSession | null): void {
   // DIAGNOSTIC (log-only): every write is traced; a destructive clear (next=null)
@@ -204,12 +226,21 @@ export function initSessionAutoSave(snapshot: () => SessionSnapshot): void {
           // "restore pending" marker; the blob stays put until `session.restore`
           // consumes it or the user forfeits. Once resolved (no parked left), the
           // autosave resumes and a genuine user close still clears normally.
+          const restart = restartInFlight;
           const parked = hasParkedTerminals();
           const snap = snapshot();
           log.info(
-            { parked, snapshot: snap.terminals.length },
-            `session-trace autosave: parked=${parked} snapshot=${snap.terminals.length}`,
+            { restart, parked, snapshot: snap.terminals.length },
+            `session-trace autosave: restart=${restart} parked=${parked} snapshot=${snap.terminals.length}`,
           );
+          // A restart in flight freezes the blob across its drain→park gap (the
+          // registry is transiently empty there and no parked entries exist yet, so
+          // the parked guard is still inert). Checked FIRST — this is the window a
+          // plain `hasParkedTerminals()` misses.
+          if (restart) {
+            log.info({}, "session-trace autosave: skipped (restart in flight)");
+            return;
+          }
           if (parked) {
             log.info({}, "session-trace autosave: skipped (parked)");
             return;

@@ -147,6 +147,16 @@ function makeForwardingClient(getRoot: () => PtyHostClient): PtyHostClient {
  *  stable facade over the endpoint's current daemon connection. */
 export const ptyHostClient: PtyHostClient = makeForwardingClient(liveClient);
 
+/** TEST-ONLY: install a fake endpoint (and its serialized restart trigger) so an
+ *  integration test can drive the REAL `restartLocalDaemon` / `ptyHostClient`
+ *  without a live kaval — the same wiring `ensureLocalEndpoint` sets at boot. */
+export function __setEndpointForTest(
+  ep: Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>,
+): void {
+  endpoint = ep;
+  triggerRestart = serializeRestart(ep);
+}
+
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
  *  Resolves whether or not the daemon came up — a boot failure reports `dead`
  *  via `onStatus` and leaves `ptyHostClient` throwing, so the server can still
