@@ -30,7 +30,7 @@ export const ROADMAP = [
   { d: 1, g: "○", c: "prog", l: "W2.1 · the re-serve machinery in @kolu/surface* — forwarding policy · per-binding scope", m: "drishti-gated · ∥ with W1", h: "#w21" },
   { d: 1, g: "○", c: "prog", l: "W2.2 · the padi binary — identity · rendezvous · control core · owns kaval · Nix/staleKey", m: "zero kolu consumers", h: "#w22" },
   { d: 1, g: "○", c: "prog", l: "W2.3 · kolu-server binds — adopt-or-spawn-or-refuse · re-serve · store migration · e2e roots", m: "needs W2.1 W2.2", h: "#w23" },
-  { d: 1, g: "○", c: "prog", l: "W2.4 · burial — pulam + pulam-tui retired · wait re-homed · terminalWorkspaceSurface DELETED", m: "needs W2.3", h: "#w24" },
+  { d: 1, g: "○", c: "prog", l: "W2.4 · padi-tui born + the burial — wait/status/create/worktree verbs · pulam* retired · terminalWorkspaceSurface DELETED", m: "needs W2.3", h: "#w24" },
   { d: 0, g: "○", c: "prog", l: "W3 · remote + the switch — 3 PRs ↓ · the user-visible feature", m: "needs W2", h: "#w3" },
   { d: 1, g: "○", c: "prog", l: "W3.1 · the remote binding — provision + front a remote padi (complete, invisible)", m: "parity e2e on a pu box", h: "#w31" },
   { d: 1, g: "○", c: "prog", l: "W3.2 · the switch — binding pool · per-view scope · host picker · clock handshake", m: "needs W3.1", h: "#w32" },
@@ -311,10 +311,12 @@ kolu-server's in-process serving is deleted; it **binds** the local padi (**adop
 
 <a id="w24"></a>
 
-#### W2.4 — burial *(needs W2.3)*
+#### W2.4 — padi-tui is born, and the burial *(needs W2.3)*
 
-**pulam-tui and the pulam daemon retire**, with the `wait`/`status` done-signal **re-homed onto padi first** (a thin padi-fed `wait`, or kaval-tui growing it) — the agent-drives-agent workflow never loses its precise done-signal. The home-manager module, flake default, the `/kolu`/`/debate` skills, and the dock-fleet-mirror rule update in the same change. And the frozen **`terminalWorkspaceSurface` is deleted** — its last servers are gone; freezing (#1650) was the tourniquet, this is the burial. `@kolu/terminal-workspace` survives as the library padi assembles (sensors · fold · schema · endpoint · agentProjection), minus its surface.
-- **Done:** no package serves or consumes `terminalWorkspaceSurface` (the export is gone); `padi wait` (or equivalent) drives the `/kolu` skill's done-signal in a live loop; flake eval + home-manager module green.
+**`padi-tui` is born** — the kaval-tui-tier, non-interactive CLI on padi's socket (digest discovery from W2.2), and it does **more than a done-signal**, because every verb is a thin wrapper over a padiSurface procedure that already exists since W1: `wait`/`status` (the precise agent-state done-signal, off the `terminals` collection — better than kaval-tui's byte-idle heuristic), `create` (incl. `--parent` for a **split terminal** — `lifecycle.create` takes `parentId`), and `create --worktree <branch> -- <agent argv>` (composing `git.worktreeCreate` + create-with-cwd: a worktree'd agent in one command). This upgrades the agent-drives-agent workflow wholesale — spawn a worktree'd agent AND wait on its actual state with one tool. *(kolu-tui at W4 stays a different thing: the interactive canvas renderer, the graduation proof; padi-tui is verbs, no canvas.)*
+
+Then **pulam-tui and the pulam daemon retire** — padi-tui's `wait` re-homes the done-signal first, so the workflow never loses it. The home-manager module, flake default, the `/kolu`/`/debate` skills, and the dock-fleet-mirror rule update in the same change. And the frozen **`terminalWorkspaceSurface` is deleted** — its last servers are gone; freezing (#1650) was the tourniquet, this is the burial. `@kolu/terminal-workspace` survives as the library padi assembles (sensors · fold · schema · endpoint · agentProjection), minus its surface. *(Why not earlier: pulam's only load-bearing use is the done-signal, and its replacement must dial the padi that owns the PRODUCTION terminals — which exists only after W2.3's cutover. A post-W1 interim over kolu-server's HTTP endpoint was considered and rejected: throwaway port-discovery glue that W2.2's socket discovery obsoletes.)*
+- **Done:** `padi-tui wait` drives the `/kolu` skill's done-signal in a live loop; `padi-tui create --parent` yields a split tile and `create --worktree -- claude` yields a worktree'd agent, both visible in the browser canvas; no package serves or consumes `terminalWorkspaceSurface` (the export is gone); flake eval + home-manager module green.
 
 <a id="w3"></a>
 
