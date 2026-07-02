@@ -47,15 +47,21 @@ import {
   readDaemonStatus,
   previewFile,
   setKoluServerProcessId,
+  setPadiActivityFeedStore,
+  setPadiSessionStore,
   setSpawnServerVersion,
   shutdownCleanup,
   snapshotFor,
   snapshotSession,
   startInventoryReconciler,
-  surfaceCtx,
 } from "@kolu/padi/assembly";
 import { log as padiLog } from "@kolu/padi/log";
 import { log } from "./log.ts";
+import {
+  activityFeedStore,
+  koluSurfaceCtx,
+  savedSessionStore,
+} from "./surface.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
@@ -119,6 +125,14 @@ const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
 // TERM_PROGRAM_VERSION. Padi does not import kolu-server, so the arrow stays out.
 setKoluServerProcessId(serverProcessId);
 setSpawnServerVersion(serverVersion);
+// Inject the conf-backed session + activityFeed stores INTO padi BEFORE anything
+// serves or reconciles (padi's `session`/`activityFeed` cells + boot reconcile
+// read them; a read before this crashes loudly). kolu-server keeps the ONE
+// `confStore` per key (built in `./surface.ts`); padi does not import
+// packages/server, so the arrow stays out. Storage stays kolu-server's source of
+// truth until W2.2 gives padi its own state-root.
+setPadiSessionStore(savedSessionStore);
+setPadiActivityFeedStore(activityFeedStore);
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
@@ -387,7 +401,7 @@ startMemorySampler(
   liveSamplerDeps({
     client: ptyHostClient,
     daemonState: () => readDaemonStatus(LOCAL_HOST_ID)?.state,
-    publish: (m) => surfaceCtx.cells.processMemory.set(m),
+    publish: (m) => koluSurfaceCtx.cells.processMemory.set(m),
     // A believed-connected daemon whose processMemory poll throws/times out is a
     // real failed RPC, not a benign degradation — log at ERROR with the full
     // error object (stack preserved), and the rail surfaces it as a distinct

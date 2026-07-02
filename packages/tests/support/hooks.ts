@@ -833,10 +833,10 @@ Before(async function (this: KoluWorld, scenario) {
         },
       },
     }),
-    postJSON(`${baseUrl}/rpc/surface/kolu/activityFeed/test__set`, {
+    postJSON(`${baseUrl}/rpc/surface/padi/activityFeed/test__set`, {
       json: { recentRepos: [], recentAgents: [] },
     }),
-    postJSON(`${baseUrl}/rpc/surface/kolu/session/test__set`, { json: null }),
+    postJSON(`${baseUrl}/rpc/surface/padi/session/test__set`, { json: null }),
   ]);
 
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,

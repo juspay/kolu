@@ -13,7 +13,10 @@
  *
  * Modeled on `@kolu/surface-daemon-supervisor`'s `deps.closure.test.ts` (the
  * import-graph walk via `ts.preProcessFile`), extended with the file-list
- * allowlist (a) and the root-namespace assertion (c).
+ * allowlist (a), the root-namespace assertion (c), and the REVERSE arm (d): no
+ * `packages/padi/src` file may import or type against `koluSurface` — the
+ * reverse-direction dependency the forward walk can't see (padi serves its OWN
+ * `padiSurface` ctx; it may still import shared SCHEMAS from kolu-common/surface).
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -79,6 +82,65 @@ function serverSrcModules(): string[] {
     .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
     .map((f) => f.replace(/\.ts$/, ""))
     .sort();
+}
+
+// ── (d) The REVERSE seal — no padi src depends on the koluSurface SPEC/ctx ─
+//
+// The forward seal (a–c) proves kolu-server reaches padi only through the barrel.
+// The REVERSE arm proves the ARROW POINTS OUT: no file under `packages/padi/src`
+// imports or types against `koluSurface` — the kolu-server-owned surface value.
+// That reverse-direction dependency is what the `surfaceCtx`-style holder was (a
+// `createLateBoundSurfaceCtx<(typeof koluSurface)["spec"]>` in padi) and the
+// mechanism behind the boot-recursion crash. padi may still import shared SCHEMAS
+// (`SavedSession` / `ActivityFeed` / `TerminalInfo` …) from `kolu-common/surface`
+// — those are leaf zod schemas, not the surface spec/ctx; the ban is ONLY on the
+// `koluSurface` binding (and `typeof koluSurface`).
+
+const PADI_SRC = resolve(SRC, "..", "..", "padi", "src");
+
+/** Every non-test `.ts` module under `packages/padi/src`, recursively. */
+function padiSrcFiles(): string[] {
+  return readdirSync(PADI_SRC, { recursive: true })
+    .map((f) => String(f).split(sep).join("/"))
+    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+    .map((f) => resolve(PADI_SRC, f));
+}
+
+/** The two ways a module could BIND the `koluSurface` surface value: a named
+ *  import of it, or a `typeof koluSurface` type-query. Parsed off the AST, so a
+ *  comment or string that merely MENTIONS "koluSurface" is NOT a hit (the arrow
+ *  ban is about a real dependency, not the word). */
+function koluSurfaceBindings(file: string): string[] {
+  const src = ts.createSourceFile(
+    file,
+    readFileSync(file, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const hits: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(node) &&
+      node.importClause?.namedBindings &&
+      ts.isNamedImports(node.importClause.namedBindings)
+    ) {
+      for (const el of node.importClause.namedBindings.elements) {
+        if ((el.propertyName ?? el.name).text === "koluSurface") {
+          hits.push(`import { koluSurface } (as ${el.name.text})`);
+        }
+      }
+    }
+    if (
+      ts.isTypeQueryNode(node) &&
+      ts.isIdentifier(node.exprName) &&
+      node.exprName.text === "koluSurface"
+    ) {
+      hits.push("typeof koluSurface");
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(src);
+  return hits;
 }
 
 // ── (b) The @kolu/padi import-boundary walk ───────────────────────────────
@@ -173,5 +235,26 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     const r = appRouter as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();
+  });
+
+  it("(d) REVERSE seal — no @kolu/padi src file imports or types against koluSurface", () => {
+    const files = padiSrcFiles();
+    // Non-vacuous: the scan actually found padi modules (a wrong path would make
+    // this pass trivially).
+    expect(files.length).toBeGreaterThan(0);
+    const offenders = files
+      .map((f) => ({ f, refs: koluSurfaceBindings(f) }))
+      .filter((x) => x.refs.length > 0);
+    expect(
+      offenders.map(
+        (o) =>
+          `${o.f.replace(PADI_SRC, "@kolu/padi/src")}: ${o.refs.join(", ")}`,
+      ),
+      "a @kolu/padi src file depends on the koluSurface SPEC/ctx — a reverse-" +
+        "direction dependency (the forward seal can't see it). padi must serve its " +
+        "OWN padiSurface ctx (padiSurfaceCtx); it may import shared SCHEMAS " +
+        "(SavedSession/ActivityFeed/TerminalInfo) from kolu-common/surface, but " +
+        "never the koluSurface surface value or `typeof koluSurface`.",
+    ).toEqual([]);
   });
 });

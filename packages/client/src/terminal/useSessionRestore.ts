@@ -1,11 +1,11 @@
 /** Session restore — hydration from server state, session restore handler. */
 
 import { padiRpc } from "@kolu/padi/surface";
-import type {
-  SavedSession,
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
+import {
+  resumableCommand,
+  type SavedSession,
+  type TerminalId,
+  type TerminalMetadata,
 } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -17,13 +17,13 @@ import {
   savedSession as serverSavedSession,
 } from "../wire";
 import { useSubPanel } from "./useSubPanel";
-import { isParked } from "./useTerminalMetadata";
 import type { TerminalStore } from "./useTerminalStore";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
- *  effect builds these by gating on BOTH metadata halves (`authored` +
- *  `awareness`) having joined for every entry, so `m` is always defined. */
-type HydrationEntry = { t: TerminalInfo; m: TerminalMetadata };
+ *  effect builds these by gating on the composed record having arrived on padi's
+ *  `terminals` collection for every listed id, so `m` is always defined. `t` is
+ *  the terminal-list row — just `{ id }`, derived from the collection's keys. */
+type HydrationEntry = { t: { id: TerminalId }; m: TerminalMetadata };
 
 export function useSessionRestore(deps: { store: TerminalStore }) {
   const { store } = deps;
@@ -79,24 +79,26 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       }
     }
     if (viewSeeded) return;
-    // Wait for both metadata halves to join (via `store.getMetadata`) for EVERY
-    // listed terminal — hydration reads `parentId` and `subPanel` off the joined
-    // record (since #806 the list snapshot no longer carries `meta`). The reads
-    // are reactive, so the effect re-runs as values arrive. Waiting for ALL
-    // (including parked) first avoids seeding on a partial set.
+    // Wait for the composed record to arrive (via `store.getMetadata`) for EVERY
+    // listed terminal — hydration reads `parentId` and `subPanel` off the record
+    // (since #806 the list snapshot no longer carries `meta`). `getMetadata`
+    // returns `undefined` for a PARKED (restore-card) record as well as a
+    // not-yet-arrived one, so this loop naturally waits out the parked set (which
+    // `session.restore` consumes) and can never seed the view from a parked row or
+    // a partial set. The reads are reactive, so the effect re-runs as values arrive.
     const joined: HydrationEntry[] = [];
     for (const t of existing) {
       const m = store.getMetadata(t.id);
       if (m === undefined) return;
       joined.push({ t, m });
     }
-    // A PARKED record is a restore-card row, not a canvas tile (W1.R6) — never
-    // seed the view from one. Seed only once a REAL (active/sleeping) terminal
-    // exists: the initial live load, or once a restore consumes the parked set.
-    const real = joined.filter(({ m }) => !isParked(m));
-    if (real.length === 0) return;
+    // Seed only once at least one REAL (active/sleeping) terminal exists — the
+    // initial live load, or once a restore has produced them. An all-parked reboot
+    // never reaches here: the empty-vs-restore decision above returns first
+    // (`terminalIds()` is empty).
+    if (joined.length === 0) return;
     viewSeeded = true;
-    hydrateFromTerminals(real, fromServer?.activeTerminalId ?? null);
+    hydrateFromTerminals(joined, fromServer?.activeTerminalId ?? null);
   });
 
   function hydrateFromTerminals(
@@ -202,7 +204,24 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
         resumeIds: options.resumeIds ? [...options.resumeIds] : undefined,
       });
       setSavedSession(null);
-      toast.success("Session restored", { id });
+      // Faithful pre-W1 summary — "Restored N terminals, resumed M agents". The
+      // restore card's `resumeIds` is the RESUMABLE opt-in set (EmptyState filters
+      // to terminals with a resumable `restoreTarget`), so its size IS the resume
+      // count; an absent set (the import path resumes all) counts the session's
+      // resumable terminals directly.
+      const resumed = options.resumeIds
+        ? options.resumeIds.size
+        : session.terminals.filter(
+            (t) => resumableCommand(t.restoreTarget) !== null,
+          ).length;
+      toast.success(
+        resumed > 0
+          ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${
+              resumed > 1 ? "s" : ""
+            }`
+          : "Session restored",
+        { id },
+      );
     } catch (err) {
       toast.error(`Restore failed: ${(err as Error).message}`, { id });
       throw err;

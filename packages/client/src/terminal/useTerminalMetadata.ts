@@ -15,11 +15,7 @@
  *  signals needed at this call site. */
 
 import type { PadiParkedTerminal, PadiTerminal } from "@kolu/padi/surface";
-import type {
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
-} from "kolu-common/surface";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { padi } from "../wire";
@@ -59,17 +55,16 @@ export function sameTerminalIdOrder(
  *  registry-empty restore-pending state).
  *
  *  Reads the `state` discriminant directly on the wire type (`PadiTerminal` =
- *  `active | sleeping | parked`), so the narrowing is SOUND. A `TerminalMetadata`
- *  (the client's `active | sleeping` domain view) is assignable to `PadiTerminal`,
- *  so this module's ordering filters AND `useSessionRestore.ts` both pass their
- *  `TerminalMetadata` records through this ONE narrowing point — neither re-derives
- *  a `(m as { state }).state` cast independently. */
+ *  `active | sleeping | parked`), so the narrowing is SOUND — no `(m as { state })`
+ *  cast. `getMetadata` below is its ONE caller: it narrows padi's 3-arm wire union
+ *  down to the honest 2-arm `TerminalMetadata` every tile consumer expects,
+ *  collapsing a parked record to `undefined`. */
 export function isParked(m: PadiTerminal): m is PadiParkedTerminal {
   return m.state === "parked";
 }
 
 export function useTerminalMetadata(deps: {
-  list: Accessor<TerminalInfo[] | undefined>;
+  list: Accessor<{ id: TerminalId }[] | undefined>;
 }) {
   // W1.R1: a terminal's record is served ALREADY COMPOSED. padi's `terminals`
   // collection folds the two halves that share the one registry entry — the
@@ -91,26 +86,27 @@ export function useTerminalMetadata(deps: {
     onError: (err) => toast.error(`Metadata error: ${err.message}`),
   });
 
-  // padi's `terminals` collection is typed `PadiTerminal` — a SUPERSET of
-  // `TerminalMetadata`: it adds the reserved cross-host `host` axis (never
-  // populated on a single-host canvas) and a reserved `parked` arm (produced only
-  // from W1.R6's boot reconcile). At R1 the server composes and serves ONLY the
-  // `active|sleeping` arms with `host` absent, so the served value IS a valid
-  // `TerminalMetadata` for every one of the ~20 downstream consumers. This is the
-  // ONE type bridge where the padi wire shape meets the client's domain type;
-  // narrow it here so the consumers stay unchanged.
+  // padi's `terminals` collection is typed `PadiTerminal` — a 3-arm union:
+  // `active | sleeping | PARKED`, each carrying the reserved cross-host `host` axis
+  // (never populated on a single-host canvas). A PARKED record is a restore-card
+  // row, NEVER a tile (W1.R6's boot reconcile produces it), so it is narrowed out
+  // HERE — via the sound `isParked` type-guard, NOT a cast — leaving the honest
+  // 2-arm `TerminalMetadata` (`active | sleeping`) the ~20 tile consumers expect.
+  // This is the ONE type bridge where the padi wire shape meets the client's domain
+  // type.
   //
-  /** A terminal's composed wire shape — `undefined` until the server-composed
-   *  record has arrived. The `byKey` read is reactive, so this re-runs as the
-   *  record updates. The stored reference is read field-wise by every one of the
-   *  ~20 consumers inside its own tracking scope — none compares it by identity —
-   *  so per-key reactivity stays granular (a change to one terminal notifies only
-   *  readers of that terminal). This is ALSO the read the ordering filters below
-   *  need for `parentId`: presence (record arrived) is the gate that excludes a
-   *  still-loading terminal from the order, exactly as the two-half `a && w` gate
-   *  did before (the server serves the join already materialized). */
+  /** A terminal's composed TILE record — `undefined` until the server-composed
+   *  record has arrived, AND `undefined` for a PARKED record (a restore-card row,
+   *  not a tile). The `byKey` read is reactive, so this re-runs as the record
+   *  updates. The value is read field-wise by every one of the ~20 consumers inside
+   *  its own tracking scope — none compares it by identity — so per-key reactivity
+   *  stays granular (a change to one terminal notifies only readers of that
+   *  terminal). This is ALSO the read the ordering filters below use for
+   *  `parentId`: presence (a real tile record arrived) is the gate that excludes a
+   *  still-loading OR parked terminal from the order. */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    return terminals.byKey(id)?.() as TerminalMetadata | undefined;
+    const record = terminals.byKey(id)?.();
+    return record === undefined || isParked(record) ? undefined : record;
   }
 
   // --- Order: server Map insertion order, filtered by parent relationship ---
@@ -127,20 +123,22 @@ export function useTerminalMetadata(deps: {
   const terminalIds = createMemo<TerminalId[]>(
     () =>
       keys().filter((id) => {
+        // `getMetadata` already returns `undefined` for a parked (or not-yet-
+        // arrived) record, so presence alone excludes restore-card rows.
         const a = getMetadata(id);
-        // Exclude PARKED records — they are restore-card rows, not tiles (W1.R6).
-        return a !== undefined && !isParked(a) && !a.parentId;
+        return a !== undefined && !a.parentId;
       }),
     [],
     { equals: sameTerminalIdOrder },
   );
 
-  /** Sub-terminal IDs for a parent, in server-provided order. A parked record is
-   *  never a live split (it awaits restore), so it is excluded here too. */
+  /** Sub-terminal IDs for a parent, in server-provided order. `getMetadata`
+   *  excludes parked records (never a live split — they await restore), so a
+   *  presence check suffices here too. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
     return keys().filter((id) => {
       const a = getMetadata(id);
-      return a !== undefined && !isParked(a) && a.parentId === parentId;
+      return a !== undefined && a.parentId === parentId;
     });
   }
 

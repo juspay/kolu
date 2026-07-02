@@ -68,15 +68,16 @@ import type {
 } from "kolu-common/terminalEndpoint";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
+import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import { surfaceCtx } from "../surfaceCtx.ts";
 import {
   type ActiveTerminalProcess,
   drainTerminals,
   getActiveTerminal,
   getTerminal,
   listTerminals,
+  parkedTerminalIds,
   registerTerminal,
   type SleepingTerminalProcess,
   terminalNotFound,
@@ -96,8 +97,10 @@ import { type OpenedAttach, reattachingDeltas } from "./reattachingDeltas.ts";
 // ── PTY-state notification helpers ─────────────────────────────────────
 
 /** Notify that terminal state changed (drives debounced session auto-save).
- *  Distinct from the `terminalList` cell's content channel: this is the
- *  *trigger*, not the saved content. */
+ *  The autosave *trigger* only — the saved content rides the `session` cell, and
+ *  the live terminal SET rides padi's `terminals` collection (fanned out by
+ *  `installSnapshot` / `publishTerminalState` / `dropSnapshot`, whose keys stream
+ *  is the client's terminal list). */
 function emitTerminalsDirty(): void {
   // Guard the publish at the boundary (like `commitSnapshot`/`updateMemory`): a
   // throwing dirty-channel subscriber must not propagate back into the producer's
@@ -108,13 +111,6 @@ function emitTerminalsDirty(): void {
   } catch (err) {
     log.error({ err }, "terminals:dirty publish threw");
   }
-}
-
-/** Republish the live `terminalList` cell. Endpoint lifecycle calls this on
- *  create / kill; client metadata setters publish via the metadata
- *  collection instead. */
-function emitTerminalListChanged(): void {
-  surfaceCtx.cells.terminalList.set(listTerminals());
 }
 
 /** Birth a terminal's two halves together — register the entry (whose required
@@ -506,8 +502,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // `publishTerminalState` for why `terminals:dirty` alone can't reach the
     // client. A WAKE flips `entry.meta` to active on the SAME id the sleep last
     // pushed as sleeping; fresh spawns push their birth record through here too.
+    // The `terminals` collection upsert this fans out is ALSO the client's
+    // terminal-list source (its keys stream), so no separate list emit is needed.
     publishTerminalState(id);
-    emitTerminalListChanged();
 
     void this.spawnAndWire(id, opts, proxy, entry, prior, tlog);
     return entry.info;
@@ -567,12 +564,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       );
       return;
     }
-    // Refresh the live `terminalList` cell so the client renders the adopted
-    // tile. Deliberately NO `emitTerminalsDirty()`: the saved session already
-    // holds this terminal, and the boot converges the session explicitly once
-    // all survivors are adopted — arming an autosave here could persist a
+    // `registerAndInstall` above fanned the adopted record onto padi's
+    // `terminals` collection, so the client renders the adopted tile from its
+    // keys stream. Deliberately NO `emitTerminalsDirty()`: the saved session
+    // already holds this terminal, and the boot converges the session explicitly
+    // once all survivors are adopted — arming an autosave here could persist a
     // half-adopted set (or a not-yet-restored active marker).
-    emitTerminalListChanged();
     tlog.info({ pid: liveEntry.pid }, "adopted surviving PTY");
   }
 
@@ -671,7 +668,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // race — only set on wake (`resumeAgentCommand` output), never an ordinary spawn.
     if (opts.resumeCommand) proxy.write(`${opts.resumeCommand}\r`);
     tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
-    emitTerminalListChanged();
   }
 
   /** Unwind the active sync-shadow `entry` whose async spawn/wiring failed.
@@ -699,7 +695,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // had fanned out the active one). Do NOT drop it.
       registerAndInstall(id, prior);
       publishTerminalState(id);
-      emitTerminalListChanged();
       return;
     }
     // A fresh spawn that failed: the registry entry goes, so the store entry must
@@ -911,12 +906,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
   /** Fully remove a terminal from existence — the two-store teardown tail as one
    *  receptacle: drop the registry entry AND its snapshot store value (the IFF
-   *  lockstep), then fire the dirty/list notifications. handleExit / killTerminal /
-   *  discardSleeping / a failed fresh `spawnPty` all converge here, so an R9
-   *  snapshot-backing change (or any change to the notification set) touches ONE
-   *  place instead of four call sites. Each site's differing PREAMBLE
-   *  (`terminalExit` publish, `cleanupTerminalScratch`, the kill RPC, the identity
-   *  gate) stays at the call site; only this identical tail is encapsulated.
+   *  lockstep), then arm the autosave. `dropSnapshot` fans the removal onto padi's
+   *  `terminals` collection (its keys stream IS the client's terminal list), so no
+   *  separate list emit is needed. handleExit / killTerminal / discardSleeping / a
+   *  failed fresh `spawnPty` all converge here, so an R9 snapshot-backing change (or
+   *  any change to the notification set) touches ONE place instead of four call
+   *  sites. Each site's differing PREAMBLE (`terminalExit` publish,
+   *  `cleanupTerminalScratch`, the kill RPC, the identity gate) stays at the call
+   *  site; only this identical tail is encapsulated.
    *
    *  The SEED counterpart is `registerAndInstall` (register the entry + fan its
    *  snapshot out), so birth and removal read as symmetric receptacles. */
@@ -924,7 +921,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     unregisterTerminal(id);
     dropSnapshot(id);
     emitTerminalsDirty();
-    emitTerminalListChanged();
   }
 
   /** A terminal's PTY exited naturally. Stop its sensor layer, publish the
@@ -935,7 +931,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     log.child({ terminal: id }).info({ exitCode }, "exited");
     this.teardownSensors(id);
     cleanupTerminalScratch(id);
-    surfaceCtx.events.terminalExit.publish({ id }, exitCode);
+    padiSurfaceCtx.events.terminalExit.publish({ id }, exitCode);
     this.finalizeRemoval(id);
   }
 
@@ -1005,7 +1001,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     };
     registerTerminal(id, sleeping);
     publishTerminalState(id);
-    emitTerminalListChanged();
     log
       .child({ terminal: id })
       .info("flipped to sleeping (PTY pending release)");
@@ -1095,6 +1090,18 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     return this.discardHandleless(id, "parked");
   }
 
+  /** FORFEIT every remaining parked record — the "create instead of restore" path.
+   *  padi's boot reconcile parks each reboot-killed active terminal so the restore
+   *  card can bring it back; if the user creates a FRESH terminal instead, the
+   *  restore is forfeited, so those parked entries must be dropped rather than left
+   *  lingering invisibly forever (they never render as tiles, so nothing else would
+   *  ever reap them). Distinct from `session.restore`, which CONSUMES each parked
+   *  entry via the parked→active flip (`discardParked` per record) — this is the
+   *  all-at-once forfeit a plain `lifecycle.create` triggers. */
+  discardAllParked(): void {
+    for (const id of parkedTerminalIds()) this.discardParked(id);
+  }
+
   async killAllTerminals(): Promise<void> {
     const ids = listTerminals().map((info) => info.id);
     log.info({ count: ids.length }, "killing all terminals");
@@ -1107,9 +1114,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const entries = drainTerminals();
     for (const entry of entries) {
       cleanupTerminalScratch(entry.info.id);
+      // `dropSnapshot` fans each removal onto padi's `terminals` collection, so
+      // the client's terminal list (its keys stream) empties as the drain runs.
       dropSnapshot(entry.info.id);
     }
-    emitTerminalListChanged();
   }
 
   async attach(
@@ -1193,6 +1201,13 @@ export function discardLocalParked(id: TerminalId): boolean {
   return localEndpointImpl.discardParked(id);
 }
 
+/** Forfeit EVERY remaining parked record — the "create a fresh terminal instead
+ *  of restoring" path (`lifecycle.create`). Drops the lingering restore-card rows
+ *  padi's boot reconcile parked; a no-op when none are parked. */
+export function discardAllLocalParked(): void {
+  localEndpointImpl.discardAllParked();
+}
+
 /** Seed a HANDLE-LESS terminal into the registry from a saved record — the shared
  *  core behind {@link seedSleepingTerminal} and {@link seedParkedTerminal}. Both
  *  restore a terminal whose PTY is gone (there is no PTY to re-wire) as a handle-less
@@ -1206,7 +1221,8 @@ export function discardLocalParked(id: TerminalId): boolean {
  *  `persisted-schema-stays-tolerant` policy). Idempotent: re-seeding a present id is
  *  a no-op.
  *
- *  Fires only `emitTerminalListChanged` (the wire), NEVER the autosave dirty:
+ *  Publishes ONLY the wire (via `registerAndInstall` → padi's `terminals`
+ *  collection, whose keys stream is the client's list), NEVER the autosave dirty:
  *  neither arm may persist here — on cold boot the active records are not yet
  *  restored, so a snapshot-and-save would persist a set missing them and wipe the
  *  saved session; parked records are never persisted at all (`snapshotSession` skips
@@ -1253,7 +1269,6 @@ function seedHandlelessTerminal<Saved extends { id: string }>(
     foreground: null,
   };
   registerAndInstall(id, toEntry(parsed, { info: { id, pid: 0 }, snapshot }));
-  emitTerminalListChanged();
   return true;
 }
 

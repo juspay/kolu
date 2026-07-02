@@ -1,17 +1,14 @@
 /**
  * Generic late-bound holder for a typed surface mutation ctx — the ONE concept
- * that `surfaceCtx.ts` (the `kolu` surface) and `workspaceSurfaceCtx.ts` (the
- * `terminalWorkspace` surface) each instantiate. With kolu serving three surfaces
- * (kolu, surfaceApp, terminalWorkspace), the holder pattern would otherwise be
- * hand-copied per sibling; this factory keeps the concept count flat as more
- * siblings are served.
+ * `padiSurfaceCtx.ts` (padi's OWN surface) instantiates. The factory keeps the
+ * concept reusable if a second daemon-owned surface is ever served.
  *
- * `surface.ts` builds each surface's ctx at startup and registers it EXACTLY ONCE
- * via the returned `set`, right after `implementSurfaces(...)` returns. Domain
+ * kolu-server's `surface.ts` builds padi's ctx at startup and registers it EXACTLY
+ * ONCE via the returned `set`, right after `implementSurfaces(...)` returns. Domain
  * modules — `activity.ts`, `session.ts`, `terminalEndpoint/local.ts`,
- * `terminalEndpoint/metadata.ts` — import the returned `proxy` from the per-surface
- * holder module (not from `surface.ts`), so the bidirectional edge that would form
- * between `surface.ts` and every domain module collapses to a one-way arrow
+ * `terminalEndpoint/metadata.ts` — import the returned `proxy` from the holder
+ * module (not from `surface.ts`), so the bidirectional edge that would form between
+ * `surface.ts` and every domain module collapses to a one-way arrow
  * (`surface.ts → domain`) plus a one-way registration (`surface.ts → holder`).
  *
  * Without this holder, biome's `noImportCycles` flags every domain module's ctx

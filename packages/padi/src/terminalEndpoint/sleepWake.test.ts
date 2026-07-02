@@ -39,11 +39,6 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setKoluServerProcessId } from "../koluRoot.ts";
 import {
-  __resetSurfaceCtxForTest,
-  noopSurfaceCtxForTest,
-  setSurfaceCtx,
-} from "../surfaceCtx.ts";
-import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
@@ -182,17 +177,16 @@ function seedActive(): void {
 }
 
 beforeEach(() => {
-  // The kolu ctx backs the `terminalList` cell (`emitTerminalListChanged`); the
-  // padi ctx backs the composed `terminals` collection + `urgency` cell (the W1.R1
-  // publish seam). Both are no-ops here — surface.ts isn't imported.
-  setSurfaceCtx(noopSurfaceCtxForTest());
+  // padi's ctx backs the composed `terminals` collection + `urgency` cell + the
+  // `terminalExit` event — the whole terminal publish seam. A no-op here (surface.ts
+  // isn't imported); the terminal-list wire rides the collection's keys stream, so
+  // there is no separate kolu ctx to seed.
   setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
 });
 
 afterEach(() => {
   // Dropping the entry drops its awareness too (one backing store now).
   unregisterTerminal(ID);
-  __resetSurfaceCtxForTest();
   __resetPadiSurfaceCtxForTest();
 });
 

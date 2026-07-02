@@ -2,39 +2,34 @@ import { BYTES_PER_MB as MB, surfaces } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { processMemoryMbEqual } from "./surface.ts";
 
-describe("surfaces map — three siblings (R8)", () => {
-  it("serves exactly the kolu / surfaceApp / terminalWorkspace siblings", () => {
-    expect(Object.keys(surfaces).sort()).toEqual([
-      "kolu",
-      "surfaceApp",
-      "terminalWorkspace",
-    ]);
+describe("surfaces map — two siblings (the W1 padi seam)", () => {
+  it("serves exactly the kolu / surfaceApp siblings — terminalWorkspace retired", () => {
+    // The dormant `terminalWorkspace` sibling was retired: the client reads padi's
+    // `terminals` collection, and pulam-tui dials the pulam daemon directly, so
+    // kolu-server's copy had zero consumers. kolu-server adds `padi` locally.
+    expect(Object.keys(surfaces).sort()).toEqual(["kolu", "surfaceApp"]);
+    expect(Object.keys(surfaces)).not.toContain("terminalWorkspace");
   });
 
-  it("terminalWorkspace exposes version + awareness + activity + fs/git + watcher streams", () => {
-    const spec = surfaces.terminalWorkspace.spec;
-    expect(spec.cells?.version).toBeDefined();
-    expect(spec.collections?.snapshots).toBeDefined();
-    expect(spec.streams?.activity).toBeDefined();
-    expect(spec.streams?.subscribeRepoChange).toBeDefined();
-    expect(spec.streams?.subscribeFileChange).toBeDefined();
-    expect(spec.procedures?.fs).toBeDefined();
-    expect(spec.procedures?.git).toBeDefined();
-  });
-
-  it("kolu serves NO collections — the terminal domain relocated to padi (W1.R7 seal)", () => {
-    // `collections` is dropped from the spec type entirely (not an empty object),
-    // so read it through a widened view.
+  it("koluSurface serves ONLY preferences + processMemory — no terminal-derived member", () => {
     const spec = surfaces.kolu.spec as {
+      cells?: Record<string, unknown>;
       collections?: Record<string, unknown>;
+      events?: Record<string, unknown>;
     };
-    // W1.R7 retired the last terminal-domain members from koluSurface: `authored`
-    // and `daemonStatus` moved to padi's `terminals` / `daemonStatus`, so kolu
-    // serves no collections at all. Its terminal RECORD rides padi now — there is
-    // no `kolu.authored`, and no fused `terminalMetadata` to recompose.
+    // Every terminal-derived wire member — `session`, `activityFeed`, `terminalList`,
+    // and the `terminalExit` event — relocated onto `padiSurface` (the W1 padi
+    // seam). koluSurface keeps only its two non-terminal cells, no collections, no
+    // events.
+    expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
+      "preferences",
+      "processMemory",
+    ]);
+    expect(spec.cells?.session).toBeUndefined();
+    expect(spec.cells?.activityFeed).toBeUndefined();
+    expect(spec.cells?.terminalList).toBeUndefined();
     expect(spec.collections).toBeUndefined();
-    expect(spec.collections?.authored).toBeUndefined();
-    expect(spec.collections?.daemonStatus).toBeUndefined();
+    expect(spec.events).toBeUndefined();
   });
 });
 

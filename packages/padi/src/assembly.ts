@@ -78,23 +78,26 @@ export { buildPadiSurfaceDeps } from "./servePadi.ts";
 // `preview.read` serves through its base64 wire-wrapper (`readPreview`).
 export { previewFile } from "./preview.ts";
 
-// ── publisher / surface ctx holders ─────────────────────────────────────
+// ── publisher / surface ctx holder ──────────────────────────────────────
 export {
   publisher,
   publisherSize,
   terminalsDirtyChannel,
 } from "./publisher.ts";
 export {
-  __resetSurfaceCtxForTest,
-  setSurfaceCtx,
-  surfaceCtx,
-} from "./surfaceCtx.ts";
-export { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
-export {
   __resetPadiSurfaceCtxForTest,
   padiSurfaceCtx,
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
+
+// ── injected conf stores (session + activityFeed) ───────────────────────
+// kolu-server boot injects the real `confStore`-backed stores here BEFORE serving
+// (padi does not import packages/server; the STORAGE stays kolu-server's source of
+// truth until W2.2). The `requireX` getters stay padi-internal.
+export {
+  setPadiActivityFeedStore,
+  setPadiSessionStore,
+} from "./confStores.ts";
 
 // ── scratch / roots ─────────────────────────────────────────────────────
 export {

@@ -14,7 +14,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
-import { app } from "../wire";
+import { padi } from "../wire";
 import { terminalSubject } from "./terminalSubject";
 import { useSessionRestore } from "./useSessionRestore";
 import { useTerminalAlerts } from "./useTerminalAlerts";
@@ -53,7 +53,7 @@ export function useTerminals() {
    *  subscription in useTerminalStore, so correctness is preserved even if
    *  the toast is lost. */
   function subscribeExit(id: TerminalId) {
-    app.events.terminalExit.use(
+    padi.events.terminalExit.use(
       () => ({ id }),
       (code) => {
         const subject = getSubject(id);

@@ -11,8 +11,8 @@
 
 import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { log } from "./log.ts";
+import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
-import { surfaceCtx } from "./surfaceCtx.ts";
 
 /** Pending autosave timer — declared at module top so `setSavedSession`
  *  and the surface cell's `store.set` adapter can cancel it (see comment
@@ -22,8 +22,8 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
 /** Cancel any pending `saveSession([])` autosave callback that's been
  *  armed by a recent `terminalsDirtyChannel` event but hasn't fired yet.
  *
- *  Called both from the named `setSavedSession` and from the surface
- *  session cell's `store.set` adapter (see `surface.ts`). Wiring it into
+ *  Called both from the named `setSavedSession` and from padi's session
+ *  cell `onWrite` hook (see `servePadi.ts`). Wiring it into
  *  the cell adapter is what extends the cancel to the surface's
  *  `test__set` verb — which the e2e harness uses to seed scenarios,
  *  and which would otherwise be clobbered ~500 ms later by a stale
@@ -48,7 +48,7 @@ export function cancelPendingAutosave(): void {
 
 /** Write the session blob (or clear it). The surface owns persist+publish. */
 function writeSession(next: SavedSession | null): void {
-  surfaceCtx.cells.session.set(next);
+  padiSurfaceCtx.cells.session.set(next);
 }
 
 /** A live snapshot of the terminal set — the shape autosave persists. Exported
@@ -74,16 +74,15 @@ export function saveSession(snapshot: SessionSnapshot): void {
   });
 }
 
-/** Get the saved session, or null if none exists. Reads the session through the
- *  surface cell (`surfaceCtx.cells.session`) — the framework-owned handle that
- *  is itself backed by `confStore(store, "session")` — rather than the raw conf
- *  store. That severs this module's direct dependency on packages/server's
- *  `state.ts`, so the terminal domain can relocate into `@kolu/padi` (the conf
- *  store stays kolu-server's single source of truth until W2.2 gives padi its
- *  own state-root); the value read is identical because the cell delegates
- *  straight to the same store key. */
+/** Get the saved session, or null if none exists. Reads the session through
+ *  padi's OWN surface cell (`padiSurfaceCtx.cells.session`) — the framework-owned
+ *  handle whose backing (`servePadi.ts`) reads the injected conf store DIRECTLY
+ *  and normalizes empty→null. This read is NON-RECURSIVE by construction: the
+ *  cell's `get` reads the store, never `getSavedSession`, so this call resolves in
+ *  one hop (the mutual recursion that would blow the boot stack is unspellable).
+ *  The conf-store STORAGE stays kolu-server's source of truth until W2.2. */
 export function getSavedSession(): SavedSession | null {
-  const session = surfaceCtx.cells.session.get();
+  const session = padiSurfaceCtx.cells.session.get();
   if (!session || session.terminals.length === 0) return null;
   return session;
 }

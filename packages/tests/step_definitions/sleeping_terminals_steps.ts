@@ -514,7 +514,7 @@ Given(
     this.savedSessionTerminalCount = 2;
     this.savedSessionSavedAt = Date.now();
     const resp = await this.page.request.fetch(
-      "/rpc/surface/kolu/session/test__set",
+      "/rpc/surface/padi/session/test__set",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -528,7 +528,7 @@ Given(
     );
     assert.ok(
       resp.ok(),
-      `surface/kolu/session/test__set failed: ${resp.status()}`,
+      `surface/padi/session/test__set failed: ${resp.status()}`,
     );
   },
 );

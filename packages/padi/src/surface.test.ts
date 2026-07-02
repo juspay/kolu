@@ -41,6 +41,8 @@ describe("padiSurface 1.0 contract", () => {
       "version",
       "urgency",
       "status",
+      "activityFeed",
+      "session",
     ]);
     expect(Object.keys(spec.collections ?? {})).toEqual([
       "terminals",
@@ -128,6 +130,10 @@ describe("padiSurface 1.0 contract", () => {
     expect(PADI_FORWARDING_POLICY.subscribeFileChange).toBe("value");
     expect(PADI_FORWARDING_POLICY.terminals).toBe("value");
     expect(PADI_FORWARDING_POLICY.terminalExit).toBe("value");
+    // The two cells that relocated off koluSurface (W1 padi seam) are value —
+    // a rebind replays the current session / activity-feed snapshot.
+    expect(PADI_FORWARDING_POLICY.session).toBe("value");
+    expect(PADI_FORWARDING_POLICY.activityFeed).toBe("value");
   });
 
   it("the terminals value carries the active | sleeping | parked union", () => {

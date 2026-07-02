@@ -62,6 +62,7 @@ import {
 } from "@kolu/terminal-workspace/surface";
 import {
   ActiveTerminalSchema,
+  ActivityFeedSchema,
   CanvasLayoutSchema,
   DaemonStatusSchema,
   InitialTerminalMetadataSchema,
@@ -205,11 +206,13 @@ export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 // These are the NEW contract shapes lifecycle/chrome/screen/bytes/session
 // migrate onto (the root `terminal.*` namespace dies across W1.R). They are
 // intentionally distinct from `kolu-common/contract`'s raw-oRPC schemas — most
-// notably `create` DROPS `lastActivityAt` (padi stamps with its own clock), so
-// they are not duplicates to fold away.
+// notably `create` DROPS `lastActivityAt` (a fresh terminal seeds it to 0 and the
+// fold stamps recency later), so they are not duplicates to fold away.
 
-/** Create input — client-owned initial metadata MINUS `lastActivityAt`: padi
- *  stamps recency with its own clock, so the client cannot supply it. */
+/** Create input — client-owned initial metadata MINUS `lastActivityAt`: a fresh
+ *  terminal seeds `lastActivityAt: 0` (`createAuthoredActive` → `seedMemory`) and
+ *  the fold stamps recency later, so the client cannot supply it. (`session
+ *  .restore` re-threads a saved recency through `respawnActive`, not this input.) */
 export const PadiCreateInputSchema = z
   .object({
     cwd: z.string().optional(),
@@ -358,6 +361,28 @@ export const padiSurface = defineSurface({
       schema: PadiStatusSchema,
       default: DEFAULT_PADI_STATUS,
       verbs: ["get"],
+    },
+    /** Server-derived activity feed (recent repos + recent agents) — the MRU the
+     *  workspace switcher + command palette read. Read-only on the client; padi's
+     *  `trackRecentRepo` / `trackRecentAgent` are the sole writers. The conf-store
+     *  STORAGE stays kolu-server-side (injected into padi at boot) until W2.2.
+     *  `test__set` is the e2e-fixture reset verb. */
+    activityFeed: {
+      schema: ActivityFeedSchema,
+      default: { recentRepos: [], recentAgents: [] } satisfies z.infer<
+        typeof ActivityFeedSchema
+      >,
+      verbs: ["get", "test__set"],
+    },
+    /** Last persisted snapshot of terminals + active id, or null when no session
+     *  is saved — the restore card's source. Read-only on the client; padi's
+     *  debounced autosave loop owns writes. The conf-store STORAGE stays
+     *  kolu-server-side (injected into padi at boot) until W2.2. `test__set` is the
+     *  e2e-fixture reset verb. */
+    session: {
+      schema: SavedSessionSchema.nullable(),
+      default: null as z.infer<typeof SavedSessionSchema> | null,
+      verbs: ["get", "test__set"],
     },
   },
   collections: {
@@ -528,14 +553,18 @@ export type ForwardingPolicy = "value" | "delta";
 
 /** The forwarding policy of every `padiSurface` member, keyed by its top-level
  *  surface key (a cell/collection/stream/event name, or a procedure NAMESPACE —
- *  every procedure under a namespace shares its policy). The contract test pins
- *  this against the built spec so no member can be added without an annotation,
- *  and W2.1's re-serve helpers read it to type each hop. */
+ *  every procedure under a namespace shares its policy). `session` is BOTH a cell
+ *  (get/set/test__set) and a procedure namespace (restore/import) that `defineSurface`
+ *  merges onto one wire node (`surface.padi.session.*`, no verb overlap); one entry
+ *  covers the merged member (both are `value`). The contract test pins this against
+ *  the built spec so no member can be added without an annotation, and W2.1's
+ *  re-serve helpers read it to type each hop. */
 export const PADI_FORWARDING_POLICY = {
   // cells
   version: "value",
   urgency: "value",
   status: "value",
+  activityFeed: "value",
   // collections
   terminals: "value",
   daemonStatus: "value",
@@ -555,6 +584,8 @@ export const PADI_FORWARDING_POLICY = {
   scratch: "value",
   preview: "value",
   transcript: "value",
+  // `session` is a cell (get/set) AND a procedure namespace (restore/import),
+  // merged onto one wire node — this single entry annotates the merged member.
   session: "value",
 } as const satisfies Record<string, ForwardingPolicy>;
 

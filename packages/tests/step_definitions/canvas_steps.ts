@@ -430,9 +430,9 @@ Then(
 
 // Deterministic race-forcer. Installs a Playwright init script that runs
 // before every subsequent navigation and patches `window.WebSocket` so the
-// first EVENT_ITERATOR yield for `/surface/kolu/session/get` is held for `ms`
-// before being dispatched. `terminalList.get`'s first yield reaches the
-// surface client unblocked, so the canvas first-mount centering effect
+// first EVENT_ITERATOR yield for `/surface/padi/session/get` is held for `ms`
+// before being dispatched. The padi `terminals` keys stream's first yield
+// reaches the surface client unblocked, so the canvas first-mount centering effect
 // (`TerminalCanvas.tsx:331`) always observes a null `activeId`, takes the
 // bbox-fallback branch, pans the viewport, and the `isDefaultViewport()`
 // guard latches the bug for the rest of the session — exactly the
@@ -448,7 +448,7 @@ Given(
     // a hand-written IIFE sidesteps the toolchain entirely.
     await this.page.addInitScript(`(() => {
       const Original = globalThis.WebSocket;
-      const SESSION_PATH = "/surface/kolu/session/get";
+      const SESSION_PATH = "/surface/padi/session/get";
       const DELAY_MS = ${ms};
       function readJsonHeader(bytes) {
         const delim = bytes.indexOf(255);

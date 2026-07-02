@@ -14,6 +14,7 @@
  */
 
 import { ORPCError } from "@orpc/server";
+import { inMemoryStore } from "@kolu/surface/server";
 import {
   AuthoredParkedSchema,
   AuthoredSleepingSchema,
@@ -23,21 +24,36 @@ import {
   composeTerminalMetadata,
   LOCAL_LOCATION,
   PersistedSnapshotSchema,
+  type SavedSession,
   type TerminalSnapshot,
 } from "kolu-common/surface";
 import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
 import { MAX_UPLOAD_BYTES } from "kolu-common/upload";
 import type { Logger } from "pino";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setPadiSessionStore } from "./confStores.ts";
+import { setKoluServerProcessId } from "./koluRoot.ts";
+import {
+  __resetPadiSurfaceCtxForTest,
+  noopPadiSurfaceCtxForTest,
+  setPadiSurfaceCtx,
+} from "./padiSurfaceCtx.ts";
+import { getSavedSession } from "./session.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { PadiParkedTerminalSchema } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
+  getTerminal,
   type ParkedTerminalProcess,
   registerTerminal,
   type SleepingTerminalProcess,
+  terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
+
+// The parked-forfeit path drives `cleanupTerminalScratch`, which reads the
+// per-instance scratch root; boot injects the server id before any of this runs.
+setKoluServerProcessId("servepadi-test-server");
 
 const ACTIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SLEEPING_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -307,5 +323,118 @@ describe("padi scratch.write re-enforces the authoritative upload gate (F1)", ()
         }),
       ),
     ).toBe("NOT_FOUND");
+  });
+});
+
+// ── The `session` cell backing — non-recursive + normalizing (C/D, review #2) ──
+//
+// Review #2's boot-recursion crash: the session cell's `get` must read the injected
+// conf store DIRECTLY and normalize empty→null INLINE — it must NOT delegate to
+// `getSavedSession`, which reads THIS same cell (mutual recursion → stack overflow
+// at boot, when `parkSavedSession` first reads it).
+describe("padi session cell backing is non-recursive + normalizes (review #2)", () => {
+  const oneTerminal: SavedSession = {
+    terminals: [
+      {
+        id: "s1",
+        state: "active",
+        cwd: "/x",
+        git: null,
+        pr: { kind: "absent" },
+        location: LOCAL_LOCATION,
+        lastActivityAt: 0,
+      },
+    ],
+    activeTerminalId: "s1",
+    savedAt: 1,
+  };
+
+  /** The `session` cell's backing store, narrowed out of the deps shape. */
+  function sessionBacking(): { get: () => SavedSession | null } {
+    const deps = buildPadiSurfaceDeps({ endpoint: fakeEndpoint, log: stubLog });
+    const s = deps.cells?.session?.store;
+    if (!s) throw new Error("padi deps must back the session cell");
+    return s as { get: () => SavedSession | null };
+  }
+
+  afterEach(() => __resetPadiSurfaceCtxForTest());
+
+  it("get() reads the injected store DIRECTLY (returns, no recursion) + normalizes empty→null", () => {
+    // A non-empty session round-trips untouched. That the call RETURNS at all is
+    // the proof the backing is non-recursive — a `getSavedSession`-delegating get
+    // would recurse into this same cell and blow the stack.
+    setPadiSessionStore(inMemoryStore<SavedSession | null>(oneTerminal));
+    expect(sessionBacking().get()).toEqual(oneTerminal);
+
+    // An empty-terminals blob normalizes to null (legacy "nothing to restore").
+    setPadiSessionStore(
+      inMemoryStore<SavedSession | null>({
+        terminals: [],
+        activeTerminalId: null,
+        savedAt: 2,
+      }),
+    );
+    expect(sessionBacking().get()).toBeNull();
+  });
+
+  it("getSavedSession() reads the same backing through padi's ctx (one hop) + normalizes", () => {
+    setPadiSessionStore(inMemoryStore<SavedSession | null>(oneTerminal));
+    const backing = sessionBacking();
+    // Wire padi's ctx `session` cell to the SAME backing, so getSavedSession →
+    // `padiSurfaceCtx.cells.session.get()` → backing.get() (which reads the store,
+    // never getSavedSession). One hop, no stack overflow.
+    setPadiSurfaceCtx({
+      cells: new Proxy({} as never, {
+        get: (_t, n) =>
+          n === "session"
+            ? backing
+            : { get: () => undefined, set: () => {}, patch: () => {} },
+      }),
+      collections: new Proxy({} as never, {
+        get: () => ({
+          upsert: () => {},
+          remove: () => {},
+          readAll: () => new Map(),
+          readOne: () => undefined,
+        }),
+      }),
+      events: new Proxy({} as never, { get: () => ({ publish: () => {} }) }),
+    } as never);
+    expect(getSavedSession()).toEqual(oneTerminal);
+  });
+});
+
+// ── lifecycle.create forfeits parked entries (K) ────────────────────────────
+describe("padi lifecycle.create forfeits lingering parked entries (K)", () => {
+  beforeEach(() => setPadiSurfaceCtx(noopPadiSurfaceCtxForTest()));
+  afterEach(async () => {
+    // The kaval-less fresh spawn's async tail rejects on a later microtask (the
+    // failed-spawn path); let it settle, then drain any entry the create left.
+    await new Promise((r) => setTimeout(r, 0));
+    for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
+    __resetPadiSurfaceCtxForTest();
+  });
+
+  it("a plain create discards a lingering parked entry", () => {
+    // A parked restore-card row left by boot reconcile (the user never restored).
+    registerTerminal(PARKED_ID, {
+      info: { id: PARKED_ID, pid: 0 },
+      meta: parkedMeta,
+      snapshot: parkedSnapshot,
+    } as ParkedTerminalProcess);
+    expect(getTerminal(PARKED_ID)?.meta.state).toBe("parked");
+
+    const deps = buildPadiSurfaceDeps({ endpoint: fakeEndpoint, log: stubLog });
+    const create = deps.procedures?.lifecycle?.create as
+      | ((args: { input: Record<string, never> }) => unknown)
+      | undefined;
+    if (!create) throw new Error("padi deps must serve lifecycle.create");
+
+    // A fresh create is the FORFEIT path (NOT session.restore). The discard runs
+    // synchronously in the handler after the (kaval-less) spawn registers.
+    create({ input: {} });
+
+    // The parked entry was forfeited — it no longer lingers invisibly.
+    expect(getTerminal(PARKED_ID)).toBeUndefined();
   });
 });

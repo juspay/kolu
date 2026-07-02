@@ -60,10 +60,11 @@ vi.mock("./useSubPanel", () => ({
     setActiveSubTab: () => {},
   }),
 }));
+const toastSpy = vi.hoisted(() => ({ success: vi.fn() }));
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {
     loading: () => 0,
-    success: () => {},
+    success: toastSpy.success,
     error: () => {},
     warning: () => {},
   }),
@@ -226,6 +227,55 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             expect(rpc.create).not.toHaveBeenCalled();
             expect(rpc.restoreSleeping).not.toHaveBeenCalled();
             expect(rpc.sendInput).not.toHaveBeenCalled();
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+
+  it("success toast reports 'Restored N terminals, resumed M agents' counts", async () => {
+    // Pre-W1 wording restored (bare "Session restored" was a W1.R6 regression): N =
+    // terminals restored, M = the resume opt-in set's size (the resumable rows the
+    // card offered). Two saved terminals, one opted in → "Restored 2 terminals,
+    // resumed 1 agent" (singular).
+    toastSpy.success.mockClear();
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            h.listPending = false;
+            h.list = [];
+            h.terminalIds = [];
+            h.sessionPending = false;
+            const savedTerminal = (id: string) => ({
+              id,
+              state: "active" as const,
+              cwd: `/${id}`,
+              git: null,
+              pr: { kind: "absent" as const },
+              location: { kind: "local" as const },
+              lastActivityAt: 0,
+            });
+            h.savedSession = {
+              terminals: [savedTerminal("0"), savedTerminal("1")],
+              activeTerminalId: "0",
+              savedAt: 1,
+            };
+            const session = mount();
+            await new Promise((r) => setTimeout(r, 0));
+
+            await session.handleRestoreSession({ resumeIds: new Set(["0"]) });
+
+            expect(toastSpy.success).toHaveBeenCalledWith(
+              "Restored 2 terminals, resumed 1 agent",
+              expect.anything(),
+            );
 
             dispose();
             resolve();

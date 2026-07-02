@@ -3,8 +3,8 @@
  * two hand-listed raw oRPC handlers that stay kolu-server's own — `server.info`
  * (synchronous per-host branding) and `daemon.restart`.
  *
- * The typed reactive layer goes through `surfaceRouter` (from `./surface.ts`)
- * and `surfaceCtx` (from `@kolu/padi/assembly`). The terminal domain's raw
+ * The typed reactive layer goes through `surfaceRouter` (from `./surface.ts`).
+ * The terminal domain's raw
  * procedures relocated onto `@kolu/padi`'s `padiSurface` across W1.R; the root
  * `terminal.*` / `git.*` handlers this file once carried were DELETED at W1.R7
  * (the package-boundary seal). This file is now just the glue between the surface

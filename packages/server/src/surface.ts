@@ -5,16 +5,14 @@
  *   - `surfaceRouter` — `oc.router({ surface: {...} })` fragment for the
  *     host router; spread alongside hand-listed raw oRPC procedures in
  *     `router.ts`.
- *   - The typed `cells / collections / events` mutation map (`surfaceCtx`)
- *     is built here and registered into `./surfaceCtx.ts` via
- *     `setSurfaceCtx(...)`. Domain modules (`activity.ts`, `session.ts`,
- *     `terminalEndpoint/local.ts`, `terminalEndpoint/metadata.ts`) import
- *     `surfaceCtx` from `./surfaceCtx.ts` — not from here — and call
- *     `surfaceCtx.cells.X.set(...)`, `.collections.X.upsert(k, v)`,
- *     `.events.X.publish(i, p)`. The framework owns the apply+publish
- *     chain; domain code never sees a channel name string. Routing the
- *     ctx through `./surfaceCtx.ts` is what breaks the bidirectional
- *     import cycle that would otherwise form (#1005).
+ *   - The kolu surface's mutation ctx is built here and EXPORTED as
+ *     `koluSurfaceCtx` (only the memory sampler in `index.ts` writes it —
+ *     `processMemory` — so a plain export off the built ctx suffices; no
+ *     late-bound holder). padi's OWN ctx (the terminal domain) is registered into
+ *     `@kolu/padi`'s `padiSurfaceCtx` via `setPadiSurfaceCtx(...)` — every padi
+ *     domain module (`activity.ts`, `session.ts`, `terminalEndpoint/*`) writes
+ *     THAT, never a kolu ctx (the reverse-seal invariant). The framework owns the
+ *     apply+publish chain; domain code never sees a channel name string.
  *
  * Publisher channel names are framework-derived in two layers. Each surface
  * names its own channels by primitive: `<prim>:changed` for cells,
@@ -26,10 +24,11 @@
  * two siblings that each own a same-named primitive from colliding on one
  * publisher.
  *
- * `confStore`-backed cells (`preferences`, `activityFeed`, `session`) live
- * here so this file is the only one that knows the on-disk layout. Domain
- * modules read current values via `surfaceCtx.cells.X.get()` and write via
- * `.set()`; they do not import `store` directly.
+ * `confStore`-backed stores (`preferences`, `activityFeed`, `session`) live
+ * here so this file is the only one that knows the on-disk layout. `preferences`
+ * is a `koluSurface` cell served here; `activityFeed` + `session` now RIDE
+ * `padiSurface`, so their stores are exported and INJECTED into padi at boot
+ * (`index.ts`) — the storage stays kolu-server's source of truth until W2.2.
  */
 
 import {
@@ -43,10 +42,6 @@ import {
 import { surfaceAppServer } from "@kolu/surface-app/server";
 import { surfacesWithPadi } from "@kolu/padi/surface";
 import { oc } from "@orpc/contract";
-import {
-  quietActivity,
-  serveTerminalWorkspace,
-} from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
@@ -65,16 +60,9 @@ import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
   buildPadiSurfaceDeps,
-  cancelPendingAutosave,
-  getTerminal,
-  listTerminals,
   publisher,
-  registryMap,
   resolveTerminalEndpoint,
   setPadiSurfaceCtx,
-  setSurfaceCtx,
-  setWorkspaceSurfaceCtx,
-  terminalNotFound,
 } from "@kolu/padi/assembly";
 import { store } from "./state.ts";
 
@@ -87,9 +75,9 @@ const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 // `contract` (which the client consumes, byte-for-byte unchanged) PLUS the
 // `padi` sibling. Spreading the already-built `contract` carries over its root
 // namespaces (`server`/`daemon` — `terminal`/`git` were deleted at W1.R7, their
-// mutations now on `padiSurface`) and its 3-sibling `surface`;
+// mutations now on `padiSurface`) and its 2-sibling `surface` (kolu + surfaceApp);
 // the second spread of `composeSurfaceContracts(surfacesWithPadi)` then WIDENS
-// `surface` to four siblings (adds `padi`). This is the same spread idiom
+// `surface` to three siblings (adds `padi`). This is the same spread idiom
 // `packages/common/src/contract.ts` assembles itself with — that file stays
 // untouched (its own comment already anticipates kolu-server widening locally).
 const servedContract = oc.router({
@@ -110,19 +98,22 @@ const preferencesStore: CellStore<Preferences> = confStore<Preferences>(
   store,
   "preferences",
 );
-const activityFeedStore: CellStore<ActivityFeed> = confStore<ActivityFeed>(
-  store,
-  "activityFeed",
-);
-const savedSessionStore: CellStore<SavedSession | null> =
+// The `session` + `activityFeed` cells RIDE `padiSurface` now, but their conf-store
+// STORAGE stays kolu-server's single source of truth until W2.2 gives padi its own
+// state-root. So kolu-server builds them here (ONE `confStore` per key) and INJECTS
+// them into padi at boot (`index.ts` → `setPadiSessionStore` / `setPadiActivityFeedStore`).
+// padi does not import packages/server, so the arrow stays out.
+export const activityFeedStore: CellStore<ActivityFeed> =
+  confStore<ActivityFeed>(store, "activityFeed");
+export const savedSessionStore: CellStore<SavedSession | null> =
   confStore<SavedSession | null>(store, "session");
 
 // ── processMemory cell: live metric, in-memory backing + whole-MB dedup ──
 //
-// Defined here beside the cell entry (mirroring `terminalList`), not in
+// Defined here beside the cell entry, not in
 // `memorySampler.ts`: the cell's storage shape and dedup predicate are the
 // surface layer's concern. The sampler only reads+publishes via the injected
-// `publish` (→ `surfaceCtx.cells.processMemory.set` → `set` below).
+// `publish` (→ `koluSurfaceCtx.cells.processMemory.set` → `set` below).
 
 /** The whole-MB rail figure of the kaval reading, plus its discriminant — a
  *  comparison key that distinguishes `absent`/`error`/`ok@N MB` from each other,
@@ -149,9 +140,9 @@ export function processMemoryMbEqual(
 }
 
 /** In-memory backing for the `processMemory` cell. The sampler writes through
- *  `surfaceCtx.cells.processMemory.set` (→ `set` here, then publish); a fresh
+ *  `koluSurfaceCtx.cells.processMemory.set` (→ `set` here, then publish); a fresh
  *  subscription reads the latest via `get`. No persistence — a live metric has
- *  no on-disk slot, mirroring the `terminalList` cell. */
+ *  no on-disk slot. */
 let currentProcessMemory: ProcessMemory = {
   serverRssBytes: 0,
   kavalMemory: { status: "absent" },
@@ -199,81 +190,13 @@ const koluDeps: Omit<
           "preferences update",
         ),
     },
-    activityFeed: { store: activityFeedStore },
-    session: {
-      // The `session` conf store, normalized so an empty-terminals blob reads
-      // as `null` (the legacy "nothing to restore" invariant). Both the client's
-      // `session` cell read AND padi's `getSavedSession` (which reads THIS cell)
-      // get the normalized value.
-      //
-      // The normalization MUST read `savedSessionStore` directly here — it must
-      // NOT delegate to `getSavedSession`. `getSavedSession` (padi/session.ts)
-      // reads `surfaceCtx.cells.session.get()`, i.e. THIS store's `get`; a
-      // `get: () => getSavedSession()` is therefore mutually recursive and blows
-      // the stack, crashing the server at boot (the first `getSavedSession` call
-      // is padi's boot reconcile / `parkSavedSession`). Keeping the raw read +
-      // normalize here is the one non-recursive backing.
-      store: {
-        get: () => {
-          const s = savedSessionStore.get();
-          return s && s.terminals.length > 0 ? s : null;
-        },
-        set: savedSessionStore.set,
-      },
-      // Content-level dedup. The surface cell otherwise publishes a fresh
-      // object reference on every set, including byte-identical re-saves
-      // from the autosave loop or test fixtures. Downstream that flips a
-      // SolidJS keyed `<Show when={savedSession()}>` in EmptyState and
-      // detaches the restore button mid-frame. `JSON.stringify` is fine
-      // for this cell — SavedSession is small (a handful of terminals
-      // and scalars) and sets are rare. See
-      // `docs/flaky-tests-ralph-report-2.md` cycles 3 / 5.
-      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
-      // Atomic cross-cell invariant: every write to the session cell —
-      // `set`, `patch`, `test__set`, or the server-internal
-      // `surfaceCtx.cells.session.set` reached by `writeSession` —
-      // cancels any pending `saveSession([])` autosave callback armed by
-      // a recent `terminals:dirty` event. Without this, the surface
-      // `test__set` verb used by the e2e harness bypasses the named
-      // `setSavedSession` and a stale killAll-time dirty event can
-      // clobber a freshly POSTed session with `null` ~500 ms later
-      // (cycle 6). Harmless no-op on the autosave loop's own write path
-      // (the loop clears the timer synchronously before calling
-      // `saveSession`); future dirty events arm a fresh timer normally.
-      onWrite: () => cancelPendingAutosave(),
-    },
-    terminalList: {
-      // Live registry; the in-memory store has no persistent slot.
-      store: { get: () => listTerminals(), set: () => {} },
-    },
     processMemory: {
       // Live metric; the in-memory store has no persistent slot. The sampler
-      // (`memorySampler.ts`) is the sole writer via `surfaceCtx.cells.
+      // (`memorySampler.ts`) is the sole writer via `koluSurfaceCtx.cells.
       // processMemory.set`. `equals` dedups at whole-MB granularity so a sub-MB
       // RSS wobble never re-publishes to every connected client.
       store: memoryCellStore,
       equals: processMemoryMbEqual,
-    },
-  },
-
-  events: {
-    terminalExit: {
-      // Single-yield-then-close: validate the terminal exists at subscribe
-      // time. `terminalNotFound` throws a typed `ORPCError("NOT_FOUND")` — not
-      // a bare Error, which oRPC would scrub to an opaque "Internal server
-      // error" — so the client's
-      // exit subscription recognizes a stale-session re-subscribe and swallows
-      // it instead of logging a fault; `STREAM_RETRY` does not retry an
-      // `ORPCError`. Then forward the first exit-channel yield and return. The
-      // `bus` helper is the framework's per-input channel — the same one
-      // `surfaceCtx.events.terminalExit.publish` writes to.
-      source: async function* (input, signal, { bus }) {
-        if (!getTerminal(input.id)) throw terminalNotFound(input.id);
-        for await (const exitCode of bus.subscribe(signal)) {
-          yield exitCode;
-          return;
-        }
-      },
     },
   },
 };
@@ -298,9 +221,9 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   // connect to call, no hand-written `ctx.cells.buildInfo.set`.
   implementSurfaces(
     // `surfacesWithPadi` (the keyed Surface map PLUS `padi`) is served here so
-    // `padiSurface` serves BESIDE the three siblings at `/surface/padi/*`
-    // (dual-serve). The contract widening above (`servedContract`) is what lets
-    // the padi-less kolu-common `surfaces` the client consumes stay untouched;
+    // `padiSurface` serves BESIDE the two siblings (kolu + surfaceApp) at
+    // `/surface/padi/*`. The contract widening above (`servedContract`) is what
+    // lets the padi-less kolu-common `surfaces` the client consumes stay untouched;
     // here we add the server-only per-surface deps, keyed the same way.
     surfacesWithPadi,
     {
@@ -309,9 +232,8 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // Default subsequent-read error handler for poll-shape streams. kolu's own
       // fs/git value streams retired at W1.R4 (the Code tab now pulse-then-
       // requeries padiSurface's procedures), so the poll-shape streams this now
-      // covers are padi's `subscribeRepoChange`/`subscribeFileChange` pulses and
-      // terminalWorkspace's watchers; per-stream overrides are absent so this
-      // fires for every poll-shape stream.
+      // covers are padi's `subscribeRepoChange`/`subscribeFileChange` pulses;
+      // per-stream overrides are absent so this fires for every poll-shape stream.
       onStreamReadError: (err, info) =>
         log.error(
           { err: err instanceof Error ? err.message : String(err), ...info },
@@ -346,65 +268,34 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       }),
 
       // ── kolu's own server deps (sibling under `kolu`) ────────────────────
+      // Just the `preferences` + `processMemory` cells now — every terminal-derived
+      // member (session, activityFeed, terminalExit, the record, urgency, daemon
+      // status) rides `padi` below.
       kolu: koluDeps,
 
-      // ── the terminal-workspace server deps (sibling under `terminalWorkspace`) ──
-      // The GENERIC awareness surface (R8), assembled by the ONE shared factory
-      // (`serveTerminalWorkspace`) that `pulam` also calls — the version cell + the
-      // fs/git procedures + watcher streams live THERE, built off the SAME
-      // in-process endpoint kolu's own value-bearing streams read. kolu injects
-      // only the two volatile backings: the `awareness` collection (projected off
-      // its registry) and `activity` (QUIET — no raw byte tap until R9). Typed
-      // against `terminalWorkspaceSurface.spec`, so this needs no cast.
-      terminalWorkspace: serveTerminalWorkspace({
-        // Project the awareness half straight off the registry — `.snapshot`
-        // exactly as padi's `terminals` collection composes off the same entry.
-        // `workspaceSurfaceCtx` is now DORMANT in W1: the live metadata publish
-        // moved onto padi's `terminals` collection (`terminalEndpoint/metadata.ts`
-        // targets `padiSurfaceCtx`, W1.R1), so `terminalWorkspace.snapshots` serves
-        // only its INITIAL snapshot here (`readAll`) and NO live deltas — the
-        // framework's `upsert`/`remove` are no-ops (the registry is the authority).
-        // The ctx + `setWorkspaceSurfaceCtx` below are retained for W2.4
-        // (terminalWorkspaceSurface deletion) and are invisible to the kolu client,
-        // which reads padi's `terminals`.
-        snapshots: {
-          readAll: () => registryMap((t) => t.snapshot),
-          readOne: (key) => getTerminal(key as string)?.snapshot,
-          upsert: () => {},
-          remove: () => {},
-        },
-        // QUIET for now: kolu-server has no raw byte tap (R9 makes it live), so it
-        // truthfully yields the empty live set — not a lie, the honest "nothing
-        // known to be moving". R9 injects a live source here instead.
-        activity: quietActivity,
-        endpoint: localEndpoint,
-        log,
-      }),
-
       // ── padi's own server deps (sibling under `padi`) ────────────────────
-      // The COMPLETE `padiSurface` served natively from `@kolu/padi` (W1.R0),
-      // assembled by its own `buildPadiSurfaceDeps` off the SAME in-process
-      // endpoint. Every member has a functional read/procedure/source handler
-      // (boot requires it), but NO padi ctx is registered and NO write-trigger
-      // fires at R0 — dual-serve, single-publish: the client still renders every
-      // live delta through the kolu/terminalWorkspace/surfaceApp path. R1+ turns
-      // on padi's live-publish one member at a time.
+      // The COMPLETE `padiSurface` served natively from `@kolu/padi`, assembled by
+      // its own `buildPadiSurfaceDeps` off the SAME in-process endpoint. Every
+      // member has a functional read/procedure/source handler AND a live write path
+      // (the padi ctx registered below): the client reads the terminal record,
+      // urgency, daemon status, session, activity feed, and `terminalExit` here.
       padi: buildPadiSurfaceDeps({ endpoint: localEndpoint, log }),
     },
   );
 
 export const surfaceRouter = surfaceRouterFragment;
-// Domain modules mutate only kolu's OWN primitives, so register the `kolu`
-// surface's ctx (`implementSurfaces(...).ctx.kolu`). surface-app's buildInfo is
-// driven by the runtime-fired cell `.connect`, not by domain code.
-setSurfaceCtx(surfaceCtxBuilt.kolu);
-// The awareness sink (`terminalEndpoint/metadata.ts`) publishes onto the
-// `terminalWorkspace` surface's `awareness` collection, so register that ctx too.
-setWorkspaceSurfaceCtx(surfaceCtxBuilt.terminalWorkspace);
+// The kolu surface ctx (`implementSurfaces(...).ctx.kolu`) — exported so the memory
+// sampler (`index.ts`) writes `processMemory` through it. It is NOT a late-bound
+// holder in `@kolu/padi`: only kolu-server's own web shell writes koluSurface now
+// (padi domain code writes its OWN `padiSurfaceCtx`), so a plain export off the
+// built ctx suffices and keeps the reverse-seal honest (no padi module types
+// against `koluSurface`). surface-app's buildInfo is driven by the runtime-fired
+// cell `.connect`, not by domain code.
+export const koluSurfaceCtx = surfaceCtxBuilt.kolu;
 // padi's live publish. The composed-terminal seam
 // (`terminalEndpoint/metadata.ts`) publishes onto padi's `terminals` collection +
-// `urgency` cell, and the kaval supervisor's `publishDaemonStatus` onto padi's
-// `daemonStatus` collection (W1.R7 — the last terminal-domain members left
-// koluSurface, which now serves NO collections). The terminalWorkspace
-// `snapshots` collection stays served for the generic awareness surface.
+// `urgency` cell; the exit publish (`local.ts`) onto its `terminalExit` event; the
+// session writer (`session.ts`) + MRU trackers (`activity.ts`) onto its `session` /
+// `activityFeed` cells; and the kaval supervisor's `publishDaemonStatus` onto its
+// `daemonStatus` collection.
 setPadiSurfaceCtx(surfaceCtxBuilt.padi);

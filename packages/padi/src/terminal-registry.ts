@@ -147,6 +147,20 @@ export function registryMap<V>(
   return map;
 }
 
+/** The ids of every PARKED registry entry, in canonical insertion order. Parked
+ *  records are boot-produced restore-card rows that linger invisibly until either
+ *  consumed by `session.restore` (the parked→active flip) or FORFEITED — the user
+ *  creates a fresh terminal instead of restoring. The forfeit path
+ *  (`discardAllParked`) enumerates them here so a plain create can't leave parked
+ *  entries lingering forever. Snapshots into an array so a caller can discard while
+ *  iterating without mutating the live map mid-walk. */
+export function parkedTerminalIds(): TerminalId[] {
+  const ids: TerminalId[] = [];
+  for (const [id, entry] of terminals)
+    if (entry.meta.state === "parked") ids.push(id);
+  return ids;
+}
+
 /** Number of registry RECORDS — active + sleeping. Cheap counter; the registry
  *  size. NOT a live-process count: a sleeping record holds no PTY/sensors/xterm,
  *  so heap diagnostics that correlate a column with live-terminal memory must use

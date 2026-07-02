@@ -44,7 +44,6 @@ import {
   seedMemory,
   TerminalIdSchema,
 } from "@kolu/terminal-workspace/schema";
-import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import { exactRestoreTarget } from "anyagent/cli";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { type PrInfo, prValue } from "anyforge/schemas";
@@ -438,18 +437,17 @@ export const InitialTerminalMetadataSchema = z.object({
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
-/** Wire shape for the `terminalList` cell. Identity only — metadata
- *  flows through the `authored` collection joined with `awareness` at the
- *  client. */
+/** Wire shape for a terminal's identity — the `id`+`pid` padiSurface's
+ *  `lifecycle.create` / `kill` / `wake` return. Identity only; a terminal's
+ *  metadata rides padi's `terminals` collection. */
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
 });
 
-/** Shared by both `terminal.attach` (raw oRPC streaming) and the
- *  `terminalExit` event (surface). Single key shape so consumers don't
- *  have to remember which side defines it. */
-export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
+/** The `terminalExit` event payload — the exit code. The event itself now rides
+ *  `padiSurface` (its input key is padi's own `PadiTerminalIdInputSchema`); this
+ *  output schema is shared so padi and any consumer agree on the wire shape. */
 export const TerminalOnExitOutputSchema = z.number();
 
 // ── Activity feed sub-schemas ─────────────────────────────────────────
@@ -895,29 +893,27 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 
 // ── The surfaces ──────────────────────────────────────────────────────
 //
-// kolu now serves THREE sibling surfaces over one transport (kolu#1197, R8):
+// kolu serves TWO sibling surfaces over one transport (kolu#1197, R8) — plus the
+// `padi` sibling kolu-server adds locally (`server/src/surface.ts`):
 //
 //   - `koluSurface` — the primitives kolu OWNS that are NOT part of the terminal
-//     domain: the `preferences` / `activityFeed` / `session` / `terminalList` /
-//     `processMemory` cells and the `terminalExit` event. Served under the `kolu`
-//     key. Every terminal-domain member (the per-terminal record, urgency, daemon
-//     status, the expected-kaval axis) relocated to `@kolu/padi` across W1.R (the
-//     package-boundary seal) — so koluSurface has NO collections, and the terminal
+//     domain: today just the `preferences` + `processMemory` cells. Served under
+//     the `kolu` key. Every terminal-DERIVED member (`activityFeed`, `session`,
+//     the `terminalExit` event, the per-terminal record, urgency, daemon status,
+//     the expected-kaval axis) relocated to `@kolu/padi` (the package-boundary
+//     seal) — so koluSurface has NO collections and NO events, and the terminal
 //     RECORD rides padi's `terminals` collection, not here.
 //   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
 //     build-identity `buildInfo` cell — `commit` + `version` — plus the
 //     `identity.info` restart probe). Served under the `surfaceApp` key. Its wire
 //     path is `surface.surfaceApp.{buildInfo,identity}`. The `expectedKaval` axis
 //     it once extended `buildInfo` with moved to padi's `status` cell (W1.R7).
-//   - `terminalWorkspaceSurface` — the GENERIC `@kolu/terminal-workspace` surface
-//     (awareness collection + version cell + activity flow + fs/git procedures &
-//     watcher streams), served under the `terminalWorkspace` key so a viewer reads
-//     the same surface `pulam` serves. Its `awareness` collection is projected
-//     off each registry entry's `awareness` field (Design-S; the sensor sink is
-//     the sole writer, see `server/src/terminal-registry.ts`). kolu's OWN
-//     client reads this collection too, joining each value with the matching
-//     `kolu.authored` record — so R9 (remote awareness) is a pure backing-swap
-//     behind this one collection, with no second read path to migrate.
+//
+// The GENERIC `@kolu/terminal-workspace` surface is no longer served here: kolu's
+// own client reads padi's server-composed `terminals` collection, and pulam-tui
+// dials the pulam daemon directly, so kolu-server's dormant `terminalWorkspace`
+// sibling had zero consumers and was retired. `terminalWorkspaceSurface` (3.0,
+// frozen) lives on in `@kolu/terminal-workspace`, served by the pulam daemon.
 //
 // They are NOT merged — `composeSurfaceContracts` / `implementSurfaces` /
 // `surfaceClients` multiplex them, each namespaced by its key. Each is already a
@@ -927,11 +923,15 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 /** surface-app served as a sibling, extended with kolu's build identity. */
 export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
 
-/** The primitives kolu OWNS that are NOT part of the terminal domain — its cells
- *  and the terminalExit event. The terminal record, urgency, daemon status, and
- *  the expected-kaval axis all relocated to `@kolu/padi` across W1.R (the seal),
- *  so this surface serves NO collections. surface-app's buildInfo/identity ride
- *  the sibling surface above, not here. */
+/** The primitives kolu OWNS that are NOT part of the terminal domain — today just
+ *  `preferences` (local-authority user prefs) and `processMemory` (the live
+ *  server+kaval RSS rail metric). Every terminal-DERIVED wire member —
+ *  `activityFeed`, `session`, the `terminalExit` event, the terminal record,
+ *  urgency, daemon status — now rides `padiSurface` (the package-boundary seal):
+ *  only the conf-store STORAGE for session/activityFeed stays kolu-server-side
+ *  (injected INTO padi at boot) until W2.2 gives padi its own state-root. So this
+ *  surface serves NO collections and NO events. surface-app's buildInfo/identity
+ *  ride the sibling surface above, not here. */
 export const koluSurface = defineSurface({
   cells: {
     /** User preferences — local-authority on the client; server-canonical
@@ -947,37 +947,8 @@ export const koluSurface = defineSurface({
       verbs: ["get", "patch", "test__set"],
     },
 
-    /** Server-derived activity feed (recent repos + recent agents).
-     *  Read-only on the client; the server is the sole writer via
-     *  `trackRecentRepo` / `trackRecentAgent`. */
-    activityFeed: {
-      schema: ActivityFeedSchema,
-      default: { recentRepos: [], recentAgents: [] } satisfies z.infer<
-        typeof ActivityFeedSchema
-      >,
-      verbs: ["get", "test__set"],
-    },
-
-    /** Last persisted snapshot of terminals + active id, or null when no
-     *  session is saved. Read-only on the client; the server's debounced
-     *  autosave loop owns writes. */
-    session: {
-      schema: SavedSessionSchema.nullable(),
-      default: null as z.infer<typeof SavedSessionSchema> | null,
-      verbs: ["get", "test__set"],
-    },
-
-    /** Live list of terminals — server-driven on create/kill. Mutations
-     *  go through dedicated procedures (`terminal.create`/`kill`/`killAll`)
-     *  in the raw oRPC namespace, not via cell.set. */
-    terminalList: {
-      schema: z.array(TerminalInfoSchema),
-      default: [] as z.infer<typeof TerminalInfoSchema>[],
-      verbs: ["get"],
-    },
-
     /** Live process-memory readout (server + kaval RSS) for the rail. The
-     *  server's periodic sampler is the sole writer (`surfaceCtx.cells.
+     *  server's periodic sampler is the sole writer (`koluSurfaceCtx.cells.
      *  processMemory.set`); clients read-only. `kavalMemory` is `absent` until
      *  the first daemon poll, and whenever the daemon is down. */
     processMemory: {
@@ -989,33 +960,18 @@ export const koluSurface = defineSurface({
       verbs: ["get"],
     },
   },
-  events: {
-    /** Terminal process exited — fires once per terminal lifetime with the
-     *  exit code. Drives the exit toast and the active-terminal auto-switch
-     *  in `useTerminals`. */
-    terminalExit: {
-      inputSchema: TerminalAttachInputSchema,
-      outputSchema: TerminalOnExitOutputSchema,
-    },
-  },
 });
 
-/** The three siblings, keyed — the single browser-safe source of which surfaces
+/** The two siblings, keyed — the single browser-safe source of which surfaces
  *  exist under which keys. `composeSurfaceContracts(surfaces)` (contract),
  *  `surfaceClients(link, surfaces)` (client), and `implementSurfaces(surfaces, …)`
- *  (server) all read this one map, so the keys can't drift across the three. */
+ *  (server) all read this one map, so the keys can't drift across the three.
+ *  kolu-server adds the `padi` sibling on top locally (`server/src/surface.ts`).
+ *  The generic `@kolu/terminal-workspace` sibling was retired here — it had zero
+ *  consumers once the client moved onto padi's `terminals` collection. */
 export const surfaces = {
   kolu: koluSurface,
   surfaceApp: surfaceAppSurface_kolu,
-  // The generic `@kolu/terminal-workspace` surface, served as a third sibling
-  // (R8): the `awareness` collection (projected off each registry entry's
-  // `awareness` field — kolu's fold is the sole writer), the `version`
-  // handshake cell, the live `activity` flow, and the Code tab's fs/git
-  // procedures + watcher streams. `composeSurfaceContracts`
-  // / `surfaceClients` / `implementSurfaces` pick it up from this one map, so it
-  // is served at `surface.terminalWorkspace.*` automatically. Its value schema is
-  // the GENERIC `TerminalSnapshot` — no `location`, no kolu UI fields, no memory.
-  terminalWorkspace: terminalWorkspaceSurface,
 } as const;
 
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────
@@ -1028,7 +984,9 @@ export type Surface = SurfaceTypes<typeof koluSurface.spec>;
 
 export type Preferences = Surface["cells"]["preferences"]["Value"];
 export type PreferencesPatch = Surface["cells"]["preferences"]["Patch"];
-export type ActivityFeed = Surface["cells"]["activityFeed"]["Value"];
+/** Server-derived activity feed — derived off its schema directly now that the
+ *  cell rides `padiSurface` (no longer a `koluSurface` cell). */
+export type ActivityFeed = z.infer<typeof ActivityFeedSchema>;
 /** The unified terminal record — NOT a served collection value (the wire
  *  carries the `authored` + `awareness` halves separately). This is the shape
  *  `composeTerminalMetadata` reconstructs at the client read and at disk

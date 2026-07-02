@@ -10,12 +10,12 @@
  * `padiSurface` declares, minus `channel` (which kolu-server's shared
  * `implementSurfaces` second-arg supplies, reusing the one publisher).
  * `walkSurface` throws at boot if ANY member lacks deps, so EVERY member is
- * wired here even though W1.R0 has ZERO client consumers of padi — the read
- * (`readAll`/`readOne`/`source`) and procedure handlers are fully FUNCTIONAL at
- * R0; only the reactive WRITE-path (a padi ctx + write-triggers publishing
- * deltas) is deferred to R1+ (dual-serve, single-publish: every live delta the
- * client renders still flows through `koluSurface` + `terminalWorkspace` +
- * `surfaceApp`).
+ * wired here. The reactive WRITE-path (padi's ctx + write-triggers publishing
+ * deltas) is LIVE: the client reads the terminal record, urgency, daemon status,
+ * session, activity feed, and the `terminalExit` event off `padiSurface`. The
+ * `session` / `activityFeed` cells are backed by the conf stores kolu-server
+ * injects at boot (`./confStores.ts`) — the STORAGE stays kolu-server-side until
+ * W2.2 gives padi its own state-root, but the wire members live here.
  */
 
 import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
@@ -28,7 +28,12 @@ import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
 import { base64DecodedLength, rejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
+import {
+  requirePadiActivityFeedStore,
+  requirePadiSessionStore,
+} from "./confStores.ts";
 import { readPreview } from "./preview.ts";
+import { cancelPendingAutosave } from "./session.ts";
 import { importSession, restoreSession } from "./sessionRestore.ts";
 import {
   DEFAULT_PADI_VERSION,
@@ -39,6 +44,7 @@ import {
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import {
+  discardAllLocalParked,
   discardLocalSleeping,
   seedSleepingTerminal,
   wakeLocalTerminal,
@@ -89,9 +95,10 @@ function fileGoneAsNotFound(e: unknown, filePath: string): unknown {
 }
 
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
- *  gets a functional handler; the write-path (ctx + publish) is deferred to
- *  R1+. The `previewRealpathGuard` is padi's own re-creation of the server's
- *  shipped adapter (`./preview.ts`), never imported from `packages/server`. */
+ *  gets a functional read/procedure/source handler AND a live write path (the padi
+ *  ctx `surface.ts` registers drives the collection/cell publishes). The
+ *  `previewRealpathGuard` is padi's own re-creation of the server's shipped adapter
+ *  (`./preview.ts`), never imported from `packages/server`. */
 export function buildPadiSurfaceDeps(deps: {
   endpoint: TerminalEndpoint;
   log: Logger;
@@ -119,20 +126,55 @@ export function buildPadiSurfaceDeps(deps: {
       // constant seeded once at boot (the client's `kavalUpdatePending` nudge
       // reads it against the connected daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
-      // In-memory urgency store, seeded from the registry fold. The write-triggers
-      // that call `.set(recomputeUrgency())` on the agent firehose land in R1 with
-      // the padi ctx; `equals` dedups then. Zero consumers at R0.
+      // In-memory urgency store, seeded from the registry fold. The metadata seam
+      // (`terminalEndpoint/metadata.ts`) re-folds `.set(recomputeUrgency())` on the
+      // agent firehose through the padi ctx; `equals` dedups the redundant fires.
       urgency: {
         store: inMemoryStore(recomputeUrgency()),
         equals: urgencyEqual,
+      },
+      // The saved session — backed by the conf store kolu-server injects at boot
+      // (`requirePadiSessionStore`), until W2.2 gives padi its own state-root. The
+      // `get` reads that store DIRECTLY and normalizes an empty-terminals blob to
+      // `null` (the legacy "nothing to restore" invariant) INLINE — it must NOT
+      // delegate to `getSavedSession`, which reads THIS cell (via
+      // `padiSurfaceCtx.cells.session.get`): a `get: () => getSavedSession()` is
+      // mutually recursive and blows the stack at boot (the first `getSavedSession`
+      // is padi's boot reconcile / `parkSavedSession`). The `equals` content-dedup
+      // and the `onWrite` autosave-cancel travel WITH the writer — the surface cell
+      // otherwise publishes a fresh reference on every byte-identical re-save (which
+      // detaches the restore button mid-frame), and every write must cancel any
+      // pending `saveSession([])` autosave a stale `terminals:dirty` armed
+      // (including the e2e `test__set`, which bypasses the named `setSavedSession`).
+      session: {
+        store: {
+          get: () => {
+            const s = requirePadiSessionStore().get();
+            return s && s.terminals.length > 0 ? s : null;
+          },
+          set: (v) => requirePadiSessionStore().set(v),
+        },
+        equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+        onWrite: () => cancelPendingAutosave(),
+      },
+      // The activity feed — backed by the conf store kolu-server injects at boot.
+      // A thin lazy wrapper (not the bare store) because the store is injected
+      // AFTER this deps object is built (kolu-server boot order), so calling
+      // `requirePadiActivityFeedStore()` eagerly here would read before the set.
+      activityFeed: {
+        store: {
+          get: () => requirePadiActivityFeedStore().get(),
+          set: (v) => requirePadiActivityFeedStore().set(v),
+        },
       },
     },
 
     collections: {
       // The composed terminal record — `authored ⋈ snapshot` folded SERVER-side
-      // into one record (the client's reader-join collapses to a single read in
-      // R1). The registry is the authority, so `upsert`/`remove` are no-ops that
-      // fan out to subscribers once R1 wires the publish seam.
+      // into one record (the client reads it directly, no reader-join). The registry
+      // IS the store, so `upsert`/`remove` are no-ops here; the metadata seam
+      // (`terminalEndpoint/metadata.ts`) drives the live fan-out through the padi
+      // ctx, and this collection's keys stream is the client's terminal list.
       terminals: {
         readAll: () => registryMap<PadiTerminal>(composePadiTerminal),
         readOne: (key) => {
@@ -155,14 +197,17 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     streams: {
-      // QUIET for now — no raw byte tap yet (R9 injects the live source); the
-      // fs/git change-pulses are pure reuse of `fsGitSurfaceDeps(...).streams`.
+      // QUIET — kolu-server has no raw byte tap, so this truthfully yields the
+      // empty live set (the honest "nothing known to be moving"); the live source
+      // lands with padi's own process (W2.2). The fs/git change-pulses are pure
+      // reuse of `fsGitSurfaceDeps(...).streams`.
       activity: quietActivity,
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
       // through `reattachingDeltas`. Routed by the terminal's OWN location so a
-      // remote tile's attach reaches its host (R9.2), local today.
+      // remote tile's attach reaches its host (a remote endpoint arrives with the
+      // cross-host work); local today.
       terminalAttach: {
         source: async function* ({ id }, signal) {
           const entry = requireActiveTerminal(id);
@@ -176,9 +221,11 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     events: {
-      // Single-yield-then-close, validating existence at subscribe time — the
-      // typed NOT_FOUND lets a stale-session re-subscribe swallow itself.
-      // Identical to `koluDeps.events.terminalExit`.
+      // Terminal process exited — single-yield-then-close, validating existence
+      // at subscribe time so a stale-session re-subscribe swallows the typed
+      // NOT_FOUND. The SOLE `terminalExit` generator now: koluSurface's duplicate
+      // copy was deleted (W1 padi seam), so `local.ts`'s exit publish targets
+      // padi's ctx and the client reads `padi.events.terminalExit`.
       terminalExit: {
         source: async function* (input, signal, { bus }) {
           if (!getTerminal(input.id)) throw terminalNotFound(input.id);
@@ -195,16 +242,25 @@ export function buildPadiSurfaceDeps(deps: {
         create: ({ input }) => {
           // A sub-terminal must hang off a LIVE parent (F3) — the same
           // live-PTY narrow every per-terminal handler uses. `PadiCreateInput`
-          // omits `lastActivityAt` (padi stamps recency with its own clock).
+          // omits `lastActivityAt`: a fresh terminal seeds `lastActivityAt: 0`
+          // (via `createAuthoredActive` → `seedMemory`), and the fold stamps recency
+          // later — the client can't supply it. (Only `session.restore` threads a
+          // saved `lastActivityAt` through, via `respawnActive`, not this path.)
           if (input.parentId !== undefined)
             requireActiveTerminal(input.parentId);
-          return createTerminal(input.cwd, input.parentId, {
+          const info = createTerminal(input.cwd, input.parentId, {
             themeName: input.themeName,
             canvasLayout: input.canvasLayout,
             subPanel: input.subPanel,
             rightPanel: input.rightPanel,
             intent: input.intent,
           });
+          // FORFEIT the restore: creating a fresh terminal instead of restoring
+          // discards any parked entries boot reconcile left, so they don't linger
+          // invisibly forever. `session.restore` takes the OTHER path — it consumes
+          // each parked entry via the parked→active flip, never reaching here.
+          discardAllLocalParked();
+          return info;
         },
         kill: async ({ input }) => {
           const info = await killTerminal(input.id);

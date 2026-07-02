@@ -21,7 +21,9 @@
  * consumer reads the same singleton without per-component lookups.
  */
 
-import { surfacesWithPadi } from "@kolu/padi/surface";
+import { padiRpc, surfacesWithPadi } from "@kolu/padi/surface";
+import { unenrolledStreamCall } from "@kolu/surface/client";
+import { createSubscription, type Subscription } from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import type { contract } from "kolu-common/contract";
 import {
@@ -31,6 +33,7 @@ import {
   type RecentAgent,
   type RecentRepo,
   type SavedSession,
+  type TerminalId,
 } from "kolu-common/surface";
 import type { WebSocket as PartySocket } from "partysocket";
 import { toast } from "solid-sonner";
@@ -60,9 +63,10 @@ const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 // given too or it would fall back to its loose default and untype `conn.clients`.
 //
 // `C` and `E` are INDEPENDENT: `conn.clients` types off `E`, `conn.link` off `C`.
-// So we feed a padi-FUL `E` (`surfacesWithPadi`, which the server dual-serves at
+// So we feed a padi-FUL `E` (`surfacesWithPadi`, which the server serves at
 // `/surface/padi/*`) while keeping `C` the padi-LESS kolu-common `contract` — the
-// client thus builds an (inert) `clients.padi` with ZERO consumers, and the raw
+// client thus builds a `clients.padi` (the PRIMARY source of the terminal record,
+// urgency, daemon status, session, activity feed, and `terminalExit`), and the raw
 // `conn.link` stays typed off the unchanged root contract. Object spread preserves
 // order, so `surfacesWithPadi`'s first key is still `kolu` (the watchdog's probe
 // sibling) — no behavior change.
@@ -84,24 +88,23 @@ export { ws };
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
 // The single combined oRPC link `connectSurfaces` built (`{ surface: { kolu,
-// surfaceApp, terminalWorkspace }, server, daemon }`) — the only raw oRPC
-// procedures left at its root are `server` + `daemon` (kolu's ROOT-level
-// multiplexed procedures, the reason kolu needs the combined link back from the
-// seam; the `terminal`/`git` roots were deleted at W1.R7); the sibling surfaces
-// live under `surface.<key>`. Typed off `typeof contract`, so `client` below is
-// fully typed.
+// surfaceApp }, server, daemon }`) — the only raw oRPC procedures left at its root
+// are `server` + `daemon` (kolu's ROOT-level multiplexed procedures, the reason
+// kolu needs the combined link back from the seam; the `terminal`/`git` roots were
+// deleted at W1.R7); the sibling surfaces live under `surface.<key>`. Typed off
+// `typeof contract`, so `client` below is fully typed.
 const link = conn.link;
 
-// kolu serves THREE sibling surfaces over one transport (kolu#1197); `connectSurfaces`
-// scopes each per-key client to its slice (`{ surface: link.surface[key] }`) so its
-// primitives resolve at the wire path `/surface/<key>/<prim>/<verb>` that
-// `implementSurfaces` serves.
+// kolu serves TWO sibling surfaces over one transport (kolu#1197) — plus the
+// server-added `padi` sibling; `connectSurfaces` scopes each per-key client to its
+// slice (`{ surface: link.surface[key] }`) so its primitives resolve at the wire
+// path `/surface/<key>/<prim>/<verb>` that `implementSurfaces` serves.
 //
 // kolu deliberately does NOT fold these siblings via `surfaceClientsHealth` (the
 // Leak-D multi-surface fact) — it ignores `conn.health`. kolu surfaces subscription
 // failure PER CELL, colocated — each `.use({ onError })` below raises its own
 // `toast.error` next to the state it owns (preferences / activityFeed / session /
-// terminalList) — which is the house style (`.claude/rules/toast-conventions.md`:
+// terminal list) — which is the house style (`.claude/rules/toast-conventions.md`:
 // "colocated, not centralized"). A single global "is the app healthy?" gate is the
 // wrong shape for a terminal workspace, where one degraded cell must not blank the
 // canvas. The fold ships for a consumer whose control plane WANTS one answer:
@@ -109,10 +112,10 @@ const link = conn.link;
 // `MultiHostApp` control-plane strip); `surfaceClient.health.test.ts` pins the fold.
 const clients = conn.clients;
 
-/** kolu's OWN surface client — `app.cells.preferences.use(...)`,
- *  `app.cells.activityFeed.use(...)`, `app.cells.terminalList.use(...)`, etc.
- *  Every `app.*` call site reaches kolu's own NON-terminal primitives; the
- *  terminal record, urgency, and daemon status ride `padi.*` after W1.R. */
+/** kolu's OWN surface client — `app.cells.preferences.use(...)` and
+ *  `app.cells.processMemory.use(...)`. Those two cells are all koluSurface owns
+ *  now; the terminal record, urgency, daemon status, session, activity feed, and
+ *  the `terminalExit` event ride `padi.*`. */
 export const app = clients.kolu;
 
 /** surface-app's surface client — the build-identity `buildInfo` cell (read via
@@ -122,23 +125,14 @@ export const app = clients.kolu;
  *  path). Handed to `<SurfaceAppProvider controlPlane=...>` + `createServerLifecycle`. */
 export const surfaceApp = clients.surfaceApp;
 
-/** The GENERIC `@kolu/terminal-workspace` surface client — the SAME awareness
- *  surface `pulam` serves, which kolu-server still serves (its `snapshots`
- *  collection + version + activity) for pulam parity. W1.R moved kolu's OWN
- *  per-terminal record read off this client onto padi's SERVER-composed
- *  `terminals` collection (see `padi` below), so the browser no longer joins the
- *  snapshot + authored halves at read time — the join is done server-side in
- *  `@kolu/padi`. */
-export const workspace = clients.terminalWorkspace;
-
 /** The `@kolu/padi` surface client (`padiSurface` served natively beside the
- *  siblings). W1.R migrated the terminal domain's readers onto it one member per
- *  commit: `padi.collections.terminals` (the composed record), `.daemonStatus`
- *  (kaval liveness), `padi.cells.status` (the expected-kaval axis) + `.urgency`,
- *  and every lifecycle/chrome/screen/fs/git/session procedure via
- *  `padiRpc(padi)`. Its subscriptions ride the SAME socket as `app` (siblings
- *  over one transport), so `app.health().live` is the shared-socket liveness for
- *  padi's members too. */
+ *  siblings) — the PRIMARY source of every terminal-derived member:
+ *  `padi.collections.terminals` (the composed record + the terminal-list keys
+ *  stream), `.daemonStatus` (kaval liveness), `padi.cells.status`/`.urgency`/
+ *  `.session`/`.activityFeed`, the `padi.events.terminalExit` event, and every
+ *  lifecycle/chrome/screen/fs/git/session procedure via `padiRpc(padi)`. Its
+ *  subscriptions ride the SAME socket as `app` (siblings over one transport), so
+ *  `app.health().live` is the shared-socket liveness for padi's members too. */
 export const padi = clients.padi;
 
 /** Convenience alias — the FULL combined link. `client.server.info(...)` /
@@ -190,7 +184,8 @@ export function updatePreferences(
     );
 }
 
-const _activityFeed = app.cells.activityFeed.use({
+// Activity feed + saved session ride `padi` now (they relocated off koluSurface).
+const _activityFeed = padi.cells.activityFeed.use({
   onError: (err) =>
     toast.error(`Activity feed subscription error: ${err.message}`),
 });
@@ -199,7 +194,7 @@ export const recentRepos = (): RecentRepo[] =>
 export const recentAgents = (): RecentAgent[] =>
   _activityFeed.value()?.recentAgents ?? [];
 
-const _savedSession = app.cells.session.use({
+const _savedSession = padi.cells.session.use({
   onError: (err) =>
     toast.error(`Saved-session subscription error: ${err.message}`),
 });
@@ -208,9 +203,25 @@ export const savedSession = (): SavedSession | null =>
   _savedSession.value() ?? null;
 export const savedSessionSub = _savedSession.sub;
 
-// Live terminal list — server-driven on create/kill.
-const _terminalList = app.cells.terminalList.use({
-  onError: (err) => toast.error(`Terminal list error: ${err.message}`),
-});
-/** Subscription handle for the live terminal list. */
-export const terminalListSub = _terminalList.sub;
+// Live terminal list — DERIVED from padi's `terminals` collection keys stream (the
+// `terminalList` cell was retired: the collection IS the terminal-membership source
+// now). The keys stream yields the full id set in server (Map-insertion) order,
+// snapshot-first then membership deltas on create/kill. We shape each id as
+// `{ id }` so the `.map(t => t.id)` / `for (const t of …)` consumers stay
+// unchanged, and preserve the `Subscription` contract (`()`, `.pending`, `.error`)
+// they read. `unenrolledStreamCall` carries STREAM_RETRY (transparent re-subscribe
+// on reconnect, the same snapshot-then-deltas re-seed every surface stream gets);
+// it is deliberately un-enrolled because kolu ignores the fold health gate and
+// surfaces failure per-cell (the `onError` toast).
+const _terminalKeys = createSubscription<TerminalId[]>(
+  () => unenrolledStreamCall(padiRpc(padi).surface.terminals.keys, undefined),
+  { onError: (err) => toast.error(`Terminal list error: ${err.message}`) },
+);
+/** Subscription handle for the live terminal list — `{ id }` rows in server order,
+ *  derived from padi's `terminals` collection keys. Consumers read `.map(t => t.id)`
+ *  / `.pending()` exactly as they did the retired `terminalList` cell. */
+export const terminalListSub: Subscription<{ id: TerminalId }[]> =
+  Object.assign(() => _terminalKeys()?.map((id) => ({ id })), {
+    pending: _terminalKeys.pending,
+    error: _terminalKeys.error,
+  });

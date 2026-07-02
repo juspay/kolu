@@ -35,11 +35,6 @@ import {
 } from "./padiSurfaceCtx.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
 import { restoreSession } from "./sessionRestore.ts";
-import {
-  __resetSurfaceCtxForTest,
-  noopSurfaceCtxForTest,
-  setSurfaceCtx,
-} from "./surfaceCtx.ts";
 import { setKoluServerProcessId } from "./koluRoot.ts";
 import { seedParkedTerminal } from "./terminalEndpoint/local.ts";
 import {
@@ -111,10 +106,11 @@ function savedSession(): SavedSession {
   };
 }
 
-/** A surface ctx whose `session` cell is a real in-memory store (so
- *  `setSavedSession` / `getSavedSession` round-trip), everything else no-op. */
-function sessionBackedCtx(): ReturnType<typeof noopSurfaceCtxForTest> {
-  const base = noopSurfaceCtxForTest();
+/** A PADI surface ctx whose `session` cell is a real in-memory store (so
+ *  `setSavedSession` / `getSavedSession` — which read `padiSurfaceCtx.cells.session`
+ *  now — round-trip), everything else no-op. */
+function sessionBackedPadiCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
+  const base = noopPadiSurfaceCtxForTest();
   let session: SavedSession | null = null;
   return {
     ...base,
@@ -130,7 +126,7 @@ function sessionBackedCtx(): ReturnType<typeof noopSurfaceCtxForTest> {
             }
           : (base.cells as Record<string, unknown>)[name as string],
     }),
-  } as ReturnType<typeof noopSurfaceCtxForTest>;
+  } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
 }
 
 /** The live active entry seeded at `cwd` (fresh spawn re-observes cwd off
@@ -153,8 +149,7 @@ function clearRegistry(): void {
 }
 
 beforeEach(() => {
-  setSurfaceCtx(sessionBackedCtx());
-  setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
+  setPadiSurfaceCtx(sessionBackedPadiCtx());
 });
 
 afterEach(async () => {
@@ -162,7 +157,6 @@ afterEach(async () => {
   // test seeds a fresh ctx.
   await new Promise((r) => setTimeout(r, 0));
   clearRegistry();
-  __resetSurfaceCtxForTest();
   __resetPadiSurfaceCtxForTest();
 });
 
