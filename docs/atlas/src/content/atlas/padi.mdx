@@ -4,7 +4,7 @@ description: The architecture that replaces the R9/R10 finale plan for remote te
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-07-01
+updated: 2026-07-02
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -22,10 +22,10 @@ export const ROADMAP = [
   { d: 1, g: "✓", c: "ship", l: "overflow frame — typed overflow → re-attach on kaval's attach contract", m: "#1591 · kaval 5.0", h: "#w0" },
   { d: 1, g: "✓", c: "ship", l: "#1637–#1640 closed · finale superseded", m: "2026-07-01", h: "#w0" },
   { d: 1, g: "✓", c: "ship", l: "freeze terminalWorkspaceSurface at 3.0 · retire pulam-web", m: "#1650", h: "#w0" },
-  { d: 0, g: "○", c: "prog", l: "W1 · the padi seam, in place — ONE PR; commit stages contract → motion → rewiring", m: "1 PR ↓", h: "#w1" },
-  { d: 1, g: "○", c: "prog", l: "W1.C · the contract — packages/padi born: padiSurface 1.0 + control core + tests", m: "stage · #1651's good half", h: "#w1c" },
-  { d: 1, g: "○", c: "prog", l: "W1.M · the motion — the terminal domain relocates into @kolu/padi (severing commits named)", m: "stages · skim", h: "#w1m" },
-  { d: 1, g: "○", c: "prog", l: "W1.R · the rewiring — serve complete · client onto the surface · root RPC dies · seal", m: "stages · one member per commit", h: "#w1r" },
+  { d: 0, g: "✓", c: "ship", l: "W1 · the padi seam, in place — ONE PR; commit stages contract → motion → rewiring", m: "#1652 · 2026-07-02", h: "#w1" },
+  { d: 1, g: "✓", c: "ship", l: "W1.C · the contract — packages/padi born: padiSurface 1.0 + control core + tests", m: "in #1652", h: "#w1c" },
+  { d: 1, g: "✓", c: "ship", l: "W1.M · the motion — the terminal domain relocates into @kolu/padi (severing commits named)", m: "in #1652", h: "#w1m" },
+  { d: 1, g: "✓", c: "ship", l: "W1.R · the rewiring — serve complete · client onto the surface · root RPC dies · seal", m: "in #1652", h: "#w1r" },
   { d: 0, g: "○", c: "prog", l: "W2 · padi the process — 4 PRs ↓ · byte-identical · warm restarts", m: "needs W1", h: "#w2" },
   { d: 1, g: "○", c: "prog", l: "W2.1 · the re-serve machinery in @kolu/surface* — forwarding policy · per-binding scope", m: "drishti-gated · ∥ with W1", h: "#w21" },
   { d: 1, g: "○", c: "prog", l: "W2.2 · the padi binary — identity · rendezvous · control core · owns kaval · Nix/staleKey", m: "zero kolu consumers", h: "#w22" },
@@ -63,9 +63,9 @@ export const SubDots = ({ items }) => (
 export const LENS = [
   { p: "W0", h: "#w0", done: true, user: "nothing new", vis: false, work: 1, why: "deletions + one shipped kaval rev",
     beh: "a shed slow tab now recovers instead of freezing (shows only when it fires); kaval 4.x survivors recycled once at the 5.0 upgrade", sub: null },
-  { p: "W1", h: "#w1", user: "nothing — pixels byte-identical, pinned by tests", vis: false, work: 4, why: "the client re-wired member-by-member; the root RPC namespace dies; one new contract",
+  { p: "W1", h: "#w1", done: true, user: "nothing — pixels byte-identical, pinned by tests", vis: false, work: 4, why: "the client re-wired member-by-member; the root RPC namespace dies; one new contract",
     beh: "same process, but the rewiring stages (ΔR) shift the data-flow profiles — timestamps become server-stamped · Code tab goes push → pulse-then-requery · preview bytes ride a range-capable procedure, not the raw HTTP route · restore executes server-side (the respawn race is gone); C and M are behaviour-inert by construction",
-    sub: [["C",2],["M",2],["R",4,true]] },
+    sub: [["C",2,false,true],["M",2,false,true],["R",4,true,true]] },
   { p: "W2", h: "#w2", user: "nothing — except kolu-server restarts stop losing terminal metadata", vis: false, work: 5, why: "process split · new daemon identity · re-serve machinery (drishti-gated) · store migration",
     beh: "the behaviour cliff, behind identical pixels — Δ2.2 a second daemon appears; sockets go digest-keyed (kaval-<port> retires) · Δ2.3 attach gains a hop (p99 budget < 5ms); boot becomes padi-adopts-then-kolu-binds; the session file moves (one-shot import) · Δ2.4 `pulam-tui wait` → padi's wait",
     sub: [["2.1",4],["2.2",4,true],["2.3",5,true],["2.4",2,true]] },
@@ -189,6 +189,8 @@ The four restore flows, each owned by the layer that knows:
 3. **kolu-server restarts**: nothing happens to terminals at all — padi's registry stays warm (strictly better than today, where every restart re-derives all metadata). The browser reconnects and rebinds; the canvas is byte-identical.
 4. **Browser reload / device switch**: pure re-subscribe. The client no longer contains respawn logic of any kind; a reload against a rebooted *remote* host lands in flow 2 on that host's padi, same as local.
 
+Two invariants the W1 shipping gauntlet added, each pinned by a red-when-reverted test (`reattach.test.ts`, `restartLocal.test.ts`): **a non-user session writer can never null or shrink a non-empty saved blob** — parked entries freeze the autosave, and the restart's capture→drain→park critical section freezes it entirely (the gap where the registry is transiently empty and no parked entries exist yet — the zest clobber); and **an adopted daemon that is not our recorded survivor** (pairing identity compared by `startedAt`; `undefined`-safe on a first boot) **is a no-survivor boot in disguise** — preserve + park, never converge-to-empty.
+
 <a id="padisurface"></a>
 
 ### padiSurface — one contract, with per-member forwarding semantics
@@ -209,7 +211,7 @@ The contract's one structural novelty, forced by the adversarial review: **membe
 ## Implementation details
 
 <Phase id="W0" name="decks cleared — freeze the old contract, retire pulam-web, land the overflow frame, close the PRs" status="done" />
-<Phase id="W1" name="the padi seam, in place — padiSurface served in-process, client migrated, root oRPC dispositioned" status="todo" needs={["W0"]} />
+<Phase id="W1" name="the padi seam, in place — padiSurface served in-process, client migrated, root oRPC dispositioned" status="shipped" needs={["W0"]} links={[{ label: "#1652", href: "https://github.com/juspay/kolu/pull/1652" }]} />
 <Phase id="W2" name="padi the process — state-root identity, owns kaval, on-host persistence; kolu-server binds + re-serves" status="todo" needs={["W1"]} />
 <Phase id="W3" name="remote + the switch — ssh/Nix leg, host picker, per-view bindings, cross-host badges" status="todo" needs={["W2"]} />
 <Phase id="W4" name="demand-driven — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W3"]} />
@@ -234,7 +236,9 @@ The contract's one structural novelty, forced by the adversarial review: **membe
 
 <a id="w1"></a>
 
-### W1 — the padi seam, in place *(ONE PR; commit stages contract → motion → rewiring; UX byte-identical at the head)*
+### W1 — the padi seam, in place — *shipped* <PrLink pr={1652} /> *(ONE PR; commit stages contract → motion → rewiring)*
+
+**Shipped 2026-07-02** as planned — one PR, the C/M/R commit structure, no backings adapter ever, the seal's five arms green, UX byte-identical, two-platform CI. The shipping gauntlet (a 5-lens review + a real-world incident on a deployed host) added three **session-loss fixes, each reproduced red-first** and pinned by a red-when-reverted test: (1) a boot that *adopts* a replaced, empty kaval (not our recorded survivor — pairing identity by `startedAt`, persisted in the conf store) now **preserves + parks** instead of converging the saved session to null; (2) a `create` while parked entries stand in for the restore no longer forfeits them — forfeit is deliberate, and the autosave can never shrink a blob that parked entries represent; (3) the in-app **Restart kaval** path's drain→park gap — where a drain-armed autosave fired on the transiently-empty registry and nulled the just-captured session (the zest incident, diagnosed from a deployed log-only trace) — is closed by **freezing the autosave across the restart critical section** (set at capture, lifted after park, `cancelPendingAutosave` on the failure path). The session lifecycle now carries **permanent `session-trace` diagnostics** (every `writeSession(null)` logs a stack — the destructive write is never silent). The one owed artifact: the **typing-echo latency baseline** (a quiet-box run) — it trailed the merge and **must exist before W2.2 starts**. koluSurface's residue: exactly `preferences` + `processMemory`.
 
 Define **`padiSurface` 1.0**, relocate the terminal domain into **`packages/padi`** (born at W1.C — location is structure: code destined for padi camping in `packages/server` would make the seal a bespoke test fighting gravity, and W2.2 a double move), then rewire the client onto the surface. The phase proves one path — *the client runs entirely on padiSurface + the shell surface, with the in-process server behind the same contract a remote padi will serve* — sealed at the end of W1.R.
 
