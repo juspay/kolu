@@ -59,6 +59,7 @@ import { useRightPanel } from "./right-panel/useRightPanel";
 import { wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
+import { createImportSessionAction } from "./importSessionAction";
 import { exportSession, importSession } from "./sessionTransfer";
 import TipBanner from "./settings/TipBanner";
 import { useColorScheme } from "./settings/useColorScheme";
@@ -191,6 +192,20 @@ const App: Component = () => {
     setCloseConfirmTarget({ id, meta, splitCount, worktreeRemoval });
   }
 
+  // Import runs host-side now (padi is the one restore writer): replace the
+  // persisted session with the picked blob and restore it in one RPC. The
+  // client-side view-state seeds via the hydration effect once the restored
+  // terminals arrive, exactly as `session.restore` does. The re-entry guard +
+  // loading/success/error toast round-trip live in `createImportSessionAction`
+  // (a plain closure, so it doesn't spend the shell's reactive-primitive
+  // budget; see App.shell.test.ts). Created once at setup so the in-flight
+  // guard persists across invocations.
+  const runImportSession = createImportSessionAction({
+    pick: importSession,
+    runImport: ({ session }) =>
+      padiRpc(padi).surface.session.import({ session }),
+  });
+
   const commands = createCommands({
     ...actionContext,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
@@ -214,14 +229,7 @@ const App: Component = () => {
     },
     handleResetActiveTileSize: arrange.resetActiveTileSize,
     handleExportSession: () => exportSession(serverSavedSession()),
-    handleImportSession: () =>
-      void importSession().then(
-        // Import runs host-side now (padi is the one restore writer): replace the
-        // persisted session with the picked blob and restore it in one RPC. The
-        // client-side view-state seeds via the hydration effect once the restored
-        // terminals arrive, exactly as `session.restore` does.
-        (s) => s && padiRpc(padi).surface.session.import({ session: s }),
-      ),
+    handleImportSession: () => void runImportSession(),
     simulateAlert: alerts.simulateAlert,
     canvasCenterActive: arrange.centerActive,
     canvasAutoArrange: arrange.handleCanvasAutoArrange,

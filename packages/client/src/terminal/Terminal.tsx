@@ -34,7 +34,7 @@ import "@xterm/xterm/css/xterm.css";
 import { padiRpc } from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
-import type { TerminalId } from "kolu-common/surface";
+import { activeArm, type TerminalId } from "kolu-common/surface";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { FONT_FAMILY } from "terminal-themes";
 import {
@@ -71,6 +71,7 @@ import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalActivity } from "./useTerminalActivity";
 import { useTerminalStore } from "./useTerminalStore";
+import { deliverScratchPaste } from "./pasteDelivery";
 import {
   trackCreate,
   trackDispose,
@@ -973,16 +974,23 @@ const Terminal: Component<{
           // recomposition of the old server `pasteImage`/`uploadFile` handlers
           // (`scratch.write` + `lifecycle.sendInput`). The size gate stays a
           // client precheck on each caller (below), matching the old
-          // BAD_REQUEST behavior.
+          // BAD_REQUEST behavior. `sendInput` quiet-drops on a terminal that
+          // is no longer active, so `deliverScratchPaste` re-checks liveness
+          // between the write and the send and throws otherwise — the caller's
+          // catch turns that into a toast.error instead of a silent drop.
           async function writeScratchAndPaste(name: string, base64: string) {
-            const { path } = await padiRpc(padi).surface.scratch.write({
+            await deliverScratchPaste({
               terminalId: props.terminalId,
               name,
-              data: base64,
-            });
-            await padiRpc(padi).surface.lifecycle.sendInput({
-              id: props.terminalId,
-              data: `${BRACKETED_PASTE_START}${path}${BRACKETED_PASTE_END}`,
+              base64,
+              scratchWrite: (args) => padiRpc(padi).surface.scratch.write(args),
+              isActive: () =>
+                activeArm(terminalStore.getMetadata(props.terminalId)) !==
+                undefined,
+              sendInput: (args) =>
+                padiRpc(padi).surface.lifecycle.sendInput(args),
+              wrapPath: (path) =>
+                `${BRACKETED_PASTE_START}${path}${BRACKETED_PASTE_END}`,
             });
           }
 
