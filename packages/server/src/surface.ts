@@ -87,7 +87,8 @@ const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 // kolu-server serves a SUPERSET contract locally: the padi-less kolu-common
 // `contract` (which the client consumes, byte-for-byte unchanged) PLUS the
 // `padi` sibling. Spreading the already-built `contract` carries over its root
-// namespaces (`server`/`terminal`/`daemon`/`git`) and its 3-sibling `surface`;
+// namespaces (`server`/`daemon` — `terminal`/`git` were deleted at W1.R7, their
+// mutations now on `padiSurface`) and its 3-sibling `surface`;
 // the second spread of `composeSurfaceContracts(surfacesWithPadi)` then WIDENS
 // `surface` to four siblings (adds `padi`). This is the same spread idiom
 // `packages/common/src/contract.ts` assembles itself with — that file stays
@@ -99,8 +100,9 @@ const servedContract = oc.router({
 
 // `t` is the host router builder against the SERVED (superset) contract; both
 // `surfaceRouter` and the raw oRPC handlers in `router.ts` plug procedures into
-// it. Exported so `router.ts` can call `t.terminal.create.handler(...)` etc.
-// against the same builder — every root procedure survives the widening.
+// it. Exported so `router.ts` can call `t.server.info.handler(...)` /
+// `t.daemon.restart.handler(...)` against the same builder — every surviving
+// root procedure (only `server`/`daemon` after W1.R7) survives the widening.
 export const t = implement(servedContract);
 
 // ── Stores (Conf-backed; one slot per persisted cell) ──────────────────

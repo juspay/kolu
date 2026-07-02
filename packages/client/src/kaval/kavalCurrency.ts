@@ -11,8 +11,8 @@ import type { DaemonState } from "kolu-common/surface";
  *  would spawn (B3.4 — "update pending"): the link is `live`, it's `connected`, both
  *  build-ids are known (non-empty), and they differ.
  *
- *  Keyed on the closure-hash `staleKey` — the `expected` from the server's
- *  `buildInfo.expectedKaval`, the `reported` from the connected daemon's
+ *  Keyed on the closure-hash `staleKey` — the `expected` from padiSurface's
+ *  `status.expectedKaval` cell, the `reported` from the connected daemon's
  *  `daemonStatus.identity` — NEVER the per-deploy `navigableCommit`, so a
  *  server-/client-only deploy (which leaves kaval's staleKey bit-identical) never
  *  nudges (#1034). Off-nix both ids are "" (nix-first, no dev fallback) → silent.

@@ -9,10 +9,11 @@
  *   - `app.rpc` — the scoped link slice (`{ surface: link.surface.kolu }`);
  *     surface-managed procedures resolve through it.
  *
- * Raw oRPC procedures (`terminal`, `git`, `server`) live at the ROOT of the
- * full combined link, exported as `client` — `client.terminal.create(...)`,
- * `client.git.worktreeCreate(...)`, `client.server.info(...)`. They are NOT
- * on `app.rpc`.
+ * The only raw oRPC procedures left at the ROOT of the full combined link
+ * (exported as `client`) are `server` + `daemon` — `client.server.info(...)`,
+ * `client.daemon.restart(...)`. The root `terminal.*` / `git.*` namespaces were
+ * DELETED at W1.R7; terminal/git mutations now go through
+ * `padiRpc(padi).surface.*` (padiSurface). None of these are on `app.rpc`.
  *
  * The `preferences` / `recentRepos` / `savedSession` accessors below
  * collapse what used to be hand-rolled `usePreferences` / `useActivityFeed`
@@ -83,11 +84,12 @@ export { ws };
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
 // The single combined oRPC link `connectSurfaces` built (`{ surface: { kolu,
-// surfaceApp, terminalWorkspace }, server, terminal, git }`) — the raw oRPC
-// procedures (`terminal`, `git`, `server`) live at its root (kolu's ROOT-level
+// surfaceApp, terminalWorkspace }, server, daemon }`) — the only raw oRPC
+// procedures left at its root are `server` + `daemon` (kolu's ROOT-level
 // multiplexed procedures, the reason kolu needs the combined link back from the
-// seam); the three sibling surfaces live under `surface.<key>`. Typed off
-// `typeof contract`, so `client` below is fully typed.
+// seam; the `terminal`/`git` roots were deleted at W1.R7); the sibling surfaces
+// live under `surface.<key>`. Typed off `typeof contract`, so `client` below is
+// fully typed.
 const link = conn.link;
 
 // kolu serves THREE sibling surfaces over one transport (kolu#1197); `connectSurfaces`
@@ -120,12 +122,13 @@ export const app = clients.kolu;
  *  path). Handed to `<SurfaceAppProvider controlPlane=...>` + `createServerLifecycle`. */
 export const surfaceApp = clients.surfaceApp;
 
-/** The GENERIC `@kolu/terminal-workspace` surface client — kolu reads the
- *  per-terminal `awareness` collection here
- *  (`workspace.collections.snapshots.use(...)`) and joins each value with the
- *  matching `kolu.authored` record in `useTerminalMetadata`. This is the SAME
- *  surface `pulam` serves, so R9 (remote awareness) becomes a pure backing-swap
- *  behind this one collection — no second client read path to migrate. */
+/** The GENERIC `@kolu/terminal-workspace` surface client — the SAME awareness
+ *  surface `pulam` serves, which kolu-server still serves (its `snapshots`
+ *  collection + version + activity) for pulam parity. W1.R moved kolu's OWN
+ *  per-terminal record read off this client onto padi's SERVER-composed
+ *  `terminals` collection (see `padi` below), so the browser no longer joins the
+ *  snapshot + authored halves at read time — the join is done server-side in
+ *  `@kolu/padi`. */
 export const workspace = clients.terminalWorkspace;
 
 /** The `@kolu/padi` surface client (`padiSurface` served natively beside the
@@ -138,9 +141,11 @@ export const workspace = clients.terminalWorkspace;
  *  padi's members too. */
 export const padi = clients.padi;
 
-/** Convenience alias — the FULL combined link. `client.terminal.create(...)`,
- *  `client.git.worktreeCreate(...)`, `client.server.info(...)` reach the raw oRPC
- *  procedures at the link root; `client.surface.kolu.preferences.patch(...)` /
+/** Convenience alias — the FULL combined link. `client.server.info(...)` /
+ *  `client.daemon.restart(...)` reach the only raw oRPC procedures left at the
+ *  link root (the `terminal.*` / `git.*` roots were deleted at W1.R7 — those
+ *  mutations go through `padiRpc(padi).surface.*`);
+ *  `client.surface.kolu.preferences.patch(...)` /
  *  `client.surface.surfaceApp.identity.info(...)` reach the sibling surfaces.
  *  (Note: the surface-bound `.use(...)` hooks come off `app`/`surfaceApp`, which
  *  wrap a SCOPED slice of this same link.) */
