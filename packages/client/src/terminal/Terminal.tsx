@@ -797,19 +797,21 @@ const Terminal: Component<{
           // fresh snapshot first too. The snapshot is still WRITTEN to xterm;
           // only the activity ping is suppressed.
           const snapshotBoundary = createSnapshotBoundary();
-          // Carve-out (Leak A): `terminal.attach` is a ROOT RPC stream, NOT a
-          // surface subscription — `client` is the combined link root, not a
-          // `surfaceClient`, so there is no surface `health()` this belongs to. Its
-          // health is the terminal's OWN concern, surfaced in-pane (a reset +
-          // visible retry on `onRetry`, the snapshot re-armed), not folded into a
-          // fleet/host gate. So it deliberately uses `unenrolledStreamCall`
-          // (`@kolu/surface/client`) rather than `client.rawStream`'s structural
-          // enrolment — and the `unenrolled-` name makes that a visible decision at
-          // the call site, not a forgotten enrol.
+          // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
+          // (`padiSurface.streams.terminalAttach`), but its health is the
+          // terminal's OWN concern — surfaced in-pane (a reset + visible retry on
+          // `onRetry`, the snapshot re-armed), not folded into padi's fleet/host
+          // `health()` gate. A single terminal's re-attach (overflow re-attach
+          // #1591, PTY exit) must never flicker the global connection-health
+          // indicator. So it deliberately uses `unenrolledStreamCall`
+          // (`@kolu/surface/client`) — the bare, un-enrolled call — rather than
+          // `padi.rawStream`'s structural health enrolment, and the `unenrolled-`
+          // name makes that a visible decision at the call site, not a forgotten
+          // enrol.
           consumeStream(
             () =>
               unenrolledStreamCall(
-                client.terminal.attach,
+                padiRpc(padi).surface.terminalAttach.get,
                 { id: props.terminalId },
                 {
                   signal,

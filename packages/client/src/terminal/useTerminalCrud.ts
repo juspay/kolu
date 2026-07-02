@@ -19,7 +19,7 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
-import { client, padi, preferences } from "../wire";
+import { padi, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -330,7 +330,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     if (id === null) return;
     let text: string;
     try {
-      text = await client.terminal.screenText({ id });
+      text = await padiRpc(padi).surface.screen.text({ id });
     } catch (err) {
       console.error("Failed to read terminal text:", err);
       toast.error(`Failed to read terminal text: ${(err as Error).message}`);
