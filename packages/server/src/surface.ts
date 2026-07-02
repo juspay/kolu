@@ -70,22 +70,21 @@ import { isBinaryPreviewable } from "kolu-common/preview";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import { publisher } from "./publisher.ts";
-import { cancelPendingAutosave, getSavedSession } from "./session.ts";
-import { store } from "./state.ts";
-import { setSurfaceCtx } from "./surfaceCtx.ts";
-import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
 import {
+  cancelPendingAutosave,
+  getSavedSession,
   getTerminal,
   listTerminals,
-  registryMap,
-  terminalNotFound,
-} from "./terminal-registry.ts";
-import {
+  publisher,
   readDaemonStatus,
   readDaemonStatuses,
-} from "./ptyHost/daemonStatus.ts";
-import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
+  registryMap,
+  resolveTerminalEndpoint,
+  setSurfaceCtx,
+  setWorkspaceSurfaceCtx,
+  terminalNotFound,
+} from "@kolu/padi/assembly";
+import { store } from "./state.ts";
 // kaval's OWN identity assembler — read in the SERVER process it returns the
 // server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
 // spawn), i.e. the *expected* kaval. Distinct from the connected daemon's

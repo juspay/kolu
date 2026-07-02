@@ -34,31 +34,31 @@ import {
   previewTailFromRawUrl,
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
-import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
-import { log } from "./log.ts";
-import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { publisherSize } from "./publisher.ts";
-import {
-  publishDaemonStatus,
-  readDaemonStatus,
-} from "./ptyHost/daemonStatus.ts";
-import {
-  ensureLocalEndpoint,
-  LOCAL_HOST_ID,
-  ptyHostClient,
-} from "./ptyHost/index.ts";
-import { surfaceCtx } from "./surfaceCtx.ts";
-import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
-import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
-import { pwaIdentityForHostname } from "./pwaIdentity.ts";
-import { appRouter } from "./router.ts";
-import { initSessionAutoSave } from "./session.ts";
-import { snapshotFor } from "./terminal-registry.ts";
 import {
   activeTerminalCount,
+  adoptSurvivingSession,
   countActiveClaudeSessions,
+  ensureKoluRoot,
+  ensureLocalEndpoint,
+  initSessionAutoSave,
+  LOCAL_HOST_ID,
+  ptyHostClient,
+  publishDaemonStatus,
+  publisherSize,
+  readDaemonStatus,
+  setKoluServerProcessId,
+  setSpawnServerVersion,
+  shutdownCleanup,
+  snapshotFor,
   snapshotSession,
-} from "./terminals.ts";
+  startInventoryReconciler,
+  surfaceCtx,
+} from "@kolu/padi/assembly";
+import { log as padiLog } from "@kolu/padi/log";
+import { log } from "./log.ts";
+import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { appRouter } from "./router.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({
@@ -112,10 +112,23 @@ const PWA_BACKGROUND_COLOR = "#0c0c0e";
 // from the `Host` it forwards. See `gateWsOrigin` / `gateHttpRpcOrigin` below.
 const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
 
+// Inject the two server-owned identities the relocated terminal domain (now in
+// @kolu/padi) needs, BEFORE anything in it runs: the shared per-process id (also
+// the log serverId, surface identity.info.processId, and stale-tab gate) that
+// names koluRoot's on-disk dir, and the app version stamped as the spawned PTY's
+// TERM_PROGRAM_VERSION. Padi does not import kolu-server, so the arrow stays out.
+setKoluServerProcessId(serverProcessId);
+setSpawnServerVersion(serverVersion);
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
-if (argv.flags.verbose) log.level = "debug";
+// `--verbose` must drop BOTH loggers to debug — the server's own and padi's
+// (which the relocated domain code logs through), else moved-code debug lines
+// are silently dropped.
+if (argv.flags.verbose) {
+  log.level = "debug";
+  padiLog.level = "debug";
+}
 
 const app = new Hono();
 

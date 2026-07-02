@@ -9,6 +9,7 @@
   "types": "./src/surface.ts",
   "exports": {
     "./surface": "./src/surface.ts",
+    "./assembly": "./src/assembly.ts",
     "./log": "./src/log.ts"
   },
   "scripts": {
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vitest": "^4.1.0"
   }

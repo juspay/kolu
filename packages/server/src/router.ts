@@ -26,28 +26,19 @@ import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
-import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
-import { pwaIdentityForHostname } from "./pwaIdentity.ts";
-import { surfaceRouter, t } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
+  createTerminal,
+  discardLocalSleeping,
   getActiveTerminal,
   getTerminal,
-  requireActiveTerminal,
-  terminalNotFound,
-  type TerminalProcess,
-} from "./terminal-registry.ts";
-import {
-  discardLocalSleeping,
-  seedSleepingTerminal,
-  wakeLocalTerminal,
-} from "./terminalEndpoint/local.ts";
-import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-import { saveTerminalFile } from "./terminalScratch.ts";
-import {
-  createTerminal,
   killAllTerminals,
   killTerminal,
+  requireActiveTerminal,
+  resolveTerminalEndpoint,
+  restartLocalDaemon,
+  saveTerminalFile,
+  seedSleepingTerminal,
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,
@@ -56,7 +47,12 @@ import {
   setTerminalParent,
   setTerminalTheme,
   sleepTerminal,
-} from "./terminals.ts";
+  terminalNotFound,
+  type TerminalProcess,
+  wakeLocalTerminal,
+} from "@kolu/padi/assembly";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { surfaceRouter, t } from "./surface.ts";
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
 function requireTerminal(id: string): TerminalProcess {

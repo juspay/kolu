@@ -694,6 +694,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -796,6 +799,9 @@ importers:
       '@kolu/heap-diag':
         specifier: workspace:*
         version: link:../heap-diag
+      '@kolu/padi':
+        specifier: workspace:*
+        version: link:../padi
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir

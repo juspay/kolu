@@ -14,20 +14,38 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serverProcessId } from "./hostname.ts";
 
 const runtimeRoot = process.env.XDG_RUNTIME_DIR ?? tmpdir();
 
+/** The shared per-process server id, INJECTED at boot by
+ *  {@link setKoluServerProcessId} rather than derived here. It is ONE id shared
+ *  by four consumers (this root's dir name, the server log's `serverId`,
+ *  `surface.ts`'s `identity.info.processId`, and index.ts's stale-tab gate), so
+ *  padi must reuse the server's id — not fork its own — while the dependency
+ *  arrow still points out of `packages/server` (no `./hostname.ts` import). */
+let serverProcessId = "";
+
 /** Per-server-instance root. Everything kolu's server writes to disk for
- *  transient per-terminal use lives under here. */
-export const koluRoot = join(runtimeRoot, `kolu-${serverProcessId}`);
+ *  transient per-terminal use lives under here. Derived once
+ *  {@link setKoluServerProcessId} runs at the very top of boot. */
+export let koluRoot = "";
 
 /** Injected bash rc files and zsh ZDOTDIRs, one pair per spawned terminal. */
-export const koluShellDir = join(koluRoot, "shell");
+export let koluShellDir = "";
 
 /** Per-terminal scratch directories where clipboard image pastes and
  *  drag-and-drop file drops land on disk. */
-export const koluScratchDir = join(koluRoot, "scratch");
+export let koluScratchDir = "";
+
+/** Inject the shared per-process server id and derive the on-disk roots from
+ *  it. Called once at the very top of boot, BEFORE {@link ensureKoluRoot}. */
+export function setKoluServerProcessId(id: string): void {
+  if (!id) throw new Error("setKoluServerProcessId: empty");
+  serverProcessId = id;
+  koluRoot = join(runtimeRoot, `kolu-${serverProcessId}`);
+  koluShellDir = join(koluRoot, "shell");
+  koluScratchDir = join(koluRoot, "scratch");
+}
 
 /** Create the root + subdirs with owner-only mode. Called once at server
  *  startup before any terminal spawns. Idempotent. */

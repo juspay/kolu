@@ -31,7 +31,6 @@ import {
   type PtyHostSystemInfo,
 } from "kaval";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
-import pkg from "../../package.json" with { type: "json" };
 import { log } from "../log.ts";
 import { connectKaval } from "./connect.ts";
 import { setLocalSocketPath } from "./daemonStatus.ts";
@@ -50,6 +49,21 @@ type Identity = PtyHostIdentity | undefined;
  *  `location` (a `HostLocation` DU in kolu-common); a terminal placed on the
  *  local endpoint carries `{ kind: "local" }`, not this string. */
 export const LOCAL_HOST_ID = "local";
+
+/** The kolu app version stamped as `TERM_PROGRAM_VERSION` on every spawned PTY.
+ *  INJECTED at boot by {@link setSpawnServerVersion} rather than read from a
+ *  bundled `package.json`: padi's own `package.json` version (0.1.0) is NOT the
+ *  app version, so reading it would corrupt the identity — kolu-server injects
+ *  its `serverVersion` (the single source of truth) instead, keeping the
+ *  dependency arrow out of `packages/server`. */
+let spawnServerVersion = "";
+
+/** Inject the kolu app version used for the spawned PTY's identity env. Called
+ *  once at boot, BEFORE {@link ensureLocalEndpoint}. */
+export function setSpawnServerVersion(v: string): void {
+  if (!v) throw new Error("setSpawnServerVersion: empty");
+  spawnServerVersion = v;
+}
 
 let endpoint: Endpoint<PtyHostClient, Identity> | undefined;
 
@@ -238,7 +252,7 @@ export function composeSpawnInput(
   const shell = env.SHELL ?? info.shell;
   const home = env.HOME ?? info.home;
   const cwd = args.cwd || home || "/";
-  Object.assign(env, koluIdentityEnv(pkg.version));
+  Object.assign(env, koluIdentityEnv(spawnServerVersion));
   const plan = prepareShellInit({
     shell,
     home,

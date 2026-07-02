@@ -6,17 +6,18 @@ import {
   type SavedTerminal,
 } from "kolu-common/surface";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { terminalsDirtyChannel } from "./publisher.ts";
 import {
+  __resetSurfaceCtxForTest,
   clearSavedSession,
   getSavedSession,
   initSessionAutoSave,
   saveSession,
   setSavedSession,
   setSavedSessionFromSnapshot,
-} from "./session.ts";
+  setSurfaceCtx,
+  terminalsDirtyChannel,
+} from "@kolu/padi/assembly";
 import { store } from "./state.ts";
-import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json to route
 // conf state into $TMPDIR, keeping ~/.config clean. state.ts reads it at
