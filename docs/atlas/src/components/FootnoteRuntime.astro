@@ -1,0 +1,86 @@
+---
+// One page-level runtime for every <Footnote> on the page — rendered once by
+// AtlasLayout, so N footnotes share a single script instead of each shipping its
+// own copy. Pure CSS already does the numbering (counters) and the hover / focus
+// reveal; this adds only the parts CSS can't:
+//
+//   • click-to-pin        keep a popover open after the pointer leaves — the
+//                         touch path too, where there is no hover
+//   • dismiss             outside-click or Escape unpins everything
+//   • viewport clamp      nudge a popover back on-screen when its marker sits
+//                         near the right edge, and flip it above the marker when
+//                         it would overflow the bottom
+//
+// `is:inline` (not a bundled module) so it stays inside the self-contained page
+// with no external _astro/*.js — the same pattern ForceGraph uses. It no-ops on
+// pages without footnotes (the Atlas index), so it is safe to render globally.
+---
+
+<script is:inline>
+  (function () {
+    var fns = Array.prototype.slice.call(
+      document.querySelectorAll(".fn[data-fn]"),
+    );
+    if (!fns.length) return;
+
+    // Position an open popover: reset, measure, then pull it back inside the
+    // viewport horizontally and flip it above the marker if it overflows below.
+    function place(fn) {
+      var pop = fn.querySelector(".fn-pop");
+      if (!pop) return;
+      pop.style.setProperty("--fn-x", "0px");
+      pop.classList.remove("fn-pop-above");
+      var r = pop.getBoundingClientRect();
+      var pad = 8;
+      var dx = 0;
+      if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
+      else if (r.left < pad) dx = pad - r.left;
+      if (dx) pop.style.setProperty("--fn-x", dx + "px");
+      if (r.bottom > window.innerHeight - pad) pop.classList.add("fn-pop-above");
+    }
+
+    function setPinned(fn, on) {
+      fn.classList.toggle("is-pinned", on);
+      var btn = fn.querySelector(".fn-ref");
+      if (btn) btn.setAttribute("aria-expanded", on ? "true" : "false");
+    }
+
+    function unpinAll(except) {
+      fns.forEach(function (fn) {
+        if (fn !== except) setPinned(fn, false);
+      });
+    }
+
+    fns.forEach(function (fn) {
+      var btn = fn.querySelector(".fn-ref");
+      if (!btn) return;
+      // Place on reveal so the CSS-shown popover lands in the right spot.
+      btn.addEventListener("pointerenter", function () {
+        place(fn);
+      });
+      btn.addEventListener("focus", function () {
+        place(fn);
+      });
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pin = !fn.classList.contains("is-pinned");
+        unpinAll(fn);
+        setPinned(fn, pin);
+        if (pin) place(fn);
+      });
+    });
+
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (!t || !t.closest || !t.closest(".fn[data-fn]")) unpinAll(null);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") unpinAll(null);
+    });
+    window.addEventListener("resize", function () {
+      fns.forEach(function (fn) {
+        if (fn.classList.contains("is-pinned")) place(fn);
+      });
+    });
+  })();
+</script>
