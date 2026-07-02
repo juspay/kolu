@@ -220,11 +220,12 @@ export function requireActiveTerminal(id: TerminalId): ActiveTerminalProcess {
   return entry;
 }
 
-/** Get a terminal (active OR sleeping) or throw the typed not-found fault —
- *  padi's own active-or-sleeping presence guard, shared by the chrome setters.
- *  The exact sibling of `requireActiveTerminal`: same `terminalNotFound`, but it
- *  accepts a dormant record (a chrome edit — theme / intent / layout — is valid on
- *  a sleeping terminal), so it narrows to the presence union, not the active arm. */
+/** Get a terminal (active, sleeping, or parked) or throw the typed not-found
+ *  fault — padi's own presence guard over the full 3-arm registry union, shared
+ *  by the chrome setters. The exact sibling of `requireActiveTerminal`: same
+ *  `terminalNotFound`, but it accepts a dormant record (a chrome edit — theme /
+ *  intent / layout — is valid on a sleeping or parked terminal), so it narrows to
+ *  the presence union (`TerminalProcess`), not the active arm. */
 export function requireTerminal(id: TerminalId): TerminalProcess {
   const entry = getTerminal(id);
   if (!entry) throw terminalNotFound(id);
