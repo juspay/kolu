@@ -288,7 +288,6 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
 const pwaIdentity = pwaIdentityForHostname(serverHostname);
 installPwaManifest(app, {
   name: pwaIdentity.name,
-  short_name: "kolu",
   // `...extra` passthrough in installPwaManifest carries these through to the
   // served manifest — they upgrade Chromium's native install card (and the
   // pwa-install preview) from a bare icon to a richer app entry.

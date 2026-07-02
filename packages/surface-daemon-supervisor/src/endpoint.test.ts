@@ -65,19 +65,29 @@ describe("createEndpoint — boot, status, death", () => {
     const fake = fakeDaemon(socketPath);
     servers.push(fake.server);
 
-    const statuses: EndpointStatus<Identity>[] = [];
+    const statuses: EndpointStatus<Identity, { contractVersion: string }>[] =
+      [];
     let closeCb: (() => void) | undefined;
-    const conn: DaemonConnection<string, Identity> = {
+    const conn: DaemonConnection<
+      string,
+      Identity,
+      { contractVersion: string }
+    > = {
       client: "CLIENT",
       identity: { staleKey: "abc" },
       startedAt: 111,
+      metadata: { contractVersion: "5.0" },
       dispose() {},
       onClose(cb) {
         closeCb = cb;
       },
     };
 
-    const endpoint = createEndpoint<string, Identity>({
+    const endpoint = createEndpoint<
+      string,
+      Identity,
+      { contractVersion: string }
+    >({
       hostId: "local",
       gatePath,
       socketPath,
@@ -93,6 +103,7 @@ describe("createEndpoint — boot, status, death", () => {
     const connected = statuses.find((s) => s.state === "connected");
     expect(connected?.identity).toEqual({ staleKey: "abc" });
     expect(connected?.startedAt).toBe(111);
+    expect(connected?.metadata).toEqual({ contractVersion: "5.0" });
     expect(endpoint.current()).toBe(conn);
     expect(closeCb).toBeTypeOf("function");
   });
