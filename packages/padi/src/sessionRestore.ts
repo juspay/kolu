@@ -112,38 +112,34 @@ export async function restoreSession(input: {
     (t): t is SavedTerminal & { parentId: string } => t.parentId !== undefined,
   );
 
-  for (const t of topLevel) {
+  // Restore ONE saved record into the live registry, threading `oldToNew`. A
+  // SLEEPING record restores DORMANT — seed it (no PTY spawn, no resume; Wake does
+  // that later), keeping its saved id (idempotent seed) so its canvas layout and
+  // the active marker map 1:1. When `parentId` is given the sleeper is a SLEPT
+  // SUB-TERMINAL (#1651): honor the saved state and re-parent onto the FRESH parent
+  // id (NOT a fresh active split), respecting F3 (a sub hangs off a LIVE parent —
+  // the restored parent; a slept parent closes its splits on sleep, so a
+  // slept-sub-under-slept-parent never occurs). An ACTIVE record re-spawns a fresh
+  // PTY (opt-in agent-resume) and maps old→new; a skipped repeat (`respawnActive` →
+  // null) adds no mapping.
+  const restoreRecord = (t: SavedTerminal, parentId?: string): void => {
     if (t.state === "sleeping") {
-      // A SLEEPING record restores DORMANT — seed it (no PTY spawn, no resume;
-      // Wake does that later). It keeps its saved id (idempotent seed), so its
-      // canvas layout and the active marker map 1:1. The restore card brings
-      // back BOTH arms.
-      seedSleepingTerminal(t);
+      seedSleepingTerminal(parentId !== undefined ? { ...t, parentId } : t);
       oldToNew.set(t.id, t.id);
-      continue;
+      return;
     }
-    const newId = respawnActive(t, undefined, optedIn(t.id));
+    const newId = respawnActive(t, parentId, optedIn(t.id));
     if (newId) oldToNew.set(t.id, newId);
-  }
+  };
+
+  for (const t of topLevel) restoreRecord(t);
 
   for (const t of subTerminals) {
     // A sub whose parent didn't restore (skipped as a repeat) is dropped —
     // there is no live parent to hang it off (F3).
     const parentId = oldToNew.get(t.parentId);
     if (parentId === undefined) continue;
-    if (t.state === "sleeping") {
-      // SLEPT SUB-TERMINAL (#1651): honor the saved state — a slept sub restores
-      // as SLEEPING under its (now-live) parent, NOT as a fresh active split.
-      // Re-parent onto the FRESH parent id, respecting F3 (a sub hangs off a LIVE
-      // parent — the restored parent is that live parent; a slept parent closes
-      // its splits on sleep, so a slept-sub-under-slept-parent never occurs). Wake
-      // brings the sub's agent back later, exactly like a top-level sleeper.
-      seedSleepingTerminal({ ...t, parentId });
-      oldToNew.set(t.id, t.id);
-      continue;
-    }
-    const newId = respawnActive(t, parentId, optedIn(t.id));
-    if (newId) oldToNew.set(t.id, newId);
+    restoreRecord(t, parentId);
   }
 
   // Preserve the active marker across the restart (RISK Q1 host-side): map the

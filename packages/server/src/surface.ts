@@ -344,10 +344,14 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       terminalWorkspace: serveTerminalWorkspace({
         // Project the awareness half straight off the registry — `.snapshot`
         // exactly as padi's `terminals` collection composes off the same entry.
-        // Writes go through the sink's
-        // `installSnapshot`/`updateServer*Metadata` (which call
-        // `workspaceSurfaceCtx.collections.snapshots.upsert`), so the framework's
-        // `upsert`/`remove` are no-ops (the registry is the authority).
+        // `workspaceSurfaceCtx` is now DORMANT in W1: the live metadata publish
+        // moved onto padi's `terminals` collection (`terminalEndpoint/metadata.ts`
+        // targets `padiSurfaceCtx`, W1.R1), so `terminalWorkspace.snapshots` serves
+        // only its INITIAL snapshot here (`readAll`) and NO live deltas — the
+        // framework's `upsert`/`remove` are no-ops (the registry is the authority).
+        // The ctx + `setWorkspaceSurfaceCtx` below are retained for W2.4
+        // (terminalWorkspaceSurface deletion) and are invisible to the kolu client,
+        // which reads padi's `terminals`.
         snapshots: {
           readAll: () => registryMap((t) => t.snapshot),
           readOne: (key) => getTerminal(key as string)?.snapshot,

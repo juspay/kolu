@@ -92,26 +92,18 @@ export function useTerminalMetadata(deps: {
   // `TerminalMetadata` for every one of the ~20 downstream consumers. This is the
   // ONE type bridge where the padi wire shape meets the client's domain type;
   // narrow it here so the consumers stay unchanged.
-  const readComposed = (id: TerminalId): TerminalMetadata | undefined =>
-    terminals.byKey(id)?.() as TerminalMetadata | undefined;
-
+  //
   /** A terminal's composed wire shape — `undefined` until the server-composed
    *  record has arrived. The `byKey` read is reactive, so this re-runs as the
    *  record updates. The stored reference is read field-wise by every one of the
    *  ~20 consumers inside its own tracking scope — none compares it by identity —
    *  so per-key reactivity stays granular (a change to one terminal notifies only
-   *  readers of that terminal). */
+   *  readers of that terminal). This is ALSO the read the ordering filters below
+   *  need for `parentId`: presence (record arrived) is the gate that excludes a
+   *  still-loading terminal from the order, exactly as the two-half `a && w` gate
+   *  did before (the server serves the join already materialized). */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    return readComposed(id);
-  }
-
-  /** A terminal's composed record once it has arrived — the read the ordering
-   *  filters below need for `parentId`. The server serves the join already
-   *  materialized, so this is the same single read as `getMetadata`; presence
-   *  (record arrived) is the gate that excludes a still-loading terminal from the
-   *  order, exactly as the two-half `a && w` gate did before. */
-  function authoredIfReady(id: TerminalId): TerminalMetadata | undefined {
-    return readComposed(id);
+    return terminals.byKey(id)?.() as TerminalMetadata | undefined;
   }
 
   // --- Order: server Map insertion order, filtered by parent relationship ---
@@ -128,7 +120,7 @@ export function useTerminalMetadata(deps: {
   const terminalIds = createMemo<TerminalId[]>(
     () =>
       keys().filter((id) => {
-        const a = authoredIfReady(id);
+        const a = getMetadata(id);
         // Exclude PARKED records — they are restore-card rows, not tiles (W1.R6).
         return a !== undefined && !isParked(a) && !a.parentId;
       }),
@@ -140,7 +132,7 @@ export function useTerminalMetadata(deps: {
    *  never a live split (it awaits restore), so it is excluded here too. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
     return keys().filter((id) => {
-      const a = authoredIfReady(id);
+      const a = getMetadata(id);
       return a !== undefined && !isParked(a) && a.parentId === parentId;
     });
   }

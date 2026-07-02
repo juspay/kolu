@@ -42,7 +42,8 @@ export function recomputeUrgency(): PadiUrgency {
  *  ~150 ms agent firehose (R1's write-triggers) can't re-publish an unchanged
  *  projection. */
 export function urgencyEqual(a: PadiUrgency, b: PadiUrgency): boolean {
-  if (a.awaiting !== b.awaiting) return false;
+  // `recomputeUrgency` always sets `awaiting = awaitingIds.length`, so the length
+  // check below fully subsumes an `awaiting` comparison — no separate count check.
   if (a.awaitingIds.length !== b.awaitingIds.length) return false;
   for (let i = 0; i < a.awaitingIds.length; i++) {
     if (a.awaitingIds[i] !== b.awaitingIds[i]) return false;

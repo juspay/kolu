@@ -25,7 +25,7 @@ import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
 import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
-import { rejectionFor } from "kolu-common/upload";
+import { base64DecodedLength, rejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { readPreview } from "./preview.ts";
@@ -49,7 +49,7 @@ import {
   getTerminal,
   registryMap,
   requireActiveTerminal,
-  type TerminalProcess,
+  requireTerminal,
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
@@ -73,22 +73,6 @@ import { exportTranscriptHtml } from "./transcript.ts";
 import { recomputeUrgency, urgencyEqual } from "./urgency.ts";
 
 type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
-
-/** Get a terminal (active OR sleeping) or throw the typed not-found fault —
- *  padi's own active-or-sleeping guard, shared by the chrome setters. */
-function requireTerminal(id: string): TerminalProcess {
-  const entry = getTerminal(id);
-  if (!entry) throw terminalNotFound(id);
-  return entry;
-}
-
-/** Decoded byte length of a base64 string — `(len * 3/4)` minus padding.
- *  Lets the upload gate size-check without materializing the Buffer (the same
- *  helper the retired server `uploadFile`/`pasteImage` handlers used). */
-function base64DecodedLength(data: string): number {
-  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
-  return Math.floor((data.length * 3) / 4) - padding;
-}
 
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
  *  gets a functional handler; the write-path (ctx + publish) is deferred to

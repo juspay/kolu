@@ -30,12 +30,15 @@
  *     persisted), the precedent `updateMemory` mirrors.
  *
  * The `urgency` cell is refolded (`recomputeUrgency()`) at every seam where its
- * inputs can change — the agent-state firehose (`commitSnapshot`), the memory
- * write (`updateMemory`), the active↔sleeping/spawn state flip
+ * inputs (agent state, `meta.state`, membership) can change — the agent-state
+ * firehose (`commitSnapshot`), the active↔sleeping/spawn state flip
  * (`publishTerminalState`, whose `meta.state` gate the urgency fold reads), and the
  * removal path (`dropSnapshot`). The cell's `equals` (`urgencyEqual`) dedups the
  * redundant fires, so an extra trigger is free while a missed one would stale the
- * badge.
+ * badge. `updateMemory` is NOT such a seam: it writes only the remembered
+ * `lastActivityAt`/`lastAgentCommand`/`restoreTarget` facts (none read by the fold)
+ * and fires only when `commitSnapshot` did not (no snapshot delta → `snapshot.agent`
+ * unchanged too), so the fold could never change the projection there.
  */
 
 import {
@@ -191,9 +194,12 @@ export function updateMemory(
   entry.meta.lastActivityAt = memory.lastActivityAt;
   entry.meta.lastAgentCommand = memory.lastAgentCommand;
   entry.meta.restoreTarget = restoreTarget;
+  // No urgency refold: `recomputeUrgency` reads only `meta.state` +
+  // `snapshot.agent.state`, none of the memory facts written above, and this seam
+  // fires only when `commitSnapshot` did NOT (no snapshot delta → `snapshot.agent`
+  // unchanged), so the fold could never change the projection.
   try {
     publishComposedTerminal(terminalId);
-    publishUrgency();
   } catch (err) {
     log.error(
       { err, terminal: terminalId },

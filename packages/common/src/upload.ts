@@ -100,6 +100,15 @@ export function isAllowedUploadName(name: string): boolean {
   return ext !== null && ALLOWED_UPLOAD_EXTENSIONS.includes(ext);
 }
 
+/** Decoded byte length of a base64 string — `(len * 3/4)` minus padding.
+ *  Lets the upload gate (`rejectionFor`) size-check without materializing the
+ *  Buffer (the same helper the retired server `uploadFile`/`pasteImage` handlers
+ *  used). Lives here beside the gate its only caller feeds. */
+export function base64DecodedLength(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
+}
+
 /** Human-readable rejection reason for a dropped file, or `null` if it
  *  passes. Shared so the client toast and the server `ORPCError` message
  *  match verbatim. */

@@ -220,6 +220,17 @@ export function requireActiveTerminal(id: TerminalId): ActiveTerminalProcess {
   return entry;
 }
 
+/** Get a terminal (active OR sleeping) or throw the typed not-found fault —
+ *  padi's own active-or-sleeping presence guard, shared by the chrome setters.
+ *  The exact sibling of `requireActiveTerminal`: same `terminalNotFound`, but it
+ *  accepts a dormant record (a chrome edit — theme / intent / layout — is valid on
+ *  a sleeping terminal), so it narrows to the presence union, not the active arm. */
+export function requireTerminal(id: TerminalId): TerminalProcess {
+  const entry = getTerminal(id);
+  if (!entry) throw terminalNotFound(id);
+  return entry;
+}
+
 /** The terminal-not-found fault as a typed oRPC error. One definition of
  *  the code + message shared by every per-terminal handler (router,
  *  surface) so the wire shape can't drift between call sites. Typed
