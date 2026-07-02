@@ -34,7 +34,7 @@ import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
 import { log } from "../log.ts";
 import { connectKaval } from "./connect.ts";
-import { setLocalSocketPath } from "./daemonStatus.ts";
+import { requireLocalSocketPath, setLocalSocketPath } from "./daemonStatus.ts";
 import {
   kavalGatePath,
   kavalSocketPath,
@@ -222,6 +222,13 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
  *   1. `cleanEnv()`        — parent env passthrough (Nix devshell filter).
  *   2. `koluIdentityEnv()` — kolu's identity vars (stomp parent).
  *   3. `plan.env`          — per-PTY overrides (e.g. ZDOTDIR for zsh).
+ *   4. `KAVAL_SOCKET`      — daemon locator (the `$TMUX` convention): the socket
+ *      THIS kaval serves on, passed in as data (`kavalSocket`). It shares no key
+ *      with the layers above, so its position is immaterial; it's assigned last
+ *      only to read as the outermost fact. Lets a process INSIDE the spawned
+ *      terminal (an agent driving its siblings) reach the daemon that owns it
+ *      without scanning `/tmp` — and, on macOS where `$XDG_RUNTIME_DIR` is unset,
+ *      without guessing the port-namespaced path at all.
  *
  * **Local-host only, today.** The host this process talks to IS this machine, so
  * `cleanEnv()`'s `env.SHELL`/`env.HOME` (describing *this* machine) win, and
@@ -233,6 +240,7 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
 export function composeSpawnInput(
   args: { id: string; cwd?: string },
   info: PtyHostSystemInfo,
+  kavalSocket: string,
 ): PtyHostSpawnInput {
   const env = cleanEnv();
   const shell = env.SHELL ?? info.shell;
@@ -246,6 +254,7 @@ export function composeSpawnInput(
     rcDir: info.rcDir,
   });
   Object.assign(env, plan.env);
+  env.KAVAL_SOCKET = kavalSocket;
   return {
     id: args.id,
     argv: [shell, ...plan.args],
@@ -262,10 +271,12 @@ export function composeSpawnInput(
   };
 }
 
-/** `composeSpawnInput` against the daemon's cached `system.info`. */
+/** `composeSpawnInput` against the daemon's cached `system.info`, stamped with the
+ *  socket THIS endpoint booted on (`requireLocalSocketPath()`) so every terminal
+ *  carries `KAVAL_SOCKET`. */
 export async function buildTerminalSpawnInput(args: {
   id: string;
   cwd?: string;
 }): Promise<PtyHostSpawnInput> {
-  return composeSpawnInput(args, await hostInfo());
+  return composeSpawnInput(args, await hostInfo(), requireLocalSocketPath());
 }

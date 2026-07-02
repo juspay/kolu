@@ -392,6 +392,10 @@ async function cmdCreate(
   endpoint: Endpoint,
   command: readonly string[],
   json: boolean,
+  /** The resolved local socket (for a local endpoint), stamped as KAVAL_SOCKET so
+   *  a process inside the new terminal can reach the daemon that owns it. Non-null
+   *  exactly for local endpoints — the remote (`--host`) path leaves it unset. */
+  localSocket: string | undefined,
 ): Promise<void> {
   // Compose the WHOLE fully-specified input client-side (the host derives
   // nothing since B0). We mint the id so the returned `id` echoes ours — the
@@ -412,11 +416,18 @@ async function cmdCreate(
     });
     home = info.home;
   } else {
+    // A local endpoint always carries a resolved socket (main() sets it in the
+    // same branch that leaves `endpoint.kind !== "host"`). Assert rather than
+    // silently spawn a terminal with no KAVAL_SOCKET.
+    if (localSocket === undefined) {
+      fail("internal: local `create` reached without a resolved socket");
+    }
     input = buildCreateInput({
       id: newPtyId(),
       cwd: process.cwd(),
       env: process.env,
       command,
+      kavalSocket: localSocket,
     });
     home = homedir();
   }
@@ -726,11 +737,11 @@ async function assertCompatible(conn: Connection): Promise<void> {
   }
 }
 
-/** Dial a LOCAL kaval (or kolu-server) over its unix socket — an explicit
- *  `--socket`, else the discovered/default one. Fails loud with an actionable
- *  hint if nothing is listening. */
-function connectLocal(socketOverride: string | undefined): Promise<Connection> {
-  const socketPath = resolveSocketPath(socketOverride);
+/** Dial a LOCAL kaval (or kolu-server) at an ALREADY-RESOLVED socket path (the
+ *  caller runs `resolveSocketPath` so it can reuse the same path — e.g. to stamp
+ *  `KAVAL_SOCKET` into a `create`d terminal). Fails loud with an actionable hint
+ *  if nothing is listening. */
+function connectLocal(socketPath: string): Promise<Connection> {
   return connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
     // The kolu-server hint names the SAME path kolu computes — and the
@@ -824,12 +835,20 @@ async function main(): Promise<void> {
       : argv.flags.socket !== undefined
         ? { kind: "socket", socket: argv.flags.socket }
         : { kind: "default" };
-  const conn =
-    endpoint.kind === "host"
-      ? await connectHost(endpoint.host)
-      : await connectLocal(
-          endpoint.kind === "socket" ? endpoint.socket : undefined,
-        );
+  // For a local endpoint, resolve the socket ONCE up front: we dial it AND (for
+  // `create`) stamp it as KAVAL_SOCKET into the spawned terminal, so an agent
+  // inside can reach the daemon that owns it (the $TMUX convention). `undefined`
+  // for a remote endpoint — the remote daemon's socket path isn't ours to know.
+  let localSocket: string | undefined;
+  let conn: Connection;
+  if (endpoint.kind === "host") {
+    conn = await connectHost(endpoint.host);
+  } else {
+    localSocket = resolveSocketPath(
+      endpoint.kind === "socket" ? endpoint.socket : undefined,
+    );
+    conn = await connectLocal(localSocket);
+  }
 
   try {
     await assertCompatible(conn);
@@ -839,7 +858,13 @@ async function main(): Promise<void> {
     // not in its registry; this guards OUR omissions.)
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
     else if (argv.command === "create")
-      await cmdCreate(conn, endpoint, argv._.command, argv.flags.json);
+      await cmdCreate(
+        conn,
+        endpoint,
+        argv._.command,
+        argv.flags.json,
+        localSocket,
+      );
     else if (argv.command === "snapshot") {
       // `--viewport`, `--tail`, and `--lines` (a synonym for `--tail`) each
       // bound the output differently, so more than one is ambiguous — crash

@@ -207,6 +207,15 @@ path. This is the cross-platform, self-labeling answer to "which daemon am I
 driving", and the reliable path on macOS (where `$XDG_RUNTIME_DIR` is unset). If
 exactly one daemon is up, every command autodiscovers it — no flag needed.
 
+**Inside a kolu terminal, `$KAVAL_SOCKET` already names your daemon.** Every
+terminal a kolu-server (or `kaval-tui create`) spawns exports `$KAVAL_SOCKET` —
+the socket of the kaval that owns *this* terminal (the `$TMUX` convention). So an
+agent driving its **sibling** terminals can skip discovery and point straight at
+it: `kaval-tui list --socket "$KAVAL_SOCKET"`, `kaval-tui snapshot <id> --socket
+"$KAVAL_SOCKET"`. It's the one unambiguous answer when several daemons are up
+(autodiscovery would return "many"). Absent → you're not inside a kolu PTY, so
+fall back to `kaval-tui list`.
+
 > **Flags go AFTER the subcommand.** It's `kaval-tui list --socket <path>` and
 > `kaval-tui snapshot <id> --socket <path>` — **not** `kaval-tui --socket <path>
 > list`. A flag before the subcommand fails with "no command"; the CLI error says
