@@ -780,6 +780,11 @@ export const DaemonStatusSchema = z.object({
   // below stays kolu's (it is the soul).
   state: z.enum(ENDPOINT_STATES),
   identity: PtyHostIdentitySchema.optional(),
+  /** The pty-host wire contract this daemon reported at handshake. This is the
+   *  honest "kaval version" the browser can show: kaval has its own build
+   *  identity below, but the thing kolu-server must agree on before talking to
+   *  it is the contract version. Present only once a daemon is connected. */
+  contractVersion: z.string().optional(),
   /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
   startedAt: z.number().optional(),
   /** B3.3: how many terminals this boot ADOPTED from a surviving daemon — set

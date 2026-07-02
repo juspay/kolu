@@ -37,6 +37,12 @@ export type KavalConnection = DaemonConnection<
   PtyHostIdentity | undefined
 >;
 
+let lastConnectedContractVersion: string | undefined;
+
+export function connectedKavalContractVersion(): string | undefined {
+  return lastConnectedContractVersion;
+}
+
 /** Dial kaval at `socketPath`, handshake, and return the live connection.
  *
  *  Three failure classes, distinguished for the supervisor's adopt path (F4):
@@ -84,6 +90,7 @@ export async function connectKaval(
       `pty-host contract skew: kaval speaks ${version.contractVersion}, server needs ${PTY_HOST_CONTRACT_VERSION}`,
     );
   }
+  lastConnectedContractVersion = version.contractVersion;
 
   let closed = false;
   socket.once("close", () => {
