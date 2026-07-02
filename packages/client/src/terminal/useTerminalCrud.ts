@@ -20,7 +20,11 @@ import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { padi, preferences } from "../wire";
-import { pickAutoSwitchTarget } from "./useActiveReconcile";
+import {
+  createEvictionDedup,
+  evictTerminal,
+  type TerminalEvictionPorts,
+} from "./useActiveReconcile";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -51,54 +55,48 @@ export const useTerminalCrud = createSharedRoot(() => {
       );
   }
 
-  /** Remove a terminal and auto-switch if it was active. */
-  function removeAndAutoSwitch(id: TerminalId) {
-    const parentId = store.getMetadata(id)?.parentId;
-
-    if (parentId) {
-      const subs = store.getSubTerminalIds(parentId).filter((x) => x !== id);
-      if (subs.length === 0) {
-        subPanel.collapsePanel(parentId);
-      } else {
-        const panel = subPanel.getSubPanel(parentId);
-        if (panel.activeSubTab === id) {
-          subPanel.setActiveSubTab(parentId, subs[0] ?? null);
-        }
-        // Re-grab focus for the remaining active sub-terminal: closing a tab via
-        // its close button moves focus to that button, and the reactive focus
-        // state is otherwise unchanged, so the edge-triggered focus effect can't
-        // restore it (and browser focus-after-removal is non-deterministic).
-        subPanel.requestRefocus(parentId);
-      }
-      return;
-    }
-
-    // Top-level terminal — promote sub-terminals to top-level
-    const orphanIds = store.getSubTerminalIds(id);
-    for (const subId of orphanIds) {
+  // The ONE cleanup body's side-effecting seams (see useActiveReconcile).
+  // Wired once here; the imperative close path and the list-driven reconcile
+  // both drive `evictTerminal` through these ports, so they can't diverge.
+  const evictionPorts: TerminalEvictionPorts = {
+    getSubTerminalIds: store.getSubTerminalIds,
+    activeId: store.activeId,
+    activate: store.activate,
+    dropFromMru: (id) =>
+      store.setMruOrder((prev) => prev.filter((x) => x !== id)),
+    promoteToTopLevel: (subId) =>
       void padiRpc(padi)
         .surface.chrome.setParent({ id: subId, parentId: null })
         .catch((err: Error) =>
           toast.error(`Failed to set parent: ${err.message}`),
-        );
-    }
+        ),
+    subPanel: {
+      collapse: subPanel.collapsePanel,
+      activeSubTab: (parentId) => subPanel.getSubPanel(parentId).activeSubTab,
+      setActiveSubTab: subPanel.setActiveSubTab,
+      requestRefocus: subPanel.requestRefocus,
+      remove: subPanel.removePanel,
+    },
+    removeRightPanel: rightPanel.removePanel,
+    removeSearch: terminalSearch.removeTerminal,
+  };
 
-    const ids = store.terminalIds();
-    subPanel.removePanel(id);
-    rightPanel.removePanel(id);
-    terminalSearch.removeTerminal(id);
-    store.setMruOrder((prev) => prev.filter((x) => x !== id));
-    if (store.activeId() === id) {
-      // Same target selection the list-driven reconcile uses (shared helper), so
-      // the imperative close path and the reconcile can't pick different
-      // survivors. `activate` pans the canvas to the auto-switched tile —
-      // without it the viewport would stay centered on the just-killed tile.
-      const next = pickAutoSwitchTarget(
-        ids.filter((x) => x !== id),
-        ids.indexOf(id),
-      );
-      store.activate(next);
-    }
+  const eviction = createEvictionDedup((id, parentId, topLevelBefore) =>
+    evictTerminal(evictionPorts, id, parentId, topLevelBefore),
+  );
+
+  /** Remove a terminal and auto-switch if it was active — the IMPERATIVE close
+   *  path (kill, discard). Runs synchronously with metadata still present, so it
+   *  reads the live parentId + top-level order. Claims the id (when a list-drop
+   *  will follow) so the later list-driven reconcile skips it — see
+   *  `createEvictionDedup`. */
+  function removeAndAutoSwitch(id: TerminalId) {
+    eviction.evictImperatively(
+      id,
+      store.getMetadata(id)?.parentId ?? null,
+      store.terminalIds(),
+      store.getMetadata(id) !== undefined,
+    );
   }
 
   /** Create a new terminal on the server and make it active.
@@ -413,6 +411,9 @@ export const useTerminalCrud = createSharedRoot(() => {
   return {
     setThemeName,
     removeAndAutoSwitch,
+    /** List-driven cleanup for a naturally-departed terminal (dedup-guarded).
+     *  Wired into the reconcile in useTerminals. */
+    evictDeparted: eviction.evictDeparted,
     handleCreate,
     handleCreateSubTerminal,
     toggleSubPanel,

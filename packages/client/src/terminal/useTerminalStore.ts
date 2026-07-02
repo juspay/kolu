@@ -15,7 +15,6 @@ import { createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { useViewState } from "../useViewState";
 import { terminalListSub } from "../wire";
-import { useActiveReconcile } from "./useActiveReconcile";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 import {
@@ -132,19 +131,6 @@ export const useTerminalStore = createSharedRoot(() => {
   // `activeId -> meta` memo guarantees there is no separate tear-prone derivation
   // to fall into.
   const activeMeta = () => active().meta;
-
-  // Focus follows the LIST: when the active tile leaves the terminal list for
-  // ANY reason (natural PTY exit, kill, discard), auto-switch to a survivor. The
-  // natural-exit auto-switch used to hang off the raceable `terminalExit` event,
-  // which is disposed by the very list-removal that should trigger the switch —
-  // so it was usually lost (the #1652 regression). This is the single, robust,
-  // event-independent driver. See useActiveReconcile.
-  useActiveReconcile({
-    terminalIds: metadata.terminalIds,
-    rawIds: () => terminalListSub()?.map((t) => t.id) ?? [],
-    activeId: view.activeId,
-    activate: view.activate,
-  });
 
   return {
     // Live terminal list from server (Subscription<TerminalInfo[]>).
