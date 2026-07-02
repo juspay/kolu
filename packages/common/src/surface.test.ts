@@ -8,7 +8,8 @@
 
 import { padiSurface } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
-import { shuffleMode, surfaces, surfacesWithPadi } from "./surface.ts";
+import { shuffleMode, surfaces } from "./surface.ts";
+import { surfacesWithPadi } from "./surfacesWithPadi.ts";
 
 describe("surfacesWithPadi — the app composes its registry FROM padi", () => {
   it("adds exactly the `padi` sibling to the padi-less `surfaces` map", () => {

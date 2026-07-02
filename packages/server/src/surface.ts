@@ -56,11 +56,8 @@ import type {
   Preferences,
   ProcessMemory,
 } from "kolu-common/surface";
-import {
-  bytesToWholeMB,
-  type koluSurface,
-  surfacesWithPadi,
-} from "kolu-common/surface";
+import { bytesToWholeMB, type koluSurface } from "kolu-common/surface";
+import { surfacesWithPadi } from "kolu-common/surfacesWithPadi";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import { store } from "./state.ts";

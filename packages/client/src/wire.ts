@@ -35,9 +35,9 @@ import {
   DEFAULT_PREFERENCES,
   type Preferences,
   type PreferencesPatch,
-  surfacesWithPadi,
   type TerminalId,
 } from "kolu-common/surface";
+import { surfacesWithPadi } from "kolu-common/surfacesWithPadi";
 import type { WebSocket as PartySocket } from "partysocket";
 import { toast } from "solid-sonner";
 
