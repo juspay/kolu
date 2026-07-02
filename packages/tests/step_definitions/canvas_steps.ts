@@ -1298,12 +1298,15 @@ async function setCanvasLayoutById(
   y: number,
 ): Promise<void> {
   const layout = { x, y, w: 700, h: 500 };
-  const resp = await world.page.request.fetch("/rpc/terminal/setCanvasLayout", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: JSON.stringify({ json: { id, layout } }),
-  });
-  assert.ok(resp.ok(), `terminal/setCanvasLayout failed: ${resp.status()}`);
+  const resp = await world.page.request.fetch(
+    "/rpc/surface/padi/chrome/setCanvasLayout",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({ json: { id, layout } }),
+    },
+  );
+  assert.ok(resp.ok(), `chrome/setCanvasLayout failed: ${resp.status()}`);
   // Wait for the tile to render at the new position — proves the metadata
   // subscription delivered the update (the mechanism that must survive refresh).
   await world.page.waitForFunction(

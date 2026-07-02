@@ -151,12 +151,15 @@ async function moveSleepingTile(
   y: number,
 ): Promise<void> {
   const layout = { x, y, w: 700, h: 500 };
-  const resp = await world.page.request.fetch("/rpc/terminal/setCanvasLayout", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: JSON.stringify({ json: { id, layout } }),
-  });
-  assert.ok(resp.ok(), `terminal/setCanvasLayout failed: ${resp.status()}`);
+  const resp = await world.page.request.fetch(
+    "/rpc/surface/padi/chrome/setCanvasLayout",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({ json: { id, layout } }),
+    },
+  );
+  assert.ok(resp.ok(), `chrome/setCanvasLayout failed: ${resp.status()}`);
   await waitForSleepingTileAt(world, id, x, y);
 }
 

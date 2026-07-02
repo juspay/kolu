@@ -798,7 +798,7 @@ Before(async function (this: KoluWorld, scenario) {
   // own reset endpoint — fired in parallel so the per-scenario setup cost
   // stays the same.
   await Promise.all([
-    postJSON(`${baseUrl}/rpc/terminal/killAll`, {}),
+    postJSON(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {}),
     postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
       json: {
         // Reset all preferences to defaults (newTerminalTheme "inherit" so new
