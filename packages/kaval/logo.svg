@@ -1,43 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
-  <title id="title">kaval — a watch over your terminals: three PTYs owned by one daemon</title>
+  <title id="title">Kaval terminal daemon logo</title>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#140b20"/>
-      <stop offset="1" stop-color="#231634"/>
+    <linearGradient id="guard" x1="88" y1="32" x2="424" y2="488" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2d1f45"/>
+      <stop offset="1" stop-color="#191223"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.32" r="0.75">
-      <stop offset="0" stop-color="#a855f7" stop-opacity="0.12"/>
-      <stop offset="1" stop-color="#a855f7" stop-opacity="0"/>
-    </radialGradient>
   </defs>
 
-  <!-- tile -->
-  <rect x="8" y="8" width="496" height="496" rx="116" fill="url(#bg)"/>
-  <rect x="8" y="8" width="496" height="496" rx="116" fill="url(#glow)"/>
-  <rect x="11" y="11" width="490" height="490" rx="113" fill="none"
-        stroke="#a855f7" stroke-opacity="0.24" stroke-width="3"/>
+  <path
+    d="M42 100c0-39 31-70 70-70h288c39 0 70 31 70 70v170c0 108-82 170-214 218-132-48-214-110-214-218V100Z"
+    fill="url(#guard)"
+    stroke="#8b5cf6"
+    stroke-width="18"
+    stroke-linejoin="round"
+  />
+  <path d="M100 110h312" stroke="#c4b5fd" stroke-opacity="0.26" stroke-width="16" stroke-linecap="round"/>
 
-  <!-- wordmark: a shell prompt you attach to -->
-  <text x="84" y="252" font-size="72" fill="#6d4f96"
-        font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', SFMono-Regular, Menlo, Consolas, monospace">&gt;</text>
-  <text x="140" y="266" font-size="104" font-weight="700" fill="#ece6f4" letter-spacing="1"
-        font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', SFMono-Regular, Menlo, Consolas, monospace">kaval</text>
+  <path d="M118 190l72 66-72 66" fill="none" stroke="#f7f2ff" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="252" y="286" width="108" height="36" rx="18" fill="#fbbf24"/>
 
-  <!-- the daemon's watch: three PTYs it owns; the middle one attached -->
-  <g stroke-linecap="round">
-    <rect x="136" y="332" width="64" height="46" rx="9" fill="none" stroke="#3c3450" stroke-width="6"/>
-    <line x1="150" y1="348" x2="166" y2="348" stroke="#5a5170" stroke-width="6"/>
-
-    <rect x="224" y="332" width="64" height="46" rx="9" fill="none" stroke="#a855f7" stroke-width="6"/>
-    <rect x="224" y="332" width="64" height="46" rx="9" fill="#a855f7" fill-opacity="0.10"/>
-    <line x1="238" y1="348" x2="254" y2="348" stroke="#c084fc" stroke-width="6"/>
-    <rect x="258" y="343" width="11" height="11" rx="2" fill="#fbbf24"/>
-
-    <rect x="312" y="332" width="64" height="46" rx="9" fill="none" stroke="#3c3450" stroke-width="6"/>
-    <line x1="326" y1="348" x2="342" y2="348" stroke="#5a5170" stroke-width="6"/>
+  <g>
+    <circle cx="178" cy="390" r="22" fill="#6d4f96"/>
+    <circle cx="256" cy="390" r="24" fill="#c084fc"/>
+    <circle cx="334" cy="390" r="22" fill="#6d4f96"/>
   </g>
-
-  <!-- காவல் — Tamil "watch, guard" -->
-  <text x="256" y="452" text-anchor="middle" font-size="46" fill="#9a7ab8"
-        font-family="'Noto Sans Tamil', 'Tamil MN', 'Tamil Sangam MN', Latha, sans-serif">காவல்</text>
 </svg>

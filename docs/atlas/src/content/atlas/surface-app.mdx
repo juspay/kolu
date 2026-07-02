@@ -4,7 +4,7 @@ description: A library for the class of @kolu/surface app that is really a deskt
 parents: [electricity, reference]
 maturity: evergreen
 status: implemented
-updated: 2026-06-10
+updated: 2026-07-02
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -28,7 +28,7 @@ A self-hosted, always-connected app must guarantee that a **returning client con
 
 This is not a library for "any web app that can be installed." It's for a specific, recognizable shape — the one kolu and drishti share:
 
-- **You run the server.** Your machine, your homelab, your tailnet — not a CDN, not multi-tenant SaaS. Identity is per named host (`kolu@host`, drishti's per-host tabs).
+- **You run the server.** Your machine, your homelab, your tailnet — not a CDN, not multi-tenant SaaS. Identity is per named host (`Kolu [host]`, drishti's per-host tabs).
 - **Always-connected.** The live WebSocket _is_ the app; there is no meaningful offline mode. This is why there's no caching service worker — not as an opinion, but by nature.
 - **Desktop-class.** Installed, long-lived, feels native — an app window, not a browser tab you re-find.
 - **You're usually the deployer.** You redeploy your own server often, so a long-lived installed client going stale against a just-deployed server is the _defining_ pain — the four-times-relitigated bug (<PrLink pr={696} />, <PrLink pr={1125} />, <PrLink pr={1135} />, <PrLink pr={1149} />).
@@ -220,7 +220,7 @@ const { router, ctx } = implementSurfaceApp(surface, surfaceAppServer(), {
   procedures: { /* yours only */ },
 });
 // one call serves the shell fresh + the manifest + /sw.js (retirement). Granular pieces exported too.
-installSurfaceApp(app, { clientDist, manifest: { name: `kolu@${host}`, themeColor, icons } });
+installSurfaceApp(app, { clientDist, manifest: { name: `Kolu [${host}]`, themeColor, icons } });
 ```
 
 ### /surface — compose the library's surface <Pill variant="dx">@kolu/surface-app/surface</Pill>

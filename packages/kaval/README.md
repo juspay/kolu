@@ -1,6 +1,6 @@
 # kaval
 
-<img src="./logo.svg" width="128" align="right" alt="kaval — a watch over your terminals: three PTYs owned by one daemon, above காவல்" />
+<img src="./logo.svg" width="128" align="right" alt="Kaval terminal daemon logo: a guarded prompt with three PTY session dots" />
 
 **kaval** (Tamil காவல், _kāval_ — "watch, guard"; pronounced **_KAH_-val**, the
 first _a_ long, as in _father_) is the **multi-client PTY-owner primitive** (and
