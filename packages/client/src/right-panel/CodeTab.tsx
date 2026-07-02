@@ -67,7 +67,7 @@ import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { padi } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
-import { createPolledQuery } from "./createPolledQuery";
+import { createRepoPolledQuery } from "./createPolledQuery";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
@@ -313,15 +313,12 @@ const CodeTab: Component<{
   // later `git fetch` would never revive it because the failed initial server
   // read tore the stream down before its repo-change watcher was installed
   // (server.ts `pollOnEvent`).
-  const localStatus = createPolledQuery({
+  const localStatus = createRepoPolledQuery({
     input: () => {
       const p = repoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
-    client: padi,
     pulseName: "Code tab: local status pulse",
-    pulseProc: padiRpc(padi).surface.subscribeRepoChange.get,
-    pulseInput: (i) => ({ repoPath: i.repoPath }),
     query: (i, signal) => padiRpc(padi).surface.git.getStatus(i, { signal }),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
@@ -330,15 +327,12 @@ const CodeTab: Component<{
   // case is *expected* here (the badge just reads no count / the overlay falls
   // back to the local layer), so it's swallowed; any *other* failure
   // (GIT_FAILED, permission, transport) is a real fault and still toasts.
-  const branchStatus = createPolledQuery({
+  const branchStatus = createRepoPolledQuery({
     input: () => {
       const p = repoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
-    client: padi,
     pulseName: "Code tab: branch status pulse",
-    pulseProc: padiRpc(padi).surface.subscribeRepoChange.get,
-    pulseInput: (i) => ({ repoPath: i.repoPath }),
     query: (i, signal) => padiRpc(padi).surface.git.getStatus(i, { signal }),
     onError: (err) => {
       if (isUnfetchedBase(err)) return;
@@ -354,16 +348,13 @@ const CodeTab: Component<{
   // actively in this mode, so even the un-fetched-base case is actionable —
   // "run git fetch"). `status`/`statusPending`/`statusError` preserve the shape
   // the rest of the component consumed off the old single subscription.
-  const activeStatus = createPolledQuery({
+  const activeStatus = createRepoPolledQuery({
     input: () => {
       const p = repoPath();
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    client: padi,
     pulseName: "Code tab: active status pulse",
-    pulseProc: padiRpc(padi).surface.subscribeRepoChange.get,
-    pulseInput: (i) => ({ repoPath: i.repoPath }),
     query: (i, signal) => padiRpc(padi).surface.git.getStatus(i, { signal }),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
@@ -371,20 +362,17 @@ const CodeTab: Component<{
   const statusPending = () => activeStatus.pending();
   const statusError = () => activeStatus.error();
 
-  const allPaths = createPolledQuery({
+  const allPaths = createRepoPolledQuery({
     input: () => {
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
-    client: padi,
     pulseName: "Code tab: file list pulse",
-    pulseProc: padiRpc(padi).surface.subscribeRepoChange.get,
-    pulseInput: (i) => ({ repoPath: i.repoPath }),
     query: (i, signal) => padiRpc(padi).surface.fs.listAll(i, { signal }),
     onError: (err) => toast.error(`File list stream: ${err.message}`),
   });
 
-  const diff = createPolledQuery({
+  const diff = createRepoPolledQuery({
     input: () => {
       const p = repoPath();
       const s = selectedPath();
@@ -394,10 +382,7 @@ const CodeTab: Component<{
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    client: padi,
     pulseName: "Code tab: diff pulse",
-    pulseProc: padiRpc(padi).surface.subscribeRepoChange.get,
-    pulseInput: (i) => ({ repoPath: i.repoPath }),
     query: (i, signal) => padiRpc(padi).surface.git.getDiff(i, { signal }),
     onError: (err) => toast.error(`Git diff stream: ${err.message}`),
   });
