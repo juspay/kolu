@@ -39,15 +39,9 @@ export function setLocalSocketPath(path: string): void {
 /** The local kaval's socket path — the same boot-recorded constant the dialog
  *  reads, reused to stamp `KAVAL_SOCKET` into every terminal this daemon spawns
  *  (so an agent running inside can reach the kaval that owns it, the `$TMUX`
- *  convention). Throws if read before boot recorded it: a terminal can only be
- *  spawned once the endpoint is up (which sets it), so an unset path here is an
- *  ordering bug — crash loud rather than ship a broken `KAVAL_SOCKET`. */
-export function requireLocalSocketPath(): string {
-  if (localSocketPath === undefined) {
-    throw new Error(
-      "local kaval socket path read before the endpoint recorded it at boot",
-    );
-  }
+ *  convention). `undefined` until boot records it; the spawn path guards that at
+ *  its point of use (see `buildTerminalSpawnInput`). */
+export function getLocalSocketPath(): string | undefined {
   return localSocketPath;
 }
 

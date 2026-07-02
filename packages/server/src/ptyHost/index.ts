@@ -34,7 +34,7 @@ import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
 import { log } from "../log.ts";
 import { connectKaval } from "./connect.ts";
-import { requireLocalSocketPath, setLocalSocketPath } from "./daemonStatus.ts";
+import { getLocalSocketPath, setLocalSocketPath } from "./daemonStatus.ts";
 import {
   kavalGatePath,
   kavalSocketPath,
@@ -272,11 +272,21 @@ export function composeSpawnInput(
 }
 
 /** `composeSpawnInput` against the daemon's cached `system.info`, stamped with the
- *  socket THIS endpoint booted on (`requireLocalSocketPath()`) so every terminal
- *  carries `KAVAL_SOCKET`. */
+ *  socket THIS endpoint booted on so every terminal carries `KAVAL_SOCKET`. */
 export async function buildTerminalSpawnInput(args: {
   id: string;
   cwd?: string;
 }): Promise<PtyHostSpawnInput> {
-  return composeSpawnInput(args, await hostInfo(), requireLocalSocketPath());
+  // A terminal can only be spawned once the endpoint is up, which records the
+  // socket at boot (`ensureLocalEndpoint` → `setLocalSocketPath`), so an unset
+  // value here is an ordering bug — crash loud rather than ship a broken
+  // `KAVAL_SOCKET`. Guarded at the point of use, like `liveClient` /
+  // `restartLocalEndpoint` guard the endpoint's other boot-set singletons.
+  const kavalSocket = getLocalSocketPath();
+  if (kavalSocket === undefined) {
+    throw new Error(
+      "local kaval socket path read before the endpoint recorded it at boot",
+    );
+  }
+  return composeSpawnInput(args, await hostInfo(), kavalSocket);
 }

@@ -25,7 +25,7 @@ import { composeSpawnInput } from "./index.ts";
 
 const RC_DIR = mkdtempSync(join(tmpdir(), "spawn-input-rc-"));
 
-/** A stand-in for the socket this daemon serves on (`requireLocalSocketPath()`
+/** A stand-in for the socket this daemon serves on (`getLocalSocketPath()`
  *  in production). Passed as data so the composer stays pure. */
 const KAVAL_SOCK = "/tmp/kaval-7692-501/pty-host.sock";
 
