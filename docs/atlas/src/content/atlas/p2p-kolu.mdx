@@ -1,0 +1,257 @@
+---
+title: P2P kolu — every host runs the whole app; kolus federate
+description: "The non-padi architecture for remote terminals (#951): drop pulam AND padi. Every host runs a full kolu-server as a daemon — like kaval: Nix-provisioned, gate-held, on a 0700 unix socket, restartable because kaval holds the PTYs. The local kolu provisions remotes WITH ITS OWN CLOSURE and tunnels the browser's wire to them over an ssh streamlocal forward — both ends the same build by construction (identity = source-fileset digest, arch-independent), so kolu's client↔server wire never becomes a public contract. Build-ready after a 6-scout implementation review: 3 blocking + ~13 major holes resolved inline. Decisions settled: instant in-app switch; probe-and-refuse pre-K1 hosts; preferences are local, period. Phases K1–K4."
+parents: [remote-terminals]
+status: proposed
+maturity: seedling
+updated: 2026-07-01
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import Svg from "../../components/Svg.astro";
+import PhaseTree from "../../components/PhaseTree.astro";
+import tunnel from "../../diagrams/p2p-kolu-tunnel.svg?raw";
+
+{/* LOCAL EXPLORATION NOTE — deliberately uncommitted (branch session "RT-fable-nonpadi").
+    Alternative to padi.mdx (the plan of record on PR #1649). Grounded in two feasibility audits
+    + a 6-scout implementation-grade review (54 agents; 42 holes survived adversarial verification,
+    resolved inline below), 2026-07-01. Product forks settled by the user same day. */}
+
+<Callout kind="warning" title="Status: one alternative among four — NOT decided">
+This note is an **exploration artifact, not a plan of record**. Four architectures are under consideration for <Issue n={951} />'s remaining leg: **[padi](padi.html)** (the current plan of record on PR #1649, whose W1 build is in flight), **P2P kolu** (this note), **thin-host** (kaval grows domain-agnostic exec/fs primitives; the brain stays local), and the **original pulam plan** (master's shipped direction). This note is written to a build-ready bar so the comparison is fair — not because it won. A decision supersedes; none has been made.
+</Callout>
+
+**The bet: the kolu monolith is not a problem to fix before going remote — it is the unit of deployment.** The [padi plan](padi.html) splits kolu-server into a per-host daemon plus a thin web shell. P2P kolu keeps the fusion and changes the *quantifier*: **every host runs the whole kolu**, exactly as every host runs kaval today — Nix-provisioned over ssh, adopt-or-spawn behind a pid-gate, on a 0700 unix socket, freely restartable because the PTYs live in kaval. The local kolu (L) is the one you browse; switching host tunnels your view's wire to another host's kolu (R). pulam and padi never exist; no new daemon, package, surface contract, or mirroring machinery. The untangling of kolu-server's internals doesn't die — it **decouples** ([below](#monolith)).
+
+export const KT = [
+  { d: 0, g: "○", c: "prog", l: "K1 · identity & the daemon — boot-split gate · source-digest build-id · unix socket · dual-path adopt", m: "local no-op but the namespace re-key", h: "#k1" },
+  { d: 0, g: "○", c: "prog", l: "K2 · the dial — provision with L's OWN closure · control-front handshake · streamlocal forward · drain", m: "zero UI · pu-box e2e", h: "#k2" },
+  { d: 0, g: "○", c: "prog", l: "K3 · the switch — home/binding wire split · gateway splice · instant in-app switch · host picker", m: "the user-visible feature", h: "#k3" },
+  { d: 0, g: "○", c: "last", l: "K4 · attention — home-wire taps · aggregate sole notifier · deep-link", m: "no contract change", h: "#k4" },
+];
+
+<PhaseTree title="ROADMAP — P2P kolu (if adopted, replaces padi W1–W3)" phases={KT} />
+
+export const PAL = { txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2" };
+
+export const Meter = ({ n, s = 11 }) => (
+  <span style={`display:inline-flex;gap:2px;vertical-align:middle`} title={`${n}/5`}>
+    {[1,2,3,4,5].map(i => (
+      <span style={`width:${s}px;height:${s+2}px;border-radius:2px;${i <= n ? `background:${PAL.amber}` : "background:transparent;border:1px solid #2a3145"}`}></span>
+    ))}
+  </span>
+);
+
+export const LENS = [
+  { p: "K1", h: "#k1", user: "nothing", vis: false, work: 3, why: "boot-split · source-digest identity · unix listen · dual-path adopt",
+    beh: "kaval's socket moves (kaval-<port> → kaval-<digest>) but the OLD daemon's live PTYs are adopted across the rename, not orphaned; a kolu pid-gate refuses a double-launch that today silently clobbers state.json" },
+  { p: "K2", h: "#k2", user: "nothing", vis: false, work: 3, why: "one ssh forward shape · a control front · a third drv map · drain",
+    beh: "a dialed host gains a gate-held kolu daemon + your closure in its store — config-gated, inert unless dialed; pre-K1 hosts and missing linger are refused loudly, never spawned beside" },
+  { p: "K3", h: "#k3", user: "everything — host switcher · instant switch · remote canvas as a full peer", vis: true, work: 5, why: "home/binding wire split + binding-generation singletons + the verified-before-splice gateway; the heaviest phase",
+    beh: "the app keeps a permanent home socket to L plus a per-view binding; switching swaps the binding in-app (no reload); a remote outage degrades only that view, never the app" },
+  { p: "K4", h: "#k4", user: "cross-host badges · notification deep-link", vis: true, work: 2, why: "taps over the home wire · aggregate is the sole notifier",
+    beh: "notifications fire for hosts you are not looking at; L keeps one light tap per pooled host, stamped on L's clock" },
+];
+
+export const PhaseLens = () => (
+  <div style="font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;padding:1rem 1.3rem;margin:1.4rem 0;width:min(60rem,94vw);position:relative;left:50%;transform:translateX(-50%);box-sizing:border-box">
+    <div style={`display:flex;justify-content:space-between;color:${PAL.dim};font-size:.8em;padding-bottom:.6rem;border-bottom:1px solid #1c2231`}>
+      <span>phase · <span style={`color:${PAL.green}`}>◉ user sees</span> · <span style={`color:${PAL.cyan}`}>Δ behaviour</span></span>
+      <span>architectural rework: <Meter n={3} s={7} /> = 3/5</span>
+    </div>
+    {LENS.map(r => (
+      <div style="display:grid;grid-template-columns:5ch 1fr;column-gap:1ch;padding:.75rem 0;border-bottom:1px solid #141926">
+        <a href={r.h} style={`color:${PAL.cyan};text-decoration:none;font-weight:700;font-size:1.08em`}>{r.p}</a>
+        <div style="display:flex;flex-direction:column;gap:.4rem;min-width:0">
+          <span style={`color:${r.vis ? PAL.green : PAL.dim}`}>{r.vis ? "◉ " : "○ "}{r.user}</span>
+          <span style={`color:${PAL.txt};font-size:.95em`}><span style={`color:${PAL.cyan};font-weight:700`}>Δ </span>{r.beh}</span>
+          <span style="display:flex;align-items:center;gap:1.2ch;flex-wrap:wrap">
+            <Meter n={r.work} s={11} />
+            <span style={`color:${PAL.sub};font-size:.95em`}>{r.why}</span>
+          </span>
+        </div>
+      </div>
+    ))}
+    <div style={`color:${PAL.dim};font-size:.8em;padding-top:.6rem`}>◉ user-visible · ○ invisible · <span style={`color:${PAL.cyan}`}>Δ</span> runtime-behaviour change. The shape: K1–K2 are invisible but each carries a real Δ (the namespace re-key; a new daemon on dialed hosts); the user-loud phase (K3) is the heaviest, because instant switch + the home/binding wire split are genuine client rework, not padi-style server rework.</div>
+  </div>
+);
+
+<PhaseLens />
+
+## User-facing description
+
+Identical to [padi](padi.html)'s north star — the product decisions carry over unchanged: **single-host canvas per view** with a ChromeBar switcher and an **instant in-app switch**; a host's arrangement **lives on that host** (its own kolu's session store), so every device and peer kolu sees the same canvas; a remote canvas is a **full peer** because it *is* today's kolu, running there; cross-host attention rides the PWA app badge + chip counts + notification deep-link (the A+ model).[^personas] First connect to a new host: kolu ssh-provisions it with **its own build** and the host joins the picker. **Preferences are yours, not the host's** — theme, tips, alert settings always read and write your local kolu, so switching host never flips your shell.
+
+One honest UX delta vs padi: after a **remote kolu restart**, metadata re-derives for a few seconds — today's local semantics, now per host — instead of padi's warm-store restart. kaval keeps the terminals alive through it.
+
+## Architecture-level changes
+
+<Svg svg={tunnel} caption="The P2P stack. Every host runs the same full kolu; the local one (L) is browsed and acts as a content-blind gateway, splicing each view's websocket + byte routes over an ssh streamlocal forward to the bound host's kolu (R). L provisions R with its own closure and both share a source-fileset build-id, so the client↔server wire stays private forever. R is a gate-held daemon on a 0700 unix socket with realpath'd state-root-digest identity; its kaval survives everything above it. The browser also holds one permanent home socket to L for the pool, attention, and preferences." />
+
+**Same-build by provisioning — the load-bearing move.** Exposing kolu's oRPC naively would turn its private client↔server wire into a public, versioned, compatibility-managed contract — a permanent tax on every future PR (managing that tax is what padi's W1 existed for). Instead, make cross-version traffic **unrepresentable**: L provisions every remote **with L's own closure**,[^closure] and the handshake is **exact-match-or-refuse on a source-fileset build-id** — not a store path, which differs by architecture and would refuse the Mac→Linux case 100% of the time.[^buildid] Binding an older R offers one action, *re-provision + drain-restart* (R persists its session and exits; kaval keeps the PTYs; the new build adopts). No two builds ever speak the wire to each other, so it never needs stability. This is kolu's existing kaval relationship applied to itself: `expectedKaval` gains a sibling, `expectedKolu`.
+
+**The gateway is a tunnel, not a mirror.** L neither mirrors nor understands R's traffic — it **splices bytes**. The browser↔R stream is one logical stream end-to-end, so padi's whole per-member forwarding-policy problem dissolves: any drop is a websocket drop the client's existing retry + snapshot-first attach already heals, and the R5 overflow frame (<PrLink pr={1591} />) rides through untouched. But content-blind is not policy-free — the review surfaced three things the splice *must* enforce, or the architecture's own invariant breaks:
+
+- **Verified-before-splice.** The splice must refuse to connect unless the binding is `connected` **and** version-`verified` — otherwise a browser's retrying socket can land on R *before* L's handshake has compared build-ids, and a skewed R speaks the private wire after all.[^verified]
+- **Own-origin gate + strip Origin.** L runs its *own* `gateWsOrigin`/`gateHttpRpcOrigin` on every `/host/*` route before splicing (else a malicious page drives `terminal.create` on R — code exec), and forwards a fresh upgrade request with **Origin stripped** so R needs no allowlist and `@kolu/surface` stays untouched. No AF_UNIX-trust arm on R.[^security]
+- **Per-binding lifecycle.** A remote binding's outage must degrade *that view only* — today's rescue UI is an app-global full-viewport overlay + `location.reload()`, which a routine remote drain would fire across the whole app.[^lifecycle]
+
+Two enabling facts are audited: unix-socket listening is mechanical (with a stale-inode hygiene fix),[^unixsock] and the ssh side needs one new argv shape — a **control front** (`kolu --stdio`) that returns R's live socket path + build-id, then an openssh **streamlocal `-L`** forward to that path riding the existing ControlMaster.[^dial]
+
+**Identity — grounded, and harder than the sketch claimed.** Instance = **`sha256(realpath(state-root))`** truncated — realpath'd because a raw env string spells one directory many ways (symlinked `/home`, trailing slash, `$XDG_CONFIG_HOME` set vs defaulted) and would mint two gates for one root, reopening the clobber the key exists to close.[^identity] The gate must run in a **boot-split entry module** — a ~30-line leaf that acquires the pid-gate *before* dynamically importing the body, because `state.ts`'s module constructs `Conf` and runs the migration ladder at import time, so a naive top-level gate fires after state.json is already migrated-and-written.[^bootsplit] And the `kaval-<port>` → `kaval-<digest>` rename must **adopt the old daemon's live PTYs, not orphan them** — a dual-path adopt-candidate list, else a production upgrade leaks every running agent and the restore card duplicates them.[^migration]
+
+**What stays exactly as today — the point.** The awareness architecture (S1/S2 as shipped, one fold on the host's own clock), the reader-join, the registry, the client-driven restore loop (running against whichever kolu the view is bound to), Code tab, byte routes, sleep/wake, transcript loaders (SQLite and all — they run in R's kolu), worktrees, MRU — **all untouched**, because the whole app runs where the terminals are. One writer per host, on its own clock, guarantees at the knowing endpoint; cross-host clock comparison stays unrepresentable.[^clock]
+
+**The client's share is the real work of this design.** The browser keeps **one permanent home socket to L** — the pool list, the cross-host attention aggregate, and **all preferences** (they are user-state; a bound host's preferences cell is simply never consulted)[^prefs] — *plus* a per-view **binding socket** to the bound host; K4 has no other transport when a view is parked remotely.[^homewire] The binding rides a `?host=<id>` URL param (reload-safe, deep-linkable, per-tab), and **switching is instant and in-app**: the wire and its dependent singletons become binding-generation factories with real disposal — a fresh `connectSurfaces` per switch (reusing a socket across hosts trips the stale-tab pid gate), in-flight coalesced calls drained or rejected against the old generation, the app remounting keyed on the binding.[^switch] Byte routes gain a `/host/<id>/api/…` prefix that the gateway strips; server-minted preview URLs get prefixed client-side; view-state keys namespace per binding through the `persistedPref` chokepoint.[^client] Because there is one app at one origin, no Vite-base, service-worker, PWA-manifest, or localStorage-collision work exists — those costs belong only to the rejected variant.[^fullproxy]
+
+<a id="monolith"></a>
+
+**The monolith question — decoupled, not forfeited.** padi used remote terminals as the *forcing function* to untangle kolu-server. P2P removes the coupling: no wire depends on any internal split, so the "terminal-workflow volatility hiding in kolu-server" instinct resolves on its own evidence, per the repo's graduation discipline — extract a `@kolu/*` package when churn pain or a real second consumer proves the volatility, not because a feature deadline demands it. That can proceed incrementally under P2P, potentially ending at a padi-shaped *library* with no process split, no public contract, no re-serve machinery. If a genuine second frontend ever materializes, that is the moment a public surface earns its keep — entered with K1's identity work already banked (it is padi W2.2's groundwork, shared verbatim).
+
+### Honest comparison vs padi
+
+**The preferences episode generalizes, and it cuts for padi.** P2P ships the *whole* app to a place where only the terminal-domain subset is meaningful — so R serves members a remote-bound client must **know to ignore**: `preferences`, the `hosts` pool, `hostBindings`, `hostAttention` (a spoke has none of these in any meaningful sense). Each exclusion is small, but the list *is* padi's boundary re-emerging as client-side convention — padi, being **a subset of kolu-server by construction**, cannot even express a preferences cell on the host daemon; what P2P handles by discipline ("never consult R's prefs"), padi makes unspellable by subsetting. That is a real P4-grade point in padi's favor that this note's first draft missed.
+
+| axis | padi | P2P kolu |
+| --- | --- | --- |
+| new moving parts | padi daemon + padiSurface + forwarding machinery | none — one ssh forward + a gateway splice + a home/binding client split |
+| remaining work | W1 (C/M/R) + W2 ×4 + W3 ×3 | K1–K4 (client-heavier than the first sketch said — instant switch is real scope — still < padi) |
+| kolu-server internals | forcibly untangled now (the seam, the seal) | untangled **on their own evidence, later** — decoupled from this feature |
+| restart warmth | warm metadata across kolu restarts | re-derive on restart (today's semantics; PTYs survive in kaval) |
+| public contract for other frontends | padiSurface, designed for it | none — kolu-tui ships in-closure; a public surface waits for a real second consumer |
+| preferences | in the web shell | **on L, always** (the home wire) — user-state never follows a binding |
+| out-of-domain members on the remote | **none by construction** — padiSurface is exactly the terminal-domain subset; a prefs/pool/attention member on the host daemon is unspellable | the whole koluSurface exists on R; the client must ignore `preferences` · `hosts` · `hostBindings` · `hostAttention` on a bound remote — padi's boundary, re-emerging as discipline |
+| behaviour cliff | W2's process split | K1's namespace re-key + the remote leg — smaller, but real |
+| footprint per remote | padi + kaval | full kolu + kaval (an idle node server; the closure already ships today[^closure]) |
+
+## Implementation details
+
+<a id="k1"></a>
+
+### K1 — identity & the daemon *(local no-op at rest; the one Δ is the namespace re-key)*
+
+Boot-split entry[^bootsplit]; `KOLU_BUILD_ID` source-digest[^buildid]; realpath'd state-root instance key[^identity]; a kolu pid-gate (refuse, never clobber); unix-socket listen via `createAdaptorServer().listen({path})` with an extracted-and-exported `prepareUnixSocketPath` hygiene helper[^unixsock]; a `kolu daemon` bin mode + a `kolu --stdio` control front that prints a `{socketPath, buildId, version, pid}` ready line[^dial]; the `kaval-tui` discovery digest branch + manifest; the dual-path adopt-candidate migration[^migration]; per-port dev/e2e state-root keying so a second dev instance isn't gate-refused.[^dev]
+- **Done:** two kolus with distinct state-roots coexist, gate-refusal on a shared root pinned by test; an upgrade e2e adopts the pre-K1 daemon's live PTYs across the rename (zero orphans, zero restore-card duplicates); a headless kolu on a unix socket round-trips its full wire; a SIGKILL'd daemon's stale socket is cleared on next boot (no EADDRINUSE loop); all e2e green.
+
+<a id="k2"></a>
+
+### K2 — the dial *(zero UI)*
+
+`koluDrvBySystem` via the JSON-less-import map (baking the map onto the binary it maps is an eval cycle; remotes are therefore spokes)[^drvmap]; provision + adopt-or-spawn a remote kolu **with L's own closure** — but first, **probe-and-refuse**: a host with a listening pre-K1 kolu (or any un-gated kolu on the target state-root) gets a typed refusal naming the upgrade path — the dial **never spawns beside an existing instance**; it adopts gate-held K1+ daemons only[^prek1]; the control-front handshake (`info` → socket path + build-id) then the streamlocal `-L` forward to that path, with forward re-establishment on `HostSession` reconnect and local forward-socket hygiene[^dial]; exact-match on `KOLU_BUILD_ID` or a typed skew refusal with one-action re-provision; **provenance typing** — a self-managed `kolu.service` is never drained (skew against it is a terminal refusal naming R's own upgrade path), drain applies only to dialer-spawned gate-held daemons and refuses a peer with attached clients unless confirmed[^drain]; drain = SIGTERM→save→exit, wire-free[^sigterm]; a **linger check** at provision (refuse loudly if absent — else the daemon dies with the ssh login session)[^linger]; and correct failure classification — `nix`-not-found is a `"remote"` refusal with an actionable message, not silent infinite "network" retry.[^nixmiss]
+- **Done:** a pu-box e2e provisions, dials, round-trips the wire, survives an ssh blip and a remote kolu restart (kaval PTYs intact), proves the skew-refuse → re-provision path, proves the pre-K1 probe refusal, and asserts the daemon+kaval outlive logout when linger is on / refuse loudly when off. *Only the real ssh leg can satisfy this.*
+
+<a id="k3"></a>
+
+### K3 — the switch *(the user-visible feature; instant in-app, by decision)*[^switch]
+
+**Client:** split `wire.ts` into a never-rebinding **home wire** (L's origin — pool, attention, **all preferences**[^prefs]) and a **binding wire** built by a `createWire(binding)` generation factory; `createSharedRoot` gains a binding-scoped sibling with real disposal; the app remounts keyed on the binding; switching = swap the binding generation in place (`history.replaceState` for the `?host=` param — no navigation), fresh socket per generation, old generation disposed with in-flight calls drained or rejected; byte-URL prefixing at the audited consumption points; `persistedPref` app-vs-binding key split; the ChromeBar host picker fed by a one-shot GET to **L's origin** (so it renders during a remote outage) + persisted last-binding; a disconnected-remote card that **names the host and offers "back to local"** (works while R is dead)[^escape]; per-binding lifecycle scoping so a remote blip never fires the app-global overlay.[^lifecycle]
+
+**Server (the gateway in L):** the verified-before-splice ws + `/host/<id>/api/*` HTTP splice[^verified] — strip-Origin + own-origin gate[^security], raw-target routing by an opaque hostId slug[^routing], `head`-buffer + query-string preservation, ECONNRESET tolerance without tripping kolu's fatal-error policy[^econnreset]; a `hostBindings` koluSurface collection for per-binding status (kolu-owned, no drishti gate)[^bindings]; the persisted host pool schema + migration + remove-while-bound teardown[^pool]; and the `/host` dev-proxy route.[^devproxy]
+- **Done:** the padi parity-checklist e2e, verbatim, against a real ssh host — PTY echo · Code tab · binary preview (incl. range/video) · paste/upload · transcript (all three agents) · sleep/wake · worktrees · restore card after a remote reboot · reload re-dial — plus: the switch completes **without a navigation** (asserted), N switches leak no sockets or xterm/WebGL instances (heap-pinned), no cross-binding call survives a switch, a remote outage leaves local views interactive and offers "back to local", and a second device is undisturbed.
+
+<a id="k4"></a>
+
+### K4 — attention *(the A+ bar)*
+
+L taps each pooled host's `snapshots` collection over its forward (a node-side surface-client on the home wire), folds urgency via the shipped `agentProjection` (recency-free), and stamps `observedAt` on **L's own clock** into a `hostAttention` aggregate served on the home wire[^k4wire]; the aggregate is the **sole** `setAppBadge` writer and OS-notifier (the per-binding alert layer keeps only in-canvas duties), with `tag: hostId:terminalId` so banners coalesce across tabs[^dblalert]; a re-dial replaces a host's entries wholesale (no phantom awaiting rows)[^redial]; the tap runs the same build-id handshake and marks `skew` to the chip rather than mirroring a skewed R[^k4skew]; notification click routes to a view already bound to `hostId` (else rebinds the focused view — instant, since K3) with a pending-focus latch + timeout.[^deeplink]
+- **Done:** an awaiting agent on host B fires badge, chip, and notification while every view is parked on A; the click lands focused on the right tile; B unreachable degrades its chip, never the app; a re-dial after an outage shows no phantom rows.
+
+### Spikes before K1 *(each ≤ a day, falsifiable)*
+
+1. streamlocal `-L` over the existing ControlMaster against a headless hono-on-unix-socket — the ws upgrade splices end to end, **with the security checklist**: strip-Origin, L-side gate, 0700 forward-socket dir, `StreamLocalBindUnlink=yes`, `StreamLocalBindMask=0177`.[^security]
+2. The gateway's raw-target rewrite against the byte route's realpath/traversal guard.[^routing]
+3. Bandwidth: measure the value-bearing `gitStatus`/`gitDiff`/`fsListAll` streams under agent-churn over a WAN forward; cheap mitigations in preference order — `permessage-deflate` on R's `WebSocketServer` (helps local too), `-o Compression=yes` on the forward; the CodeTab pulse+procedure migration is the structural fallback if numbers demand it.[^bandwidth]
+4. Remote-restart metadata re-derivation timed on a loaded host — the warmth trade, quantified.
+5. **Instant-switch teardown**: a throwaway branch proving `createWire(binding)` + disposal on the two riskiest consumers (the attach stream + the terminal store) before K3 commits to the full ~15-module inversion.[^switch]
+
+### Open decisions *(the remaining, technical ones — product forks are settled)*
+
+| decision | default (recommended) | the fork |
+| --- | --- | --- |
+| **Legacy adopt-candidate sunset** | keep the `kaval-<port>` adopt candidate **one release**, then drop | vs. keep indefinitely (permanent dual-namespace surface — the strangler-stall padi warns of) |
+| **K4 attention wire granularity** | carry a **trimmed per-terminal list** (`{id,state,title,observedAt}`) — the wire is private + single-clock, so the recency-ban rationale doesn't apply | vs. counts-only (forfeits the deep-linked banner subject) |
+| **Cold-open deep link** (no kolu window) | take the drishti-gated `openWindow("/?attend=…")` SW change | vs. accept today's target-losing `openWindow("/")` |
+
+### Settled decisions *(2026-07-01, by the user)*
+
+- **Pre-K1 host with an existing kolu: probe & refuse.** The dial detects a listening un-gated kolu and refuses with a clear upgrade message; it only ever adopts gate-held K1+ daemons and never spawns beside an existing state-root.[^prek1]
+- **Instant in-app switch from day one (no reload stopover).** The singleton-generation inversion is accepted scope, de-risked by spike 5.[^switch]
+- **Preferences are local, period.** Not split, not seeded, not per-host — user-state rides the home wire; a bound host's preferences cell is never consulted.[^prefs]
+
+### If adopted
+
+[padi](padi.html) W1/W2/W3 are superseded wholesale (its identity section survives as K1's spec); the in-flight W1 build stops; pulam daemon + pulam-tui retire on the same schedule with the same `wait` re-homing answer (a `kolu wait` subcommand). W0's landed work — the overflow frame, the freeze, the PR closures — stands either way. **Not superseded:** kaval, untouched, as ever.
+
+[^personas]: Both personas from the padi UX evaluation get the same shape: the **ephemeral pu-box** ("add host, work, tear down" — teardown removes the host from the picker as one unit) and the **permanent headless server** ("it's just kolu, reachable from any of your kolus" — a kolu.service on a K1+ build; pre-K1 services are refused, not adopted, per the settled decision).
+
+[^switch]: Settled: instant, no reload stopover. The honest scope (from the implementation scout): `wire.ts` + `rpc.ts` + `createSharedRoot` become binding-generation factories across ~15 modules and ~30 importers; disposal must handle in-flight coalesced writes (drain or reject against the old generation); the app remounts keyed on the binding; and each switch constructs a **fresh** `connectSurfaces` — reusing a socket across hosts trips the stale-tab pid gate (`ProcessIdEcho`) and bricks the tab. The `?host=<id>` param updates via `history.replaceState` (deep-link + reload-safe without navigation). Spike 5 de-risks the two hardest disposals (attach stream, terminal store) before the full inversion. The K3 e2e pins: no navigation on switch; no socket/xterm/WebGL leak after N switches.
+
+[^prefs]: Settled: preferences are user-state and live on L, always — the earlier "whose preferences" question was a category error (calling them host state was the smell). The client's preferences subscription moves to the **home wire**; a bound host's `preferences` cell is never consulted by remote-bound views; Settings always writes L. Nothing is seeded to remotes. (Host-fs facts — the MRU feed, recentRepos — are *not* preferences and correctly stay per-host.)
+
+[^closure]: Audited: `parseDrvBySystem`/`provisionAgent`/`buildAgentCommand` are already binary-agnostic, and the kaval drv **already pulls the entire kolu workspace derivation onto every remote it provisions** — client bundle included (the kaval wrapper references `${kolu}`). Shipping "all of kolu" is *zero marginal closure weight*; the drv to ship is `koluBin` instead of `kaval`, from the same workspace build.
+
+[^buildid]: **Blocking hole, fixed.** The sketch said the handshake reuses "the whole-build drv hash" — but `drvPath`/`outPath` are per-system by construction (the flake builds one drv *per* system precisely because they differ), so any store-path comparison refuses 100% of cross-arch bindings, i.e. the Mac-laptop→Linux-server primary persona. Fix: mint `KOLU_BUILD_ID = hashString "sha256" "${src}"` over the content-addressed workspace fileset (includes `pnpm-lock.yaml`), byte-identical across platforms — exactly how `KAVAL_BUILD_ID` already solves this (`default.nix:165-176`). `--set` it on `koluBin`, expose on `buildInfo`, add a `koluBuildIdOverride` test hook so the skew e2e can build a "newer" kolu.
+
+[^verified]: **Major hole, fixed.** The one load-bearing invariant is "no two builds ever speak the wire." The splice is content-blind and enforces nothing, so a browser's already-retrying PartySocket can land an upgrade on L *before* L's handshake client has read R's `buildInfo` — and a skewed R speaks the private oRPC wire, surfacing as per-cell Zod errors (or silently half-working on additive drift), the exact "managed contract" failure the design exists to make unrepresentable. Fix: the binding registry carries a tri-state verdict (`unverified` → `verified | skew`), set only by L's handshake; both splices consult `state === "connected" && verdict === "verified"` and otherwise refuse with distinct codes (`503` connecting/degraded, `409` skew) so the e2e can pin them; re-provision resets the verdict to `unverified` before the drain RPC. The client reads the *why* from the `hostBindings` collection on the home wire, not the refusal bytes.
+
+[^security]: **Major hole, fixed.** The forwarded unix socket carries L's spliced *browser* traffic, so an AF_UNIX-trust arm on R would let a malicious page (`ws://L/host/R/rpc/ws`) reach R as a trusted peer = `terminal.create`+`sendInput` = code exec on R. Fixes, all pinned into spike 1: (1) **no** AF_UNIX-trust arm — L forwards a fresh upgrade with `Origin` stripped and a constant `Host`, so R's existing header gate needs no change and `@kolu/surface` is untouched (no drishti PR); (2) L runs its own `gateWsOrigin`/`gateHttpRpcOrigin` on all `/host/*` routes before splicing (a baked per-provision allowlist goes stale the moment the user opens L by a different name — localhost vs LAN vs tailscale — so L uses its own multi-origin allowlist, the `KOLU_ALLOWED_ORIGINS` mechanism that already exists); (3) forward sockets live under a 0700 `getRuntimeSocketPath` namespace with `-o StreamLocalBindUnlink=yes -o StreamLocalBindMask=0177`.
+
+[^lifecycle]: **Major hole, fixed.** `TransportOverlay` is a fixed `inset-0` dim over the whole app driven by the single `useSurfaceApp` lifecycle, and "restarted"/stale ⇒ a `location.reload()` card. K2 makes remote drain-restart a *routine* flow, so a bound host's blip would dim the entire app (healthy chips/badges included) and prompt an "App updated" reload for a remote drain where L's bundle is fine. Fix: scope lifecycle per binding — the local binding keeps the full-viewport overlay; a remote binding's down/restart renders a canvas-scoped degraded card (reconnect/re-dial/skew actions) and never `location.reload()`. The K3 e2e asserts a remote outage leaves local views interactive.
+
+[^unixsock]: **Major hole, fixed.** `createAdaptorServer` + `.listen({ path })` is the mechanical listen (the ws upgrade is plain `server.on("upgrade")`, transport-agnostic). But `serveOverUnixSocket` serves a *different* wire (base64-framed oRPC) and can't carry hono+ws, so the daemon binds a raw node server — and a SIGKILL'd/OOM'd daemon leaves a stale socket inode → `listen` fails `EADDRINUSE` forever → crash-loop under any restart-on-failure supervisor. The privacy/probe/stale-clear logic (`isPrivateOwnedDir`, `probeSocket`, `classifyInode`) is module-private in `packages/surface/src/unix-socket.ts`; extract + export a `prepareUnixSocketPath(path)` used by both serve paths, and register socket unlink in `shutdownCleanup`. This *is* an API-facing `@kolu/surface` change ⇒ the one drishti-gated piece of the whole design.
+
+[^dial]: The dial is a two-step the sketch collapsed: `frontDaemonOverStdio` couples adopt-or-spawn *with* a stdio relay, but P2P wants a *forward* for data. So: (1) `HostSession` dials a control front (`kolu --stdio`) that adopt-or-spawns the gate-held daemon and returns `{socketPath, buildId, version, pid}` from K1's rendezvous manifest (L cannot know the remote socket path a priori); (2) verify build-id; (3) spawn the openssh `-L` forward to that literal remote path, riding the existing ControlMaster; (4) re-run info→forward on every `HostSession` reconnect (paths change if the runtime dir was wiped). L owns the local forward-socket path (0700, unlinked before every respawn, ENOENT-tolerant). The refuted alternative — a dedicated supervised `ssh -N -L` child instead of `-O forward` — was considered; `-O forward` on the master is the cheaper default given explicit re-establishment on reconnect.
+
+[^prek1]: Settled: **probe & refuse.** Before any spawn, the control front checks the target state-root: a gate-held K1+ daemon ⇒ adopt; an un-gated (pre-K1) kolu detected listening, or any kolu process owning that state-root without a gate ⇒ typed `"remote"` refusal — "host runs a pre-P2P kolu; upgrade it first" — and the dial never spawns beside it (spawning would recreate the state.json clobber K1's gate exists to kill, against a process that holds no gate to refuse us).
+
+[^identity]: **Major hole, fixed.** Hashing the raw `KOLU_STATE_DIR` string mints two digests for one directory when it's spelled differently (symlinked `/home`, trailing slash, `$XDG_CONFIG_HOME` set vs defaulted) → two gates → both instances run → the last-writer-wins `state.json` clobber the key exists to kill, now hidden behind an identity that claims to prevent it. Fix: `instanceKey = sha256(realpathSync(stateRoot)).slice(0,12)` after `mkdirSync(recursive)`; unit-test the symlinked-parent and trailing-slash cases. `kavalNamespace` widens from `number` to a string key; the discovery classifier gains the digest branch + a manifest for honest labels; the digest truncates for the ~104-char `sun_path` budget.
+
+[^bootsplit]: **Blocking hole, fixed.** ESM import hoisting: `index.ts` → `session.ts` → `state.ts`, whose module body constructs `Conf`, *runs the migration ladder, and writes defaults* at import time — before any top-level statement where a gate could sit. So a naive gate refuses the loser only *after* it has already up-migrated the shared `state.json`, corrupting the running instance's next autosave (a 1.29 session written into a 1.31-stamped file → the next real 1.31 boot skips migrations and Zod-rejects). Fix: keep `index.ts` as the entry but make it a ~30-line gate leaf — compute `instanceKey` (imports nothing stateful), `acquirePidGate`, refuse on `held`, *then* `await import("./main.ts")` (today's body). Nothing transitively importing `state.ts` may be statically imported by the gate module.
+
+[^migration]: **Blocking hole, fixed.** Prod `kolu.service` (port 7681) holds N live PTYs in `kaval-7681/`; the K1 build computes `kaval-<digest>`, `adoptOrEnsure` probes only that path, finds nothing, spawns fresh — the old daemon survives untouched (survivable spawn is the point) holding N orphaned PTYs no supervisor will adopt or kill, while the restore card re-spawns all N on the fresh daemon (duplicate shells, leaked `claude` sessions). Fix: grow `EndpointSpec` (supervisor, *not* drishti-gated) to `{ primary, adoptCandidates?: [...] }` with `connect(socketPath)` parameterized; `adoptOrEnsure` scans `[digest, legacy]`, binds to whichever answered, but `ensure`/recycle always spawn at `primary` — so the first deliberate recycle (skew, restart button, reboot) converges to the digest path under the restore-card semantics that already govern recycles. kolu passes `adoptCandidates: [legacy]` only in interactive mode; sunset per the open decision.
+
+[^dev]: `just dev SERVER_PORT=…` and the e2e harness run multiple instances per box; today only the kaval socket is per-port-keyed while `KOLU_STATE_DIR` is shared, so K1's gate would refuse the second. Fix: the `just dev` `server` recipe exports a per-port `KOLU_STATE_DIR` beside its per-port kaval dir; the bare `just dev` default stays `.kolu-dev` so existing dev state survives.
+
+[^drvmap]: Baking `KOLU_AGENT_DRVS_JSON` onto `koluBin` when the map contains `koluBin`'s own `drvPath` is a Nix eval cycle. The kaval pattern avoids it with a JSON-less import (`import ./default.nix {…}` without the JSON args), so the drv L ships to R is the map-less wrapper variant — byte-different from L's own binary at *wrapper* granularity, which is exactly why identity must be the **source digest** (identical across both variants), not a store path. Consequence to state plainly: a provisioned remote has no drv map and so cannot itself dial onward — **remotes are spokes** (a remote's picker shows only itself) until a real need arises.
+
+[^drain]: **Major hole, fixed.** The permanent-server persona means R may be someone's L — so newest-wins drain has two failure modes: (a) a systemd-pinned kolu, drained, is *resurrected at the old build* by systemd → L's fresh spawn and the service fight the gate forever (the "monotonic, no livelock" claim only holds among dialer-spawned daemons); (b) even when it works, R's own browser user gets an app-wide "Reconnecting…" + metadata re-derivation triggered by a remote peer, no consent. Fix: type the daemon's provenance — a self-managed kolu (baked `KOLU_SELF_MANAGED` marker) is **never drained**; skew against it is a terminal refusal naming R's own upgrade path. Drain applies only to dialer-spawned gate-held daemons, and refuses a peer reporting attached clients unless the user confirms.
+
+[^sigterm]: kolu-server today does *not* save on `SIGTERM`, so "drain = save + exit" is new code and must ride the signal, not the wire: `index.ts` `SIGTERM`/`SIGINT`/`SIGHUP` handlers call `setSavedSessionFromSnapshot(snapshotSession())` (synchronous, cancels the stale timer, preserves-on-empty) before `process.exit(0)`. The control front's `drain` verb is wire-free — read the pid from K1's manifest, `kill(pid, SIGTERM)`, poll gate-release + socket-unbind with a deadline — so it works against any older R by construction (the front runs from L's new closure). Drain aborts on persist failure with a typed error rather than exit-without-persist.
+
+[^linger]: **Major hole, fixed.** `reExecAsDetachedDaemon` detaches from the ssh session, but on systemd hosts logind removes `/run/user/<uid>` (the rendezvous dir: socket + gate + manifest) when the last session ends without `loginctl enable-linger`, and with `KillUserProcesses=yes` (default on several distros) SIGKILLs the daemon — and the `systemd-run --user` kaval needs a live user manager too, so "kaval keeps the PTYs" breaks on the same axis. Concrete: dial a stock Ubuntu box, create terminals, close the laptop → daemon+kaval gone or orphaned with an unlinked socket. Fix: probe `loginctl show-user $USER -p Linger` at provision; refuse loudly (typed "remote" failure naming `loginctl enable-linger $USER`) when absent — never silently degrade. Whether kolu auto-runs enable-linger is a product call.
+
+[^nixmiss]: **Major hole, fixed.** `resolveSystem`'s probe throws a plain Error regardless of exit code, and `HostSession.spawn` classifies any non-`ResolveDrvError` rejection as `"network"` → retry forever at 60s. `ssh host nix-instantiate` on a nix-less host exits 127 — a reachable host, permanent condition — yet shows "unreachable, retrying" eternally with no hint to install nix. Fix: kolu's resolver wraps the probe — ssh exit 255 (transport) → `"network"`; any other non-zero → `ResolveDrvError(…"nix not found/failed on host (exit N) — install Nix or pick a NixOS host", "remote")` so it lands in terminal `failed` with the real message; map-miss likewise throws `"remote"`.
+
+[^clock]: One residual: "2m ago" strings compare a host's stamps against the browser clock — bounded display skew, cosmetic. K4's aggregate sidesteps it by stamping `observedAt` on L's clock (one clock for the whole aggregate).
+
+[^homewire]: **Major hole, fixed.** K3 makes the wire binding-scoped and the gateway content-blind to R — but then a view bound to host B speaks *only* to B, and B has no pool, no aggregate, no cross-host knowledge. L's pool list, attention aggregate, and reachability are L-side facts with no channel to the client; K4's "awaiting on B fires while parked on A" silently assumed A=local. Fix: the client always keeps ONE binding-independent **home socket** to L's own origin (pool, `hostAttention`, preferences, dial status) alongside the per-view binding socket. `wire.ts` splits into `homeWire.ts` (never rebinds) and the binding-scoped wire (terminals, snapshots, fs/git, attach). K4 imports only the home wire. This is the single biggest structural addition the review forced onto the sketch.
+
+[^client]: Audit specifics: the server mints absolute preview/artifact URLs into payloads (`buildIframePreviewUrl`) — prefixed client-side at the audited points (`BrowseFileDispatcher`, `markdownImageSrc`, the solid-fileview renderers; the artifact-sdk `<script>` is root-absolute and resolves to L, where the same-build copy at the identical path is the right bytes — pinned by a test, not "rides free" as the sketch loosely said). `persistedPref` gains an app-vs-binding scope: binding keys get a `host/<id>/` prefix (canvas-maximized, show-sleeping, reattach-announced, font-size, comments), app keys stay unprefixed (dock-mode, activity-window, picker MRU).
+
+[^fullproxy]: The rejected variant — proxy the whole remote app (`/host/R/` serves R's bundle) — would give maximal version-safety and direct browser access, but the audit priced it out: Vite `base` + a dozen origin-rooted sites; **PWA identity collapse** (`start_url:"/"`, no `scope`/`id` — two kolus on one origin alias into one installed app; the notification worker's `clients.claim()` cross-claims tabs; `openWindow("/")` lands on the wrong app — structural changes in shared `@kolu/surface-app`, drishti-gated); origin-scoped localStorage collides across the sibling apps (and the debug "Clear localStorage" wipes both). Same-build-by-provisioning gets the version-safety without any of it; keep this in the back pocket as a later "open this host in its own window" affordance.
+
+[^escape]: **Major hole, fixed.** Bind to a pu-box, tear the box down (the plan's own persona): the splice drops → the disconnected overlay renders "Reconnecting…" forever without saying *which* server, and any reload re-reads `?host=<dead-id>` and lands back on the dead binding. Fix, shipped in K3: the overlay names the bound host; a "Switch host / Back to local" action on the disconnected card (pure client-side, works while R is dead); picker data always fetched from L over plain HTTP so it renders during a remote outage.
+
+[^routing]: The byte route slices the raw `IncomingMessage.url` (`rawTargetFromContext`) before the realpath/traversal guard, so a prefix-stripping gateway must rewrite the raw target consistently or the prefix leaks into the guard. Fix: mint opaque hostId slugs (`[a-z0-9-]{1,32}`, stored in conf beside the ssh dest — never the raw dest), and derive both hostId and remainder from ONE `splitHostPrefix(rawUrl)` helper requiring a literal `/host/<slug>/`. Spike 2 proves it against the `..`/`%2f`/symlink 403 tests.
+
+[^econnreset]: kolu-server has a deliberate fatal-error policy, so one `ECONNRESET` on a spliced socket would crash it. The splice module attaches `'error'` handlers on both sockets at creation (resets log at debug — routine), cross-destroys on `'close'`/`'error'`, and on `net.connect` failure writes a plain `HTTP/1.1 502` + destroy on the browser leg pre-101 (so PartySocket backs off). An integration test kills the upstream mid-frame and asserts the process survives.
+
+[^bindings]: Per-binding status has no legal home in `DaemonStatusSchema`. New kolu-owned (no drishti gate) `koluSurface` collection `hostBindings` keyed by hostId slug: `{ state: enum(connecting|connected|degraded|skew|failed), sshDest, label, lastError, remoteVersion? }`; server store + publisher mirroring `ptyHost/daemonStatus.ts`, in a new `packages/server/src/gateway/bindings.ts`. Served on the home wire.
+
+[^pool]: `PersistedStateSchema.hosts: array(HostPoolEntry).default([])` + a `1.31.0` migration; a new `packages/server/src/hosts.ts` (get/add/remove, mirroring `preferences.ts`). Remove-while-bound is one ordered unit: mark the binding `failed` (publishes on `hostBindings`), destroy live splices for that hostId, kill the forward child.
+
+[^devproxy]: `just dev`'s vite proxy has no `/host` route, so gateway paths would 404 into the SPA fallback under development. Add `'/host': { target, ws: true }` to the proxy in the same K3 commit; a dev-mode smoke joins the K3 done-criteria.
+
+[^bandwidth]: The adversary flagged: zero bandwidth analysis existed for the value-bearing `gitStatus`/`gitDiff`/`fsListAll` streams over a WAN forward (pulse+procedure shapes exist in-tree precisely because value streams are fat), and the ws has no compression. Spike 3 quantifies; mitigations are one-liners before any structural change is considered.
+
+[^k4wire]: The node-side tap is a surface-client over the home wire's forward to each pooled host (the drishti/pulam-web remote-consumption shape). It reads the existing `snapshots` collection — no new R-side member — and folds `agentProjection` urgency (recency-free by type). L stamps `observedAt: Date.now()` (L's clock) on each state transition into the `hostAttention` entry, so the client's existing `isStale` ticker gates remote entries exactly as it gates local ones, and cross-host clock comparison stays unrepresentable (the plan's own rule). The wire carries a trimmed per-terminal list (`{id,state,title,observedAt}`) per the open decision, because a deep-linked banner needs a subject.
+
+[^dblalert]: A view bound to B runs B's full wire, so B's terminals flow through the binding's `useTerminalAlerts` AND through L's tap → `hostAttention` → the home-wire watcher — one `awaiting_user` flip ⇒ two banners + a double-counted badge; and `showNotification` carries no `tag`, so every tab stacks its own. Fix: the aggregate (home wire) is the SOLE `setAppBadge` writer and OS-notifier; the per-binding layer keeps only in-canvas duties (unread marks, dock, sound for the focused view). "Actively watching" suppression generalizes to: skip notify when the terminal's host is bound in the focused view AND it is the active tile AND `document.hasFocus()`. Add `tag: hostId:terminalId` so duplicate banners coalesce across tabs.
+
+[^redial]: A tap re-dial after an outage must reconcile removals or terminals killed during the outage leave phantom awaiting rows. Rule (a stated invariant of the `hostAttention` store): on a dial `connecting→connected`, clear-and-rebuild that host's entry map before applying the first snapshot; entries are replaced wholesale per (re)connect, kept-but-flagged while unreachable.
+
+[^k4skew]: The tap runs K2's build-id handshake on every (re)dial before opening the mirror (the `firstFrameOrThrow` pattern); on mismatch the host's `hostAttention` entry gets `state: "skew"` (chip renders the same one-action re-provision affordance K3 shows) and parks until re-provisioned — a skewed R is never silently mirrored into the aggregate.
+
+[^deeplink]: Click routing: prefer a view already bound to `hostId` (focus it), else rebind the focused view (instant, per the settled switch decision); a reactive pending-focus latch stores `{hostId, terminalId}` and fulfils it when that binding's terminal list contains the id, with a ~10s timeout degrading to "host focused + toast (terminal no longer running)". Cold-open (no kolu window) loses the target under today's `openWindow("/")`; the recommended fix is the drishti-gated SW change to `openWindow("/?attend=<hostId>:<terminalId>")` consumed at boot (data must flow via URL — the page can't receive `postMessage` before it exists).

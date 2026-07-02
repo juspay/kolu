@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">
+  <defs>
+    <marker id="parr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#8b94a6"/>
+    </marker>
+  </defs>
+  <rect width="960" height="560" fill="#0f1117"/>
+
+  <!-- browser -->
+  <rect x="290" y="16" width="380" height="58" rx="8" fill="#151823" stroke="#2a3145"/>
+  <text x="306" y="38" fill="#c8d0de" font-size="13" font-weight="600">browser PWA — L's origin, L's bundle</text>
+  <text x="306" y="58" fill="#8b94a6">per-view binding: ws ?host=R · /host/R/api/…</text>
+
+  <line x1="480" y1="74" x2="480" y2="118" stroke="#8b94a6" stroke-width="1.4" marker-end="url(#parr)"/>
+
+  <!-- L -->
+  <rect x="220" y="122" width="520" height="86" rx="10" fill="#131722" stroke="#56b6c2" stroke-width="1.2"/>
+  <text x="240" y="146" fill="#56b6c2" font-size="13" font-weight="700">local kolu L — full kolu + the gateway</text>
+  <text x="240" y="166" fill="#c8d0de">splices bytes, content-blind: ws + /host/R/api prefix-strip</text>
+  <text x="240" y="186" fill="#8b94a6">serves its own terminals exactly as today · badge taps per pooled host</text>
+
+  <line x1="480" y1="208" x2="480" y2="258" stroke="#a78bfa" stroke-width="1.4" marker-end="url(#parr)"/>
+  <text x="496" y="228" fill="#a78bfa">ssh streamlocal -L · rides the existing ControlMaster</text>
+  <text x="496" y="246" fill="#7ec699">provisioned with L's OWN closure → same build, always</text>
+
+  <!-- R -->
+  <rect x="220" y="262" width="520" height="104" rx="10" fill="#151823" stroke="#7ec699" stroke-width="1.2"/>
+  <text x="240" y="286" fill="#7ec699" font-size="13" font-weight="700">remote kolu R — the SAME full kolu, headless daemon</text>
+  <text x="240" y="306" fill="#c8d0de">0700 unix socket · pid-gate · state-root-digest identity</text>
+  <text x="240" y="326" fill="#c8d0de">its own fold · clock · session store — today's kolu, running there</text>
+  <text x="240" y="348" fill="#8b94a6">restartable: exact-match version, skew ⇒ drain + re-provision</text>
+
+  <line x1="480" y1="366" x2="480" y2="404" stroke="#8b94a6" stroke-width="1.4" marker-end="url(#parr)"/>
+  <text x="496" y="390" fill="#8b94a6">unix socket (today's path)</text>
+
+  <!-- kaval -->
+  <rect x="220" y="408" width="520" height="56" rx="8" fill="#151823" stroke="#2a3145"/>
+  <text x="240" y="430" fill="#c8d0de" font-weight="600">R's kaval — PTY survivor (unchanged)</text>
+  <text x="240" y="450" fill="#8b94a6">terminals outlive kolu restarts, upgrades, ssh blips</text>
+
+  <!-- side note -->
+  <text x="480" y="500" fill="#56b6c2" text-anchor="middle">one logical stream browser ↔ R: any drop = a ws drop the client's existing retry heals</text>
+  <text x="480" y="522" fill="#5b6678" text-anchor="middle">never exists: padi · padiSurface · pulam · mirror/forwarding machinery · any public contract</text>
+</svg>
