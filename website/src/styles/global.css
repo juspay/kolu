@@ -9,12 +9,11 @@
 /* --- Design tokens --------------------------------------------------------
 
   Cool-neutral terminal aesthetic: pure off-black / cool light gray
-  backgrounds, neutral ink, and a brand accent pulled straight from
-  the Kolu logo (the tiered-step favicon's purple top step,
-  #a855f7 / #7e22ce). Earlier iterations leaned warm — cream paper,
-  amber dots, peach accents — which read as "boring brown" against
-  the vivid terminal mockups. This palette has zero warmth and is
-  consistent with the logo's identity.
+  backgrounds, neutral ink, and a brand accent pulled from the violet
+  side of Kolu's three-step rainbow mark. Earlier iterations leaned
+  warm — cream paper, amber dots, peach accents — which read as
+  "boring brown" against the vivid terminal mockups. This palette has
+  zero warmth and is consistent with the logo's identity.
 -------------------------------------------------------------------------- */
 @theme {
   --color-void: #0a0a0d;
@@ -27,12 +26,9 @@
   --color-rule: #18181d;
   --color-rule-strong: #28282f;
 
-  /* Brand accent — logo-purple (the top step of the tiered-step
-     favicon, #a855f7). Token name stayed `amber` so every existing
-     site class still reads `text-amber*` / `bg-amber*`; only the
-     *value* shifts to purple. The full logo rainbow is also
-     exposed below via --color-brand-* so feature-row accents and
-     similar can pull from the same identity. */
+  /* Brand accent — the violet side of the rainbow step mark. Token
+     name stayed `amber` so every existing site class still reads
+     `text-amber*` / `bg-amber*`; only the value is purple. */
   --color-amber: #a855f7;
   --color-amber-bright: #c084fc;
   --color-amber-dim: #7e22ce;
@@ -54,11 +50,11 @@
   --color-dot-minimize: #ffbd2e;
   --color-dot-maximize: #27c93f;
 
-  /* Rarely used — kept for legacy favicon echo only. */
-  --color-brand-red: #ef4444;
+  /* Supporting accents from the current three-step logo palette. */
+  --color-brand-red: #f43f5e;
   --color-brand-amber: #f59e0b;
-  --color-brand-green: #22c55e;
-  --color-brand-blue: #3b82f6;
+  --color-brand-green: #14b8a6;
+  --color-brand-blue: #2563eb;
   --color-brand-purple: #a855f7;
 
   --font-serif: "Fraunces Variable", ui-serif, Georgia, serif;
@@ -84,7 +80,7 @@
 [data-theme="light"] {
   /* Light-mode shell — cool off-white (very slight blue tint) and
      cool grays. Zero warmth: no cream paper, no beige rules, no warm
-     brown ink. The accent stays in the logo's purple family. */
+     brown ink. The accent stays in the logo's violet family. */
   --color-void: #f5f5f8;
   --color-void-raised: #eeeef2;
   --color-void-sunk: #e5e5eb;
@@ -119,7 +115,7 @@ html {
   background: var(--color-void);
   /* Subtle character-cell lattice — evokes a terminal without shouting.
      Dot opacity blended per theme via --dot-color below. Hue pulled
-     from the logo's purple step so the bg texture carries brand
+     from the logo's violet step so the bg texture carries brand
      identity without competing with content. */
   background-image: radial-gradient(
     circle at 1px 1px,
@@ -150,8 +146,8 @@ body {
 /* --- Typography utilities -------------------------------------------------- */
 
 /* Display headings — tight tech-sans with a slight negative tracking
-   so the wordmark + H1 read as confidently constructed (matching the
-   tiled-step logo's geometry) rather than editorial. */
+   so the wordmark + H1 read as confidently constructed rather than
+   editorial. */
 .display {
   font-family: var(--font-sans);
   font-weight: 700;

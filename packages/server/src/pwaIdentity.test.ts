@@ -5,7 +5,7 @@ describe("pwaIdentityForHostname", () => {
   it("derives stable PWA identity from hostname", () => {
     expect(pwaIdentityForHostname("atlas")).toEqual({
       hostname: "atlas",
-      name: "kolu@atlas",
+      name: "Kolu [atlas]",
       themeColor: "#a21caf",
     });
   });
