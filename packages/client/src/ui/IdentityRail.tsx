@@ -8,13 +8,14 @@
  *
  *  The server dot carries `data-ws-status` and the kaval dot
  *  `data-daemon-state` — the e2e hooks the smoke / reconnect / kaval-daemon
- *  scenarios read; exactly one element holds each. Memory readouts keep their
- *  test ids in hidden spans so the telemetry path remains covered without
- *  repainting the row as a process monitor. */
+ *  scenarios read; exactly one element holds each. Live memory rides each chip's
+ *  `aria-label`/tooltip (where the e2e asserts it); only a kaval memory-poll
+ *  error surfaces its own visible chip, so the row never repaints as a process
+ *  monitor. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { getClockNow } from "../time/clock";
 import KavalInfoDialog from "../kaval/KavalInfoDialog";
 import {
@@ -31,7 +32,7 @@ import {
 } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import KoluInfoDialog from "./KoluInfoDialog";
-import { formatMBCompact } from "./memory";
+import { formatMBCompact, mbText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
 import {
@@ -60,8 +61,9 @@ const KavalMemReadout: Component = () => (
   </Show>
 );
 
-function mbText(bytes: number | null): string {
-  return bytes === null ? "memory unavailable" : formatMBCompact(bytes);
+/** Join the present segments of a chip tooltip with a middle dot. */
+function joinTip(...parts: Array<string | false | undefined>): string {
+  return parts.filter(Boolean).join(" · ");
 }
 
 const StatusDot: Component<{
@@ -90,12 +92,13 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const [koluDialogOpen, setKoluDialogOpen] = createSignal(false);
   const [kavalDialogOpen, setKavalDialogOpen] = createSignal(false);
   const stale = clientStale;
-  const koluVersion = (): string | undefined => pwa.server()?.version;
   const kavalVersion = (): string | undefined => daemon()?.contractVersion;
 
-  const koluTip = (): string => {
+  // Memoized: the chip binds it to both `title` and `aria-label`, and it folds in
+  // the per-second memory/uptime ticks — so build the string once per change.
+  const koluTip = createMemo((): string => {
     const server = pwa.server();
-    return [
+    return joinTip(
       `kolu ${props.status}${daemonLive() ? "" : " (watchdog reconnecting)"}`,
       server?.version ? `server v${server.version}` : undefined,
       server?.commit ? `server ${server.commit}` : undefined,
@@ -105,10 +108,8 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         : "client build matches server",
       pwa.clientCommit ? `client ${pwa.clientCommit}` : undefined,
       `client heap ${mbText(clientHeapUsedBytes())}`,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-  };
+    );
+  });
 
   const kavalStateText = (): string => {
     if (!daemonLive()) return "unknown";
@@ -132,17 +133,16 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
     return "memory unavailable";
   };
 
-  const kavalTip = (): string =>
-    [
+  const kavalTip = createMemo((): string =>
+    joinTip(
       `kaval ${kavalStateText()}`,
       kavalVersion() ? `contract v${kavalVersion()}` : undefined,
       kavalUptimeText(),
       kavalMemoryText(),
       kavalUpdatePending() ? "newer build available" : undefined,
       "click for details",
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    ),
+  );
 
   return (
     <div class="inline-flex items-center gap-1 rounded-lg border border-edge bg-surface-2/60 px-1.5 py-0.5 font-mono text-xs shadow-sm shadow-black/20">
@@ -159,7 +159,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           data-ws-status={props.status}
         />
         <span>Kolu</span>
-        <Show when={koluVersion()}>
+        <Show when={pwa.server()?.version}>
           {(v) => <span class="tabular-nums text-fg-3">v{v()}</span>}
         </Show>
       </button>
