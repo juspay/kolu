@@ -41,9 +41,16 @@ export const PairedDaemonSchema = z.object({
 export type PairedDaemon = z.infer<typeof PairedDaemonSchema>;
 
 /** The last-paired daemon, or null if none recorded (a first boot, or a boot that
- *  never converged onto a survivor). Reads through padi's injected conf store. */
+ *  never converged onto a survivor). Reads through padi's injected conf store.
+ *
+ *  NORMALIZES `undefined` → `null`: the conf store returns `undefined` for a
+ *  never-written key (a fresh-spawn boot never converges onto a survivor, so
+ *  `recordPairedDaemon` never runs and the key is absent). Without this, `undefined`
+ *  slips past `isReplacedDaemon`'s `lastPaired !== null` guard and throws on
+ *  `.startedAt` — failing the boot CLOSED (a daemon recycle) instead of the intended
+ *  clean preserve + park, in the exact fresh-boot → out-of-band-restart zest path. */
 export function getLastPairedDaemon(): PairedDaemon | null {
-  return requirePadiLastPairedDaemonStore().get();
+  return requirePadiLastPairedDaemonStore().get() ?? null;
 }
 
 /** Persist the pairing after a survivor converge — the daemon we just confirmed

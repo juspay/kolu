@@ -44,12 +44,12 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
 import { inMemoryStore } from "@kolu/surface/server";
 import { setPadiLastPairedDaemonStore } from "../confStores.ts";
 import { setKoluServerProcessId } from "../koluRoot.ts";
-import type { PairedDaemon } from "../pairedDaemon.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
+import type { PairedDaemon } from "../pairedDaemon.ts";
 import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID } from "../ptyHost/index.ts";
 import { getSavedSession, setSavedSession } from "../session.ts";
@@ -253,5 +253,28 @@ describe("adoptSurvivingSession — daemon-identity gate (PATH A, by startedAt)"
 
     expect(getSavedSession()).toBeNull();
     expect(getTerminal(A_ID)).toBeUndefined();
+  });
+
+  it("no recorded pairing (store returns UNDEFINED, as the real conf store does) → preserves + parks, never throws", async () => {
+    // The fresh-boot zest path: server#1 never converged onto a survivor, so
+    // `recordPairedDaemon` never ran and the conf key is absent — the store's `get()`
+    // returns `undefined`, NOT `null`. Pre-fix, that `undefined` slipped past the
+    // `lastPaired !== null` guard and threw on `.startedAt`, failing the boot CLOSED
+    // (recycle) instead of cleanly preserving + parking. The empty adopted daemon
+    // must still be treated as replaced — session intact, actives parked, no throw.
+    setPadiLastPairedDaemonStore({
+      get: () => undefined,
+      set: () => {},
+    } as unknown as Parameters<typeof setPadiLastPairedDaemonStore>[0]);
+    connectDaemon(2000);
+    setSavedSession(savedSession());
+    listEntries.value = [];
+
+    await expect(adoptSurvivingSession()).resolves.toBeUndefined();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(getSavedSession()?.terminals.length).toBe(2);
+    expect(getTerminal(A_ID)?.meta.state).toBe("parked");
+    expect(getTerminal(B_ID)?.meta.state).toBe("parked");
   });
 });
