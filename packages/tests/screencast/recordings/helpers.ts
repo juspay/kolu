@@ -50,7 +50,7 @@ export async function clearCanvas(
   await world.waitForReady();
   await world.page
     .evaluate(() =>
-      fetch("/rpc/terminal/killAll", {
+      fetch("/rpc/surface/padi/lifecycle/killAll", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",
@@ -113,7 +113,7 @@ export async function setTerminalThemeRpc(
   await world.page
     .evaluate(
       async ({ id, themeName }) => {
-        await fetch("/rpc/terminal/setTheme", {
+        await fetch("/rpc/surface/padi/chrome/setTheme", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ json: { id, themeName } }),

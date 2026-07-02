@@ -12,10 +12,11 @@
  *  The mobile pull-handle has its own one-row layout — see
  *  `TerminalMetaCompact`. */
 
-import { prValue } from "anyforge/schemas";
-import { activeArm, prUnavailableSource } from "kolu-common/surface";
+import { activeArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { prValue } from "anyforge/schemas";
+import { prUnavailableSource } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { pipVariant } from "../canvas/dock/pipVariant";
 import { paintBucket } from "../canvas/dockModel";

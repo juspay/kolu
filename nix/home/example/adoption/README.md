@@ -31,7 +31,7 @@ non-survivable detached spawn. A NixOS VM has *real* systemd, so the production
 
 1. boot kolu as a systemd **user service** (with **linger** — the survival
    precondition);
-2. open a terminal over the **oRPC HTTP API** (`/rpc/terminal/create`, no browser);
+2. open a terminal over the **oRPC HTTP API** (`/rpc/surface/padi/lifecycle/create`, no browser);
 3. run a command in it (`echo <nonce>`) whose unique output we record;
 4. **`systemctl --user restart kolu`** — the *server* only; the kaval daemon
    lives in its own transient cgroup and survives;

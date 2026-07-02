@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as os from "node:os";
 import { Given, Then, When } from "@cucumber/cucumber";
-import { LOCAL_LOCATION, type SavedTerminal } from "kolu-common/surface";
+import { LOCAL_LOCATION, type SavedTerminal } from "@kolu/padi/surface";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -63,7 +63,7 @@ async function postSavedSessionPayload(
   if (activeTerminalId !== undefined)
     payload.activeTerminalId = activeTerminalId;
   const resp = await world.page.request.fetch(
-    "/rpc/surface/kolu/session/test__set",
+    "/rpc/surface/padi/session/test__set",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -72,7 +72,7 @@ async function postSavedSessionPayload(
   );
   assert.ok(
     resp.ok(),
-    `surface/kolu/session/test__set failed: ${resp.status()}`,
+    `surface/padi/session/test__set failed: ${resp.status()}`,
   );
 }
 

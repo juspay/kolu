@@ -6,17 +6,18 @@
  *    - `openActive()` — convenience around `store.activeId()`.
  *
  *  Persistence is local: the singleton reads / writes through
- *  `useTerminalStore` and `client.terminal.setIntent` directly. The
+ *  `useTerminalStore` and padi's `chrome.setIntent` directly. The
  *  previous `IntentEditorDeps` argument moved those reads / writes to
  *  the App-root call site, which was an unenforceable convention
  *  ("deps never change identity") held together by a comment. */
 
+import { padiRpc } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { client } from "../wire";
+import { padi } from "../wire";
 
 export type IntentEditorSession = {
   title: string;
@@ -33,8 +34,8 @@ function init() {
   const close = () => setSession(null);
 
   const writeIntent = (id: TerminalId, intent: string) => {
-    void client.terminal
-      .setIntent({ id, intent })
+    void padiRpc(padi)
+      .surface.chrome.setIntent({ id, intent })
       .catch((err: Error) =>
         toast.error(`Failed to save intent: ${err.message}`),
       );

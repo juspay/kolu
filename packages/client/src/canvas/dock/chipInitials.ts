@@ -13,8 +13,8 @@
  *  with the cards header on the same source string — both surfaces
  *  share `packages/client/src/intent/text.ts`. */
 
-import type { TerminalMetadata } from "kolu-common/surface";
-import { intentLeadGlyph, firstGrapheme } from "../../intent/text";
+import type { TerminalMetadata } from "@kolu/padi/surface";
+import { firstGrapheme, intentLeadGlyph } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 
 // Unicode-aware alphanumeric: any letter or number in any script. A repo

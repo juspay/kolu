@@ -1,0 +1,385 @@
+/**
+ * The package-boundary SEAL for `packages/server` (W1.R7 — the final member).
+ *
+ * By the end of W1.R the terminal domain has fully relocated into `@kolu/padi`:
+ * kolu-server is the staying WEB SHELL (HTTP/ws transport, static serving, the
+ * surface wiring, the memory sampler, TLS, branding) and reaches the terminal
+ * domain ONLY through `@kolu/padi`'s three published entry points
+ * (`/assembly`, `/surface`, `/log`). This test makes that boundary a
+ * compile-and-CI fact rather than a convention — it fails the moment a
+ * terminal-domain module reappears under `packages/server/src`, a deep
+ * `@kolu/padi/src/...` import bypasses the barrel, or a root `terminal.*` /
+ * `git.*` namespace is reintroduced on the contract.
+ *
+ * Modeled on `@kolu/surface-daemon-supervisor`'s `deps.closure.test.ts` (the
+ * import-graph walk via `ts.preProcessFile`), extended with the file-list
+ * allowlist (a), the root-namespace assertion (c), and the two REVERSE arms that
+ * prove the dependency ARROW POINTS OUT of `@kolu/padi` (the terminal-domain
+ * AUTHORITY): (d) no `packages/padi/src` file references the `koluSurface`
+ * spec/ctx in any form, and (e) padi's whole dependency cone excludes the app
+ * (`kolu-common`/`kolu-server`/`kolu-client`). The terminal vocabulary lives in
+ * `@kolu/padi` now, so padi imports nothing from the app; the app consumes padi.
+ */
+
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { contract } from "kolu-common/contract";
+import * as ts from "typescript";
+import { describe, expect, it } from "vitest";
+import { appRouter } from "./router.ts";
+
+const SRC = dirname(fileURLToPath(import.meta.url));
+const ENTRY = resolve(SRC, "index.ts");
+
+// ── (a) The web-shell file-list allowlist ─────────────────────────────────
+
+/** The EXACT set of non-test `.ts` modules that may live under
+ *  `packages/server/src` after the seal — the web shell and nothing else. A new
+ *  file here is a conscious decision: either it is web-shell code (add it) or it
+ *  is terminal-domain code that belongs in `@kolu/padi` (the seal caught it). */
+const WEB_SHELL_FILES = [
+  "hostname",
+  "iframePreviewRoute",
+  "index",
+  "log",
+  "memorySampler",
+  "pwaIdentity",
+  "router",
+  "state",
+  "surface",
+  "tls",
+].sort();
+
+/** Terminal-domain modules that MUST NOT reappear under `packages/server/src` —
+ *  they all live in `@kolu/padi` now. An explicit denylist beside the exact
+ *  allowlist so a regression names the offender, not just "the set changed". */
+const FORBIDDEN_TERMINAL_MODULES = [
+  "terminal-registry",
+  "terminals",
+  "session",
+  "activity",
+  "terminalScratch",
+  "koluRoot",
+  "reconcile",
+  "publisher",
+  "surfaceCtx",
+  "padiSurfaceCtx",
+  "workspaceSurfaceCtx",
+  "servePadi",
+  "urgency",
+  "transcript",
+  "preview",
+  "sessionRestore",
+];
+
+function serverSrcModules(): string[] {
+  // Walk RECURSIVELY: a terminal-domain module smuggled back into a NEW
+  // subdirectory (e.g. a resurrected `terminalEndpoint/` or `ptyHost/`) must
+  // fail this allowlist too, not just a top-level file. `recursive` yields
+  // subdir-prefixed relative paths (`sub/mod.ts`), so any nested module lands
+  // as a `sub/mod` key that isn't in the flat WEB_SHELL_FILES set.
+  return readdirSync(SRC, { recursive: true })
+    .map((f) => String(f).split(sep).join("/"))
+    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+    .map((f) => f.replace(/\.ts$/, ""))
+    .sort();
+}
+
+// ── (d/e) The REVERSE seals — the arrow points OUT of @kolu/padi ───────────
+//
+// The forward seal (a–c) proves kolu-server reaches padi only through the barrel.
+// The REVERSE arms prove padi (the terminal-domain AUTHORITY) never reaches back
+// into the kolu app:
+//   (d) no `packages/padi/src` file references the `koluSurface` SPEC/ctx — the
+//       reverse dependency the `surfaceCtx`-style holder once was (a
+//       `createLateBoundSurfaceCtx<(typeof koluSurface)["spec"]>` in padi, the
+//       mechanism behind the boot-recursion crash) — in ANY form (named import,
+//       `typeof`, namespace member, re-export).
+//   (e) padi's whole dependency CONE (package.json + import graph + one transitive
+//       hop) excludes the app packages `kolu-common`/`kolu-server`/`kolu-client`.
+// The terminal VOCABULARY (`SavedSession` / `ActivityFeed` / `TerminalInfo` … and
+// the whole Authored/Saved/compose family) LIVES IN `@kolu/padi` now — padi owns
+// it and imports it locally; the app consumes it FROM padi. So (e) can ban every
+// `kolu-common` import outright, not just the surface value: nothing terminal
+// remains in the app for padi to reach for.
+
+const PADI_SRC = resolve(SRC, "..", "..", "padi", "src");
+
+/** Every `.ts` under `packages/padi/src` INCLUDING tests — the whole cone must be
+ *  app-free, not just production (a test importing the app is still a reverse edge). */
+function padiSrcFilesAll(): string[] {
+  return readdirSync(PADI_SRC, { recursive: true })
+    .map((f) => String(f).split(sep).join("/"))
+    .filter((f) => f.endsWith(".ts"))
+    .map((f) => resolve(PADI_SRC, f));
+}
+
+const PACKAGES_DIR = resolve(PADI_SRC, "..", "..");
+const PADI_PKG = resolve(PADI_SRC, "..", "package.json");
+
+/** The app packages @kolu/padi (the terminal-domain AUTHORITY) must never depend
+ *  on — the arrow points OUT. `@kolu/padi/*` is not among them (it IS padi). */
+const APP_PACKAGES = ["kolu-common", "kolu-server", "kolu-client"];
+
+/** Map every workspace package NAME → its `package.json` path, so a workspace
+ *  dep (`@kolu/terminal-workspace`, `kaval`, …) resolves to its dir even when the
+ *  dir name differs from the package name. */
+function workspacePkgJsonByName(): Map<string, string> {
+  const byName = new Map<string, string>();
+  for (const dir of readdirSync(PACKAGES_DIR)) {
+    const pj = resolve(PACKAGES_DIR, dir, "package.json");
+    if (!existsSync(pj)) continue;
+    try {
+      byName.set(JSON.parse(readFileSync(pj, "utf8")).name, pj);
+    } catch {}
+  }
+  return byName;
+}
+
+function declaredDeps(pkgJsonPath: string): string[] {
+  const p = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
+  return [
+    ...Object.keys(p.dependencies ?? {}),
+    ...Object.keys(p.devDependencies ?? {}),
+  ];
+}
+
+/** The two ways a module could BIND the `koluSurface` surface value: a named
+ *  import of it, or a `typeof koluSurface` type-query. Parsed off the AST, so a
+ *  comment or string that merely MENTIONS "koluSurface" is NOT a hit (the arrow
+ *  ban is about a real dependency, not the word). */
+function koluSurfaceBindings(file: string): string[] {
+  const src = ts.createSourceFile(
+    file,
+    readFileSync(file, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const hits: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(node) &&
+      node.importClause?.namedBindings &&
+      ts.isNamedImports(node.importClause.namedBindings)
+    ) {
+      for (const el of node.importClause.namedBindings.elements) {
+        if ((el.propertyName ?? el.name).text === "koluSurface") {
+          hits.push(`import { koluSurface } (as ${el.name.text})`);
+        }
+      }
+    }
+    if (
+      ts.isTypeQueryNode(node) &&
+      ts.isIdentifier(node.exprName) &&
+      node.exprName.text === "koluSurface"
+    ) {
+      hits.push("typeof koluSurface");
+    }
+    // Namespace access: `import * as ns from "…"; ns.koluSurface` — reaching the
+    // surface value through a namespace member (value position).
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      node.name.text === "koluSurface"
+    ) {
+      hits.push("ns.koluSurface (namespace member)");
+    }
+    // Qualified type: `typeof ns.koluSurface` / `ns.koluSurface[…]` in type position.
+    if (ts.isQualifiedName(node) && node.right.text === "koluSurface") {
+      hits.push("ns.koluSurface (qualified type)");
+    }
+    // Re-export FROM another module — a padi barrel forwarding the surface value:
+    //   `export { koluSurface } from "…"`   (named re-export)
+    //   `export * from "kolu-common/surface"` (star re-export of the module that
+    //                                          owns koluSurface)
+    if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+      const spec = ts.isStringLiteral(node.moduleSpecifier)
+        ? node.moduleSpecifier.text
+        : "";
+      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
+        for (const el of node.exportClause.elements) {
+          if ((el.propertyName ?? el.name).text === "koluSurface") {
+            hits.push(`export { koluSurface } from "${spec}"`);
+          }
+        }
+      } else if (!node.exportClause && /^kolu-common\/surface$/.test(spec)) {
+        hits.push(`export * from "${spec}"`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(src);
+  return hits;
+}
+
+// ── (b) The @kolu/padi import-boundary walk ───────────────────────────────
+
+/** The ONLY `@kolu/padi` specifiers kolu-server may import — its three published
+ *  entry points. A deep `@kolu/padi/src/...` import (bypassing the barrel) or any
+ *  other subpath fails the boundary. */
+const ALLOWED_PADI = [
+  "@kolu/padi/assembly",
+  "@kolu/padi/surface",
+  "@kolu/padi/log",
+];
+
+function importsOf(file: string): string[] {
+  const pre = ts.preProcessFile(readFileSync(file, "utf8"), true, true);
+  return pre.importedFiles.map((f) => f.fileName);
+}
+
+function resolveRelative(from: string, spec: string): string {
+  const p = resolve(dirname(from), spec);
+  return p.endsWith(".ts") ? p : `${p}.ts`;
+}
+
+/** Every external specifier reached from `index.ts` (following only relative
+ *  edges within `packages/server/src`). */
+function externalsFromEntry(): Set<string> {
+  const reached = new Set<string>();
+  const externals = new Set<string>();
+  const stack = [ENTRY];
+  while (stack.length > 0) {
+    const file = stack.pop() as string;
+    if (reached.has(file)) continue;
+    reached.add(file);
+    if (file.endsWith(".test.ts")) continue;
+    for (const spec of importsOf(file)) {
+      if (spec.startsWith(".")) {
+        // Follow only relative edges to a real `.ts` module — a relative `.json`
+        // import (e.g. `../package.json` for the version) resolves to a
+        // non-existent `.ts` and is a leaf, not a module to walk into.
+        const resolved = resolveRelative(file, spec);
+        if (resolved.endsWith(".ts") && existsSync(resolved))
+          stack.push(resolved);
+      } else externals.add(spec);
+    }
+  }
+  return externals;
+}
+
+describe("packages/server package-boundary seal (W1.R7)", () => {
+  it("(a) contains exactly the web-shell modules — no terminal-domain file", () => {
+    expect(serverSrcModules()).toEqual(WEB_SHELL_FILES);
+  });
+
+  it("(a) none of the relocated terminal-domain modules reappear under server/src", () => {
+    const present = new Set(serverSrcModules());
+    const leaked = FORBIDDEN_TERMINAL_MODULES.filter((m) => present.has(m));
+    expect(
+      leaked,
+      `terminal-domain module(s) reappeared under packages/server/src: ${leaked.join(
+        ", ",
+      )} — they belong in @kolu/padi.`,
+    ).toEqual([]);
+  });
+
+  it("(b) reaches @kolu/padi only through /assembly, /surface, /log — no deep src import", () => {
+    const padiSpecs = [...externalsFromEntry()]
+      .filter((s) => s.startsWith("@kolu/padi"))
+      .sort();
+    // Every @kolu/padi edge is one of the three published entry points; a
+    // `@kolu/padi/src/...` deep import (or any other subpath) fails here.
+    const illegal = padiSpecs.filter((s) => !ALLOWED_PADI.includes(s));
+    expect(
+      illegal,
+      `illegal @kolu/padi import(s) from packages/server: ${illegal.join(
+        ", ",
+      )}. kolu-server must reach the terminal domain only via @kolu/padi/{assembly,surface,log}.`,
+    ).toEqual([]);
+    // And it genuinely reaches the barrel (not a vacuous pass).
+    expect(padiSpecs.length).toBeGreaterThan(0);
+  });
+
+  it("(c) the root terminal.* / git.* namespaces are gone — only server + daemon beside surface", () => {
+    const c = contract as Record<string, unknown>;
+    expect(c.terminal).toBeUndefined();
+    expect(c.git).toBeUndefined();
+    expect(
+      Object.keys(contract)
+        .filter((k) => k !== "surface")
+        .sort(),
+    ).toEqual(["daemon", "server"]);
+
+    const r = appRouter as Record<string, unknown>;
+    expect(r.terminal).toBeUndefined();
+    expect(r.git).toBeUndefined();
+  });
+
+  it("(d) REVERSE seal — no @kolu/padi src file references koluSurface (import/type/namespace/re-export)", () => {
+    const files = padiSrcFilesAll();
+    // Non-vacuous: the scan actually found padi modules (a wrong path would make
+    // this pass trivially).
+    expect(files.length).toBeGreaterThan(0);
+    const offenders = files
+      .map((f) => ({ f, refs: koluSurfaceBindings(f) }))
+      .filter((x) => x.refs.length > 0);
+    expect(
+      offenders.map(
+        (o) =>
+          `${o.f.replace(PADI_SRC, "@kolu/padi/src")}: ${o.refs.join(", ")}`,
+      ),
+      "a @kolu/padi src file references the koluSurface SPEC/ctx — a reverse-" +
+        "direction dependency the forward seal can't see. It's caught in ALL forms: " +
+        "a named import, `typeof koluSurface`, a namespace member (`ns.koluSurface`), " +
+        "or a re-export (`export { koluSurface } from …` / `export * from " +
+        '"kolu-common/surface"`). padi serves its OWN padiSurface ctx and OWNS the ' +
+        "terminal vocabulary now (arm e); it never reaches back into the app surface.",
+    ).toEqual([]);
+  });
+
+  it("(e) REVERSE seal — @kolu/padi's dependency cone excludes the app (packages/{common,server,client})", () => {
+    // The structural inversion the human reviewer caught: padi (the terminal-
+    // domain AUTHORITY) must not depend on the kolu APP. Three checks pin the
+    // cone — package.json, the import graph, and one transitive hop.
+
+    // (1) padi/package.json declares no app package (runtime OR dev).
+    expect(
+      declaredDeps(PADI_PKG).filter((d) => APP_PACKAGES.includes(d)),
+      "packages/padi/package.json lists an app package (kolu-common/server/client) " +
+        "as a dependency — padi owns its vocabulary; the app depends on padi, not the reverse.",
+    ).toEqual([]);
+
+    // (2) no @kolu/padi src file (INCLUDING tests) imports an app package.
+    const APP_SPEC = new RegExp(`^(${APP_PACKAGES.join("|")})($|/)`);
+    const importOffenders: string[] = [];
+    for (const file of padiSrcFilesAll()) {
+      for (const spec of importsOf(file)) {
+        if (APP_SPEC.test(spec)) {
+          importOffenders.push(
+            `${file.replace(PADI_SRC, "@kolu/padi/src")}: ${spec}`,
+          );
+        }
+      }
+    }
+    expect(importOffenders.length).toBeGreaterThanOrEqual(0); // (padi src exists — the loop ran)
+    expect(padiSrcFilesAll().length).toBeGreaterThan(0);
+    expect(
+      importOffenders,
+      "a @kolu/padi src file imports from the kolu app (kolu-common/server/client). " +
+        "The terminal vocabulary lives in @kolu/padi now; import it locally, not from the app.",
+    ).toEqual([]);
+
+    // (3) transitive: padi's DIRECT workspace deps declare no app package either,
+    //     so `padi → <lib> → app` can't smuggle the app back into the cone.
+    const byName = workspacePkgJsonByName();
+    const transitiveOffenders: string[] = [];
+    for (const dep of Object.keys(
+      JSON.parse(readFileSync(PADI_PKG, "utf8")).dependencies ?? {},
+    )) {
+      const depPkg = byName.get(dep);
+      if (!depPkg) continue; // non-workspace (registry) dep — can't reach app workspaces
+      for (const a of declaredDeps(depPkg).filter((d) =>
+        APP_PACKAGES.includes(d),
+      )) {
+        transitiveOffenders.push(`${dep} → ${a}`);
+      }
+    }
+    expect(
+      transitiveOffenders,
+      "a workspace dependency of @kolu/padi itself depends on the app — padi's " +
+        "transitive cone is polluted (this is why the flip matters for W2.2: padi's " +
+        "staleKey/closure must not move when app-only code churns).",
+    ).toEqual([]);
+  });
+});

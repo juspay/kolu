@@ -1,0 +1,281 @@
+import type { TerminalId } from "kolu-common/surface";
+import { createRoot, createSignal } from "solid-js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createEvictionDedup,
+  evictTerminal,
+  pickAutoSwitchTarget,
+  type TerminalEvictionPorts,
+  useActiveReconcile,
+} from "./useActiveReconcile";
+
+const T = (s: string) => s as TerminalId;
+
+/** Let SolidJS flush the queued reactive effects (they don't run inside the
+ *  synchronous `createRoot` batch). After this, signal writes made OUTSIDE the
+ *  batch flush the reconcile effect synchronously. */
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+describe("pickAutoSwitchTarget", () => {
+  it("picks the survivor now in the removed tile's slot, clamped to the last", () => {
+    expect(pickAutoSwitchTarget([T("a"), T("c")], 1)).toBe(T("c")); // removed middle
+    expect(pickAutoSwitchTarget([T("b"), T("c")], 0)).toBe(T("b")); // removed first
+    expect(pickAutoSwitchTarget([T("a"), T("b")], 2)).toBe(T("b")); // removed last → clamp
+    expect(pickAutoSwitchTarget([], 0)).toBeNull(); // nothing left
+    expect(pickAutoSwitchTarget([T("a")], -1)).toBeNull(); // never top-level → null
+  });
+});
+
+/** Spy ports for `evictTerminal`. `getSubTerminalIds` / `activeId` /
+ *  `activeSubTab` are supplied per-test; the mutating seams are spies. */
+function makePorts(over: {
+  getSubTerminalIds?: (parentId: TerminalId) => readonly TerminalId[];
+  activeId?: () => TerminalId | null;
+  activeSubTab?: (parentId: TerminalId) => TerminalId | null;
+}) {
+  const calls = {
+    promoteToTopLevel: vi.fn<(id: TerminalId) => void>(),
+    activate: vi.fn<(id: TerminalId | null) => void>(),
+    dropFromMru: vi.fn<(id: TerminalId) => void>(),
+    collapse: vi.fn<(id: TerminalId) => void>(),
+    setActiveSubTab:
+      vi.fn<(parentId: TerminalId, subId: TerminalId | null) => void>(),
+    requestRefocus: vi.fn<(id: TerminalId) => void>(),
+    removeSub: vi.fn<(id: TerminalId) => void>(),
+    removeRightPanel: vi.fn<(id: TerminalId) => void>(),
+    removeSearch: vi.fn<(id: TerminalId) => void>(),
+  };
+  const ports: TerminalEvictionPorts = {
+    getSubTerminalIds: over.getSubTerminalIds ?? (() => []),
+    activeId: over.activeId ?? (() => null),
+    activate: calls.activate,
+    dropFromMru: calls.dropFromMru,
+    promoteToTopLevel: calls.promoteToTopLevel,
+    subPanel: {
+      collapse: calls.collapse,
+      activeSubTab: over.activeSubTab ?? (() => null),
+      setActiveSubTab: calls.setActiveSubTab,
+      requestRefocus: calls.requestRefocus,
+      remove: calls.removeSub,
+    },
+    removeRightPanel: calls.removeRightPanel,
+    removeSearch: calls.removeSearch,
+  };
+  return { ports, calls };
+}
+
+describe("evictTerminal — top-level branch", () => {
+  it("promotes subs, sheds chrome, and auto-switches when active", () => {
+    const { ports, calls } = makePorts({
+      getSubTerminalIds: (p) => (p === T("P") ? [T("S1"), T("S2")] : []),
+      activeId: () => T("P"),
+    });
+    evictTerminal(ports, T("P"), null, [T("P"), T("Q")]);
+
+    expect(calls.promoteToTopLevel.mock.calls).toEqual([[T("S1")], [T("S2")]]);
+    expect(calls.removeSub).toHaveBeenCalledWith(T("P"));
+    expect(calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
+    expect(calls.removeSearch).toHaveBeenCalledWith(T("P"));
+    expect(calls.dropFromMru).toHaveBeenCalledWith(T("P"));
+    // Removed at index 0 of [P, Q] → survivor Q.
+    expect(calls.activate).toHaveBeenCalledWith(T("Q"));
+  });
+
+  it("does not auto-switch when the removed tile was not active", () => {
+    const { ports, calls } = makePorts({ activeId: () => T("Q") });
+    evictTerminal(ports, T("P"), null, [T("P"), T("Q")]);
+    expect(calls.activate).not.toHaveBeenCalled();
+  });
+});
+
+describe("evictTerminal — sub-terminal branch", () => {
+  it("collapses the parent's panel when the last sub departs", () => {
+    const { ports, calls } = makePorts({
+      getSubTerminalIds: () => [], // no siblings remain
+    });
+    evictTerminal(ports, T("S"), T("P"), []);
+    expect(calls.collapse).toHaveBeenCalledWith(T("P"));
+    expect(calls.setActiveSubTab).not.toHaveBeenCalled();
+    expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
+  });
+
+  it("switches the active sub-tab to a sibling and refocuses", () => {
+    const { ports, calls } = makePorts({
+      getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []), // S1 already gone
+      activeSubTab: () => T("S1"),
+    });
+    evictTerminal(ports, T("S1"), T("P"), []);
+    expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
+    expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
+    expect(calls.collapse).not.toHaveBeenCalled();
+  });
+
+  it("refocuses without switching when the removed sub was not the active tab", () => {
+    const { ports, calls } = makePorts({
+      getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []),
+      activeSubTab: () => T("S2"), // a different tab is active
+    });
+    evictTerminal(ports, T("S1"), T("P"), []);
+    expect(calls.setActiveSubTab).not.toHaveBeenCalled();
+    expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
+  });
+});
+
+describe("createEvictionDedup", () => {
+  it("skips a departed id already evicted by the imperative path (no double)", () => {
+    const runEvict = vi.fn();
+    const d = createEvictionDedup(runEvict);
+    d.evictImperatively(T("P"), null, [T("P")], true); // kill: claim + evict
+    d.evictDeparted(T("P"), null, [T("P")]); // the later list-drop
+    expect(runEvict).toHaveBeenCalledTimes(1); // NOT twice
+  });
+
+  it("runs the cleanup for an UNCLAIMED departure (natural exit)", () => {
+    const runEvict = vi.fn();
+    const d = createEvictionDedup(runEvict);
+    d.evictDeparted(T("P"), null, [T("P")]);
+    expect(runEvict).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not claim when no list-drop will follow (willDrop=false)", () => {
+    const runEvict = vi.fn();
+    const d = createEvictionDedup(runEvict);
+    d.evictImperatively(T("P"), null, [T("P")], false); // already-gone kill
+    d.evictDeparted(T("P"), null, [T("P")]); // an unrelated later departure
+    expect(runEvict).toHaveBeenCalledTimes(2); // not skipped → no stale claim leak
+  });
+});
+
+/** Mount `useActiveReconcile` over the REAL `evictTerminal` + dedup, with spy
+ *  ports and signal-backed list/parents — so a list-drop drives the full
+ *  cleanup end-to-end. `getSubTerminalIds` derives from the live list, like the
+ *  real store. */
+function setupReconcile(init: {
+  rawIds: TerminalId[];
+  parents: Record<string, TerminalId | null>;
+  activeId?: TerminalId | null;
+  activeSubTab?: Record<string, TerminalId | null>;
+}) {
+  const state = {
+    active: init.activeId ?? null,
+    activeSubTab: init.activeSubTab ?? {},
+  };
+  let handles!: {
+    setRawIds: (v: TerminalId[]) => void;
+    setParents: (v: Record<string, TerminalId | null>) => void;
+    evictImperatively: ReturnType<
+      typeof createEvictionDedup
+    >["evictImperatively"];
+    calls: ReturnType<typeof makePorts>["calls"];
+    dispose: () => void;
+  };
+  createRoot((dispose) => {
+    const [rawIds, setRawIds] = createSignal<TerminalId[]>(init.rawIds);
+    const [parents, setParents] = createSignal(init.parents);
+    const { ports, calls } = makePorts({
+      getSubTerminalIds: (pid) =>
+        rawIds().filter((id) => (parents()[id] ?? null) === pid),
+      activeId: () => state.active,
+      activeSubTab: (pid) => state.activeSubTab[pid] ?? null,
+    });
+    calls.activate.mockImplementation((id) => {
+      state.active = id;
+    });
+    const eviction = createEvictionDedup((id, parentId, topLevelBefore) =>
+      evictTerminal(ports, id, parentId, topLevelBefore),
+    );
+    useActiveReconcile({
+      rawList: rawIds,
+      parentOf: (id) => parents()[id] ?? null,
+      evictDeparted: eviction.evictDeparted,
+    });
+    handles = {
+      setRawIds,
+      setParents,
+      evictImperatively: eviction.evictImperatively,
+      calls,
+      dispose,
+    };
+  });
+  return handles;
+}
+
+describe("useActiveReconcile — FULL cleanup driven off the list", () => {
+  it("(a) natural PARENT exit promotes the sub AND evicts the parent's panels", async () => {
+    const h = setupReconcile({
+      rawIds: [T("P"), T("S"), T("Q")],
+      parents: { P: null, S: T("P"), Q: null },
+      activeId: T("P"),
+    });
+    await tick();
+
+    // P's PTY exits — dropped from the list, sub S and top-level Q remain, and
+    // NO terminalExit event fires.
+    h.setRawIds([T("S"), T("Q")]);
+
+    expect(h.calls.promoteToTopLevel).toHaveBeenCalledWith(T("S"));
+    expect(h.calls.removeSub).toHaveBeenCalledWith(T("P"));
+    expect(h.calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
+    expect(h.calls.removeSearch).toHaveBeenCalledWith(T("P"));
+    // P was active and at index 0 of [P, Q] → focus falls to survivor Q.
+    expect(h.calls.activate).toHaveBeenCalledWith(T("Q"));
+    h.dispose();
+  });
+
+  it("(b) natural SUB exit switches the parent's sub-panel via the captured parentId", async () => {
+    const h = setupReconcile({
+      rawIds: [T("P"), T("S1"), T("S2")],
+      parents: { P: null, S1: T("P"), S2: T("P") },
+      activeSubTab: { P: T("S1") },
+    });
+    await tick();
+
+    // S1's PTY exits — the sub leaves the list; its parentId is gone from
+    // metadata but was captured in the pre-removal snapshot.
+    h.setRawIds([T("P"), T("S2")]);
+
+    expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
+    expect(h.calls.requestRefocus).toHaveBeenCalledWith(T("P"));
+    expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
+    h.dispose();
+  });
+
+  it("(c) kill path does the full cleanup once — the list-drop reconcile is a no-op", async () => {
+    const h = setupReconcile({
+      rawIds: [T("P"), T("S")],
+      parents: { P: null, S: T("P") },
+      activeId: T("P"),
+    });
+    await tick();
+
+    // handleKill's imperative path evicts synchronously (subs still present),
+    // claiming P.
+    h.evictImperatively(T("P"), null, [T("P")], true);
+    expect(h.calls.promoteToTopLevel).toHaveBeenCalledTimes(1);
+
+    // The kill's list-drop then arrives → reconcile must skip (claimed).
+    h.setRawIds([T("S")]);
+
+    expect(h.calls.promoteToTopLevel).toHaveBeenCalledTimes(1); // NOT twice
+    h.dispose();
+  });
+
+  it("does nothing when a terminal is ADDED (create) or on mount", async () => {
+    const h = setupReconcile({
+      rawIds: [T("P")],
+      parents: { P: null },
+      activeId: T("P"),
+    });
+    await tick();
+    expect(h.calls.activate).not.toHaveBeenCalled();
+
+    // A create pushes Q into the list — an arrival, not a departure.
+    h.setParents({ P: null, Q: null });
+    h.setRawIds([T("P"), T("Q")]);
+
+    expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
+    expect(h.calls.removeSub).not.toHaveBeenCalled();
+    expect(h.calls.activate).not.toHaveBeenCalled();
+    h.dispose();
+  });
+});

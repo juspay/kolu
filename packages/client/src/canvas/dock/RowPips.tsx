@@ -35,12 +35,9 @@
  *  `RowPips` (a noun for the thing) rather than `RowIcons` (a
  *  noun for the file). */
 
-import {
-  activePr,
-  type TerminalId,
-  type TerminalMetadata,
-} from "kolu-common/surface";
+import { activePr, type TerminalMetadata } from "@kolu/padi/surface";
 import type { PrInfo } from "anyforge/schemas";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";

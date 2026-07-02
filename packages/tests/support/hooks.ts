@@ -798,7 +798,7 @@ Before(async function (this: KoluWorld, scenario) {
   // own reset endpoint — fired in parallel so the per-scenario setup cost
   // stays the same.
   await Promise.all([
-    postJSON(`${baseUrl}/rpc/terminal/killAll`, {}),
+    postJSON(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {}),
     postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
       json: {
         // Reset all preferences to defaults (newTerminalTheme "inherit" so new
@@ -833,10 +833,10 @@ Before(async function (this: KoluWorld, scenario) {
         },
       },
     }),
-    postJSON(`${baseUrl}/rpc/surface/kolu/activityFeed/test__set`, {
+    postJSON(`${baseUrl}/rpc/surface/padi/activityFeed/test__set`, {
       json: { recentRepos: [], recentAgents: [] },
     }),
-    postJSON(`${baseUrl}/rpc/surface/kolu/session/test__set`, { json: null }),
+    postJSON(`${baseUrl}/rpc/surface/padi/session/test__set`, { json: null }),
   ]);
 
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,

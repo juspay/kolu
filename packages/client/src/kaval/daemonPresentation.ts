@@ -8,7 +8,7 @@
  *  presentation is now testable on its own, which is what lets `kavalDot`'s
  *  transport-liveness floor be pinned by a unit test without standing up a socket. */
 
-import type { DaemonState } from "kolu-common/surface";
+import type { DaemonState } from "@kolu/padi/surface";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
 

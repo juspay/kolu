@@ -3,22 +3,29 @@
  *  Uses plain oRPC client calls. Server signals propagate list/metadata
  *  changes via the live subscriptions — no optimistic cache needed. */
 
-import type { InitialTerminalMetadata, TerminalId } from "kolu-common/surface";
+import type { InitialTerminalMetadata } from "@kolu/padi/surface";
+import { padiRpc } from "@kolu/padi/surface";
+import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
+import type { TerminalId } from "kolu-common/surface";
 import { shuffleMode } from "kolu-common/surface";
-import type { TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
+import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { createSharedRoot } from "../createSharedRoot";
-import { useColorScheme } from "../settings/useColorScheme";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { useColorScheme } from "../settings/useColorScheme";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { usePendingLayouts } from "../canvas/usePendingLayouts";
-import { client, preferences } from "../wire";
+import { padi, preferences } from "../wire";
+import {
+  createEvictionDedup,
+  evictTerminal,
+  type TerminalEvictionPorts,
+} from "./useActiveReconcile";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -42,58 +49,55 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   /** Set a terminal's theme name on the server. */
   function setThemeName(id: TerminalId, name: string) {
-    void client.terminal
-      .setTheme({ id, themeName: name })
+    void padiRpc(padi)
+      .surface.chrome.setTheme({ id, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
       );
   }
 
-  /** Remove a terminal and auto-switch if it was active. */
-  function removeAndAutoSwitch(id: TerminalId) {
-    const parentId = store.getMetadata(id)?.parentId;
-
-    if (parentId) {
-      const subs = store.getSubTerminalIds(parentId).filter((x) => x !== id);
-      if (subs.length === 0) {
-        subPanel.collapsePanel(parentId);
-      } else {
-        const panel = subPanel.getSubPanel(parentId);
-        if (panel.activeSubTab === id) {
-          subPanel.setActiveSubTab(parentId, subs[0] ?? null);
-        }
-        // Re-grab focus for the remaining active sub-terminal: closing a tab via
-        // its close button moves focus to that button, and the reactive focus
-        // state is otherwise unchanged, so the edge-triggered focus effect can't
-        // restore it (and browser focus-after-removal is non-deterministic).
-        subPanel.requestRefocus(parentId);
-      }
-      return;
-    }
-
-    // Top-level terminal — promote sub-terminals to top-level
-    const orphanIds = store.getSubTerminalIds(id);
-    for (const subId of orphanIds) {
-      void client.terminal
-        .setParent({ id: subId, parentId: null })
+  // The ONE cleanup body's side-effecting seams (see useActiveReconcile).
+  // Wired once here; the imperative close path and the list-driven reconcile
+  // both drive `evictTerminal` through these ports, so they can't diverge.
+  const evictionPorts: TerminalEvictionPorts = {
+    getSubTerminalIds: store.getSubTerminalIds,
+    activeId: store.activeId,
+    activate: store.activate,
+    dropFromMru: (id) =>
+      store.setMruOrder((prev) => prev.filter((x) => x !== id)),
+    promoteToTopLevel: (subId) =>
+      void padiRpc(padi)
+        .surface.chrome.setParent({ id: subId, parentId: null })
         .catch((err: Error) =>
           toast.error(`Failed to set parent: ${err.message}`),
-        );
-    }
+        ),
+    subPanel: {
+      collapse: subPanel.collapsePanel,
+      activeSubTab: (parentId) => subPanel.getSubPanel(parentId).activeSubTab,
+      setActiveSubTab: subPanel.setActiveSubTab,
+      requestRefocus: subPanel.requestRefocus,
+      remove: subPanel.removePanel,
+    },
+    removeRightPanel: rightPanel.removePanel,
+    removeSearch: terminalSearch.removeTerminal,
+  };
 
-    const ids = store.terminalIds();
-    const idx = ids.indexOf(id);
-    subPanel.removePanel(id);
-    rightPanel.removePanel(id);
-    terminalSearch.removeTerminal(id);
-    store.setMruOrder((prev) => prev.filter((x) => x !== id));
-    if (store.activeId() === id) {
-      const remaining = ids.filter((x) => x !== id);
-      const next = remaining[Math.min(idx, remaining.length - 1)] ?? null;
-      // `activate` pans the canvas to the auto-switched tile — without
-      // it the viewport would stay centered on the just-killed tile.
-      store.activate(next);
-    }
+  const eviction = createEvictionDedup((id, parentId, topLevelBefore) =>
+    evictTerminal(evictionPorts, id, parentId, topLevelBefore),
+  );
+
+  /** Remove a terminal and auto-switch if it was active — the IMPERATIVE close
+   *  path (kill, discard). Runs synchronously with metadata still present, so it
+   *  reads the live parentId + top-level order. Claims the id (when a list-drop
+   *  will follow) so the later list-driven reconcile skips it — see
+   *  `createEvictionDedup`. */
+  function removeAndAutoSwitch(id: TerminalId) {
+    eviction.evictImperatively(
+      id,
+      store.getMetadata(id)?.parentId ?? null,
+      store.terminalIds(),
+      store.getMetadata(id) !== undefined,
+    );
   }
 
   /** Create a new terminal on the server and make it active.
@@ -178,14 +182,13 @@ export const useTerminalCrud = createSharedRoot(() => {
         activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
       );
     }
-    const info = await client.terminal
-      .create({
+    const info = await padiRpc(padi)
+      .surface.lifecycle.create({
         cwd,
         themeName: theme,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
         rightPanel: initial?.rightPanel,
-        lastActivityAt: initial?.lastActivityAt,
         intent: initial?.intent,
       })
       .catch((err: Error) => {
@@ -206,12 +209,12 @@ export const useTerminalCrud = createSharedRoot(() => {
   }
 
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
-    // Split creation reaches `client.terminal.create` directly (not via
+    // Split creation reaches `lifecycle.create` directly (not via
     // `handleCreate`), so it needs the same warming guard — the split
     // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
     if (refuseIfWarming()) return;
-    const info = await client.terminal
-      .create({ cwd, parentId })
+    const info = await padiRpc(padi)
+      .surface.lifecycle.create({ cwd, parentId })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;
@@ -237,7 +240,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   async function handleKill(id: TerminalId) {
     try {
-      await client.terminal.kill({ id });
+      await padiRpc(padi).surface.lifecycle.kill({ id });
     } catch {
       // Terminal may already be gone
     }
@@ -281,7 +284,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await handleKill(subId);
     try {
-      await client.terminal.sleep({ id });
+      await padiRpc(padi).surface.lifecycle.sleep({ id });
     } catch (err) {
       toast.error(`Failed to sleep terminal: ${(err as Error).message}`);
     }
@@ -292,7 +295,7 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  it back to active and the tile re-renders live — so the client just asks. */
   async function handleWake(id: TerminalId) {
     try {
-      await client.terminal.wake({ id });
+      await padiRpc(padi).surface.lifecycle.wake({ id });
     } catch (err) {
       toast.error(`Failed to wake terminal: ${(err as Error).message}`);
     }
@@ -316,7 +319,7 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  the result (it only needs the toast). */
   async function handleDiscard(id: TerminalId): Promise<boolean> {
     try {
-      await client.terminal.discardSleeping({ id });
+      await padiRpc(padi).surface.lifecycle.discardSleeping({ id });
     } catch (err) {
       toast.error(`Failed to discard terminal: ${(err as Error).message}`);
       return false;
@@ -330,7 +333,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     if (id === null) return;
     let text: string;
     try {
-      text = await client.terminal.screenText({ id });
+      text = await padiRpc(padi).surface.screen.text({ id });
     } catch (err) {
       console.error("Failed to read terminal text:", err);
       toast.error(`Failed to read terminal text: ${(err as Error).message}`);
@@ -368,8 +371,8 @@ export const useTerminalCrud = createSharedRoot(() => {
   function handleRunInActiveTerminal(command: string) {
     const id = store.focusedId();
     if (id === null) return;
-    void client.terminal
-      .sendInput({ id, data: command })
+    void padiRpc(padi)
+      .surface.lifecycle.sendInput({ id, data: command })
       .catch((err: Error) =>
         toast.error(`Failed to prefill command: ${err.message}`),
       );
@@ -377,7 +380,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   async function handleCloseAll() {
     try {
-      await client.terminal.killAll();
+      await padiRpc(padi).surface.lifecycle.killAll();
       store.reset();
       // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so clear
       // the find-bar map wholesale here too — otherwise stale keys outlive the
@@ -409,6 +412,9 @@ export const useTerminalCrud = createSharedRoot(() => {
   return {
     setThemeName,
     removeAndAutoSwitch,
+    /** List-driven cleanup for a naturally-departed terminal (dedup-guarded).
+     *  Wired into the reconcile in useTerminals. */
+    evictDeparted: eviction.evictDeparted,
     handleCreate,
     handleCreateSubTerminal,
     toggleSubPanel,

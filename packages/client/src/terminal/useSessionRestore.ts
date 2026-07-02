@@ -1,19 +1,17 @@
 /** Session restore — hydration from server state, session restore handler. */
 
-import { resumeFormFor } from "anyagent/cli";
-import type {
-  InitialTerminalMetadata,
-  SavedSession,
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
-} from "kolu-common/surface";
+import {
+  padiRpc,
+  type SavedSession,
+  type TerminalMetadata,
+} from "@kolu/padi/surface";
+import { resumableCommand, type TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
-  client,
+  padi,
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../wire";
@@ -21,21 +19,12 @@ import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
- *  effect builds these by gating on BOTH metadata halves (`authored` +
- *  `awareness`) having joined for every entry, so `m` is always defined. */
-type HydrationEntry = { t: TerminalInfo; m: TerminalMetadata };
+ *  effect builds these by gating on the composed record having arrived on padi's
+ *  `terminals` collection for every listed id, so `m` is always defined. `t` is
+ *  the terminal-list row — just `{ id }`, derived from the collection's keys. */
+type HydrationEntry = { t: { id: TerminalId }; m: TerminalMetadata };
 
-export function useSessionRestore(deps: {
-  store: TerminalStore;
-  handleCreate: (
-    cwd?: string,
-    initial?: InitialTerminalMetadata,
-  ) => Promise<TerminalId>;
-  handleCreateSubTerminal: (
-    parentId: TerminalId,
-    cwd?: string,
-  ) => Promise<void>;
-}) {
+export function useSessionRestore(deps: { store: TerminalStore }) {
   const { store } = deps;
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
@@ -48,8 +37,19 @@ export function useSessionRestore(deps: {
    *  while this is true so the click target doesn't detach mid-flight. */
   const [isRestoring, setIsRestoring] = createSignal(false);
 
-  // Hydrate from server state on initial load.
-  let hydrated = false;
+  // Hydrate from server state. TWO once-only steps, tracked separately:
+  //   - `decided`   — the empty-vs-restore DECISION (drives the restore card),
+  //                    made once the terminal list + saved-session cell report;
+  //   - `viewSeeded` — the client VIEW-STATE seed (active tile + canvas viewport
+  //                    + sub-panel tabs + MRU), run once REAL terminals appear.
+  //
+  // The two are DISTINCT because W1.R6 deleted the client respawn loop that used
+  // to seed the view inline during a restore-from-empty-state: now that seeding
+  // rides THIS effect, which must fire when the restored terminals arrive — even
+  // though the empty-state decision already ran. (A browser reload re-mounts the
+  // hook, so both flags start false and the initial-load path is unchanged.)
+  let decided = false;
+  let viewSeeded = false;
   createEffect(() => {
     const existing = store.listSub();
     const fromServer = serverSavedSession();
@@ -58,24 +58,46 @@ export function useSessionRestore(deps: {
     // snapshot when no session is saved). Without this gate we'd hydrate
     // with a null before the server snapshot arrives and miss a restore prompt.
     if (existing === undefined || savedSessionSub.pending()) return;
-    if (hydrated) return;
-    if (existing.length === 0) {
-      hydrated = true;
-      setSavedSession(fromServer);
-      return;
+    // Empty-vs-restore decision (once). Key it on the parked-FILTERED real
+    // terminal set (`store.terminalIds()`), NOT the raw list: a reboot seeds
+    // PARKED registry entries (W1.R6), which DO appear in `listSub()` (they
+    // carry `info`) but are off-canvas restore-card rows, not tiles. Reading the
+    // raw `existing.length` here would see those parked entries as "not empty"
+    // and skip showing the card on a real reboot with active terminals — the
+    // exact case the card exists for. `terminalIds()` excludes parked (and is
+    // `[]` whether or not the metadata half has joined), so the empty-branch
+    // fires at a parked cold boot exactly as it did pre-R6, ordering-independent
+    // (the gate above already waited for BOTH the list and session cells to
+    // yield). When empty, the card reads `savedSession`; the re-fetch effect
+    // below keeps it current after.
+    if (!decided) {
+      decided = true;
+      if (store.terminalIds().length === 0) {
+        setSavedSession(fromServer);
+        return;
+      }
     }
-    // Wait for both metadata halves to join (via `store.getMetadata`) for
-    // every terminal — hydration reads `parentId` and `subPanel` off the
-    // joined record (since #806 the list snapshot no longer carries `meta`).
-    // The reads are reactive, so the effect re-runs as values arrive.
-    const entries: HydrationEntry[] = [];
+    if (viewSeeded) return;
+    // Wait for the composed record to arrive (via `store.getMetadata`) for EVERY
+    // listed terminal — hydration reads `parentId` and `subPanel` off the record
+    // (since #806 the list snapshot no longer carries `meta`). `getMetadata`
+    // returns `undefined` for a PARKED (restore-card) record as well as a
+    // not-yet-arrived one, so this loop naturally waits out the parked set (which
+    // `session.restore` consumes) and can never seed the view from a parked row or
+    // a partial set. The reads are reactive, so the effect re-runs as values arrive.
+    const joined: HydrationEntry[] = [];
     for (const t of existing) {
       const m = store.getMetadata(t.id);
       if (m === undefined) return;
-      entries.push({ t, m });
+      joined.push({ t, m });
     }
-    hydrated = true;
-    hydrateFromTerminals(entries, fromServer?.activeTerminalId ?? null);
+    // Seed only once at least one REAL (active/sleeping) terminal exists — the
+    // initial live load, or once a restore has produced them. An all-parked reboot
+    // never reaches here: the empty-vs-restore decision above returns first
+    // (`terminalIds()` is empty).
+    if (joined.length === 0) return;
+    viewSeeded = true;
+    hydrateFromTerminals(joined, fromServer?.activeTerminalId ?? null);
   });
 
   function hydrateFromTerminals(
@@ -143,197 +165,89 @@ export function useSessionRestore(deps: {
   createEffect(() => {
     if (lifecycle().kind === "restarted") return;
     const fromServer = serverSavedSession();
-    if (store.terminalIds().length === 0 && hydrated) {
+    if (store.terminalIds().length === 0 && decided) {
       setSavedSession(fromServer);
     }
   });
 
   async function handleRestoreSession(
-    // `session` selects the input source: the server-persisted snapshot
-    // (default) or an arbitrary blob from a caller like the diagnostic
-    // "Import session" command. If a third source ever appears, replace this
-    // optional bag with a discriminated `source` union rather than widening it.
-    options: { resumeIds?: ReadonlySet<string>; session?: SavedSession } = {},
+    options: { resumeIds?: ReadonlySet<string> } = {},
   ) {
     if (isRestoring()) return;
-    const session = options.session ?? savedSession();
+    const session = savedSession();
     if (!session) return;
-    // Keep the restore card mounted until terminal creation actually
-    // succeeds. Synchronously clearing `savedSession` before the async
-    // create loop runs detaches the click target mid-event — Playwright
-    // sees "element was detached from the DOM" retries on slow restores,
-    // and a fast human user sees an empty-state flicker between click
-    // and canvas reveal. The visible card during the restore window is
-    // gated below by `isRestoring()`; on success we clear `savedSession`
-    // before the toast, on failure we leave it set so the user can retry.
+    // Keep the restore card mounted until the server restore actually completes.
+    // Synchronously clearing `savedSession` before the async RPC returns detaches
+    // the click target mid-event — Playwright sees "element detached from the DOM"
+    // retries, and a human sees an empty-state flicker between click and canvas
+    // reveal. The visible card during the restore window is gated by
+    // `isRestoring()`; on success we clear `savedSession` before the toast, on
+    // failure we leave it set so the user can retry.
     setIsRestoring(true);
-    const resumeIds = options.resumeIds;
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
     );
     try {
-      const oldToNew = new Map<string, TerminalId>();
-      // ── Active-terminal restore protocol — three interdependent steps ──
+      // ONE writer, ONE call: padi re-spawns every terminal server-side (the
+      // former client respawn loop is deleted). No `lifecycle.*` create /
+      // restoreSleeping / sendInput fires from the client during restore — only
+      // this `session.restore` — so restore can't half-apply across a mid-flight
+      // reconnect. The client-side view-state (active tile + canvas viewport +
+      // sub-panel tabs + MRU) is seeded by the HYDRATION effect below once the
+      // restored terminals arrive on the `terminals` collection, exactly as a
+      // browser reload hydrates.
       //
-      // The saved `activeTerminalId` must end up as `store.activeId()`
-      // AND the canvas viewport must center on its tile. Two upstream
-      // constraints force the protocol shape:
-      //
-      //   (a) `TerminalCanvas.tsx:331` first-mount fallback effect fires
-      //       on the *first* terminal-list snapshot. If `activeId` is
-      //       null at that moment, it falls through to bbox-of-tiles
-      //       centering, pans the viewport off-default, and won't
-      //       re-center on a later `setActiveSilently`.
-      //   (b) `useTerminalCrud.handleCreate` itself calls
-      //       `store.setActiveSilently(info.id)` for every new terminal
-      //       it creates — so whichever terminal is created *last*
-      //       wins the active slot unless we reassert.
-      //
-      // The protocol:
-      //   1. **Order**: put the saved active terminal first in
-      //      `topLevel` so it's the first `handleCreate`.
-      //   2. **In-loop assert**: synchronously after the matching
-      //      `handleCreate`, call `setActiveSilently(newId)` so the
-      //      first-mount canvas effect sees the right active when the
-      //      empty-state→canvas swap fires.
-      //   3. **Post-loop reassert**: re-set the captured `newId` at the
-      //      end so the per-iteration `handleCreate` auto-set on later
-      //      iterations doesn't leave the wrong terminal active. (Falls
-      //      back to looking up by saved id for sessions whose active
-      //      was a sub-terminal — `topLevel` filtered it out, but
-      //      `oldToNew` still has the mapping.)
-      //
-      // Display order is unaffected by step 1: tile layouts are saved
-      // verbatim (per-tile `canvasLayout`), and the workspace switcher
-      // pill strip sorts by `terminalKey().group` rather than insertion
-      // order. The whole protocol collapses to step 2 alone the day
-      // `handleCreate` accepts an `activate: false` flag (TODO).
-
-      // Array order is the ordering — the server wrote terminals in Map
-      // insertion order, and that order round-trips verbatim through disk.
-      const topLevelInSavedOrder = session.terminals.filter((t) => !t.parentId);
-      // Step 1: active-first reorder.
-      const topLevel =
-        session.activeTerminalId !== undefined
-          ? (() => {
-              const activeIdx = topLevelInSavedOrder.findIndex(
-                (t) => t.id === session.activeTerminalId,
-              );
-              if (activeIdx <= 0) return topLevelInSavedOrder;
-              return [
-                // slice(activeIdx, activeIdx + 1) avoids the `!` non-null assertion
-                // that `[activeIdx]` would require; activeIdx > 0 is proven above.
-                ...topLevelInSavedOrder.slice(activeIdx, activeIdx + 1),
-                ...topLevelInSavedOrder.slice(0, activeIdx),
-                ...topLevelInSavedOrder.slice(activeIdx + 1),
-              ];
-            })()
-          : topLevelInSavedOrder;
-      // Type predicate so the body of the loop below sees `parentId`
-      // narrowed to `string` instead of `string | undefined`.
-      const subTerminals = session.terminals.filter(
-        (t): t is typeof t & { parentId: string } => t.parentId !== undefined,
-      );
-      let resumed = 0;
-      /** New id of the saved active terminal — captured in step 2, used in step 3. */
-      let restoredActiveId: TerminalId | null = null;
-      // Seed each new terminal with its saved metadata atomically at create
-      // time — the server embeds it into the first `terminal.list` snapshot,
-      // so the canvas cascade effect sees the saved layout on its first run
-      // and skips the default-cascade branch (#642).
-      for (const t of topLevel) {
-        // A SLEEPING saved record is restored DORMANT — seed it (no PTY spawn, no
-        // resume; Wake does that later). It keeps its saved id, so its canvas
-        // layout and the active marker map 1:1 and the dragged-then-reloaded
-        // position survives. The restore card thus brings back BOTH arms.
-        if (t.state === "sleeping") {
-          await client.terminal.restoreSleeping(t);
-          const sleepingId = t.id as TerminalId;
-          oldToNew.set(t.id, sleepingId);
-          if (t.id === session.activeTerminalId) {
-            restoredActiveId = sleepingId;
-            store.setActiveSilently(sleepingId);
-          }
-          continue;
-        }
-        // `t.location` is deliberately NOT forwarded: the create seam carries
-        // only client-owned `InitialTerminalMetadata`, and the *endpoint* owns
-        // location — so each terminal re-spawns at `LOCAL_LOCATION`. That is
-        // correct while every terminal is local, but it means restore here is
-        // read-record-and-respawn, not "dial the saved host + adopt". P3
-        // replaces this loop with dial+adopt; until then a remote terminal
-        // would silently restore locally, so remote terminals must not ship
-        // before P3 lands.
-        const newId = await deps.handleCreate(t.cwd, {
-          themeName: t.themeName,
-          canvasLayout: t.canvasLayout,
-          subPanel: t.subPanel,
-          rightPanel: t.rightPanel,
-          lastActivityAt: t.lastActivityAt,
-          intent: t.intent,
-        });
-        oldToNew.set(t.id, newId);
-        // Step 2: in-loop assert. Combined with step 1, this puts the
-        // intended active in place before the first canvas mount.
-        if (t.id === session.activeTerminalId) {
-          restoredActiveId = newId;
-          store.setActiveSilently(newId);
-        }
-        // Client-side sub-panel state (activeSubTab, focusTarget) isn't
-        // server-persisted — seed it locally so the restored panel reopens
-        // to the same tab. The server-persisted fields (collapsed, panelSize)
-        // ride along via handleCreate above.
-        if (t.subPanel) subPanel.seedPanel(newId, t.subPanel);
-        // Right-panel per-terminal state: the persisted record rides
-        // `handleCreate` (server seeds `meta.rightPanel` from
-        // `initial.rightPanel` in the first `terminal.list` snapshot);
-        // `seedPanel` here is the early-read optimization for the
-        // in-memory store, so reads that happen before the metadata
-        // collection resnapshots see the restored value.
-        if (t.rightPanel) rightPanel.seedPanel(newId, t.rightPanel);
-        // Auto-launch the resume form of the previously captured agent
-        // command, if the user didn't opt out. The command is already
-        // normalized (prompts/positionals stripped by the allowlist at
-        // capture time), so there's nothing arbitrary to smuggle through.
-        // `resumeFormFor` switches on the fold-derived `restoreTarget`:
-        // `exact` targets the EXACT conversation that was running by id
-        // (juspay/kolu#1495), `legacyMostRecent` the most-recent fallback, and
-        // `none`/absent a bare shell. It is the SAME composition the server's
-        // wake path feeds a fresh spawn (`local.ts`), so restore and wake can't
-        // drift.
-        const optedIn = !resumeIds || resumeIds.has(t.id);
-        const resumeForm = optedIn ? resumeFormFor(t.restoreTarget) : null;
-        if (resumeForm) {
-          await client.terminal.sendInput({
-            id: newId,
-            data: `${resumeForm}\r`,
-          });
-          resumed++;
-        }
-      }
-      for (const t of subTerminals) {
-        const newParentId = oldToNew.get(t.parentId);
-        if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
-      }
-      // Step 3: post-loop reassert (see protocol block above).
-      if (restoredActiveId !== null) {
-        store.setActiveSilently(restoredActiveId);
-      } else if (session.activeTerminalId) {
-        const newActiveId = oldToNew.get(session.activeTerminalId);
-        if (newActiveId) store.setActiveSilently(newActiveId);
-      }
-      const summary =
-        resumed > 0
-          ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${resumed > 1 ? "s" : ""}`
-          : "Session restored";
+      // `resumeIds` is the per-terminal opt-in the restore card builds off its
+      // global toggle: the SET of ids to resume (empty when the toggle is off).
+      await padiRpc(padi).surface.session.restore({
+        resumeIds: options.resumeIds ? [...options.resumeIds] : undefined,
+      });
       setSavedSession(null);
-      toast.success(summary, { id });
+      // Faithful pre-W1 summary — "Restored N terminals, resumed M agents". The
+      // restore card's `resumeIds` is the RESUMABLE opt-in set (EmptyState filters
+      // to terminals with a resumable `restoreTarget`), so its size IS the resume
+      // count; an absent set (the import path resumes all) counts the session's
+      // resumable terminals directly.
+      const resumed = options.resumeIds
+        ? options.resumeIds.size
+        : session.terminals.filter(
+            (t) => resumableCommand(t.restoreTarget) !== null,
+          ).length;
+      toast.success(
+        resumed > 0
+          ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${
+              resumed > 1 ? "s" : ""
+            }`
+          : "Session restored",
+        { id },
+      );
     } catch (err) {
       toast.error(`Restore failed: ${(err as Error).message}`, { id });
       throw err;
     } finally {
       setIsRestoring(false);
     }
+  }
+
+  /** Explicit forfeit — the user chose "Start fresh" over the saved session.
+   *  One server call discards the parked entries AND clears the saved session
+   *  together (creating a terminal no longer forfeits implicitly, W1). On
+   *  success the server pushes a `null` saved-session snapshot, which the
+   *  re-fetch effect above folds into `savedSession` and dismisses the card;
+   *  we also clear it optimistically so the card drops immediately. */
+  async function handleForfeitSession() {
+    const session = savedSession();
+    if (!session) return;
+    // Optimistic dismissal: the card is gone the moment the user commits.
+    setSavedSession(null);
+    await padiRpc(padi)
+      .surface.session.forfeit({})
+      .catch((err: Error) => {
+        // Surface the failure and restore the card so the user can retry —
+        // a caught error must not collapse silently to the empty state.
+        setSavedSession(session);
+        toast.error(`Failed to start fresh: ${err.message}`);
+      });
   }
 
   return {
@@ -361,5 +275,6 @@ export function useSessionRestore(deps: {
     savedSession,
     isRestoring,
     handleRestoreSession,
+    handleForfeitSession,
   };
 }

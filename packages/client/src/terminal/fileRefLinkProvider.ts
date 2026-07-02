@@ -3,7 +3,7 @@
  *  in `ui/lineRef.ts` — this module is just the xterm adapter:
  *  buffer-line → `parseLineRefs` → `ILink[]`. */
 
-import type { ILink, ILinkProvider, IBufferLine, Terminal } from "@xterm/xterm";
+import type { IBufferLine, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { type LineRef, type LineRefMatch, parseLineRefs } from "../ui/lineRef";
 
 export interface FileRefLinkOpts {

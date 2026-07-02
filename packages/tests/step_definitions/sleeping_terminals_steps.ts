@@ -28,10 +28,7 @@ import * as assert from "node:assert";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
-import {
-  LOCAL_LOCATION,
-  type SavedSleepingTerminal,
-} from "kolu-common/surface";
+import { LOCAL_LOCATION, type SavedSleepingTerminal } from "@kolu/padi/surface";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -151,12 +148,15 @@ async function moveSleepingTile(
   y: number,
 ): Promise<void> {
   const layout = { x, y, w: 700, h: 500 };
-  const resp = await world.page.request.fetch("/rpc/terminal/setCanvasLayout", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: JSON.stringify({ json: { id, layout } }),
-  });
-  assert.ok(resp.ok(), `terminal/setCanvasLayout failed: ${resp.status()}`);
+  const resp = await world.page.request.fetch(
+    "/rpc/surface/padi/chrome/setCanvasLayout",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({ json: { id, layout } }),
+    },
+  );
+  assert.ok(resp.ok(), `chrome/setCanvasLayout failed: ${resp.status()}`);
   await waitForSleepingTileAt(world, id, x, y);
 }
 
@@ -511,7 +511,7 @@ Given(
     this.savedSessionTerminalCount = 2;
     this.savedSessionSavedAt = Date.now();
     const resp = await this.page.request.fetch(
-      "/rpc/surface/kolu/session/test__set",
+      "/rpc/surface/padi/session/test__set",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -525,7 +525,7 @@ Given(
     );
     assert.ok(
       resp.ok(),
-      `surface/kolu/session/test__set failed: ${resp.status()}`,
+      `surface/padi/session/test__set failed: ${resp.status()}`,
     );
   },
 );

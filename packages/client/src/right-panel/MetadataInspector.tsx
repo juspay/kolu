@@ -1,13 +1,9 @@
 /** MetadataInspector — live view of the active terminal's full context.
  *  Pure rendering: receives metadata, renders sections. */
 
+import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { prValue } from "anyforge/schemas";
-import {
-  activeArm,
-  prUnavailableSource,
-  type TerminalId,
-  type TerminalMetadata,
-} from "kolu-common/surface";
+import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import ChecksIndicator from "../terminal/ChecksIndicator";

@@ -35,12 +35,9 @@
  * sets per tick coalesce to one when the displayed MB hasn't moved.
  */
 
+import type { DaemonState } from "@kolu/padi/surface";
 import type { PtyHostClient } from "kaval";
-import type {
-  DaemonState,
-  KavalMemory,
-  ProcessMemory,
-} from "kolu-common/surface";
+import type { KavalMemory, ProcessMemory } from "kolu-common/surface";
 
 /** How long the kaval poll may run before the tick gives up and reports `error`.
  *  A plain stdio RPC has no deadline of its own, so a wedged-but-open daemon

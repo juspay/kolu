@@ -16,18 +16,20 @@
  * can safely reset to defaults.
  */
 
-import Conf from "conf";
 import {
   type ActivityFeed,
   ActivityFeedSchema,
-  backfillSnapshotCutover,
   backfillLocation,
   backfillRemoteUrl,
+  backfillSnapshotCutover,
   backfillTerminalState,
+  SavedSessionSchema,
+} from "@kolu/padi/surface";
+import Conf from "conf";
+import {
   DEFAULT_PREFERENCES,
   type Preferences,
   PreferencesSchema,
-  SavedSessionSchema,
 } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { z } from "zod";

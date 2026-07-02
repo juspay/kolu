@@ -1,8 +1,8 @@
 import { When } from "@cucumber/cucumber";
-import type { KoluWorld } from "../support/world";
 import { getRecording } from "../screencast/recordings";
 import { applyDisplay } from "../screencast/recordings/display";
 import { setActiveTheme } from "../screencast/recordings/helpers";
+import type { KoluWorld } from "../support/world";
 
 // Dispatcher: run a named recording. The engine (KOLU_X11CAP, in hooks.ts)
 // handles the Xvfb/app-mode/x11grab/transcode around this step; here we apply

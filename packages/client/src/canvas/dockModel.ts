@@ -1,11 +1,10 @@
+import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import {
-  activeArm,
   type AgentInfo,
-  agentPaintClass,
   type AgentPaintClass,
+  agentPaintClass,
   type PrResult,
   type TerminalId,
-  type TerminalMetadata,
 } from "kolu-common/surface";
 import { matchesAllTokens, tokenize } from "../search";
 import {

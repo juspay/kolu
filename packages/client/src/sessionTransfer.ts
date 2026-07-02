@@ -17,7 +17,7 @@ import {
   backfillSavedSession,
   type SavedSession,
   SavedSessionSchema,
-} from "kolu-common/surface";
+} from "@kolu/padi/surface";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
 

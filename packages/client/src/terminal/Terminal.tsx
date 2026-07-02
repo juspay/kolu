@@ -31,10 +31,16 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
+import { activeArm, padiRpc } from "@kolu/padi/surface";
+import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
 import { unenrolledStreamCall } from "@kolu/surface/client";
+import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+  isTerminalQueryResponse,
+} from "@kolu/terminal-protocol";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
-import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { FONT_FAMILY } from "terminal-themes";
 import {
   ACTIONS,
@@ -45,26 +51,26 @@ import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
-import type { LineRef } from "../ui/lineRef";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { wireScrollIntent } from "../scrollLockWiring";
+import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
-import { client, preferences } from "../wire";
+import { padi, preferences } from "../wire";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
 } from "./fileRefLinkProvider";
-import ScrollToBottom from "./ScrollToBottom";
-import { applyStickyModifiers } from "./stickyModifiers";
-import SearchBar from "./SearchBar";
-import { enableSoftKeyboardInput } from "./softKeyboardInput";
-import { isTerminalQueryResponse } from "@kolu/terminal-protocol";
+import { deliverScratchPaste } from "./pasteDelivery";
 import { createRenderRecovery } from "./renderRecovery";
+import ScrollToBottom from "./ScrollToBottom";
+import SearchBar from "./SearchBar";
 import { createSnapshotBoundary } from "./snapshotBoundary";
+import { enableSoftKeyboardInput } from "./softKeyboardInput";
+import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
-import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalActivity } from "./useTerminalActivity";
+import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
 import {
   trackCreate,
@@ -384,7 +390,11 @@ const Terminal: Component<{
     // window). Armed BEFORE the resize so the repaint can't slip in first.
     activity.suppress(props.terminalId, RESIZE_ACTIVITY_SUPPRESS_MS);
     try {
-      await client.terminal.resize({ id: props.terminalId, cols, rows });
+      await padiRpc(padi).surface.lifecycle.resize({
+        id: props.terminalId,
+        cols,
+        rows,
+      });
     } catch {
       // Terminal may have been killed mid-resize
     }
@@ -792,19 +802,21 @@ const Terminal: Component<{
           // fresh snapshot first too. The snapshot is still WRITTEN to xterm;
           // only the activity ping is suppressed.
           const snapshotBoundary = createSnapshotBoundary();
-          // Carve-out (Leak A): `terminal.attach` is a ROOT RPC stream, NOT a
-          // surface subscription — `client` is the combined link root, not a
-          // `surfaceClient`, so there is no surface `health()` this belongs to. Its
-          // health is the terminal's OWN concern, surfaced in-pane (a reset +
-          // visible retry on `onRetry`, the snapshot re-armed), not folded into a
-          // fleet/host gate. So it deliberately uses `unenrolledStreamCall`
-          // (`@kolu/surface/client`) rather than `client.rawStream`'s structural
-          // enrolment — and the `unenrolled-` name makes that a visible decision at
-          // the call site, not a forgotten enrol.
+          // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
+          // (`padiSurface.streams.terminalAttach`), but its health is the
+          // terminal's OWN concern — surfaced in-pane (a reset + visible retry on
+          // `onRetry`, the snapshot re-armed), not folded into padi's fleet/host
+          // `health()` gate. A single terminal's re-attach (overflow re-attach
+          // #1591, PTY exit) must never flicker the global connection-health
+          // indicator. So it deliberately uses `unenrolledStreamCall`
+          // (`@kolu/surface/client`) — the bare, un-enrolled call — rather than
+          // `padi.rawStream`'s structural health enrolment, and the `unenrolled-`
+          // name makes that a visible decision at the call site, not a forgotten
+          // enrol.
           consumeStream(
             () =>
               unenrolledStreamCall(
-                client.terminal.attach,
+                padiRpc(padi).surface.terminalAttach.get,
                 { id: props.terminalId },
                 {
                   signal,
@@ -859,7 +871,7 @@ const Terminal: Component<{
             if (isTerminalQueryResponse(data)) return;
             // Fold any sticky Ctrl/Alt armed on the mobile key bar into this
             // keystroke (no-op on desktop, where nothing is ever armed).
-            void client.terminal.sendInput({
+            void padiRpc(padi).surface.lifecycle.sendInput({
               id: props.terminalId,
               data: applyStickyModifiers(data),
             });
@@ -957,6 +969,31 @@ const Terminal: Component<{
           // images while text paste falls through to xterm. Uses the native
           // paste event (not navigator.clipboard.read) so no explicit
           // clipboard-read permission is needed.
+          // Write decoded bytes into the terminal's on-disk scratch dir, then
+          // bracketed-paste the returned path into the PTY — the client-side
+          // recomposition of the old server `pasteImage`/`uploadFile` handlers
+          // (`scratch.write` + `lifecycle.sendInput`). The size gate stays a
+          // client precheck on each caller (below), matching the old
+          // BAD_REQUEST behavior. `sendInput` quiet-drops on a terminal that
+          // is no longer active, so `deliverScratchPaste` re-checks liveness
+          // between the write and the send and throws otherwise — the caller's
+          // catch turns that into a toast.error instead of a silent drop.
+          async function writeScratchAndPaste(name: string, base64: string) {
+            await deliverScratchPaste({
+              terminalId: props.terminalId,
+              name,
+              base64,
+              scratchWrite: (args) => padiRpc(padi).surface.scratch.write(args),
+              isActive: () =>
+                activeArm(terminalStore.getMetadata(props.terminalId)) !==
+                undefined,
+              sendInput: (args) =>
+                padiRpc(padi).surface.lifecycle.sendInput(args),
+              wrapPath: (path) =>
+                `${BRACKETED_PASTE_START}${path}${BRACKETED_PASTE_END}`,
+            });
+          }
+
           async function uploadPastedImage(file: File) {
             const reason = sizeRejectionFor("clipboard image", file.size);
             if (reason !== null) {
@@ -965,10 +1002,7 @@ const Terminal: Component<{
             }
             try {
               const base64 = bufferToBase64(await file.arrayBuffer());
-              await client.terminal.pasteImage({
-                id: props.terminalId,
-                data: base64,
-              });
+              await writeScratchAndPaste("image.png", base64);
             } catch (err) {
               toast.error(`Failed to upload clipboard image: ${errMsg(err)}`);
             }
@@ -1009,11 +1043,7 @@ const Terminal: Component<{
             }
             try {
               const base64 = bufferToBase64(await file.arrayBuffer());
-              await client.terminal.uploadFile({
-                id: props.terminalId,
-                name: file.name,
-                data: base64,
-              });
+              await writeScratchAndPaste(file.name, base64);
             } catch (err) {
               toast.error(`Failed to upload "${file.name}": ${errMsg(err)}`);
             }

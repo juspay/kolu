@@ -4,8 +4,8 @@
  *  alert text actually tells the user which terminal needs attention.
  *  PR info, when resolved, rides as a description sub-line. */
 
+import { activePr } from "@kolu/padi/surface";
 import { prLabel } from "anyforge/schemas";
-import { activePr } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 export type TerminalSubject = { title: string; description?: string };
