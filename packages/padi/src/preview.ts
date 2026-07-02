@@ -79,18 +79,6 @@ function previewTooLarge(): ORPCError<"PAYLOAD_TOO_LARGE", undefined> {
   });
 }
 
-/** True when `range` is a single BOUNDED byte range (`bytes=<start>-<end>`, both
- *  ends present) — the one shape whose resolved body is bounded by the caller, so
- *  it rides the uncapped path unchanged. An unranged (absent), open-ended
- *  (`bytes=<start>-`), suffix (`bytes=-N`), or multi-range / malformed header is
- *  NOT bounded here: serve-dir may answer it with the whole (remaining) file, so
- *  it must ride the capped path. Deliberately a tiny lexical leaf — serve-dir's
- *  `parseByteRange` fills an open end from the file size, so it cannot answer "did
- *  the caller name an explicit end?". */
-function isBoundedRange(range: string | undefined): boolean {
-  return range !== undefined && /^bytes=\d+-\d+$/.test(range.trim());
-}
-
 /** Read `Content-Length` case-insensitively (serve-dir sets it on a 206, but
  *  deliberately OMITS it on a full 200 — so its absence never means "small"). */
 function contentLengthOf(headers: Record<string, string>): number | undefined {
@@ -128,13 +116,14 @@ async function bufferBase64Capped(body: ReadableStream): Promise<string> {
  *  the body over the wire), NOT by the in-process HTTP route (which streams via
  *  {@link previewFile}). Status + headers come back verbatim from `serveFile`.
  *
- *  A BOUNDED range (`bytes=X-Y`) is bounded by the caller and rides through
- *  verbatim (byte-identical). An unranged or open-ended (`bytes=X-`) read may
- *  resolve to the whole (remaining) file, so it is CAPPED at
- *  {@link MAX_INLINE_PREVIEW_BYTES}: the daemon fails fast with a typed
- *  `PAYLOAD_TOO_LARGE` naming the fix (request a bounded range) rather than
- *  buffering an unbounded blob — the reason the local route must use
- *  {@link previewFile}, not this. */
+ *  EVERY non-error body is CAPPED at {@link MAX_INLINE_PREVIEW_BYTES} by the
+ *  RESOLVED byte count, not the range shape: a legitimately small bounded range
+ *  (a `<video>` seek) buffers unchanged (byte-identical), but an unranged read,
+ *  an open-ended `bytes=X-`, OR a huge bounded `bytes=0-999999999999` all resolve
+ *  to ~the whole file and fail fast with a typed `PAYLOAD_TOO_LARGE` naming the
+ *  fix (request a smaller range) rather than buffering an unbounded blob. Shape
+ *  alone was the earlier bypass. This is why the local HTTP route must stream via
+ *  {@link previewFile}, not call this. */
 export async function readPreview(input: {
   repoPath: string;
   filePath: string;
@@ -153,21 +142,14 @@ export async function readPreview(input: {
       bodyBase64: Buffer.from(r.body, "utf8").toString("base64"),
     };
   }
-  // A BOUNDED range (206) is bounded by the caller — serve it verbatim, exactly
-  // as before (keeps `<video>` seek working; byte-identical).
-  if (isBoundedRange(input.range)) {
-    return {
-      status: r.status,
-      headers: r.headers,
-      bodyBase64: Buffer.from(
-        await new Response(r.body).arrayBuffer(),
-      ).toString("base64"),
-    };
-  }
-  // Unranged / open-ended: the resolved body may be the whole (remaining) file.
-  // Prefer the Content-Length header when serve-dir set it (an open-ended 206) so
-  // an over-cap read fails BEFORE any byte is read; otherwise (a full 200 has no
-  // Content-Length) the capped stream reader bounds the buffer.
+  // EVERY non-error body is capped identically — a bounded 206, an open-ended
+  // 206, or a full 200. A caller-bounded range whose end is legitimately small
+  // (a `<video>` seek) buffers unchanged, so seeking stays byte-identical; but a
+  // huge BOUNDED range (`bytes=0-999999999999`) resolves to ~the whole file and
+  // must NOT ride an uncapped `arrayBuffer()` — checking only the range *shape*
+  // was the cap bypass. Prefer the `Content-Length` serve-dir sets on a 206 so an
+  // over-cap read fails BEFORE any byte is read; a full 200 omits it, so the
+  // capped stream reader (`bufferBase64Capped`) bounds the buffer instead.
   const declared = contentLengthOf(r.headers);
   if (declared !== undefined && declared > MAX_INLINE_PREVIEW_BYTES) {
     await r.body.cancel();

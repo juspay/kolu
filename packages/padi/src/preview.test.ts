@@ -147,6 +147,21 @@ describe("readPreview caps an unranged/open-ended read (no unbounded inline buff
     ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
   });
 
+  it("throws PAYLOAD_TOO_LARGE for a HUGE bounded range that resolves to ~the whole file", async () => {
+    // `bytes=0-99999999999` is shape-bounded (both ends present) but serve-dir
+    // clamps its end to the file size, so it resolves to the whole 64 MiB+1 file.
+    // The old shape-only `isBoundedRange` let exactly this ride the UNCAPPED
+    // `arrayBuffer()` path — the cap bypass. Keying the cap on the RESOLVED
+    // Content-Length closes it; reverting to the shape check makes this NOT throw.
+    await expect(
+      readPreview({
+        repoPath: tmpRoot,
+        filePath: "big.bin",
+        range: "bytes=0-99999999999",
+      }),
+    ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
+  });
+
   it("leaves a BOUNDED range over the same big file unchanged (206, just those bytes)", async () => {
     const res = await readPreview({
       repoPath: tmpRoot,
