@@ -66,6 +66,7 @@ import {
   DaemonStatusSchema,
   InitialTerminalMetadataSchema,
   KoluAuthoredFieldsSchema,
+  ParkedDiscriminantSchema,
   PersistedSnapshotSchema,
   PtyHostIdentitySchema,
   RightPanelPerTerminalStateSchema,
@@ -148,18 +149,6 @@ export const PadiHostAxisSchema = z.object({
   host: z.string().optional(),
 });
 
-/** The `parked` discriminant — a reboot-killed active record padi's boot
- *  reconcile parks (its PTY died with the host; the record survives for
- *  restore). DISTINCT from `sleeping` (deliberately slept, resumes its agent on
- *  wake): the two arms restore oppositely, so a distinct discriminant keeps them
- *  from being confused. Lands as a produced state in W1.R; W1.C reserves it in
- *  the union so the contract is stable. */
-export const PadiParkedDiscriminantSchema = z.object({
-  state: z.literal("parked"),
-  /** ms-epoch padi parked this record at boot reconcile. */
-  parkedAt: z.number(),
-});
-
 /** The active arm — the full live `TerminalMetadata` active record + the
  *  reserved host axis. */
 export const PadiActiveTerminalSchema =
@@ -176,7 +165,7 @@ export const PadiSleepingTerminalSchema =
 export const PadiParkedTerminalSchema = PersistedSnapshotSchema.merge(
   KoluAuthoredFieldsSchema,
 )
-  .merge(PadiParkedDiscriminantSchema)
+  .merge(ParkedDiscriminantSchema)
   .merge(PadiHostAxisSchema);
 
 /** The composed terminal record padi serves — `active | sleeping | parked`,
