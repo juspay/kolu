@@ -40,7 +40,6 @@ import { useTileStore } from "../tile/useTileStore";
 import { savedSessionSub } from "../wire";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
-import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
@@ -69,10 +68,6 @@ function isWheelTargetTerminal(e: WheelEvent): boolean {
 
 const TerminalCanvas: Component<{
   tileIds: TileId[];
-  /** Optional corner watermark (e.g. `Kolu [host]`) painted in the
-   *  top-left of the canvas. Stays outside the pan/zoom transform so
-   *  it reads as a fixed identity mark on the surface, not a tile. */
-  watermark?: string;
   /** Saved layout for a tile, or undefined if none exists yet. */
   getLayout: (id: TileId) => TileLayout | undefined;
   /** Optional one-shot arrange trigger. When provided, the minimap
@@ -443,7 +438,7 @@ const TerminalCanvas: Component<{
        *  dock. The dock owns its own posture-conditional positioning:
        *  in maximized mode it's `relative shrink-0` (real left-panel
        *  flex sibling — the canvas takes the remaining width via
-       *  `flex-1`); in tiled mode it's `absolute z-30 top-12 left-4`
+       *  `flex-1`); in tiled mode it's `absolute z-30 top-16 left-4`
        *  (floats over the canvas). The wrapper is `relative` so the
        *  dock's absolute coordinates in tiled mode resolve to the same
        *  `top: 5rem, left: 1rem` they did when mounted inside the
@@ -475,16 +470,11 @@ const TerminalCanvas: Component<{
           // BODY or on the minimap bubbles up here with `target !== currentTarget`,
           // and the guard keeps create to the bare surface. (A title-bar
           // double-click never reaches here — CanvasTile's own dblclick handler
-          // stopPropagation's after it maximizes.) The watermark is
-          // `pointer-events-none`, so a double-click "over" it still targets
-          // this container — the empty surface.
+          // stopPropagation's after it maximizes.)
           onDblClick={(e) => {
             if (e.target === e.currentTarget) props.onCreate();
           }}
         >
-          <Show when={props.watermark}>
-            {(text) => <CanvasWatermark text={text()} />}
-          </Show>
           {/* All tiles render in one stable list, every render. Pan/zoom
            *  composes into each tile's own `transform` (CanvasTile), so
            *  there's no wrapper transform — which means the active tile in

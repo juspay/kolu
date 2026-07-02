@@ -15,10 +15,16 @@
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
-import { type Component, createMemo, createSignal, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  type JSX,
+  Show,
+} from "solid-js";
 import { match, P } from "ts-pattern";
 import { getClockNow } from "../time/clock";
-import KavalInfoDialog from "../kaval/KavalInfoDialog";
+import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
 import {
   KavalUpdateBadge,
   kavalUpdatePending,
@@ -35,7 +41,6 @@ import type { WsStatus } from "../rpc/rpc";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { formatMBCompact, mbText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
-import Tip from "./Tip";
 import {
   clientHeapUsedBytes,
   kavalMemoryDisplay,
@@ -44,21 +49,29 @@ import {
 
 /** The thin vertical rule between compact status groups. */
 const Divider: Component = () => (
-  <span class="h-4 w-px self-center bg-edge-bright/60" />
+  <span class="mx-0.5 h-5 w-px self-center bg-edge-bright/60" />
+);
+
+const IdentityMark: Component<{
+  logoSrc: string;
+  children: JSX.Element;
+}> = (props) => (
+  <span class="relative grid h-5 w-5 shrink-0 place-items-center">
+    <img src={props.logoSrc} alt="" class="h-4 w-4" />
+    {props.children}
+  </span>
 );
 
 /** A kaval memory poll error is visible because it is an actionable diagnostic
  *  anomaly; normal MB values stay in the real chip tooltip/aria-label. */
 const KavalMemReadout: Component = () => (
   <Show when={kavalMemoryDisplay()?.kind === "error"}>
-    <Tip label="kaval daemon memory poll failed — the daemon reports connected but didn't answer its memory probe">
-      <span
-        data-testid="kaval-memory-error"
-        class="rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning"
-      >
-        mem ?
-      </span>
-    </Tip>
+    <span
+      data-testid="kaval-memory-error"
+      class="rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning"
+    >
+      mem ?
+    </span>
   </Show>
 );
 
@@ -75,7 +88,7 @@ const StatusDot: Component<{
   <span
     data-ws-status={props["data-ws-status"]}
     data-daemon-state={props["data-daemon-state"]}
-    class={`inline-block h-2 w-2 rounded-full ${props.class}`}
+    class={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-surface-2 ${props.class}`}
   />
 );
 
@@ -149,20 +162,22 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   );
 
   return (
-    <div class="inline-flex items-center gap-1 rounded-lg border border-edge bg-surface-2/60 px-1.5 py-0.5 font-mono text-xs shadow-sm shadow-black/20">
+    <div class="inline-flex items-center gap-0.5 rounded-xl border border-edge/90 bg-surface-2/80 px-1 py-1 font-mono text-xs shadow-sm shadow-black/25">
       <button
         type="button"
         data-testid="kolu-identity-chip"
         onClick={() => setKoluDialogOpen(true)}
-        class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 leading-4 text-fg-2 transition-colors hover:bg-surface-3/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="inline-flex h-7 items-center gap-2 rounded-lg px-2 leading-4 text-fg-2 transition-colors hover:bg-surface-3/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         title={koluTip()}
         aria-label={koluTip()}
       >
-        <StatusDot
-          class={serverDot(props.status, daemonLive())}
-          data-ws-status={props.status}
-        />
-        <span>Kolu</span>
+        <IdentityMark logoSrc="/favicon.svg">
+          <StatusDot
+            class={serverDot(props.status, daemonLive())}
+            data-ws-status={props.status}
+          />
+        </IdentityMark>
+        <span class="text-fg">Kolu</span>
         <Show when={pwa.server()?.version}>
           {(v) => <span class="tabular-nums text-fg-3">v{v()}</span>}
         </Show>
@@ -177,25 +192,27 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         type="button"
         data-testid="kaval-identity-chip"
         onClick={() => setKavalDialogOpen(true)}
-        class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 leading-4 text-fg-2 transition-colors hover:bg-surface-3/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="inline-flex h-7 items-center gap-2 rounded-lg px-2 leading-4 text-fg-2 transition-colors hover:bg-surface-3/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         title={kavalTip()}
         aria-label={kavalTip()}
       >
-        <StatusDot
-          data-daemon-state={
-            daemonLive() ? (daemon()?.state ?? "unknown") : "unknown"
-          }
-          class={kavalDot(daemon()?.state, daemonLive())}
-        />
-        <span>Kaval</span>
+        <IdentityMark logoSrc={KAVAL_LOGO_URL}>
+          <StatusDot
+            data-daemon-state={
+              daemonLive() ? (daemon()?.state ?? "unknown") : "unknown"
+            }
+            class={kavalDot(daemon()?.state, daemonLive())}
+          />
+        </IdentityMark>
+        <span class="text-fg">Kaval</span>
         <Show when={kavalVersion()}>
           {(v) => <span class="tabular-nums text-fg-3">contract v{v()}</span>}
         </Show>
+        <KavalMemReadout />
+        <Show when={kavalUpdatePending()}>
+          <KavalUpdateBadge />
+        </Show>
       </button>
-      <KavalMemReadout />
-      <Show when={kavalUpdatePending()}>
-        <KavalUpdateBadge />
-      </Show>
 
       <KoluInfoDialog
         open={koluDialogOpen()}
