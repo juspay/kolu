@@ -37,7 +37,6 @@ import { isContractVersionCompatible } from "@kolu/surface/define";
 import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
 import { cli, command } from "cleye";
 import {
-  getPtyHostSocketPath,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSpawnInput,
   resolveRunningKavalSocket,
@@ -78,7 +77,7 @@ const socketFlag = {
   socket: {
     type: String,
     description:
-      "socket to dial — goes AFTER the subcommand. Default: kaval's own, $XDG_RUNTIME_DIR/kaval/pty-host.sock (or /tmp/kaval-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset). To reach a running kolu-server, pass ITS socket: $XDG_RUNTIME_DIR/kolu/pty-host.sock (or /tmp/kolu-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset — e.g. over ssh / a non-login session).",
+      "socket to dial — goes AFTER the subcommand. Usually unneeded: with no --socket, kaval-tui autodiscovers the running daemon (run `kaval-tui list` to see each, labeled), and inside a kolu terminal $KAVAL_SOCKET already names your daemon. Pass --socket only to pick one when several are up: a standalone kaval serves at $XDG_RUNTIME_DIR/kaval/pty-host.sock (or /tmp/kaval-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset), and each kolu-server serves under a PER-PORT namespace, $XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock (or /tmp/kaval-<port>-$UID/pty-host.sock) — there is no single fixed kolu-server path, so use `kaval-tui list` to find it.",
   },
 } as const;
 
@@ -103,7 +102,7 @@ const endpointFlags = { ...socketFlag, ...hostFlag } as const;
 type Endpoint =
   | { kind: "host"; host: string }
   | { kind: "socket"; socket: string }
-  | { kind: "default" };
+  | { kind: "default"; socket: string };
 
 /** The flag suffix that re-targets a later command at the SAME endpoint — the
  *  empty string for the default discovered socket (bare `attach` finds it). The
@@ -412,11 +411,16 @@ async function cmdCreate(
     });
     home = info.home;
   } else {
+    // A local endpoint carries its resolved socket in the endpoint itself (main()
+    // fills it at construction), so TS narrows both local arms to a present
+    // string — no unset case to guard. Stamp it as KAVAL_SOCKET so a process
+    // inside the new terminal can reach the daemon that owns it.
     input = buildCreateInput({
       id: newPtyId(),
       cwd: process.cwd(),
       env: process.env,
       command,
+      kavalSocket: endpoint.socket,
     });
     home = homedir();
   }
@@ -726,19 +730,19 @@ async function assertCompatible(conn: Connection): Promise<void> {
   }
 }
 
-/** Dial a LOCAL kaval (or kolu-server) over its unix socket — an explicit
- *  `--socket`, else the discovered/default one. Fails loud with an actionable
- *  hint if nothing is listening. */
-function connectLocal(socketOverride: string | undefined): Promise<Connection> {
-  const socketPath = resolveSocketPath(socketOverride);
+/** Dial a LOCAL kaval (or kolu-server) at an ALREADY-RESOLVED socket path (the
+ *  caller runs `resolveSocketPath` so it can reuse the same path — e.g. to stamp
+ *  `KAVAL_SOCKET` into a `create`d terminal). Fails loud with an actionable hint
+ *  if nothing is listening. */
+function connectLocal(socketPath: string): Promise<Connection> {
   return connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
-    // The kolu-server hint names the SAME path kolu computes — and the
-    // $XDG_RUNTIME_DIR-unset fallback (e.g. over ssh), the exact case where a
-    // hand-built `$XDG_RUNTIME_DIR/kolu/...` collapses to a wrong `/kolu/...`.
-    const koluSock = getPtyHostSocketPath(undefined, "kolu");
+    // No hand-built kolu-server path in the hint: kolu-server namespaces its
+    // daemon per listen port (`kaval-<port>/`), so there is no single fixed path
+    // to name — point at `kaval-tui list` (autodiscovery) or $KAVAL_SOCKET (set
+    // inside any kolu terminal) instead of computing a wrong one.
     return fail(
-      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is kaval running? Start it with \`kaval\`; the socket appears once it boots. To reach a running kolu-server instead, point at its socket: \`--socket ${koluSock}\`.`,
+      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is a daemon running? Start a standalone one with \`kaval\`; the socket appears once it boots. To reach a running kolu-server instead, run \`kaval-tui list\` to discover its socket (namespaced by port, so there is no fixed path), or use \`--socket "$KAVAL_SOCKET"\` from inside a kolu terminal.`,
     );
   });
 }
@@ -817,19 +821,25 @@ async function main(): Promise<void> {
     };
   }
   // The endpoint this command targets — its transport AND the suffix that
-  // re-targets a later `attach` at the same daemon (see `endpointHint`).
-  const endpoint: Endpoint =
-    argv.flags.host !== undefined
-      ? { kind: "host", host: argv.flags.host }
-      : argv.flags.socket !== undefined
-        ? { kind: "socket", socket: argv.flags.socket }
-        : { kind: "default" };
-  const conn =
-    endpoint.kind === "host"
-      ? await connectHost(endpoint.host)
-      : await connectLocal(
-          endpoint.kind === "socket" ? endpoint.socket : undefined,
-        );
+  // re-targets a later `attach` at the same daemon (see `endpointHint`). A local
+  // endpoint resolves its socket ONCE here, up front, and CARRIES it: we dial it
+  // AND (for `create`) stamp it as KAVAL_SOCKET into the spawned terminal, so an
+  // agent inside can reach the daemon that owns it (the $TMUX convention). The
+  // resolved path lives on the endpoint itself, so both local arms are known to
+  // carry a socket — no parallel nullable to reconcile.
+  let endpoint: Endpoint;
+  let conn: Connection;
+  if (argv.flags.host !== undefined) {
+    endpoint = { kind: "host", host: argv.flags.host };
+    conn = await connectHost(endpoint.host);
+  } else {
+    const socket = resolveSocketPath(argv.flags.socket);
+    endpoint =
+      argv.flags.socket !== undefined
+        ? { kind: "socket", socket }
+        : { kind: "default", socket };
+    conn = await connectLocal(socket);
+  }
 
   try {
     await assertCompatible(conn);

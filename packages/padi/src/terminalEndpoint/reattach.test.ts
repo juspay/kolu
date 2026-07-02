@@ -167,9 +167,16 @@ describe("adoptSurvivingSession — the session-clobber regression (PATH A)", ()
 const S_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 
 /** Mark the local daemon connected with a given per-process `startedAt` so
- *  `adoptSurvivingSession`'s identity compare reads it (`readDaemonStatus`). */
+ *  `adoptSurvivingSession`'s identity compare reads it (`readDaemonStatus`). The
+ *  `identity`/`metadata` fields the connected `EndpointStatus` arm carries are
+ *  immaterial to the startedAt gate under test, so they take placeholder values. */
 function connectDaemon(startedAt: number): void {
-  publishDaemonStatus(LOCAL_HOST_ID, { state: "connected", startedAt });
+  publishDaemonStatus(LOCAL_HOST_ID, {
+    state: "connected",
+    identity: undefined,
+    startedAt,
+    metadata: { contractVersion: "test" },
+  });
 }
 
 describe("adoptSurvivingSession — daemon-identity gate (PATH A, by startedAt)", () => {

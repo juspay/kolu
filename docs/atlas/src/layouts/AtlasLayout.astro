@@ -2,6 +2,7 @@
 // Self-contained light "paper" layout for the Atlas. No Tailwind, no shared
 // website chrome — just inlined global CSS so each built page stands alone in
 // kolu's Code-tab preview.
+import FootnoteRuntime from "../components/FootnoteRuntime.astro";
 interface Props {
   title: string;
   description?: string;
@@ -71,6 +72,7 @@ const ogAlt = "the kolu Atlas — an in-repo knowledge graph";
   </head>
   <body>
     <slot />
+    <FootnoteRuntime />
   </body>
 </html>
 
@@ -245,7 +247,8 @@ const ogAlt = "the kolu Atlas — an in-repo knowledge graph";
   }
 
   /* ── rendered note prose ──────────────────────────────── */
-  .prose { color: var(--ink-dim); }
+  /* per-page footnote numbering origin (see components/Footnote.astro) */
+  .prose { color: var(--ink-dim); counter-reset: kolu-footnote; }
   .prose > :first-child { margin-top: 0; }
   .prose h2 {
     font-family: var(--serif);

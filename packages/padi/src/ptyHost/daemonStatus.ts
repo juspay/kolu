@@ -10,8 +10,10 @@
  * daemon-liveness collection is padi's to serve (W1.R7 — it left koluSurface).
  */
 
+import type { EndpointStatus } from "@kolu/surface-daemon-supervisor";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import type { DaemonStatus } from "../vocab.ts";
+import type { KavalConnectionMetadata } from "./connect.ts";
 
 const store = new Map<string, DaemonStatus>();
 
@@ -37,18 +39,42 @@ export function setLocalSocketPath(path: string): void {
   localSocketPath = path;
 }
 
+/** The local kaval's socket path — the same boot-recorded constant the dialog
+ *  reads, reused to stamp `KAVAL_SOCKET` into every terminal this daemon spawns
+ *  (so an agent running inside can reach the kaval that owns it, the `$TMUX`
+ *  convention). `undefined` until boot records it; the spawn path guards that at
+ *  its point of use (see `buildTerminalSpawnInput`). */
+export function getLocalSocketPath(): string | undefined {
+  return localSocketPath;
+}
+
+function publishFullDaemonStatus(hostId: string, status: DaemonStatus): void {
+  store.set(hostId, status);
+  padiSurfaceCtx.collections.daemonStatus.upsert(hostId, status);
+}
+
 /** Record + publish a host's daemon status. The endpoint's `onStatus` sink. Folds
  *  the local socket path on (a constant server fact) so the client need not — and
  *  can't — derive it. */
 export function publishDaemonStatus(
   hostId: string,
-  status: DaemonStatus,
+  status: EndpointStatus<DaemonStatus["identity"], KavalConnectionMetadata>,
 ): void {
-  const full = localSocketPath
-    ? { ...status, socketPath: localSocketPath }
-    : status;
-  store.set(hostId, full);
-  padiSurfaceCtx.collections.daemonStatus.upsert(hostId, full);
+  const socket = localSocketPath ? { socketPath: localSocketPath } : {};
+  const full: DaemonStatus =
+    status.state === "connected"
+      ? {
+          state: "connected",
+          identity: status.identity,
+          startedAt: status.startedAt,
+          contractVersion: status.metadata.contractVersion,
+          ...socket,
+        }
+      : {
+          state: status.state,
+          ...socket,
+        };
+  publishFullDaemonStatus(hostId, full);
 }
 
 /** Fold the boot's adopted-terminal count (B3.3) onto the host's CURRENT status
@@ -78,6 +104,10 @@ export function publishDaemonStatus(
  *  deliberately-accepted cost. */
 export function setAdoptedCount(hostId: string, adopted: number): void {
   const current = store.get(hostId);
-  if (!current) return;
-  publishDaemonStatus(hostId, { ...current, adopted, adoptedAt: Date.now() });
+  if (!current || current.state !== "connected") return;
+  publishFullDaemonStatus(hostId, {
+    ...current,
+    adopted,
+    adoptedAt: Date.now(),
+  });
 }

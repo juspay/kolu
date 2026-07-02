@@ -32,8 +32,8 @@ import {
 } from "kaval";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import { log } from "../log.ts";
-import { connectKaval } from "./connect.ts";
-import { setLocalSocketPath } from "./daemonStatus.ts";
+import { connectKaval, type KavalConnectionMetadata } from "./connect.ts";
+import { getLocalSocketPath, setLocalSocketPath } from "./daemonStatus.ts";
 import {
   kavalGatePath,
   kavalSocketPath,
@@ -81,14 +81,23 @@ export function setSpawnServerVersion(v: string): void {
   spawnServerVersion = v;
 }
 
-let endpoint: Endpoint<PtyHostClient, Identity> | undefined;
+let endpoint:
+  | Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>
+  | undefined;
 
 /** The serialized, emit-guarded restart trigger, bound to the live endpoint by
  *  `ensureLocalEndpoint`. Held here (not rebuilt per call) so its coalescing
  *  state is shared: concurrent restart requests ride one in-flight recycle. The
  *  soul's restart steps reach it through `restartLocalEndpoint`. */
 let triggerRestart:
-  | (<Ctx>(steps: RestartSteps<PtyHostClient, Identity, Ctx>) => Promise<void>)
+  | (<Ctx>(
+      steps: RestartSteps<
+        PtyHostClient,
+        Identity,
+        Ctx,
+        KavalConnectionMetadata
+      >,
+    ) => Promise<void>)
   | undefined;
 
 /** The live socket client, or a thrown error if the endpoint isn't connected
@@ -147,7 +156,10 @@ export async function ensureLocalEndpoint(opts: {
   /** This server's HTTP listen port — namespaces the kaval socket per instance
    *  (`kaval-<port>`), so a second kolu-server never recycles this one's daemon. */
   port: number;
-  onStatus: (hostId: string, status: EndpointStatus<Identity>) => void;
+  onStatus: (
+    hostId: string,
+    status: EndpointStatus<Identity, KavalConnectionMetadata>,
+  ) => void;
   /** Run after the boot ADOPTS a surviving daemon (B3.3) — reconcile its live
    *  PTYs against the saved session. Injected (not imported) so this composition
    *  root stays free of the terminal-endpoint layer, which imports back from
@@ -177,7 +189,7 @@ export async function ensureLocalEndpoint(opts: {
   // Surface where this kaval listens, so the dialog can show it (and `kaval-tui`
   // users can target it explicitly). Set before the endpoint's first status emit.
   setLocalSocketPath(socketPath);
-  const ep = createEndpoint<PtyHostClient, Identity>({
+  const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
     hostId: LOCAL_HOST_ID,
     gatePath: kavalGatePath(socketPath),
     socketPath,
@@ -240,7 +252,7 @@ export async function ensureLocalEndpoint(opts: {
  *  forwards them through the endpoint's coalescing + emit-guard trigger. Throws
  *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run). */
 export function restartLocalEndpoint<Ctx>(
-  steps: RestartSteps<PtyHostClient, Identity, Ctx>,
+  steps: RestartSteps<PtyHostClient, Identity, Ctx, KavalConnectionMetadata>,
 ): Promise<void> {
   if (!triggerRestart) {
     throw new Error("kaval endpoint not initialized — cannot restart");
@@ -267,6 +279,13 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
  *   1. `cleanEnv()`        — parent env passthrough (Nix devshell filter).
  *   2. `koluIdentityEnv()` — kolu's identity vars (stomp parent).
  *   3. `plan.env`          — per-PTY overrides (e.g. ZDOTDIR for zsh).
+ *   4. `KAVAL_SOCKET`      — daemon locator (the `$TMUX` convention): the socket
+ *      THIS kaval serves on, passed in as data (`kavalSocket`). It shares no key
+ *      with the layers above, so its position is immaterial; it's assigned last
+ *      only to read as the outermost fact. Lets a process INSIDE the spawned
+ *      terminal (an agent driving its siblings) reach the daemon that owns it
+ *      without scanning `/tmp` — and, on macOS where `$XDG_RUNTIME_DIR` is unset,
+ *      without guessing the port-namespaced path at all.
  *
  * **Local-host only, today.** The host this process talks to IS this machine, so
  * `cleanEnv()`'s `env.SHELL`/`env.HOME` (describing *this* machine) win, and
@@ -278,6 +297,7 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
 export function composeSpawnInput(
   args: { id: string; cwd?: string },
   info: PtyHostSystemInfo,
+  kavalSocket: string,
 ): PtyHostSpawnInput {
   const env = cleanEnv();
   const shell = env.SHELL ?? info.shell;
@@ -291,6 +311,7 @@ export function composeSpawnInput(
     rcDir: info.rcDir,
   });
   Object.assign(env, plan.env);
+  env.KAVAL_SOCKET = kavalSocket;
   return {
     id: args.id,
     argv: [shell, ...plan.args],
@@ -307,10 +328,22 @@ export function composeSpawnInput(
   };
 }
 
-/** `composeSpawnInput` against the daemon's cached `system.info`. */
+/** `composeSpawnInput` against the daemon's cached `system.info`, stamped with the
+ *  socket THIS endpoint booted on so every terminal carries `KAVAL_SOCKET`. */
 export async function buildTerminalSpawnInput(args: {
   id: string;
   cwd?: string;
 }): Promise<PtyHostSpawnInput> {
-  return composeSpawnInput(args, await hostInfo());
+  // A terminal can only be spawned once the endpoint is up, which records the
+  // socket at boot (`ensureLocalEndpoint` → `setLocalSocketPath`), so an unset
+  // value here is an ordering bug — crash loud rather than ship a broken
+  // `KAVAL_SOCKET`. Guarded at the point of use, like `liveClient` /
+  // `restartLocalEndpoint` guard the endpoint's other boot-set singletons.
+  const kavalSocket = getLocalSocketPath();
+  if (kavalSocket === undefined) {
+    throw new Error(
+      "local kaval socket path read before the endpoint recorded it at boot",
+    );
+  }
+  return composeSpawnInput(args, await hostInfo(), kavalSocket);
 }

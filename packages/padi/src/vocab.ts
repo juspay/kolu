@@ -13,7 +13,10 @@
  * `@kolu/padi/surface`.
  */
 
-import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
+import {
+  ENDPOINT_STATES,
+  type EndpointState,
+} from "@kolu/surface-daemon-supervisor/states";
 import {
   AgentKindSchema,
   AgentMemorySchema,
@@ -553,42 +556,69 @@ export const PtyHostIdentitySchema = z.object({
   navigableCommit: z.string(),
 });
 
+const NON_CONNECTED_ENDPOINT_STATES = ENDPOINT_STATES.filter(
+  (state): state is Exclude<EndpointState, "connected"> =>
+    state !== "connected",
+) as [
+  Exclude<EndpointState, "connected">,
+  ...Exclude<EndpointState, "connected">[],
+];
+
 /** The live state of one host's pty-host daemon (kaval), as the supervisor's
  *  endpoint reports it — the honest-state surface that makes "the daemon is
  *  down" distinguishable from "you have no terminals" (B2, the empty-canvas-lie
- *  fix). `identity`/`startedAt` are present once `connected`. */
-export const DaemonStatusSchema = z.object({
-  // The state set is the spine's volatility — derive the enum from the
-  // supervisor's `ENDPOINT_STATES` so a new endpoint state is a compile-time
-  // obligation here, not a silently-dropped wire member. The `identity` arm
-  // below stays kolu's (it is the soul).
-  state: z.enum(ENDPOINT_STATES),
-  identity: PtyHostIdentitySchema.optional(),
-  /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
-  startedAt: z.number().optional(),
-  /** B3.3: how many terminals this boot ADOPTED from a surviving daemon — set
-   *  only on the `connected` status of an adopt-boot (a fresh / recycled boot
-   *  omits it). Drives the client's one-shot "N reattached" confirmation.
-   *  kolu's soul, not the spine: the supervisor's `EndpointStatus` never carries
-   *  it; the server folds it onto this kolu-owned status after reconciling.
-   *  Optional + additive, so it forces no contract bump. */
-  adopted: z.number().optional(),
-  /** B3.3: the ms-epoch the server stamped when it surfaced THIS adoption — a
-   *  per-adoption identity the client dedupes the one-shot toast against. Set with
-   *  `adopted` (omitted on cold boots). The `adopted`/`adoptedAt` pair is sticky
-   *  server-side and replayed to every fresh subscription, so without an identity
-   *  a reconnect after a page reload re-fired the toast though nothing was
-   *  re-adopted (juspay/kolu#1365); the client keeps the greatest announced
-   *  `adoptedAt` in localStorage and only toasts a strictly newer one. A later
-   *  update mints a greater `adoptedAt` and announces again. Optional + additive. */
-  adoptedAt: z.number().optional(),
-  /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
-   *  — surfaced for the kaval dialog to show where this daemon listens (the path
-   *  `kaval-tui` auto-discovers). kolu's soul (a server fact the client can't
-   *  construct — it doesn't know the server's `XDG_RUNTIME_DIR`); set once at
-   *  boot, constant for the daemon's life. Optional + additive. */
-  socketPath: z.string().optional(),
-});
+ *  fix). The `connected` arm carries boot time and wire contract version;
+ *  non-connected states cannot spell those fields. `identity` remains optional
+ *  until kaval's `system.version` wire contract makes it mandatory. */
+export const DaemonStatusSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("connected"),
+    identity: PtyHostIdentitySchema.optional(),
+    /** The pty-host wire contract this daemon reported at handshake. Kaval's
+     *  build identity is `identity.navigableCommit`; this is the protocol version
+     *  kolu-server must agree on before talking to it. */
+    contractVersion: z.string(),
+    /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
+    startedAt: z.number(),
+    /** B3.3: how many terminals this boot ADOPTED from a surviving daemon — set
+     *  only on the `connected` status of an adopt-boot (a fresh / recycled boot
+     *  omits it). Drives the client's one-shot "N reattached" confirmation.
+     *  kolu's soul, not the spine: the supervisor's `EndpointStatus` never
+     *  carries adoption results; the server folds them onto this kolu-owned
+     *  status after reconciling. */
+    adopted: z.number().optional(),
+    /** B3.3: the ms-epoch the server stamped when it surfaced THIS adoption — a
+     *  per-adoption identity the client dedupes the one-shot toast against. Set
+     *  with `adopted` (omitted on cold boots). The `adopted`/`adoptedAt` pair is
+     *  sticky server-side and replayed to every fresh subscription, so without an
+     *  identity a reconnect after a page reload re-fired the toast though nothing
+     *  was re-adopted (juspay/kolu#1365); the client keeps the greatest announced
+     *  `adoptedAt` in localStorage and only toasts a strictly newer one. */
+    adoptedAt: z.number().optional(),
+    /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
+     *  — surfaced for the kaval dialog to show where this daemon listens (the
+     *  path `kaval-tui` auto-discovers). kolu's soul (a server fact the client
+     *  can't construct — it doesn't know the server's `XDG_RUNTIME_DIR`); set
+     *  once at boot, constant for the daemon's life. Optional + additive. */
+    socketPath: z.string().optional(),
+  }),
+  z.object({
+    // The state set is the spine's volatility — derive the enum from the
+    // supervisor's `ENDPOINT_STATES` so a new endpoint state is a compile-time
+    // obligation here, not a silently-dropped wire member. The `identity` arm
+    // below stays kolu's (it is the soul).
+    state: z.enum(NON_CONNECTED_ENDPOINT_STATES),
+    identity: z.never().optional(),
+    contractVersion: z.never().optional(),
+    startedAt: z.never().optional(),
+    adopted: z.never().optional(),
+    adoptedAt: z.never().optional(),
+    /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
+     *  — surfaced for the kaval dialog to show where this daemon listens (the
+     *  path `kaval-tui` auto-discovers). */
+    socketPath: z.string().optional(),
+  }),
+]);
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export type DaemonState = DaemonStatus["state"];
 

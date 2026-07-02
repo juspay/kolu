@@ -23,6 +23,10 @@ import { composeSpawnInput, setSpawnServerVersion } from "./index.ts";
 
 const RC_DIR = mkdtempSync(join(tmpdir(), "spawn-version-rc-"));
 
+/** The kaval socket locator `composeSpawnInput` stamps as `KAVAL_SOCKET` — passed
+ *  as data (the composer stays pure), immaterial to what these cases assert. */
+const KAVAL_SOCK = "/tmp/kaval-7692-501/pty-host.sock";
+
 /** A host-facts fixture standing in for the daemon's `system.info`. */
 function info(): PtyHostSystemInfo {
   return {
@@ -35,14 +39,16 @@ function info(): PtyHostSystemInfo {
 
 describe("spawnServerVersion boot-order fail-fast", () => {
   it("throws a named error when a spawn is composed before the setter runs", () => {
-    expect(() => composeSpawnInput({ id: "T-unset" }, info())).toThrow(
+    expect(() =>
+      composeSpawnInput({ id: "T-unset" }, info(), KAVAL_SOCK),
+    ).toThrow(
       "spawnServerVersion read before setSpawnServerVersion() — kolu-server boot must inject it before ensureLocalEndpoint",
     );
   });
 
   it("stamps TERM_PROGRAM_VERSION from the injected version once set", () => {
     setSpawnServerVersion("1.2.3");
-    const input = composeSpawnInput({ id: "T-set" }, info());
+    const input = composeSpawnInput({ id: "T-set" }, info(), KAVAL_SOCK);
     expect(input.env.TERM_PROGRAM_VERSION).toBe("1.2.3");
   });
 

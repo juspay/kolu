@@ -17,7 +17,7 @@ const THEME_COLORS = [
 ] as const;
 
 export function pwaIdentityForHostname(hostname: string): ServerIdentity {
-  const name = `kolu@${hostname}`;
+  const name = `Kolu [${hostname}]`;
   return {
     hostname,
     name,

@@ -38,11 +38,20 @@ const silentLog = {
   child: () => silentLog,
 } as unknown as InProcessPtyHostDeps["log"];
 
+/** Placeholder for the dialed socket `create` stamps as KAVAL_SOCKET — irrelevant
+ *  to these tests (they exercise the spawn round-trip, not env inheritance). */
+const KAVAL_SOCK = "/tmp/kaval-test/pty-host.sock";
+
 /** A minimal fully-specified spawn — a plain `$SHELL` run with no login flag, no
  *  rc files (the host derives nothing from policy since B0). Delegates to the
  *  production composer so the test shape can't drift from what `create` sends. */
 const spawnInput = (cwd: string): PtyHostSpawnInput =>
-  buildCreateInput({ id: newPtyId(), cwd, env: process.env });
+  buildCreateInput({
+    id: newPtyId(),
+    cwd,
+    env: process.env,
+    kavalSocket: KAVAL_SOCK,
+  });
 
 interface FakeTty {
   tty: AttachTty;
@@ -160,7 +169,12 @@ describe("runAttach — over a real unix socket", () => {
     // `create` relies on so the printed id is the one `attach` then resolves).
     const id = "11111111-2222-3333-4444-555555555555";
     const result = await conn.client.surface.terminal.spawn(
-      buildCreateInput({ id, cwd: dir, env: process.env }),
+      buildCreateInput({
+        id,
+        cwd: dir,
+        env: process.env,
+        kavalSocket: KAVAL_SOCK,
+      }),
     );
     expect(result.id).toBe(id);
     expect(result.cwd).toBe(dir);
@@ -183,6 +197,7 @@ describe("runAttach — over a real unix socket", () => {
         cwd: dir,
         env: process.env,
         command: ["sh", "-c", "echo CMDMARK-create; sleep 100"],
+        kavalSocket: KAVAL_SOCK,
       }),
     );
     let screen = "";
@@ -208,6 +223,7 @@ describe("runAttach — over a real unix socket", () => {
         id,
         cwd: dir,
         env: process.env,
+        kavalSocket: KAVAL_SOCK,
         command: [
           "sh",
           "-c",

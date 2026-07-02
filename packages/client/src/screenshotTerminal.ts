@@ -38,19 +38,20 @@ const DOT_GAP = 8;
 const DOT_MARGIN_LEFT = 16;
 const DOT_MACOS = ["#ff5f57", "#febc2e", "#28c840"] as const;
 const BRAND_RIGHT_MARGIN = 14;
+const BRAND_LOGO_URL = new URL("../favicon.svg", import.meta.url).href;
+let brandLogoPromise: Promise<HTMLImageElement> | undefined;
 
-/** kolu logo — the 5-step "கோலு" stack from /favicon.svg, normalized
- *  to a 0..1 coordinate space. Each entry is [x, y, w, h, color] in the
- *  source 32×32 viewBox; callers scale to whatever size they need. */
-const BRAND_STEPS: ReadonlyArray<
-  readonly [number, number, number, number, string]
-> = [
-  [1, 26, 30, 5, "#ef4444"],
-  [4, 20, 25, 5, "#f59e0b"],
-  [8, 14, 20, 5, "#22c55e"],
-  [12, 8, 15, 5, "#a855f7"],
-  [16, 2, 10, 5, "#3b82f6"],
-] as const;
+function loadBrandLogo(): Promise<HTMLImageElement> {
+  brandLogoPromise ??= new Promise((resolve, reject) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = () =>
+      reject(new Error(`Kolu logo failed to load: ${BRAND_LOGO_URL}`));
+    image.src = BRAND_LOGO_URL;
+  });
+  return brandLogoPromise;
+}
 
 /** Indexed read into the 6-step palette. The `as 0|1|2|3|4|5` cast is
  *  the assertion that `% 6` produced a valid tuple index — same blast
@@ -234,6 +235,16 @@ export async function screenshotTerminal(
   // silently fall back to the browser's default glyphs and produce an
   // image that visually mismatches the live terminal.
   if (document.fonts?.ready) await document.fonts.ready;
+  let brandLogo: HTMLImageElement | undefined;
+  try {
+    brandLogo = await loadBrandLogo();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(msg);
+    toast.warning(
+      `Kolu logo unavailable; copying screenshot without it: ${msg}`,
+    );
+  }
   const buffer = xterm.buffer.active;
   const cols = xterm.cols;
   const rows = xterm.rows;
@@ -316,31 +327,25 @@ export async function screenshotTerminal(
   const label = titleLabel(meta);
   ctx.fillText(label, logicalW / 2, dotY + 1);
 
-  // Kolu branding — right-aligned wordmark + mini 5-step logo, matching
-  // /favicon.svg. The stamp is subtle (low-contrast text, saturated logo)
-  // so it reads as attribution rather than a watermark.
+  // Kolu branding — right-aligned wordmark + logo, matching /favicon.svg.
+  // The stamp is subtle so it reads as attribution rather than a watermark.
   const brandText = "kolu";
   const brandFontSize = Math.round(fontSize * 0.9);
   ctx.font = `600 ${brandFontSize}px ${fontFamily}`;
   const brandTextWidth = ctx.measureText(brandText).width;
-  const logoH = TITLE_H - 14;
-  const logoW = logoH; // square bounding box
-  const logoScale = logoH / 32;
+  const logoH = TITLE_H - 12;
+  const logoW = brandLogo
+    ? logoH *
+      ((brandLogo.naturalWidth || brandLogo.width) /
+        (brandLogo.naturalHeight || brandLogo.height))
+    : 0;
   const logoY = (TITLE_H - logoH) / 2;
   const brandTextX = logicalW - BRAND_RIGHT_MARGIN;
-  const logoX = brandTextX - brandTextWidth - 6 - logoW;
+  const logoX = brandTextX - brandTextWidth - (brandLogo ? 6 : 0) - logoW;
   ctx.textAlign = "end";
   ctx.fillStyle = titleTextColor;
   ctx.fillText(brandText, brandTextX, dotY + 1);
-  for (const [sx, sy, sw, sh, color] of BRAND_STEPS) {
-    ctx.fillStyle = color;
-    ctx.fillRect(
-      logoX + sx * logoScale,
-      logoY + sy * logoScale,
-      sw * logoScale,
-      sh * logoScale,
-    );
-  }
+  if (brandLogo) ctx.drawImage(brandLogo, logoX, logoY, logoW, logoH);
 
   ctx.textAlign = "start";
   ctx.textBaseline = "alphabetic";
