@@ -43,15 +43,21 @@ function info(over: Partial<PtyHostSystemInfo> = {}): PtyHostSystemInfo {
 describe("composeSpawnInput env layering", () => {
   let savedShell: string | undefined;
   let savedColorterm: string | undefined;
+  let savedKavalSocket: string | undefined;
 
   beforeEach(() => {
     savedShell = process.env.SHELL;
     savedColorterm = process.env.COLORTERM;
+    savedKavalSocket = process.env.KAVAL_SOCKET;
   });
 
   afterEach(() => {
     restore("SHELL", savedShell);
     restore("COLORTERM", savedColorterm);
+    // Restore rather than delete: a worker launched from a kolu-owned terminal
+    // legitimately starts with KAVAL_SOCKET set, so unconditionally deleting it
+    // would corrupt the env for the rest of the worker.
+    restore("KAVAL_SOCKET", savedKavalSocket);
   });
 
   it("koluIdentityEnv overrides a same-named cleanEnv (parent) key", () => {
@@ -106,13 +112,10 @@ describe("composeSpawnInput env layering", () => {
     // spawned by an outer kaval) must be overwritten by THIS daemon's socket —
     // the child is owned by us, not the outer daemon. cleanEnv passes it through
     // (KAVAL_* isn't stripped wholesale), so the stamp has to win.
+    // afterEach restores KAVAL_SOCKET to its saved value, so no local cleanup.
     process.env.KAVAL_SOCKET = "/tmp/kaval-OUTER-501/pty-host.sock";
-    try {
-      const input = composeSpawnInput({ id: "T-nested" }, info(), KAVAL_SOCK);
-      expect(input.env.KAVAL_SOCKET).toBe(KAVAL_SOCK);
-    } finally {
-      delete process.env.KAVAL_SOCKET;
-    }
+    const input = composeSpawnInput({ id: "T-nested" }, info(), KAVAL_SOCK);
+    expect(input.env.KAVAL_SOCKET).toBe(KAVAL_SOCK);
   });
 
   it("resolves a real shell when the local env omits SHELL", () => {

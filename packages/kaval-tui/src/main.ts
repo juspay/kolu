@@ -37,7 +37,6 @@ import { isContractVersionCompatible } from "@kolu/surface/define";
 import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
 import { cli, command } from "cleye";
 import {
-  getPtyHostSocketPath,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSpawnInput,
   resolveRunningKavalSocket,
@@ -78,7 +77,7 @@ const socketFlag = {
   socket: {
     type: String,
     description:
-      "socket to dial — goes AFTER the subcommand. Default: kaval's own, $XDG_RUNTIME_DIR/kaval/pty-host.sock (or /tmp/kaval-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset). To reach a running kolu-server, pass ITS socket: $XDG_RUNTIME_DIR/kolu/pty-host.sock (or /tmp/kolu-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset — e.g. over ssh / a non-login session).",
+      "socket to dial — goes AFTER the subcommand. Usually unneeded: with no --socket, kaval-tui autodiscovers the running daemon (run `kaval-tui list` to see each, labeled), and inside a kolu terminal $KAVAL_SOCKET already names your daemon. Pass --socket only to pick one when several are up: a standalone kaval serves at $XDG_RUNTIME_DIR/kaval/pty-host.sock (or /tmp/kaval-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset), and each kolu-server serves under a PER-PORT namespace, $XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock (or /tmp/kaval-<port>-$UID/pty-host.sock) — there is no single fixed kolu-server path, so use `kaval-tui list` to find it.",
   },
 } as const;
 
@@ -738,12 +737,12 @@ async function assertCompatible(conn: Connection): Promise<void> {
 function connectLocal(socketPath: string): Promise<Connection> {
   return connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
-    // The kolu-server hint names the SAME path kolu computes — and the
-    // $XDG_RUNTIME_DIR-unset fallback (e.g. over ssh), the exact case where a
-    // hand-built `$XDG_RUNTIME_DIR/kolu/...` collapses to a wrong `/kolu/...`.
-    const koluSock = getPtyHostSocketPath(undefined, "kolu");
+    // No hand-built kolu-server path in the hint: kolu-server namespaces its
+    // daemon per listen port (`kaval-<port>/`), so there is no single fixed path
+    // to name — point at `kaval-tui list` (autodiscovery) or $KAVAL_SOCKET (set
+    // inside any kolu terminal) instead of computing a wrong one.
     return fail(
-      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is kaval running? Start it with \`kaval\`; the socket appears once it boots. To reach a running kolu-server instead, point at its socket: \`--socket ${koluSock}\`.`,
+      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is a daemon running? Start a standalone one with \`kaval\`; the socket appears once it boots. To reach a running kolu-server instead, run \`kaval-tui list\` to discover its socket (namespaced by port, so there is no fixed path), or use \`--socket "$KAVAL_SOCKET"\` from inside a kolu terminal.`,
     );
   });
 }
