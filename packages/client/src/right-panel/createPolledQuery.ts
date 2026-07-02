@@ -66,6 +66,13 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   query: (input: Input, signal: AbortSignal) => Promise<Result>;
   /** Surface query (and pulse) failures — matches `.use(..., { onError })`. */
   onError?: (err: Error) => void;
+  /** Classify an error as a BENIGN TRANSIENT to swallow (no `error()`, no
+   *  `onError`, value left as-is), like the reconnect-window swallow. The old
+   *  koluSurface value stream simply stopped yielding when the viewed file was
+   *  deleted mid-poll — it never surfaced an error; `BrowseFileDispatcher` passes
+   *  a file-gone predicate here so a delete-while-viewing keeps the last content
+   *  until the selection changes, instead of flashing an ENOENT panel. */
+  swallowError?: (err: Error) => boolean;
 }
 
 /** Reconcile-or-assign into the wrapped `{ v }` store — objects/arrays through
@@ -89,14 +96,43 @@ function writeValue<T>(
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
 ): Subscription<Result> {
-  const { input, client, pulseName, pulseProc, pulseInput, query, onError } =
-    config;
+  const {
+    input,
+    client,
+    pulseName,
+    pulseProc,
+    pulseInput,
+    query,
+    onError,
+    swallowError,
+  } = config;
 
   const [store, setStore] = createStore<{ v: Result | undefined }>({
     v: undefined,
   });
   const [pending, setPending] = createSignal(true);
   const [error, setError] = createSignal<Error | undefined>();
+
+  /** The ONE error sink for BOTH channels — the requery AND the pulse stream.
+   *  Routing the pulse (watcher-install) failure here, not to a separate
+   *  `onError`-only path, is the fix for the disjoint-channels bug: a persistent
+   *  watcher failure (inotify ENOSPC) now sets `error()` + clears `pending()` so
+   *  the Code tab shows a real error and un-sticks a pre-first-frame "Loading…",
+   *  exactly as the old value stream did — the 4s toast alone left stale state
+   *  forever. The two guards below are the two benign-transient carve-outs; a
+   *  survivor sets `error()`, whose rising EDGE drives the single `onError`
+   *  below, so the panel and the toast can never disagree. */
+  function surfaceError(raw: unknown): void {
+    const err = raw instanceof Error ? raw : new Error(String(raw));
+    // Reconnect-window blip: `rawStream`'s STREAM_RETRY re-subscribes and the
+    // pulse re-fires `{seq:0}`, so a genuine persistent failure re-surfaces on
+    // the next LIVE read — swallow here to keep a spurious flash off reconnect.
+    if (!client.health().live) return;
+    // Caller-classified benign transient (e.g. the viewed file was deleted).
+    if (swallowError?.(err)) return;
+    setError(err);
+    if (pending()) setPending(false);
+  }
 
   let controller: AbortController | null = null;
   function runQuery(i: Input): void {
@@ -112,17 +148,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
         if (error()) setError(undefined);
       } catch (err) {
         if (ctl.signal.aborted) return;
-        // A query in flight when the socket drops rejects. The value stream this
-        // replaces rode STREAM_RETRY, which SWALLOWED that reconnect blip (no
-        // error ever surfaced). Match it: while the transport is not live, treat
-        // a query failure as a transient reconnect-window artifact, not a real
-        // error — the pulse re-fires `{seq:0}` on reconnect and requeries, so a
-        // genuine (persistent) failure re-surfaces on the next LIVE read. Only
-        // surfacing errors while live keeps a spurious toast from flashing on
-        // reconnect (byte-identical to the old always-STREAM behaviour).
-        if (!client.health().live) return;
-        setError(err instanceof Error ? err : new Error(String(err)));
-        if (pending()) setPending(false);
+        surfaceError(err);
       }
     })();
   }
@@ -151,18 +177,19 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
           onItem: () => runQuery(i),
         },
       );
-      // A pulse (watcher-install) failure surfaces through the same `onError` a
-      // stream drop did; scoped to this run so it re-arms per input.
-      if (onError) {
-        createEffect(
-          on(
-            () => pulseSource.error(),
-            (err) => {
-              if (err) onError(err);
-            },
-          ),
-        );
-      }
+      // A pulse (watcher-install) failure routes into the SAME error/pending
+      // signals the requery does (via `surfaceError`) — NOT a bespoke
+      // `onError`-only path — so a persistent watcher failure surfaces a real
+      // error state, not just a transient toast over stale data. Scoped to this
+      // run so it re-arms per input.
+      createEffect(
+        on(
+          () => pulseSource.error(),
+          (err) => {
+            if (err) surfaceError(err);
+          },
+        ),
+      );
     }),
   );
 

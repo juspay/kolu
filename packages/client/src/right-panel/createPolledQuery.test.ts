@@ -23,6 +23,9 @@ async function flush(ticks = 4): Promise<void> {
 function fakeClient() {
   let onItem: (() => void) | null = null;
   let live = true;
+  // The pulse stream's own error() — a reactive signal so a test can fail the
+  // WATCHER (as opposed to the query) and assert how the primitive routes it.
+  const [pulseErr, setPulseErr] = createSignal<Error | undefined>();
   const client = {
     rawStream: (
       _name: string,
@@ -31,7 +34,7 @@ function fakeClient() {
       opts: { onItem: (item: unknown) => void },
     ) => {
       onItem = () => opts.onItem(undefined);
-      return { pending: () => false, error: () => undefined };
+      return { pending: () => false, error: () => pulseErr() };
     },
     // Only `.live` is read (the reconnect-blip swallow); the cast covers the
     // rest of SurfaceHealth.
@@ -48,6 +51,7 @@ function fakeClient() {
     setLive: (v: boolean) => {
       live = v;
     },
+    failPulse: (err: Error) => setPulseErr(err),
   };
 }
 
@@ -243,5 +247,79 @@ describe("createPolledQuery", () => {
     });
     expect(errMsg).toBeUndefined();
     expect(seen).toEqual([]);
+  });
+
+  it("routes a PULSE (watcher) failure into error()/pending() — one unified channel", async () => {
+    // A watcher-install failure (inotify ENOSPC) is PERSISTENT — it must set a
+    // real error state (error() set, pending() unstuck), not merely fire a 4s
+    // toast over a forever-"Loading…". Reverting the pulse effect to the old
+    // onError-only path leaves error() undefined + pending() stuck true here.
+    const seen: string[] = [];
+    const res = await new Promise<{ err: string | undefined; pending: boolean }>(
+      (resolve) => {
+        createRoot(async (dispose) => {
+          const { client, pulseProc, failPulse } = fakeClient();
+          const q = createPolledQuery({
+            input: () => ({ repoPath: "A" }),
+            client,
+            pulseName: "test",
+            pulseProc,
+            pulseInput: (i) => ({ repoPath: i.repoPath }),
+            query: async () => "unused", // no frame fires; pending stays true until the pulse errors
+            onError: (err) => seen.push(err.message),
+          });
+          await flush();
+          failPulse(new Error("ENOSPC")); // the watcher install fails after subscribe
+          await flush();
+          resolve({ err: q.error()?.message, pending: q.pending() });
+          dispose();
+        });
+      },
+    );
+    expect(res.err).toBe("ENOSPC"); // routed into error() — undefined before the fix
+    expect(res.pending).toBe(false); // unstuck — stayed true before the fix
+    expect(seen).toEqual(["ENOSPC"]); // the single onError still fires once
+  });
+
+  it("swallowError swallows a benign transient (delete-while-viewing) — value kept, no error/onError", async () => {
+    // A file deleted mid-view makes the requery reject with a NOT_FOUND; the
+    // caller classifies it as benign. It must NOT surface (error() stays clear,
+    // last value retained, no toast) — parity with the old value stream that
+    // simply stopped yielding. Removing the swallowError guard sets error().
+    const seen: string[] = [];
+    const res = await new Promise<{
+      err: string | undefined;
+      v: unknown;
+      seen: string[];
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const { client, pulseProc, pulse } = fakeClient();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: "A" }),
+          client,
+          pulseName: "test",
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async () => {
+            calls += 1;
+            if (calls === 1) return "content";
+            throw new Error("NOT_FOUND: file gone");
+          },
+          onError: (err) => seen.push(err.message),
+          swallowError: (err) => /NOT_FOUND/.test(err.message),
+        });
+        await flush();
+        pulse(); // first read → "content"
+        await flush();
+        pulse(); // file deleted → requery throws NOT_FOUND → swallowed
+        await flush();
+        resolve({ err: q.error()?.message, v: q(), seen });
+        dispose();
+      });
+    });
+    expect(res.err).toBeUndefined(); // swallowed — no error panel
+    expect(res.v).toBe("content"); // last content retained
+    expect(res.seen).toEqual([]); // no toast
   });
 });

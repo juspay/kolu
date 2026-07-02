@@ -74,6 +74,20 @@ import { recomputeUrgency, urgencyEqual } from "./urgency.ts";
 
 type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
 
+/** Map a "the file is gone" filesystem error (a raw node `ENOENT`, however the
+ *  endpoint surfaces it) to a TYPED `NOT_FOUND` the client can recognize across
+ *  the wire; re-throw anything else untouched. A missing file genuinely IS a
+ *  not-found, and typing it lets a delete-while-viewing be swallowed at the
+ *  consumer instead of masking to a generic error panel. */
+function fileGoneAsNotFound(e: unknown, filePath: string): unknown {
+  const gone =
+    (e as { code?: string } | null)?.code === "ENOENT" ||
+    /ENOENT|no such file/i.test(String((e as Error | null)?.message ?? ""));
+  return gone
+    ? new ORPCError("NOT_FOUND", { message: `File not found: ${filePath}` })
+    : e;
+}
+
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
  *  gets a functional handler; the write-path (ctx + publish) is deferred to
  *  R1+. The `previewRealpathGuard` is padi's own re-creation of the server's
@@ -288,10 +302,27 @@ export function buildPadiSurfaceDeps(deps: {
       // goes through `preview.read`).
       fs: {
         listAll: ({ input }) => endpoint.fs.listAll(input.repoPath),
-        readFile: ({ input }) =>
-          endpoint.fs.readFile(input.repoPath, input.filePath),
-        statFileMtimeMs: ({ input }) =>
-          endpoint.fs.statFileMtimeMs(input.repoPath, input.filePath),
+        // A file deleted while the Code tab is viewing it must surface as a
+        // TYPED `NOT_FOUND`, not a raw ENOENT that masks to a generic error on
+        // the wire: `BrowseFileDispatcher` swallows `NOT_FOUND` (delete-while-
+        // viewing) to match the old value stream, which simply stopped yielding.
+        readFile: async ({ input }) => {
+          try {
+            return await endpoint.fs.readFile(input.repoPath, input.filePath);
+          } catch (e) {
+            throw fileGoneAsNotFound(e, input.filePath);
+          }
+        },
+        statFileMtimeMs: async ({ input }) => {
+          try {
+            return await endpoint.fs.statFileMtimeMs(
+              input.repoPath,
+              input.filePath,
+            );
+          } catch (e) {
+            throw fileGoneAsNotFound(e, input.filePath);
+          }
+        },
       },
 
       // git reads off the same shared endpoint; the worktree MUTATIONS are

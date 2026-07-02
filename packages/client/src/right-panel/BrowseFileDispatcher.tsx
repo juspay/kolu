@@ -38,6 +38,7 @@ import { ImageRenderer } from "@kolu/solid-fileview/renderers/image";
 import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
 import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import { padiRpc } from "@kolu/padi/surface";
+import { ORPCError } from "@orpc/client";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import {
   buildTerminalFileUrl,
@@ -159,6 +160,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       return { kind: "text", content, truncated };
     },
     onError: (err) => toast.error(`File content stream: ${err.message}`),
+    // Delete-while-viewing parity: a file removed under the open Code tab makes
+    // `fs.readFile`/`statFileMtimeMs` return a typed `NOT_FOUND` (servePadi maps
+    // the ENOENT). Swallow it — keep the last content until the selection changes
+    // — exactly as the old koluSurface value stream did (it just stopped
+    // yielding); a raw ~150ms ENOENT error panel was a W1 regression.
+    swallowError: (err) => err instanceof ORPCError && err.code === "NOT_FOUND",
   });
 
   // ── Wikilink navigation ────────────────────────────────────────────
