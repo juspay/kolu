@@ -33,7 +33,7 @@
  * so `q()`, `q.pending()`, `q.error()` all read verbatim downstream.
  */
 
-import { padiRpc, type PadiSurfaceSpec } from "@kolu/padi/surface";
+import type { PadiSurfaceSpec } from "@kolu/padi/surface";
 import type {
   StreamingProcedure,
   Subscription,
@@ -47,7 +47,6 @@ import {
   onCleanup,
 } from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
-import { padi } from "../wire";
 
 export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   /** The query input; `null` = idle (no pulse subscription, no query). */
@@ -187,30 +186,4 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   }
 
   return sub;
-}
-
-/** A {@link createPolledQuery} specialised to a REPO-scoped padi query: it bakes in
- *  the `padi` client, the `subscribeRepoChange` pulse, and the `repoPath` pulse key,
- *  so a repo-scoped call site declares only its `input` / `pulseName` / `query` /
- *  `onError`. Reach for the general `createPolledQuery` when the pulse is NOT the
- *  repo-change one (e.g. `BrowseFileDispatcher`'s per-file `subscribeFileChange`). */
-export function createRepoPolledQuery<
-  Input extends { repoPath: string },
-  Result,
->(config: {
-  /** The query input; `null` = idle (no pulse subscription, no query). */
-  input: Accessor<Input | null>;
-  /** Health-registry label for the pulse subscription. */
-  pulseName: string;
-  /** (Re)invoke the padi procedure on each repo-change pulse frame. */
-  query: (input: Input, signal: AbortSignal) => Promise<Result>;
-  /** Surface query (and pulse) failures — matches `.use(..., { onError })`. */
-  onError?: (err: Error) => void;
-}): Subscription<Result> {
-  return createPolledQuery({
-    ...config,
-    client: padi,
-    pulseProc: padiRpc(padi).surface.subscribeRepoChange.get,
-    pulseInput: (i) => ({ repoPath: i.repoPath }),
-  });
 }

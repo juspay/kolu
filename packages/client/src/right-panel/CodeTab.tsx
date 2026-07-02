@@ -67,7 +67,7 @@ import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { padi } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
-import { createRepoPolledQuery } from "./createPolledQuery";
+import { createRepoPolledQuery } from "./createRepoPolledQuery";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
