@@ -22,8 +22,10 @@ import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
 import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
 import { quietActivity } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
+import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
 import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
+import { rejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { readPreview } from "./preview.ts";
@@ -78,6 +80,14 @@ function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
   if (!entry) throw terminalNotFound(id);
   return entry;
+}
+
+/** Decoded byte length of a base64 string — `(len * 3/4)` minus padding.
+ *  Lets the upload gate size-check without materializing the Buffer (the same
+ *  helper the retired server `uploadFile`/`pasteImage` handlers used). */
+function base64DecodedLength(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
 }
 
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
@@ -333,9 +343,28 @@ export function buildPadiSurfaceDeps(deps: {
       },
 
       scratch: {
-        write: ({ input }) => ({
-          path: saveTerminalFile(input.terminalId, input.name, input.data),
-        }),
+        // AUTHORITATIVE server-side upload gate — the write half of paste/upload
+        // (the client does `scratch.write` + `lifecycle.sendInput`), so this
+        // procedure re-enforces the SAME policy the retired server
+        // `uploadFile`/`pasteImage` handlers did before touching disk (upload.ts:
+        // "the server is the authoritative gate before writing to disk"). The
+        // client prechecks for a fast toast, but a direct/buggy caller must not be
+        // able to write disallowed/oversized bytes, nor orphan a scratch file
+        // under an absent/sleeping/parked id — hence require an ACTIVE terminal
+        // and run `rejectionFor` (extension allowlist + 10 MB cap). "image.png"
+        // passes the allowlist, so a clipboard paste is gated on size exactly as
+        // the old `sizeRejectionFor` path was.
+        write: ({ input }) => {
+          requireActiveTerminal(input.terminalId);
+          const bytes = base64DecodedLength(input.data);
+          const reason = rejectionFor(input.name, bytes);
+          if (reason !== null) {
+            throw new ORPCError("BAD_REQUEST", { message: reason });
+          }
+          return {
+            path: saveTerminalFile(input.terminalId, input.name, input.data),
+          };
+        },
       },
 
       // Range-capable, serve-dir-shaped byte read — the SAME `readPreview`

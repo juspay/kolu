@@ -13,6 +13,7 @@
  * renders different bytes than it did pre-migration.
  */
 
+import { ORPCError } from "@orpc/server";
 import {
   AuthoredParkedSchema,
   AuthoredSleepingSchema,
@@ -25,6 +26,7 @@ import {
   type TerminalSnapshot,
 } from "kolu-common/surface";
 import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
+import { MAX_UPLOAD_BYTES } from "kolu-common/upload";
 import type { Logger } from "pino";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
@@ -216,5 +218,94 @@ describe("padi terminals collection backing == the deleted client reader-join", 
   it("readOne is undefined for an absent id (no entry to compose)", () => {
     const { readOne } = terminalsBacking();
     expect(readOne("nope")).toBeUndefined();
+  });
+});
+
+/** The `scratch.write` handler, narrowed out of the all-optional deps shape. */
+function scratchWrite(): (args: {
+  input: { terminalId: string; name: string; data: string };
+}) => { path: string } {
+  const deps = buildPadiSurfaceDeps({ endpoint: fakeEndpoint, log: stubLog });
+  const w = deps.procedures?.scratch?.write;
+  if (!w) throw new Error("padi deps must serve scratch.write");
+  return w as unknown as (args: {
+    input: { terminalId: string; name: string; data: string };
+  }) => { path: string };
+}
+
+/** Pull the thrown fault's oRPC code, or "" if it wasn't an ORPCError — lets a
+ *  single assertion pin BOTH that the gate rejected AND the typed code. */
+function thrownCode(fn: () => unknown): string {
+  try {
+    fn();
+    return "<did not throw>";
+  } catch (err) {
+    return err instanceof ORPCError ? err.code : "<not an ORPCError>";
+  }
+}
+
+describe("padi scratch.write re-enforces the authoritative upload gate (F1)", () => {
+  // A base64 string whose DECODED length exceeds the 10 MB cap (all-`A`, no
+  // padding → decoded = floor(len*3/4)). It is rejected on size BEFORE any disk
+  // write, so materializing the string is the whole cost.
+  const oversize = "A".repeat(Math.ceil(((MAX_UPLOAD_BYTES + 4) * 4) / 3));
+
+  it("rejects oversize data with BAD_REQUEST (never reaches disk)", () => {
+    seed();
+    const write = scratchWrite();
+    expect(
+      thrownCode(() =>
+        write({
+          input: { terminalId: ACTIVE_ID, name: "big.txt", data: oversize },
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+
+  it("rejects a disallowed extension with BAD_REQUEST", () => {
+    seed();
+    const write = scratchWrite();
+    expect(
+      thrownCode(() =>
+        write({
+          input: { terminalId: ACTIVE_ID, name: "malware.exe", data: "AAAA" },
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+
+  it("rejects an absent terminal id with NOT_FOUND (no orphan scratch file)", () => {
+    const write = scratchWrite();
+    expect(
+      thrownCode(() =>
+        write({
+          input: { terminalId: "nope", name: "notes.md", data: "AAAA" },
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+  });
+
+  it("rejects a SLEEPING id with NOT_FOUND (only an ACTIVE terminal can take an upload)", () => {
+    seed();
+    const write = scratchWrite();
+    expect(
+      thrownCode(() =>
+        write({
+          input: { terminalId: SLEEPING_ID, name: "notes.md", data: "AAAA" },
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+  });
+
+  it("rejects a PARKED id with NOT_FOUND (a reboot placeholder can't take an upload)", () => {
+    seed();
+    const write = scratchWrite();
+    expect(
+      thrownCode(() =>
+        write({
+          input: { terminalId: PARKED_ID, name: "notes.md", data: "AAAA" },
+        }),
+      ),
+    ).toBe("NOT_FOUND");
   });
 });

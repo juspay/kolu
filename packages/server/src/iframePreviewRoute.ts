@@ -1,17 +1,20 @@
 /** Kolu glue for the iframe-preview file route
  *  (`FsReadFileOutput.kind === "binary"`). The byte read itself (range,
- *  content-type, lexical + realpath guard) is now padi's `readPreview` — the
- *  SAME impl `padiSurface.procedures.preview.read` serves, which the Hono route
- *  in `index.ts` re-backs onto (one impl, two callers). What remains here are
- *  the two PURE web-shell URL helpers the route needs to hand `readPreview` a
- *  correct, un-normalized file tail:
+ *  content-type, lexical + realpath guard) is now padi's `previewFile` — the
+ *  STREAMING serve-dir read the Hono route in `index.ts` re-backs onto, so a
+ *  multi-GB video flows disk→socket with bounded heap. (`padiSurface.procedures
+ *  .preview.read` / `readPreview` is the BASE64 WIRE-ONLY wrapper over the same
+ *  read, for a remote W2 consumer — never the local HTTP route, whose memory
+ *  profile the buffering form would blow.) What remains here are the two PURE
+ *  web-shell URL helpers the route needs to hand `previewFile` a correct,
+ *  un-normalized file tail:
  *    - `rawTargetFromContext` selects the RAW request target
  *      (`c.env.incoming.url`), the origin-form URL before WHATWG normalization;
  *    - `previewTailFromRawUrl` slices the terminal-scoped file path out of it,
  *      keeping `%`-encoding intact so serve-dir's single decode recovers the
  *      real name and the per-segment `..`/`%2f` traversal guard still fires.
  *  Both are unit-tested in `iframePreviewRoute.test.ts`; the realpath/symlink
- *  guard's 403 coverage now lives against padi's `readPreview`. */
+ *  guard's 403 coverage now lives against padi's `previewFile`. */
 
 import type { HttpBindings } from "@hono/node-server";
 import { rawPathname } from "@kolu/serve-dir";
