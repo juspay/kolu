@@ -1,8 +1,9 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
+import { padiRpc } from "@kolu/padi/surface";
 import { sleepingArm, type TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { client } from "../wire";
+import { client, padi } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useWorktreeOps(deps: {
@@ -41,8 +42,11 @@ export function useWorktreeOps(deps: {
       // signal (OSC 133;A prompt mark) — a contract change deliberately
       // deferred out of phase 2 scope.
       if (initialCommand !== undefined) {
-        await client.terminal
-          .sendInput({ id: newTerminalId, data: `${initialCommand}\r` })
+        await padiRpc(padi)
+          .surface.lifecycle.sendInput({
+            id: newTerminalId,
+            data: `${initialCommand}\r`,
+          })
           .catch((err: Error) =>
             toast.error(`Failed to start agent: ${err.message}`),
           );

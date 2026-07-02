@@ -331,7 +331,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   : []),
               ]
             : []),
-          // Theme is a per-active-terminal property (`client.terminal.setTheme`
+          // Theme is a per-active-terminal property (padi's `chrome.setTheme`
           // takes a terminal id), so both the drill-in chooser and the
           // shuffle action live alongside the other active-terminal
           // commands rather than in a global "Appearance" bucket.

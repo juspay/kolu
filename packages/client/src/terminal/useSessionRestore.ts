@@ -1,5 +1,6 @@
 /** Session restore — hydration from server state, session restore handler. */
 
+import { padiRpc } from "@kolu/padi/surface";
 import { resumeFormFor } from "anyagent/cli";
 import type {
   InitialTerminalMetadata,
@@ -13,7 +14,7 @@ import { toast } from "solid-sonner";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
-  client,
+  padi,
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../wire";
@@ -247,7 +248,7 @@ export function useSessionRestore(deps: {
         // layout and the active marker map 1:1 and the dragged-then-reloaded
         // position survives. The restore card thus brings back BOTH arms.
         if (t.state === "sleeping") {
-          await client.terminal.restoreSleeping(t);
+          await padiRpc(padi).surface.lifecycle.restoreSleeping(t);
           const sleepingId = t.id as TerminalId;
           oldToNew.set(t.id, sleepingId);
           if (t.id === session.activeTerminalId) {
@@ -304,7 +305,7 @@ export function useSessionRestore(deps: {
         const optedIn = !resumeIds || resumeIds.has(t.id);
         const resumeForm = optedIn ? resumeFormFor(t.restoreTarget) : null;
         if (resumeForm) {
-          await client.terminal.sendInput({
+          await padiRpc(padi).surface.lifecycle.sendInput({
             id: newId,
             data: `${resumeForm}\r`,
           });

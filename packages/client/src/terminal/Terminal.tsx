@@ -31,6 +31,7 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
+import { padiRpc } from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
@@ -50,7 +51,7 @@ import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { wireScrollIntent } from "../scrollLockWiring";
 import { isTouch } from "../useMobile";
-import { client, preferences } from "../wire";
+import { client, padi, preferences } from "../wire";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
@@ -384,7 +385,11 @@ const Terminal: Component<{
     // window). Armed BEFORE the resize so the repaint can't slip in first.
     activity.suppress(props.terminalId, RESIZE_ACTIVITY_SUPPRESS_MS);
     try {
-      await client.terminal.resize({ id: props.terminalId, cols, rows });
+      await padiRpc(padi).surface.lifecycle.resize({
+        id: props.terminalId,
+        cols,
+        rows,
+      });
     } catch {
       // Terminal may have been killed mid-resize
     }
@@ -859,7 +864,7 @@ const Terminal: Component<{
             if (isTerminalQueryResponse(data)) return;
             // Fold any sticky Ctrl/Alt armed on the mobile key bar into this
             // keystroke (no-op on desktop, where nothing is ever armed).
-            void client.terminal.sendInput({
+            void padiRpc(padi).surface.lifecycle.sendInput({
               id: props.terminalId,
               data: applyStickyModifiers(data),
             });

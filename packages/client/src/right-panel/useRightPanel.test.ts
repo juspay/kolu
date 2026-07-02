@@ -18,7 +18,9 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../wire", () => ({
-  client: { terminal: { setRightPanel: h.setRightPanel } },
+  // `reportToServer` now writes via `padiRpc(padi).surface.chrome.setRightPanel`.
+  // `padiRpc(c)` returns `c.rpc`, so the mock exposes the scoped rpc under `.rpc`.
+  padi: { rpc: { surface: { chrome: { setRightPanel: h.setRightPanel } } } },
   updatePreferences: h.updatePreferences,
   preferences: () => h.prefs,
 }));

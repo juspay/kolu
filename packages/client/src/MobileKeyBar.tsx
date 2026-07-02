@@ -11,12 +11,13 @@
  *
  *  Shown only on coarse-pointer devices. Stateless beyond the shared
  *  sticky-modifier signal — writes escape sequences straight to the PTY via
- *  client.terminal.sendInput, with a 10ms haptic tick on devices that
+ *  padi's lifecycle.sendInput, with a 10ms haptic tick on devices that
  *  support navigator.vibrate. Targets the store's `focusedId` — the active
  *  split when one has focus, not the tile root — so the keys reach whichever
  *  terminal the user is typing into (soft-keyboard letters already do, via
  *  xterm's own onData). */
 
+import { padiRpc } from "@kolu/padi/surface";
 import { controlByte, NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { type Component, For, Show } from "solid-js";
 import {
@@ -28,7 +29,7 @@ import {
 } from "./terminal/stickyModifiers";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { isTouch } from "./useMobile";
-import { client } from "./wire";
+import { padi } from "./wire";
 
 interface Key {
   label: string;
@@ -100,7 +101,10 @@ const MobileKeyBar: Component = () => {
     const id = store.focusedId();
     if (!id) return;
     tick();
-    void client.terminal.sendInput({ id, data: applyStickyModifiers(data) });
+    void padiRpc(padi).surface.lifecycle.sendInput({
+      id,
+      data: applyStickyModifiers(data),
+    });
   }
 
   return (

@@ -16,7 +16,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../wire", () => ({
-  client: {},
+  padi: {},
   savedSessionSub: { pending: () => h.sessionPending },
   savedSession: () => h.savedSession,
 }));
