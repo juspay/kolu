@@ -66,9 +66,16 @@ export function saveTerminalFile(
   base64Data: string,
 ): string {
   const dir = dirFor(terminalId);
-  mkdirSync(dir, { recursive: true });
+  // OWNER-ONLY perms on both the dir (0700) and the file (0600). The scratch
+  // holds content pasted/dropped from the browser (clipboard images, dropped
+  // files) — potentially sensitive — and the receiving agent runs as THIS user,
+  // so owner-only is byte-identical for the legitimate read while closing the
+  // world-readable-temp-file exposure (CodeQL js/insecure-temporary-file):
+  // koluScratchDir normally sits under the per-user XDG_RUNTIME_DIR, but an
+  // explicit mode is correct even if that ever falls back to a shared temp root.
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = uniquePath(dir, sanitizeUploadName(name));
-  writeFileSync(path, Buffer.from(base64Data, "base64"));
+  writeFileSync(path, Buffer.from(base64Data, "base64"), { mode: 0o600 });
   return path;
 }
 
