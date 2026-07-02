@@ -20,6 +20,7 @@
  * consumer reads the same singleton without per-component lookups.
  */
 
+import { surfacesWithPadi } from "@kolu/padi/surface";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import type { contract } from "kolu-common/contract";
 import {
@@ -29,7 +30,6 @@ import {
   type RecentAgent,
   type RecentRepo,
   type SavedSession,
-  surfaces,
 } from "kolu-common/surface";
 import type { WebSocket as PartySocket } from "partysocket";
 import { toast } from "solid-sonner";
@@ -57,8 +57,16 @@ const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 // Both type args are explicit (`<combined contract, surfaces map>`): TypeScript has
 // no partial inference, so once `C` is given for the typed `conn.link`, `E` must be
 // given too or it would fall back to its loose default and untype `conn.clients`.
-const conn = connectSurfaces<typeof contract, typeof surfaces>({
-  surfaces,
+//
+// `C` and `E` are INDEPENDENT: `conn.clients` types off `E`, `conn.link` off `C`.
+// So we feed a padi-FUL `E` (`surfacesWithPadi`, which the server dual-serves at
+// `/surface/padi/*`) while keeping `C` the padi-LESS kolu-common `contract` — the
+// client thus builds an (inert) `clients.padi` with ZERO consumers, and the raw
+// `conn.link` stays typed off the unchanged root contract. Object spread preserves
+// order, so `surfacesWithPadi`'s first key is still `kolu` (the watchdog's probe
+// sibling) — no behavior change.
+const conn = connectSurfaces<typeof contract, typeof surfacesWithPadi>({
+  surfaces: surfacesWithPadi,
   url: wsBaseUrl,
 });
 const { ws, echo } = conn;
@@ -118,6 +126,14 @@ export const surfaceApp = clients.surfaceApp;
  *  surface `pulam` serves, so R9 (remote awareness) becomes a pure backing-swap
  *  behind this one collection — no second client read path to migrate. */
 export const workspace = clients.terminalWorkspace;
+
+/** The `@kolu/padi` surface client (`padiSurface` served natively beside the
+ *  siblings, W1.R0). INERT at R0 — no consumers yet: nothing reads `padi.*`, so
+ *  the client still reads koluSurface/terminalWorkspace/surfaceApp exactly as
+ *  before, and padi opens no eager subscriptions (it declares no `liveWhen`
+ *  readiness cell). R1–R7 migrate one member's reader onto `padi.*` per commit.
+ *  Procedures resolve via `padiRpc(padi)` (the cast beside `padiSurface`). */
+export const padi = clients.padi;
 
 /** Convenience alias — the FULL combined link. `client.terminal.create(...)`,
  *  `client.git.worktreeCreate(...)`, `client.server.info(...)` reach the raw oRPC

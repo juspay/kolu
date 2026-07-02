@@ -70,6 +70,9 @@ importers:
       '@kolu/html-escape':
         specifier: workspace:*
         version: link:../html-escape
+      '@kolu/padi':
+        specifier: workspace:*
+        version: link:../padi
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
@@ -654,6 +657,12 @@ importers:
       '@kolu/terminal-workspace':
         specifier: workspace:*
         version: link:../terminal-workspace
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
       '@orpc/experimental-publisher':
         specifier: ^1.13.13
         version: 1.13.13
@@ -669,15 +678,27 @@ importers:
       kaval:
         specifier: workspace:*
         version: link:../kaval
+      kolu-claude-code:
+        specifier: workspace:*
+        version: link:../integrations/claude-code
+      kolu-codex:
+        specifier: workspace:*
+        version: link:../integrations/codex
       kolu-common:
         specifier: workspace:*
         version: link:../common
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
+      kolu-opencode:
+        specifier: workspace:*
+        version: link:../integrations/opencode
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty
+      kolu-transcript-html:
+        specifier: workspace:*
+        version: link:../transcript-html
       pino:
         specifier: ^10.3.1
         version: 10.3.1

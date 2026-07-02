@@ -34,12 +34,15 @@
 
 import {
   type CellStore,
+  composeSurfaceContracts,
   confStore,
   type ImplementSurfaceDeps,
   implementSurfaces,
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
+import { surfacesWithPadi } from "@kolu/padi/surface";
+import { oc } from "@orpc/contract";
 import {
   quietActivity,
   serveTerminalWorkspace,
@@ -57,7 +60,6 @@ import {
   bytesToWholeMB,
   type koluSurface,
   LOCAL_LOCATION,
-  surfaces,
 } from "kolu-common/surface";
 import {
   type FsReadFileOutput,
@@ -71,6 +73,7 @@ import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import {
+  buildPadiSurfaceDeps,
   cancelPendingAutosave,
   getSavedSession,
   getTerminal,
@@ -96,10 +99,24 @@ import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 // (#1005) is what keeps that read TDZ-safe across ESM load orders.
 const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 
-// `t` is the host router builder; both `surfaceRouter` and the raw oRPC
-// handlers in `router.ts` plug procedures into it. Exported so `router.ts`
-// can call `t.terminal.create.handler(...)` etc. against the same builder.
-export const t = implement(contract);
+// kolu-server serves a SUPERSET contract locally: the padi-less kolu-common
+// `contract` (which the client consumes, byte-for-byte unchanged) PLUS the
+// `padi` sibling. Spreading the already-built `contract` carries over its root
+// namespaces (`server`/`terminal`/`daemon`/`git`) and its 3-sibling `surface`;
+// the second spread of `composeSurfaceContracts(surfacesWithPadi)` then WIDENS
+// `surface` to four siblings (adds `padi`). This is the same spread idiom
+// `packages/common/src/contract.ts` assembles itself with — that file stays
+// untouched (its own comment already anticipates kolu-server widening locally).
+const servedContract = oc.router({
+  ...contract,
+  ...composeSurfaceContracts(surfacesWithPadi),
+});
+
+// `t` is the host router builder against the SERVED (superset) contract; both
+// `surfaceRouter` and the raw oRPC handlers in `router.ts` plug procedures into
+// it. Exported so `router.ts` can call `t.terminal.create.handler(...)` etc.
+// against the same builder — every root procedure survives the widening.
+export const t = implement(servedContract);
 
 // ── Stores (Conf-backed; one slot per persisted cell) ──────────────────
 
@@ -371,10 +388,12 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   // reported identity (that rides `daemonStatus.identity`). No app-visible
   // connect to call, no hand-written `ctx.cells.buildInfo.set`.
   implementSurfaces(
-    // `surfaces` (the keyed Surface map) is the single source shared with the
-    // contract (`composeSurfaceContracts`) and the client (`surfaceClients`);
-    // here we add only the server-only per-surface deps, keyed the same way.
-    surfaces,
+    // `surfacesWithPadi` (the keyed Surface map PLUS `padi`) is served here so
+    // `padiSurface` serves BESIDE the three siblings at `/surface/padi/*`
+    // (dual-serve). The contract widening above (`servedContract`) is what lets
+    // the padi-less kolu-common `surfaces` the client consumes stay untouched;
+    // here we add the server-only per-surface deps, keyed the same way.
+    surfacesWithPadi,
     {
       channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
@@ -458,6 +477,16 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         endpoint: localEndpoint,
         log,
       }),
+
+      // ── padi's own server deps (sibling under `padi`) ────────────────────
+      // The COMPLETE `padiSurface` served natively from `@kolu/padi` (W1.R0),
+      // assembled by its own `buildPadiSurfaceDeps` off the SAME in-process
+      // endpoint. Every member has a functional read/procedure/source handler
+      // (boot requires it), but NO padi ctx is registered and NO write-trigger
+      // fires at R0 — dual-serve, single-publish: the client still renders every
+      // live delta through the kolu/terminalWorkspace/surfaceApp path. R1+ turns
+      // on padi's live-publish one member at a time.
+      padi: buildPadiSurfaceDeps({ endpoint: localEndpoint, log }),
     },
   );
 

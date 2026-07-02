@@ -66,6 +66,9 @@ export {
   setSavedSessionFromSnapshot,
 } from "./session.ts";
 
+// ── native serving (W1.R0) ──────────────────────────────────────────────
+export { buildPadiSurfaceDeps } from "./servePadi.ts";
+
 // ── publisher / surface ctx holders ─────────────────────────────────────
 export {
   publisher,
