@@ -66,7 +66,6 @@ import { log } from "./log.ts";
 import {
   buildPadiSurfaceDeps,
   cancelPendingAutosave,
-  getSavedSession,
   getTerminal,
   listTerminals,
   publisher,
@@ -202,9 +201,25 @@ const koluDeps: Omit<
     },
     activityFeed: { store: activityFeedStore },
     session: {
-      // Reads through `getSavedSession` to keep the "empty terminals = null"
-      // legacy normalization at one site (`session.ts` owns that invariant).
-      store: { get: () => getSavedSession(), set: savedSessionStore.set },
+      // The `session` conf store, normalized so an empty-terminals blob reads
+      // as `null` (the legacy "nothing to restore" invariant). Both the client's
+      // `session` cell read AND padi's `getSavedSession` (which reads THIS cell)
+      // get the normalized value.
+      //
+      // The normalization MUST read `savedSessionStore` directly here — it must
+      // NOT delegate to `getSavedSession`. `getSavedSession` (padi/session.ts)
+      // reads `surfaceCtx.cells.session.get()`, i.e. THIS store's `get`; a
+      // `get: () => getSavedSession()` is therefore mutually recursive and blows
+      // the stack, crashing the server at boot (the first `getSavedSession` call
+      // is padi's boot reconcile / `parkSavedSession`). Keeping the raw read +
+      // normalize here is the one non-recursive backing.
+      store: {
+        get: () => {
+          const s = savedSessionStore.get();
+          return s && s.terminals.length > 0 ? s : null;
+        },
+        set: savedSessionStore.set,
+      },
       // Content-level dedup. The surface cell otherwise publishes a fresh
       // object reference on every set, including byte-identical re-saves
       // from the autosave loop or test fixtures. Downstream that flips a
