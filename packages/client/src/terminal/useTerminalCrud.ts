@@ -20,6 +20,7 @@ import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { padi, preferences } from "../wire";
+import { pickAutoSwitchTarget } from "./useActiveReconcile";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -83,16 +84,19 @@ export const useTerminalCrud = createSharedRoot(() => {
     }
 
     const ids = store.terminalIds();
-    const idx = ids.indexOf(id);
     subPanel.removePanel(id);
     rightPanel.removePanel(id);
     terminalSearch.removeTerminal(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
-      const remaining = ids.filter((x) => x !== id);
-      const next = remaining[Math.min(idx, remaining.length - 1)] ?? null;
-      // `activate` pans the canvas to the auto-switched tile — without
-      // it the viewport would stay centered on the just-killed tile.
+      // Same target selection the list-driven reconcile uses (shared helper), so
+      // the imperative close path and the reconcile can't pick different
+      // survivors. `activate` pans the canvas to the auto-switched tile —
+      // without it the viewport would stay centered on the just-killed tile.
+      const next = pickAutoSwitchTarget(
+        ids.filter((x) => x !== id),
+        ids.indexOf(id),
+      );
       store.activate(next);
     }
   }
