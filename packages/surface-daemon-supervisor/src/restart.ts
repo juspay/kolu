@@ -24,7 +24,7 @@
 
 import type { DaemonConnection, Endpoint } from "./endpoint.ts";
 
-export interface RestartSteps<C, I, Ctx> {
+export interface RestartSteps<C, I, Ctx, M = undefined> {
   /** Snapshot whatever must outlive the restart, BEFORE the old daemon dies.
    *  B2: returns an empty context (nothing survives). B3: the saved session. */
   capture(): Promise<Ctx>;
@@ -33,15 +33,15 @@ export interface RestartSteps<C, I, Ctx> {
   drain(ctx: Ctx): Promise<void>;
   /** Re-establish consumers against the FRESH daemon after it is connected.
    *  B2: no-op. B3: adopt surviving PTYs, re-run the provider DAG. */
-  reattach(ctx: Ctx, connection: DaemonConnection<C, I>): Promise<void>;
+  reattach(ctx: Ctx, connection: DaemonConnection<C, I, M>): Promise<void>;
 }
 
 /** Run the composed restart: capture, drain, recycle the endpoint, reattach.
  *  Throws if the recycle leaves no connection (a failed boot already reported
  *  `dead`/`degraded` via the endpoint's status). */
-export async function restart<C, I, Ctx>(
-  endpoint: Endpoint<C, I>,
-  steps: RestartSteps<C, I, Ctx>,
+export async function restart<C, I, Ctx, M = undefined>(
+  endpoint: Endpoint<C, I, M>,
+  steps: RestartSteps<C, I, Ctx, M>,
 ): Promise<void> {
   const ctx = await steps.capture();
   await steps.drain(ctx);
@@ -74,11 +74,11 @@ export async function restart<C, I, Ctx>(
  * stay the caller's soul, exactly as for `restart()`; this only governs *when*
  * a restart may run and *how* it is reported.
  */
-export function serializeRestart<C, I>(
-  endpoint: Endpoint<C, I>,
-): <Ctx>(steps: RestartSteps<C, I, Ctx>) => Promise<void> {
+export function serializeRestart<C, I, M = undefined>(
+  endpoint: Endpoint<C, I, M>,
+): <Ctx>(steps: RestartSteps<C, I, Ctx, M>) => Promise<void> {
   let inFlight: Promise<void> | undefined;
-  return <Ctx>(steps: RestartSteps<C, I, Ctx>): Promise<void> => {
+  return <Ctx>(steps: RestartSteps<C, I, Ctx, M>): Promise<void> => {
     // Presence of the promise IS the in-flight flag — a concurrent caller rides
     // it rather than starting a second recycle. (`!== undefined`, not a bare
     // truthiness check, so it reads as "is one running", not a misused await.)

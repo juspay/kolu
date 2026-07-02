@@ -1,8 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Tiered steps (கோலு) — 5 ascending rainbow steps -->
-  <rect x="1" y="26" width="30" height="5" rx="1.2" fill="#ef4444"/>
-  <rect x="4" y="20" width="25" height="5" rx="1.2" fill="#f59e0b"/>
-  <rect x="8" y="14" width="20" height="5" rx="1.2" fill="#22c55e"/>
-  <rect x="12" y="8" width="15" height="5" rx="1.2" fill="#3b82f6"/>
-  <rect x="16" y="2" width="10" height="5" rx="1.2" fill="#a855f7"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="70 108 372 340" role="img" aria-labelledby="title desc">
+  <title id="title">Kolu logo</title>
+  <desc id="desc">Three bold rainbow Kolu steps.</desc>
+  <defs>
+    <linearGradient id="topStep" x1="190" y1="170" x2="322" y2="170" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#FACC15"/>
+    </linearGradient>
+    <linearGradient id="middleStep" x1="142" y1="282" x2="370" y2="282" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F43F5E"/>
+      <stop offset="1" stop-color="#A855F7"/>
+    </linearGradient>
+    <linearGradient id="baseStep" x1="94" y1="398" x2="418" y2="398" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14B8A6"/>
+      <stop offset="0.5" stop-color="#06B6D4"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <filter id="lift" x="-16%" y="-16%" width="132%" height="146%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="13" flood-color="#020617" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#lift)">
+    <rect x="190" y="130" width="132" height="80" rx="30" fill="url(#topStep)"/>
+    <rect x="142" y="240" width="228" height="84" rx="32" fill="url(#middleStep)"/>
+    <rect x="94" y="356" width="324" height="86" rx="34" fill="url(#baseStep)"/>
+  </g>
 </svg>

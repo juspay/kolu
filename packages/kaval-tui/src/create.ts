@@ -46,9 +46,15 @@ export function buildCreateInput(opts: {
   /** Program + args to run instead of a plain shell — the `[command…]`
    *  positional (`kaval-tui create -- htop -d 5`). Empty/absent → `$SHELL`. */
   command?: readonly string[];
+  /** The socket this daemon was dialed on, stamped as `KAVAL_SOCKET` so a process
+   *  inside the spawned terminal can reach the daemon that owns it — the same
+   *  `$TMUX` convention kolu-server follows. Overwrites any inherited value from
+   *  `opts.env`: the child is owned by THIS daemon, not an outer one. */
+  kavalSocket: string;
 }): PtyHostSpawnInput {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(opts.env)) if (v != null) env[k] = v;
+  env.KAVAL_SOCKET = opts.kavalSocket;
   return composeCreateInput({
     id: opts.id,
     cwd: opts.cwd,

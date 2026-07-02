@@ -69,7 +69,7 @@ function isWheelTargetTerminal(e: WheelEvent): boolean {
 
 const TerminalCanvas: Component<{
   tileIds: TileId[];
-  /** Optional corner watermark (e.g. `kolu@host`) painted in the
+  /** Optional corner watermark (e.g. `Kolu [host]`) painted in the
    *  top-left of the canvas. Stays outside the pan/zoom transform so
    *  it reads as a fixed identity mark on the surface, not a tile. */
   watermark?: string;

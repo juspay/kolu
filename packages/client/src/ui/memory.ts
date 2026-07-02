@@ -26,6 +26,14 @@ export function formatMBCompact(bytes: number): string {
   return `${bytesToWholeMB(bytes)} MB`;
 }
 
+/** {@link formatMBCompact} with a null guard for the "no figure yet" case
+ *  (`null`: no kaval daemon, or a non-Chromium browser with no
+ *  `performance.memory`) — the rail tooltips and the info dialogs share it so
+ *  the fallback string can't drift. */
+export function mbText(bytes: number | null, fallback = "unavailable"): string {
+  return bytes === null ? fallback : formatMBCompact(bytes);
+}
+
 /** `performance.memory` is Chromium-only and missing from the DOM type
  *  definitions — isolate the narrow cast here. Returns null on non-Chromium
  *  browsers (Firefox/Safari don't expose it), which is the honest "this browser

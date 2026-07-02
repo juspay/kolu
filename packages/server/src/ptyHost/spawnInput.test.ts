@@ -25,6 +25,10 @@ import { composeSpawnInput } from "./index.ts";
 
 const RC_DIR = mkdtempSync(join(tmpdir(), "spawn-input-rc-"));
 
+/** A stand-in for the socket this daemon serves on (`getLocalSocketPath()`
+ *  in production). Passed as data so the composer stays pure. */
+const KAVAL_SOCK = "/tmp/kaval-7692-501/pty-host.sock";
+
 /** A host-facts fixture standing in for the daemon's `system.info`. */
 function info(over: Partial<PtyHostSystemInfo> = {}): PtyHostSystemInfo {
   return {
@@ -39,15 +43,21 @@ function info(over: Partial<PtyHostSystemInfo> = {}): PtyHostSystemInfo {
 describe("composeSpawnInput env layering", () => {
   let savedShell: string | undefined;
   let savedColorterm: string | undefined;
+  let savedKavalSocket: string | undefined;
 
   beforeEach(() => {
     savedShell = process.env.SHELL;
     savedColorterm = process.env.COLORTERM;
+    savedKavalSocket = process.env.KAVAL_SOCKET;
   });
 
   afterEach(() => {
     restore("SHELL", savedShell);
     restore("COLORTERM", savedColorterm);
+    // Restore rather than delete: a worker launched from a kolu-owned terminal
+    // legitimately starts with KAVAL_SOCKET set, so unconditionally deleting it
+    // would corrupt the env for the rest of the worker.
+    restore("KAVAL_SOCKET", savedKavalSocket);
   });
 
   it("koluIdentityEnv overrides a same-named cleanEnv (parent) key", () => {
@@ -55,7 +65,7 @@ describe("composeSpawnInput env layering", () => {
     // base layer. koluIdentityEnv layers COLORTERM=truecolor on top — the
     // identity assertion must win over whatever the parent happened to carry.
     process.env.COLORTERM = "PARENT_SENTINEL";
-    const input = composeSpawnInput({ id: "T-colorterm" }, info());
+    const input = composeSpawnInput({ id: "T-colorterm" }, info(), KAVAL_SOCK);
     expect(input.env.COLORTERM).toBe("truecolor");
   });
 
@@ -65,7 +75,7 @@ describe("composeSpawnInput env layering", () => {
     // unclobbered — the bytes that make the zsh wrapper rcfile load.
     process.env.SHELL = "/bin/zsh";
     const id = "T-zdotdir";
-    const input = composeSpawnInput({ id }, info());
+    const input = composeSpawnInput({ id }, info(), KAVAL_SOCK);
     expect(input.argv[0]).toBe("/bin/zsh");
     expect(input.env.ZDOTDIR).toBe(join(RC_DIR, `zdotdir-${id}`));
   });
@@ -79,8 +89,33 @@ describe("composeSpawnInput env layering", () => {
     const input = composeSpawnInput(
       { id: "T-local-shell" },
       info({ shell: "/bin/dash" }),
+      KAVAL_SOCK,
     );
     expect(input.argv[0]).toBe("/bin/zsh");
+  });
+
+  it("stamps KAVAL_SOCKET with the daemon's own socket (the $TMUX convention)", () => {
+    // The socket THIS kaval serves on is stamped into every terminal so a process
+    // inside (an agent driving its siblings) can reach its owning daemon without
+    // scanning /tmp — and, on macOS with $XDG_RUNTIME_DIR unset, without guessing
+    // the port-namespaced path. It's passed as data, so the composer stays pure.
+    const input = composeSpawnInput(
+      { id: "T-kaval-socket" },
+      info(),
+      KAVAL_SOCK,
+    );
+    expect(input.env.KAVAL_SOCKET).toBe(KAVAL_SOCK);
+  });
+
+  it("KAVAL_SOCKET is not clobbered by a same-named parent env key", () => {
+    // A stray KAVAL_SOCKET in the parent env (e.g. this terminal was itself
+    // spawned by an outer kaval) must be overwritten by THIS daemon's socket —
+    // the child is owned by us, not the outer daemon. cleanEnv passes it through
+    // (KAVAL_* isn't stripped wholesale), so the stamp has to win.
+    // afterEach restores KAVAL_SOCKET to its saved value, so no local cleanup.
+    process.env.KAVAL_SOCKET = "/tmp/kaval-OUTER-501/pty-host.sock";
+    const input = composeSpawnInput({ id: "T-nested" }, info(), KAVAL_SOCK);
+    expect(input.env.KAVAL_SOCKET).toBe(KAVAL_SOCK);
   });
 
   it("resolves a real shell when the local env omits SHELL", () => {
@@ -93,6 +128,7 @@ describe("composeSpawnInput env layering", () => {
     const input = composeSpawnInput(
       { id: "T-fallback-shell" },
       info({ shell: "/bin/bash" }),
+      KAVAL_SOCK,
     );
     expect(input.argv[0]?.startsWith("/")).toBe(true);
   });
@@ -105,7 +141,7 @@ describe("composeSpawnInput mirror scrollback (the OOM-fix decouple)", () => {
     // visible `DEFAULT_SCROLLBACK` — the conflated 50K mirror × unbounded live
     // terminals was the production V8-heap OOM (see kaval-heap-oom.mdx). Red
     // before the decouple (the input carried DEFAULT_SCROLLBACK).
-    const input = composeSpawnInput({ id: "T-mirror" }, info());
+    const input = composeSpawnInput({ id: "T-mirror" }, info(), KAVAL_SOCK);
     expect(input.scrollback).toBe(DEFAULT_MIRROR_SCROLLBACK);
     expect(input.scrollback).toBeLessThan(DEFAULT_SCROLLBACK);
   });
