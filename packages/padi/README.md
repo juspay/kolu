@@ -46,6 +46,26 @@ it in W1.M, once the terminal domain moves in. **No backings adapter ever
 exists** — the code moves into the package *before* anything serves it, so there
 is never a `packages/server` shim standing in for a not-yet-moved backing.
 
+## What padi knows nothing about
+
+Location is structure, so the boundary is defined as much by what padi refuses to
+reach for as by what it owns:
+
+- **`packages/server`.** padi NEVER imports kolu-server — the dependency arrow
+  points strictly OUT. The few facts the server knows about itself are INJECTED at
+  boot (`setKoluServerProcessId` · `setSpawnServerVersion`), never imported, so no
+  edge ever points back in.
+- **The app logger.** padi has its OWN identity-free pino logger (`./log.ts`): it
+  mirrors kolu-server's level/format but does not import the server's
+  `hostname.ts` identity base, so the arrow is `@kolu/padi → pino`, never back into
+  `packages/server`.
+- **The conf store.** Preferences — plus the still-`koluSurface`-hosted `session`
+  / MRU / `terminalList` primitives — stay kolu-server's single source of truth
+  until W2.2 gives padi its own state-root. padi reads/writes `session` only
+  THROUGH the framework-owned surface cell (backed by `confStore(store,
+  "session")`), never the raw conf store, so it carries no dependency on the
+  server's `state.ts`.
+
 ## Status
 
 - **W1.C** (this contract): a contract test pins the member list, the
