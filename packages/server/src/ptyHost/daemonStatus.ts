@@ -11,6 +11,7 @@
 
 import type { DaemonStatus } from "kolu-common/surface";
 import { surfaceCtx } from "../surfaceCtx.ts";
+import { connectedKavalContractVersion } from "./connect.ts";
 
 const store = new Map<string, DaemonStatus>();
 
@@ -43,9 +44,13 @@ export function publishDaemonStatus(
   hostId: string,
   status: DaemonStatus,
 ): void {
-  const full = localSocketPath
-    ? { ...status, socketPath: localSocketPath }
-    : status;
+  const contractVersion =
+    status.state === "connected" ? connectedKavalContractVersion() : undefined;
+  const full: DaemonStatus = {
+    ...status,
+    ...(contractVersion ? { contractVersion } : {}),
+    ...(localSocketPath ? { socketPath: localSocketPath } : {}),
+  };
   store.set(hostId, full);
   surfaceCtx.collections.daemonStatus.upsert(hostId, full);
 }

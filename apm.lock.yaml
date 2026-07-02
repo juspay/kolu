@@ -446,7 +446,7 @@ local_deployed_file_hashes:
   .claude/rules/dock-fleet-mirror.md: sha256:29422ee3a47826a73d7586d8b3d5afbc3b2d06bf05536c91852f65f11ec8977c
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
-  .claude/rules/logo.md: sha256:20ff803e2af6493e5271b304d87a4725aab28d71652f87acaa4469caf4586cef
+  .claude/rules/logo.md: sha256:75baa0fff11e5fe06f6e230ef6d9400be78b419f640619bb673e8f73633160aa
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:7f477877a1baeeeb9ea9b894094e4e4dc9cf2de6c0ca93b0f27ebcfc7462f26f
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf

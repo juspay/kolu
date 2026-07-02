@@ -1,27 +1,20 @@
 /** IdentityRail — the "which kolu am I running" chrome readout.
  *
- *  Three columns — `srv` (the server you're connected to + the WebSocket
- *  liveness), `client` (this browser's JS build), and `kaval` (the pty-host
- *  daemon serving your terminals). In a clean deploy all three are built from one
- *  HEAD, so the rail used to print the SAME commit three times. The commit now
- *  shows **once**, in `srv` (the canonical identity):
+ *  The rail is deliberately glance-first: one Kolu health group and one Kaval
+ *  health group. Each keeps its one visible version; memory, uptime, and exact
+ *  build details live in hover text / dialogs unless they need attention
+ *  (`≠ srv`, `⬆ update`, `mem ?`). The old all-numbers strip was useful for
+ *  diagnostics but too dense as always-on chrome.
  *
- *  - `client` collapses to a muted `≡` when its build matches the server, and
- *    only spells out its own commit + the actionable `≠ srv` chip when a stale
- *    cached bundle disagrees (`clientStale`).
- *  - `kaval` keeps its dot · uptime and stays a button onto `KavalInfoDialog`
- *    (daemon details, the session-preserving restart, `kaval-tui` attach). Its
- *    build commit + nix closure-hash live in that dialog now, not on the strip;
- *    the amber `⬆ update` chip still surfaces inline when the running daemon is a
- *    build behind what the server would spawn (`kavalUpdatePending`).
- *
- *  The `srv` dot carries `data-ws-status` and the `kaval` dot `data-daemon-state`
- *  — the e2e hooks the smoke / reconnect / kaval-daemon scenarios read; exactly
- *  one element holds each. */
+ *  The server dot carries `data-ws-status` and the kaval dot
+ *  `data-daemon-state` — the e2e hooks the smoke / reconnect / kaval-daemon
+ *  scenarios read; exactly one element holds each. Memory readouts keep their
+ *  test ids in hidden spans so the telemetry path remains covered without
+ *  repainting the row as a process monitor. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
-import { type Component, createSignal, Match, Show, Switch } from "solid-js";
+import { type Component, createSignal, Show } from "solid-js";
 import { getClockNow } from "../time/clock";
 import KavalInfoDialog from "../kaval/KavalInfoDialog";
 import {
@@ -37,7 +30,7 @@ import {
   serverDot,
 } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
-import Commit from "./Commit";
+import KoluInfoDialog from "./KoluInfoDialog";
 import { formatMBCompact } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
@@ -47,67 +40,67 @@ import {
   serverRssBytes,
 } from "./useMemoryUsage";
 
-/** The thin vertical rule between two columns. */
+/** The thin vertical rule between compact status groups. */
 const Divider: Component = () => (
-  <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
+  <span class="h-4 w-px self-center bg-edge-bright/60" />
 );
 
-/** A compact whole-MB memory readout for a rail column — hidden until the figure
- *  is present (undefined pre-yield, or `null` when there's nothing to measure:
- *  no kaval daemon, or a non-Chromium browser with no `performance.memory`). The
- *  `data-testid` lets the e2e assert each source's reading independently. */
+/** A hidden whole-MB memory readout for e2e coverage. The visible rail now keeps
+ *  memory in hover text; this span preserves the data-testid contract without
+ *  adding visual noise. */
 const MemReadout: Component<{
   bytes: number | null;
   testid: string;
-  tip: string;
 }> = (props) => (
   <Show when={props.bytes}>
     {(bytes) => (
-      <Tip label={props.tip}>
-        <span
-          data-testid={props.testid}
-          class="tabular-nums text-[10px] text-fg-3"
-        >
-          {formatMBCompact(bytes())}
-        </span>
-      </Tip>
+      <span data-testid={props.testid} class="hidden" aria-hidden="true">
+        {formatMBCompact(bytes())}
+      </span>
     )}
   </Show>
 );
 
-/** The kaval column's memory readout, from the shared {@link kavalMemoryDisplay}
- *  derivation (which folds in the connected-now gate + the three-way unwrap, so
- *  this and the Diagnostic dialog read one source). `ok` renders the MB figure;
- *  `error` (a believed-connected daemon whose poll failed) renders a distinct
- *  `mem ?` chip so a failed poll never looks identical to "no daemon"; `null`
- *  (not connected / absent) renders nothing. */
+/** Kaval memory keeps the same data-testid contract. A poll error is visible
+ *  because it is an actionable diagnostic anomaly; normal MB values stay in the
+ *  tooltip. */
 const KavalMemReadout: Component = () => (
-  <Switch>
-    <Match
+  <>
+    <Show
       when={(() => {
         const d = kavalMemoryDisplay();
-        return d?.kind === "ok" ? d : false;
+        return d?.kind === "ok" ? d.rssBytes : null;
       })()}
     >
-      {(ok) => (
-        <MemReadout
-          bytes={ok().rssBytes}
-          testid="kaval-memory"
-          tip="kaval daemon memory (resident set size)"
-        />
-      )}
-    </Match>
-    <Match when={kavalMemoryDisplay()?.kind === "error"}>
+      {(bytes) => <MemReadout bytes={bytes()} testid="kaval-memory" />}
+    </Show>
+    <Show when={kavalMemoryDisplay()?.kind === "error"}>
       <Tip label="kaval daemon memory poll failed — the daemon reports connected but didn't answer its memory probe">
         <span
           data-testid="kaval-memory-error"
-          class="tabular-nums text-[10px] text-warning"
+          class="rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning"
         >
           mem ?
         </span>
       </Tip>
-    </Match>
-  </Switch>
+    </Show>
+  </>
+);
+
+function mbText(bytes: number | null): string {
+  return bytes === null ? "memory unavailable" : formatMBCompact(bytes);
+}
+
+const StatusDot: Component<{
+  class: string;
+  "data-ws-status"?: WsStatus;
+  "data-daemon-state"?: string;
+}> = (props) => (
+  <span
+    data-ws-status={props["data-ws-status"]}
+    data-daemon-state={props["data-daemon-state"]}
+    class={`inline-block h-2 w-2 rounded-full ${props.class}`}
+  />
 );
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
@@ -121,133 +114,119 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // daemon state, so the column reads "unknown" rather than a stale definite
   // "running" + a uptime climbing off the local clock (the #1568 green-dot class).
   const daemonLive = daemonTransportLive;
+  const [koluDialogOpen, setKoluDialogOpen] = createSignal(false);
   const [kavalDialogOpen, setKavalDialogOpen] = createSignal(false);
   const stale = clientStale;
+  const koluVersion = (): string | undefined => pwa.server()?.version;
+  const kavalVersion = (): string | undefined => daemon()?.contractVersion;
 
-  const dialogTitle = (): string =>
-    kavalUpdatePending()
-      ? "kaval — a newer build is available; click to restart and pick it up"
-      : "kaval daemon — click for details and how to attach with kaval-tui";
+  const koluTip = (): string => {
+    const server = pwa.server();
+    return [
+      `kolu ${props.status}${daemonLive() ? "" : " (watchdog reconnecting)"}`,
+      server?.version ? `server v${server.version}` : undefined,
+      server?.commit ? `server ${server.commit}` : undefined,
+      `server RSS ${mbText(serverRssBytes())}`,
+      stale()
+        ? "client build differs from server"
+        : "client build matches server",
+      pwa.clientCommit ? `client ${pwa.clientCommit}` : undefined,
+      `client heap ${mbText(clientHeapUsedBytes())}`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
+
+  const kavalStateText = (): string => {
+    if (!daemonLive()) return "unknown";
+    const state = daemon()?.state;
+    return state ? DAEMON_STATE_PRESENTATION[state].label : "unknown";
+  };
+
+  const kavalUptimeText = (): string | undefined => {
+    if (!daemonLive() || daemon()?.state !== "connected") return undefined;
+    const startedAt = daemon()?.startedAt;
+    return startedAt === undefined
+      ? undefined
+      : `running ${formatUptime(clockNow() - startedAt)}`;
+  };
+
+  const kavalMemoryText = (): string => {
+    const display = kavalMemoryDisplay();
+    if (display?.kind === "ok")
+      return `RSS ${formatMBCompact(display.rssBytes)}`;
+    if (display?.kind === "error") return "memory poll failed";
+    return "memory unavailable";
+  };
+
+  const kavalTip = (): string =>
+    [
+      `kaval ${kavalStateText()}`,
+      kavalVersion() ? `contract v${kavalVersion()}` : undefined,
+      kavalUptimeText(),
+      kavalMemoryText(),
+      kavalUpdatePending() ? "newer build available" : undefined,
+      "click for details",
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
   return (
-    <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
-      {/* srv — the one canonical identity: WS-dot · version · the shared commit. */}
-      <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
-        <span class="text-[9px] uppercase tracking-wide text-fg-3">srv</span>
-        <Tip label="Server connection">
-          <span
-            data-ws-status={props.status}
-            // Floored on the watchdog-backed `daemonLive()` (the kolu ws's
-            // `health().live`), so a silent half-open the watchdog already caught
-            // can't paint a definite green "connected" while the open/close-only
-            // lifecycle still reads `open`. Same fact the kaval dot floors on.
-            class={`inline-block h-[7px] w-[7px] rounded-full ${serverDot(props.status, daemonLive())}`}
-          />
-        </Tip>
-        <Show when={pwa.server()?.version}>
-          {(v) => (
-            <Tip label="kolu version">
-              <span class="tabular-nums text-fg-2">v{v()}</span>
-            </Tip>
-          )}
-        </Show>
-        <Commit sha={pwa.server()?.commit} />
-        <MemReadout
-          bytes={serverRssBytes()}
-          testid="server-memory"
-          tip="kolu-server memory (resident set size)"
+    <div class="inline-flex items-center gap-1 rounded-lg border border-edge bg-surface-2/60 px-1.5 py-0.5 font-mono text-xs shadow-sm shadow-black/20">
+      <button
+        type="button"
+        onClick={() => setKoluDialogOpen(true)}
+        class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 leading-4 text-fg-2 transition-colors hover:bg-surface-3/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        title={koluTip()}
+        aria-label={koluTip()}
+      >
+        <StatusDot
+          class={serverDot(props.status, daemonLive())}
+          data-ws-status={props.status}
         />
-      </span>
+        <span>Kolu</span>
+        <Show when={koluVersion()}>
+          {(v) => <span class="tabular-nums text-fg-3">v{v()}</span>}
+        </Show>
+      </button>
+      <MemReadout bytes={serverRssBytes()} testid="server-memory" />
+      <Show when={stale()}>
+        <StaleBadge />
+      </Show>
+      <MemReadout bytes={clientHeapUsedBytes()} testid="client-memory" />
 
       <Divider />
 
-      {/* client — this browser's bundle. Collapses to a muted `≡` when it matches
-          the server; spells out its own commit + the `≠ srv` nudge only when a
-          stale cached bundle disagrees. */}
-      <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
-        <span class="text-[9px] uppercase tracking-wide text-fg-3">client</span>
-        <Show
-          when={stale()}
-          fallback={
-            <Tip label="This browser's build matches the server.">
-              <span class="text-fg-3">≡</span>
-            </Tip>
-          }
-        >
-          <Tip label="This browser's JS build (baked in at build time)">
-            <Commit sha={pwa.clientCommit} />
-          </Tip>
-          <Tip label="This client build doesn't match the server — reload to pick up the server's version.">
-            <StaleBadge />
-          </Tip>
-        </Show>
-        <MemReadout
-          bytes={clientHeapUsedBytes()}
-          testid="client-memory"
-          tip="This browser's JS heap (used)"
-        />
-      </span>
-
-      <Divider />
-
-      {/* kaval — the daemon serving your terminals. The whole column is a button:
-          click it for the daemon details, the restart, the running build + closure
-          hash, and how to reach these terminals from `kaval-tui`. */}
       <button
         type="button"
         onClick={() => setKavalDialogOpen(true)}
-        class="inline-flex items-center gap-1.5 rounded px-2 py-0.5 transition-colors hover:bg-surface-3/50"
-        title={dialogTitle()}
+        class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 leading-4 text-fg-2 transition-colors hover:bg-surface-3/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        title={kavalTip()}
+        aria-label={kavalTip()}
       >
-        <span class="text-[9px] uppercase tracking-wide text-fg-3">kaval</span>
-        <span
-          // Dot floored on transport liveness (`kavalDot(state, live)`): a non-ok
-          // state can only refine WITHIN a live link, never paint a definite bg-ok
-          // "running" over a dead/half-open channel that left the state stale.
+        <StatusDot
           data-daemon-state={
             daemonLive() ? (daemon()?.state ?? "unknown") : "unknown"
           }
-          class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(daemon()?.state, daemonLive())}`}
+          class={kavalDot(daemon()?.state, daemonLive())}
         />
-        {/* Live link: connected → live uptime; any other known state → its label
-            ("not running", "restarting…"); unknown (pre-first-yield) → nothing.
-            Dead/half-open link: the retained state is stale and the channel that
-            would refresh it is gone, so show a neutral "—" — never a definite label
-            or a uptime that climbs off the local clock while contact is lost. */}
-        <Show
-          when={daemonLive()}
-          fallback={<span class="text-[10px] text-fg-3/60">—</span>}
-        >
-          <Show when={daemon()?.state}>
-            {(state) => (
-              <Show
-                when={state() === "connected"}
-                fallback={
-                  <span class="text-[10px] text-fg-3">
-                    {DAEMON_STATE_PRESENTATION[state()].label}
-                  </span>
-                }
-              >
-                <Show when={daemon()?.startedAt}>
-                  {(t) => (
-                    <span class="tabular-nums text-[10px] text-fg-3">
-                      {formatUptime(clockNow() - t())}
-                    </span>
-                  )}
-                </Show>
-              </Show>
-            )}
-          </Show>
-        </Show>
-        <KavalMemReadout />
-        {/* B3.4: the running daemon is a build behind what the server would spawn.
-            A passive amber chip — the column's own click opens the dialog where
-            the running-vs-expected detail and the restart live. */}
-        <Show when={kavalUpdatePending()}>
-          <KavalUpdateBadge />
+        <span>Kaval</span>
+        <Show when={kavalVersion()}>
+          {(v) => <span class="tabular-nums text-fg-3">v{v()}</span>}
         </Show>
       </button>
+      <KavalMemReadout />
+      <Show when={kavalUpdatePending()}>
+        <KavalUpdateBadge />
+      </Show>
 
+      <KoluInfoDialog
+        open={koluDialogOpen()}
+        onOpenChange={setKoluDialogOpen}
+        status={props.status}
+        live={daemonLive()}
+        dotClass={serverDot(props.status, daemonLive())}
+      />
       <KavalInfoDialog
         open={kavalDialogOpen()}
         onOpenChange={setKavalDialogOpen}
