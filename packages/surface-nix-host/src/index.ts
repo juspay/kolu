@@ -65,6 +65,22 @@ export {
   provisionAgent,
 } from "./nixCopy";
 export {
+  type ReServedSurface,
+  type ReServeSurfaceOptions,
+  reServeSurface,
+} from "./reServeSurface";
+export {
+  type DeltaMembers,
+  type ForwardableStream,
+  NoLiveUpstreamError,
+  type RelayHoldOpenOptions,
+  type RelayPolicy,
+  type RelayStreamOptions,
+  relayFailThroughStream,
+  relayHoldOpenStream,
+  type ValueMembers,
+} from "./relayStream";
+export {
   type CaptureResult,
   type ExitResult,
   runCapture,

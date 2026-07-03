@@ -1,0 +1,325 @@
+/**
+ * The two per-member stream relays, over hand-driven fake clients (no transport,
+ * no session). Proves the behavioural split the forwarding policy names:
+ *
+ *   - `relayFailThroughStream` (delta) — forwards the current client 1:1 and ENDS
+ *     the downstream stream when the upstream link dies, NEVER rebinding.
+ *   - `relayHoldOpenStream` (value) — HOLDS the downstream open across an upstream
+ *     drop, rebinding to the next spawn; the only exit is a downstream abort.
+ *
+ * Plus the type-level guard: holding open a delta member (or failing through a
+ * value member) is a COMPILE error, so the "splice a replayed snapshot into a
+ * live xterm" corruption is unrepresentable, not a rule to remember.
+ */
+
+import { describe, expect, it } from "vitest";
+import { observableHolder } from "./hostFanout";
+import {
+  type ForwardableStream,
+  NoLiveUpstreamError,
+  type RelayPolicy,
+  relayFailThroughStream,
+  relayHoldOpenStream,
+} from "./relayStream";
+
+const delay = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** A stream whose frames the test pushes by hand, and which the test can end
+ *  cleanly (`end`) or kill with an error (`fail`, i.e. a mid-chain link death).
+ *  `stream(signal)` observes the caller's abort signal — rejecting a pending pull
+ *  with `signal.reason`, exactly as a real oRPC publisher does on teardown — so a
+ *  downstream abort actually unblocks the relay rather than hanging on an await. */
+interface Controllable<T> {
+  stream(signal?: AbortSignal): AsyncIterable<T>;
+  push(v: T): void;
+  end(): void;
+  fail(err: unknown): void;
+}
+function controllable<T>(): Controllable<T> {
+  const queue: T[] = [];
+  let wake: (() => void) | null = null;
+  let closed: "open" | "end" | { err: unknown } = "open";
+  const nudge = (): void => {
+    const w = wake;
+    wake = null;
+    w?.();
+  };
+  return {
+    stream(signal) {
+      return {
+        async *[Symbol.asyncIterator]() {
+          const onAbort = (): void => nudge();
+          signal?.addEventListener("abort", onAbort);
+          try {
+            while (true) {
+              while (queue.length > 0) yield queue.shift() as T;
+              if (signal?.aborted) throw signal.reason;
+              if (closed === "end") return;
+              if (typeof closed === "object") throw closed.err;
+              await new Promise<void>((r) => {
+                wake = r;
+              });
+            }
+          } finally {
+            signal?.removeEventListener("abort", onAbort);
+          }
+        },
+      };
+    },
+    push(v) {
+      queue.push(v);
+      nudge();
+    },
+    end() {
+      closed = "end";
+      nudge();
+    },
+    fail(err) {
+      closed = { err };
+      nudge();
+    },
+  };
+}
+
+const POLICY = {
+  liveBytes: "delta",
+  pulse: "value",
+} as const satisfies RelayPolicy;
+
+type ByteClient = { surface: { s: ForwardableStream<{ id: string }, string> } };
+type PulseClient = {
+  surface: { s: ForwardableStream<{ repo: string }, number> };
+};
+const selectByte = (c: ByteClient): ForwardableStream<{ id: string }, string> =>
+  c.surface.s;
+const selectPulse = (
+  c: PulseClient,
+): ForwardableStream<{ repo: string }, number> => c.surface.s;
+
+describe("relayFailThroughStream (delta)", () => {
+  it("forwards the current client 1:1, then ends the downstream when the upstream link dies — no rebind", async () => {
+    const up1 = controllable<string>();
+    const holder = observableHolder<ByteClient>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up1.stream(opts?.signal) } },
+    };
+
+    const relay = relayFailThroughStream(
+      POLICY,
+      "liveBytes",
+      holder,
+      selectByte,
+    );
+    const frames: string[] = [];
+    let error: unknown = null;
+    const run = (async () => {
+      try {
+        for await (const f of relay({ id: "t1" }, undefined)) frames.push(f);
+      } catch (err) {
+        error = err;
+      }
+    })();
+
+    up1.push("snapshot");
+    up1.push("live-1");
+    await delay();
+    expect(frames).toEqual(["snapshot", "live-1"]);
+
+    // Kill the middle hop: this spawn's upstream link dies mid-stream…
+    up1.fail(new Error("stdio link died"));
+    // …and even if the pump later swaps in a NEW live client, the fail-through
+    // relay must NOT rebind onto it (splicing a fresh snapshot into a live byte
+    // stream is exactly the corruption we forbid).
+    const up2 = controllable<string>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up2.stream(opts?.signal) } },
+    };
+    holder.onChange?.();
+    up2.push("spliced-should-never-appear");
+
+    await run;
+    expect((error as Error).message).toBe("stdio link died"); // downstream terminated
+    expect(frames).toEqual(["snapshot", "live-1"]); // no spliced frame
+  });
+
+  it("propagates a clean upstream end as a clean downstream end", async () => {
+    const up = controllable<string>();
+    const holder = observableHolder<ByteClient>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up.stream(opts?.signal) } },
+    };
+    const relay = relayFailThroughStream(
+      POLICY,
+      "liveBytes",
+      holder,
+      selectByte,
+    );
+    const frames: string[] = [];
+    const run = (async () => {
+      for await (const f of relay({ id: "t1" }, undefined)) frames.push(f);
+    })();
+    up.push("a");
+    up.end(); // PTY exit, say — a genuine end, not a link death
+    await run; // resolves cleanly (no throw)
+    expect(frames).toEqual(["a"]);
+  });
+
+  it("throws NoLiveUpstreamError when subscribed with no live client", async () => {
+    const holder = observableHolder<ByteClient>(); // current === null
+    const relay = relayFailThroughStream(
+      POLICY,
+      "liveBytes",
+      holder,
+      selectByte,
+    );
+    await expect(
+      (async () => {
+        for await (const _ of relay({ id: "t" }, undefined)) {
+          /* consume */
+        }
+      })(),
+    ).rejects.toBeInstanceOf(NoLiveUpstreamError);
+  });
+
+  it("ends cleanly (no throw) on a downstream abort", async () => {
+    const up = controllable<string>();
+    const holder = observableHolder<ByteClient>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up.stream(opts?.signal) } },
+    };
+    const relay = relayFailThroughStream(
+      POLICY,
+      "liveBytes",
+      holder,
+      selectByte,
+    );
+    const ctl = new AbortController();
+    const frames: string[] = [];
+    const run = (async () => {
+      for await (const f of relay({ id: "t1" }, ctl.signal)) {
+        frames.push(f);
+        ctl.abort(); // downstream unsubscribes after the first frame
+      }
+    })();
+    up.push("only");
+    await run;
+    expect(frames).toEqual(["only"]);
+  });
+});
+
+describe("relayHoldOpenStream (value)", () => {
+  it("holds the downstream open across an upstream respawn and replays after rebind", async () => {
+    const up1 = controllable<number>();
+    const holder = observableHolder<PulseClient>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up1.stream(opts?.signal) } },
+    };
+
+    const relay = relayHoldOpenStream(POLICY, "pulse", holder, selectPulse);
+    const frames: number[] = [];
+    const ctl = new AbortController();
+    const run = (async () => {
+      for await (const f of relay({ repo: "r" }, ctl.signal)) frames.push(f);
+    })();
+
+    up1.push(1);
+    await delay();
+    expect(frames).toEqual([1]);
+
+    // Upstream link blips (this spawn's stream ends). The relay must HOLD — the
+    // downstream stream must NOT complete.
+    up1.end();
+    await delay();
+
+    // The pump swaps in the next spawn: the relay rebinds and keeps yielding.
+    const up2 = controllable<number>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up2.stream(opts?.signal) } },
+    };
+    holder.onChange?.();
+    up2.push(2);
+    await delay();
+    expect(frames).toEqual([1, 2]); // held open across the drop, replayed after rebind
+
+    // The ONLY exit is a downstream abort.
+    ctl.abort();
+    up2.fail(new Error("teardown")); // wake the forward loop so it observes the abort
+    await run;
+  });
+
+  it("emits the optional lead frame on each bind", async () => {
+    const up = controllable<number>();
+    const holder = observableHolder<PulseClient>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up.stream(opts?.signal) } },
+    };
+    const relay = relayHoldOpenStream(POLICY, "pulse", holder, selectPulse, {
+      lead: 0,
+    });
+    const frames: number[] = [];
+    const ctl = new AbortController();
+    const run = (async () => {
+      for await (const f of relay({ repo: "r" }, ctl.signal)) frames.push(f);
+    })();
+    await delay();
+    expect(frames).toEqual([0]); // lead led the stream before any upstream frame
+    up.push(1);
+    await delay();
+    expect(frames).toEqual([0, 1]);
+    ctl.abort();
+    up.fail(new Error("teardown"));
+    await run;
+  });
+
+  it("holds (does not complete) while no client is live, then binds when one appears", async () => {
+    const holder = observableHolder<PulseClient>(); // current === null
+    const relay = relayHoldOpenStream(POLICY, "pulse", holder, selectPulse);
+    const frames: number[] = [];
+    const ctl = new AbortController();
+    let settled = false;
+    const run = (async () => {
+      for await (const f of relay({ repo: "r" }, ctl.signal)) frames.push(f);
+      settled = true;
+    })();
+    await delay();
+    expect(settled).toBe(false); // holding for the first spawn, not completed
+
+    const up = controllable<number>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up.stream(opts?.signal) } },
+    };
+    holder.onChange?.();
+    up.push(7);
+    await delay();
+    expect(frames).toEqual([7]);
+    ctl.abort();
+    up.fail(new Error("teardown"));
+    await run;
+  });
+});
+
+// ── Compile-time guard: the policy refuses the wrong member class ───────────
+//
+// These never run — they assert the TYPE. `@ts-expect-error` fails the build if
+// the line does NOT error, so it pins the guard: a byte stream can't be held open
+// and a value member can't be failed through. This is the "type error, not a
+// convention" the note demands — the corruption is unspellable.
+function _typeGuards(): void {
+  const holder = observableHolder<{
+    surface: Record<string, ForwardableStream<unknown, unknown>>;
+  }>();
+  const sel = (c: {
+    surface: Record<string, ForwardableStream<unknown, unknown>>;
+  }): ForwardableStream<unknown, unknown> =>
+    c.surface.x as ForwardableStream<unknown, unknown>;
+
+  // @ts-expect-error — "liveBytes" is a delta member; it cannot be held open.
+  relayHoldOpenStream(POLICY, "liveBytes", holder, sel);
+  // @ts-expect-error — "pulse" is a value member; it cannot be failed through.
+  relayFailThroughStream(POLICY, "pulse", holder, sel);
+
+  // The correct pairings compile.
+  relayHoldOpenStream(POLICY, "pulse", holder, sel);
+  relayFailThroughStream(POLICY, "liveBytes", holder, sel);
+}
+void _typeGuards;
