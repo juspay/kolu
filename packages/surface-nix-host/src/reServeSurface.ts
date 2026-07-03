@@ -41,7 +41,6 @@
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
 import {
-  type CellStore,
   type ImplementSurfaceDeps,
   implementSurface,
   inMemoryChannelByName,
@@ -124,10 +123,10 @@ export function reServeSurface<
     current: null,
   };
 
-  // Per-binding folded state — ONE set per reServeSurface call, shared by every
-  // downstream connection to this router (item 3: per-binding, not one global).
-  const cellStores = new Map<string, CellStore<unknown>>();
-  const collectionCaches = new Map<string, Map<unknown, unknown>>();
+  // Per-binding folded state — the cell stores + collection caches built into the
+  // deps below are minted ONCE per reServeSurface call, shared by every downstream
+  // connection to this router (item 3: per-binding, not one global). The data
+  // members the sink mirrors are exactly `spec.cells` / `spec.collections`.
 
   const requirePolicy = (member: string): "value" | "delta" => {
     const p = policy[member];
@@ -146,9 +145,9 @@ export function reServeSurface<
   // `session.onState`.
   const cellsDeps: Record<string, unknown> = {};
   for (const [key, cellSpec] of Object.entries(spec.cells ?? {})) {
-    const store = inMemoryStore((cellSpec as { default: unknown }).default);
-    cellStores.set(key, store);
-    cellsDeps[key] = { store };
+    cellsDeps[key] = {
+      store: inMemoryStore((cellSpec as { default: unknown }).default),
+    };
   }
   cellsDeps.connection = seedConnectionCell();
 
@@ -156,7 +155,6 @@ export function reServeSurface<
   const collectionsDeps: Record<string, unknown> = {};
   for (const key of Object.keys(spec.collections ?? {})) {
     const cache = new Map<unknown, unknown>();
-    collectionCaches.set(key, cache);
     collectionsDeps[key] = {
       readAll: () => cache,
       upsert: (k: unknown, v: unknown) => {
@@ -284,7 +282,7 @@ export function reServeSurface<
       }
     };
     const cells: Record<string, (v: unknown) => void> = {};
-    for (const key of cellStores.keys()) {
+    for (const key of Object.keys(spec.cells ?? {})) {
       const cell = ctx.cells[key];
       if (!cell) continue;
       cells[key] = (value) => {
@@ -296,7 +294,7 @@ export function reServeSurface<
       string,
       { upsert: (k: unknown, v: unknown) => void; remove: (k: unknown) => void }
     > = {};
-    for (const key of collectionCaches.keys()) {
+    for (const key of Object.keys(spec.collections ?? {})) {
       const coll = ctx.collections[key];
       if (!coll) continue;
       collections[key] = {
