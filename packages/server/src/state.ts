@@ -174,118 +174,101 @@ if (!stateDir) {
   );
 }
 
-log.info({ path: stateDir }, "state directory");
+const checkedStateDir = stateDir;
 
-export const STATE_CONFIG_FILE = "config.json";
+log.info({ path: checkedStateDir }, "state directory");
+
+const STATE_CONFIG_NAME = "config";
+const STATE_BACKUP_DIR = "backups";
+const STATE_BACKUP_FILE_PREFIX = `${STATE_CONFIG_NAME}.`;
+const STATE_BACKUP_FILE_SUFFIX = ".json";
+const BACKUP_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/;
+
+export const STATE_CONFIG_FILE = `${STATE_CONFIG_NAME}.json`;
 export const STATE_BACKUP_RETENTION = 10;
-
-const BACKUP_FILE_RE =
-  /^config\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.json$/;
-
-type StateBackupDeps = {
-  existsSync: typeof existsSync;
-  mkdirSync: typeof mkdirSync;
-  readFileSync: typeof readFileSync;
-  readdirSync: typeof readdirSync;
-  copyFileSync: typeof copyFileSync;
-  rmSync: typeof rmSync;
-};
-
-const fsBackupDeps: StateBackupDeps = {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  copyFileSync,
-  rmSync,
-};
-
-type StateBackupOptions = {
-  stateFilePath: string;
-  backupDir: string;
-  retention?: number;
-  now?: Date;
-  deps?: StateBackupDeps;
-  onFailure?: (err: unknown) => void;
-};
 
 function backupTimestamp(now: Date): string {
   return now.toISOString().replace(/[:.]/g, "-");
 }
 
-function listBackupFiles(
-  backupDir: string,
-  deps: Pick<StateBackupDeps, "readdirSync">,
-): string[] {
-  return deps
-    .readdirSync(backupDir)
-    .filter((file) => BACKUP_FILE_RE.test(file))
-    .sort();
+function backupFileName(now: Date): string {
+  return `${STATE_BACKUP_FILE_PREFIX}${backupTimestamp(now)}${STATE_BACKUP_FILE_SUFFIX}`;
 }
 
-function rotateBackupFiles(
-  backupDir: string,
-  backups: string[],
-  retention: number,
-  deps: Pick<StateBackupDeps, "rmSync">,
-): void {
+function statePaths(stateDir: string): {
+  stateFilePath: string;
+  backupDir: string;
+} {
+  return {
+    stateFilePath: join(stateDir, STATE_CONFIG_FILE),
+    backupDir: join(stateDir, STATE_BACKUP_DIR),
+  };
+}
+
+function isBackupFileName(file: string): boolean {
+  if (
+    !file.startsWith(STATE_BACKUP_FILE_PREFIX) ||
+    !file.endsWith(STATE_BACKUP_FILE_SUFFIX)
+  ) {
+    return false;
+  }
+
+  return BACKUP_TIMESTAMP_RE.test(
+    file.slice(
+      STATE_BACKUP_FILE_PREFIX.length,
+      -STATE_BACKUP_FILE_SUFFIX.length,
+    ),
+  );
+}
+
+function listBackupFiles(backupDir: string): string[] {
+  return readdirSync(backupDir).filter(isBackupFileName).sort();
+}
+
+function rotateBackupFiles(backupDir: string, backups: string[]): void {
   for (const stale of backups.slice(
     0,
-    Math.max(0, backups.length - retention),
+    Math.max(0, backups.length - STATE_BACKUP_RETENTION),
   )) {
-    deps.rmSync(join(backupDir, stale));
+    rmSync(join(backupDir, stale));
   }
 }
 
 /** Snapshot the pre-boot Conf file before migrations/autosave can write it.
  *  The live store is still fail-fast; this safety-net copy is deliberately
  *  best-effort and logs loudly instead of blocking boot. */
-export function backupStateFile({
-  stateFilePath,
-  backupDir,
-  retention = STATE_BACKUP_RETENTION,
-  now = new Date(),
-  deps = fsBackupDeps,
-  onFailure = (err) =>
-    log.error(
-      { err, stateFilePath, backupDir },
-      "state backup failed; boot continuing",
-    ),
-}: StateBackupOptions): void {
+export function backupStateFile(stateDir: string): void {
+  const { stateFilePath, backupDir } = statePaths(stateDir);
   try {
-    if (!deps.existsSync(stateFilePath)) return;
+    if (!existsSync(stateFilePath)) return;
 
-    deps.mkdirSync(backupDir, { recursive: true });
-    const current = deps.readFileSync(stateFilePath);
-    const existingBackups = listBackupFiles(backupDir, deps);
+    mkdirSync(backupDir, { recursive: true });
+    const current = readFileSync(stateFilePath);
+    const existingBackups = listBackupFiles(backupDir);
     const newest = existingBackups.at(-1);
     if (newest) {
-      const newestBytes = deps.readFileSync(join(backupDir, newest));
+      const newestBytes = readFileSync(join(backupDir, newest));
       if (current.equals(newestBytes)) {
-        rotateBackupFiles(backupDir, existingBackups, retention, deps);
+        rotateBackupFiles(backupDir, existingBackups);
         return;
       }
     }
 
-    const backupFile = `config.${backupTimestamp(now)}.json`;
-    deps.copyFileSync(
+    copyFileSync(
       stateFilePath,
-      join(backupDir, backupFile),
+      join(backupDir, backupFileName(new Date())),
       fsConstants.COPYFILE_EXCL,
     );
 
-    const backups = listBackupFiles(backupDir, deps);
-    rotateBackupFiles(backupDir, backups, retention, deps);
+    const backups = listBackupFiles(backupDir);
+    rotateBackupFiles(backupDir, backups);
   } catch (err) {
-    onFailure(err);
+    log.error(
+      { err, stateFilePath, backupDir },
+      "state backup failed; boot continuing",
+    );
   }
 }
-
-const stateFilePath = join(stateDir, STATE_CONFIG_FILE);
-backupStateFile({
-  stateFilePath,
-  backupDir: join(stateDir, "backups"),
-});
 
 /** Apply a per-terminal record transform across the saved session's terminals —
  *  the shape every terminal-touching migration step shares. No-op when no
@@ -306,12 +289,15 @@ function mapSessionTerminals(
   });
 }
 
-export const store = new Conf<PersistedState>({
-  cwd: stateDir,
-  configName: "config",
+const stateStoreOptions = {
+  cwd: checkedStateDir,
+  configName: STATE_CONFIG_NAME,
   projectVersion: SCHEMA_VERSION,
   defaults: {
-    activityFeed: { recentRepos: [], recentAgents: [] } satisfies ActivityFeed,
+    activityFeed: {
+      recentRepos: [],
+      recentAgents: [],
+    } satisfies ActivityFeed,
     session: null,
     preferences: DEFAULT_PREFERENCES,
   },
@@ -687,7 +673,14 @@ export const store = new Conf<PersistedState>({
       );
     },
   },
-});
+};
+
+function openStateStore(): Conf<PersistedState> {
+  backupStateFile(checkedStateDir);
+  return new Conf<PersistedState>(stateStoreOptions);
+}
+
+export const store = openStateStore();
 
 // Early validation so corrupt state shows up in journalctl immediately at
 // startup, not only when the first client connects. Validates the aggregate
