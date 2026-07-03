@@ -4,7 +4,7 @@ description: The architecture that replaces the R9/R10 finale plan for remote te
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-07-02
+updated: 2026-07-03
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -28,8 +28,8 @@ export const ROADMAP = [
   { d: 1, g: "✓", c: "ship", l: "W1.R · the rewiring — serve complete · client onto the surface · root RPC dies · seal", m: "in #1652", h: "#w1r" },
   { d: 0, g: "○", c: "prog", l: "W2 · padi the process — 3 PRs ↓ · byte-identical · warm restarts", m: "needs W1 ✓", h: "#w2" },
   { d: 1, g: "✓", c: "ship", l: "W2.1 · the re-serve machinery in @kolu/surface* — forwarding policy · per-binding scope", m: "#1661 · drishti #84 adopts", h: "#w21" },
-  { d: 1, g: "▶", c: "prog", l: "W2.2 · padi the process — ONE PR: binary + identity + owns kaval + the cutover (bind · re-serve · store migration)", m: "all gates ✓ — READY", h: "#w22" },
-  { d: 1, g: "○", c: "prog", l: "W2.3 · padi-tui born + the burial — wait/status/create/worktree verbs · pulam* retired · terminalWorkspaceSurface DELETED", m: "needs W2.2", h: "#w23" },
+  { d: 1, g: "✓", c: "ship", l: "W2.2 · padi the process — ONE PR: binary + identity + owns kaval + the cutover (bind · re-serve · store migration)", m: "#1664 · 2026-07-03", h: "#w22" },
+  { d: 1, g: "▶", c: "prog", l: "W2.3 · dial carve + padi-tui born + the burial — wait/status/create/worktree · pulam* retired · terminalWorkspaceSurface DELETED", m: "READY — W2.2 ✓", h: "#w23" },
   { d: 0, g: "○", c: "prog", l: "W3 · remote + the switch — 3 PRs ↓ · the user-visible feature", m: "needs W2", h: "#w3" },
   { d: 1, g: "○", c: "prog", l: "W3.1 · the remote binding — provision + front a remote padi (complete, invisible)", m: "parity e2e on a pu box", h: "#w31" },
   { d: 1, g: "○", c: "prog", l: "W3.2 · the switch — binding pool · per-view scope · host picker · clock handshake", m: "needs W3.1", h: "#w32" },
@@ -67,7 +67,7 @@ export const LENS = [
     sub: [["C",2,false,true],["M",2,false,true],["R",4,true,true]] },
   { p: "W2", h: "#w2", user: "nothing — except kolu-server restarts stop losing terminal metadata", vis: false, work: 5, why: "process split · new daemon identity · re-serve machinery (drishti-gated) · store migration",
     beh: "the big shift, behind identical pixels — Δ2.2 a second daemon appears; sockets get new names (kaval-<port> retires); keystrokes take one extra hop (budget < 5ms); boot order changes; the session file moves (one-time import) · Δ2.3 `pulam-tui wait` becomes padi's wait",
-    sub: [["2.1",4,false,true],["2.2",5,true],["2.3",2,true]] },
+    sub: [["2.1",4,false,true],["2.2",5,true,true],["2.3",2,true]] },
   { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)",
     beh: "Δ3.2 each connection now belongs to one host — the client rebuilds its plumbing when you switch · Δ3.3 notifications now fire for hosts you are not looking at (3.1 ships switched off by default)",
     sub: [["3.1",2],["3.2",3,true],["3.3",1,true]] },
@@ -302,7 +302,9 @@ W1.R's seal guarantees the domain lives behind the contract, complete as a libra
 
 <a id="w22"></a>
 
-#### W2.2 — padi the process: the binary AND the cutover, one PR *(gates all ✓ — W2.1 <PrLink pr={1661} />, baseline <PrLink pr={1660} />; two commit stages inside the ONE PR — nothing here is a separate PR)*
+#### W2.2 — padi the process: the binary AND the cutover — *shipped* <PrLink pr={1664} /> *(one PR, two commit stages)*
+
+**Shipped 2026-07-03** (squash `590f49e48`), fully green both platforms, drishti #85 re-pinned at the final head. Beyond the plan, the endgame rounds (a 5-axis pre-gauntlet review, the gauntlet, six adoption VM tests, and three live defects srid caught dogfooding) added: the **newest-wins auto-drain arm** (a newer binder drains a skewed padi via the control core and respawns its own closure — upgrades converge without a human; an older binder is refused, never recycles anything); **Restart-kaval restored to its label** (a padiSurface procedure: freeze autosave → capture+park → recycle kaval → restore, padi staying up — the W1 invariant tests regained their production caller); the **migration adopter** (a pre-W2.2→W2.2 deploy ADOPTS the running port-keyed kaval — live agents survive the upgrade; converges to digest on the next recycle or reboot, the reboot bound pinned by a VM arm; this replaced a reap I had wrongly ruled — **deploy-adoption is doctrine: a deploy must adopt a compatible daemon and its live PTYs; restore is the path for a DEAD daemon only**); the **legacy-conf copy-aside** (`.pre-padi-import.bak`) before the one-shot import; `KAVAL_BUILD_ID` **baked** into padi's wrapper (the kaval-update nudge lives); **padiLink** on the shell surface (a padi drop shows honest connecting/degraded — padi cannot serve its own unreachability); the **split-restore trio** (client reconcile gated on daemon state · `viewSeeded` reset on in-session restore · **parked records immutable** — the record-level no-non-user-writer invariant); the **capture merge** (parked ∪ live, deduped by id, live wins — a restore-pending session can never be shrunk by a restart); the **3-process memory rail** (kolu-server · padi · kaval, event-driven — the one sanctioned pixel delta); `RemoteMirrorSession` published with the **variance fix** (consumer side generic in C; a compile-time pin encodes drishti's shape locally); and the measured hop: **+1.3 ms p99** against the +5 budget. Original plan text below, kept as the record.
 
 **Commit stage 1 — the binary and its identity.** `packages/padi` has existed since W1; this stage gives it a **process entry** and its own Nix build, and kaval's rule starts applying: the package IS the process IS the restart-hash — the boundary was drawn back in W1, so nothing moves, it just gains a `main`. Identity per the architecture section: persistent state-root with the default **spelled by the padi binary on the host**; **digest-keyed runtime rendezvous** (`padi-<digest>/`, gates auto-invalidate at boot); 0700 socket; the frozen **control core** (hello · version · drain · `clock.now`) served for real. **The daemon-pairing work extends what W1 already shipped** — `lastPairedDaemon` (matched by `startedAt`), `isReplacedDaemon`, and the preserve-and-park boot are live on master. This stage moves that pairing record into the state-root and may strengthen the match (pid, and the handshake identity where present). padi **spawns-or-adopts its kaval** under `kaval-<digest>/` (retiring `kaval-<port>`), and `kaval-tui`'s **discovery + labels move to the digest pattern + a manifest (digest → state-root) in the same stage** — a flag-less `kaval-tui` keeps working throughout. *Stage acceptance: a dial test (kaval-tui-style) spawns-or-adopts padi at a private state-root, handshakes the control core, round-trips a terminal through `padiSurface` over the socket; two padis at distinct state-roots never touch each other's kaval (the #1313 property, by construction); `nix build` produces the padi closure with a stable staleKey.*
 
