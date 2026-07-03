@@ -317,4 +317,79 @@ describe("setSavedSessionFromSnapshot — the drain-path no-shrink receptacle", 
     expect(getSavedSession()?.terminals[0]?.id).toBe(fresh.id);
     expect(getSavedSession()?.activeTerminalId).toBe(fresh.id);
   });
+
+  // ── The no-shrink MERGE guard (restore-pending capture) ──────────────────
+  // The PATH-B capture bug: a restore is pending (N parked entries stand for N
+  // on-disk records that `snapshotSession` EXCLUDES) AND the user has created a
+  // fresh live terminal (create no longer forfeits the parked set). A plain
+  // persist of the parked-excluding snapshot would OVERWRITE the N-record blob with
+  // a 1-record one and `parkSavedSession` would then drop the N pending terminals.
+  // The guard MERGES (union by id, live-wins) so nothing shrinks.
+  it("MERGE: restore-pending capture (2 parked + 1 live) persists the UNION — exactly 3 records, the live one fresh (no shrink)", () => {
+    // On disk: 2 ACTIVE records (savedBlob ids 1111/2222), stood up as 2 PARKED
+    // entries under the SAME ids — snapshotSession filters those out.
+    setSavedSession(savedBlob());
+    registerParked("11111111-1111-4111-8111-111111111111");
+    registerParked("22222222-2222-4222-8222-222222222222");
+    // The user creates ONE fresh live terminal (cwd `/work/repo` from activeSnapshot).
+    registerActive(ACTIVE_ID);
+    // The hazard: the parked-excluding snapshot names ONLY the live terminal.
+    expect(snapshotSession().terminals.map((t) => t.id)).toEqual([ACTIVE_ID]);
+
+    setSavedSessionFromSnapshot(snapshotSession());
+
+    const saved = getSavedSession();
+    // COUNT: exactly N+1 = 3 records, no duplicates, no shrink.
+    expect(saved?.terminals.map((t) => t.id).sort()).toEqual(
+      [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+        ACTIVE_ID,
+      ].sort(),
+    );
+    // CONTENT: the two pending records survived from disk…
+    expect(
+      saved?.terminals.find(
+        (t) => t.id === "11111111-1111-4111-8111-111111111111",
+      )?.state,
+    ).toBe("active");
+    // …and the live record carries its FRESH captured state, not a stale/parked copy.
+    const live = saved?.terminals.find((t) => t.id === ACTIVE_ID);
+    expect(live?.state).toBe("active");
+    if (live?.state === "active") expect(live.cwd).toBe("/work/repo");
+  });
+
+  it("MERGE collision: an id in BOTH the on-disk set AND the live capture yields ONE record — the LIVE one winning", () => {
+    // On disk: 1111 (cwd /a) + 2222 (cwd /b). The user RESTORED 1111 (parked→active
+    // flip done → a LIVE active under id 1111, cwd /work/repo) while 2222 is STILL
+    // parked — and the on-disk blob has not been rewritten when Restart lands.
+    setSavedSession(savedBlob());
+    registerActive("11111111-1111-4111-8111-111111111111"); // restored → live
+    registerParked("22222222-2222-4222-8222-222222222222"); // still pending
+    // snapshotSession filters the parked 2222 → only the live 1111.
+    expect(snapshotSession().terminals.map((t) => t.id)).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+    ]);
+
+    setSavedSessionFromSnapshot(snapshotSession());
+
+    const saved = getSavedSession();
+    // Exactly 2 records — NO duplicate for the collided id 1111.
+    expect(saved?.terminals.length).toBe(2);
+    const collided = saved?.terminals.filter(
+      (t) => t.id === "11111111-1111-4111-8111-111111111111",
+    );
+    expect(collided?.length).toBe(1);
+    // The LIVE capture WON: cwd is the live snapshot's /work/repo, NOT the stale
+    // on-disk /a. A merge that kept the disk copy (or duplicated) fails here.
+    const won = collided?.[0];
+    expect(won?.state).toBe("active");
+    if (won?.state === "active") expect(won.cwd).toBe("/work/repo");
+    // The still-pending 2222 survived from disk.
+    expect(
+      saved?.terminals.find(
+        (t) => t.id === "22222222-2222-4222-8222-222222222222",
+      ),
+    ).toBeTruthy();
+  });
 });

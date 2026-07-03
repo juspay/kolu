@@ -36,6 +36,7 @@ import {
   cancelPendingAutosave,
   getSavedSession,
   initSessionAutoSave,
+  setSavedSession,
   unfreezeSessionForRestart,
 } from "../session.ts";
 import {
@@ -45,9 +46,14 @@ import {
   terminalEntries,
   unregisterTerminal,
 } from "../terminal-registry.ts";
+import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { snapshotSession } from "../terminals.ts";
 import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
-import type { AuthoredActiveTerminal, SavedSession } from "../vocab.ts";
+import type {
+  AuthoredActiveTerminal,
+  SavedActiveTerminal,
+  SavedSession,
+} from "../vocab.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
 import { __setEndpointForTest } from "./index.ts";
 import { restartLocalDaemon } from "./restartLocal.ts";
@@ -78,6 +84,21 @@ function seedActive(id: string, cwd: string): void {
     snapshot: activeSnapshot(cwd),
     handle: {} as ActiveTerminalProcess["handle"],
   });
+}
+
+/** One saved ACTIVE record — the on-disk shape a restore card offers, and what
+ *  `parkSavedSession` stands up as a parked entry. */
+function savedActiveRec(id: string, cwd: string): SavedActiveTerminal {
+  return {
+    id,
+    state: "active",
+    cwd,
+    lastActivityAt: 5,
+    restoreTarget: { kind: "none" },
+    git: null,
+    pr: { kind: "absent" },
+    location: LOCAL_LOCATION,
+  };
 }
 
 /** A padi ctx whose `session` cell is a real in-memory store so
@@ -203,5 +224,53 @@ describe("restartLocalDaemon — the in-app Restart kaval path must not lose the
     expect(getSavedSession()?.terminals.length).toBe(2);
     expect(getTerminal(A_ID)?.meta.state).toBe("parked");
     expect(getTerminal(B_ID)?.meta.state).toBe("parked");
+  });
+
+  it("NO-SHRINK: a restart with a restore ALREADY pending (parked) + a live terminal preserves the UNION (N+1), never the shrunken 1-record blob", async () => {
+    // Rebuild the precondition from scratch — the beforeEach's two live actives are
+    // not part of this scenario.
+    for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
+
+    // Restore PENDING: two saved ACTIVE records on disk, stood up as two PARKED
+    // registry entries — exactly what padi's boot/park produces while a restore
+    // card is showing (`snapshotSession` deliberately EXCLUDES the parked pair).
+    const P1 = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const P2 = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    setSavedSession({
+      terminals: [
+        savedActiveRec(P1, "/pending-1"),
+        savedActiveRec(P2, "/pending-2"),
+      ],
+      activeTerminalId: null,
+      savedAt: 1,
+    });
+    parkSavedSession(); // seed the two parked entries from that saved session
+    expect(getTerminal(P1)?.meta.state).toBe("parked");
+    expect(getTerminal(P2)?.meta.state).toBe("parked");
+
+    // The user then creates ONE fresh live terminal (create no longer forfeits the
+    // parked set — PATH B): the restore stays pending AND a live terminal exists.
+    seedActive(A_ID, "/live");
+    // The parked-excluding snapshot names ONLY the live terminal — the shrink hazard.
+    expect(snapshotSession().terminals.map((t) => t.id)).toEqual([A_ID]);
+
+    // Restart kaval: capture MERGES (2 pending ∪ 1 live = 3), drain clears the
+    // registry, park re-seeds all 3 from the merged blob.
+    await restartLocalDaemon();
+
+    // No shrink: the saved blob holds ALL three — the two pending PLUS the live one
+    // — not the 1-record blob an un-merged capture would have written (which
+    // parkSavedSession would then read, dropping the two pending terminals forever).
+    expect(
+      getSavedSession()
+        ?.terminals.map((t) => t.id)
+        .sort(),
+    ).toEqual([P1, P2, A_ID].sort());
+    // …and the post-restart restore offers exactly those three (parked per record).
+    const parkedIds = [...terminalEntries()]
+      .filter(([, e]) => e.meta.state === "parked")
+      .map(([id]) => id)
+      .sort();
+    expect(parkedIds).toEqual([P1, P2, A_ID].sort());
   });
 });
