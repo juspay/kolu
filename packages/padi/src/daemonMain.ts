@@ -36,7 +36,11 @@ import {
 } from "./confStores.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
 import { importLegacyConfigOnce } from "./importLegacy.ts";
-import { ensureKoluRoot, setDaemonProcessId } from "./koluRoot.ts";
+import {
+  ensureKoluRoot,
+  setDaemonProcessId,
+  shutdownCleanup,
+} from "./koluRoot.ts";
 import { log as padiLog } from "./log.ts";
 import { startPadiMemorySampler } from "./memorySampler.ts";
 import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
@@ -145,6 +149,16 @@ export async function runPadiDaemon(
   setSpawnServerVersion(opts.spawnVersion || currentPadiCommitHash() || "dev");
   configureNixShellEnv(opts.nixShellWhitelist);
   ensureKoluRoot();
+  // padi OWNS its per-process scratch root now (the W2.2 move off kolu-server):
+  // the shell rc files, per-terminal scratch, and upload/init files live under
+  // `${runtimeRoot}/kolu-<padi-pid>`. Register the wipe on `exit` — the same hook
+  // kolu-server used before the cutover — so a normal padi drain/restart (which
+  // ends the process) removes the root instead of leaking it. Registered only
+  // AFTER `ensureKoluRoot` created the dir (a lost gate-race returns above, never
+  // reaching here), and after `setDaemonProcessId` so `koluRoot()` resolves. A
+  // hard kill / power loss bypasses `exit` (the XDG logout-wipe is the backstop),
+  // exactly as before.
+  process.on("exit", shutdownCleanup);
   initSessionAutoSave(snapshotSession);
 
   // ── The drain trigger ── control-core `drain` persists + exits; the caller

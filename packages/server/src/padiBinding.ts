@@ -59,6 +59,14 @@ import type {
 } from "@kolu/surface-nix-host";
 import { log } from "./log.ts";
 
+/** How long `drainBoundPadi` waits for the socket to CLOSE after the drain RPC
+ *  rejects, before treating the rejection as a real failure. A drain that reached
+ *  padi persists + exits near-instantly, so the close follows within a beat; this
+ *  ceiling only bounds the wait for a rejection that is NOT the expected teardown
+ *  (a stale link, or an `onDrain` that threw before persisting) so the "restart"
+ *  verb reports failure instead of hanging. */
+const DRAIN_TEARDOWN_CEILING_MS = 2000;
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 /** The client the dial produces — typed to the COMBINED contract, so the
@@ -211,15 +219,21 @@ function daemonEnv(resolvedStateRoot: string): Record<string, string> {
 /** Resolve how to launch padi: the built wrapper in production (`KOLU_PADI_BIN`),
  *  or the from-source `node --import <tsx> packages/padi/src/bin.ts` shape in
  *  dev/e2e. Twin of `resolveKavalLaunch`. padi is ALWAYS told its state-root via
- *  `--state-root` (so the digest, socket, and its kaval all follow it), and the
- *  nix-shell whitelist via `--allow-nix-shell-with-env-whitelist` when set. */
+ *  `--state-root` (so the digest, socket, and its kaval all follow it), the
+ *  nix-shell whitelist via `--allow-nix-shell-with-env-whitelist` when set, and the
+ *  kolu app version via `--spawn-version` — so spawned PTYs' `TERM_PROGRAM_VERSION`
+ *  stays the kolu app version (byte-identical to the pre-cutover in-process spawn),
+ *  not padi's own commit hash. Omit the version → padi falls back to its own commit
+ *  (a standalone padi with no binder to forward the app version). */
 export function resolvePadiLaunch(
   stateRoot: string,
   nixShellWhitelist: string | undefined,
+  spawnVersion: string | undefined,
 ): { binPath: string; args: string[] } {
   const baseArgs = ["--state-root", stateRoot];
   if (nixShellWhitelist != null)
     baseArgs.push("--allow-nix-shell-with-env-whitelist", nixShellWhitelist);
+  if (spawnVersion != null) baseArgs.push("--spawn-version", spawnVersion);
 
   const wrapper = process.env.KOLU_PADI_BIN;
   if (wrapper) return { binPath: wrapper, args: baseArgs };
@@ -251,8 +265,13 @@ export function resolvePadiLaunch(
 export function localPadiDriver(
   stateRoot: string,
   nixShellWhitelist: string | undefined,
+  spawnVersion: string | undefined,
 ): DaemonDriver {
-  const { binPath, args } = resolvePadiLaunch(stateRoot, nixShellWhitelist);
+  const { binPath, args } = resolvePadiLaunch(
+    stateRoot,
+    nixShellWhitelist,
+    spawnVersion,
+  );
   const fromSource =
     !process.env.KOLU_PADI_BIN || process.env.KOLU_PADI_SPAWN === "detached";
   return survivableSpawnDriver({
@@ -417,15 +436,45 @@ export class PadiBindingSession
    *  invoke the FROZEN control core's `drain` over the COMBINED dialed client —
    *  padi persists its layout + exits, its kaval + PTYs survive, the socket closes
    *  → the endpoint flips to degraded → the reconnect loop re-spawns padi onto the
-   *  surviving kaval. NEVER a kill-9. The call may resolve OR reject as the socket
-   *  tears down mid-response — either way the drain reached the core and did its
-   *  job (the reconnect loop takes it from there). */
+   *  surviving kaval. NEVER a kill-9.
+   *
+   *  The drain RPC races its own teardown: padi's `onDrain` persists then triggers
+   *  the exit that closes the socket, so the reply may or may not flush before the
+   *  socket dies mid-write — a rejection is EXPECTED there and NOT a failure. But a
+   *  rejection is NOT proof the drain landed either: a stale link that never reached
+   *  padi, or an `onDrain` that threw before it persisted, also reject. So the
+   *  ground truth is the SOCKET CLOSE — the same signal the endpoint reads to flip
+   *  to `degraded` — not the call's resolve/reject. A clean resolve means padi
+   *  replied (drain landed). A rejection is accepted ONLY if the socket then closes
+   *  within the teardown window; a rejection with the link still UP is a real
+   *  failure and is surfaced (fail-fast), so the "restart" verb never reports
+   *  success on a drain that did not happen. */
   async drainBoundPadi(): Promise<void> {
     const conn = this.deps.endpoint.current();
     if (!conn) {
       throw new Error("padi is not bound — cannot drain (the daemon is down)");
     }
-    await conn.client.surface.control.core.drain().catch(() => {});
+    try {
+      await conn.client.surface.control.core.drain();
+      // Clean resolve — padi replied before its socket tore down. Drain landed.
+    } catch (err) {
+      // The call rejected. Accept it as the expected mid-response teardown ONLY if
+      // the socket actually closes (padi persisted + exited); otherwise the drain
+      // never took, so rethrow the original error rather than fake a success.
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        conn.onClose(() => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        });
+        setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          reject(err);
+        }, DRAIN_TEARDOWN_CEILING_MS);
+      });
+    }
   }
 
   private setState(s: HostSessionState): void {
@@ -446,6 +495,11 @@ export interface EnsurePadiBindingOptions {
   stateRoot?: string;
   /** The nix-shell env whitelist forwarded to padi as its CLI flag. */
   nixShellWhitelist?: string;
+  /** The kolu app version to stamp as spawned PTYs' `TERM_PROGRAM_VERSION`,
+   *  forwarded to padi's `--spawn-version` so the terminal identity stays the kolu
+   *  app version (not padi's own commit). Omitted → padi falls back to its own
+   *  commit/`dev` (a standalone padi with no binder forwarding the app version). */
+  spawnVersion?: string;
   /** Reconnect backoff (test hook). */
   reconnectDelayMs?: number;
 }
@@ -490,7 +544,11 @@ export async function ensurePadiBinding(
     hostId: PADI_HOST_ID,
     gatePath, // reuse padi's pid gate as-is.
     socketPath,
-    driver: localPadiDriver(stateRoot, opts.nixShellWhitelist),
+    driver: localPadiDriver(
+      stateRoot,
+      opts.nixShellWhitelist,
+      opts.spawnVersion,
+    ),
     connect: () => connectPadi(socketPath),
     log,
     onStatus: (_hostId, status) => {

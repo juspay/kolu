@@ -40,6 +40,10 @@ Options:
   --allow-nix-shell-with-env-whitelist LIST
                       forward a Nix-devshell env whitelist to PTY spawns (matches
                       kolu-server's flag), comma-separated.
+  --spawn-version VER the value stamped as spawned PTYs' TERM_PROGRAM_VERSION.
+                      The binder forwards the kolu app version here so terminal
+                      identity is byte-identical to the pre-cutover in-process
+                      spawn; standalone, padi defaults to its own commit hash.
   -h, --help          show this help
 
 Bind a running padi from kolu-server, or drive its kaval with \`kaval-tui\`.`;
@@ -65,6 +69,7 @@ const { values } = parseArgs({
     "state-root": { type: "string" },
     socket: { type: "string" },
     "allow-nix-shell-with-env-whitelist": { type: "string" },
+    "spawn-version": { type: "string" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -78,6 +83,7 @@ runPadiDaemon({
   stateRoot: values["state-root"],
   socketOverride: values.socket,
   nixShellWhitelist: values["allow-nix-shell-with-env-whitelist"],
+  spawnVersion: values["spawn-version"],
   log: stderrLogger(),
 })
   .then((exit) => {

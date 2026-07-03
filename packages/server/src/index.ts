@@ -102,7 +102,9 @@ const PWA_BACKGROUND_COLOR = "#0c0c0e";
 const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
 
 // `--verbose` drops the server's logger to debug. padi runs in its OWN process
-// now (with its own `--verbose`), so there is no in-process padi logger to lower.
+// now, and its stderr logger emits EVERY level unconditionally (no level filter —
+// see `stderrLogger` in `@kolu/padi`'s bin), so there is no in-process padi logger
+// here to raise and no `--verbose` to forward — padi already logs at full detail.
 if (argv.flags.verbose) {
   log.level = "debug";
 }
@@ -192,6 +194,10 @@ const padiSession = await ensurePadiBinding({
   // spawns PTYs — padi's kaval does — so `configureNixShellEnv` is FORWARDED to
   // padi, not called here).
   nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
+  // Forward the kolu app version so spawned PTYs' `TERM_PROGRAM_VERSION` stays the
+  // kolu app version (byte-identical to the pre-cutover in-process spawn), not
+  // padi's own commit hash. padi stamps this via its `--spawn-version` flag.
+  spawnVersion: serverVersion,
 });
 
 // Pin the contract type param explicitly: `padiSession` is a concrete
@@ -332,11 +338,15 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
     ({ repoRoot } = await client.surface.preview.repoRootForTerminal({
       terminalId,
     }));
-  } catch {
-    // An unknown/malformed terminal id (or a transient link drop) — no repo to
-    // serve. The retired in-process route returned 404 for an unknown terminal
-    // too (`snapshotFor` → undefined), so this stays behaviour-preserving.
-    return c.text("terminal has no repo", 404);
+  } catch (err) {
+    // padi's `repoRootForTerminal` returns `{ repoRoot: null }` for an
+    // unknown/unmapped terminal — it never THROWS for the no-repo case (that is
+    // the `if (!repoRoot)` 404 below). So a thrown error here is an OPERATIONAL
+    // failure of the bound link (padi went down mid-read, a protocol error, an
+    // unexpected handler fault), NOT "no repo". Surface it as a 503 so the real
+    // fault is visible instead of masqueraded as an ordinary missing-file 404.
+    log.error({ err, terminalId }, "padi repoRoot resolve failed (link fault)");
+    return c.text("padi link fault resolving terminal repo", 503);
   }
   if (!repoRoot) return c.text("terminal has no repo", 404);
 
@@ -401,12 +411,26 @@ if (clientDist) {
   installFreshStatic(app, { root: clientDist, serviceWorker: "notify" });
 }
 
+// The reading returned when padi is BELIEVED up (a live bound client) yet its
+// memory read fails — a link drop mid-read, a schema/protocol fault, an empty
+// subscription. Both processes fold to the honest `error` (not `absent`): padi's
+// `ProcessRss` schema keeps `error` distinct from `absent` precisely so a failed
+// read never renders identically to "no process to measure" (the
+// `caught-error-must-not-collapse-to-empty` rule). `absent` is reserved for the
+// true no-client case (padi genuinely down), returned as `null` below.
+const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
+  padi: { status: "error" },
+  kaval: { status: "error" },
+};
+
 // Read padi's `{ padi, kaval }` memory pair off the bound session — a one-shot
 // read of padi's `processMemory` cell (a snapshot-first subscription; take the
-// first frame — padi's last published value — and stop). Returns `null` when padi
-// is down (no live client), so the fold reports padi + kaval as the honest
-// `absent`, never a fake zero. kaval runs inside the padi process now, so padi (not
-// kolu-server) is the source of that pair; the sampler folds it in below.
+// first frame — padi's last published value — and stop). Returns `null` ONLY when
+// padi is down (no live client), so the fold reports padi + kaval as the honest
+// `absent`, never a fake zero; a read that FAILS through a live client returns the
+// `error` reading instead (never `null`), so a real anomaly stays distinct from
+// `absent`. kaval runs inside the padi process now, so padi (not kolu-server) is the
+// source of that pair; the sampler folds it in below.
 async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
   const clientPromise = padiSession.currentClient();
   if (!clientPromise) return null;
@@ -427,12 +451,17 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
       { signal: ctl.signal },
     );
     for await (const frame of iterable) return frame;
-    return null;
-  } catch {
-    // A transient link drop / read failure — no reading this tick; the fold reports
-    // absent rather than crashing the sampler (padi's liveness rides the re-serve's
-    // own `connection` cell).
-    return null;
+    // The client was live but the cell yielded no frame — an anomaly, not "no
+    // process to measure". Report `error`, not `absent`.
+    log.warn({}, "padi memory read yielded no frame through a live client");
+    return PADI_MEMORY_READ_ERROR;
+  } catch (err) {
+    // padi was BELIEVED up (a live client) yet the read threw — surface the honest
+    // `error` state, distinct from `absent`, rather than collapsing a caught error
+    // to the empty "no process" reading. padi's liveness still rides the re-serve's
+    // own `connection` cell; this only affects the memory rail's three-way readout.
+    log.warn({ err }, "padi memory read failed through a live client");
+    return PADI_MEMORY_READ_ERROR;
   } finally {
     ctl.abort();
   }
