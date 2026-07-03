@@ -14,6 +14,7 @@ const isActive = (p: string) =>
 // logo already links home, so "Get started" is the safe one to hide there.
 const nav = [
   { label: 'Get started', href: `${href('/')}#quickstart`, path: '/', hideOnMobile: true },
+  { label: 'Architecture', href: href('/architecture'), path: '/architecture' },
   { label: 'Changelog', href: href('/changelog'), path: '/changelog' },
   { label: 'Blog', href: href('/blog'), path: '/blog' },
   { label: 'Discord', href: 'https://discord.com/invite/9acjNV8nmS', external: true },
