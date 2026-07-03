@@ -51,7 +51,11 @@ import {
   type EndpointStatus,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import type { AgentClient, HostSessionState } from "@kolu/surface-nix-host";
+import type {
+  AgentClient,
+  HostSessionState,
+  RemoteMirrorSession,
+} from "@kolu/surface-nix-host";
 import { log } from "./log.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -287,17 +291,6 @@ export function localPadiDriver(
 //    so the pump sees a fresh client per (re)bind.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The subset of `HostSession` `reServeSurface` + `pumpRemoteSurface` actually use
- *  (they cast a duck-typed object `as unknown as HostSession<C>`). */
-interface ReServeSession {
-  pin(): Promise<PadiSurfaceClient>;
-  isDestroyed(): boolean;
-  currentClient(): Promise<PadiSurfaceClient> | null;
-  onState(cb: (s: HostSessionState) => void): () => void;
-  markConnected(): void;
-  destroy(): void;
-}
-
 /** Project an endpoint status onto the browser-facing `HostSessionState` the
  *  connection cell reads (via `pipeSessionStateToCell`). The endpoint's
  *  connecting|connected|degraded|dead|restarting collapse onto the cell's
@@ -339,7 +332,9 @@ export interface PadiBindingSessionDeps {
  * pump's client cursor advances on identity. `currentClient()`/`pin()` return the
  * padi-SIBLING-scoped client (`scopeSibling(combined, "padi")`).
  */
-export class PadiBindingSession implements ReServeSession {
+export class PadiBindingSession
+  implements RemoteMirrorSession<typeof padiSurface.contract>
+{
   private clientPromise: Promise<PadiSurfaceClient> | null = null;
   private destroyed = false;
   /** A reconnect timer is already scheduled — so overlapping degraded/dead events

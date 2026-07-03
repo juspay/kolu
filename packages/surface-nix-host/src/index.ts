@@ -58,6 +58,7 @@ export {
   HostSession,
   type HostSessionOptions,
   type HostSessionState,
+  type RemoteMirrorSession,
 } from "./hostSession";
 export {
   type ProvisionOptions,

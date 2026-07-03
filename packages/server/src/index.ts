@@ -23,7 +23,7 @@ import {
   installFreshStatic,
   installPwaManifest,
 } from "@kolu/surface-app/server";
-import { type HostSession, reServeSurface } from "@kolu/surface-nix-host";
+import { reServeSurface } from "@kolu/surface-nix-host";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -194,10 +194,19 @@ const padiSession = await ensurePadiBinding({
   nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
 });
 
-const reServedPadi = reServeSurface({
+// Pin the contract type param explicitly: `padiSession` is a concrete
+// `PadiBindingSession` (a class implementing `RemoteMirrorSession<padi contract>`),
+// and the pump's `session: RemoteMirrorSession<C>` param can't reverse-infer `C`
+// from a class value (it hides inside the mapped `AgentClient<C>`). Naming the
+// contract here plugs `padiSession` in checked — the old `as unknown as
+// HostSession<…>` double-cast is gone.
+const reServedPadi = reServeSurface<
+  typeof padiSurface.spec,
+  typeof padiSurface.contract
+>({
   source: padiSurface, // the BASE surface; reServeSurface adds `connection` internally.
   policy: PADI_FORWARDING_POLICY, // per-member value|delta forwarding.
-  session: padiSession as unknown as HostSession<typeof padiSurface.contract>,
+  session: padiSession,
   log: (line) => log.debug({ line }, "padi re-serve"),
 });
 

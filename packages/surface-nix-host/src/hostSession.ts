@@ -193,10 +193,30 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
   ClientRetryPluginContext
 >;
 
+/** The reconnect-mirror receptacle's SESSION role — the minimal surface
+ *  `reServeSurface` / `pumpRemoteSurface` consume: something that yields a fresh
+ *  client per (re)bind plus a state stream. `HostSession` (the ssh-subprocess
+ *  implementation) satisfies it, and so does kolu-server's `PadiBindingSession`
+ *  (the Endpoint→mirror adapter) — two interchangeable implementations of the same
+ *  volatility axis. Typed here so the pump's `session` param is this ROLE, not a
+ *  concrete class: a second implementation plugs in through the type system (no
+ *  `as unknown as HostSession` cast), and a future pump-method addition becomes a
+ *  compile obligation on BOTH sessions rather than a silent runtime gap. */
+export interface RemoteMirrorSession<C extends AnyContractRouter> {
+  pin(): Promise<AgentClient<C>>;
+  currentClient(): Promise<AgentClient<C>> | null;
+  isDestroyed(): boolean;
+  onState(cb: (s: HostSessionState) => void): () => void;
+  markConnected(): void;
+  destroy(): void;
+}
+
 const MAX_PROGRESS_LINES = 20;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
-export class HostSession<C extends AnyContractRouter> {
+export class HostSession<C extends AnyContractRouter>
+  implements RemoteMirrorSession<C>
+{
   private refCount = 0;
   private child: ChildProcess | null = null;
   private clientPromise: Promise<AgentClient<C>> | null = null;

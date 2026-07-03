@@ -21,7 +21,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { mirroredSurface } from "./connection";
 import { type Controllable, controllable } from "./controllableStream.testutil";
-import type { AgentClient, HostSession, HostSessionState } from "./hostSession";
+import type {
+  AgentClient,
+  HostSessionState,
+  RemoteMirrorSession,
+} from "./hostSession";
 import { reServeSurface } from "./reServeSurface";
 import type { RelayPolicy } from "./relayStream";
 
@@ -254,7 +258,9 @@ function setup(counterValue: number, items: Record<string, number> = {}) {
   const { surface, router, done } = reServeSurface({
     source: toySurface,
     policy: toyPolicy,
-    session: session as unknown as HostSession<typeof toySurface.contract>,
+    session: session as unknown as RemoteMirrorSession<
+      typeof toySurface.contract
+    >,
   });
   return {
     session,
@@ -385,7 +391,9 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     const { router, done } = reServeSurface({
       source: toySurface,
       policy: toyPolicy,
-      session: session as unknown as HostSession<typeof toySurface.contract>,
+      session: session as unknown as RemoteMirrorSession<
+        typeof toySurface.contract
+      >,
       log: (line) => logs.push(line),
     });
     const downstream = directLink<ToyContract>(
@@ -494,7 +502,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // policy is consulted (and enforced) for those alone — cells, collections, and
     // procedures fold / forward regardless of any policy entry. Both cases target
     // the `attach` STREAM, the one member whose classification the re-serve reads.
-    const s = makeSession() as unknown as HostSession<
+    const s = makeSession() as unknown as RemoteMirrorSession<
       typeof toySurface.contract
     >;
     // A stream classified as neither "value" nor "delta".
@@ -633,7 +641,9 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
         s: { inputSchema: z.object({}), outputSchema: z.string() },
       },
     });
-    const s = makeSession() as unknown as HostSession<typeof cellless.contract>;
+    const s = makeSession() as unknown as RemoteMirrorSession<
+      typeof cellless.contract
+    >;
     expect(() =>
       reServeSurface({ source: cellless, policy: { s: "delta" }, session: s }),
     ).toThrow(/no cells/);

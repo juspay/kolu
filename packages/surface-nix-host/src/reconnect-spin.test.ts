@@ -95,7 +95,7 @@ describe("reconnect bridge loop", () => {
     // the exact shape a real consumer writes. If the fix regressed (comparing
     // the thenable client instead of the clientPromise), `next()` would
     // resolve every iteration and the count would explode into the thousands.
-    const cursor = makeClientCursor(session);
+    const cursor = makeClientCursor<typeof contract>(session);
     let iterations = 0;
     const deadline = Date.now() + 500;
     while (!session.isDestroyed() && Date.now() < deadline) {
@@ -141,7 +141,7 @@ describe("reconnect bridge loop", () => {
     });
     session.pin().catch(() => {});
 
-    const cursor = makeClientCursor(session);
+    const cursor = makeClientCursor<typeof contract>(session);
     // Advance past the first spawn's live client and drain its stream until the
     // link dies — exactly what a real pump loop does. This leaves the session in
     // backoff with `clientPromise` cleared.

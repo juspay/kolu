@@ -36,7 +36,11 @@ import type { SurfaceClientLike } from "@kolu/surface/project";
 import type { AnyContractRouter } from "@orpc/contract";
 import type { ConnectionInfo } from "./connection";
 import { pipeSessionStateToCell } from "./connectionPipe";
-import type { AgentClient, HostSession } from "./hostSession";
+import type {
+  AgentClient,
+  HostSession,
+  RemoteMirrorSession,
+} from "./hostSession";
 import { makeClientCursor } from "./waitForNextClient";
 
 // ── pumpRemoteSurface — the reconnect-mirror loop ──────────────────────────
@@ -115,8 +119,13 @@ export interface PumpRemoteSurfaceOptions<
   /** The surface to mirror — the same definition the remote agent serves and
    *  the parent re-serves. */
   source: Surface<S>;
-  /** The long-lived host session whose successive clients are pumped. */
-  session: HostSession<C>;
+  /** The long-lived host session whose successive clients are pumped. Typed to
+   *  the {@link RemoteMirrorSession} ROLE (not the concrete ssh `HostSession`), so
+   *  kolu-server's `PadiBindingSession` re-serves through this same pump checked —
+   *  no cast. `C` is the agent's contract; a caller whose session value is a
+   *  `HostSession<C>` (a class, not directly `RemoteMirrorSession<C>`) pins `C` by
+   *  passing it explicitly. */
+  session: RemoteMirrorSession<C>;
   /** Build the mirror sink for ONE freshly-spawned client. Called once per
    *  (re)spawn, so per-client state (first-frame flags, frame counters) resets
    *  naturally each reconnect. Wire `session.markConnected()` into whichever

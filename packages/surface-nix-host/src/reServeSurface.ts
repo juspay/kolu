@@ -63,7 +63,7 @@ import {
   observableHolder,
   pumpRemoteSurface,
 } from "./hostFanout";
-import type { AgentClient, HostSession } from "./hostSession";
+import type { AgentClient, RemoteMirrorSession } from "./hostSession";
 import {
   failThroughStreamCore,
   type ForwardableStream,
@@ -87,8 +87,13 @@ export interface ReServeSurfaceOptions<
    *  classification W1 pinned. Every stream / event must be classified or the
    *  assembly fails loud (no silent-skip default). */
   policy: RelayPolicy;
-  /** The long-lived host session whose successive spawns are mirrored. */
-  session: HostSession<C>;
+  /** The long-lived host session whose successive spawns are mirrored. Typed to
+   *  the {@link RemoteMirrorSession} ROLE — not a concrete class — so both the ssh
+   *  `HostSession` and kolu-server's `PadiBindingSession` plug in through the type
+   *  system (no `as unknown as HostSession` cast). `C` is the agent's contract; a
+   *  caller whose session value has type `HostSession<C>` (a class, not directly
+   *  `RemoteMirrorSession<C>`) pins `C` by passing it explicitly. */
+  session: RemoteMirrorSession<C>;
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
 }

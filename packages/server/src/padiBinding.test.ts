@@ -32,7 +32,6 @@ import {
   padiKavalSocketPath,
   padiSocketPath,
 } from "@kolu/padi/stateRoot";
-import type { HostSession } from "@kolu/surface-nix-host";
 import { reServeSurface } from "@kolu/surface-nix-host";
 import { createRouterClient } from "@orpc/server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -127,10 +126,16 @@ async function bootReServedPadi(stateRoot: string): Promise<{
   });
   activeSessions.push(session);
 
-  const reServed = reServeSurface({
+  const reServed = reServeSurface<
+    typeof padiSurface.spec,
+    typeof padiSurface.contract
+  >({
     source: padiSurface,
     policy: PADI_FORWARDING_POLICY,
-    session: session as unknown as HostSession<typeof padiSurface.contract>,
+    // `PadiBindingSession implements RemoteMirrorSession<…>`, so it plugs in with
+    // no cast — the contract param is pinned explicitly (as in index.ts) because
+    // it isn't reverse-inferable from the concrete class value.
+    session,
     log: () => {},
   });
   // Never let `done` float; a clean session.destroy() resolves it.
