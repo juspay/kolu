@@ -12,15 +12,17 @@ Feature: kaval daemon lifecycle (B2 — the door)
     When the kaval daemon is killed
     Then the degraded canvas is shown
 
-  # B3.2 — supervised restart. The "Restart kaval" button the degraded canvas
-  # used to defer now recovers the daemon: the session is captured before the
-  # kill, a fresh daemon is spawned, and the preserved session is offered for
-  # restore on the empty canvas — the round-trip a session-preserving restart
-  # promises.
+  # W2.2 — "Restart kaval" recycles KAVAL, not padi. The button force-recycles the
+  # terminal daemon (padi's `lifecycle.recycleKaval` procedure → capture → drain →
+  # recycle kaval → park) while padi itself stays up. This is the DEAD-kaval arm:
+  # kaval is SIGKILLed first, then the degraded canvas' Restart spawns a fresh
+  # kaval — its gate pid changes, padi's does not — and the session captured
+  # before the kill is offered for restore on the empty canvas.
   @kaval-restart
-  Scenario: Restarting kaval recovers a degraded daemon and preserves the session
+  Scenario: Restarting a DEGRADED kaval spawns a fresh daemon, keeps padi up, and preserves the session
     Given the terminal is ready
-    When the kaval daemon is killed
+    When I capture the padi and kaval daemon pids
+    And the kaval daemon is killed
     Then the degraded canvas is shown
     When I restart kaval from the degraded canvas
     Then the warming canvas is shown while kaval restarts
@@ -28,6 +30,31 @@ Feature: kaval daemon lifecycle (B2 — the door)
     When I press the create terminal shortcut while kaval restarts
     Then no terminal is created while kaval is warming
     Then the daemon returns to running
+    And the kaval daemon has been recycled with a fresh pid
+    And the padi daemon pid is unchanged
+    And the session restore card should be visible
+    When I click the restore button
+    Then there should be 1 workspace switcher entries
+    And there should be no page errors
+
+  # W2.2 — the LIVE-but-stuck arm, the crux of the fix. A running (not dead) kaval
+  # must still be RECYCLED by Restart — killed + respawned — not adopted. The old
+  # `daemon.restart` → drain path ADOPTED a live kaval, so a wedged-but-alive daemon
+  # was never un-wedged; `recycleKaval` (always-recycle) kills it. Proof: with the
+  # daemon healthy, Restart from the rail dialog CHANGES the kaval gate pid while
+  # the padi gate pid stays put, and the live session survives the recycle to be
+  # restored.
+  @kaval-restart
+  Scenario: Restarting a LIVE kaval recycles it (fresh pid), keeps padi up, and preserves the session
+    Given the terminal is ready
+    When I capture the padi and kaval daemon pids
+    And I open the kaval rail dialog
+    And I restart kaval from the rail dialog
+    Then the warming canvas is shown while kaval restarts
+    And the restore card is not offered until kaval is connected
+    Then the daemon returns to running
+    And the kaval daemon has been recycled with a fresh pid
+    And the padi daemon pid is unchanged
     And the session restore card should be visible
     When I click the restore button
     Then there should be 1 workspace switcher entries

@@ -36,6 +36,7 @@ import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
+import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 import { cancelPendingAutosave } from "./session.ts";
 import {
   forfeitSession,
@@ -320,6 +321,17 @@ export function buildPadiSurfaceDeps(deps: {
         },
         sendInput: ({ input }) => {
           getActiveTerminal(input.id)?.handle.write(input.data);
+        },
+        // The "Restart kaval" button — force-recycle THIS host's kaval daemon,
+        // preserving the session (B3.2). padi's INTERNAL supervisory op: capture →
+        // drain → recycle (kill + spawn fresh) → park, all via `restartLocalDaemon`
+        // (the soul) through the endpoint's coalescing emit-guard. PADI STAYS UP —
+        // this is the `adopt-or-ensure` recycle arm, never a padi restart (that is
+        // the separate `control.drain` upgrade path). Resolves once the fresh kaval
+        // is connected; a failure rejects with the captured session safe on disk.
+        recycleKaval: async () => {
+          log.info({}, "recycle kaval (Restart kaval)");
+          await restartLocalDaemon();
         },
       },
 

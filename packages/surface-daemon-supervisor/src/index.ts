@@ -12,10 +12,9 @@
  *  (`gatePid`/`isHolderLive`) from `@kolu/surface-daemon` over a one-directional
  *  edge.
  *
- *  What's spine here (program-agnostic): the endpoint state machine (spawn /
- *  adopt / recycle plus the `restarting` emit-guard), the `waitForPidGone`
- *  reap-wait, and the survivable-spawn driver (host-platform volatility). What
- *  stays the caller's
+ *  What's spine here (program-agnostic): the endpoint state machine, the
+ *  `waitForPidGone` reap-wait, the composed `restart` sequence, and the
+ *  survivable-spawn driver (host-platform volatility). What stays the caller's
  *  soul: the daemon binary + its values (`localDriver.ts` in kolu-server), the
  *  contract handshake, and what `identity` means — all arrive as parameters.
  */
@@ -39,6 +38,7 @@ export {
   type SpawnDriverDeps,
   survivableSpawnDriver,
 } from "./driver.ts";
+export { type RestartSteps, restart, serializeRestart } from "./restart.ts";
 export {
   type WaitForPidGoneOptions,
   waitForPidGone,

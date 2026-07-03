@@ -22,8 +22,10 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 1.0, and DEFAULT_PADI_VERSION carries + validates it", () => {
-    expect(PADI_SURFACE_VERSION).toBe("1.0");
+  it("is version 1.1, and DEFAULT_PADI_VERSION carries + validates it", () => {
+    // 1.1 ADDS `lifecycle.recycleKaval` (the "Restart kaval" button) — an
+    // additive minor over 1.0.
+    expect(PADI_SURFACE_VERSION).toBe("1.1");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
@@ -81,6 +83,7 @@ describe("padiSurface 1.0 contract", () => {
       "restoreSleeping",
       "resize",
       "sendInput",
+      "recycleKaval",
     ]);
     expect(Object.keys(procs.chrome ?? {})).toEqual([
       "setTheme",

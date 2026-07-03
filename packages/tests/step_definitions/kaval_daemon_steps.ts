@@ -9,7 +9,12 @@
  */
 
 import { Then, When } from "@cucumber/cucumber";
-import { killKavalDaemon } from "../support/hooks.ts";
+import {
+  isPidLive,
+  killKavalDaemon,
+  readKavalGatePid,
+  readPadiGatePid,
+} from "../support/hooks.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 When("the kaval daemon is killed", async function (this: KoluWorld) {
@@ -17,6 +22,93 @@ When("the kaval daemon is killed", async function (this: KoluWorld) {
   if (pid === undefined) {
     throw new Error(
       "no kaval daemon to kill — the server should have spawned one at boot",
+    );
+  }
+});
+
+// The "recycles kaval, not padi" proof. Capture BOTH gate pids before the
+// restart; the arms below assert the kaval pid CHANGED (recycled) while the padi
+// pid stayed put (padi never restarts — `recycleKaval` is its internal
+// supervisory op, distinct from the `control.drain` padi-upgrade path).
+When(
+  "I capture the padi and kaval daemon pids",
+  async function (this: KoluWorld) {
+    this.capturedPadiPid = readPadiGatePid();
+    this.capturedKavalPid = readKavalGatePid();
+    if (this.capturedPadiPid === undefined) {
+      throw new Error(
+        "no padi gate pid to capture — the server should have spawned padi at boot",
+      );
+    }
+  },
+);
+
+// Open the kaval rail chip's info dialog, where the "Restart kaval" button lives
+// for a RUNNING (not degraded) daemon — the live-but-stuck arm's entry point.
+When("I open the kaval rail dialog", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="kaval-identity-chip"]').click();
+  await this.page.waitForSelector('[data-testid="restart-kaval"]', {
+    timeout: POLL_TIMEOUT,
+  });
+});
+
+// The same session-preserving Restart the degraded canvas fires, reached from the
+// rail dialog for a live daemon: click the button, then confirm through the
+// inline destructive-action guard.
+When("I restart kaval from the rail dialog", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="restart-kaval"]').click();
+  await this.page.locator('[data-testid="restart-kaval-confirm"]').click();
+});
+
+Then(
+  "the kaval daemon has been recycled with a fresh pid",
+  async function (this: KoluWorld) {
+    if (this.capturedKavalPid === undefined) {
+      throw new Error(
+        "no captured kaval pid — run 'I capture the padi and kaval daemon pids' first",
+      );
+    }
+    // The gate reads the fresh kaval's pid once it has claimed it; the recycle
+    // rewrites it, so poll until it differs from the captured one (or timeout).
+    let current: number | undefined;
+    const deadline = Date.now() + POLL_TIMEOUT;
+    do {
+      current = readKavalGatePid();
+      if (current !== undefined && current !== this.capturedKavalPid) break;
+      await new Promise((r) => setTimeout(r, 100));
+    } while (Date.now() < deadline);
+    if (current === undefined || current === this.capturedKavalPid) {
+      throw new Error(
+        `kaval was NOT recycled — gate pid is still ${String(current)} ` +
+          `(captured ${this.capturedKavalPid}); a stuck-but-alive kaval must be ` +
+          "killed + respawned, not adopted",
+      );
+    }
+    if (!isPidLive(current)) {
+      throw new Error(
+        `the recycled kaval's gate pid ${current} names no live process`,
+      );
+    }
+  },
+);
+
+Then("the padi daemon pid is unchanged", async function (this: KoluWorld) {
+  if (this.capturedPadiPid === undefined) {
+    throw new Error(
+      "no captured padi pid — run 'I capture the padi and kaval daemon pids' first",
+    );
+  }
+  const current = readPadiGatePid();
+  if (current !== this.capturedPadiPid) {
+    throw new Error(
+      `padi was restarted (gate pid ${String(current)} != captured ` +
+        `${this.capturedPadiPid}) — recycleKaval must recycle KAVAL, not padi`,
+    );
+  }
+  if (!isPidLive(this.capturedPadiPid)) {
+    throw new Error(
+      `padi gate pid ${this.capturedPadiPid} names no live process — padi ` +
+        "must stay up across a kaval recycle",
     );
   }
 });
@@ -29,11 +121,12 @@ Then("the degraded canvas is shown", async function (this: KoluWorld) {
   });
 });
 
-// B3.2 — the supervised restart. The degraded canvas' "Restart kaval" button
-// fires `daemon.restart`: capture the session, drain, recycle (spawn fresh +
-// connect). The same button lives in the kaval rail dialog for a running daemon.
-// Restart is destructive (kills the daemon + every terminal), so the button
-// opens an inline confirm first — click through both.
+// W2.2 — the supervised restart. The degraded canvas' "Restart kaval" button
+// fires padi's `lifecycle.recycleKaval` procedure: capture the session, drain,
+// recycle (spawn fresh + connect) — padi itself stays up. The same button lives
+// in the kaval rail dialog for a running daemon. Restart is destructive (kills
+// the daemon + every terminal), so the button opens an inline confirm first —
+// click through both.
 When(
   "I restart kaval from the degraded canvas",
   async function (this: KoluWorld) {

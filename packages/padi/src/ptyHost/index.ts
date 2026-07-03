@@ -20,6 +20,8 @@ import {
   createEndpoint,
   type Endpoint,
   type EndpointStatus,
+  type RestartSteps,
+  serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import {
   DEFAULT_MIRROR_SCROLLBACK,
@@ -79,6 +81,21 @@ let endpoint:
   | Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>
   | undefined;
 
+/** The serialized, emit-guarded restart trigger, bound to the live endpoint by
+ *  `ensureLocalEndpoint`. Held here (not rebuilt per call) so its coalescing
+ *  state is shared: concurrent restart requests ride one in-flight recycle. The
+ *  soul's restart steps reach it through `restartLocalEndpoint`. */
+let triggerRestart:
+  | (<Ctx>(
+      steps: RestartSteps<
+        PtyHostClient,
+        Identity,
+        Ctx,
+        KavalConnectionMetadata
+      >,
+    ) => Promise<void>)
+  | undefined;
+
 /** The live socket client, or a thrown error if the endpoint isn't connected
  *  (before `ensureLocalEndpoint()`, or while the daemon is down — `degraded`).
  *  The facade resolves THIS on every call, so a reconnect (B3) is transparent
@@ -125,6 +142,16 @@ function makeForwardingClient(getRoot: () => PtyHostClient): PtyHostClient {
 /** The pty-host client `LocalTerminalEndpoint` (and this module) consume — a
  *  stable facade over the endpoint's current daemon connection. */
 export const ptyHostClient: PtyHostClient = makeForwardingClient(liveClient);
+
+/** TEST-ONLY: install a fake endpoint (and its serialized restart trigger) so an
+ *  integration test can drive the REAL `restartLocalDaemon` / `ptyHostClient`
+ *  without a live kaval — the same wiring `ensureLocalEndpoint` sets at boot. */
+export function __setEndpointForTest(
+  ep: Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>,
+): void {
+  endpoint = ep;
+  triggerRestart = serializeRestart(ep);
+}
 
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
  *  Resolves whether or not the daemon came up — a boot failure reports `dead`
@@ -181,6 +208,7 @@ export async function ensureLocalEndpoint(opts: {
     onStatus: opts.onStatus,
   });
   endpoint = ep;
+  triggerRestart = serializeRestart(ep);
   try {
     // The boot, B3.3: adopt-or-recycle. A surviving daemon (a redeploy that did
     // not change kaval's source) is ADOPTED — its PTYs preserved — and the
@@ -225,6 +253,20 @@ export async function ensureLocalEndpoint(opts: {
   // taps live the same way), so the loop runs until the process ends and
   // survives daemon recycles.
   opts.onBootSettled?.(new AbortController().signal);
+}
+
+/** Run a serialized, session-preserving restart of the local kaval endpoint
+ *  (B3.2). The caller (`restartLocal.ts`, the soul) supplies the restart steps —
+ *  capture the session, drain the terminals, recycle, reattach — and this
+ *  forwards them through the endpoint's coalescing + emit-guard trigger. Throws
+ *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run). */
+export function restartLocalEndpoint<Ctx>(
+  steps: RestartSteps<PtyHostClient, Identity, Ctx, KavalConnectionMetadata>,
+): Promise<void> {
+  if (!triggerRestart) {
+    throw new Error("kaval endpoint not initialized — cannot restart");
+  }
+  return triggerRestart(steps);
 }
 
 // ── Spawn policy (kolu's soul) — unchanged from the in-process inversion,
@@ -304,8 +346,8 @@ export async function buildTerminalSpawnInput(args: {
   // A terminal can only be spawned once the endpoint is up, which records the
   // socket at boot (`ensureLocalEndpoint` → `setLocalSocketPath`), so an unset
   // value here is an ordering bug — crash loud rather than ship a broken
-  // `KAVAL_SOCKET`. Guarded at the point of use, like `liveClient` guards the
-  // endpoint's other boot-set singletons.
+  // `KAVAL_SOCKET`. Guarded at the point of use, like `liveClient` /
+  // `restartLocalEndpoint` guard the endpoint's other boot-set singletons.
   const kavalSocket = getLocalSocketPath();
   if (kavalSocket === undefined) {
     throw new Error(

@@ -110,13 +110,15 @@ export * from "./vocab.ts";
 // ── Version ─────────────────────────────────────────────────────────────
 
 /** The wire-shape `major.minor` this build of `padiSurface` serves and expects.
- *  1.0 is the initial contract (the padi plan of record, PR #1649). Additive
- *  growth (a new optional field / stream / procedure) is a minor bump; a
- *  shape-breaking change a major. A remote dial gates an incompatible padi via
+ *  1.0 is the initial contract (the padi plan of record, PR #1649); 1.1 ADDS the
+ *  `lifecycle.recycleKaval` procedure (the "Restart kaval" button's session-
+ *  preserving kaval recycle — a new member, so a MINOR bump). Additive growth (a
+ *  new optional field / stream / procedure) is a minor bump; a shape-breaking
+ *  change a major. A remote dial gates an incompatible padi via
  *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION},
  *  which is frozen forever so a contract-revving deploy can still reach the
  *  daemon's control core. */
-export const PADI_SURFACE_VERSION = "1.0";
+export const PADI_SURFACE_VERSION = "1.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -479,7 +481,7 @@ export const padiSurface = defineSurface({
   },
   procedures: {
     /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
-     *  discardSleeping · restoreSleeping · resize · sendInput. */
+     *  discardSleeping · restoreSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
       create: { input: PadiCreateInputSchema, output: TerminalInfoSchema },
       kill: { input: PadiTerminalIdInputSchema, output: TerminalInfoSchema },
@@ -490,6 +492,16 @@ export const padiSurface = defineSurface({
       restoreSleeping: { input: SavedSleepingTerminalSchema },
       resize: { input: PadiResizeInputSchema },
       sendInput: { input: PadiSendInputSchema },
+      /** Force-recycle THIS host's kaval daemon, preserving the session — the
+       *  "Restart kaval" button (B3.2). padi's INTERNAL supervisory op: capture
+       *  the session → drain the terminals → recycle kaval (kill + spawn fresh) →
+       *  park the captured session so the restore card re-offers it. Un-wedges a
+       *  stuck-but-alive kaval (which `control.drain`'s adopt path would NOT
+       *  recycle) as much as a dead one. PADI STAYS UP — this never restarts padi;
+       *  that is the separate `control.drain` upgrade path. Takes no input,
+       *  resolves once the fresh kaval is connected (or rejects, session safe on
+       *  disk to retry/restore). */
+      recycleKaval: {},
     },
     /** Terminal chrome — the client-owned per-terminal UI record. */
     chrome: {

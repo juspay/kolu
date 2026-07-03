@@ -246,20 +246,73 @@ function withWorkerRuntimeDir<T>(fn: () => T): T {
   }
 }
 
+/** Read a daemon's pid-gate file → the integer pid, or undefined if the gate is
+ *  missing/stale/unreadable (never throws). The read-only primitive both the
+ *  reapers below and the `@kaval-restart` pid-observability steps share (a
+ *  `recycleKaval` must CHANGE the kaval gate pid while the padi gate pid stays
+ *  put — the "recycles kaval, not padi" proof). */
+function readPidAtGate(gate: string): number | undefined {
+  try {
+    const pid = Number.parseInt(fs.readFileSync(gate, "utf8").trim(), 10);
+    if (Number.isInteger(pid) && pid > 0) return pid;
+  } catch {
+    // No gate / not readable — nothing to report.
+  }
+  return undefined;
+}
+
 /** Read a daemon's pid-gate file and SIGKILL the holder; returns the killed pid,
  *  or undefined if the gate is missing/stale/unreadable (never throws). Shared by
  *  the padi and kaval reapers below, which differ only in WHICH gate they read. */
 function killPidAtGate(gate: string): number | undefined {
+  const pid = readPidAtGate(gate);
+  if (pid === undefined) return undefined;
   try {
-    const pid = Number.parseInt(fs.readFileSync(gate, "utf8").trim(), 10);
-    if (Number.isInteger(pid) && pid > 0) {
-      process.kill(pid, "SIGKILL");
-      return pid;
-    }
+    process.kill(pid, "SIGKILL");
+    return pid;
   } catch {
-    // No gate / already gone / not ours — nothing to reap.
+    // Already gone / not ours — nothing to reap.
   }
   return undefined;
+}
+
+/** True iff `pid` names a live process (a signal-0 probe — checks existence
+ *  without delivering a signal). Used by the restart steps to assert a FRESH
+ *  kaval is actually running after a recycle, not just that a gate file exists. */
+export function isPidLive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The padi gate path for THIS worker — the digest-keyed `padi.pid` beside padi's
+ *  socket. Read-only counterpart to `killPadiDaemon`'s gate resolution. */
+function padiGate(): string {
+  return withWorkerRuntimeDir(() => padiGatePath(padiSocketPath(padiStateDir)));
+}
+
+/** The kaval gate path for THIS worker — `kaval.pid` beside padi's kaval socket.
+ *  Read-only counterpart to `killKavalDaemon`'s gate resolution. */
+function kavalGate(): string {
+  return withWorkerRuntimeDir(() =>
+    path.join(path.dirname(padiKavalSocketPath(padiStateDir)), "kaval.pid"),
+  );
+}
+
+/** The pid holding THIS worker's padi gate right now (or undefined). A recycle-
+ *  kaval must leave this UNCHANGED — padi stays up; only its kaval is recycled. */
+export function readPadiGatePid(): number | undefined {
+  return readPidAtGate(padiGate());
+}
+
+/** The pid holding THIS worker's kaval gate right now (or undefined). A recycle-
+ *  kaval must CHANGE this — a stuck-but-alive kaval is killed + respawned, a dead
+ *  one is spawned fresh; either way a new pid holds the gate. */
+export function readKavalGatePid(): number | undefined {
+  return readPidAtGate(kavalGate());
 }
 
 /** SIGKILL the padi PROCESS this worker's server spawned. The cutover put padi
@@ -269,10 +322,7 @@ function killPidAtGate(gate: string): number | undefined {
  *  derived here from THIS worker's `padiStateDir` — so we reap the worker's own
  *  padi and never another worker's. Robust to an absent gate (nothing to reap). */
 export function killPadiDaemon(): number | undefined {
-  const gate = withWorkerRuntimeDir(() =>
-    padiGatePath(padiSocketPath(padiStateDir)),
-  );
-  return killPidAtGate(gate);
+  return killPidAtGate(padiGate());
 }
 
 /** SIGKILL the kaval daemon padi spawned for this worker (it is detached, so it
@@ -283,10 +333,7 @@ export function killPadiDaemon(): number | undefined {
  *  killed pid, or undefined if there was nothing to reap. Also the
  *  `pkill kaval mid-session` step's mechanism for the degraded-state e2e. */
 export function killKavalDaemon(): number | undefined {
-  const gate = withWorkerRuntimeDir(() =>
-    path.join(path.dirname(padiKavalSocketPath(padiStateDir)), "kaval.pid"),
-  );
-  return killPidAtGate(gate);
+  return killPidAtGate(kavalGate());
 }
 
 /** PR-evidence capture (set `KOLU_EVIDENCE=1`): record a Playwright video per
@@ -1115,12 +1162,14 @@ After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
   }
 });
 
-/** Restore the worker after a scenario that SIGKILLed its kaval daemon
- *  (`@kaval-restart`, the kaval-daemon.feature degraded-state e2e). The kill
- *  leaves the worker's server in `degraded` with NO daemon — `ensureLocalEndpoint`
- *  only spawns kaval at server boot, so the only way back to a healthy worker is
- *  to restart the server. Without this, a later scenario the cucumber queue
- *  assigns to THIS worker would fail the instant it tries to create a terminal.
+/** Restore the worker after a `@kaval-restart` scenario (kaval-daemon.feature) —
+ *  one that SIGKILLed its kaval daemon (the degraded-state e2e) OR recycled it via
+ *  the Restart button (the live/dead recycle arms). A kill leaves the worker's
+ *  server in `degraded` with NO daemon, and even a clean recycle leaves the worker
+ *  in a restored/parked session state; `ensureLocalEndpoint` only spawns kaval at
+ *  server boot, so the clean way back to a pristine worker is to reboot the server.
+ *  Without this, a later scenario the cucumber queue assigns to THIS worker could
+ *  fail the instant it tries to create a terminal.
  *  Skipped when KOLU_SERVER is a URL (a reused server we don't own/can't restart;
  *  that mode runs the suite single-server and isn't subject to the queue-poison). */
 After({ tags: "@kaval-restart" }, async function (this: KoluWorld) {
