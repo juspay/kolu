@@ -1,7 +1,7 @@
 /**
  * Persistent storage shim — owns the `conf` instance and migration ladder.
  *
- * Stores recoverable state at ~/.config/kolu/state.json (or wherever
+ * Stores recoverable state at ~/.config/kolu/config.json (or wherever
  * KOLU_STATE_DIR points). The on-disk shape (`PersistedStateSchema`) lives
  * here as an implementation detail; consumers go through the domain modules
  * (`preferences.ts`, `activity.ts`, `session.ts`) instead of reaching for
@@ -16,6 +16,16 @@
  * can safely reset to defaults.
  */
 
+import {
+  constants as fsConstants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { join } from "node:path";
 import {
   type ActivityFeed,
   ActivityFeedSchema,
@@ -166,6 +176,117 @@ if (!stateDir) {
 
 log.info({ path: stateDir }, "state directory");
 
+export const STATE_CONFIG_FILE = "config.json";
+export const STATE_BACKUP_RETENTION = 10;
+
+const BACKUP_FILE_RE =
+  /^config\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.json$/;
+
+type StateBackupDeps = {
+  existsSync: typeof existsSync;
+  mkdirSync: typeof mkdirSync;
+  readFileSync: typeof readFileSync;
+  readdirSync: typeof readdirSync;
+  copyFileSync: typeof copyFileSync;
+  rmSync: typeof rmSync;
+};
+
+const fsBackupDeps: StateBackupDeps = {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  copyFileSync,
+  rmSync,
+};
+
+type StateBackupOptions = {
+  stateFilePath: string;
+  backupDir: string;
+  retention?: number;
+  now?: Date;
+  deps?: StateBackupDeps;
+  onFailure?: (err: unknown) => void;
+};
+
+function backupTimestamp(now: Date): string {
+  return now.toISOString().replace(/[:.]/g, "-");
+}
+
+function listBackupFiles(
+  backupDir: string,
+  deps: Pick<StateBackupDeps, "readdirSync">,
+): string[] {
+  return deps
+    .readdirSync(backupDir)
+    .filter((file) => BACKUP_FILE_RE.test(file))
+    .sort();
+}
+
+function rotateBackupFiles(
+  backupDir: string,
+  backups: string[],
+  retention: number,
+  deps: Pick<StateBackupDeps, "rmSync">,
+): void {
+  for (const stale of backups.slice(
+    0,
+    Math.max(0, backups.length - retention),
+  )) {
+    deps.rmSync(join(backupDir, stale));
+  }
+}
+
+/** Snapshot the pre-boot Conf file before migrations/autosave can write it.
+ *  The live store is still fail-fast; this safety-net copy is deliberately
+ *  best-effort and logs loudly instead of blocking boot. */
+export function backupStateFile({
+  stateFilePath,
+  backupDir,
+  retention = STATE_BACKUP_RETENTION,
+  now = new Date(),
+  deps = fsBackupDeps,
+  onFailure = (err) =>
+    log.error(
+      { err, stateFilePath, backupDir },
+      "state backup failed; boot continuing",
+    ),
+}: StateBackupOptions): void {
+  try {
+    if (!deps.existsSync(stateFilePath)) return;
+
+    deps.mkdirSync(backupDir, { recursive: true });
+    const current = deps.readFileSync(stateFilePath);
+    const existingBackups = listBackupFiles(backupDir, deps);
+    const newest = existingBackups.at(-1);
+    if (newest) {
+      const newestBytes = deps.readFileSync(join(backupDir, newest));
+      if (current.equals(newestBytes)) {
+        rotateBackupFiles(backupDir, existingBackups, retention, deps);
+        return;
+      }
+    }
+
+    const backupFile = `config.${backupTimestamp(now)}.json`;
+    deps.copyFileSync(
+      stateFilePath,
+      join(backupDir, backupFile),
+      fsConstants.COPYFILE_EXCL,
+    );
+
+    const backups = listBackupFiles(backupDir, deps);
+    rotateBackupFiles(backupDir, backups, retention, deps);
+  } catch (err) {
+    onFailure(err);
+  }
+}
+
+const stateFilePath = join(stateDir, STATE_CONFIG_FILE);
+backupStateFile({
+  stateFilePath,
+  backupDir: join(stateDir, "backups"),
+});
+
 /** Apply a per-terminal record transform across the saved session's terminals —
  *  the shape every terminal-touching migration step shares. No-op when no
  *  session is saved. The `as unknown as` casts are the conf-ladder idiom for
@@ -187,6 +308,7 @@ function mapSessionTerminals(
 
 export const store = new Conf<PersistedState>({
   cwd: stateDir,
+  configName: "config",
   projectVersion: SCHEMA_VERSION,
   defaults: {
     activityFeed: { recentRepos: [], recentAgents: [] } satisfies ActivityFeed,

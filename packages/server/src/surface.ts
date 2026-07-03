@@ -175,7 +175,7 @@ const koluDeps: Omit<
       store: preferencesStore,
       // Content-level dedup, mirroring the `session` cell below. Defence in
       // depth behind the client's coalescing + no-op drop (#1041): a patch
-      // that doesn't change the value skips the `state.json` write and the
+      // that doesn't change the value skips the `config.json` write and the
       // bus publish, so it can't contend with the session autosave on the
       // shared Conf store. `JSON.stringify` is fine — Preferences is small
       // and writes are rare once the client stops storming.

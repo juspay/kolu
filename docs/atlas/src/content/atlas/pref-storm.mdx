@@ -4,7 +4,7 @@ description: Debouncing the rightPanel resize feedback loop (#1041) — Corvu's 
 parents: [analysis]
 maturity: budding
 status: accepted
-updated: 2026-06-10
+updated: 2026-07-03
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -52,11 +52,11 @@ patch: async (p) => { applyLocal(p); await options.mutate(p); }   // sync store 
   <div style={{ background: "var(--code-bg)", border: "1px solid var(--rule)", borderRadius: "6px", padding: "0.4rem 0.6rem" }}><code>setPanelSize</code> → <code>updatePreferences(&#123;rightPanel:&#123;size&#125;&#125;)</code></div>
   <div style={{ color: "var(--ink-muted)", paddingLeft: "0.6rem" }}>↓</div>
   <div style={{ background: "var(--code-bg)", border: "1px solid var(--rule)", borderRadius: "6px", padding: "0.4rem 0.6rem" }}><code>useCell.patch</code>: <code>applyLocal</code> (sync store) + <code>mutate</code> → <strong>server RPC</strong></div>
-  <div style={{ color: "var(--ink-muted)", paddingLeft: "0.6rem" }}>↓ server writes <code>state.json</code> on every patch (no <code>equals</code> on the prefs cell)</div>
+  <div style={{ color: "var(--ink-muted)", paddingLeft: "0.6rem" }}>↓ server writes <code>config.json</code> on every patch (no <code>equals</code> on the prefs cell)</div>
   <div style={{ background: "#eff6f0", border: "1px solid #bce3c8", borderRadius: "6px", padding: "0.4rem 0.6rem" }}>~200 patches/min · contends with the session autosave on the shared Conf store</div>
 </div>
 
-The shared sink is real: `preferences` and the session autosave are two keys in *one* `Conf` store writing *one* `state.json`; the autosave is a 500&nbsp;ms throttle, preferences is one-disk-write-per-patch.
+The shared sink is real: `preferences` and the session autosave are two keys in *one* `Conf` store writing *one* `config.json`; the autosave is a 500&nbsp;ms throttle, preferences is one-disk-write-per-patch.
 
 *`state.ts:88-127` (single Conf, prefs+session keys) · `session.ts:114-133` (500ms autosave) · `server.ts:134-143` (`applyAndPublish` equals gate) · `surface.ts:99-114` prefs cell has *no* equals; `:128` session cell does.*
 

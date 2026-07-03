@@ -4,14 +4,183 @@ import {
   backfillTerminalState,
   LOCAL_LOCATION,
 } from "@kolu/padi/surface";
-import { describe, expect, it } from "vitest";
 import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  backupStateFile,
   migrateLegacyTerminal_1_18_0,
   migratePreferences_1_30_0,
+  STATE_CONFIG_FILE,
 } from "./state.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
 // reads it at module load.
+
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function makeTempStateDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "kolu-state-backup-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function writeStateFile(stateDir: string, body: string): string {
+  mkdirSync(stateDir, { recursive: true });
+  const stateFilePath = join(stateDir, STATE_CONFIG_FILE);
+  writeFileSync(stateFilePath, body);
+  return stateFilePath;
+}
+
+function backupDir(stateDir: string): string {
+  return join(stateDir, "backups");
+}
+
+function backupNames(stateDir: string): string[] {
+  return readdirSync(backupDir(stateDir)).sort();
+}
+
+describe("backupStateFile", () => {
+  it("copies the pre-existing state file to a timestamped backup", () => {
+    const dir = makeTempStateDir();
+    const body = '{"session":null}\n';
+    const stateFilePath = writeStateFile(dir, body);
+
+    backupStateFile({
+      stateFilePath,
+      backupDir: backupDir(dir),
+      now: new Date("2026-07-03T12:34:56.789Z"),
+    });
+
+    expect(backupNames(dir)).toEqual(["config.2026-07-03T12-34-56-789Z.json"]);
+    expect(
+      readFileSync(
+        join(backupDir(dir), "config.2026-07-03T12-34-56-789Z.json"),
+        "utf8",
+      ),
+    ).toBe(body);
+  });
+
+  it("does not churn a new backup when the newest backup is byte-identical", () => {
+    const dir = makeTempStateDir();
+    const stateFilePath = writeStateFile(dir, '{"preferences":{}}\n');
+
+    backupStateFile({
+      stateFilePath,
+      backupDir: backupDir(dir),
+      now: new Date("2026-07-03T12:00:00.000Z"),
+    });
+    backupStateFile({
+      stateFilePath,
+      backupDir: backupDir(dir),
+      now: new Date("2026-07-03T12:01:00.000Z"),
+    });
+
+    expect(backupNames(dir)).toEqual(["config.2026-07-03T12-00-00-000Z.json"]);
+  });
+
+  it("still rotates when an unchanged state file skips the new copy", () => {
+    const dir = makeTempStateDir();
+    const stateFilePath = writeStateFile(dir, "three");
+    mkdirSync(backupDir(dir), { recursive: true });
+    writeFileSync(
+      join(backupDir(dir), "config.2026-07-03T12-00-00-000Z.json"),
+      "one",
+    );
+    writeFileSync(
+      join(backupDir(dir), "config.2026-07-03T12-01-00-000Z.json"),
+      "two",
+    );
+    writeFileSync(
+      join(backupDir(dir), "config.2026-07-03T12-02-00-000Z.json"),
+      "three",
+    );
+
+    backupStateFile({
+      stateFilePath,
+      backupDir: backupDir(dir),
+      retention: 2,
+      now: new Date("2026-07-03T12:03:00.000Z"),
+    });
+
+    expect(backupNames(dir)).toEqual([
+      "config.2026-07-03T12-01-00-000Z.json",
+      "config.2026-07-03T12-02-00-000Z.json",
+    ]);
+  });
+
+  it("rotates old backups after writing a changed snapshot", () => {
+    const dir = makeTempStateDir();
+    const stateFilePath = writeStateFile(dir, "one");
+
+    backupStateFile({
+      stateFilePath,
+      backupDir: backupDir(dir),
+      retention: 2,
+      now: new Date("2026-07-03T12:00:00.000Z"),
+    });
+    writeFileSync(stateFilePath, "two");
+    backupStateFile({
+      stateFilePath,
+      backupDir: backupDir(dir),
+      retention: 2,
+      now: new Date("2026-07-03T12:01:00.000Z"),
+    });
+    writeFileSync(stateFilePath, "three");
+    backupStateFile({
+      stateFilePath,
+      backupDir: backupDir(dir),
+      retention: 2,
+      now: new Date("2026-07-03T12:02:00.000Z"),
+    });
+
+    expect(backupNames(dir)).toEqual([
+      "config.2026-07-03T12-01-00-000Z.json",
+      "config.2026-07-03T12-02-00-000Z.json",
+    ]);
+  });
+
+  it("reports backup write failures without throwing", () => {
+    const dir = makeTempStateDir();
+    const stateFilePath = writeStateFile(dir, '{"session":null}\n');
+    const failures: unknown[] = [];
+
+    expect(() =>
+      backupStateFile({
+        stateFilePath,
+        backupDir: backupDir(dir),
+        now: new Date("2026-07-03T12:00:00.000Z"),
+        deps: {
+          existsSync,
+          mkdirSync,
+          readFileSync,
+          readdirSync,
+          copyFileSync: () => {
+            throw new Error("disk denied");
+          },
+          rmSync,
+        },
+        onFailure: (err) => failures.push(err),
+      }),
+    ).not.toThrow();
+    expect(failures).toHaveLength(1);
+  });
+});
 
 describe("migrateLegacyTerminal_1_18_0", () => {
   it("synthesizes GitInfo from legacy repoName + branch (#714 regression)", () => {
