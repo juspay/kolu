@@ -402,7 +402,8 @@ export const padiSurface = defineSurface({
     /** Server-derived activity feed (recent repos + recent agents) — the MRU the
      *  workspace switcher + command palette read. Read-only on the client; padi's
      *  `trackRecentRepo` / `trackRecentAgent` are the sole writers. The conf-store
-     *  STORAGE stays kolu-server-side (injected into padi at boot) until W2.2.
+     *  STORAGE is padi's OWN state-root Conf, set by padi's `daemonMain` at boot
+     *  (`openPadiStateStores` → `setPadiActivityFeedStore`, see `confStores.ts`).
      *  `test__set` is the e2e-fixture reset verb. */
     activityFeed: {
       schema: ActivityFeedSchema,
@@ -413,9 +414,10 @@ export const padiSurface = defineSurface({
     },
     /** Last persisted snapshot of terminals + active id, or null when no session
      *  is saved — the restore card's source. Read-only on the client; padi's
-     *  debounced autosave loop owns writes. The conf-store STORAGE stays
-     *  kolu-server-side (injected into padi at boot) until W2.2. `test__set` is the
-     *  e2e-fixture reset verb. */
+     *  debounced autosave loop owns writes. The conf-store STORAGE is padi's OWN
+     *  state-root Conf, set by padi's `daemonMain` at boot (`openPadiStateStores` →
+     *  `setPadiSessionStore`, see `confStores.ts`). `test__set` is the e2e-fixture
+     *  reset verb. */
     session: {
       schema: SavedSessionSchema.nullable(),
       default: null as z.infer<typeof SavedSessionSchema> | null,

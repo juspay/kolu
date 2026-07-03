@@ -13,9 +13,9 @@
  * wired here. The reactive WRITE-path (padi's ctx + write-triggers publishing
  * deltas) is LIVE: the client reads the terminal record, urgency, daemon status,
  * session, activity feed, and the `terminalExit` event off `padiSurface`. The
- * `session` / `activityFeed` cells are backed by the conf stores kolu-server
- * injects at boot (`./confStores.ts`) — the STORAGE stays kolu-server-side until
- * W2.2 gives padi its own state-root, but the wire members live here.
+ * `session` / `activityFeed` cells are backed by padi's OWN state-root Conf, set by
+ * padi's `daemonMain` at boot (`openPadiStateStores` → `setPadiSessionStore` /
+ * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
@@ -145,8 +145,9 @@ export function buildPadiSurfaceDeps(deps: {
         store: inMemoryStore(recomputeUrgency()),
         equals: urgencyEqual,
       },
-      // The saved session — backed by the conf store kolu-server injects at boot
-      // (`requirePadiSessionStore`), until W2.2 gives padi its own state-root. The
+      // The saved session — backed by padi's OWN state-root Conf, set by padi's
+      // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here
+      // via `requirePadiSessionStore`. The
       // `get` reads that store DIRECTLY and normalizes an empty-terminals blob to
       // `null` (the legacy "nothing to restore" invariant) INLINE — it must NOT
       // delegate to `getSavedSession`, which reads THIS cell (via
@@ -169,9 +170,10 @@ export function buildPadiSurfaceDeps(deps: {
         equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
         onWrite: () => cancelPendingAutosave(),
       },
-      // The activity feed — backed by the conf store kolu-server injects at boot.
+      // The activity feed — backed by padi's OWN state-root Conf, set by padi's
+      // daemonMain at boot (`setPadiActivityFeedStore`, see `confStores.ts`).
       // A thin lazy wrapper (not the bare store) because the store is injected
-      // AFTER this deps object is built (kolu-server boot order), so calling
+      // AFTER this deps object is built (padi's boot order), so calling
       // `requirePadiActivityFeedStore()` eagerly here would read before the set.
       activityFeed: {
         store: {
