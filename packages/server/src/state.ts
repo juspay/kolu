@@ -19,11 +19,11 @@
 import {
   constants as fsConstants,
   copyFileSync,
-  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { join } from "node:path";
 import {
@@ -234,13 +234,30 @@ function rotateBackupFiles(backupDir: string, backups: string[]): void {
   }
 }
 
+function stateFileExists(stateFilePath: string): boolean {
+  try {
+    statSync(stateFilePath);
+    return true;
+  } catch (err) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      err.code === "ENOENT"
+    ) {
+      return false;
+    }
+    throw err;
+  }
+}
+
 /** Snapshot the pre-boot Conf file before migrations/autosave can write it.
  *  The live store is still fail-fast; this safety-net copy is deliberately
  *  best-effort and logs loudly instead of blocking boot. */
 export function backupStateFile(stateDir: string): void {
   const { stateFilePath, backupDir } = statePaths(stateDir);
   try {
-    if (!existsSync(stateFilePath)) return;
+    if (!stateFileExists(stateFilePath)) return;
 
     mkdirSync(backupDir, { recursive: true });
     const current = readFileSync(stateFilePath);

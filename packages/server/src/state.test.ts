@@ -152,6 +152,25 @@ describe("backupStateFile", () => {
       "state backup failed; boot continuing",
     );
   });
+
+  it("reports state file stat failures instead of treating them as missing", () => {
+    const dir = makeTempStateDir();
+    rmSync(dir, { recursive: true, force: true });
+    writeFileSync(dir, "not a directory");
+    const stateFilePath = join(dir, STATE_CONFIG_FILE);
+    const errorSpy = vi.spyOn(log, "error").mockImplementation(() => {});
+
+    expect(() => backupStateFile(dir)).not.toThrow();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0]?.[0]).toMatchObject({
+      backupDir: backupDir(dir),
+      err: { code: "ENOTDIR" },
+      stateFilePath,
+    });
+    expect(errorSpy.mock.calls[0]?.[1]).toBe(
+      "state backup failed; boot continuing",
+    );
+  });
 });
 
 describe("migrateLegacyTerminal_1_18_0", () => {
