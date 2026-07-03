@@ -26,6 +26,7 @@
 
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { match, P } from "ts-pattern";
 import {
   padiGatePath,
   padiSocketPath,
@@ -315,12 +316,12 @@ export function localPadiDriver(
  *  connecting|connected|disconnected — degraded/dead stays "disconnected" so the
  *  re-serve reads as honestly reconnecting (the loop always re-dials). */
 function projectEndpointStatus(s: PadiEndpointStatus): HostSessionState {
-  const connection =
-    s.state === "connected"
-      ? "connected"
-      : s.state === "connecting" || s.state === "restarting"
-        ? "connecting"
-        : "disconnected"; // degraded | dead
+  const connection = match(s.state)
+    .with("connected", () => "connected" as const)
+    .with(P.union("connecting", "restarting"), () => "connecting" as const)
+    // degraded | dead → disconnected: the loop always re-dials.
+    .with(P.union("degraded", "dead"), () => "disconnected" as const)
+    .exhaustive();
   return {
     connection,
     progressLines: [],
@@ -371,24 +372,30 @@ export class PadiBindingSession
   onEndpointStatus(s: PadiEndpointStatus): void {
     // Manage the client handle FIRST (so a listener woken by fire() sees the fresh
     // currentClient()), then project + fire ONCE for every transition.
-    if (s.state === "connected") {
-      const conn = this.deps.endpoint.current();
-      if (conn) {
-        // Scope the COMBINED dialed client down to the padi sibling so the relay's
-        // `client.surface.<member>` resolves at /surface/padi/<member>.
-        const scoped = scopeSibling(
-          conn.client,
-          "padi",
-        ) as unknown as PadiSurfaceClient;
-        this.clientPromise = Promise.resolve(scoped);
-      }
-    } else if (s.state === "degraded" || s.state === "dead") {
-      // The live link dropped. Clear the client so a forward in the gap fails
-      // honestly, then schedule ONE reconnect (padi survives its own unit; the
-      // re-adopt re-attaches the surviving kaval + PTYs).
-      this.clientPromise = null;
-      this.scheduleReconnect();
-    }
+    match(s.state)
+      .with("connected", () => {
+        const conn = this.deps.endpoint.current();
+        if (conn) {
+          // Scope the COMBINED dialed client down to the padi sibling so the relay's
+          // `client.surface.<member>` resolves at /surface/padi/<member>.
+          const scoped = scopeSibling(
+            conn.client,
+            "padi",
+          ) as unknown as PadiSurfaceClient;
+          this.clientPromise = Promise.resolve(scoped);
+        }
+      })
+      .with(P.union("degraded", "dead"), () => {
+        // The live link dropped. Clear the client so a forward in the gap fails
+        // honestly, then schedule ONE reconnect (padi survives its own unit; the
+        // re-adopt re-attaches the surviving kaval + PTYs).
+        this.clientPromise = null;
+        this.scheduleReconnect();
+      })
+      // connecting | restarting: transient warming — no client-handle change; the
+      // projected state below carries the frame.
+      .with(P.union("connecting", "restarting"), () => {})
+      .exhaustive();
     this.setState(projectEndpointStatus(s));
     this.fire();
   }
