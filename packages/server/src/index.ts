@@ -536,18 +536,21 @@ padiSession.onState((s) => {
 // best-effort `system.version`/`terminal.list` probe per kaval; NEVER touches a
 // daemon's lifecycle), mark which one kolu's bound padi owns, and publish
 // `daemonInventory`. So a LEAKED post-upgrade daemon — invisible in the UI before,
-// surfaced only by a `kaval-tui` CLI error — is diagnosable at a glance. The active
-// kaval/padi sockets are DETERMINISTIC from padi's state-root digest (`ensurePadiBinding`
-// resolves the SAME default), so they mark "in use by kolu" by socket identity; the
-// active padi's honest `surfaceVersion` (off its control-core `hello`) rides the bound
-// session. A padi (re)bind force-samples so its version + marking refresh at once.
+// surfaced only by a `kaval-tui` CLI error — is diagnosable at a glance. kolu's active
+// kaval is marked by socket identity against the address padi actually HOLDS: the DIGEST
+// address normally, or the pre-padi LEGACY `kaval-<port>/` address padi ADOPTED on a
+// W2.2 upgrade (`legacyKavalSocketPath(this binder's port)`, the SAME hint the adopter
+// hands padi) — so an adopted legacy kaval reads as kolu's converging active one, not a
+// leak. The active padi's honest `surfaceVersion` (off its control-core `hello`) rides
+// the bound session. A padi (re)bind force-samples so version + marking refresh at once.
 const inventoryStateRoot = resolvePadiStateRoot();
 startDaemonInventorySampler(
   {
     discoverKavals: discoverKavalDaemons,
     discoverPadis: discoverPadiDaemons,
     probe: probeKavalStatus,
-    activeKavalSocket: padiKavalSocketPath(inventoryStateRoot),
+    digestKavalSocket: padiKavalSocketPath(inventoryStateRoot),
+    legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
     activePadiSocket: padiSocketPath(inventoryStateRoot),
     activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
     publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),

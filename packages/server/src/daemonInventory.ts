@@ -48,22 +48,49 @@ const EMPTY_PROBE: KavalProbe = {
 };
 
 /**
+ * PURE: resolve WHICH discovered kaval socket kolu's padi actually HOLDS, mirroring
+ * padi's adopt precedence (the record padi writes for the held daemon). padi keys its
+ * kaval by a DIGEST of its state-root and SPAWNS there; on a W2.2 upgrade it instead
+ * ADOPTS a live pre-W2.2 `kaval-<port>/` (the binder's legacy-socket hint), keeping the
+ * PTYs. So the held socket is the DIGEST address when a kaval is live there (primary),
+ * else the LEGACY address when one is live there (adopted), else the digest address (the
+ * address padi will spawn at — nothing live yet). This is the SAME digest-primary,
+ * legacy-hint order the adopter applies, read off the observable live-socket set.
+ */
+export function resolveActiveKavalSocket(
+  daemons: readonly KavalDaemon[],
+  digestSocket: string,
+  legacySocket: string,
+): string {
+  const live = new Set(daemons.map((d) => d.socket));
+  if (live.has(digestSocket)) return digestSocket;
+  if (live.has(legacySocket)) return legacySocket;
+  return digestSocket;
+}
+
+/**
  * PURE: assemble the wire `RunningKaval[]` from discovered kaval daemons, their
- * best-effort status probes (keyed by socket), and the socket of the kaval kolu's
- * bound padi owns.
+ * best-effort status probes (keyed by socket), the socket kolu's padi actually HOLDS
+ * (from {@link resolveActiveKavalSocket}), and the pre-padi LEGACY socket the binder
+ * would adopt.
  *
- * `active` is decided by SOCKET IDENTITY — exactly the padi-owned kaval reads "in use
- * by kolu"; a legacy `port` kaval (not owned by any padi) is the un-owned leak, flagged
- * via its `kind` for the dialog. `activeSocket` `null` (no padi identity) → none active.
- * A probe absent for a socket folds to all-`null` fields (honesty #1034).
+ * `active` is decided by SOCKET IDENTITY against the held socket — exactly the
+ * padi-held kaval reads "in use by kolu", even when that is the legacy-port address
+ * after an upgrade adoption. `atLegacyAddress` marks that adopted-at-the-old-address
+ * case (active AND held socket === the legacy socket): a KNOWN converging state, not a
+ * leak. A legacy `port`-kind kaval that is NOT the held one stays the genuine
+ * stray/leak (flagged via its `kind` in the dialog). `activeSocket` `null` → none
+ * active. A probe absent for a socket folds to all-`null` fields (honesty #1034).
  */
 export function assembleKavalInventory(
   daemons: readonly KavalDaemon[],
   probes: ReadonlyMap<string, KavalProbe>,
   activeSocket: string | null,
+  legacySocket: string,
 ): RunningKaval[] {
   return daemons.map((d) => {
     const probe = probes.get(d.socket) ?? EMPTY_PROBE;
+    const active = activeSocket !== null && d.socket === activeSocket;
     return {
       socket: d.socket,
       label: d.label,
@@ -72,7 +99,10 @@ export function assembleKavalInventory(
       terminalCount: probe.terminalCount,
       buildCommit: probe.buildCommit,
       contractVersion: probe.contractVersion,
-      active: activeSocket !== null && d.socket === activeSocket,
+      active,
+      // Only the HELD kaval sitting at the pre-padi legacy address — an adoption that
+      // will converge onto the digest address on the next restart/reboot. Never a stray.
+      atLegacyAddress: active && d.socket === legacySocket,
     };
   });
 }
@@ -154,8 +184,9 @@ export async function probeKavalStatus(
 
 /** The seams the sampler reads/writes through — injected so the wiring is one call and
  *  a test can drive it without a real host. `discover` are the read-only enumerators;
- *  `activeKavalSocket`/`activePadiSocket` are the deterministic sockets kolu's bound
- *  padi owns (constant, from padi's state-root digest). */
+ *  `digestKavalSocket`/`legacyKavalSocket`/`activePadiSocket` are the deterministic
+ *  sockets kolu's bound padi owns/would-adopt (constants, from padi's state-root digest
+ *  and this binder's listen port). */
 export interface DaemonInventoryDeps {
   /** Read-only discovery of every running kaval daemon (`discoverKavalDaemons`). */
   discoverKavals: () => KavalDaemon[];
@@ -163,9 +194,13 @@ export interface DaemonInventoryDeps {
   discoverPadis: () => PadiDaemon[];
   /** Best-effort read-only status probe of a kaval socket. */
   probe: (socket: string) => Promise<KavalProbe>;
-  /** The socket of the kaval kolu's bound padi owns — deterministic from padi's
-   *  state-root digest (constant). Marks the "in use by kolu" kaval. */
-  activeKavalSocket: string;
+  /** The DIGEST-keyed kaval socket padi spawns at — deterministic from padi's
+   *  state-root digest (constant). The primary address padi's kaval normally holds. */
+  digestKavalSocket: string;
+  /** The pre-padi LEGACY `kaval-<port>/` socket the binder hands padi as an adopt
+   *  hint (`legacyKavalSocketPath(this binder's listen port)`, constant). The address
+   *  an upgrade-adopted kaval sits at until it converges onto the digest one. */
+  legacyKavalSocket: string;
   /** The socket of the padi kolu-server is bound to (constant). */
   activePadiSocket: string;
   /** The bound padi's honest `surfaceVersion` off its control-core `hello`, or `null`
@@ -190,11 +225,19 @@ export async function enumerateDaemonInventoryOnce(
     ),
   );
   const probes = new Map(probeEntries);
+  // Which kaval padi actually holds — the digest address normally, the adopted legacy
+  // address after a W2.2 upgrade (mirroring padi's adopt precedence off the live set).
+  const activeKavalSocket = resolveActiveKavalSocket(
+    kavalDaemons,
+    deps.digestKavalSocket,
+    deps.legacyKavalSocket,
+  );
   deps.publish({
     kavals: assembleKavalInventory(
       kavalDaemons,
       probes,
-      deps.activeKavalSocket,
+      activeKavalSocket,
+      deps.legacyKavalSocket,
     ),
     padis: assemblePadiInventory(
       padiDaemons,

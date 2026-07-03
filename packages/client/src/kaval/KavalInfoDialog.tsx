@@ -48,12 +48,23 @@ const RunningKavalRow: Component<{ kaval: RunningKaval }> = (props) => (
           in use by kolu
         </span>
       </Show>
+      {/* A legacy `kaval-<port>/` that is NOT the held one — a genuine un-adopted
+          pre-W2.2 stray. The leak signal. */}
       <Show when={!props.kaval.active && props.kaval.kind === "port"}>
         <span class="shrink-0 rounded-full border border-warning/40 bg-warning/10 px-1.5 text-[9px] font-medium leading-4 text-warning">
           legacy · not owned by padi
         </span>
       </Show>
     </div>
+    {/* The HELD kaval still at the pre-padi legacy address — padi ADOPTED it on
+        upgrade (PTYs kept). A known, converging state, NOT a leak: it's kolu's live
+        kaval, just at its old socket until it next recycles. Neutral tone (not the
+        warning the stray gets). */}
+    <Show when={props.kaval.active && props.kaval.atLegacyAddress}>
+      <p class="mt-1 text-[10px] leading-4 text-fg-3">
+        pre-padi address · converges on next kaval restart or reboot
+      </p>
+    </Show>
     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-fg-3">
       <span>gate pid {props.kaval.gatePid ?? dash}</span>
       <span>
@@ -90,6 +101,12 @@ const KavalInfoDialog: Component<{
       props.status?.state,
       daemonTransportLive(),
     );
+  // kolu's active kaval is still at the pre-padi legacy address (adopted on upgrade) —
+  // so the Restart-kaval button is the MANUAL way to converge it onto the padi address
+  // now (a reboot converges it automatically). The hint appears only while there's
+  // something to converge.
+  const convergePending = (): boolean =>
+    runningKavals().some((k) => k.active && k.atLegacyAddress);
 
   return (
     <InfoDialogShell
@@ -197,6 +214,11 @@ const KavalInfoDialog: Component<{
         <p class="text-[11px] leading-relaxed text-fg-3">
           Captures the session first, then offers restore on the fresh daemon.
         </p>
+        <Show when={convergePending()}>
+          <p class="text-[11px] leading-relaxed text-fg-3">
+            Restart converges kaval to the padi address.
+          </p>
+        </Show>
       </div>
 
       {/* Every running kaval on this host, active one badged, legacy/orphaned ones

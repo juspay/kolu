@@ -318,10 +318,17 @@ export const RunningKavalSchema = z.object({
   /** Discovery's human label ("standalone kaval" | "kolu @ <state-root>" |
    *  "kolu-server on port <port>"), decided at discovery's matching branch. */
   label: z.string(),
-  /** The structural kind: `stateRoot` (a padi's kaval), `port` (the LEGACY pre-W2.2
-   *  keying — a kaval NOT owned by any padi, the leak signal), `standalone`, or
+  /** The structural kind: `stateRoot` (a padi's kaval — carries a state-root
+   *  manifest, incl. an ADOPTED legacy-address kaval), `port` (an UN-adopted legacy
+   *  `kaval-<port>/` with NO manifest — a genuine stray/leak), `standalone`, or
    *  `unknown`. */
   kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
+  /** True iff this is the ACTIVE kaval sitting at the pre-padi legacy `kaval-<port>/`
+   *  address — padi ADOPTED a live pre-W2.2 kaval on upgrade (keeping its PTYs) rather
+   *  than leaking it. A KNOWN, converging state (not a leak): it is kolu's live kaval,
+   *  just still at its old socket until the next kaval restart/reboot spawns it under
+   *  the digest address. Only ever true together with `active`. */
+  atLegacyAddress: z.boolean(),
   /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
   gatePid: z.number().int().nullable(),
   /** Live terminal count from a best-effort `terminal.list` probe, or null when the

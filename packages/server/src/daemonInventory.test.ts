@@ -11,9 +11,11 @@ import {
   assembleKavalInventory,
   assemblePadiInventory,
   type KavalProbe,
+  resolveActiveKavalSocket,
 } from "./daemonInventory.ts";
 
-const ACTIVE = "/run/user/1000/kaval-abc123/pty-host.sock";
+const DIGEST = "/run/user/1000/kaval-abc123/pty-host.sock";
+const ACTIVE = DIGEST;
 const LEGACY = "/run/user/1000/kaval-7692/pty-host.sock";
 const STANDALONE = "/run/user/1000/kaval/pty-host.sock";
 
@@ -30,6 +32,32 @@ const probe = (over: Partial<KavalProbe> = {}): KavalProbe => ({
   buildCommit: "abc1234",
   contractVersion: "5.0",
   ...over,
+});
+
+describe("resolveActiveKavalSocket", () => {
+  it("prefers the DIGEST address when a kaval is live there (padi's primary)", () => {
+    const socket = resolveActiveKavalSocket(
+      [kaval({ socket: DIGEST }), kaval({ socket: LEGACY, kind: "port" })],
+      DIGEST,
+      LEGACY,
+    );
+    expect(socket).toBe(DIGEST);
+  });
+
+  it("falls to the LEGACY address when the digest is dead but legacy is live (adopted)", () => {
+    // Only the legacy port kaval is discovered live — the upgrade-adoption case.
+    const socket = resolveActiveKavalSocket(
+      [kaval({ socket: LEGACY, kind: "stateRoot" })],
+      DIGEST,
+      LEGACY,
+    );
+    expect(socket).toBe(LEGACY);
+  });
+
+  it("defaults to the digest address when neither is live (padi will spawn there)", () => {
+    const socket = resolveActiveKavalSocket([], DIGEST, LEGACY);
+    expect(socket).toBe(DIGEST);
+  });
 });
 
 describe("assembleKavalInventory", () => {
@@ -50,12 +78,58 @@ describe("assembleKavalInventory", () => {
       ],
       new Map(),
       ACTIVE,
+      LEGACY,
     );
     expect(rows.map((r) => [r.socket, r.active])).toEqual([
       [ACTIVE, true],
       [LEGACY, false],
       [STANDALONE, false],
     ]);
+    // The active kaval is at the DIGEST address here — not a legacy adoption.
+    expect(rows.every((r) => !r.atLegacyAddress)).toBe(true);
+  });
+
+  it("an ADOPTED legacy-address kaval reads as active + atLegacyAddress (converging, NOT a leak)", () => {
+    // padi adopted the pre-W2.2 `kaval-<port>/` on upgrade → it carries the state-root
+    // manifest (kind `stateRoot`, labeled `kolu @ …`), the digest socket is dead, and
+    // the held socket IS the legacy one.
+    const rows = assembleKavalInventory(
+      [kaval({ socket: LEGACY, kind: "stateRoot" })],
+      new Map(),
+      LEGACY, // resolveActiveKavalSocket picked the legacy address (digest dead)
+      LEGACY,
+    );
+    expect(rows[0]).toMatchObject({
+      active: true,
+      atLegacyAddress: true,
+      // NOT a leak: it is kolu's live kaval, just at the old address.
+      kind: "stateRoot",
+    });
+  });
+
+  it("a STRAY legacy `port` kaval that is NOT held stays a flaggable leak (not converging)", () => {
+    // The active kaval is at the digest address; a SECOND, un-adopted `kaval-<port>/`
+    // (no manifest → kind `port`) is a genuine stray — active false, atLegacyAddress
+    // false, and its `port` kind is what the dialog flags as "not owned by padi".
+    const rows = assembleKavalInventory(
+      [
+        kaval({ socket: DIGEST, kind: "stateRoot" }),
+        kaval({
+          socket: LEGACY,
+          kind: "port",
+          label: "kolu-server on port 7692",
+        }),
+      ],
+      new Map(),
+      DIGEST, // digest is held (primary live)
+      LEGACY,
+    );
+    const stray = rows.find((r) => r.socket === LEGACY);
+    expect(stray).toMatchObject({
+      active: false,
+      atLegacyAddress: false,
+      kind: "port",
+    });
   });
 
   it("carries the legacy `port` kind through so the leak signal is flaggable", () => {
@@ -69,6 +143,7 @@ describe("assembleKavalInventory", () => {
       ],
       new Map(),
       ACTIVE,
+      LEGACY,
     );
     // A legacy port-keyed kaval — NOT owned by any padi, and not the active one.
     expect(rows[0]).toMatchObject({ kind: "port", active: false });
@@ -79,8 +154,10 @@ describe("assembleKavalInventory", () => {
       [kaval({ socket: ACTIVE }), kaval({ socket: LEGACY, kind: "port" })],
       new Map(),
       null,
+      LEGACY,
     );
     expect(rows.every((r) => !r.active)).toBe(true);
+    expect(rows.every((r) => !r.atLegacyAddress)).toBe(true);
   });
 
   it("folds a present probe onto its socket and a MISSING probe to honest nulls", () => {
@@ -88,6 +165,7 @@ describe("assembleKavalInventory", () => {
       [kaval({ socket: ACTIVE }), kaval({ socket: LEGACY, kind: "port" })],
       new Map([[ACTIVE, probe({ terminalCount: 5, contractVersion: "5.0" })]]),
       ACTIVE,
+      LEGACY,
     );
     const active = rows.find((r) => r.socket === ACTIVE);
     const legacy = rows.find((r) => r.socket === LEGACY);
@@ -109,6 +187,7 @@ describe("assembleKavalInventory", () => {
       [kaval({ socket: STANDALONE, label: "standalone kaval", gatePid: 9 })],
       new Map(),
       ACTIVE,
+      LEGACY,
     );
     expect(rows[0]).toMatchObject({
       socket: STANDALONE,
