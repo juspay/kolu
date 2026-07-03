@@ -1,6 +1,6 @@
 ---
 title: padi — the per-host terminal-workspace daemon
-description: The architecture that replaces the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. pulam and pulam-web dissolve. Phases W0–W4; W0 and W1 shipped.
+description: The architecture that replaces the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. pulam and pulam-web dissolve. Phases W0–W5 (W4 = consolidation, W5 = demand-driven); W0–W2.2 shipped.
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
@@ -34,7 +34,8 @@ export const ROADMAP = [
   { d: 1, g: "○", c: "prog", l: "W3.1 · the remote binding — provision + front a remote padi (complete, invisible)", m: "parity e2e on a pu box", h: "#w31" },
   { d: 1, g: "○", c: "prog", l: "W3.2 · the switch — binding pool · per-view scope · host picker · clock handshake", m: "needs W3.1", h: "#w32" },
   { d: 1, g: "○", c: "prog", l: "W3.3 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W3.2", h: "#w33" },
-  { d: 0, g: "○", c: "last", l: "W4 · demand-driven — cross-host dock · kolu-tui · hybrid only if earned", m: "", h: "#w4" },
+  { d: 0, g: "○", c: "prog", l: "W4 · consolidation — refactors · decomplecting · electricity upstreaming · deletions (the running ledger)", m: "ledger ↓ · updated per phase", h: "#w4" },
+  { d: 0, g: "○", c: "last", l: "W5 · demand-driven — cross-host dock · kolu-tui · hybrid only if earned", m: "", h: "#w5" },
 ];
 
 <PhaseTree title="ROADMAP — padi (replaces R9/R10) · kept up to date" phases={ROADMAP} />
@@ -71,7 +72,9 @@ export const LENS = [
   { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)",
     beh: "Δ3.2 each connection now belongs to one host — the client rebuilds its plumbing when you switch · Δ3.3 notifications now fire for hosts you are not looking at (3.1 ships switched off by default)",
     sub: [["3.1",2],["3.2",3,true],["3.3",1,true]] },
-  { p: "W4", h: "#w4", user: "cross-host dock rows · kolu-tui — only if demanded", vis: true, faint: true, work: 1, why: "additive layers over unchanged daemons",
+  { p: "W4", h: "#w4", user: "nothing — that is the point", vis: false, work: 3, why: "paying down what W2–W3's pace deferred: refactors, upstreaming, deletions off the ledger",
+    beh: null, sub: null },
+  { p: "W5", h: "#w5", user: "cross-host dock rows · kolu-tui — only if demanded", vis: true, faint: true, work: 1, why: "additive layers over unchanged daemons",
     beh: null, sub: null },
 ];
 
@@ -138,7 +141,7 @@ While you're parked on one host, the others reach you through the channels an in
 Two personas anchor the design, and both get the same shape: an **ephemeral cloud box** (a pu-style instance per project — teardown removes the host from the picker as one clean unit, never wreckage on a shared canvas) and a **permanent headless server** (days-long agents; hop local⇄server many times a day — instant switch + 1-action notification response is the tmux-grade loop that persona lives in).
 
 <Callout kind="note" title="Why not hybrid tiles (several hosts on one canvas)? Evaluated, deferred — not foreclosed">
-We compared three designs against real usage: plain switching (A), switching with warm connections and badges (A+ — this design), and mixed tiles (B). A+ gives nearly everything B would: you find out when an agent elsewhere needs you, you respond in one click, every device shows a host's canvas the same way, and tearing down a cloud box removes it cleanly. B's one real advantage is watching two hosts' terminals side by side in one window. Its real cost: two tiles that look identical — same repo, same branch, one of them is prod — differing only by a tiny badge. That's a wrong-host paste waiting to happen. And when the app is in the background (most of the day), B's on-screen indicators are invisible anyway; both designs end up relying on the OS notification. So: ship A+, and keep B possible later — it would be a layer on top of the same daemons, nothing below changes. If switching ever feels insufficient, the first thing to try is a **cross-host dock** (W4): other hosts' agents listed in your dock, click = switch — you want attention across hosts, not tiles across hosts. The dock data reserves a host field from W1 so this can land without breaking the contract.
+We compared three designs against real usage: plain switching (A), switching with warm connections and badges (A+ — this design), and mixed tiles (B). A+ gives nearly everything B would: you find out when an agent elsewhere needs you, you respond in one click, every device shows a host's canvas the same way, and tearing down a cloud box removes it cleanly. B's one real advantage is watching two hosts' terminals side by side in one window. Its real cost: two tiles that look identical — same repo, same branch, one of them is prod — differing only by a tiny badge. That's a wrong-host paste waiting to happen. And when the app is in the background (most of the day), B's on-screen indicators are invisible anyway; both designs end up relying on the OS notification. So: ship A+, and keep B possible later — it would be a layer on top of the same daemons, nothing below changes. If switching ever feels insufficient, the first thing to try is a **cross-host dock** (W5): other hosts' agents listed in your dock, click = switch — you want attention across hosts, not tiles across hosts. The dock data reserves a host field from W1 so this can land without breaking the contract.
 </Callout>
 
 ## Architecture-level changes
@@ -213,7 +216,8 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W1" name="the padi seam, in place — padiSurface served in-process, client migrated, root oRPC dispositioned" status="shipped" needs={["W0"]} links={[{ label: "#1652", href: "https://github.com/juspay/kolu/pull/1652" }]} />
 <Phase id="W2" name="padi the process — state-root identity, owns kaval, on-host persistence; kolu-server binds + re-serves" status="todo" needs={["W1"]} />
 <Phase id="W3" name="remote + the switch — ssh/Nix leg, host picker, per-view bindings, cross-host badges" status="todo" needs={["W2"]} />
-<Phase id="W4" name="demand-driven — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W3"]} />
+<Phase id="W4" name="consolidation — the cleanup ledger: refactors, decomplecting, electricity upstreaming, deletions" status="todo" needs={["W3"]} />
+<Phase id="W5" name="demand-driven — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **When packages are born** — graduation is a scheduled event, not a side effect:
 
@@ -223,7 +227,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 | re-serve machinery | **W2.1** ✓ <PrLink pr={1661} />, into existing `@kolu/surface` / `surface-nix-host` | it generalizes proven pulam-web code for a second consumer (kolu-server) — that *is* the graduation moment; no new package, it extends the receptacle that already owns mirroring (drishti-gated) |
 | the control core | lives in `@kolu/padi` | extraction is gated on electricity test ② (a real axis of variation), and with one daemon the axis doesn't vary yet — nothing to encapsulate. If a second daemon adopts it, that's test ③'s after-the-fact proof and it graduates to `@kolu/surface-daemon`. (Corrected 2026-07-03: an earlier wording here inverted the doctrine into 'proof before extraction' — the second consumer is the proof extraction was right, never the gate for doing it) |
 | padi's `wait` (the agent done-signal) | **W2.3**, a subcommand of the padi binary | no new package: the kaval-tui precedent (separate TUI package) is for a full client; a done-signal probe rides the daemon's own CLI |
-| `kolu-tui` | **W4**, new package | a new consumer app, not an extraction — it exists to prove padiSurface serves a second frontend (test ③'s proof). W4 because it's demand-driven, not because anything forbids it earlier |
+| `kolu-tui` | **W5**, new package | a new consumer app, not an extraction — it exists to prove padiSurface serves a second frontend (test ③'s proof). W5 because it's demand-driven, not because anything forbids it earlier |
 
 <a id="w0"></a>
 
@@ -316,9 +320,9 @@ W1.R's seal guarantees the domain lives behind the contract, complete as a libra
 
 #### W2.3 — padi-tui is born, and the burial *(needs W2.2)*
 
-**First, the dial kit moves home**: `connectPadi` (state-root→digest→socket resolve · control-core handshake · typed skew refusal · the padiSurface client) is carved out of `packages/server/src/padiBinding.ts` into a **`@kolu/padi/dial`** entry — the kaval precedent: a daemon's package owns its client-side dial kit. kolu-server and padi-tui both import it (the seal's allowed-entries list grows by `/dial`); supervision/re-serve stay binder-only, the verbs stay tui-only. **Zero `@kolu/surface*` edits in this phase** — if a helper feels missing (e.g. wait-until-predicate over a collection), hand-roll it in padi-tui and note it as a W4 graduation candidate (kolu-tui is the second consumer that forces the honest split).
+**First, the dial kit moves home**: `connectPadi` (state-root→digest→socket resolve · control-core handshake · typed skew refusal · the padiSurface client) is carved out of `packages/server/src/padiBinding.ts` into a **`@kolu/padi/dial`** entry — the kaval precedent: a daemon's package owns its client-side dial kit. kolu-server and padi-tui both import it (the seal's allowed-entries list grows by `/dial`); supervision/re-serve stay binder-only, the verbs stay tui-only. **Zero `@kolu/surface*` edits in this phase** — if a helper feels missing (e.g. wait-until-predicate over a collection), hand-roll it in padi-tui and note it on the W4 ledger (its upstreaming is gated on kolu-tui — W5 — as the second consumer that forces the honest split).
 
-**`padi-tui` is born** — a small command-line tool on padi's socket, kaval-tui's sibling. Every verb is a thin wrapper over a padiSurface procedure that has existed since W1: `wait`/`status` (the precise "is the agent done / does it need me" signal, read from real agent state — better than kaval-tui's guess-from-silence), `create` (including `--parent` for a split tile), and `create --worktree <branch> -- <agent argv>` — a worktree'd agent in one command. The `activity` stream **gets its live backing here** (padi taps its kaval's bytes), arriving together with its first consumer — `padi-tui watch`/`status` — per the self-sufficiency rule that deferred it out of W2.2. One tool to spawn an agent and wait on its actual state. *(kolu-tui at W4 is a different thing — an interactive canvas; padi-tui is verbs, no canvas.)*
+**`padi-tui` is born** — a small command-line tool on padi's socket, kaval-tui's sibling. Every verb is a thin wrapper over a padiSurface procedure that has existed since W1: `wait`/`status` (the precise "is the agent done / does it need me" signal, read from real agent state — better than kaval-tui's guess-from-silence), `create` (including `--parent` for a split tile), and `create --worktree <branch> -- <agent argv>` — a worktree'd agent in one command. The `activity` stream **gets its live backing here** (padi taps its kaval's bytes), arriving together with its first consumer — `padi-tui watch`/`status` — per the self-sufficiency rule that deferred it out of W2.2. One tool to spawn an agent and wait on its actual state. *(kolu-tui at W5 is a different thing — an interactive canvas; padi-tui is verbs, no canvas.)*
 
 **The legacy conf sheds its fossils**: W2.2's import copies terminal keys (`session` · `activityFeed` · `sleepingTerminals` · `lastPairedDaemon`) into the state-root but deliberately leaves them in `~/.config/kolu/config.json` as rollback insurance; once the cutover has soaked, W2.3 deletes them (the `.pre-padi-import.bak` remains the archaeological copy) — a stale coherent-looking session in the old file is a debugging trap and a rollback-resurrection risk.
 
@@ -352,7 +356,30 @@ kolu-server subscribes each warm binding's **urgency-projection member** (the on
 
 <a id="w4"></a>
 
-### W4 — demand-driven
+### W4 — consolidation — the running cleanup ledger
+
+W2 and W3 ship at pace (a deliberate call — the model window); W4 is where the pace's debts are paid: refactors, decomplecting, framework-level electricity upstreaming, and deletions. **This ledger is the phase's scope, and it is a living list** — appraised and appended as each W phase lands (each entry names its source and its readiness gate). Nothing user-visible ships here; that is the point.
+
+| # | candidate | source | shape | ready when |
+| --- | --- | --- | --- | --- |
+| L1 | `createPolledQuery`'s framework-free core → `@kolu/surface` beside `pollOnEvent` (its producer dual); the Solid `.use()` ergonomics (`.pending()`, the #818 guard) → `surface-app` | W1.5; the doctrine check (2026-07-03) confirmed nothing blocks it | extraction (drishti-gated) | now — or naturally with kolu-tui (W5) |
+| L2 | padi-tui's hand-rolled wait-until-predicate helper → `@kolu/surface` | W2.3's zero-surface-edits rule | extraction (drishti-gated) | second consumer exists (kolu-tui, W5) |
+| L3 | the control core → `@kolu/surface-daemon` | W1.C | extraction | a second daemon adopts it (test ③ proof) |
+| L4 | delete the legacy-kaval **adopter arm** + port-keyed discovery/labeling | W2.2's migration (adopt-not-reap) | deletion, migration-window close | a named version: "upgrading from pre-W2.2 passes through W2.x–W3.x first" |
+| L5 | `ProcessRssSchema`'s deliberate duplication (padi ↔ terminal-workspace leaf) — dedupe into one home | W2.2 gauntlet (drift-checked at the sampler fold) | refactor | a natural shared home appears (possibly with L1's motion) |
+| L6 | `packages/server/src/padiBinding.ts` post-dial-carve: audit what remains (supervision vs re-serve vs binding-session) for a further split | W2.3's carve | refactor appraisal | after W2.3 lands |
+| L7 | `@kolu/terminal-workspace` post-burial: pulam dead leaves consumers = padi + client (schema/agentProjection) — re-appraise the package cut (fold into padi? keep as shared leaf?) | W2.3's burial | boundary appraisal | after W2.3 lands |
+| L8 | doc/comment sweep: surface-stack prose still citing pulam/pulam-web as its graduation examples; stale pre-padi topology comments | W0/W2.3 burials | docs | after W2.3 |
+| L9 | sensors out of padi's staleKey hash (restart-cadence relief) | W2.2 risks — "an observed decision, not pre-paid" | boundary split | only if deploy cadence actually hurts (evidence first) |
+| L10 | e2e flaky-tracker debt: the file-drop/file-ref rotating flakes (tracked, band-aided in W2.2 with the screen-state reader fix) | W2.2 CI rounds | test-infra | anytime; batch with W4 |
+| L11 | the interim shapes W3.2's binding-scoped client rebuild leaves behind in `wire.ts`/store singletons | W3.2 (anticipated) | refactor | after W3.2 lands |
+| L12 | fine-grained read-only CI token replacing the personal-token install on the CI pool | W2.2 CI incident | infra | anytime (srid mints; boxes re-provision) |
+
+*(Appraisal discipline: when a W phase ships, its review rounds' "deferred/acceptable-for-scope" items land here explicitly — an entry that never becomes ready gets deleted with a reason, not silently kept.)*
+
+<a id="w5"></a>
+
+### W5 — demand-driven
 
 **Cross-host dock** (B-lite: foreign hosts' rows, urgency-ranked, click = switch + focus — the host axis is already in the contract) is the first escalation if switching proves insufficient. **kolu-tui** — the graduation proof: consume padiSurface over the socket/ssh *without kolu-server*; done only when that named path renders a live canvas (the path, not the feature, is the unit of done). **Hybrid canvas** (model B) only if one-window side-by-side proves a recurring demand — it stays an aggregation layer over N bindings, zero daemon changes.
 
