@@ -48,7 +48,7 @@ export {
   type ReExecAsDetachedDaemonOptions,
   reExecAsDetachedDaemon,
 } from "./frontDaemonOverStdio.ts";
-export type { Logger } from "./logger.ts";
+export { type Logger, stderrLogger } from "./logger.ts";
 export {
   acquirePidGate,
   type GateAcquisition,

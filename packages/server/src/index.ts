@@ -444,16 +444,9 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
   if (!clientPromise) return null;
   const ctl = new AbortController();
   try {
-    const client = (await clientPromise) as unknown as {
-      surface: {
-        processMemory: {
-          get: (
-            input: Record<string, never>,
-            opts: { signal: AbortSignal },
-          ) => Promise<AsyncIterable<PadiProcessMemory>>;
-        };
-      };
-    };
+    // `currentClient()` already returns the typed `PadiSurfaceClient`, so the cell
+    // verb is reachable checked — no structural retype needed.
+    const client = await clientPromise;
     const iterable = await client.surface.processMemory.get(
       {},
       { signal: ctl.signal },

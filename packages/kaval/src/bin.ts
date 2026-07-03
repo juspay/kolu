@@ -16,7 +16,7 @@
  */
 
 import { parseArgs } from "node:util";
-import { daemonExitCode, type Logger } from "@kolu/surface-daemon";
+import { daemonExitCode, stderrLogger } from "@kolu/surface-daemon";
 import { runKavalDaemon } from "./daemonMain.ts";
 import { runStdioBridge } from "./stdioBridge.ts";
 
@@ -38,24 +38,6 @@ Options:
   -h, --help      show this help
 
 Drive a running kaval with \`kaval-tui list | snapshot <id> | attach <id>\`.`;
-
-/** A minimal structured operator logger — one JSON line per event to stderr,
- *  matching the spine's `(obj, msg)` `Logger` shape. stdout stays clean for any
- *  future machine-readable daemon output. */
-function stderrLogger(): Logger {
-  const emit =
-    (level: string) =>
-    (obj: Record<string, unknown>, msg: string): void => {
-      const line = JSON.stringify({ ...obj, level, msg });
-      process.stderr.write(`${line}\n`);
-    };
-  return {
-    debug: emit("debug"),
-    info: emit("info"),
-    warn: emit("warn"),
-    error: emit("error"),
-  };
-}
 
 const { values } = parseArgs({
   options: {

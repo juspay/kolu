@@ -128,12 +128,6 @@ export function padiGatePath(socketPath: string): string {
   return join(dirname(socketPath), PADI_GATE_FILE);
 }
 
-/** padi's runtime rendezvous dir (parent of the socket) — where padi writes its
- *  own `state-root` manifest so a future padi-tui can label it too. */
-export function padiRuntimeDir(stateRoot: string): string {
-  return dirname(padiSocketPath(stateRoot));
-}
-
 /** The socket padi's kaval serves on: `$XDG_RUNTIME_DIR/kaval-<digest>/
  *  pty-host.sock`, keyed by the SAME digest as padi (retires the legacy
  *  `kaval-<port>`). Reuses kaval's own path builder with the digest namespace, so

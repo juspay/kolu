@@ -21,7 +21,7 @@
  */
 
 import { parseArgs } from "node:util";
-import { daemonExitCode, type Logger } from "@kolu/surface-daemon";
+import { daemonExitCode, stderrLogger } from "@kolu/surface-daemon";
 import { runPadiDaemon } from "./daemonMain.ts";
 
 const USAGE = `padi — the per-host terminal-workspace daemon
@@ -47,22 +47,6 @@ Options:
   -h, --help          show this help
 
 Bind a running padi from kolu-server, or drive its kaval with \`kaval-tui\`.`;
-
-/** A minimal structured operator logger — one JSON line per event to stderr,
- *  matching the spine's `(obj, msg)` `Logger` shape. stdout stays clean. */
-function stderrLogger(): Logger {
-  const emit =
-    (level: string) =>
-    (obj: Record<string, unknown>, msg: string): void => {
-      process.stderr.write(`${JSON.stringify({ ...obj, level, msg })}\n`);
-    };
-  return {
-    debug: emit("debug"),
-    info: emit("info"),
-    warn: emit("warn"),
-    error: emit("error"),
-  };
-}
 
 const { values } = parseArgs({
   options: {
