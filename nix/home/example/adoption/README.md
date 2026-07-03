@@ -32,10 +32,10 @@ non-survivable detached spawn. A NixOS VM has *real* systemd, so the production
 | `adopt.nix` | **Positive** path → check `adoption-adopt` (also asserts NO update-pending — the #1034 no-op-deploy-no-nudge proof). |
 | `skew.nix` | **Contract-skew negative** path → check `adoption-skew`. |
 | `currency.nix` | **Build-skew** path (B3.4) → check `adoption-currency`. |
-| `upgrade.nix` | **W2.2 upgrade-migration** path → check `adoption-upgrade`. The pre-W2.2 → W2.2 cutover: a legacy PORT-keyed kaval (`kaval-<port>`) is ADOPTED — not leaked — when the digest-keyed W2.2 padi first boots, and a later Restart-kaval recycle CONVERGES the daemon under `kaval-<digest>`. Its flow INVERTS the others' — it stands up the legacy daemon + a matching pre-W2.2 `config.json` BEFORE kolu starts. |
-| `default.nix` | Aggregator — pins the `port` + `kavalTui` + `kavalBin` once, imports `lib.nix`, returns the four checks. |
+| `upgrade.nix` | **W2.2 upgrade-migration** path → TWO checks. `adoption-upgrade`: a legacy PORT-keyed kaval (`kaval-<port>`) is ADOPTED — not leaked — when the digest-keyed W2.2 padi first boots (ARM 1), and a Restart-kaval recycle CONVERGES the daemon under `kaval-<digest>` (ARM 2). `adoption-upgrade-reboot`: from that adopted state, a HOST REBOOT proves the legacy residue is BOUNDED (ARM 3) — kaval is mortal (its process + its `$XDG_RUNTIME_DIR`-tmpfs gate die), so padi spawns DIGEST-keyed and the saved session (on the persistent state-root) takes the degraded-restore path. Its flow INVERTS the others' — it stands up the legacy daemon + a matching pre-W2.2 `config.json` BEFORE kolu starts. |
+| `default.nix` | Aggregator — pins the `port` + `kavalTui` + `kavalBin` once, imports `lib.nix`, returns the five checks. |
 
-`../flake.nix` spreads all four into `checks.x86_64-linux`, so they ride
+`../flake.nix` spreads all five into `checks.x86_64-linux`, so they ride
 `ci::home-manager` with no new CI recipe (see [Running](#running)).
 
 ## The two paths

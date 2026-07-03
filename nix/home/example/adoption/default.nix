@@ -48,9 +48,11 @@ in
   adoption-adopt = import ./adopt.nix args;
   adoption-skew = import ./skew.nix args;
   adoption-currency = import ./currency.nix args;
-  # The W2.2 UPGRADE-migration path: a pre-W2.2 port-keyed kaval (kaval-<port>) is
-  # ADOPTED — not leaked — when the digest-keyed W2.2 padi first boots, and a later
-  # Restart-kaval recycle CONVERGES the daemon under kaval-<digest>. Its own file
-  # because its flow inverts the others' (seed a legacy daemon BEFORE kolu starts).
-  adoption-upgrade = import ./upgrade.nix args;
 }
+  # The W2.2 UPGRADE-migration path (TWO checks — `adoption-upgrade` for adopt+converge,
+  # `adoption-upgrade-reboot` for the reboot bound): a pre-W2.2 port-keyed kaval
+  # (kaval-<port>) is ADOPTED — not leaked — when the digest-keyed W2.2 padi first boots;
+  # a Restart-kaval recycle CONVERGES the daemon under kaval-<digest>; and a host reboot
+  # proves the legacy residue is BOUNDED (mortal across reboots). Its own file because
+  # its flow inverts the others' (seed a legacy daemon BEFORE kolu starts).
+  // import ./upgrade.nix args
