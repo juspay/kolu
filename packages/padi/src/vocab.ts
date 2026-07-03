@@ -20,6 +20,8 @@ import {
 import {
   AgentKindSchema,
   AgentMemorySchema,
+  type ProcessRss,
+  ProcessRssSchema,
   RestoreTargetSchema,
   seedMemory,
   TerminalIdSchema,
@@ -624,25 +626,12 @@ export type DaemonState = DaemonStatus["state"];
 
 // ── Process-memory readout (padi + its kaval) ─────────────────────────────
 
-/** A single process's resident-set size as an HONEST three-way state, not a
- *  `number | null` that conflates "no process to measure" with "the read failed":
- *  `{ status: "ok", rssBytes }` · `{ status: "absent" }` (down / not-yet-sampled) ·
- *  `{ status: "error" }` (believed up, RSS read threw — surfaced, never collapsed
- *  into `absent`, per `caught-error-must-not-collapse-to-empty`).
- *
- *  SEAL NOTE: this is a BYTE-IDENTICAL copy of `kolu-common/surface`'s
- *  `ProcessRssSchema`. The package-boundary seal forbids `@kolu/padi` importing
- *  `kolu-common` (proved in `server/src/seal.test.ts`), and keeps that
- *  heavily-imported module free of `@kolu/padi`, so the honest union is declared on
- *  BOTH sides. kolu-server's memory sampler folds this reading into its own
- *  `processMemory` cell, so a shape drift breaks that fold at the typecheck
- *  (structural assignability), not silently. */
-export const ProcessRssSchema = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("ok"), rssBytes: z.number() }),
-  z.object({ status: z.literal("absent") }),
-  z.object({ status: z.literal("error") }),
-]);
-export type ProcessRss = z.infer<typeof ProcessRssSchema>;
+// The honest three-way process-RSS union (`ProcessRssSchema`/`ProcessRss`) is OWNED
+// by the shared browser-safe `@kolu/terminal-workspace/schema` leaf that BOTH
+// `@kolu/padi` and `kolu-common` already import — one declaration instead of a
+// lockstep copy on each side of the seal. Re-exported so `@kolu/padi/surface`'s
+// consumers (e.g. `memorySampler.ts`) resolve it from here unchanged.
+export { type ProcessRss, ProcessRssSchema };
 
 /** padi's process-memory readout — its OWN RSS plus its kaval daemon's, each the
  *  honest {@link ProcessRssSchema} three-way. padi owns kaval now (it supervises
