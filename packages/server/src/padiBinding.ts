@@ -504,7 +504,18 @@ export class PadiBindingSession
     this.state = s;
   }
   private fire(): void {
-    for (const cb of [...this.stateListeners]) cb(this.state);
+    // Guard each listener at the funnel: a throwing subscriber must NOT abort the
+    // fan-out and silently drop this transition for the listeners after it. One
+    // registrant exists today (`reServeSurface`'s state→cell pipe), but the public
+    // `onState` Set can hold more. Log the throw (a listener that throws is a real
+    // error, errors-must-log-at-error) and carry on. (callback-fanout-guarded-at-funnel.)
+    for (const cb of [...this.stateListeners]) {
+      try {
+        cb(this.state);
+      } catch (err) {
+        log.error({ err }, "padi binding state listener threw");
+      }
+    }
   }
 }
 
