@@ -155,6 +155,9 @@ function setupReconcile(init: {
   parents: Record<string, TerminalId | null>;
   activeId?: TerminalId | null;
   activeSubTab?: Record<string, TerminalId | null>;
+  /** Daemon-connected gate (FIX 1). Defaults to CONNECTED so the existing
+   *  cleanup tests are unchanged; a supervised-drain test flips it false. */
+  connected?: boolean;
 }) {
   const state = {
     active: init.activeId ?? null,
@@ -163,6 +166,7 @@ function setupReconcile(init: {
   let handles!: {
     setRawIds: (v: TerminalId[]) => void;
     setParents: (v: Record<string, TerminalId | null>) => void;
+    setConnected: (v: boolean) => void;
     evictImperatively: ReturnType<
       typeof createEvictionDedup
     >["evictImperatively"];
@@ -172,6 +176,7 @@ function setupReconcile(init: {
   createRoot((dispose) => {
     const [rawIds, setRawIds] = createSignal<TerminalId[]>(init.rawIds);
     const [parents, setParents] = createSignal(init.parents);
+    const [connected, setConnected] = createSignal(init.connected ?? true);
     const { ports, calls } = makePorts({
       getSubTerminalIds: (pid) =>
         rawIds().filter((id) => (parents()[id] ?? null) === pid),
@@ -188,10 +193,12 @@ function setupReconcile(init: {
       rawList: rawIds,
       parentOf: (id) => parents()[id] ?? null,
       evictDeparted: eviction.evictDeparted,
+      isDaemonConnected: connected,
     });
     handles = {
       setRawIds,
       setParents,
+      setConnected,
       evictImperatively: eviction.evictImperatively,
       calls,
       dispose,
@@ -257,6 +264,57 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([T("S")]);
 
     expect(h.calls.promoteToTopLevel).toHaveBeenCalledTimes(1); // NOT twice
+    h.dispose();
+  });
+
+  it("(d) SUPPRESSES the eviction while the daemon is NOT connected (supervised drain)", async () => {
+    // A `recycleKaval` restart holds `restarting` (published BEFORE the drain), so
+    // the client sees the daemon not-connected while the drain empties the list.
+    // The departures are the server's doing and are undone by restore, so the
+    // reconcile must NOT fire its authoritative `chrome.setParent(sub,null)`
+    // promote (the "Failed to set parent" toast) — nor any other eviction.
+    const h = setupReconcile({
+      rawIds: [T("P"), T("S")],
+      parents: { P: null, S: T("P") },
+      activeId: T("P"),
+      connected: false,
+    });
+    await tick();
+
+    // The drain empties the whole list — parent P and its sub S both leave.
+    h.setRawIds([]);
+
+    expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
+    expect(h.calls.removeSub).not.toHaveBeenCalled();
+    expect(h.calls.removeRightPanel).not.toHaveBeenCalled();
+    expect(h.calls.dropFromMru).not.toHaveBeenCalled();
+    expect(h.calls.activate).not.toHaveBeenCalled();
+    h.dispose();
+  });
+
+  it("(e) a departure SKIPPED while disconnected is NOT replayed on reconnect", async () => {
+    const h = setupReconcile({
+      rawIds: [T("P"), T("S")],
+      parents: { P: null, S: T("P") },
+      activeId: T("P"),
+      connected: false,
+    });
+    await tick();
+
+    h.setRawIds([]); // supervised drain → suppressed
+    expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
+
+    // Reconnect, then restore repopulates with a FRESH set (new ids). The prior
+    // P/S departure was already folded into the snapshot's `prev` (advanced past
+    // it while suppressed), so it is never re-processed; the fresh ids are an
+    // arrival, not a departure.
+    h.setConnected(true);
+    h.setParents({ P2: null, S2: T("P2") });
+    h.setRawIds([T("P2"), T("S2")]);
+
+    expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
+    expect(h.calls.removeSub).not.toHaveBeenCalled();
+    expect(h.calls.activate).not.toHaveBeenCalled();
     h.dispose();
   });
 

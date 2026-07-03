@@ -13,6 +13,7 @@ import { ORPCError } from "@orpc/client";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
+import { daemonConnected } from "../kaval/useDaemonStatus";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { padi } from "../wire";
 import { terminalSubject } from "./terminalSubject";
@@ -105,6 +106,10 @@ export function useTerminals() {
     rawList: () => store.listSub()?.map((t) => t.id) ?? [],
     parentOf: (id) => store.getMetadata(id)?.parentId ?? null,
     evictDeparted: crud.evictDeparted,
+    // Only react to a departure when the daemon is genuinely connected — during a
+    // supervised recycle/restart the drain empties the list and restore undoes it,
+    // so the client is not the lifecycle authority (see useActiveReconcile).
+    isDaemonConnected: daemonConnected,
   });
 
   const session = useSessionRestore({ store });

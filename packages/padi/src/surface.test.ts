@@ -10,7 +10,9 @@ import {
   PadiPreviewReadOutputSchema,
   PadiTerminalSchema,
   PadiVersionSchema,
-  padiControlCore,
+  padiControlSurface,
+  padiDaemonContract,
+  padiDaemonSurfaces,
   padiMemberKeys,
   padiSurface,
 } from "./surface.ts";
@@ -20,8 +22,10 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 1.0, and DEFAULT_PADI_VERSION carries + validates it", () => {
-    expect(PADI_SURFACE_VERSION).toBe("1.0");
+  it("is version 1.1, and DEFAULT_PADI_VERSION carries + validates it", () => {
+    // 1.1 ADDS `lifecycle.recycleKaval` (the "Restart kaval" button) — an
+    // additive minor over 1.0.
+    expect(PADI_SURFACE_VERSION).toBe("1.1");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
@@ -39,6 +43,7 @@ describe("padiSurface 1.0 contract", () => {
       "version",
       "urgency",
       "status",
+      "processMemory",
       "activityFeed",
       "session",
     ]);
@@ -78,6 +83,7 @@ describe("padiSurface 1.0 contract", () => {
       "restoreSleeping",
       "resize",
       "sendInput",
+      "recycleKaval",
     ]);
     expect(Object.keys(procs.chrome ?? {})).toEqual([
       "setTheme",
@@ -101,7 +107,10 @@ describe("padiSurface 1.0 contract", () => {
       "worktreeRemove",
     ]);
     expect(Object.keys(procs.scratch ?? {})).toEqual(["write"]);
-    expect(Object.keys(procs.preview ?? {})).toEqual(["read"]);
+    expect(Object.keys(procs.preview ?? {})).toEqual([
+      "read",
+      "repoRootForTerminal",
+    ]);
     expect(Object.keys(procs.transcript ?? {})).toEqual(["exportHtml"]);
     expect(Object.keys(procs.session ?? {})).toEqual([
       "restore",
@@ -187,21 +196,42 @@ describe("padiSurface 1.0 contract", () => {
     expect(out.headers["Content-Range"]).toBe("bytes 0-1023/4096");
   });
 
-  it("defines the frozen control core (hello · version · drain · clock.now)", () => {
+  it("serves the frozen control core surface (hello · version · drain · clock.now)", () => {
     expect(CONTROL_CORE_VERSION).toBe("1.0");
-    expect(padiControlCore.version).toBe(CONTROL_CORE_VERSION);
-    // The four control-core members are present as schema shapes (served for
-    // real in W2.2; W1.C pins their existence).
-    expect(padiControlCore.hello.output).toBeTruthy();
-    expect(padiControlCore.controlVersion.output).toBeTruthy();
-    expect(padiControlCore.drain).toEqual({});
-    expect(padiControlCore.clockNow.output).toBeTruthy();
-    // The hello handshake validates a well-formed identity.
+    // The frozen `version` cell echoes the control-core version, distinct from
+    // padiSurface's own version cell (which may move; this one never does).
+    expect(padiControlSurface.spec.cells?.version.default).toEqual({
+      controlCoreVersion: CONTROL_CORE_VERSION,
+    });
+    // The four control verbs live under the single `control` namespace — served
+    // for real in W2.2 (W1.C pinned their existence as schema shapes).
+    expect(
+      Object.keys(padiControlSurface.spec.procedures?.core ?? {}).sort(),
+    ).toEqual(["clockNow", "controlVersion", "drain", "hello"]);
+    // The daemon serves BOTH surfaces on one socket, keyed `padi` + `control`, so
+    // a binder reaches the frozen core even when padiSurface is version-skewed.
+    expect(Object.keys(padiDaemonSurfaces).sort()).toEqual(["control", "padi"]);
+    expect(padiDaemonContract.surface.control).toBeTruthy();
+    expect(padiDaemonContract.surface.padi).toBeTruthy();
+    // The hello handshake validates a well-formed identity — including the
+    // additive `startedAt` boot time the binder reads for honest uptime, and the
+    // additive `commit` (the RUNNING padi's build the Padi dialog surfaces).
     const hello = {
       stateRoot: "/home/u/.local/state/padi",
       surfaceVersion: PADI_SURFACE_VERSION,
       controlCoreVersion: CONTROL_CORE_VERSION,
+      startedAt: 1_700_000_000_000,
+      commit: "abc1234",
     };
     expect(PadiHelloSchema.parse(hello)).toEqual(hello);
+    // `commit` is OPTIONAL — a survivor padi predating the field omits it and STILL
+    // handshakes (its hello validates), so the bind never breaks; it reads "—".
+    const helloNoCommit = {
+      stateRoot: "/home/u/.local/state/padi",
+      surfaceVersion: PADI_SURFACE_VERSION,
+      controlCoreVersion: CONTROL_CORE_VERSION,
+      startedAt: 1_700_000_000_000,
+    };
+    expect(PadiHelloSchema.parse(helloNoCommit)).toEqual(helloNoCommit);
   });
 });

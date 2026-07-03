@@ -38,10 +38,10 @@
  *      one host, so the dock has no foreign host to name yet — but present in
  *      the contract from 1.0 so the cross-host dock (W4) lands without a break.
  *
- * Beside the surface, the frozen {@link padiControlCore} (hello · version ·
+ * Beside the surface, the frozen {@link padiControlSurface} (hello · version ·
  * drain · clock.now) — version-agnostic, never versions, served for real in
- * W2.2. They live HERE (not `@kolu/surface-daemon`) and graduate only if a
- * second daemon ever adopts them (electricity test ③: proof before extraction).
+ * W2.2. It lives HERE (not `@kolu/surface-daemon`) and graduates only if a
+ * second daemon ever adopts it (electricity test ③: proof before extraction).
  *
  * BROWSER-SAFE face: like `koluSurface`/`terminalWorkspaceSurface` this imports
  * only `@kolu/surface/define`, zod-only schema modules (its own `./vocab.ts` +
@@ -53,7 +53,11 @@
  * coordinator restructures that next).
  */
 
-import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import {
+  composeSurfaceContracts,
+  defineSurface,
+  type SurfaceTypes,
+} from "@kolu/surface/define";
 import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
 import {
   FsFileInputSchema,
@@ -71,8 +75,10 @@ import {
   ActivityFeedSchema,
   CanvasLayoutSchema,
   DaemonStatusSchema,
+  DEFAULT_PADI_PROCESS_MEMORY,
   InitialTerminalMetadataSchema,
   KoluAuthoredFieldsSchema,
+  PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
   PersistedSnapshotSchema,
   PtyHostIdentitySchema,
@@ -104,13 +110,15 @@ export * from "./vocab.ts";
 // ── Version ─────────────────────────────────────────────────────────────
 
 /** The wire-shape `major.minor` this build of `padiSurface` serves and expects.
- *  1.0 is the initial contract (the padi plan of record, PR #1649). Additive
- *  growth (a new optional field / stream / procedure) is a minor bump; a
- *  shape-breaking change a major. A remote dial gates an incompatible padi via
+ *  1.0 is the initial contract (the padi plan of record, PR #1649); 1.1 ADDS the
+ *  `lifecycle.recycleKaval` procedure (the "Restart kaval" button's session-
+ *  preserving kaval recycle — a new member, so a MINOR bump). Additive growth (a
+ *  new optional field / stream / procedure) is a minor bump; a shape-breaking
+ *  change a major. A remote dial gates an incompatible padi via
  *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION},
  *  which is frozen forever so a contract-revving deploy can still reach the
  *  daemon's control core. */
-export const PADI_SURFACE_VERSION = "1.0";
+export const PADI_SURFACE_VERSION = "1.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -316,6 +324,22 @@ export const PadiPreviewReadInputSchema = z.object({
    *  multi-range / malformed header collapses to a full 200. */
   range: z.string().optional(),
 });
+/** `preview.repoRootForTerminal` — resolve a TERMINAL's git repo root from padi's
+ *  OWN in-process registry (`snapshotFor(id)?.git?.repoRoot`), the single source of
+ *  truth for that mapping. The re-serving binder (kolu-server's iframe preview
+ *  route) calls this to turn the URL's terminal id into a repo path, then STREAMS
+ *  the file itself off the local disk via the shared `previewFile` (bounded heap
+ *  for large videos) — so the mapping stays in padi while the byte streaming stays
+ *  a local, uncapped stream (never forced whole through a base64 procedure). Null
+ *  when the terminal is unknown or has no git repo. */
+export const PadiRepoRootForTerminalInputSchema = z.object({
+  terminalId: TerminalIdSchema,
+});
+export const PadiRepoRootForTerminalOutputSchema = z.object({
+  /** The terminal's git repo root, or `null` when it has none / is unknown. */
+  repoRoot: z.string().nullable(),
+});
+
 export const PadiPreviewReadOutputSchema = z.object({
   /** HTTP status — `200` | `206` (ranged) | `400` | `403` | `404` | `416` |
    *  `500`, verbatim from `serveFile`. */
@@ -367,10 +391,21 @@ export const padiSurface = defineSurface({
       default: DEFAULT_PADI_STATUS,
       verbs: ["get"],
     },
+    /** Live process-memory readout — padi's OWN RSS + its kaval daemon's, each the
+     *  honest three-way {@link ProcessRssSchema}. padi owns kaval now, so padi is
+     *  the source of this pair; its periodic sampler (wired into daemon boot) is the
+     *  sole writer. Read-only on the client; kolu-server folds it into the rail's
+     *  `processMemory` cell. */
+    processMemory: {
+      schema: PadiProcessMemorySchema,
+      default: DEFAULT_PADI_PROCESS_MEMORY,
+      verbs: ["get"],
+    },
     /** Server-derived activity feed (recent repos + recent agents) — the MRU the
      *  workspace switcher + command palette read. Read-only on the client; padi's
      *  `trackRecentRepo` / `trackRecentAgent` are the sole writers. The conf-store
-     *  STORAGE stays kolu-server-side (injected into padi at boot) until W2.2.
+     *  STORAGE is padi's OWN state-root Conf, set by padi's `daemonMain` at boot
+     *  (`openPadiStateStores` → `setPadiActivityFeedStore`, see `confStores.ts`).
      *  `test__set` is the e2e-fixture reset verb. */
     activityFeed: {
       schema: ActivityFeedSchema,
@@ -381,9 +416,10 @@ export const padiSurface = defineSurface({
     },
     /** Last persisted snapshot of terminals + active id, or null when no session
      *  is saved — the restore card's source. Read-only on the client; padi's
-     *  debounced autosave loop owns writes. The conf-store STORAGE stays
-     *  kolu-server-side (injected into padi at boot) until W2.2. `test__set` is the
-     *  e2e-fixture reset verb. */
+     *  debounced autosave loop owns writes. The conf-store STORAGE is padi's OWN
+     *  state-root Conf, set by padi's `daemonMain` at boot (`openPadiStateStores` →
+     *  `setPadiSessionStore`, see `confStores.ts`). `test__set` is the e2e-fixture
+     *  reset verb. */
     session: {
       schema: SavedSessionSchema.nullable(),
       default: null as z.infer<typeof SavedSessionSchema> | null,
@@ -445,7 +481,7 @@ export const padiSurface = defineSurface({
   },
   procedures: {
     /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
-     *  discardSleeping · restoreSleeping · resize · sendInput. */
+     *  discardSleeping · restoreSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
       create: { input: PadiCreateInputSchema, output: TerminalInfoSchema },
       kill: { input: PadiTerminalIdInputSchema, output: TerminalInfoSchema },
@@ -456,6 +492,16 @@ export const padiSurface = defineSurface({
       restoreSleeping: { input: SavedSleepingTerminalSchema },
       resize: { input: PadiResizeInputSchema },
       sendInput: { input: PadiSendInputSchema },
+      /** Force-recycle THIS host's kaval daemon, preserving the session — the
+       *  "Restart kaval" button (B3.2). padi's INTERNAL supervisory op: capture
+       *  the session → drain the terminals → recycle kaval (kill + spawn fresh) →
+       *  park the captured session so the restore card re-offers it. Un-wedges a
+       *  stuck-but-alive kaval (which `control.drain`'s adopt path would NOT
+       *  recycle) as much as a dead one. PADI STAYS UP — this never restarts padi;
+       *  that is the separate `control.drain` upgrade path. Takes no input,
+       *  resolves once the fresh kaval is connected (or rejects, session safe on
+       *  disk to retry/restore). */
+      recycleKaval: {},
     },
     /** Terminal chrome — the client-owned per-terminal UI record. */
     chrome: {
@@ -499,11 +545,19 @@ export const padiSurface = defineSurface({
         output: PadiScratchWriteOutputSchema,
       },
     },
-    /** Byte reads — the iframe binary preview (range-capable, serve-dir-shaped). */
+    /** Byte reads — the iframe binary preview (range-capable, serve-dir-shaped),
+     *  repo-path-keyed. `repoRootForTerminal` resolves a terminal id to its repo
+     *  root off padi's registry so the re-serving binder's HTTP preview route can
+     *  stream the file itself (bounded heap) without holding the terminal→repoRoot
+     *  map. */
     preview: {
       read: {
         input: PadiPreviewReadInputSchema,
         output: PadiPreviewReadOutputSchema,
+      },
+      repoRootForTerminal: {
+        input: PadiRepoRootForTerminalInputSchema,
+        output: PadiRepoRootForTerminalOutputSchema,
       },
     },
     /** Transcript export — the per-agent loaders (claude JSONL, codex/opencode
@@ -574,6 +628,7 @@ export const PADI_FORWARDING_POLICY = {
   version: "value",
   urgency: "value",
   status: "value",
+  processMemory: "value",
   activityFeed: "value",
   // collections
   terminals: "value",
@@ -635,6 +690,20 @@ export const PadiHelloSchema = z.object({
   surfaceVersion: z.string(),
   /** The frozen control-core version this padi speaks (always "1.0" today). */
   controlCoreVersion: z.string(),
+  /** padi's boot time (ms epoch), stamped once at daemon init — the binder reads
+   *  it for HONEST uptime (never `Date.now()` at dial time, which would reset the
+   *  age on every reconnect). Additive to the frozen core's initial served shape
+   *  (the core has never shipped served), so `CONTROL_CORE_VERSION` stays "1.0". */
+  startedAt: z.number(),
+  /** padi's navigable git commit (`PADI_COMMIT_HASH`) — the RUNNING padi's build,
+   *  which the binder surfaces as the Padi dialog's "build commit" (mirroring the
+   *  Kaval dialog's, whose commit rides kaval's `system.version.identity`). padi's
+   *  socket serves no `system.version`-style member, so the hello is padi's identity
+   *  channel; the binder already reads it. Additive like `startedAt` (core never
+   *  shipped served → `CONTROL_CORE_VERSION` stays "1.0"), but OPTIONAL — a survivor
+   *  padi predating the field omits it and STILL handshakes (its hello validates),
+   *  reading as the honest "—" rather than breaking the bind. Empty `""` off-nix. */
+  commit: z.string().optional(),
 });
 export type PadiHello = z.infer<typeof PadiHelloSchema>;
 
@@ -651,17 +720,57 @@ export type PadiControlVersion = z.infer<typeof PadiControlVersionSchema>;
 export const PadiClockNowSchema = z.object({ epochMs: z.number() });
 export type PadiClockNow = z.infer<typeof PadiClockNowSchema>;
 
-/** The frozen control-core contract — hello · version · drain · clock.now.
- *  Defined as pure schema shapes in W1.C (pinned by the contract test); W2.2
- *  serves them for real over the padi socket. `drain` takes no input and returns
- *  nothing (persist state + exit; the caller observes the socket close). */
-export const padiControlCore = {
-  version: CONTROL_CORE_VERSION,
-  hello: { output: PadiHelloSchema },
-  controlVersion: { output: PadiControlVersionSchema },
-  drain: {},
-  clockNow: { output: PadiClockNowSchema },
+/** The frozen control-core SURFACE — hello · version · drain · clock.now.
+ *  Defined as pure schema shapes in W1.C; W2.2 serves them for real, BESIDE
+ *  `padiSurface` (as the sibling surface key `control`), over padi's socket. A
+ *  binder reaches it even when `padiSurface` is version-skewed — the schemas here
+ *  NEVER change (the frozen side channel), so a newer binder can always call
+ *  `control.drain` to converge the daemon onto the newest closure rather than
+ *  livelock, and no path ever kill-9s a padi.
+ *
+ *  The frozen `version` cell (`controlCoreVersion`, always "1.0") is DISTINCT from
+ *  `padiSurface`'s own `version` cell — this one is contractually immovable. */
+export const padiControlSurface = defineSurface({
+  cells: {
+    version: {
+      schema: PadiControlVersionSchema,
+      default: { controlCoreVersion: CONTROL_CORE_VERSION },
+      verbs: ["get"],
+    },
+  },
+  procedures: {
+    /** The frozen control verbs — the ONE namespace, never versions. Reached as
+     *  `surface.control.core.<verb>` (the surface key `control` + this namespace). */
+    core: {
+      /** Identity handshake — who this padi is (`stateRoot`) + which
+       *  `padiSurface` version it serves. Read FIRST by a binder. */
+      hello: { output: PadiHelloSchema },
+      /** The frozen core's own version probe (just `controlCoreVersion`). */
+      controlVersion: { output: PadiControlVersionSchema },
+      /** Persist state + exit; the PTYs survive in kaval, and the caller observes
+       *  the socket close. Takes no input, returns nothing. */
+      drain: {},
+      /** padi's current clock — the binder RTT-halves it once per bind to age
+       *  memory against the host's clock (deliberately NOT a ticking cell). */
+      clockNow: { output: PadiClockNowSchema },
+    },
+  },
+});
+
+/** The two surfaces the padi daemon serves on its socket: the versioned
+ *  `padiSurface` at `surface.padi.*`, and the frozen control core at
+ *  `surface.control.*`. One keyed map, consumed by `implementSurfaces` (server)
+ *  and `composeSurfaceContracts` (the binder's wire contract) so the two stay in
+ *  lock-step. */
+export const padiDaemonSurfaces = {
+  padi: padiSurface,
+  control: padiControlSurface,
 } as const;
+
+/** The combined wire contract a binder / dial-test client types its link off —
+ *  `{ surface: { padi, control } }`. */
+export const padiDaemonContract = composeSurfaceContracts(padiDaemonSurfaces);
+export type PadiDaemonContract = typeof padiDaemonContract;
 
 // The composed sibling registry (`surfacesWithPadi = { ...surfaces, padi }`)
 // lives in `kolu-common/surface` now, NOT here: composing the app's `surfaces`

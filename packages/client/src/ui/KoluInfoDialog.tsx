@@ -3,13 +3,16 @@ import type { KoluBuildInfo } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import { match, P } from "ts-pattern";
+import { formatUptime } from "../kaval/daemonPresentation";
 import type { WsStatus } from "../rpc/rpc";
+import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "./Commit";
 import { OpenIcon } from "./Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "./InfoDialog";
 import { mbText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import { clientHeapUsedBytes, serverRssBytes } from "./useMemoryUsage";
+import { serverStartedAt } from "./useProcessUptime";
 
 function statusLabel(status: WsStatus, live: boolean): string {
   return match<[WsStatus, boolean], string>([status, live])
@@ -29,6 +32,7 @@ const KoluInfoDialog: Component<{
 }> = (props) => {
   const pwa = useSurfaceApp<KoluBuildInfo>();
   const server = () => pwa.server();
+  const clockNow = getClockNow();
 
   return (
     <InfoDialogShell
@@ -53,6 +57,17 @@ const KoluInfoDialog: Component<{
             <span class="text-xs font-medium text-fg">
               {statusLabel(props.status, props.live)}
             </span>
+            {/* kolu-server's uptime, mirroring the Kaval dialog: `now − startedAt`,
+                shown only over a LIVE transport with a known boot time — a dead/half-
+                open link can't confirm the server is still up, so show nothing rather
+                than an age climbing off the local clock (the `0` seed reads null). */}
+            <Show when={props.live && serverStartedAt()}>
+              {(t) => (
+                <span class="truncate text-[11px] tabular-nums text-fg-3">
+                  up {formatUptime(clockNow() - t())}
+                </span>
+              )}
+            </Show>
           </div>
           <Show when={clientStale()}>
             <StaleBadge />
@@ -68,6 +83,9 @@ const KoluInfoDialog: Component<{
           <Commit sha={pwa.clientCommit} />
         </DetailRow>
         <DetailRow label="memory">
+          {/* kolu-server's RSS and this browser's JS heap — the two processes this
+              dialog names. padi and kaval have their own rail chips + dialogs, so
+              their RSS reads out there rather than being folded in here. */}
           <span>
             server {mbText(serverRssBytes())}
             <span class="text-fg-3"> / </span>

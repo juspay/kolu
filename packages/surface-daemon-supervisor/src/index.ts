@@ -34,6 +34,7 @@ export { dialSocket } from "./dialSocket.ts";
 export {
   type DaemonDriver,
   type DaemonSpawnConfig,
+  scrubDaemonNodeOptions,
   type SpawnDriverDeps,
   survivableSpawnDriver,
 } from "./driver.ts";

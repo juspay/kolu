@@ -175,8 +175,28 @@ export function setSavedSession(session: SavedSession | null): void {
  *     Routing an empty snapshot through `saveSession` (empty→null) would erase
  *     that restore data BEFORE the recycle — the exact "never kill-then-pray"
  *     data loss this whole sequence exists to prevent. So an empty capture only
- *     cancels the stale timer and leaves the saved session untouched; a non-empty
- *     capture persists normally (with the `savedAt` stamp). */
+ *     cancels the stale timer and leaves the saved session untouched.
+ *
+ *  3. **A restore-PENDING snapshot MERGES rather than shrinks (no-shrink).** When
+ *     parked registry entries exist ({@link hasParkedTerminals}), a restore is
+ *     pending: N saved records on disk stood up as N parked entries, and
+ *     `snapshotSession` FILTERS parked entries OUT (terminals.ts). Post-cutover a
+ *     `lifecycle.create` no longer forfeits that pending set (servePadi.ts, "PATH
+ *     B"), so a user can hold N restore-pending terminals AND a fresh live one at
+ *     once — and the parked-excluding snapshot then names ONLY the live terminal.
+ *     Persisting it alone would OVERWRITE the N-record on-disk session with a
+ *     1-record one, and the following `parkSavedSession` would read the shrunken
+ *     blob and silently, unrecoverably drop the N pending terminals. So when a
+ *     restore is pending we persist the UNION of the on-disk records and the live
+ *     snapshot, keyed by id with the LIVE capture winning a collision (a terminal
+ *     an in-flight restore already flipped parked→active, whose re-persist has not
+ *     landed when the capture runs). The post-recycle restore then offers BOTH the
+ *     pending set AND the live terminal, each in its freshest state. This is the
+ *     capture/drain-path twin of the autosave loop's `hasParkedTerminals()` skip,
+ *     which likewise refuses to shrink a restore-pending blob.
+ *
+ *  Otherwise a non-empty capture with no restore pending persists normally
+ *  (replacing the on-disk blob, with the `savedAt` stamp). */
 export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
   cancelPendingAutosave();
   // Empty live registry → there is nothing fresher to persist; keep whatever
@@ -186,6 +206,40 @@ export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
       { snapshot: 0 },
       "session-trace capture: snapshot=0 → empty-preserve early-return (existing session left intact)",
     );
+    return;
+  }
+  // Restore pending (parked entries) → MERGE, never shrink. `snapshotSession`
+  // excluded the parked entries, so persisting it alone would drop the pending
+  // restore records the on-disk blob still holds. Union the on-disk records with
+  // the live snapshot, LIVE wins on an id collision, so the merged blob is a
+  // superset of BOTH — no restore-pending terminal is lost, and the live terminal
+  // joins the post-recycle restore.
+  if (hasParkedTerminals()) {
+    const saved = getSavedSession();
+    const savedTerminals = saved?.terminals ?? [];
+    const liveIds = new Set(snapshot.terminals.map((t) => t.id));
+    const merged: SessionSnapshot = {
+      terminals: [
+        // On-disk records the live capture does NOT re-name (the still-pending
+        // restore), then the live snapshot (the fresh state of what's on the
+        // canvas — it wins any id collision by coming last / filtering the disk copy).
+        ...savedTerminals.filter((t) => !liveIds.has(t.id)),
+        ...snapshot.terminals,
+      ],
+      // The live focus wins the active marker; fall back to the saved marker when
+      // the capture had no active of its own.
+      activeTerminalId:
+        snapshot.activeTerminalId ?? saved?.activeTerminalId ?? null,
+    };
+    log.info(
+      {
+        onDisk: savedTerminals.length,
+        live: snapshot.terminals.length,
+        merged: merged.terminals.length,
+      },
+      `session-trace capture: restore pending → merged union (${merged.terminals.length} records, no shrink)`,
+    );
+    saveSession(merged);
     return;
   }
   log.info(

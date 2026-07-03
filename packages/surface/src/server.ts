@@ -124,14 +124,43 @@ export interface CellHandlerDeps<T, P = T> {
    *  external write lands on the session cell). Contrast with
    *  `onMutate`'s pre-merge `P` payload and wire-only fan-out. */
   onWrite?: (next: T) => void;
+  /** Write-FORWARDING seam. When supplied, the wire `set` / `patch` /
+   *  `test__set` handlers call THESE instead of the local apply-and-publish
+   *  path (`equals` → `onWrite` → `store.set` → `bus.publish`). The cell then
+   *  becomes a pure READ mirror: `get` still folds from `store` (which only a
+   *  server-internal writer — the mirror fold via `ctx.cells.<key>.set` — ever
+   *  writes), while a WIRE write crosses to an authoritative upstream and comes
+   *  back through the fold. Both the local `equals` dedup and the local
+   *  `bus.publish` are BYPASSED on purpose: the upstream is the authority, so a
+   *  wire write whose value equals the stale local mirror must STILL forward
+   *  (never dedup-dropped), and the local mirror must NOT phantom-echo the write
+   *  before the upstream confirms it (a rejected upstream write would otherwise
+   *  strand a value the mirror never reverts). The `@kolu/surface-nix-host`
+   *  re-serve is the consumer. */
+  forward?: CellForward<T, P>;
+}
+
+/** The write-forwarding handlers a re-serving mirror plugs into
+ *  {@link CellHandlerDeps.forward} — one per wire mutation verb. Each returns
+ *  the forward's promise so oRPC awaits the upstream write and propagates its
+ *  rejection to the wire client (fail-fast: a forward with no live upstream link
+ *  throws loud, never a silent local no-op). */
+export interface CellForward<T, P = T> {
+  set: (input: T) => void | Promise<void>;
+  patch: (input: P) => void | Promise<void>;
+  test__set: (input: T) => void | Promise<void>;
 }
 
 export interface CellHandlers<T, P = T> {
   /** Snapshot+deltas get handler. Plug into `t.X.get.handler(handlers.get)`. */
   get: (opts: { signal?: AbortSignal }) => AsyncGenerator<T>;
-  /** Full-value set handler. Plug into `t.X.set.handler(handlers.set)`. */
+  /** Full-value set handler. Plug into `t.X.set.handler(handlers.set)`.
+   *  Typed `void`, but when `deps.forward` is set the body still RETURNS the
+   *  forward's promise at runtime (the void-return position permits it), so oRPC
+   *  awaits the upstream write and propagates its rejection to the wire client. */
   set: (opts: { input: T }) => void;
-  /** Patch handler — applies `deps.patch(current, input)` and persists. */
+  /** Patch handler — applies `deps.patch(current, input)` and persists (or, when
+   *  `deps.forward` is set, forwards the raw patch upstream). */
   patch: (opts: { input: P }) => void;
   /** Test reset handler. Same as `set` but used by e2e fixtures. */
   test__set: (opts: { input: T }) => void;
@@ -157,6 +186,23 @@ export function cellHandlers<Name extends string, T, P = T>(
     deps.onWrite?.(next);
     deps.store.set(next);
     deps.bus.publish(next);
+  }
+
+  // Write-forwarding mirror: each wire mutation crosses to the authoritative
+  // upstream and returns through the fold, so the local apply-and-publish path
+  // (equals → onWrite → store.set → bus.publish) AND `onMutate` are skipped
+  // entirely — the mirror never mutates or phantom-publishes on a wire write.
+  const forward = deps.forward;
+  if (forward) {
+    return {
+      get: async function* ({ signal }) {
+        yield deps.store.get();
+        for await (const v of deps.bus.subscribe(signal)) yield v;
+      },
+      set: ({ input }) => forward.set(input),
+      patch: ({ input }) => forward.patch(input),
+      test__set: ({ input }) => forward.test__set(input),
+    };
   }
 
   return {
@@ -538,9 +584,17 @@ export function inMemoryStore<T>(initial: T): CellStore<T> {
  *    - you want the same `Channel<T>` shape `implementSurface` already
  *      expects — i.e. a drop-in substitute for `publisherChannel`.
  *
- *  Subscriber backpressure: each subscriber gets its own bounded promise
- *  queue. If a subscriber falls behind, its queue grows in memory — the
- *  channel does not drop. Consumers must keep up or unsubscribe.
+ *  Subscriber backpressure: each subscriber gets its own receive queue. By
+ *  DEFAULT the queue is UNBOUNDED — a subscriber that falls behind the
+ *  publisher grows its queue in memory (the channel never drops), so consumers
+ *  must keep up or unsubscribe. Pass {@link InMemoryChannelOptions.highWaterMark}
+ *  to CAP that queue with an explicit, loud breach policy
+ *  ({@link InMemoryChannelOptions.overflow}) — `"abort"` (fail-fast: close the
+ *  slow subscriber with a {@link ChannelOverflowError} so it re-subscribes) or
+ *  `"drop-oldest"` (evict the oldest frame + signal, for a self-healing value
+ *  channel). The bound is opt-in precisely so this default stays a drop-in for
+ *  every existing consumer; a slow-consumer + unpaced-producer pairing that
+ *  can grow without limit should set it.
  *
  *  Ordering: a single `publish` synchronously fans out to all subscribers'
  *  queues before returning, so per-subscriber ordering is preserved. Unlike
@@ -560,7 +614,55 @@ export interface InMemoryChannel<T> extends Channel<T> {
   onIdle(cb: () => void): void;
 }
 
-export function inMemoryChannel<T>(): InMemoryChannel<T> {
+/** Per-subscriber receive-queue bound for {@link inMemoryChannel}. Opt-in: omit
+ *  the whole options object (or `highWaterMark`) for the historical unbounded
+ *  queue. Setting `highWaterMark` REQUIRES an `overflow` policy — an unbounded
+ *  grow must never be silent, and a breach must never degrade quietly. */
+export interface InMemoryChannelOptions {
+  /** Max values buffered for a subscriber that has fallen behind the publisher.
+   *  Omit for the unbounded default. */
+  highWaterMark?: number;
+  /** Breach policy when a subscriber's queue would exceed `highWaterMark`.
+   *  Required whenever `highWaterMark` is set (construction throws otherwise):
+   *    - `"abort"` — close the subscriber with a {@link ChannelOverflowError}
+   *      (its `next()` rejects, the consumer's loop ends loudly). Fail-fast; the
+   *      right fit for a byte / fail-through stream that must re-subscribe
+   *      end-to-end rather than splice a gap.
+   *    - `"drop-oldest"` — evict the oldest queued value to admit the new one
+   *      and fire `onOverflow` once per drop, so a self-healing VALUE channel
+   *      keeps its newest frames and its consumer re-syncs from the next
+   *      snapshot (kaval's attach-overflow precedent). */
+  overflow?: "abort" | "drop-oldest";
+  /** Fired once per dropped value under `"drop-oldest"` — the loud signal a
+   *  value channel's consumer re-syncs on. Ignored for `"abort"`. */
+  onOverflow?: () => void;
+}
+
+/** Raised on a subscriber's `next()` when its receive queue overflows its
+ *  {@link InMemoryChannelOptions.highWaterMark} under the `"abort"` policy — the
+ *  loud, fail-fast end that makes the consumer re-subscribe rather than let the
+ *  channel grow without limit. */
+export class ChannelOverflowError extends Error {
+  constructor(queued: number) {
+    super(
+      `inMemoryChannel: subscriber receive queue exceeded its high-water mark (${queued} buffered) — aborting the stream so the consumer re-subscribes instead of growing unbounded`,
+    );
+    this.name = "ChannelOverflowError";
+  }
+}
+
+export function inMemoryChannel<T>(
+  opts: InMemoryChannelOptions = {},
+): InMemoryChannel<T> {
+  const { highWaterMark, overflow, onOverflow } = opts;
+  // The bound must carry an explicit breach policy — a silent unbounded grow is
+  // exactly the defect this option exists to retire, so a mark without a policy
+  // is a wiring bug, not a "default to unbounded" convenience.
+  if (highWaterMark !== undefined && overflow === undefined) {
+    throw new Error(
+      'inMemoryChannel: highWaterMark set without an overflow policy — pass overflow: "abort" | "drop-oldest"',
+    );
+  }
   const subscribers = new Set<{
     push: (value: T) => void;
     close: (reason?: unknown) => void;
@@ -584,8 +686,30 @@ export function inMemoryChannel<T>(): InMemoryChannel<T> {
       push: (value: T) => {
         if (closed) return;
         const waiter = waiters.shift();
-        if (waiter) waiter.resolve({ value, done: false });
-        else queue.push(value);
+        if (waiter) {
+          waiter.resolve({ value, done: false });
+          return;
+        }
+        // No waiter parked — this subscriber is behind. Enforce the bound BEFORE
+        // buffering, so the queue never grows past the mark.
+        if (highWaterMark !== undefined && queue.length >= highWaterMark) {
+          if (overflow === "drop-oldest") {
+            queue.shift(); // evict the oldest to bound memory; keep the newest
+            onOverflow?.();
+            queue.push(value);
+          } else {
+            // "abort": close loudly so the consumer re-subscribes end-to-end, AND
+            // drop the sub from the registry. A rejected pending `next()` never
+            // triggers `iterator.return()` (the consumer just abandons the
+            // iterator), so nothing else reaps this entry — without the remove it
+            // would linger forever, taking every later publish's now-no-op
+            // `sub.push()`. Mirrors the onAbort + return() paths, which removeSub too.
+            sub.close(new ChannelOverflowError(queue.length));
+            removeSub(sub);
+          }
+          return;
+        }
+        queue.push(value);
       },
       close: (reason?: unknown) => {
         if (closed) return;
@@ -672,7 +796,7 @@ export function inMemoryChannel<T>(): InMemoryChannel<T> {
  *  inMemoryChannel()`) silently drops every delta because each call
  *  creates a fresh channel — the registry layer is doing the
  *  load-bearing work of binding name → instance. */
-export function inMemoryPublisher(): {
+export function inMemoryPublisher(channelOpts: InMemoryChannelOptions = {}): {
   publish<T>(channel: string, payload: T): void;
   subscribe<T>(
     channel: string,
@@ -695,7 +819,7 @@ export function inMemoryPublisher(): {
     subscribe: <T>(name: string, opts: { signal?: AbortSignal }) => {
       let c = channels.get(name);
       if (c === undefined) {
-        c = inMemoryChannel<unknown>();
+        c = inMemoryChannel<unknown>(channelOpts);
         channels.set(name, c);
         // Self-evict on idle: when the last subscriber detaches, drop
         // the name from the map so a future publish to that name is a
@@ -728,9 +852,14 @@ export function inMemoryPublisher(): {
  *  Use `inMemoryPublisher` + `publisherChannel` directly when you
  *  need the publisher reference for something else (cross-cell
  *  publishes, instrumentation, etc.); reach for this helper for the
- *  90% case where you just want named in-process channels. */
-export function inMemoryChannelByName(): <T>(name: string) => Channel<T> {
-  const publisher = inMemoryPublisher();
+ *  90% case where you just want named in-process channels.
+ *
+ *  Pass `channelOpts` to bound EACH per-name channel's per-subscriber receive
+ *  queue (see {@link InMemoryChannelOptions}) — omit for the unbounded default. */
+export function inMemoryChannelByName(
+  channelOpts: InMemoryChannelOptions = {},
+): <T>(name: string) => Channel<T> {
+  const publisher = inMemoryPublisher(channelOpts);
   return <T>(name: string) => publisherChannel<T>(publisher, name);
 }
 
@@ -932,6 +1061,9 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
       /** Fire-and-forget side effect on every successful write. See
        *  `CellHandlerDeps.onWrite`. */
       onWrite?: (next: T) => void;
+      /** Write-forwarding seam for a re-serving mirror. See
+       *  `CellHandlerDeps.forward`. */
+      forward?: CellForward<T, P>;
       /** Optional async-source republish. The runtime fires it ONCE after
        *  the cell is wired, handing it the cell ctx setter, so a
        *  late-arriving value flows through the same equals/onWrite/store.set/
@@ -944,6 +1076,9 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
         equals?: (a: T, b: T) => boolean;
         onMutate?: (next: T, current: T) => void;
         onWrite?: (next: T) => void;
+        /** Write-forwarding seam for a re-serving mirror. See
+         *  `CellHandlerDeps.forward`. */
+        forward?: CellForward<T, T>;
         /** Optional async-source republish. The runtime fires it ONCE after
          *  the cell is wired, handing it the cell ctx setter, so a
          *  late-arriving value flows through the same equals/onWrite/
@@ -1216,6 +1351,7 @@ function walkSurface<const S extends SurfaceSpec>(
           equals?: (a: unknown, b: unknown) => boolean;
           onMutate?: (p: unknown, c: unknown) => void;
           onWrite?: (next: unknown) => void;
+          forward?: CellForward<unknown, unknown>;
           connect?: (c: { set: (v: unknown) => void }) => void | Promise<void>;
         }
       | undefined;
@@ -1245,6 +1381,7 @@ function walkSurface<const S extends SurfaceSpec>(
         equals: equalsFn,
         onMutate: cellDeps.onMutate,
         onWrite: onWriteFn,
+        forward: cellDeps.forward,
       },
     );
 

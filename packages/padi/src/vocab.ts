@@ -20,6 +20,8 @@ import {
 import {
   AgentKindSchema,
   AgentMemorySchema,
+  type ProcessRss,
+  ProcessRssSchema,
   RestoreTargetSchema,
   seedMemory,
   TerminalIdSchema,
@@ -621,6 +623,35 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
 ]);
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export type DaemonState = DaemonStatus["state"];
+
+// ── Process-memory readout (padi + its kaval) ─────────────────────────────
+
+// The honest three-way process-RSS union (`ProcessRssSchema`/`ProcessRss`) is OWNED
+// by the shared browser-safe `@kolu/terminal-workspace/schema` leaf that BOTH
+// `@kolu/padi` and `kolu-common` already import — one declaration instead of a
+// lockstep copy on each side of the seal. Re-exported so `@kolu/padi/surface`'s
+// consumers (e.g. `memorySampler.ts`) resolve it from here unchanged.
+export { type ProcessRss, ProcessRssSchema };
+
+/** padi's process-memory readout — its OWN RSS plus its kaval daemon's, each the
+ *  honest {@link ProcessRssSchema} three-way. padi owns kaval now (it supervises
+ *  the kaval process), so padi is the source of this pair; it publishes it every
+ *  sampler tick and kolu-server folds it into the rail's cell. `padi` is `ok` once
+ *  padi has measured itself; `kaval` is `ok` when a connected daemon answered
+ *  `system.processMemory`, `absent` when there is no connected daemon, `error` when
+ *  a believed-connected daemon's poll threw. */
+export const PadiProcessMemorySchema = z.object({
+  padi: ProcessRssSchema,
+  kaval: ProcessRssSchema,
+});
+export type PadiProcessMemory = z.infer<typeof PadiProcessMemorySchema>;
+
+/** The value a fresh `processMemory` subscriber sees before padi's first sample —
+ *  both processes' RSS unknown (the honest `absent`, never a fake zero). */
+export const DEFAULT_PADI_PROCESS_MEMORY: PadiProcessMemory = {
+  padi: { status: "absent" },
+  kaval: { status: "absent" },
+};
 
 /** Server-derived activity feed — derived off its schema directly now that the
  *  cell rides `padiSurface` (no longer a `koluSurface` cell). */

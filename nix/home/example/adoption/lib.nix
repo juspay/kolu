@@ -14,19 +14,72 @@ let
   jq = "${pkgs.jq}/bin/jq";
   curl = "${pkgs.curl}/bin/curl";
 
-  # Runtime-layout literals the DAEMON actually creates. These are NOT free
-  # choices: each must equal what the running process writes, or the poll just
+  # Runtime-layout literals the DAEMONS actually create. These are NOT free
+  # choices: each must equal what a running process writes, or the poll just
   # times out and is mis-diagnosed as a recycle/adopt failure. Pinned here, once,
   # to their owning source so a rename has exactly one edit site in the test tree.
-  nsPrefix = "kaval-"; # packages/kaval/src/socketPath.ts:31 KAVAL_NS_PREFIX + :35 kavalNamespace → `kaval-<port>`
-  gateFile = "kaval.pid"; # packages/kaval/src/daemonMain.ts:42
-  # The conf store's on-disk file. `Conf` is constructed with no `configName`
-  # (packages/server/src/state.ts:146), so it uses the library default
-  # `config.json` — NOT `state.json` (the state.ts:4 doc comment is stale).
-  configFile = ".config/kolu/config.json";
+  #
+  # W2.2 CUTOVER — the rendezvous is DIGEST-KEYED, not per-port. kolu-server no
+  # longer talks to kaval directly; it binds a separate **padi** process that
+  # owns/supervises kaval. Both daemons name their runtime dir by a digest of
+  # padi's state-root (packages/padi/src/stateRoot.ts: `padiDigest`,
+  # `padiSocketPath`/`padiGatePath`, `padiKavalSocketPath`), NOT by the listen
+  # port. So the legacy `kaval-<port>/kaval.pid` gate is gone; the gates now live
+  # at `$XDG_RUNTIME_DIR/padi-<digest>/padi.pid` and `kaval-<digest>/kaval.pid`.
+  # There is exactly ONE padi per user (one state-root → one digest) and one kaval
+  # beneath it, so the scripts DISCOVER the gates by GLOB rather than recompute the
+  # sha256 digest in shell (packages/server/src/padiBinding.ts resolves the same
+  # default state-root the module leaves unoverridden — $HOME/.local/state/padi).
+  #
+  # `gateHelpers` defines two shell functions the seed/verify scripts source:
+  #   padi_gate_pid  — echo the surviving padi's gate pid (empty if no padi).
+  #   kaval_gate_pid — echo the surviving kaval's gate pid (empty if no kaval).
+  # A no-match glob echoes empty (the loop's `[ -f ]` fails on the literal
+  # pattern), so an absent daemon reads as "" — never a crash on the glob literal.
+  gateHelpers = ''
+    # packages/padi/src/stateRoot.ts:49 PADI_GATE_FILE + padiNamespace → padi-<digest>/padi.pid
+    padi_gate_pid() {
+      local g
+      for g in "$XDG_RUNTIME_DIR"/padi-*/padi.pid; do
+        [ -f "$g" ] && { cat "$g" 2>/dev/null; return 0; }
+      done
+      return 0
+    }
+    # packages/padi/src/stateRoot.ts:109 kavalNamespaceForDigest → kaval-<digest>/kaval.pid
+    kaval_gate_pid() {
+      local g
+      for g in "$XDG_RUNTIME_DIR"/kaval-*/kaval.pid; do
+        [ -f "$g" ] && { cat "$g" 2>/dev/null; return 0; }
+      done
+      return 0
+    }
+  '';
 
-  # The kaval rendezvous dir for this server instance, as alice's daemon creates it.
-  ns = ''$XDG_RUNTIME_DIR/${nsPrefix}${port}'';
+  # padi's persisted session file. Post-cutover padi (NOT kolu-server) owns the
+  # saved layout, and it lives under padi's STATE-ROOT, not kolu's config dir:
+  # `Conf` with no `configName` → `config.json`, rooted at the default state-root
+  # `$HOME/.local/state/padi` (packages/padi/src/stateRoot.ts:66
+  # defaultPadiStateRoot; the module sets no KOLU_PADI_STATE_DIR override, and
+  # padiBinding.test.ts reads exactly this `<stateRoot>/config.json`).
+  configFile = ".local/state/padi/config.json";
+
+  # Curl the raw `daemon.restart` RPC (packages/server/src/router.ts:56): it DRAINS
+  # the bound padi through the frozen control core — padi persists its session and
+  # exits, its kaval + PTYs survive, and kolu-server's reconnect loop re-spawns padi
+  # from the RUNNING binder's own closure. This is the ONLY no-kill way to make a
+  # freshly-built padi meet a surviving older kaval (the skew/currency probes need
+  # it — a plain binder swap merely ADOPTS the old padi, leaving its kaval untouched).
+  #
+  # This is used inside a Python `machine.succeed("...")` / `wait_until_succeeds("...")`
+  # DOUBLE-quoted string in the testScript (unlike the seed/verify scripts, which run
+  # as alice via machinectl). The oRPC body MUST be the `{"json":...}` envelope, whose
+  # literal `"` would close that Python string early — so the payload's quotes are
+  # ESCAPED as `\"`. A nix `''` string passes `\"` through verbatim, Python reads it as
+  # an escaped quote (value: `-d '{"json":{}}'`), and the shell's OUTER single-quotes
+  # keep the `"` literal for curl. URL + header stay single-quoted (no `"` to escape).
+  # This RPC is unauthenticated loopback (packages/server/src/index.ts), so a root curl
+  # to 127.0.0.1 reaches alice's server.
+  daemonRestart = ''${curl} -fsS -X POST 'http://127.0.0.1:${port}/rpc/daemon/restart' -H 'content-type: application/json' -d '{\"json\":{}}' >/dev/null'';
 
   # "Open a terminal over the app's padiSurface lifecycle.create RPC and return
   # its id" — the application-contract prologue both seed scripts share. The root
@@ -42,9 +95,11 @@ let
   '';
 
   # The survival VM node: a NixOS guest with kolu (via home-manager), alice
-  # auto-logged-in and lingering so her user manager — and the kaval
-  # `systemd-run --user` transient unit it owns — outlives a `systemctl --user
-  # restart kolu`. This is the production survival precondition (the #1031
+  # auto-logged-in and lingering so her user manager — and the **padi**
+  # `systemd-run --user` transient unit kolu-server spawns (which in turn owns
+  # kaval's own transient unit) — outlives a `systemctl --user restart kolu`. On a
+  # server restart kolu-server ADOPTS that surviving padi (padi holds the registry
+  # + live PTYs in kaval). This is the production survival precondition (the #1031
   # cgroup-v2 lesson the survivable-spawn driver encodes): without linger the
   # daemon dies with the restart and the test silently exercises a FRESH spawn,
   # not adoption. The default KillMode (control-group) is left as-is on purpose —
@@ -100,7 +155,7 @@ let
     ${waitForListener}'';
 in
 {
-  inherit jq curl ns gateFile configFile openTerminal;
+  inherit jq curl gateHelpers configFile openTerminal daemonRestart;
 
   # mkAdoptionTest: emit the nixosTest for one adoption outcome. Callers supply
   # their two distinguishing pieces of data:
@@ -147,4 +202,10 @@ in
   # Re-exported so adopt.nix's lifecycle (a plain `systemctl --user restart`) and
   # both tests' boot/listener polls can compose without re-spelling them.
   inherit systemctlUser waitForListener;
+
+  # Re-exported so upgrade.nix (whose flow differs — stand up a legacy port-keyed
+  # kaval FIRST, then start kolu) can compose the SAME survival node, alice-run,
+  # result-assert, and boot-poll primitives the two `mkAdoptionTest` outcomes use,
+  # without re-spelling the machinectl/result-file discipline.
+  inherit survivalVmNode runAsAlice assertResult bootPoll;
 }

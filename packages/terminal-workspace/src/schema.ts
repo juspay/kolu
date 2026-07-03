@@ -232,6 +232,36 @@ export function seedMemory(): AgentMemory {
   return { lastActivityAt: 0 };
 }
 
+// ── Process resident-set size — an honest three-way readout ────────────────
+
+/** A single process's resident-set size as an HONEST three-way state, not a
+ *  `number | null` that conflates "no process to measure" with "the read failed".
+ *
+ *   - `{ status: "ok", rssBytes }` — a live process answered.
+ *   - `{ status: "absent" }` — there is no process to measure (down / not-yet-
+ *     sampled). The expected "no value", not an error.
+ *   - `{ status: "error" }` — the process was BELIEVED up yet its RSS read threw.
+ *     A real anomaly the rail must surface distinctly from `absent`, so a failed
+ *     read never renders identically to "no process" (the
+ *     `caught-error-must-not-collapse-to-empty` rule — a server-side log is not a
+ *     user surface).
+ *
+ *  A discriminated union (not an extra error flag beside a nullable number) so the
+ *  three states are mutually exclusive by construction — there is no representable
+ *  "error AND a stale rss".
+ *
+ *  Lives on this browser-safe shared-vocab leaf (beside `AgentMemory`/`seedMemory`)
+ *  because BOTH `kolu-common/surface` and `@kolu/padi/surface` compose it —
+ *  kolu-server's memory sampler folds padi's reading into its own `processMemory`
+ *  cell — and the package-boundary seal forbids either importing the other. One
+ *  declaration, imported both sides: no lockstep copy held together by a comment. */
+export const ProcessRssSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), rssBytes: z.number() }),
+  z.object({ status: z.literal("absent") }),
+  z.object({ status: z.literal("error") }),
+]);
+export type ProcessRss = z.infer<typeof ProcessRssSchema>;
+
 // ── Schema-derived sub-types ──────────────────────────────────────────
 
 export type AgentKind = z.infer<typeof AgentKindSchema>;

@@ -844,6 +844,16 @@ const tunnels = [
         </ul>
       </div>
     </details>
+
+    <aside class="callout callout-note">
+      <strong>Drive it all from your shell.</strong> Every terminal kolu opens is
+      reachable from a plain shell too: <code>kaval-tui</code> can list, snapshot,
+      attach, or <em>send a prompt</em> to an agent running in one — so one agent
+      can drive another, with no adapter and no config. It's the same PTY daemon
+      (<strong>kaval</strong>, spawned and supervised by kolu's per-host
+      <strong>padi</strong>) exposed as a CLI, locally or over ssh.
+      <a href={href('/kaval')} class="guide-link">Meet kaval &amp; kaval-tui →</a>
+    </aside>
   </section>
 
   <!-- ── 07 · FAQ ─────────────────────────────────────────────────────── -->

@@ -3,7 +3,7 @@ title: Flaky Test Tracker
 description: A backlog of flaky tests — e2e (Cucumber + Playwright) and unit (vitest). Drop a row when you hit one; an agent clears the queue from time to time.
 parents: [reference]
 maturity: seedling
-updated: 2026-06-22
+updated: 2026-07-03
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -39,6 +39,8 @@ _Queue clear — the eight below were fixed in <PrLink pr={1440} /> (struck = do
 | createPtyHost — routes write() to the child and lists live PTYs (`kaval/src/ptyHost.test.ts:373`) | `unit@aarch64-darwin` | `Test timed out in 5000ms` — a real-PTY spawn-then-write test stalled past the 5s default on the darwin box; the linux lane passed the same SHA, and the PR touches no `packages/kaval` file (single-node rerun green) | <PrLink pr={1497} /> | <Pill variant="new">open</Pill> | — |
 | Sub-terminal keeps keyboard focus after close (`sub-terminal.feature`, `sub_terminal_steps.ts:132`) | `e2e@aarch64-darwin` | `the sub-terminal should have keyboard focus` — `waitForFunction` timeout (focus not restored after close); the same flake fixed for the linux lane in <PrLink pr={1440} /> recurring on the loaded darwin box (472/473 scenarios passed), unrelated to the PR's surface/pulam changes | <PrLink pr={1497} /> | <Pill variant="new">open</Pill> | — |
 | Clicking a folder ref while already browsing expands it in the live tree (`file-ref-link.feature:112`) | `e2e@aarch64-darwin` | `lib/ui` never reaches `aria-expanded=true` — `locator.waitFor` 60s timeout across all 3 retries on both runs. A live change into an **already-mounted** Pierre tree updates the model but never repaints — the unfixed [#1534](https://github.com/juspay/kolu/issues/1534) swallow-emit class (sibling of the fresh-open `:69` case fixed in <PrLink pr={1440} />, whose "mount first" fix doesn't cover the mounted-tree live update). The linux lane passed the same SHA (482/483), and the PR touches **no** Code-tab/Pierre/file-ref code (all changes are pulam-web + surface), so unrelated to it. Carried by R-pulamweb-4's vendored `@pierre/trees` patch. | <PrLink pr={1568} /> | <Pill variant="new">open</Pill> | — |
+| Touch-swiping down inside the terminal scrolls the scrollback up (`mobile-terminal-scroll.feature:14`) | `e2e@aarch64-darwin` | `viewportY` never decreased — stayed at 122 after a 20s poll. Flipped **green** on a same-SHA rerun (a different scenario flaked instead), so a mobile touch-scroll timing race, unrelated to the PR's padi-process changes. | <PrLink pr={1664} /> | <Pill variant="new">open</Pill> | — |
+| ~~File-drop / clipboard path reaches the PTY (`file-drop.feature:10`+`:14`, `clipboard.feature:9`)~~ | `e2e` (both) | `the screen state should contain "<file>"` → 20s `waitForFunction` timeout. Root cause is the **screen-state reader**, not delivery: the DIAG dump shows both `scratch/write` + `sendInput` sent, no toast, and the filename fully on screen — but the long W2.2 scratch path (`$XDG_RUNTIME_DIR/kolu-<pid>/scratch/<uuid>/<name>`, ~81 chars) hard-wraps at the 80-col grid before xterm's `fit()` widens it under load, so the filename straddles the wrap (`…no`+`tes.md`). `__readXtermBuffer` joined rows with `\n`, splitting the match. The W2.2 padi-state-root cutover lengthened the path past the old short-`runtimeDir` mitigation; the bash "garbles the cells" note in `hooks.ts` was a mis-diagnosis (cells are clean). Fix: `__readXtermBuffer` rejoins `isWrapped` continuation rows into one logical line, so a straddling filename matches regardless of width/path-length. Verified 10/10 under CPU oversubscription that gave ~100% failure pre-fix (leased `kolu-ci-1`). | <PrLink pr={1664} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1664} /> |
 
 ## Logging a flake
 
@@ -127,3 +129,12 @@ before inventing one (full detail in each linked PR / the fix's code comment).
   reconciles out mid-read. Fix: **catch-and-retry in the poll**, and **skip a key
   that vanishes** between `keys()` and `get()` — the snapshot helper owns the narrow
   suppression, the poller stays a pure condition-checker. (`daemon.test.ts`)
+- **A screen-state match string that hard-wraps at the grid edge is split by the
+  reader.** xterm wraps a logical line longer than `cols` across rows; a reader that
+  joins rows with `\n` inserts a newline INSIDE the wrapped token, so a substring
+  check (`includes("notes.md")`) misses it even though the text is fully on screen.
+  Flakes because the wrap column depends on content length and on `fit()` having
+  widened the grid past the 80-col default — which lags under load. Fix: **rejoin
+  `isWrapped` continuation rows** into one logical line in the buffer reader
+  (`__readXtermBuffer`), trimming right only at the logical-line end. Width- and
+  path-length-independent — never a timeout bump. (`file-drop.feature`, `clipboard.feature`)

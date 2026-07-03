@@ -3,31 +3,24 @@ import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
 import { startHeapDiagnostics } from "@kolu/heap-diag";
+// The web shell reaches the terminal domain ONLY through @kolu/padi's published
+// entry points (the package-boundary seal). Post-cutover it keeps just the
+// streaming preview read (`previewFile`, for the iframe binary route) and its own
+// publisher size (a diagnostic); it no longer runs the terminal domain.
 import {
-  activeTerminalCount,
-  adoptSurvivingSession,
-  countActiveClaudeSessions,
-  ensureKoluRoot,
-  ensureLocalEndpoint,
-  initSessionAutoSave,
-  LOCAL_HOST_ID,
-  parkSavedSession,
+  discoverPadiDaemons,
+  padiKavalSocketPath,
+  padiSocketPath,
   previewFile,
-  ptyHostClient,
-  publishDaemonStatus,
   publisherSize,
-  readDaemonStatus,
-  setKoluServerProcessId,
-  setPadiActivityFeedStore,
-  setPadiLastPairedDaemonStore,
-  setPadiSessionStore,
-  setSpawnServerVersion,
-  shutdownCleanup,
-  snapshotFor,
-  snapshotSession,
-  startInventoryReconciler,
+  resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
-import { log as padiLog } from "@kolu/padi/log";
+import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
+import {
+  PADI_FORWARDING_POLICY,
+  type PadiProcessMemory,
+  padiSurface,
+} from "@kolu/padi/surface";
 import {
   gateHttpRpcOrigin,
   gateWsOrigin,
@@ -38,6 +31,7 @@ import {
   installFreshStatic,
   installPwaManifest,
 } from "@kolu/surface-app/server";
+import { reServeSurface } from "@kolu/surface-nix-host";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -50,23 +44,28 @@ import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
-import { configureNixShellEnv } from "kolu-pty";
 import { type WebSocket, WebSocketServer } from "ws";
-import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
+import {
+  serverHostname,
+  serverProcessId,
+  serverStartedAt,
+  serverVersion,
+} from "./hostname.ts";
 import {
   previewTailFromRawUrl,
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { pwaIdentityForHostname } from "./pwaIdentity.ts";
-import { appRouter } from "./router.ts";
 import {
-  activityFeedStore,
-  koluSurfaceCtx,
-  lastPairedDaemonStore,
-  savedSessionStore,
-} from "./surface.ts";
+  probeKavalStatus,
+  startDaemonInventorySampler,
+} from "./daemonInventory.ts";
+import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
+import { ensurePadiBinding } from "./padiBinding.ts";
+import { mapConnectionToPadiLink } from "./padiLink.ts";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { buildAppRouter } from "./router.ts";
+import { koluSurfaceCtx, koluSurfaceRouter } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({
@@ -120,34 +119,16 @@ const PWA_BACKGROUND_COLOR = "#0c0c0e";
 // from the `Host` it forwards. See `gateWsOrigin` / `gateHttpRpcOrigin` below.
 const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
 
-// Inject the two server-owned identities the relocated terminal domain (now in
-// @kolu/padi) needs, BEFORE anything in it runs: the shared per-process id (also
-// the log serverId, surface identity.info.processId, and stale-tab gate) that
-// names koluRoot's on-disk dir, and the app version stamped as the spawned PTY's
-// TERM_PROGRAM_VERSION. Padi does not import kolu-server, so the arrow stays out.
-setKoluServerProcessId(serverProcessId);
-setSpawnServerVersion(serverVersion);
-// Inject the conf-backed session + activityFeed stores INTO padi BEFORE anything
-// serves or reconciles (padi's `session`/`activityFeed` cells + boot reconcile
-// read them; a read before this crashes loudly). kolu-server keeps the ONE
-// `confStore` per key (built in `./surface.ts`); padi does not import
-// packages/server, so the arrow stays out. Storage stays kolu-server's source of
-// truth until W2.2 gives padi its own state-root.
-setPadiSessionStore(savedSessionStore);
-setPadiActivityFeedStore(activityFeedStore);
-// The persisted last-paired-daemon store — the boot reads it to tell our survivor
-// from a REPLACED kaval before converging (so an empty replacement can't erase the
-// saved session), and re-records the current pairing at boot-settled below.
-setPadiLastPairedDaemonStore(lastPairedDaemonStore);
-configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
-ensureKoluRoot();
-initSessionAutoSave(snapshotSession);
-// `--verbose` must drop BOTH loggers to debug — the server's own and padi's
-// (which the relocated domain code logs through), else moved-code debug lines
-// are silently dropped.
+// `--verbose` drops the server's logger to debug. padi runs in its OWN process
+// now: its daemon-spine stderr logger emits every level unconditionally, but its
+// DOMAIN code logs through `@kolu/padi`'s own pino logger (`packages/padi/src/log.ts`),
+// which filters at `LOG_LEVEL ?? "info"`. So `--verbose` alone would leave padi's
+// domain debug lines dropped (the split-process regression the pre-cutover
+// `padiLog.level = "debug"` guarded against). We forward the intent instead: the
+// binding launches padi with `LOG_LEVEL=debug` when verbose (see `daemonEnv` in
+// `padiBinding.ts`), the cross-process twin of raising that logger in place.
 if (argv.flags.verbose) {
   log.level = "debug";
-  padiLog.level = "debug";
 }
 
 const app = new Hono();
@@ -167,63 +148,12 @@ app.use(
   }),
 );
 
-// --- oRPC plugins ---
-const rpcPlugins = [
-  new LoggingHandlerPlugin({
-    logger: log,
-    // logRequestResponse left off (default) — too noisy for high-frequency
-    // calls like sendInput/attach. Errors and unmatched procedures are
-    // still logged automatically by the plugin.
-    //
-    // logRequestAbort: disabled because the plugin attaches its own
-    // addEventListener("abort") on each request signal (independent of our
-    // handler code), so every WebSocket disconnect spams one INFO line per
-    // in-flight stream. In this app every abort is a tab close — there are
-    // no client-initiated cancellations — so the noise has no diagnostic
-    // value. The WebSocket close handler below already logs disconnects
-    // with connection ID and close code. Trade-off: if a future client-side
-    // bug aborts a non-streaming call mid-flight, we won't see it here.
-    logRequestAbort: false,
-  }),
-];
-
-// --- oRPC HTTP handler (non-streaming calls) ---
-// appRouter mixes implementSurface's Lazy<Router> spread with
-// hand-listed namespaces; oRPC's RPCHandler input type doesn't accept
-// that union. The runtime shape is a valid router.
-// biome-ignore lint/suspicious/noExplicitAny: see comment above
-const rpcHandler = new RPCHandler(appRouter as any, { plugins: rpcPlugins });
-app.use("/rpc/*", async (c, next) => {
-  // CSWSH gate, HTTP arm: the WebSocket upgrade is NOT the only browser path
-  // into the unauthenticated RPC surface. The oRPC HTTP codec deserializes a
-  // cross-site `multipart/form-data` POST (a CORS-"simple" request, no
-  // preflight) straight into procedure input, and no-input mutations
-  // (`terminal.killAll`, `daemon.restart`) need no body at all — so a page the
-  // operator visits could drive these over plain HTTP even with `/rpc/ws`
-  // gated. Reject a cross-site browser Origin here too, with the SAME policy.
-  // Non-browser clients (no Origin) and same host:port traffic pass; kolu's own
-  // UI never uses this transport (it drives every call over `/rpc/ws`).
-  const rejected = gateHttpRpcOrigin(c.req.raw, {
-    allowedOrigins,
-    onReject: (origin) =>
-      log.warn({ origin }, "rejecting HTTP RPC: disallowed Origin"),
-  });
-  if (rejected) return rejected;
-  const { matched, response } = await rpcHandler.handle(c.req.raw, {
-    prefix: "/rpc",
-    context: {},
-  });
-  if (matched) return response;
-  return next();
-});
-
 // --- Graceful shutdown ---
-// One cleanup registration covers every NORMAL exit path (signals, fatal
-// handlers, natural exit). `process.on('exit', ...)` fires on any call
-// to process.exit() and runs synchronously — exactly what rmSync needs.
-// SIGKILL / power loss bypass it (XDG logout-wipe is the backstop).
-process.on("exit", shutdownCleanup);
-
+// Signals map to a clean exit; the fatal handlers make a floating promise or a
+// sync throw as terminal as each other (the supervisor restarts clean). There is
+// NO on-exit scratch cleanup here anymore: the per-process scratch dir moved into
+// the padi process (padi owns `ensureKoluRoot`/`shutdownCleanup` under its
+// state-root), so kolu-server has nothing to wipe.
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(sig, () => {
     log.info({ signal: sig }, "shutting down");
@@ -246,6 +176,143 @@ process.on("unhandledRejection", (reason) => {
     "unhandled rejection — a background task is missing its error boundary",
   );
   process.exit(1);
+});
+
+// --- oRPC plugins ---
+const rpcPlugins = [
+  new LoggingHandlerPlugin({
+    logger: log,
+    // logRequestResponse left off (default) — too noisy for high-frequency
+    // calls like sendInput/attach. Errors and unmatched procedures are
+    // still logged automatically by the plugin.
+    //
+    // logRequestAbort: disabled because the plugin attaches its own
+    // addEventListener("abort") on each request signal (independent of our
+    // handler code), so every WebSocket disconnect spams one INFO line per
+    // in-flight stream. In this app every abort is a tab close — there are
+    // no client-initiated cancellations — so the noise has no diagnostic
+    // value. The WebSocket close handler below already logs disconnects
+    // with connection ID and close code.
+    logRequestAbort: false,
+  }),
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ASYNC BOOT — bind the padi PROCESS, re-serve its surface, assemble the router.
+//
+// The cutover replaces the in-process padi (and its kaval endpoint) with a bound
+// padi PROCESS. `ensurePadiBinding` spawns/adopts padi and hands back a
+// reconnect-mirror session; `reServeSurface` mirrors `padiSurface` (per its
+// forwarding policy) onto a per-binding router. That router is spliced under the
+// `padi` key beside kolu-server's own `kolu`+`surfaceApp` fragment, so the browser
+// reaches padi's members at `/surface/padi/*`.
+//
+// Awaited BEFORE the HTTP server listens (as `ensureLocalEndpoint` was) so no RPC
+// races an unready binding; a boot failure reports the down state through the
+// re-serve's `connection` cell rather than crashing (fail-open).
+// ─────────────────────────────────────────────────────────────────────────────
+const padiSession = await ensurePadiBinding({
+  // The nix-shell env whitelist rides padi's CLI flag (kolu-server no longer
+  // spawns PTYs — padi's kaval does — so `configureNixShellEnv` is FORWARDED to
+  // padi, not called here).
+  nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
+  // The W2.2 upgrade bridge: hand padi THIS binder's OWN listen-port legacy kaval
+  // socket, so a first W2.2 boot ADOPTS a running pre-W2.2 kaval (`kaval-<port>/`)
+  // instead of spawning a fresh digest kaval and leaking it. The binder is the ONLY
+  // hinter — and only of its OWN port — so a dev instance at another port is never
+  // adopted; padi ignores the hint once its digest kaval is live, so it converges.
+  legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
+  // Forward the kolu app version so spawned PTYs' `TERM_PROGRAM_VERSION` stays the
+  // kolu app version (byte-identical to the pre-cutover in-process spawn), not
+  // padi's own commit hash. padi stamps this via its `--spawn-version` flag.
+  spawnVersion: serverVersion,
+  // Forward `--verbose` to padi's process (as `LOG_LEVEL=debug`) so its OWN pino
+  // domain logger emits debug — the split-process twin of the pre-cutover
+  // `padiLog.level = "debug"`.
+  verbose: argv.flags.verbose,
+});
+
+// Pin the contract type param explicitly: `padiSession` is a concrete
+// `PadiBindingSession` (a class implementing `RemoteMirrorSession<padi contract>`),
+// and the pump's `session: RemoteMirrorSession<C>` param can't reverse-infer `C`
+// from a class value (it hides inside the mapped `AgentClient<C>`). Naming the
+// contract here plugs `padiSession` in checked — the old `as unknown as
+// HostSession<…>` double-cast is gone.
+const reServedPadi = reServeSurface<
+  typeof padiSurface.spec,
+  typeof padiSurface.contract
+>({
+  source: padiSurface, // the BASE surface; reServeSurface adds `connection` internally.
+  policy: PADI_FORWARDING_POLICY, // per-member value|delta forwarding.
+  session: padiSession,
+  log: (line) => log.debug({ line }, "padi re-serve"),
+});
+
+// `done` must never float (#1661 candidate 9): it settles on a clean session
+// destroy, or REJECTS on a terminal mirror fault (a SinkError / client mismatch)
+// that STOPS the pump — after which the internal `connection` cell is frozen at a
+// stale-but-healthy value. Fail LOUD (fail-fast per the design philosophy); the
+// supervisor restarts kolu-server clean.
+reServedPadi.done
+  .then(() => log.info({}, "padi re-serve pump exited (session destroyed)"))
+  .catch((err) => {
+    log.fatal({ err }, "padi re-serve pump died — binding is unrecoverable");
+    process.exit(1);
+  });
+
+// Splice the re-serve's INNER surface object under the `padi` key beside
+// kolu-server's own siblings. The re-serve router is a top-level single-surface
+// router (`{ surface: { <padi members>, connection } }`), so nesting its `.surface`
+// under `padi` yields `/surface/padi/<member>` with no `surface/surface` double
+// prefix (proved empirically by the padiBinding integration test).
+const surfaceRouter = {
+  surface: {
+    ...koluSurfaceRouter.surface,
+    padi: (reServedPadi.router as { surface: Record<string, unknown> }).surface,
+  },
+};
+
+const appRouter = buildAppRouter({
+  surfaceRouter,
+  // The re-targeted "restart": drain the bound padi (persist + exit; kaval + its
+  // PTYs survive; the reconnect loop re-spawns padi). Never a kill-9.
+  drainBoundPadi: () => padiSession.drainBoundPadi(),
+});
+
+// --- oRPC handlers (HTTP non-streaming + WS streaming) ---
+// appRouter mixes implementSurface's Lazy<Router> spread with hand-listed
+// namespaces; oRPC's RPCHandler input type doesn't accept that union. The
+// runtime shape is a valid router.
+// biome-ignore lint/suspicious/noExplicitAny: see comment above
+const rpcHandler = new RPCHandler(appRouter as any, { plugins: rpcPlugins });
+// biome-ignore lint/suspicious/noExplicitAny: see RPCHandler comment above
+const wsRpcHandler = new WsRPCHandler(appRouter as any, {
+  plugins: rpcPlugins,
+});
+
+// --- oRPC HTTP handler mount (non-streaming calls) ---
+app.use("/rpc/*", async (c, next) => {
+  // CSWSH gate, HTTP arm: the WebSocket upgrade is NOT the only browser path
+  // into the unauthenticated RPC surface. The oRPC HTTP codec deserializes a
+  // cross-site `multipart/form-data` POST (a CORS-"simple" request, no
+  // preflight) straight into procedure input, and no-input mutations
+  // (`daemon.restart`) need no body at all — so a page the operator visits could
+  // drive these over plain HTTP even with `/rpc/ws` gated. Reject a cross-site
+  // browser Origin here too, with the SAME policy. Non-browser clients (no
+  // Origin) and same host:port traffic pass; kolu's own UI never uses this
+  // transport (it drives every call over `/rpc/ws`).
+  const rejected = gateHttpRpcOrigin(c.req.raw, {
+    allowedOrigins,
+    onReject: (origin) =>
+      log.warn({ origin }, "rejecting HTTP RPC: disallowed Origin"),
+  });
+  if (rejected) return rejected;
+  const { matched, response } = await rpcHandler.handle(c.req.raw, {
+    prefix: "/rpc",
+    context: {},
+  });
+  if (matched) return response;
+  return next();
 });
 
 // --- Health endpoint ---
@@ -280,39 +347,48 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   // names + `%2f` traversal defense) and is unit-tested in
   // `iframePreviewRoute.test.ts`. `rawTargetFromContext` owns the raw-target
   // selection (`incoming.url`) as one shipped adapter the integration test
-  // drives too, so the two halves of this guard can't drift. It reads `c.env`
-  // as `Partial<HttpBindings>` so the @hono/node-server binding doesn't leak
-  // into the other mounts' `Hono<BlankEnv>` expectations. When `incoming` is
-  // absent it returns `undefined` — a fail-CLOSED 500 here, NOT a silent
-  // fallback to the WHATWG-normalized `c.req.raw.url` that would defeat the `..`
-  // guard. Kolu's only production adapter (@hono/node-server) always supplies
-  // `incoming`, so this arm signals a genuinely broken host, not a degraded one.
+  // drives too, so the two halves of this guard can't drift. When `incoming` is
+  // absent it returns `undefined` — a fail-CLOSED 500 here, NOT a silent fallback
+  // to the WHATWG-normalized `c.req.raw.url` that would defeat the `..` guard.
   const rawTarget = rawTargetFromContext(c);
   if (rawTarget === undefined)
     return c.text("raw request target unavailable", 500);
   const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
 
-  // The one kolu binding: which directory this terminal serves. Kept as the
-  // git repo root for now (behavior-preserving — the browse tree, git-status
-  // decoration, and diff are all repo-relative); switching the injected root
-  // to the terminal's `$PWD` (`meta.cwd`) is a one-line change here, deferred
-  // because it's a browse-model/decoration product decision, not this refactor.
-  const root = snapshotFor(terminalId)?.git?.repoRoot;
-  if (!root) return c.text("terminal has no repo", 404);
+  // Which directory this terminal serves (its git repo root) — RE-SOURCED from
+  // padi's registry over the bound session, since padi (not kolu-server) owns the
+  // terminal registry now. padi resolves terminal id → repoRoot; kolu-server then
+  // STREAMS the file itself via the shared `previewFile` (bounded heap, forwarding
+  // the browser's `Range` so a `<video>` seek answers 206), exactly as the retired
+  // in-process route did — so a multi-GB video is never forced whole through a
+  // base64 procedure.
+  const clientPromise = padiSession.currentClient();
+  if (!clientPromise) return c.text("padi is not connected", 503);
+  let repoRoot: string | null;
+  try {
+    const client = await clientPromise;
+    ({ repoRoot } = await client.surface.preview.repoRootForTerminal({
+      terminalId,
+    }));
+  } catch (err) {
+    // padi's `repoRootForTerminal` returns `{ repoRoot: null }` for an
+    // unknown/unmapped terminal — it never THROWS for the no-repo case (that is
+    // the `if (!repoRoot)` 404 below). So a thrown error here is an OPERATIONAL
+    // failure of the bound link (padi went down mid-read, a protocol error, an
+    // unexpected handler fault), NOT "no repo". Surface it as a 503 so the real
+    // fault is visible instead of masqueraded as an ordinary missing-file 404.
+    log.error({ err, terminalId }, "padi repoRoot resolve failed (link fault)");
+    return c.text("padi link fault resolving terminal repo", 503);
+  }
+  if (!repoRoot) return c.text("terminal has no repo", 404);
 
-  // Re-backed onto padi's `previewFile` — the SAME serve-dir read + realpath
-  // guard `preview.read` serves, but the STREAMING form: it returns serve-dir's
-  // `ServeResult` verbatim (a `ReadableStream` body on 2xx), so this route
-  // streams disk→socket with bounded heap exactly as the retired
-  // `createDirServer` bypass did. Forwarding the browser's `Range` keeps a
-  // `<video>` seek answering 206 ranged bytes, and — crucially — a whole-file
-  // (`bytes=0-` / unranged) read is NOT materialized in memory (the OOM the
-  // base64 `readPreview` wire-form would cause on a large video). The guard
-  // rejects a repo-local symlink escaping the root (`leak.html -> /etc/passwd`)
-  // with 403 before any byte is read. The artifact-sdk HTML decorator (mounted
-  // above) rewrites text/html downstream.
+  // The SAME serve-dir read + realpath guard `padiSurface.preview.read` serves,
+  // but the STREAMING form: a `ReadableStream` body on 2xx (disk→socket, bounded
+  // heap), the browser's `Range` forwarded (206 on a `<video>` seek), and the
+  // symlink-escape 403 re-enforced before any byte is read. The artifact-sdk HTML
+  // decorator (mounted above) rewrites text/html downstream.
   const r = await previewFile({
-    repoPath: root,
+    repoPath: repoRoot,
     filePath: rawTail,
     range: c.req.header("range"),
   });
@@ -357,67 +433,136 @@ installPwaManifest(app, {
 // --- Static files (production) ---
 // surface-app's freshness contract on the wire: no-store shell, immutable
 // hashed `/assets/*`, 404 on an asset miss (never the HTML shell), the `/sw.js`
-// worker, and the SPA fallback. Replaces kolu's hand-rolled cache-control +
-// static-serve block. `serviceWorker: "notify"` serves the fetch-less
+// worker, and the SPA fallback. `serviceWorker: "notify"` serves the fetch-less
 // notification worker (kolu fires agent-finished alerts via
 // `ServiceWorkerRegistration.showNotification()`, the only notification path
-// that works in an installed PWA) instead of the self-destructing one — it never
-// caches, so the freshness contract still holds. Pairs with
-// `registerServiceWorker()` in the client's `index.tsx`.
+// that works in an installed PWA). Pairs with `registerServiceWorker()` in the
+// client's `index.tsx`.
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
   installFreshStatic(app, { root: clientDist, serviceWorker: "notify" });
 }
 
-const { host, port } = argv.flags;
+// The reading returned when padi is BELIEVED up (a live bound client) yet its
+// memory read fails — a link drop mid-read, a schema/protocol fault, an empty
+// subscription. Both processes fold to the honest `error` (not `absent`): padi's
+// `ProcessRss` schema keeps `error` distinct from `absent` precisely so a failed
+// read never renders identically to "no process to measure" (the
+// `caught-error-must-not-collapse-to-empty` rule). `absent` is reserved for the
+// true no-client case (padi genuinely down), returned as `null` below.
+const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
+  padi: { status: "error" },
+  kaval: { status: "error" },
+};
 
-// --- pty-host daemon (kaval) endpoint, B2 "the door" ---
-// Flip the topology: instead of running the pty-host in-process and serving it
-// on a socket, the server SPAWNS a `kaval` daemon (always-recycle boot policy)
-// and becomes its client. The daemon's socket is namespaced by THIS server's
-// listen port (`kaval-<port>`), so a second kolu-server — a dev instance, a
-// second worktree, a bug-repro `kolu` on another port — owns a separate daemon
-// and the boot recycle can never reach across instances to kill this one's.
-// Awaited before the HTTP server starts so no terminal RPC can race an unready
-// endpoint; a boot failure reports `dead` (not a crash), so the server still
-// listens and the UI honestly shows the down state.
-await ensureLocalEndpoint({
-  port,
-  onStatus: publishDaemonStatus,
-  onAdopted: adoptSurvivingSession,
-  // No-survivor boot (fresh / recycled daemon): park the saved session so the
-  // restore card shows and `session.restore` re-spawns it (W1.R6). Replaces the
-  // old no-op that left the client to respawn off the raw saved session.
-  onNotAdopted: parkSavedSession,
-  // Subscribe to the daemon's inventory feed so a terminal created out-of-band
-  // (a `kaval-tui create` against this server's kaval) shows up as a tile while
-  // kolu runs — not only after the next restart's boot adoption (B3.5). Runs
-  // after the boot try/catch settles regardless of outcome (not on connection);
-  // the reconciler's own re-subscribe loop absorbs the down/connect lifecycle.
-  onBootSettled: startInventoryReconciler,
-});
+// Read padi's `{ padi, kaval }` memory pair off the bound session — a one-shot
+// read of padi's `processMemory` cell (a snapshot-first subscription; take the
+// first frame — padi's last published value — and stop). Returns `null` ONLY when
+// padi is down (no live client), so the fold reports padi + kaval as the honest
+// `absent`, never a fake zero; a read that FAILS through a live client returns the
+// `error` reading instead (never `null`), so a real anomaly stays distinct from
+// `absent`. kaval runs inside the padi process now, so padi (not kolu-server) is the
+// source of that pair; the sampler folds it in below.
+async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
+  const clientPromise = padiSession.currentClient();
+  if (!clientPromise) return null;
+  const ctl = new AbortController();
+  try {
+    // `currentClient()` already returns the typed `PadiSurfaceClient`, so the cell
+    // verb is reachable checked — no structural retype needed.
+    const client = await clientPromise;
+    const iterable = await client.surface.processMemory.get(
+      {},
+      { signal: ctl.signal },
+    );
+    for await (const frame of iterable) return frame;
+    // The client was live but the cell yielded no frame — an operational anomaly,
+    // not "no process to measure". Report `error`, not `absent`, and log at `error`
+    // (a live-client read that produced nothing is a failed read, not a degraded-but-
+    // recoverable state — see `.agency/code-police.md` errors-must-log-at-error).
+    log.error({}, "padi memory read yielded no frame through a live client");
+    return PADI_MEMORY_READ_ERROR;
+  } catch (err) {
+    // padi was BELIEVED up (a live client) yet the read threw — surface the honest
+    // `error` state, distinct from `absent`, rather than collapsing a caught error
+    // to the empty "no process" reading. padi's liveness still rides the re-serve's
+    // own `connection` cell; this only affects the memory rail's three-way readout.
+    // A caught read failure is a real error, not `warn` (errors-must-log-at-error).
+    log.error({ err }, "padi memory read failed through a live client");
+    return PADI_MEMORY_READ_ERROR;
+  } finally {
+    ctl.abort();
+  }
+}
 
-// Feed the chrome bar's memory readout: sample this server's RSS and poll the
-// kaval daemon's RSS on a fixed cadence, publishing both on the `processMemory`
-// cell. The client adds its own JS heap locally. Started after the endpoint so
-// the daemon-state reader and the live client are wired; the sampler reports
-// `null` kaval memory until the daemon connects.
+// Feed the chrome bar's memory readout: sample kolu-server's OWN RSS on a fixed
+// cadence, fold in padi's `{ padi, kaval }` reading, and publish all three on the
+// `processMemory` cell (the client adds its own JS heap locally). kaval runs inside
+// the padi process now, so its RSS rides padi's readout, folded in here.
 startMemorySampler(
   liveSamplerDeps({
-    client: ptyHostClient,
-    daemonState: () => readDaemonStatus(LOCAL_HOST_ID)?.state,
     publish: (m) => koluSurfaceCtx.cells.processMemory.set(m),
-    // A believed-connected daemon whose processMemory poll throws/times out is a
-    // real failed RPC, not a benign degradation — log at ERROR with the full
-    // error object (stack preserved), and the rail surfaces it as a distinct
-    // `error` state, not "no daemon".
-    reportPollError: (err) =>
-      log.error({ err }, "kaval processMemory poll failed"),
+    readPadiMemory: readPadiMemoryOnce,
   }),
+  // The bound padi's own liveness: a disconnect projects into `onState` IMMEDIATELY
+  // (before the next 5s tick), so a resample runs at once and the rail reports padi +
+  // its kaval as `absent` right away — never a frozen RSS for an already-gone process.
+  (resample) => padiSession.onState(() => resample()),
+);
+
+// Drive koluSurface's `padiLink` cell off the bound padi's connection state. koluSurface
+// is served DIRECTLY by kolu-server — never through the re-serve value-fold that HOLDS
+// STALE while padi is unbound — so its value is never a frozen-but-live-looking read.
+// The client folds `padiLink` into the warming/degraded canvas so a padi drop (the
+// re-targeted "restart kaval" drains padi) shows an honest connecting state over the
+// WHOLE drain window instead of a frozen re-served daemonStatus (#1034). `onState` fires
+// the current state synchronously on subscribe, so the cell is seeded before the first
+// transition.
+padiSession.onState((s) => {
+  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection));
+  // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
+  // time (constant) plus the bound padi's honest boot time (`null` while unbound). A
+  // padi (re)connect refreshes padi's uptime and a drop clears it to the honest
+  // "unknown" at once — never a stale age. The cell's `equals` dedups a transition
+  // that moves neither boot time. kaval's uptime is NOT here (it rides `daemonStatus`).
+  koluSurfaceCtx.cells.processStartedAt.set({
+    server: serverStartedAt,
+    padi: padiSession.padiStartedAt(),
+  });
+});
+
+// Feed the Kaval + Padi dialogs' host-daemon inventory: enumerate EVERY running kaval
+// + padi on this host (read-only — scan the runtime dir, read each gate `.pid`, and a
+// best-effort `system.version`/`terminal.list` probe per kaval; NEVER touches a
+// daemon's lifecycle), mark which one kolu's bound padi owns, and publish
+// `daemonInventory`. So a LEAKED post-upgrade daemon — invisible in the UI before,
+// surfaced only by a `kaval-tui` CLI error — is diagnosable at a glance. kolu's active
+// kaval is marked by socket identity against the address padi actually HOLDS: the DIGEST
+// address normally, or the pre-padi LEGACY `kaval-<port>/` address padi ADOPTED on a
+// W2.2 upgrade (`legacyKavalSocketPath(this binder's port)`, the SAME hint the adopter
+// hands padi) — so an adopted legacy kaval reads as kolu's converging active one, not a
+// leak. The active padi's honest `surfaceVersion` (off its control-core `hello`) rides
+// the bound session. A padi (re)bind force-samples so version + marking refresh at once.
+const inventoryStateRoot = resolvePadiStateRoot();
+startDaemonInventorySampler(
+  {
+    discoverKavals: discoverKavalDaemons,
+    discoverPadis: discoverPadiDaemons,
+    probe: probeKavalStatus,
+    digestKavalSocket: padiKavalSocketPath(inventoryStateRoot),
+    legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
+    activePadiSocket: padiSocketPath(inventoryStateRoot),
+    activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
+    activePadiBuildCommit: () => padiSession.padiBuildCommit(),
+    publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
+  },
+  (resample) => padiSession.onState(() => resample()),
 );
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);
+
+const { host, port } = argv.flags;
 
 // --- Start server ---
 const server = serve(
@@ -442,9 +587,11 @@ const server = serve(
       },
       "kolu listening",
     );
-    // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs
-    // the heap curve with the server's subsystem counts (the column that climbs
-    // monotonically alongside rss is the leak site). See kaval-heap-oom.mdx.
+    // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
+    // heap curve with kolu-server's OWN subsystem counts. The padi-domain columns
+    // (live-terminal count, active claude sessions) dropped at the cutover: they
+    // read padi's in-process registry, which lives in the padi PROCESS now, and
+    // padi keeps its OWN heap diag. This log tracks kolu-server's memory.
     startHeapDiagnostics({
       log,
       snapshotPrefix: "baseline",
@@ -453,13 +600,7 @@ const server = serve(
       // depend on — kept decoupled from the snapshot file basename above.
       logPrefix: "diag",
       extraColumns: () => ({
-        // LIVE terminals only — the column tracks live-PTY heap (sensors, taps,
-        // the headless mirror). Sleeping records hold none of that, so counting
-        // them here (`terminalCount`) would let dormant tiles read as live
-        // processes against the heap curve (F9).
-        terminals: activeTerminalCount(),
         publisherSize: publisherSize(),
-        claudeSessions: countActiveClaudeSessions(),
         pendingSummaryFetches: getPendingSummaryFetches(),
       }),
     });
@@ -468,10 +609,6 @@ const server = serve(
 
 // --- oRPC WebSocket handler (streaming) ---
 const wss = new WebSocketServer({ noServer: true });
-// biome-ignore lint/suspicious/noExplicitAny: see RPCHandler comment above
-const wsRpcHandler = new WsRPCHandler(appRouter as any, {
-  plugins: rpcPlugins,
-});
 // The acceptance seam (`@kolu/surface-app/server`) owns the liveness reaper AND
 // sequences the per-socket stale-tab gate → reaper enrolment → dispatch in one
 // `accept(...)` call. Reaping the server-side zombie (and its stream
@@ -521,10 +658,9 @@ server.on("upgrade", (req, socket, head) => {
     // CSWSH gate: reject a cross-site browser Origin before oRPC ever sees the
     // socket. The RPC surface is unauthenticated and cookie-less, so without
     // this any page the operator visits could open `/rpc/ws` and drive every
-    // procedure (create/write terminals). Loopback binding does NOT help — the
-    // attacker page runs in the operator's own browser. Non-browser clients
-    // send no Origin and pass; same-origin UI traffic passes; see
-    // `@kolu/surface/ws-origin`.
+    // procedure. Loopback binding does NOT help — the attacker page runs in the
+    // operator's own browser. Non-browser clients send no Origin and pass;
+    // same-origin UI traffic passes; see `@kolu/surface/ws-origin`.
     if (
       gateWsOrigin(req, socket, {
         allowedOrigins,

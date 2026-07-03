@@ -1,7 +1,7 @@
 /**
- * Boot-order fail-fast for the injected per-process server id (a W1.M severing).
+ * Boot-order fail-fast for the injected per-process daemon id (a W1.M severing).
  *
- * `setKoluServerProcessId` throws on an EMPTY value WHEN CALLED, but nothing
+ * `setDaemonProcessId` throws on an EMPTY value WHEN CALLED, but nothing
  * crashed if boot never called it at all — a downstream READ (koluRoot's dir
  * construction, `ensureKoluRoot`, the per-terminal scratch dir) then silently
  * derived a path from an unset id. These pin the READ as loud instead: a read
@@ -21,12 +21,12 @@ import {
   koluRoot,
   koluScratchDir,
   koluShellDir,
-  setKoluServerProcessId,
+  setDaemonProcessId,
 } from "./koluRoot.ts";
 
-describe("koluServerProcessId boot-order fail-fast", () => {
+describe("daemonProcessId boot-order fail-fast", () => {
   const NOT_INJECTED =
-    "koluServerProcessId read before setKoluServerProcessId() — kolu-server boot must inject it before ensureKoluRoot";
+    "daemonProcessId read before setDaemonProcessId() — the daemon's boot (padi's daemonMain) must inject it before ensureKoluRoot";
 
   // FIRST: this fresh module graph has never had the id injected. A read here is
   // a boot-order bug and must crash loudly, not hand back an empty-id dir. (If
@@ -40,7 +40,7 @@ describe("koluServerProcessId boot-order fail-fast", () => {
 
   it("derives the roots from the injected id once the setter runs", () => {
     const id = "0199f0e2-1a2b-4c3d-8e4f-boot0test0id";
-    setKoluServerProcessId(id);
+    setDaemonProcessId(id);
     const runtimeRoot = process.env.XDG_RUNTIME_DIR ?? tmpdir();
     const expectedRoot = join(runtimeRoot, `kolu-${id}`);
     expect(koluRoot()).toBe(expectedRoot);
@@ -51,8 +51,6 @@ describe("koluServerProcessId boot-order fail-fast", () => {
   it("still rejects an empty id in the setter", () => {
     // The empty check throws BEFORE assigning, so it does not clobber the id set
     // above — the existing empty-string rejection is preserved unchanged.
-    expect(() => setKoluServerProcessId("")).toThrow(
-      "setKoluServerProcessId: empty",
-    );
+    expect(() => setDaemonProcessId("")).toThrow("setDaemonProcessId: empty");
   });
 });

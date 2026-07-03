@@ -34,6 +34,10 @@ import {
   defineBuildInfo,
   surfaceAppSurfaceWith,
 } from "@kolu/surface-app/surface";
+// The honest three-way process-RSS union — composed below into `ProcessMemorySchema`.
+// Owned by the shared browser-safe leaf so both sides of the padi seal read one
+// declaration; its `ProcessRss` type is re-exported above for this module's importers.
+import { ProcessRssSchema } from "@kolu/terminal-workspace/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -66,6 +70,7 @@ export type {
   Foreground,
   OpenCodeInfo,
   PrResult,
+  ProcessRss,
   PrUnavailableSource,
   RestoreTarget,
   TerminalId,
@@ -241,48 +246,146 @@ export function applyPreferencesPatch(
   };
 }
 
-/** The kaval daemon's memory as an HONEST three-way state, not a `number | null`
- *  that conflates "no daemon" with "the poll failed".
+/** Live process-memory readout for the chrome bar's identity rail — the RSS of the
+ *  three server-side processes the rail names. The CLIENT's own JS-heap figure is
+ *  NOT here: it's a browser-local fact read off `performance.memory` in the client
+ *  (no wire round-trip), so this cell carries only what the client can't measure
+ *  itself.
  *
- *   - `{ status: "ok", rssBytes }` — a live daemon answered `system.processMemory`.
- *   - `{ status: "absent" }` — there is no connected daemon to measure (down /
- *     degraded / pre-first-poll). The expected "no value", not an error.
- *   - `{ status: "error" }` — the daemon was BELIEVED connected (its `daemonStatus`
- *     says so) yet the poll threw. A real anomaly the rail must surface distinctly
- *     from `absent`, so a failing RPC never renders identically to "no daemon"
- *     (the `caught-error-must-not-collapse-to-empty` rule — a server-side log is
- *     not a user surface). The original error is logged at `error` level server-
- *     side; the wire carries only the discriminant the rail needs.
- *
- *  A discriminated union (not an extra `kavalMemoryError` flag beside a nullable
- *  number) so the three states are mutually exclusive by construction — there is
- *  no representable "error AND a stale rss". */
-export const KavalMemorySchema = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("ok"), rssBytes: z.number() }),
-  z.object({ status: z.literal("absent") }),
-  z.object({ status: z.literal("error") }),
-]);
-export type KavalMemory = z.infer<typeof KavalMemorySchema>;
-
-/** Live process-memory readout for the chrome bar's identity rail — the
- *  resident-set size (RSS) of the two server-side processes the rail names. The
- *  CLIENT's own JS-heap figure is NOT here: it's a browser-local fact read off
- *  `performance.memory` in the client (no wire round-trip), so this cell carries
- *  only what the client can't measure itself.
- *
- *  `serverRssBytes` is the kolu-server process (always present — it's measuring
- *  itself). `kavalMemory` is the kaval pty-host daemon's RSS, a SEPARATE process
- *  the server polls over the daemon's `system.processMemory`; it is the honest
- *  three-way {@link KavalMemorySchema} so the rail can tell "no daemon" apart from
- *  "the daemon's poll failed", never collapsing a failed RPC into the same shape
- *  as no-data. A continuously-changing metric, kept off the lifecycle-transition
- *  `daemonStatus` collection so the two different change rates don't ride one
- *  channel. */
+ *  `serverRssBytes` is the kolu-server process (a plain number — always present, it
+ *  is measuring ITSELF). `padi` + `kaval` are the padi PROCESS and its kaval daemon
+ *  — a SEPARATE process pair kolu-server no longer runs in-process (W2.2). padi
+ *  serves its OWN `{ padi, kaval }` readout on `padiSurface.processMemory`; the
+ *  server's sampler folds that reading in here so the rail reads one cell. Each is
+ *  the honest {@link ProcessRssSchema} three-way so the rail can tell "the process
+ *  is down" (`absent`) apart from "its RSS read failed" (`error`), never a fake
+ *  zero — when padi is down both read `absent`. */
 export const ProcessMemorySchema = z.object({
   serverRssBytes: z.number(),
-  kavalMemory: KavalMemorySchema,
+  padi: ProcessRssSchema,
+  kaval: ProcessRssSchema,
 });
 export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
+
+/** kolu-server's live view of its binding to the local padi — the client folds this
+ *  into the warming/degraded canvas so a padi drop shows an honest connecting state,
+ *  never a frozen-but-live-looking world (#1034). Server-authored (kolu-server drives
+ *  it off the bound padi session's connection state); clients read-only.
+ *
+ *    - `connecting` — the binding is (re)establishing (boot, or reconnecting after a drop);
+ *    - `connected`  — kolu-server is bound to a live padi;
+ *    - `degraded`   — the binding dropped (padi is down / the reconnect loop is re-dialing).
+ *
+ *  The kaval `daemonStatus` the canvas reads rides padi's RE-SERVED surface, whose
+ *  value-fold HOLDS STALE while padi is unbound — so the client floors that status on
+ *  THIS leg too (padiLink === "connected"), exactly as it already floors on the
+ *  browser↔server ws liveness, and treats a not-`connected` link as the honest "coming
+ *  up" (warming) rather than trusting the frozen re-served state. */
+export const PadiLinkSchema = z.enum(["connecting", "connected", "degraded"]);
+export type PadiLink = z.infer<typeof PadiLinkSchema>;
+
+/** Live boot-time readout for the identity rail's uptime — kolu-server's OWN boot
+ *  time and the bound padi's. Server-authored (kolu-server stamps its own boot at
+ *  module init and reads padi's honest `startedAt` off the bound session's control-core
+ *  `hello`); clients read-only and render `now − startedAt`. kaval's boot time is NOT
+ *  here — it already rides `daemonStatus.startedAt` (the Kaval dialog's uptime source),
+ *  so this cell carries only the two processes that lacked one.
+ *
+ *  Honesty (#1034): `server` is `0` until the first server yield — a sentinel the
+ *  rail gates out on truthiness, so the pre-yield state shows nothing, never a bogus
+ *  multi-decade uptime climbing off `now − 0`. `padi` is `null` whenever padi is
+ *  unbound (the (re)connecting / dropped binding) — an honest "unknown", never a fake
+ *  `0`, and it re-reads a FRESH boot time when a respawned padi (a new process) binds. */
+export const ProcessStartedAtSchema = z.object({
+  server: z.number(),
+  padi: z.number().nullable(),
+});
+export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
+
+/** One running kaval PTY daemon the host-daemon inventory enumerated — a diagnostic
+ *  row the Kaval dialog lists so a LEAKED pre-upgrade kaval is visible AT A GLANCE.
+ *  (srid hit this dogfooding W2.2: after an upgrade a leaked pre-W2.2 kaval was
+ *  invisible in the UI — only a `kaval-tui: more than one kaval daemon is running`
+ *  CLI error surfaced it.) Server-authored, read-only enumeration: scan the runtime
+ *  dir, read each gate pid, and best-effort probe status — it NEVER kills/reaps/
+ *  touches a daemon.
+ *
+ *  Honesty (#1034): every field the probe couldn't read is an honest `null` (rendered
+ *  "—"), never a fabricated zero/version. */
+export const RunningKavalSchema = z.object({
+  /** The rendezvous socket path — the pasteable `--socket` value. */
+  socket: z.string(),
+  /** Discovery's human label ("standalone kaval" | "kolu @ <state-root>" |
+   *  "kolu-server on port <port>"), decided at discovery's matching branch. */
+  label: z.string(),
+  /** The structural kind: `stateRoot` (a padi's kaval — carries a state-root
+   *  manifest, incl. an ADOPTED legacy-address kaval), `port` (an UN-adopted legacy
+   *  `kaval-<port>/` with NO manifest — a genuine stray/leak), `standalone`, or
+   *  `unknown`. */
+  kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
+  /** True iff this is the ACTIVE kaval sitting at the pre-padi legacy `kaval-<port>/`
+   *  address — padi ADOPTED a live pre-W2.2 kaval on upgrade (keeping its PTYs) rather
+   *  than leaking it. A KNOWN, converging state (not a leak): it is kolu's live kaval,
+   *  just still at its old socket until the next kaval restart/reboot spawns it under
+   *  the digest address. Only ever true together with `active`. */
+  atLegacyAddress: z.boolean(),
+  /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
+  gatePid: z.number().int().nullable(),
+  /** Live terminal count from a best-effort `terminal.list` probe, or null when the
+   *  probe failed / the daemon didn't answer (never a fake 0). */
+  terminalCount: z.number().int().nullable(),
+  /** The kaval's build commit (`navigableCommit`) from a best-effort `system.version`
+   *  probe, or null when unreadable. */
+  buildCommit: z.string().nullable(),
+  /** The pty-host contract version from the probe, or null when unreadable. */
+  contractVersion: z.string().nullable(),
+  /** True iff this is the kaval kolu's bound padi ACTIVELY owns ("in use by kolu"). */
+  active: z.boolean(),
+});
+export type RunningKaval = z.infer<typeof RunningKavalSchema>;
+
+/** One running padi daemon the host-daemon inventory enumerated — the Padi dialog's
+ *  diagnostic row (a second padi at a different state-root is a leak, visible here).
+ *  Same read-only enumeration + honesty contract as {@link RunningKavalSchema}. */
+export const RunningPadiSchema = z.object({
+  /** padi's rendezvous socket path. */
+  socket: z.string(),
+  /** padi's state-root (from the digest→root manifest), or null if unreadable. */
+  stateRoot: z.string().nullable(),
+  /** The gate-holder pid (`padi.pid`), or null if unreadable. */
+  gatePid: z.number().int().nullable(),
+  /** The `padiSurface` version the RUNNING padi serves — the bound padi's honest
+   *  `hello.surfaceVersion` for the active one; null for a padi kolu-server is not
+   *  bound to (not probed) or before the first sample. */
+  surfaceVersion: z.string().nullable(),
+  /** The RUNNING padi's navigable git commit — the bound padi's honest `hello.commit`
+   *  for the active one (mirroring {@link RunningKavalSchema}'s `buildCommit`, whose
+   *  commit rides kaval's `system.version`); null for a padi kolu-server is not bound
+   *  to (not probed), a survivor padi predating the hello field, or before the first
+   *  sample. */
+  buildCommit: z.string().nullable(),
+  /** True iff this is the padi kolu-server is bound to ("in use by kolu"). */
+  active: z.boolean(),
+});
+export type RunningPadi = z.infer<typeof RunningPadiSchema>;
+
+/** The host-daemon inventory — every running kaval + padi on this host, each marked
+ *  whether kolu's bound padi actively owns it. Server-authored diagnostic cell (the
+ *  Kaval/Padi dialogs render it); read-only on the client. Presentation/diagnostic
+ *  data, so it rides koluSurface like the memory/uptime readouts — NOT a padiSurface
+ *  member (no `PADI_SURFACE_VERSION` bump). */
+export const DaemonInventorySchema = z.object({
+  kavals: z.array(RunningKavalSchema),
+  padis: z.array(RunningPadiSchema),
+});
+export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
+
+/** The honest pre-sample "unknown" — empty lists, so a fresh subscription renders no
+ *  fabricated daemons until the first server enumeration lands. */
+export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
+  kavals: [],
+  padis: [],
+};
 
 /** Bytes in one megabyte. The single source of truth both the server-side dedup
  *  boundary and the client-side rail rendering read, so they can't drift. */
@@ -320,8 +423,8 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 // `padi` sibling kolu-server adds locally (`server/src/surface.ts`):
 //
 //   - `koluSurface` — the primitives kolu OWNS that are NOT part of the terminal
-//     domain: today just the `preferences` + `processMemory` cells. Served under
-//     the `kolu` key. Every terminal-DERIVED member (`activityFeed`, `session`,
+//     domain: the `preferences` + `processMemory` + `padiLink` + `processStartedAt`
+//     cells. Served under the `kolu` key. Every terminal-DERIVED member (`activityFeed`, `session`,
 //     the `terminalExit` event, the per-terminal record, urgency, daemon status,
 //     the expected-kaval axis) relocated to `@kolu/padi` (the package-boundary
 //     seal) — so koluSurface has NO collections and NO events, and the terminal
@@ -346,9 +449,11 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 /** surface-app served as a sibling, extended with kolu's build identity. */
 export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
 
-/** The primitives kolu OWNS that are NOT part of the terminal domain — today just
- *  `preferences` (local-authority user prefs) and `processMemory` (the live
- *  server+kaval RSS rail metric). Every terminal-DERIVED wire member —
+/** The primitives kolu OWNS that are NOT part of the terminal domain —
+ *  `preferences` (local-authority user prefs), `processMemory` (the live
+ *  server+kaval RSS rail metric), `padiLink` (kolu-server's live view of its
+ *  binding to padi — a #1034 canvas-honesty leg), and `processStartedAt` (the
+ *  server + padi boot times the rail renders as uptime). Every terminal-DERIVED wire member —
  *  `activityFeed`, `session`, the `terminalExit` event, the terminal record,
  *  urgency, daemon status — now rides `padiSurface` (the package-boundary seal):
  *  only the conf-store STORAGE for session/activityFeed stays kolu-server-side
@@ -370,16 +475,61 @@ export const koluSurface = defineSurface({
       verbs: ["get", "patch", "test__set"],
     },
 
-    /** Live process-memory readout (server + kaval RSS) for the rail. The
-     *  server's periodic sampler is the sole writer (`koluSurfaceCtx.cells.
-     *  processMemory.set`); clients read-only. `kavalMemory` is `absent` until
-     *  the first daemon poll, and whenever the daemon is down. */
+    /** Live process-memory readout (kolu-server + padi + kaval RSS) for the rail.
+     *  The server's periodic sampler is the sole writer
+     *  (`koluSurfaceCtx.cells.processMemory.set`); clients read-only. It samples
+     *  kolu-server's own RSS and FOLDS IN padi's `{ padi, kaval }` reading off the
+     *  re-served padi surface — `padi`/`kaval` are `absent` until the first fold,
+     *  and whenever padi is down. */
     processMemory: {
       schema: ProcessMemorySchema,
       default: {
         serverRssBytes: 0,
-        kavalMemory: { status: "absent" },
+        padi: { status: "absent" },
+        kaval: { status: "absent" },
       } satisfies z.infer<typeof ProcessMemorySchema>,
+      verbs: ["get"],
+    },
+
+    /** kolu-server's live view of its binding to the local padi (see
+     *  {@link PadiLinkSchema}). Server-authored — kolu-server is the sole writer,
+     *  driving it off the bound padi session's connection state
+     *  (`server/src/index.ts` via `koluSurfaceCtx.cells.padiLink.set`); clients
+     *  read-only. The client folds it into the warming/degraded canvas so a padi drop
+     *  shows an honest connecting state, never a frozen-but-live-looking world (#1034).
+     *  Gate-closed default `connecting`, so a fresh subscription reads "coming up"
+     *  before the first transition rather than a premature `connected`. */
+    padiLink: {
+      schema: PadiLinkSchema,
+      default: "connecting" satisfies PadiLink,
+      verbs: ["get"],
+    },
+
+    /** Live boot-time readout (kolu-server + padi) for the rail's uptime (see
+     *  {@link ProcessStartedAtSchema}). Server-authored — kolu-server drives it off
+     *  the bound padi session's connection state, the SAME `onState` that drives
+     *  `padiLink` (`server/src/index.ts` via `koluSurfaceCtx.cells.processStartedAt.set`);
+     *  clients read-only. The `{ server: 0, padi: null }` default is the honest pre-yield
+     *  "unknown" (the rail gates a `0`/`null` out rather than rendering a bogus uptime). */
+    processStartedAt: {
+      schema: ProcessStartedAtSchema,
+      default: { server: 0, padi: null } satisfies z.infer<
+        typeof ProcessStartedAtSchema
+      >,
+      verbs: ["get"],
+    },
+
+    /** The host-daemon inventory — every running kaval + padi on this host, each
+     *  marked whether kolu's bound padi owns it (see {@link DaemonInventorySchema}).
+     *  Server-authored diagnostic readout (a dedicated read-only enumerator is the
+     *  sole writer via `koluSurfaceCtx.cells.daemonInventory.set`); clients read-only.
+     *  The Kaval/Padi dialogs list it so a LEAKED post-upgrade daemon — invisible in
+     *  the UI before, surfaced only by a `kaval-tui` CLI error — is diagnosable at a
+     *  glance. Presentation data, so it rides koluSurface like memory/uptime — NOT a
+     *  padiSurface member. Empty-lists default is the honest pre-sample "unknown". */
+    daemonInventory: {
+      schema: DaemonInventorySchema,
+      default: DEFAULT_DAEMON_INVENTORY,
       verbs: ["get"],
     },
   },

@@ -99,6 +99,33 @@ export interface SpawnDriverDeps {
   unitSuffix?: () => string;
 }
 
+/** Strip dev-only Node flags from a `NODE_OPTIONS` string before a spawned daemon
+ *  inherits it, so the daemon never opens the SUPERVISOR's inspector or writes the
+ *  supervisor's heap/cpu profiles into the supervisor's cwd. This is domain-agnostic
+ *  spawn-mechanism policy — it names Node profiler flags, nothing program-specific —
+ *  so it lives here beside `survivableSpawnDriver` (the one place that forks the
+ *  child), and every driver's env-builder composes it instead of re-declaring the
+ *  filter. Returns `undefined` when nothing of value remains, so the var is DROPPED
+ *  rather than set to empty. Purely additive: `survivableSpawnDriver`'s own
+ *  env-layering is untouched, so a spine consumer that does NOT scrub (e.g. odu) is
+ *  unaffected — the scrub is opt-in per driver, not baked into every spawn. */
+export function scrubDaemonNodeOptions(
+  raw: string | undefined,
+): string | undefined {
+  if (!raw) return undefined;
+  const kept = raw
+    .split(/\s+/)
+    .filter(
+      (f) =>
+        f !== "" &&
+        !f.startsWith("--inspect") &&
+        !f.startsWith("--heapsnapshot") &&
+        !f.startsWith("--heap-prof") &&
+        !f.startsWith("--cpu-prof"),
+    );
+  return kept.length > 0 ? kept.join(" ") : undefined;
+}
+
 let spawnCounter = 0;
 
 export function survivableSpawnDriver(

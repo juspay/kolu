@@ -13,7 +13,7 @@
 import { type CellStore, inMemoryStore } from "@kolu/surface/server";
 import type { AnyContractRouter } from "@orpc/contract";
 import { type ConnectionInfo, DEFAULT_CONNECTION } from "./connection";
-import type { HostSession, HostSessionState } from "./hostSession";
+import type { HostSessionState, RemoteMirrorSession } from "./hostSession";
 
 /** The seeded re-serve impl for the `connection` cell — a `CellStore` already at
  *  the gate-closed `DEFAULT_CONNECTION`, ready to spread into `implementSurface`'s
@@ -39,6 +39,6 @@ export const projectConnection = (s: HostSessionState): ConnectionInfo => ({
  *  via `set`; returns the unsubscribe. The parent's one-liner that carries
  *  mirror health to the browser surface. */
 export const pipeSessionStateToCell = <C extends AnyContractRouter>(
-  session: HostSession<C>,
+  session: RemoteMirrorSession<C>,
   set: (info: ConnectionInfo) => void,
 ): (() => void) => session.onState((s) => set(projectConnection(s)));

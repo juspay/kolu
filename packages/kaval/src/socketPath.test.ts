@@ -6,18 +6,29 @@
  * `@kolu/surface`'s `unix-socket.test.ts`; what would break kolu-server ↔
  * kaval-tui rendezvous from HERE is only a drift in these names.
  */
-import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  discoverKavalCandidates,
+  discoverKavalDaemons,
   discoverPtyHostSockets,
   getPtyHostSocketPath,
+  KAVAL_GATE_FILE,
   KAVAL_NS_PREFIX,
   kavalNamespace,
+  legacyKavalSocketPath,
   PTY_HOST_SOCK_FILE,
   resolveRunningKavalSocket,
+  writeStateRootManifest,
 } from "./socketPath.ts";
 
 /** Bind a real `net.Server` at `path`, leaving a genuine socket inode behind —
@@ -67,6 +78,34 @@ describe("getPtyHostSocketPath", () => {
     );
     // default is unchanged
     expect(getPtyHostSocketPath()).toBe("/run/user/1000/kolu/pty-host.sock");
+  });
+});
+
+describe("legacyKavalSocketPath — the W2.2 upgrade adopt-hint (binder hints its OWN port)", () => {
+  const savedXdg = process.env.XDG_RUNTIME_DIR;
+  afterEach(() => {
+    if (savedXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = savedXdg;
+  });
+
+  it("is the port-keyed kaval-<port>/pty-host.sock — the same namespace as kavalNamespace(port)", () => {
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
+    expect(legacyKavalSocketPath(7681)).toBe(
+      "/run/user/1000/kaval-7681/pty-host.sock",
+    );
+    // Derived purely from the port via the ONE `kaval-<port>` literal, so the hint
+    // and legacy discovery can never spell it differently.
+    expect(legacyKavalSocketPath(7681)).toBe(
+      getPtyHostSocketPath(undefined, kavalNamespace(7681)),
+    );
+  });
+
+  it("is a pure function of the port — a DIFFERENT listen port yields a DIFFERENT hint (a dev instance at another port is never adopted)", () => {
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
+    expect(legacyKavalSocketPath(9999)).toBe(
+      "/run/user/1000/kaval-9999/pty-host.sock",
+    );
+    expect(legacyKavalSocketPath(7681)).not.toBe(legacyKavalSocketPath(9999));
   });
 });
 
@@ -193,6 +232,67 @@ describe("discoverPtyHostSockets", () => {
   });
 });
 
+// The STRUCTURAL `kind` each candidate carries (decided at the matching branch, the
+// inverse of `kavalNamespace`) + the gate-pid enrichment `discoverKavalDaemons` adds —
+// the read-only enumeration the Kaval info dialog lists. Exercised over real seeded
+// sockets + gate files, so the classification (esp. the LEGACY `port` leak signal) and
+// the gate read are pinned end-to-end.
+describe("discoverKavalDaemons + candidate kind", () => {
+  const savedXdg = process.env.XDG_RUNTIME_DIR;
+  const servers: Server[] = [];
+  afterEach(async () => {
+    if (savedXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = savedXdg;
+    await Promise.all(servers.splice(0).map((s) => closeServer(s)));
+  });
+
+  async function seed(namespaces: string[]): Promise<string> {
+    const runtime = mkdtempSync(join(tmpdir(), "kkind-"));
+    for (const ns of namespaces) {
+      mkdirSync(join(runtime, ns), { recursive: true, mode: 0o700 });
+      servers.push(await listenSocket(join(runtime, ns, PTY_HOST_SOCK_FILE)));
+    }
+    return runtime;
+  }
+
+  it("classifies standalone / stateRoot (manifest) / legacy port by matching branch", async () => {
+    const digest = "680023982235a767";
+    const runtime = await seed([`kaval-${digest}`, "kaval-7692", "kaval"]);
+    writeStateRootManifest(
+      join(runtime, `kaval-${digest}`),
+      "/home/u/.local/state/padi",
+    );
+    process.env.XDG_RUNTIME_DIR = runtime;
+    const byKind = new Map(
+      discoverKavalCandidates().map((c) => [c.socket, c.kind] as const),
+    );
+    expect(byKind.get(join(runtime, "kaval", PTY_HOST_SOCK_FILE))).toBe(
+      "standalone",
+    );
+    // The LEGACY pre-W2.2 keying — a kaval NOT owned by any padi, the leak signal.
+    expect(byKind.get(join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE))).toBe(
+      "port",
+    );
+    expect(
+      byKind.get(join(runtime, `kaval-${digest}`, PTY_HOST_SOCK_FILE)),
+    ).toBe("stateRoot");
+  });
+
+  it("reads the gate pid from kaval.pid beside the socket (null when absent)", async () => {
+    const runtime = await seed(["kaval-7692", "kaval"]);
+    // Write a gate holding a pid for one, leave the other gate-less.
+    writeFileSync(join(runtime, "kaval-7692", KAVAL_GATE_FILE), "4242\n");
+    process.env.XDG_RUNTIME_DIR = runtime;
+    const byGate = new Map(
+      discoverKavalDaemons().map((d) => [d.socket, d.gatePid] as const),
+    );
+    expect(byGate.get(join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE))).toBe(
+      4242,
+    );
+    expect(byGate.get(join(runtime, "kaval", PTY_HOST_SOCK_FILE))).toBeNull();
+  });
+});
+
 // The selection policy (explicit wins; else discover; one→use it;
 // many→ambiguous-with-labels; none→bare default) plus the candidate labels — the
 // inverse of `kavalNamespace` — live here, beside the construction they decode,
@@ -260,6 +360,33 @@ describe("resolveRunningKavalSocket", () => {
     expect(byLabel.get(join(runtime, "kaval", PTY_HOST_SOCK_FILE))).toBe(
       "standalone kaval",
     );
+    expect(byLabel.get(join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE))).toBe(
+      "kolu-server on port 7692",
+    );
+  });
+
+  it("labels a padi's kaval-<digest> from its state-root manifest, distinct from a legacy port", async () => {
+    // A padi's kaval lives under `kaval-<digest>/` with a `state-root` manifest;
+    // discovery labels it by that state-root (the digest carries no meaning). A
+    // legacy in-process kolu-server's `kaval-<port>/` has NO manifest, so it keeps
+    // the port label — manifest presence is the discriminant, so an all-decimal
+    // digest could never masquerade as a port.
+    const digest = "680023982235a767";
+    const runtime = await seed([`kaval-${digest}`, "kaval-7692"]);
+    writeStateRootManifest(
+      join(runtime, `kaval-${digest}`),
+      "/home/u/.local/state/padi",
+    );
+    process.env.XDG_RUNTIME_DIR = runtime;
+    const resolved = resolveRunningKavalSocket(undefined);
+    expect(resolved.kind).toBe("many");
+    if (resolved.kind !== "many") throw new Error("unreachable");
+    const byLabel = new Map(
+      resolved.candidates.map((c) => [c.socket, c.label] as const),
+    );
+    expect(
+      byLabel.get(join(runtime, `kaval-${digest}`, PTY_HOST_SOCK_FILE)),
+    ).toBe("kolu @ /home/u/.local/state/padi");
     expect(byLabel.get(join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE))).toBe(
       "kolu-server on port 7692",
     );

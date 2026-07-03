@@ -20,7 +20,7 @@
 
 import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { setKoluServerProcessId } from "./koluRoot.ts";
+import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -34,6 +34,7 @@ import {
   getSavedSession,
   initSessionAutoSave,
   setSavedSession,
+  setSavedSessionFromSnapshot,
 } from "./session.ts";
 import {
   type ActiveTerminalProcess,
@@ -54,7 +55,7 @@ import {
 
 // Boot injects the server id before any of this runs; some registry paths read
 // the per-instance scratch root, so seed it here as the other padi tests do.
-setKoluServerProcessId("padi-session-test");
+setDaemonProcessId("padi-session-test");
 
 const ACTIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PARKED_A = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -272,5 +273,123 @@ describe("session autosave — the PATH-B session-clobber guard", () => {
     expect([...terminalEntries()].map(([id, e]) => [id, e.meta.state])).toEqual(
       registryBefore,
     );
+  });
+});
+
+describe("setSavedSessionFromSnapshot — the drain-path no-shrink receptacle", () => {
+  // The W2.2 drain (padi drains + exits; the surviving kaval keeps the PTYs) captures
+  // the live registry through `setSavedSessionFromSnapshot`. When it fires with an
+  // EMPTY snapshot — the parked-only / empty-registry case a drain hits — it must NOT
+  // erase the user's only restore data. This pins the F1 empty-preserve invariant on
+  // the path the drain now actually depends on.
+  it("an EMPTY snapshot preserves the existing saved session (never null/shrink) and cancels any pending autosave", async () => {
+    // A non-empty session already on disk — the pre-drain blob the restore card offers.
+    setSavedSession(savedBlob());
+    // Arm a pending autosave the way a stale `terminals:dirty` would: schedule the
+    // 500 ms timer but don't let it fire yet. Registry is EMPTY (no active, no parked).
+    terminalsDirtyChannel.publish({});
+    await tick(10);
+
+    // The drain captures an EMPTY registry snapshot.
+    setSavedSessionFromSnapshot({ terminals: [], activeTerminalId: null });
+
+    // Empty-preserve: the existing blob is left intact, not shrunk or nulled.
+    expect(getSavedSession()?.terminals.length).toBe(2);
+
+    // …and the pending autosave was cancelled: past the 500 ms window it never fires,
+    // so it cannot clobber the preserved blob to null (an uncancelled timer would call
+    // `saveSession([])` on the empty registry and clear it).
+    await tick(650);
+    expect(getSavedSession()?.terminals.length).toBe(2);
+  });
+
+  it("a NON-EMPTY snapshot persists normally, replacing the on-disk blob", () => {
+    setSavedSession(savedBlob()); // 2 records on disk
+    const fresh = savedActive("99999999-9999-4999-8999-999999999999", "/fresh");
+
+    setSavedSessionFromSnapshot({
+      terminals: [fresh],
+      activeTerminalId: fresh.id,
+    });
+
+    // The fresh single-terminal snapshot was written (with a `savedAt` stamp).
+    expect(getSavedSession()?.terminals.length).toBe(1);
+    expect(getSavedSession()?.terminals[0]?.id).toBe(fresh.id);
+    expect(getSavedSession()?.activeTerminalId).toBe(fresh.id);
+  });
+
+  // ── The no-shrink MERGE guard (restore-pending capture) ──────────────────
+  // The PATH-B capture bug: a restore is pending (N parked entries stand for N
+  // on-disk records that `snapshotSession` EXCLUDES) AND the user has created a
+  // fresh live terminal (create no longer forfeits the parked set). A plain
+  // persist of the parked-excluding snapshot would OVERWRITE the N-record blob with
+  // a 1-record one and `parkSavedSession` would then drop the N pending terminals.
+  // The guard MERGES (union by id, live-wins) so nothing shrinks.
+  it("MERGE: restore-pending capture (2 parked + 1 live) persists the UNION — exactly 3 records, the live one fresh (no shrink)", () => {
+    // On disk: 2 ACTIVE records (savedBlob ids 1111/2222), stood up as 2 PARKED
+    // entries under the SAME ids — snapshotSession filters those out.
+    setSavedSession(savedBlob());
+    registerParked("11111111-1111-4111-8111-111111111111");
+    registerParked("22222222-2222-4222-8222-222222222222");
+    // The user creates ONE fresh live terminal (cwd `/work/repo` from activeSnapshot).
+    registerActive(ACTIVE_ID);
+    // The hazard: the parked-excluding snapshot names ONLY the live terminal.
+    expect(snapshotSession().terminals.map((t) => t.id)).toEqual([ACTIVE_ID]);
+
+    setSavedSessionFromSnapshot(snapshotSession());
+
+    const saved = getSavedSession();
+    // COUNT: exactly N+1 = 3 records, no duplicates, no shrink.
+    expect(saved?.terminals.map((t) => t.id).sort()).toEqual(
+      [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+        ACTIVE_ID,
+      ].sort(),
+    );
+    // CONTENT: the two pending records survived from disk…
+    expect(
+      saved?.terminals.find(
+        (t) => t.id === "11111111-1111-4111-8111-111111111111",
+      )?.state,
+    ).toBe("active");
+    // …and the live record carries its FRESH captured state, not a stale/parked copy.
+    const live = saved?.terminals.find((t) => t.id === ACTIVE_ID);
+    expect(live?.state).toBe("active");
+    if (live?.state === "active") expect(live.cwd).toBe("/work/repo");
+  });
+
+  it("MERGE collision: an id in BOTH the on-disk set AND the live capture yields ONE record — the LIVE one winning", () => {
+    // On disk: 1111 (cwd /a) + 2222 (cwd /b). The user RESTORED 1111 (parked→active
+    // flip done → a LIVE active under id 1111, cwd /work/repo) while 2222 is STILL
+    // parked — and the on-disk blob has not been rewritten when Restart lands.
+    setSavedSession(savedBlob());
+    registerActive("11111111-1111-4111-8111-111111111111"); // restored → live
+    registerParked("22222222-2222-4222-8222-222222222222"); // still pending
+    // snapshotSession filters the parked 2222 → only the live 1111.
+    expect(snapshotSession().terminals.map((t) => t.id)).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+    ]);
+
+    setSavedSessionFromSnapshot(snapshotSession());
+
+    const saved = getSavedSession();
+    // Exactly 2 records — NO duplicate for the collided id 1111.
+    expect(saved?.terminals.length).toBe(2);
+    const collided = saved?.terminals.filter(
+      (t) => t.id === "11111111-1111-4111-8111-111111111111",
+    );
+    expect(collided?.length).toBe(1);
+    // The LIVE capture WON: cwd is the live snapshot's /work/repo, NOT the stale
+    // on-disk /a. A merge that kept the disk copy (or duplicated) fails here.
+    const won = collided?.[0];
+    expect(won?.state).toBe("active");
+    if (won?.state === "active") expect(won.cwd).toBe("/work/repo");
+    // The still-pending 2222 survived from disk.
+    expect(
+      saved?.terminals.find(
+        (t) => t.id === "22222222-2222-4222-8222-222222222222",
+      ),
+    ).toBeTruthy();
   });
 });

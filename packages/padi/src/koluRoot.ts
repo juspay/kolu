@@ -17,34 +17,33 @@ import { join } from "node:path";
 
 const runtimeRoot = process.env.XDG_RUNTIME_DIR ?? tmpdir();
 
-/** The shared per-process server id, INJECTED at boot by
- *  {@link setKoluServerProcessId} rather than derived here. It is ONE id shared
- *  by four consumers (this root's dir name, the server log's `serverId`,
- *  `surface.ts`'s `identity.info.processId`, and index.ts's stale-tab gate), so
- *  padi must reuse the server's id — not fork its own — while the dependency
- *  arrow still points out of `packages/server` (no `./hostname.ts` import).
+/** This daemon's per-process id, INJECTED at boot by {@link setDaemonProcessId}
+ *  rather than derived here. It names the per-instance root dir (`kolu-<id>`) and
+ *  the per-terminal shell/scratch subtrees beneath it. A standalone daemon owns its
+ *  own disk, so padi's `daemonMain` injects its OWN process id here — the value is
+ *  not forked from any other process.
  *
  *  `undefined` until boot injects it: a READ before the set is a boot-order bug,
- *  so {@link requireServerProcessId} crashes loudly rather than letting a dir be
+ *  so {@link requireDaemonProcessId} crashes loudly rather than letting a dir be
  *  derived from an unset/stale id. */
-let serverProcessId: string | undefined;
+let daemonProcessId: string | undefined;
 
 /** The injected id, or a loud crash if a read beat the boot-time set. Fail-fast:
  *  a never-set read must surface, never silently degrade to an empty-id dir. */
-function requireServerProcessId(): string {
-  if (serverProcessId === undefined) {
+function requireDaemonProcessId(): string {
+  if (daemonProcessId === undefined) {
     throw new Error(
-      "koluServerProcessId read before setKoluServerProcessId() — kolu-server boot must inject it before ensureKoluRoot",
+      "daemonProcessId read before setDaemonProcessId() — the daemon's boot (padi's daemonMain) must inject it before ensureKoluRoot",
     );
   }
-  return serverProcessId;
+  return daemonProcessId;
 }
 
 /** Per-server-instance root. Everything kolu's server writes to disk for
  *  transient per-terminal use lives under here. Derived from the boot-injected
- *  id; throws if read before {@link setKoluServerProcessId} ran. */
+ *  id; throws if read before {@link setDaemonProcessId} ran. */
 export function koluRoot(): string {
-  return join(runtimeRoot, `kolu-${requireServerProcessId()}`);
+  return join(runtimeRoot, `kolu-${requireDaemonProcessId()}`);
 }
 
 /** Injected bash rc files and zsh ZDOTDIRs, one pair per spawned terminal. */
@@ -58,11 +57,12 @@ export function koluScratchDir(): string {
   return join(koluRoot(), "scratch");
 }
 
-/** Inject the shared per-process server id the on-disk roots derive from. Called
- *  once at the very top of boot, BEFORE {@link ensureKoluRoot}. */
-export function setKoluServerProcessId(id: string): void {
-  if (!id) throw new Error("setKoluServerProcessId: empty");
-  serverProcessId = id;
+/** Inject this daemon's per-process id the on-disk roots derive from. Called once
+ *  at the very top of the daemon's boot (padi's `daemonMain`), BEFORE
+ *  {@link ensureKoluRoot}. */
+export function setDaemonProcessId(id: string): void {
+  if (!id) throw new Error("setDaemonProcessId: empty");
+  daemonProcessId = id;
 }
 
 /** Create the root + subdirs with owner-only mode. Called once at server

@@ -9,6 +9,7 @@
  *  transport-liveness floor be pinned by a unit test without standing up a socket. */
 
 import type { DaemonState } from "@kolu/padi/surface";
+import type { PadiLink } from "kolu-common/surface";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
 
@@ -188,4 +189,49 @@ export function liveDownState(
   return DAEMON_STATE_PRESENTATION[state].down
     ? (state as "dead" | "degraded")
     : undefined;
+}
+
+// ── The padi-link leg: the SECOND floor on the re-served kaval daemonStatus ──
+//
+// The kaval `daemonStatus` the canvas reads rides padi's RE-SERVED surface, so its
+// TRUE liveness is BOTH legs of the delivery path: the browser↔kolu-server ws (the
+// `live` floor above) AND kolu-server's binding to padi (`padiLink`). While padi is
+// unbound (the re-targeted "restart kaval" DRAINS padi, so the binding drops for the
+// whole drain window) the re-serve's value-fold HOLDS the last kaval status STALE — a
+// frozen-but-live-looking read the existing `live` floor doesn't catch, because that
+// leg is still up. Folding `padiLink` here completes the floor, but ASYMMETRICALLY from
+// the browser leg: a padi link that is not `connected` is itself the honest "coming up"
+// (warming true), while it SUPPRESSES the "kaval is down" claim (the stale status can't
+// confirm it). When `padiLink === "connected"` both fall through to the kaval-state
+// logic unchanged.
+
+/** {@link liveWarming}, additionally folding the padi-link leg. Warming whenever the
+ *  padi link is not `connected` (the binding is (re)establishing/dropped — coming up,
+ *  covering the whole drain window) OR the kaval daemon is itself warming. Still floored
+ *  on the browser transport `live` (mirroring `liveWarming`): a dead browser↔server link
+ *  claims no warming off a stale padiLink. An `undefined` padiLink (pre-first-yield) is
+ *  treated as not-`connected` — we don't yet know the binding is up, so show warming
+ *  rather than a frozen-but-live-looking workspace. */
+export function liveWarmingWithPadiLink(
+  padiLink: PadiLink | undefined,
+  state: DaemonState | undefined,
+  live: boolean,
+): boolean {
+  return live && (padiLink !== "connected" || isWarming(state));
+}
+
+/** {@link liveDownState}, additionally floored on the padi-link leg. While the padi link
+ *  is not `connected` the re-served kaval status is STALE/unconfirmable, so a "kaval is
+ *  down" claim can't hold — read `undefined` (unknown), never a stale `dead`/`degraded`
+ *  that would paint DegradedCanvas over a kaval whose status the dropped binding can no
+ *  longer refresh. The warming fold above lights the honest coming-up surface instead.
+ *  When `padiLink === "connected"`, defers to {@link liveDownState} unchanged (a genuine
+ *  kaval death over a LIVE binding still surfaces `dead`/`degraded`). */
+export function liveDownStateWithPadiLink(
+  padiLink: PadiLink | undefined,
+  state: DaemonState | undefined,
+  live: boolean,
+): "dead" | "degraded" | undefined {
+  if (padiLink !== "connected") return undefined;
+  return liveDownState(state, live);
 }

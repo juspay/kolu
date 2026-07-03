@@ -149,6 +149,31 @@ export interface EndpointSpec<C, I, M = undefined> {
   adoptConnectAttempts?: number;
   /** Spacing between `adoptOrEnsure`'s connect retries. Default 100ms. */
   adoptConnectRetryMs?: number;
+  /** A SECONDARY rendezvous the adopt policies probe ONLY when the PRIMARY
+   *  (`gatePath`/`socketPath`) has no live serving survivor — the W2.2 upgrade
+   *  bridge. The pre-W2.2 kaval lives at a port-keyed socket the digest primary
+   *  does not name; on a compatible survivor there it is ADOPTED (its `onAdopted`
+   *  fires so the caller can record "my daemon is here"), and on a genuine skew it
+   *  is recycled like any survivor. SPAWN is ALWAYS the primary (never the hint), so
+   *  a recycle CONVERGES off the hint to the primary keying — the migration is
+   *  bounded, not a permanent second home. Absent → the endpoint behaves exactly as
+   *  before (a standalone padi with no binder never adopts a stray port kaval). */
+  adoptHint?: {
+    gatePath: string;
+    socketPath: string;
+    /** Dial + handshake the HINT socket (the twin of {@link connect} for the
+     *  primary). A skew rejects `DaemonContractSkewError`, same contract as `connect`. */
+    connect(): Promise<DaemonConnection<C, I, M>>;
+    /** Fired once, right before the adopted-hint connection is held, so the caller
+     *  can record the hint socket as its daemon's live location (e.g. the socket
+     *  stamped into spawned PTYs and shown in the daemon dialog). */
+    onAdopted?(): void;
+  };
+  /** Fired after a FRESH SPAWN holds a connection at the PRIMARY socket (a boot
+   *  spawn, or a recycle that converges off an adopted hint) — the twin of
+   *  `adoptHint.onAdopted`, so a caller that recorded the hint location can reset it
+   *  back to the primary. A no-op for endpoints with no hint. */
+  onSpawned?(): void;
 }
 
 export interface Endpoint<C, I, M = undefined> {
@@ -167,6 +192,17 @@ export interface Endpoint<C, I, M = undefined> {
    *  nothing to reconcile. Throws (after reporting `dead`) if it cannot bring a
    *  daemon up at all. */
   adoptOrEnsure(): Promise<boolean>;
+  /** Take the daemon to a live connection under the **adopt-or-spawn-or-refuse**
+   *  boot policy — the padi binder's policy, distinct from `adoptOrEnsure` in ONE
+   *  way: a live survivor that is a genuine contract SKEW is NOT recycled. Clients
+   *  never kill a running padi (the #1313 inversion — a dev/second binder must not
+   *  SIGTERM the daemon that owns another's PTYs), so a skewed survivor is left
+   *  STANDING and reported `degraded` (the same non-killing shape an unreachable
+   *  survivor already gets), never SIGTERM'd. An absent survivor is spawned fresh;
+   *  a compatible one is adopted. Resolves `true` iff it adopted a surviving daemon
+   *  (the caller then reconciles), `false` on a fresh-spawn / left-degraded boot.
+   *  Throws (after `dead`) only if it cannot bring a daemon up at all. */
+  adoptOrSpawnOrRefuse(): Promise<boolean>;
   /** The live connection, or `undefined` before `ensure()` or after the daemon
    *  died (`degraded`). */
   current(): DaemonConnection<C, I, M> | undefined;
@@ -176,7 +212,7 @@ export interface Endpoint<C, I, M = undefined> {
    *  `degraded` close, the fresh daemon's `connecting`) are reported as
    *  `restarting`, so an observer sees one honest "restarting" rather than a
    *  degraded→connecting→connected flicker; only the terminal `connected` /
-   *  `dead` pass through to end the hold. Used by `serializeRestart`. */
+   *  `dead` pass through to end the hold. */
   holdRestarting(body: () => Promise<void>): Promise<void>;
 }
 
@@ -231,6 +267,18 @@ export function createEndpoint<C, I, M = undefined>(
   const adoptConnectRetryMs = spec.adoptConnectRetryMs ?? 100;
   let conn: DaemonConnection<C, I, M> | undefined;
 
+  // A rendezvous (gate + socket) the endpoint can probe or hold a daemon at. The
+  // PRIMARY is where the endpoint SPAWNS (kaval-<digest> for padi); the adopt-HINT
+  // (kaval-<port>, upgrade only) is a legacy survivor's rendezvous the primary does
+  // not name.
+  const primaryRv = { gatePath: spec.gatePath, socketPath: spec.socketPath };
+  // The rendezvous the endpoint currently HOLDS a daemon at — the primary by
+  // default, switched to the adopt-hint when a hint survivor is adopted, and RESET
+  // to the primary on every spawn. `ensure`'s recycle SIGTERMs the holder at THIS
+  // rendezvous (the legacy port daemon, when adopted off the hint) and spawns fresh
+  // at the primary — so a recycle always CONVERGES the keying off the hint.
+  let held = primaryRv;
+
   // The emit-guard flag: true only while `holdRestarting` is running a
   // supervised restart's inner sequence. See `emit` for what it coerces.
   let restartHold = false;
@@ -280,12 +328,15 @@ export function createEndpoint<C, I, M = undefined>(
   // over a possibly-reused pid — log it and leave that pid alone (never SIGTERM
   // a stranger), letting the freshly-spawned daemon's own `acquirePidGate` reap
   // the stale gate.
-  const liveServingHolder = async (): Promise<number | undefined> => {
-    const holder = gatePid(spec.gatePath);
+  const liveServingHolder = async (rv: {
+    gatePath: string;
+    socketPath: string;
+  }): Promise<number | undefined> => {
+    const holder = gatePid(rv.gatePath);
     if (holder === undefined || !isHolderLive(holder)) return undefined;
-    if (await socketAccepting(spec.socketPath)) return holder;
+    if (await socketAccepting(rv.socketPath)) return holder;
     spec.log.warn(
-      { hostId: spec.hostId, pid: holder, socketPath: spec.socketPath },
+      { hostId: spec.hostId, pid: holder, socketPath: rv.socketPath },
       "gate names a live pid but its socket is dead — treating gate as " +
         "stale (not killing the pid: it may be an unrelated reused pid)",
     );
@@ -381,6 +432,25 @@ export function createEndpoint<C, I, M = undefined>(
       throw err;
     }
 
+    // A spawn always lands at the PRIMARY — so record it as the held rendezvous
+    // (a recycle after an adopted hint converges here) and tell the caller (which
+    // resets any recorded hint location back to the primary socket) BEFORE the
+    // connected status is emitted, so that status carries the primary socket — the
+    // twin of `adoptAt` firing `onAdopted` before its `holdConnection`.
+    held = primaryRv;
+    spec.onSpawned?.();
+    // A fresh daemon is a load-bearing lifecycle event — the twin of "adopted a
+    // surviving daemon". Logged so a cold boot, a recycle respawn, and a
+    // drain-then-respawn each leave an honest "brought a new daemon up here" line
+    // in the journal (the adoption path already logs; a fresh spawn must too).
+    spec.log.info(
+      {
+        hostId: spec.hostId,
+        socketPath: spec.socketPath,
+        startedAt: next.startedAt,
+      },
+      "spawned a fresh daemon and connected",
+    );
     holdConnection(next);
   };
 
@@ -415,7 +485,10 @@ export function createEndpoint<C, I, M = undefined>(
   // so a one-off failure never costs the survivor its live PTYs. The survivor's
   // socket stays up across the retries (we never killed it), so each retry
   // re-dials the SAME daemon.
-  const connectSurvivor = async (holder: number): Promise<SurvivorConnect> => {
+  const connectSurvivor = async (
+    holder: number,
+    connect: () => Promise<DaemonConnection<C, I, M>>,
+  ): Promise<SurvivorConnect> => {
     // Seeded so a misconfigured `adoptConnectAttempts <= 0` (the loop never runs)
     // surfaces a loud, meaningful `unreachable` error rather than a bare
     // `undefined` — fail loud over fail silent.
@@ -424,7 +497,7 @@ export function createEndpoint<C, I, M = undefined>(
     );
     for (let attempt = 1; attempt <= adoptConnectAttempts; attempt++) {
       try {
-        return { kind: "adopted", conn: await spec.connect() };
+        return { kind: "adopted", conn: await connect() };
       } catch (err) {
         lastErr = err;
         // A genuine contract skew is terminal: an incompatible daemon stays
@@ -455,6 +528,123 @@ export function createEndpoint<C, I, M = undefined>(
       }
     }
     return { kind: "unreachable", err: lastErr };
+  };
+
+  // Connect to a live survivor at rendezvous `rv` (via its own `connect`) and act on
+  // the verdict: ADOPT (hold it; `onAdopted` records where it lives), RECYCLE/REFUSE a
+  // proven contract SKEW (`onSkew` — the ONE volatile choice between the two policies),
+  // or leave an `unreachable` survivor STANDING + `degraded` — the F4 data-loss-critical
+  // "never kill a survivor we have not PROVEN incompatible" arm. Factored so the PRIMARY
+  // (digest) rendezvous and the adopt-HINT (legacy port) rendezvous share ONE
+  // adopt/skew/degrade sequence, so the preserve-live-PTYs handling can't drift between
+  // them. Records `held = rv` BEFORE connecting, so a later recycle SIGTERMs THIS holder
+  // (the legacy port daemon, when adopted off the hint) and converges to the primary.
+  const adoptAt = async (
+    rv: { gatePath: string; socketPath: string },
+    holder: number,
+    connect: () => Promise<DaemonConnection<C, I, M>>,
+    onAdopted: (() => void) | undefined,
+    onSkew: (holder: number) => void | Promise<void>,
+    // Which rendezvous this adoption is against — `primary` (the digest socket) or
+    // `upgrade-hint` (the pre-W2.2 legacy port socket, the migration bridge). Stamped
+    // on the adopted log so an operator can grep "did the W2.2 upgrade bridge fire?"
+    // without decoding the socket path.
+    via: "primary" | "upgrade-hint",
+  ): Promise<boolean> => {
+    held = rv;
+    // A single failure is NOT proof of skew (F4): only a `DaemonContractSkewError`
+    // raised by the soul's `connect` proves incompatibility. A transport-dial or
+    // handshake-read failure may be transient, so it is retried, and if it persists
+    // the survivor is `unreachable`, not skewed. The endpoint stays soul-agnostic —
+    // it never parses an error, only branches on the soul's typed skew marker.
+    const outcome = await connectSurvivor(holder, connect);
+    if (outcome.kind === "adopted") {
+      onAdopted?.();
+      spec.log.info(
+        {
+          hostId: spec.hostId,
+          pid: holder,
+          startedAt: outcome.conn.startedAt,
+          socketPath: rv.socketPath,
+          via,
+        },
+        "adopted a surviving daemon (its PTYs are preserved)",
+      );
+      holdConnection(outcome.conn);
+      return true;
+    }
+    if (outcome.kind === "skew") {
+      // Proven incompatible: `adoptOrEnsure` RECYCLES (kill this holder + respawn at
+      // the primary — converging a skewed legacy kaval to the digest keying);
+      // `adoptOrSpawnOrRefuse` REFUSES (leave standing + degraded).
+      await onSkew(holder);
+      return false;
+    }
+    // `unreachable`: alive but every NON-skew connect attempt failed. NOT proven
+    // incompatible, so must NOT kill it (that would destroy the live PTYs adoption
+    // exists to preserve — the F4 data-loss mode). Report `degraded` and leave it
+    // standing; the facade throws until a later reconnect, its session intact.
+    spec.log.error(
+      {
+        hostId: spec.hostId,
+        pid: holder,
+        attempts: adoptConnectAttempts,
+        err: String(outcome.err),
+      },
+      "live daemon survivor is unreachable (non-skew connect failure) — " +
+        "leaving it up to preserve its PTYs; reporting degraded",
+    );
+    emit({ state: "degraded" });
+    return false;
+  };
+
+  // The shared survivor-adoption sequence, factored from `adoptOrEnsure` and
+  // `adoptOrSpawnOrRefuse`: the two policies are IDENTICAL except for how they treat
+  // a proven contract SKEW (recycle vs refuse), which the caller passes as `onSkew`.
+  // Probes the PRIMARY (digest) rendezvous first; only when it has NO live survivor
+  // does it fall to the adopt-HINT (legacy port, W2.2 upgrade) — so a compatible
+  // digest survivor is always preferred and a standalone endpoint (no hint) behaves
+  // exactly as before. The no-survivor fresh spawn is always at the PRIMARY. Returns
+  // whether a live survivor was ADOPTED.
+  const adoptSurvivor = async (
+    onSkew: (holder: number) => void | Promise<void>,
+  ): Promise<boolean> => {
+    emit({ state: "connecting" });
+    const primaryHolder = await liveServingHolder(primaryRv);
+    if (primaryHolder !== undefined) {
+      return adoptAt(
+        primaryRv,
+        primaryHolder,
+        spec.connect,
+        undefined,
+        onSkew,
+        "primary",
+      );
+    }
+    // PRIMARY has no live survivor. On a W2.2 upgrade the pre-W2.2 kaval may still be
+    // alive at the adopt-HINT (legacy port) rendezvous the digest primary does not
+    // name — adopt it there, recording the hint socket as the live location. SPAWN
+    // stays the primary, so the next recycle converges the keying off the hint.
+    if (spec.adoptHint) {
+      const hintRv = {
+        gatePath: spec.adoptHint.gatePath,
+        socketPath: spec.adoptHint.socketPath,
+      };
+      const hintHolder = await liveServingHolder(hintRv);
+      if (hintHolder !== undefined) {
+        return adoptAt(
+          hintRv,
+          hintHolder,
+          spec.adoptHint.connect,
+          spec.adoptHint.onAdopted,
+          onSkew,
+          "upgrade-hint",
+        );
+      }
+    }
+    // No live survivor anywhere — a fresh boot; spawn fresh at the PRIMARY.
+    await spawnConnectHold();
+    return false;
   };
 
   return {
@@ -499,7 +689,13 @@ export function createEndpoint<C, I, M = undefined>(
       // before we SIGTERM it; a stale gate over a reused pid is left alone.
       // (Adoption that *preserves* a session is B3's `adoptOrEnsure` — it reuses
       // these same helpers but connects to the survivor instead of killing it.)
-      const holder = await liveServingHolder();
+      //
+      // Probe the HELD rendezvous — the socket the endpoint currently holds a daemon
+      // at, which is the adopt-HINT (legacy port) socket after an upgrade adoption,
+      // not the primary. So a Restart-kaval recycle SIGTERMs the ADOPTED legacy daemon
+      // (never leaks it) and `recycle`'s spawn lands at the PRIMARY (digest) — the
+      // bounded migration converges here.
+      const holder = await liveServingHolder(held);
       if (holder !== undefined) {
         await recycle(holder);
       } else {
@@ -508,72 +704,42 @@ export function createEndpoint<C, I, M = undefined>(
     },
 
     async adoptOrEnsure(): Promise<boolean> {
-      emit({ state: "connecting" });
       // ADOPT-OR-RECYCLE (B3.3): unlike `ensure`'s always-kill, a live serving
-      // survivor that is handshake-COMPATIBLE is ADOPTED — we connect to it and
-      // hold it, never killing it, so the PTYs it holds (and the session they
-      // carry) survive a kolu-server redeploy that did not change the daemon's
-      // source. Only an absent / dead / skewed survivor is recycled. Reuses the
-      // same `liveServingHolder` probe and `holdConnection` tail as the boot
-      // recycle, so an adopted daemon reports `connected` identically to a fresh
-      // one — with the SURVIVOR's older `startedAt`, the uptime that did not
-      // reset being the honest signal that the daemon was reused.
-      const holder = await liveServingHolder();
-      if (holder !== undefined) {
-        // The survivor answered its socket. Try to connect + handshake. A single
-        // failure is NOT proof of skew (F4): only a `DaemonContractSkewError`
-        // raised by the soul's `connect` proves the daemon is incompatible. A
-        // transport-dial or handshake-read failure may just be transient, so it
-        // is retried, and if it persists the survivor is `unreachable`, not
-        // skewed. The endpoint stays soul-agnostic — it never parses an error,
-        // it only branches on the soul's typed skew marker.
-        const outcome = await connectSurvivor(holder);
-        if (outcome.kind === "adopted") {
-          spec.log.info(
-            {
-              hostId: spec.hostId,
-              pid: holder,
-              startedAt: outcome.conn.startedAt,
-            },
-            "adopted a surviving daemon (its PTYs are preserved)",
-          );
-          holdConnection(outcome.conn);
-          return true;
-        }
-        if (outcome.kind === "skew") {
-          // Proven incompatible — recycle it: kill, then spawn fresh. The
-          // deliberate OPPOSITE of `spawnConnectHold`'s connect-failure handling:
-          // there a failed connect is a fresh spawn's genuine `dead` boot; here it
-          // is a survivor we replace because its contract cannot be talked to.
-          spec.log.warn(
-            { hostId: spec.hostId, pid: holder },
-            "live daemon survivor is a contract skew — recycling it",
-          );
-          await recycle(holder);
-          return false;
-        }
-        // `unreachable`: the survivor is alive but every NON-skew connect attempt
-        // failed. We have NOT proven it incompatible, so we must NOT kill it —
-        // doing so would destroy the very live PTYs adoption exists to preserve
-        // (the F4 data-loss mode). Report `degraded` (a daemon is there but we
-        // hold no working connection to it) and leave it standing; the facade
-        // throws until a later reconnect, and the survivor's session is intact.
+      // survivor that is handshake-COMPATIBLE is ADOPTED — connected + held, never
+      // killed, so the PTYs it holds (and the session they carry) survive a client
+      // redeploy that did not change the daemon's source. Only an absent / dead /
+      // skewed survivor is recycled. A proven SKEW is RECYCLED here (kill, then spawn
+      // fresh) — the deliberate OPPOSITE of `adoptOrSpawnOrRefuse`, and the only arm
+      // that differs from it; everything else is the shared `adoptSurvivor` sequence.
+      return adoptSurvivor(async (holder) => {
+        spec.log.warn(
+          { hostId: spec.hostId, pid: holder },
+          "live daemon survivor is a contract skew — recycling it",
+        );
+        await recycle(holder);
+      });
+    },
+
+    async adoptOrSpawnOrRefuse(): Promise<boolean> {
+      // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): the padi binder's policy — `adoptOrEnsure`
+      // with ONE deliberate difference: a proven contract SKEW is REFUSED, not
+      // recycled. Clients never kill a running padi: a second binder (a dev kolu,
+      // another worktree) that speaks an incompatible contract must NOT SIGTERM the
+      // padi that owns the real PTYs (the #1313 inversion the state-root identity
+      // exists to enforce). So a skewed survivor is left STANDING + `degraded` — the
+      // SAME non-killing shape an unreachable survivor already gets — and the operator
+      // resolves the skew (upgrade the binder, or drain the daemon through the frozen
+      // control core). Only this skew arm differs from `adoptOrEnsure`; the rest is
+      // the shared `adoptSurvivor` sequence.
+      return adoptSurvivor((holder) => {
         spec.log.error(
-          {
-            hostId: spec.hostId,
-            pid: holder,
-            attempts: adoptConnectAttempts,
-            err: String(outcome.err),
-          },
-          "live daemon survivor is unreachable (non-skew connect failure) — " +
-            "leaving it up to preserve its PTYs; reporting degraded",
+          { hostId: spec.hostId, pid: holder },
+          "live padi survivor is a contract skew — REFUSING (never killing a " +
+            "running padi); leaving it up and reporting degraded. Upgrade the " +
+            "binder or drain the daemon via its control core to converge.",
         );
         emit({ state: "degraded" });
-        return false;
-      }
-      // No live survivor — a fresh boot, identical to `ensure` minus the kill.
-      await spawnConnectHold();
-      return false;
+      });
     },
   };
 }

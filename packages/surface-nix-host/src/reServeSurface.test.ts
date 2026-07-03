@@ -21,7 +21,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { mirroredSurface } from "./connection";
 import { type Controllable, controllable } from "./controllableStream.testutil";
-import type { AgentClient, HostSession, HostSessionState } from "./hostSession";
+import type {
+  AgentClient,
+  HostSessionState,
+  RemoteMirrorSession,
+} from "./hostSession";
 import { reServeSurface } from "./reServeSurface";
 import type { RelayPolicy } from "./relayStream";
 
@@ -39,7 +43,17 @@ async function take<T>(iterable: AsyncIterable<T>, n: number): Promise<T[]> {
 // ── The toy surface + its forwarding policy ────────────────────────────────
 
 const toySurface = defineSurface({
-  cells: { counter: { schema: z.number(), default: 0 } },
+  cells: {
+    counter: { schema: z.number(), default: 0 },
+    // A cell WITH an `equals` predicate on the spec — pins the h3 dedup edge:
+    // a forwarded write equal to the stale mirror must STILL cross to the agent,
+    // even though `equals` would dedup the LOCAL apply.
+    label: {
+      schema: z.string(),
+      default: "",
+      equals: (a: string, b: string) => a === b,
+    },
+  },
   collections: {
     items: { keySchema: z.string(), schema: z.object({ n: z.number() }) },
   },
@@ -67,6 +81,7 @@ const toySurface = defineSurface({
 
 const toyPolicy = {
   counter: "value",
+  label: "value",
   items: "value",
   attach: "delta",
   pulses: "value",
@@ -94,15 +109,37 @@ function makeUpstream(
   const attachStreams = new Map<string, Controllable<string>>();
   const pulseStreams = new Map<string, Controllable<number>>();
   const echoes: string[] = [];
+  // Forwarded cell writes the agent received, in order — the write-forwarding
+  // proof (a wire write must CROSS to the agent, not mutate the local mirror).
+  const cellWrites: { counter: number[]; label: string[] } = {
+    counter: [],
+    label: [],
+  };
 
   const counter = track(controllable<number>());
   counter.push(counterValue); // snapshot; the cell stream stays open
+  const label = track(controllable<string>());
+  label.push(""); // snapshot; the cell stream stays open
 
   const client = {
     surface: {
       counter: {
         get: async (_i: unknown, opts?: { signal?: AbortSignal }) =>
           counter.stream(opts?.signal),
+        // A forwarded write: record it, then ECHO it back on the cell stream so
+        // the mirror folds the agent's authoritative value into the local mirror.
+        set: async (v: number) => {
+          cellWrites.counter.push(v);
+          counter.push(v);
+        },
+      },
+      label: {
+        get: async (_i: unknown, opts?: { signal?: AbortSignal }) =>
+          label.stream(opts?.signal),
+        set: async (v: string) => {
+          cellWrites.label.push(v);
+          label.push(v);
+        },
       },
       items: {
         keys: async (_i: unknown, opts?: { signal?: AbortSignal }) => {
@@ -150,9 +187,14 @@ function makeUpstream(
 
   return {
     client,
+    // The raw `counter` cell stream, exposed so a test can FLOOD the mirror fold
+    // (push far more frames than the downstream drains) and exercise the channel's
+    // per-subscriber overflow policy.
+    counterStream: counter,
     attachStreams,
     pulseStreams,
     echoes,
+    cellWrites,
     kill: () => {
       for (const c of open) c.fail(new Error("upstream link died"));
     },
@@ -216,7 +258,9 @@ function setup(counterValue: number, items: Record<string, number> = {}) {
   const { surface, router, done } = reServeSurface({
     source: toySurface,
     policy: toyPolicy,
-    session: session as unknown as HostSession<typeof toySurface.contract>,
+    session: session as unknown as RemoteMirrorSession<
+      typeof toySurface.contract
+    >,
   });
   return {
     session,
@@ -330,6 +374,78 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     await sub; // the downstream subscription drained cleanly
   });
 
+  it("a VALUE channel under back-pressure DROPS OLDEST + keeps flowing + LOGS — never aborts the consumer", async () => {
+    // (h2) The mirrored cell/collection channels are VALUE channels: a dropped
+    // intermediate frame is harmless because the next snapshot/delta re-converges
+    // the mirror. So the re-serve bounds each downstream receive queue with
+    // `overflow: "drop-oldest"` (NOT "abort") + an `onOverflow` that LOGS the drop.
+    // An "abort" would surface as a non-retriable ORPCError and STRAND the mirror;
+    // this test pins that a flooded consumer keeps flowing and never sees that abort.
+    const logs: string[] = [];
+    const overflowLogged = (): boolean =>
+      logs.some((l) => /dropped the oldest frame/.test(l));
+
+    const session = makeSession();
+    const upstream = makeUpstream(0);
+    session.setClient(upstream.client);
+    const { router, done } = reServeSurface({
+      source: toySurface,
+      policy: toyPolicy,
+      session: session as unknown as RemoteMirrorSession<
+        typeof toySurface.contract
+      >,
+      log: (line) => logs.push(line),
+    });
+    const downstream = directLink<ToyContract>(
+      router as Parameters<typeof createRouterClient>[0],
+    );
+    await delay(15); // bind + fold the initial snapshot (0)
+
+    // Open a downstream cell subscription and drive it PAST the snapshot so it
+    // SUBSCRIBES to the `<key>:changed` channel (the cell `get` handler is
+    // snapshot-THEN-subscribe), then STALL — never pull again — so the channel's
+    // per-subscriber queue fills as the mirror keeps folding.
+    const iter = (await downstream.surface.counter.get(undefined))[
+      Symbol.asyncIterator
+    ]();
+    const r1 = await iter.next(); // snapshot (registers no subscriber yet)
+    expect(r1.done).toBe(false);
+    const p2 = iter.next(); // drives the generator into `bus.subscribe()` + parks
+    await delay();
+    upstream.counterStream.push(1); // first delta wakes the parked pull
+    const r2 = await p2; // generator now suspended at `yield v`, subscriber live
+    expect(r2.done).toBe(false);
+
+    // FLOOD: push far more distinct frames than the high-water mark (4096) while
+    // the subscriber is stalled → the channel evicts the OLDEST per drop-oldest and
+    // fires onOverflow (which logs) for each eviction.
+    const FLOOD = 6000; // > RESERVE_CHANNEL_HIGH_WATER_MARK (4096)
+    for (let i = 2; i <= FLOOD; i++) upstream.counterStream.push(i);
+    for (let t = 0; t < 50 && !overflowLogged(); t++) await delay(10);
+
+    // onOverflow fired → the drop is OBSERVABLE, not silent.
+    expect(overflowLogged()).toBe(true);
+
+    // KEEPS FLOWING + does NOT abort: resuming the stalled consumer yields a value,
+    // it never REJECTS with a ChannelOverflowError (which "abort" would have raised).
+    const r3 = await iter.next();
+    expect(r3.done).toBe(false);
+    expect(typeof r3.value).toBe("number");
+
+    // The mirror re-converged to the authoritative LATEST: a FRESH subscription
+    // snapshots the newest folded value (drop-oldest keeps the newest frames).
+    let latest: number | undefined;
+    for (let t = 0; t < 50; t++) {
+      [latest] = await take(await downstream.surface.counter.get(undefined), 1);
+      if (latest === FLOOD) break;
+      await delay(10);
+    }
+    expect(latest).toBe(FLOOD);
+
+    await iter.return?.();
+    await teardown(session, done, upstream);
+  });
+
   it("holds a VALUE stream (pulse) open across a rebind", async () => {
     const { session, upstream, done, downstream } = setup(1);
     await delay(15);
@@ -386,7 +502,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // policy is consulted (and enforced) for those alone — cells, collections, and
     // procedures fold / forward regardless of any policy entry. Both cases target
     // the `attach` STREAM, the one member whose classification the re-serve reads.
-    const s = makeSession() as unknown as HostSession<
+    const s = makeSession() as unknown as RemoteMirrorSession<
       typeof toySurface.contract
     >;
     // A stream classified as neither "value" nor "delta".
@@ -442,7 +558,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     await sub;
   });
 
-  it("a downstream cell WRITE throws — the re-serve is a read mirror until W2.2", async () => {
+  it("forwards a downstream cell WRITE to the agent, which echoes back through the fold", async () => {
     const { session, upstream, done, downstream } = setup(5);
     await delay(15);
 
@@ -450,15 +566,71 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     expect(
       await take(await downstream.surface.counter.get(undefined), 1),
     ).toEqual([5]);
-    // …but a write does NOT silently mutate the mirror (a phantom the next frame
-    // reverts) — it throws loudly.
+
+    // …and a WRITE crosses to the agent (it is NOT applied to the local mirror
+    // directly). The agent records it and echoes it, so the fold updates the
+    // mirror to the agent's authoritative value.
+    await (
+      downstream.surface.counter as unknown as {
+        set: (v: number) => Promise<unknown>;
+      }
+    ).set(9);
+    await delay();
+    expect(upstream.cellWrites.counter).toEqual([9]); // crossed to the agent
+    // The mirror now reads the echoed value (folded from the agent, not a phantom
+    // local write).
+    expect(
+      await take(await downstream.surface.counter.get(undefined), 1),
+    ).toEqual([9]);
+
+    await teardown(session, done, upstream);
+  });
+
+  it("a forward with no live upstream link throws loud (fail-fast), never a silent no-op", async () => {
+    const { session, upstream, done, downstream } = setup(1);
+    await delay(15);
+
+    // Kill the link so `liveClient.current` is null, then write: the forward must
+    // reject loudly (like `forwardProcedure`), not swallow into a local no-op.
+    upstream.kill();
+    await delay(15);
     await expect(
       (
         downstream.surface.counter as unknown as {
           set: (v: number) => Promise<unknown>;
         }
-      ).set(9),
-    ).rejects.toThrow(/read-only on the re-serve/);
+      ).set(3),
+    ).rejects.toThrow(/no live upstream link/);
+    expect(upstream.cellWrites.counter).toEqual([]); // nothing crossed
+
+    await teardown(session, done); // upstream already killed
+  });
+
+  it("h3 dedup edge: a write EQUAL to the current mirror value still forwards to the agent", async () => {
+    const { session, upstream, done, downstream } = setup(1);
+    await delay(15);
+
+    const setLabel = (v: string) =>
+      (
+        downstream.surface.label as unknown as {
+          set: (v: string) => Promise<unknown>;
+        }
+      ).set(v);
+
+    // First write establishes the mirror at "x" (the agent echoes it back).
+    await setLabel("x");
+    await delay();
+    expect(
+      await take(await downstream.surface.label.get(undefined), 1),
+    ).toEqual(["x"]);
+
+    // Second write of the SAME value: the `label` cell declares `equals`, so the
+    // framework's LOCAL apply would dedup-skip it. But the forward BYPASSES
+    // `equals` — the agent is the authority — so the write must STILL cross even
+    // though it equals the stale mirror.
+    await setLabel("x");
+    await delay();
+    expect(upstream.cellWrites.label).toEqual(["x", "x"]); // both crossed
 
     await teardown(session, done, upstream);
   });
@@ -469,7 +641,9 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
         s: { inputSchema: z.object({}), outputSchema: z.string() },
       },
     });
-    const s = makeSession() as unknown as HostSession<typeof cellless.contract>;
+    const s = makeSession() as unknown as RemoteMirrorSession<
+      typeof cellless.contract
+    >;
     expect(() =>
       reServeSurface({ source: cellless, policy: { s: "delta" }, session: s }),
     ).toThrow(/no cells/);

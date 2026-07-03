@@ -51,7 +51,6 @@ import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
-import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { wireScrollIntent } from "../scrollLockWiring";
 import type { LineRef } from "../ui/lineRef";
@@ -62,6 +61,7 @@ import {
   fileRefAtCell,
 } from "./fileRefLinkProvider";
 import { deliverScratchPaste } from "./pasteDelivery";
+import { consumeReattachingStream } from "./reattachingStream";
 import { createRenderRecovery } from "./renderRecovery";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
@@ -81,23 +81,6 @@ import {
   patchTransformAwareMouseCoords,
   readBufferBytes,
 } from "./xtermInternals";
-
-/** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
-function consumeStream<T>(
-  streamFn: () => Promise<AsyncIterable<T>>,
-  onItem: (item: T) => void,
-  label: string,
-) {
-  void (async () => {
-    try {
-      for await (const item of await streamFn()) onItem(item);
-    } catch (err) {
-      if (!isExpectedCleanupError(err)) {
-        console.error(`${label} error:`, err);
-      }
-    }
-  })();
-}
 
 /** Module-level counters for the #606 disposal audit. Exposed to window
  *  via `debug/consoleHooks.ts`. `mounts` increments once per component
@@ -813,19 +796,22 @@ const Terminal: Component<{
           // `padi.rawStream`'s structural health enrolment, and the `unenrolled-`
           // name makes that a visible decision at the call site, not a forgotten
           // enrol.
-          consumeStream(
+          // Reset xterm + the scroll lock and re-arm the snapshot boundary so the
+          // NEXT stream's first frame (a fresh snapshot) replaces stale bytes
+          // without double-painting. Shared by the inner `onRetry` (a transparent
+          // STREAM_RETRY re-subscribe on a transport blip) and the outer re-attach
+          // (a mid-chain padi death STREAM_RETRY won't retry — done-criterion (c)).
+          const resetForFreshSnapshot = () => {
+            terminal?.reset();
+            scrollLock.reset();
+            snapshotBoundary.armSnapshot();
+          };
+          consumeReattachingStream(
             () =>
               unenrolledStreamCall(
                 padiRpc(padi).surface.terminalAttach.get,
                 { id: props.terminalId },
-                {
-                  signal,
-                  onRetry: () => {
-                    terminal?.reset();
-                    scrollLock.reset();
-                    snapshotBoundary.armSnapshot();
-                  },
-                },
+                { signal, onRetry: resetForFreshSnapshot },
               ),
             (data) => {
               if (terminal) {
@@ -853,6 +839,8 @@ const Terminal: Component<{
                 scrollLock.writeData(terminal, data, () => recovery.noteData());
               }
             },
+            resetForFreshSnapshot,
+            signal,
             "Terminal attach",
           );
 

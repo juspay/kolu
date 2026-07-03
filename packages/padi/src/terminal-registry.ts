@@ -260,6 +260,29 @@ export function requireTerminal(id: TerminalId): TerminalProcess {
   return entry;
 }
 
+/** Get a terminal that is MUTABLE — present AND not PARKED — or throw the typed
+ *  not-found fault. A PARKED record is an IMMUTABLE restore-card placeholder: it
+ *  stands in for a saved active terminal until `session.restore` consumes it (the
+ *  parked→active flip). A client chrome mutation targeting one — `setParent`,
+ *  `setSubPanel`, `setCanvasLayout`, `setTheme`, `setIntent`, `setRightPanel` — is
+ *  a STALE write from a supervised restart's drain window (the client's list-driven
+ *  reconcile promoting a split's sub the drain just removed), and it MUST reject:
+ *  silently un-parenting a parked sub would make the split restore as an orphaned
+ *  top-level. This closes that hole at the RECORD level — timing-independent, not a
+ *  restart-in-flight gate that would also reject legitimate racing user actions.
+ *
+ *  The exact sibling of `requireTerminal`, minus the parked arm: it still ACCEPTS
+ *  the ACTIVE and SLEEPING arms (a chrome edit — theme / intent / layout — on a
+ *  sleeping tile is valid), and rejects PARKED and absent alike with the same
+ *  `terminalNotFound` the active-only guard uses for a wrong arm. READ / QUERY
+ *  paths keep using `requireTerminal` (parked included) — only mutation handlers
+ *  take this. */
+export function requireMutableTerminal(id: TerminalId): TerminalProcess {
+  const entry = requireTerminal(id); // present (any arm) — or throw not-found
+  if (entry.meta.state === "parked") throw terminalNotFound(id);
+  return entry;
+}
+
 /** The terminal-not-found fault as a typed oRPC error. One definition of
  *  the code + message shared by every per-terminal handler (router,
  *  surface) so the wire shape can't drift between call sites. Typed

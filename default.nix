@@ -29,6 +29,11 @@
   # constant); KAVAL_BUILD_ID is nix-injected, so this overrides the value, not a
   # source file.
 , kavalBuildIdOverride ? null
+  # TEST-ONLY hook (padi's twin of `kavalBuildIdOverride`, default null): when
+  # set, FORCE this build's PADI_BUILD_ID to the given value instead of padi's
+  # source-closure hash. Reserved for a future padi build-skew test; the real
+  # build always takes the source hash.
+, padiBuildIdOverride ? null
   # Per-system `{ system → kaval .drv }` map, baked onto the kaval-tui wrapper as
   # KAVAL_AGENT_DRVS_JSON so `kaval-tui --host <ssh>` can ship the target-arch
   # kaval derivation (provisionAgent copies+realises it on the remote). default.nix
@@ -175,6 +180,101 @@ let
     if kavalBuildIdOverride != null
     then kavalBuildIdOverride
     else builtins.hashString "sha256" "${kavalSrc}";
+
+  # padi's staleKey (W2.2) — the twin of kaval's, one layer up. padi is the
+  # per-host terminal-workspace daemon; `PADI_BUILD_ID` (baked below) hashes the
+  # source closure that runs IN padi's process, so it flips iff a restart would
+  # load different daemon code. Scoped EMPIRICALLY to padi's reachable closure
+  # from its two entry roots — `bin.ts` (the process) and `assembly.ts` (the
+  # library barrel kolu-server still imports) — enumerated and asserted equal to
+  # this fileset by `packages/padi/src/buildId.closure.test.ts`. Keep the two in
+  # lockstep: the test mirrors this fileFilter and these two per-root exclusions
+  # exactly, so nix and the guard can never drift on what "the closure" is.
+  #
+  # `isHashedSourcePadi` broadens kaval's `.ts`-only filter to `.ts`+`.tsx` —
+  # padi's closure reaches a `.tsx` module (`@kolu/transcript-html`), which
+  # `hasExt "ts"` would silently drop. Test-only files (`.test.ts` / `.test.tsx`
+  # / `.testlib.ts`) are dropped, matching the id's content-addressed intent.
+  isHashedSourcePadi =
+    f: (f.hasExt "ts" || f.hasExt "tsx")
+      && !pkgs.lib.hasSuffix ".test.ts" f.name
+      && !pkgs.lib.hasSuffix ".test.tsx" f.name
+      && !pkgs.lib.hasSuffix ".testlib.ts" f.name;
+  # A hashed root contributes its `src`'s non-test sources plus its package.json
+  # (a dependency/version change is a behaviour change) — the same pairing kaval
+  # hashes for each of its roots.
+  padiPkgRoot = pkgDir: pkgs.lib.fileset.unions [
+    (pkgs.lib.fileset.fileFilter isHashedSourcePadi (pkgDir + "/src"))
+    (pkgDir + "/package.json")
+  ];
+  padiSrc = pkgs.lib.fileset.toSource {
+    root = ./packages;
+    fileset = pkgs.lib.fileset.unions [
+      # padi itself — both entry roots (bin.ts · assembly.ts) live here.
+      (padiPkgRoot ./packages/padi)
+      # kaval — but ONLY its LIBRARY surface (what padi embeds in-process from
+      # `index.ts`), NOT its daemon EXECUTABLE (bin.ts · daemonMain.ts ·
+      # stdioBridge.ts). padi spawns that executable as a SEPARATE process via
+      # KOLU_KAVAL_BIN, and it carries its OWN KAVAL_BUILD_ID — so those three
+      # belong to kaval's staleKey, never padi's (excluding them also keeps padi's
+      # key from flipping on a kaval-executable-only change it does not load).
+      (pkgs.lib.fileset.unions [
+        (pkgs.lib.fileset.difference
+          (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/kaval/src)
+          (pkgs.lib.fileset.unions [
+            ./packages/kaval/src/bin.ts
+            ./packages/kaval/src/daemonMain.ts
+            ./packages/kaval/src/stdioBridge.ts
+          ]))
+        ./packages/kaval/package.json
+      ])
+      # The daemon spine + supervisor padi runs on, and the terminal wire it serves.
+      (padiPkgRoot ./packages/terminal-protocol)
+      (padiPkgRoot ./packages/surface-daemon)
+      (padiPkgRoot ./packages/surface-daemon-supervisor)
+      # terminal-workspace — MINUS `socket.ts`, which is pulam's well-known
+      # rendezvous path (imported by pulam/pulam-tui, not re-exported by the
+      # barrel, and never loaded by padi).
+      (pkgs.lib.fileset.unions [
+        (pkgs.lib.fileset.difference
+          (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/terminal-workspace/src)
+          ./packages/terminal-workspace/src/socket.ts)
+        ./packages/terminal-workspace/package.json
+      ])
+      # The domain leaves padi's closure reaches: serving, the agent/forge/git
+      # integrations, transcripts, and the shared utilities. (`@kolu/surface` and
+      # the npm deps are NOT here — surface is the framework "electricity" (a
+      # stable, drishti-gated boundary) and the rest are pinned by pnpmDeps; both
+      # are stable externals in the closure guard's ALLOWED list.)
+      (padiPkgRoot ./packages/serve-dir)
+      (padiPkgRoot ./packages/shell-quote)
+      (padiPkgRoot ./packages/html-escape)
+      (padiPkgRoot ./packages/log)
+      (padiPkgRoot ./packages/shared)
+      (padiPkgRoot ./packages/transcript-core)
+      (padiPkgRoot ./packages/transcript-html)
+      (padiPkgRoot ./packages/memorable-names)
+      (padiPkgRoot ./packages/nonempty)
+      (padiPkgRoot ./packages/integrations/pty)
+      (padiPkgRoot ./packages/integrations/git)
+      (padiPkgRoot ./packages/integrations/github)
+      (padiPkgRoot ./packages/integrations/io)
+      (padiPkgRoot ./packages/integrations/claude-code)
+      (padiPkgRoot ./packages/integrations/codex)
+      (padiPkgRoot ./packages/integrations/opencode)
+      (padiPkgRoot ./packages/integrations/anyagent)
+      (padiPkgRoot ./packages/integrations/anyforge)
+    ];
+  };
+
+  # A content digest of padi's daemon source closure, baked into PADI_BUILD_ID —
+  # computed PURELY in Nix (no IFD) exactly like `kavalBuildId`.
+  # `padiBuildIdOverride` (TEST-ONLY, default null) forces the value for a future
+  # build-skew test; the real build always takes the source hash.
+  padiBuildId =
+    if padiBuildIdOverride != null
+    then padiBuildIdOverride
+    else builtins.hashString "sha256" "${padiSrc}";
 
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
@@ -338,6 +438,7 @@ let
       --set KAVAL_BUILD_ID "${kavalBuildId}" \
       --set KAVAL_COMMIT_HASH "${commitHash}" \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
+      --set KOLU_PADI_BIN "${padi}/bin/padi" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
@@ -398,6 +499,47 @@ let
       --set KAVAL_COMMIT_HASH "${commitHash}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
+  '';
+
+  # padi (W2.2): the per-host terminal-workspace daemon — the layer above kaval.
+  # It supervises the host's kaval (owning its PTYs), composes the terminal
+  # registry, folds awareness on the host's clock, persists the session under its
+  # state-root, and serves `padiSurface` + the frozen control core over its own
+  # unix socket. Runs from the SAME built workspace closure as `kolu` (so padi +
+  # kaval + @kolu/surface resolve identically). Carries its OWN identity env
+  # (PADI_BUILD_ID / PADI_COMMIT_HASH), and — because padi SPAWNS + owns kaval now
+  # — KOLU_KAVAL_BIN points at the kaval derivation above AND it bakes that kaval's
+  # KAVAL_BUILD_ID / KAVAL_COMMIT_HASH. The build id is load-bearing: padi's
+  # boot-currency check compares the RUNNING kaval's id against the one padi WOULD
+  # spawn (`process.env.KAVAL_BUILD_ID`, read in `terminalEndpoint/reattach.ts`) to
+  # fire the kaval "update available" nudge — pre-cutover the in-process server
+  # carried it; padi owns kaval now, so its closure knows it at build time (a baked
+  # required value per fail-fast; the binder's env-forward stays only for dev).
+  #
+  # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
+  # single-process loader form delivers SIGTERM to the daemon so its socket + gate
+  # teardown runs (the same reason kaval's and pulam's bins use it). padi's boot
+  # reconcile shells out to `git` (repo/worktree context) and the pinned `gh`
+  # (KOLU_GH_BIN — PR resolution), so both are on PATH / in the env, exactly as
+  # kolu's own wrapper carries them. `--run (diagRunHook "padi-")` arms the same
+  # opt-in heap capture as kaval/koluBin (the hook is defined once, above).
+  padi = pkgs.runCommand "padi"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "padi";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/padi \
+      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+      --add-flags "${kolu}/packages/padi/src/bin.ts" \
+      --set PADI_BUILD_ID "${padiBuildId}" \
+      --set PADI_COMMIT_HASH "${commitHash}" \
+      --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
+      --set KAVAL_BUILD_ID "${kavalBuildId}" \
+      --set KAVAL_COMMIT_HASH "${commitHash}" \
+      --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
+      --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
   '';
 
   # A surface-agent TUI wrapper: a `tsx` entrypoint from the built workspace
@@ -531,5 +673,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui pulam pulam-tui koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui pulam pulam-tui padi koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample // oduPackages
