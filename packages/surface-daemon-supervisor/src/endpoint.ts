@@ -468,6 +468,70 @@ export function createEndpoint<C, I, M = undefined>(
     return { kind: "unreachable", err: lastErr };
   };
 
+  // The shared survivor-adoption sequence, factored from `adoptOrEnsure` and
+  // `adoptOrSpawnOrRefuse`: the two policies are IDENTICAL except for how they treat
+  // a proven contract SKEW (recycle vs refuse), which the caller passes as `onSkew`.
+  // The `connecting` emit, the `liveServingHolder` probe, the adopted-hold, the F4
+  // `unreachable`→degraded arm (the data-loss-critical "never kill a survivor we
+  // have not PROVEN incompatible" logic), and the no-survivor fresh spawn all live
+  // here ONCE — so a change to the preserve-live-PTYs handling cannot drift between
+  // the two policies. Returns whether a live survivor was ADOPTED.
+  const adoptSurvivor = async (
+    onSkew: (holder: number) => void | Promise<void>,
+  ): Promise<boolean> => {
+    emit({ state: "connecting" });
+    const holder = await liveServingHolder();
+    if (holder === undefined) {
+      // No live survivor — a fresh boot, nothing to adopt or refuse.
+      await spawnConnectHold();
+      return false;
+    }
+    // The survivor answered its socket. Try to connect + handshake. A single failure
+    // is NOT proof of skew (F4): only a `DaemonContractSkewError` raised by the soul's
+    // `connect` proves the daemon is incompatible. A transport-dial or handshake-read
+    // failure may be transient, so it is retried, and if it persists the survivor is
+    // `unreachable`, not skewed. The endpoint stays soul-agnostic — it never parses
+    // an error, it only branches on the soul's typed skew marker.
+    const outcome = await connectSurvivor(holder);
+    if (outcome.kind === "adopted") {
+      spec.log.info(
+        {
+          hostId: spec.hostId,
+          pid: holder,
+          startedAt: outcome.conn.startedAt,
+        },
+        "adopted a surviving daemon (its PTYs are preserved)",
+      );
+      holdConnection(outcome.conn);
+      return true;
+    }
+    if (outcome.kind === "skew") {
+      // Proven incompatible — the ONE volatile choice between the two policies:
+      // `adoptOrEnsure` RECYCLES (kill + respawn); `adoptOrSpawnOrRefuse` REFUSES
+      // (leave standing + degraded). The caller supplies it as `onSkew`.
+      await onSkew(holder);
+      return false;
+    }
+    // `unreachable`: the survivor is alive but every NON-skew connect attempt failed.
+    // We have NOT proven it incompatible, so we must NOT kill it — doing so would
+    // destroy the very live PTYs adoption exists to preserve (the F4 data-loss mode).
+    // Report `degraded` (a daemon is there but we hold no working connection to it)
+    // and leave it standing; the facade throws until a later reconnect, its session
+    // intact.
+    spec.log.error(
+      {
+        hostId: spec.hostId,
+        pid: holder,
+        attempts: adoptConnectAttempts,
+        err: String(outcome.err),
+      },
+      "live daemon survivor is unreachable (non-skew connect failure) — " +
+        "leaving it up to preserve its PTYs; reporting degraded",
+    );
+    emit({ state: "degraded" });
+    return false;
+  };
+
   return {
     current: () => conn,
 
@@ -519,132 +583,42 @@ export function createEndpoint<C, I, M = undefined>(
     },
 
     async adoptOrEnsure(): Promise<boolean> {
-      emit({ state: "connecting" });
       // ADOPT-OR-RECYCLE (B3.3): unlike `ensure`'s always-kill, a live serving
-      // survivor that is handshake-COMPATIBLE is ADOPTED — we connect to it and
-      // hold it, never killing it, so the PTYs it holds (and the session they
-      // carry) survive a kolu-server redeploy that did not change the daemon's
-      // source. Only an absent / dead / skewed survivor is recycled. Reuses the
-      // same `liveServingHolder` probe and `holdConnection` tail as the boot
-      // recycle, so an adopted daemon reports `connected` identically to a fresh
-      // one — with the SURVIVOR's older `startedAt`, the uptime that did not
-      // reset being the honest signal that the daemon was reused.
-      const holder = await liveServingHolder();
-      if (holder !== undefined) {
-        // The survivor answered its socket. Try to connect + handshake. A single
-        // failure is NOT proof of skew (F4): only a `DaemonContractSkewError`
-        // raised by the soul's `connect` proves the daemon is incompatible. A
-        // transport-dial or handshake-read failure may just be transient, so it
-        // is retried, and if it persists the survivor is `unreachable`, not
-        // skewed. The endpoint stays soul-agnostic — it never parses an error,
-        // it only branches on the soul's typed skew marker.
-        const outcome = await connectSurvivor(holder);
-        if (outcome.kind === "adopted") {
-          spec.log.info(
-            {
-              hostId: spec.hostId,
-              pid: holder,
-              startedAt: outcome.conn.startedAt,
-            },
-            "adopted a surviving daemon (its PTYs are preserved)",
-          );
-          holdConnection(outcome.conn);
-          return true;
-        }
-        if (outcome.kind === "skew") {
-          // Proven incompatible — recycle it: kill, then spawn fresh. The
-          // deliberate OPPOSITE of `spawnConnectHold`'s connect-failure handling:
-          // there a failed connect is a fresh spawn's genuine `dead` boot; here it
-          // is a survivor we replace because its contract cannot be talked to.
-          spec.log.warn(
-            { hostId: spec.hostId, pid: holder },
-            "live daemon survivor is a contract skew — recycling it",
-          );
-          await recycle(holder);
-          return false;
-        }
-        // `unreachable`: the survivor is alive but every NON-skew connect attempt
-        // failed. We have NOT proven it incompatible, so we must NOT kill it —
-        // doing so would destroy the very live PTYs adoption exists to preserve
-        // (the F4 data-loss mode). Report `degraded` (a daemon is there but we
-        // hold no working connection to it) and leave it standing; the facade
-        // throws until a later reconnect, and the survivor's session is intact.
-        spec.log.error(
-          {
-            hostId: spec.hostId,
-            pid: holder,
-            attempts: adoptConnectAttempts,
-            err: String(outcome.err),
-          },
-          "live daemon survivor is unreachable (non-skew connect failure) — " +
-            "leaving it up to preserve its PTYs; reporting degraded",
+      // survivor that is handshake-COMPATIBLE is ADOPTED — connected + held, never
+      // killed, so the PTYs it holds (and the session they carry) survive a client
+      // redeploy that did not change the daemon's source. Only an absent / dead /
+      // skewed survivor is recycled. A proven SKEW is RECYCLED here (kill, then spawn
+      // fresh) — the deliberate OPPOSITE of `adoptOrSpawnOrRefuse`, and the only arm
+      // that differs from it; everything else is the shared `adoptSurvivor` sequence.
+      return adoptSurvivor(async (holder) => {
+        spec.log.warn(
+          { hostId: spec.hostId, pid: holder },
+          "live daemon survivor is a contract skew — recycling it",
         );
-        emit({ state: "degraded" });
-        return false;
-      }
-      // No live survivor — a fresh boot, identical to `ensure` minus the kill.
-      await spawnConnectHold();
-      return false;
+        await recycle(holder);
+      });
     },
 
     async adoptOrSpawnOrRefuse(): Promise<boolean> {
-      emit({ state: "connecting" });
-      // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): the padi binder's policy. It is
-      // `adoptOrEnsure` with ONE deliberate difference — a proven contract SKEW is
-      // REFUSED, not recycled. Clients never kill a running padi: a second binder
-      // (a dev kolu, another worktree) that speaks an incompatible contract must
-      // NOT SIGTERM the padi that owns the real PTYs (the #1313 inversion the
-      // state-root identity exists to enforce). So a skewed survivor is left
-      // STANDING + `degraded` — the SAME non-killing shape an unreachable survivor
-      // already gets — and the operator resolves the skew (upgrade the binder, or
-      // drain the daemon through the frozen control core). The recycle arm the
-      // skew case takes in `adoptOrEnsure` is exactly the forbidden behaviour here.
-      const holder = await liveServingHolder();
-      if (holder !== undefined) {
-        const outcome = await connectSurvivor(holder);
-        if (outcome.kind === "adopted") {
-          spec.log.info(
-            {
-              hostId: spec.hostId,
-              pid: holder,
-              startedAt: outcome.conn.startedAt,
-            },
-            "adopted a surviving padi (its PTYs are preserved)",
-          );
-          holdConnection(outcome.conn);
-          return true;
-        }
-        if (outcome.kind === "skew") {
-          // REFUSE — never kill. Leave the incompatible survivor standing so its
-          // PTYs (and any other binder's session) survive; report `degraded`.
-          spec.log.error(
-            { hostId: spec.hostId, pid: holder },
-            "live padi survivor is a contract skew — REFUSING (never killing a " +
-              "running padi); leaving it up and reporting degraded. Upgrade the " +
-              "binder or drain the daemon via its control core to converge.",
-          );
-          emit({ state: "degraded" });
-          return false;
-        }
-        // `unreachable`: alive but every non-skew connect attempt failed. Same as
-        // `adoptOrEnsure` — leave it standing (do not kill), report `degraded`.
+      // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): the padi binder's policy — `adoptOrEnsure`
+      // with ONE deliberate difference: a proven contract SKEW is REFUSED, not
+      // recycled. Clients never kill a running padi: a second binder (a dev kolu,
+      // another worktree) that speaks an incompatible contract must NOT SIGTERM the
+      // padi that owns the real PTYs (the #1313 inversion the state-root identity
+      // exists to enforce). So a skewed survivor is left STANDING + `degraded` — the
+      // SAME non-killing shape an unreachable survivor already gets — and the operator
+      // resolves the skew (upgrade the binder, or drain the daemon through the frozen
+      // control core). Only this skew arm differs from `adoptOrEnsure`; the rest is
+      // the shared `adoptSurvivor` sequence.
+      return adoptSurvivor((holder) => {
         spec.log.error(
-          {
-            hostId: spec.hostId,
-            pid: holder,
-            attempts: adoptConnectAttempts,
-            err: String(outcome.err),
-          },
-          "live padi survivor is unreachable (non-skew connect failure) — " +
-            "leaving it up to preserve its PTYs; reporting degraded",
+          { hostId: spec.hostId, pid: holder },
+          "live padi survivor is a contract skew — REFUSING (never killing a " +
+            "running padi); leaving it up and reporting degraded. Upgrade the " +
+            "binder or drain the daemon via its control core to converge.",
         );
         emit({ state: "degraded" });
-        return false;
-      }
-      // No live survivor — spawn fresh (identical to `adoptOrEnsure`'s no-survivor
-      // arm; there is nothing to refuse).
-      await spawnConnectHold();
-      return false;
+      });
     },
   };
 }
