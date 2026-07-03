@@ -49,6 +49,7 @@ import {
   dialSocket,
   type Endpoint,
   type EndpointStatus,
+  scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import type {
@@ -168,24 +169,6 @@ export async function connectPadi(socketPath: string): Promise<PadiConnection> {
 // 2. localPadiDriver — the twin of localKavalDriver (…/ptyHost/localDriver.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Strip dev-only flags from NODE_OPTIONS so the spawned padi doesn't inherit the
- *  SERVER's inspector / snapshot flags (which would point padi's captures at the
- *  server's cwd). Same shape as localDriver.ts's `scrubNodeOptions`. */
-function scrubNodeOptions(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  const kept = raw
-    .split(/\s+/)
-    .filter(
-      (f) =>
-        f !== "" &&
-        !f.startsWith("--inspect") &&
-        !f.startsWith("--heapsnapshot") &&
-        !f.startsWith("--heap-prof") &&
-        !f.startsWith("--cpu-prof"),
-    );
-  return kept.length > 0 ? kept.join(" ") : undefined;
-}
-
 /**
  * The daemon-operational env padi needs that a transient systemd unit's env reset
  * would otherwise drop. Twin of `daemonEnv` (localDriver.ts), carrying padi's
@@ -219,7 +202,7 @@ function daemonEnv(resolvedStateRoot: string): Record<string, string> {
   env.KOLU_PADI_STATE_DIR = resolvedStateRoot;
   if (process.env.KOLU_KAVAL_SPAWN)
     env.KOLU_KAVAL_SPAWN = process.env.KOLU_KAVAL_SPAWN;
-  const nodeOptions = scrubNodeOptions(process.env.NODE_OPTIONS);
+  const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   if (process.env.KOLU_DIAG_DIR) env.KOLU_DIAG_DIR = process.env.KOLU_DIAG_DIR;
   return env;

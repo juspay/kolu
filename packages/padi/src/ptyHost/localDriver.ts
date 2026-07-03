@@ -31,6 +31,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   type DaemonDriver,
+  scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 
@@ -71,27 +72,6 @@ export function resolveKavalLaunch(socketPath: string): {
   };
 }
 
-/** Strip dev-only flags from a `NODE_OPTIONS` string so the spawned kaval
- *  doesn't inherit the SERVER's — which would point kaval's heap snapshots at
- *  the server's cwd and share its inspector. kaval still gets its own snapshot
- *  hooks (its nix wrapper, keyed off the forwarded `KOLU_DIAG_DIR`); this scrub
- *  only stops the server's leaking in. Returns undefined if nothing of value
- *  remains, so the var is dropped rather than set to empty. */
-function scrubNodeOptions(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  const kept = raw
-    .split(/\s+/)
-    .filter(
-      (f) =>
-        f !== "" &&
-        !f.startsWith("--inspect") &&
-        !f.startsWith("--heapsnapshot") &&
-        !f.startsWith("--heap-prof") &&
-        !f.startsWith("--cpu-prof"),
-    );
-  return kept.length > 0 ? kept.join(" ") : undefined;
-}
-
 /** The daemon-operational env kaval needs that doesn't survive a transient
  *  systemd unit's env reset — chiefly `XDG_RUNTIME_DIR`, which decides the
  *  socket path. (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH are set by kaval's own nix
@@ -102,7 +82,7 @@ function daemonEnv(): Record<string, string> {
   if (process.env.XDG_RUNTIME_DIR) {
     env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
   }
-  const nodeOptions = scrubNodeOptions(process.env.NODE_OPTIONS);
+  const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   // Forward the diagnostics base dir so the SPAWNED kaval — the actual heap-OOM
   // site (kaval-heap-oom.mdx) — arms its OWN heap-snapshot hooks + periodic
