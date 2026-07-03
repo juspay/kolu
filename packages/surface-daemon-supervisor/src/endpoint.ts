@@ -187,7 +187,7 @@ export interface Endpoint<C, I, M = undefined> {
    *  `degraded` close, the fresh daemon's `connecting`) are reported as
    *  `restarting`, so an observer sees one honest "restarting" rather than a
    *  degraded→connecting→connected flicker; only the terminal `connected` /
-   *  `dead` pass through to end the hold. Used by `serializeRestart`. */
+   *  `dead` pass through to end the hold. */
   holdRestarting(body: () => Promise<void>): Promise<void>;
 }
 
