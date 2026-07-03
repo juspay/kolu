@@ -70,7 +70,7 @@ const primitives = [
   <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
     <p class="eyebrow text-ink-dim mb-4">architecture</p>
     <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
-      close the tab.<br />nothing <span class="text-amber">forgets</span>.
+      How kolu is built
     </h1>
     <p class="mt-6 text-ink-dim max-w-xl leading-relaxed">
       kolu splits the terminal problem across daemons, and each one survives a
@@ -353,6 +353,85 @@ const primitives = [
     </div>
   </section>
 
+  {/* ── vs tmux / zellij ──────────────────────────────────── */}
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <h2 class="ax-head">compared to tmux and zellij</h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mb-6">
+      tmux and zellij fold the PTYs, the layout, and the session into <em>one</em>
+      server process. kolu splits them — kaval owns the PTYs, padi owns the
+      workspace — so the layer you restart or redeploy isn't the layer holding
+      your shells.
+    </p>
+    <div class="overflow-x-auto">
+      <table class="ax-table ax-cmp">
+        <thead>
+          <tr>
+            <th></th>
+            <th>tmux</th>
+            <th>zellij</th>
+            <th>kolu</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Detach / close the client</td>
+            <td class="c-yes">survives</td>
+            <td class="c-yes">survives</td>
+            <td class="c-yes">survives — the client holds no state</td>
+          </tr>
+          <tr>
+            <td>Redeploy / restart the session-UI layer</td>
+            <td class="c-na">n/a — no separate layer</td>
+            <td class="c-na">n/a — no separate layer</td>
+            <td class="c-yes">PTYs keep running; the deploy adopts them</td>
+          </tr>
+          <tr>
+            <td>Upgrade the binary under live sessions</td>
+            <td class="c-mid">attach breaks on a protocol-version bump</td>
+            <td class="c-mid">sessions orphaned on a contract-version change</td>
+            <td class="c-yes">compatible daemon + live PTYs adopted; a skewed one is drained, not killed</td>
+          </tr>
+          <tr>
+            <td>Machine reboot</td>
+            <td class="c-mid">nothing native (a plugin re-runs commands)</td>
+            <td class="c-mid">re-runs commands (built-in)</td>
+            <td class="c-mid">re-spawns from padi's saved session</td>
+          </tr>
+          <tr>
+            <td>Knows git · PR/CI · agent state</td>
+            <td class="c-no">no — status-bar scripting only</td>
+            <td class="c-no">no — plugin scripting only</td>
+            <td class="c-yes">yes — padi derives it</td>
+          </tr>
+          <tr>
+            <td>Persisted to disk</td>
+            <td class="c-no">none native; plugins add layout + cwd</td>
+            <td class="c-mid">layout + cwd + each pane's command</td>
+            <td class="c-yes">records · session · restore target · agent memory</td>
+          </tr>
+          <tr>
+            <td>Reach</td>
+            <td class="c-mid">terminal TUI · single host</td>
+            <td class="c-mid">terminal TUI · single host</td>
+            <td class="c-yes">browser PWA + kaval-tui; kaval-tui reaches remote hosts over ssh today</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="ax-callout mt-6 max-w-xl">
+      <p>
+        <strong>The honest caveat: a reboot is the equalizer.</strong> No
+        multiplexer keeps a <em>live</em> process across a machine reboot — a PTY
+        can't outlive the kernel, so all three re-create rather than resume. kolu
+        just remembers more about <em>how</em>: the layout, the working directory,
+        the agent that was running, and where to pick it up. Where kolu actually
+        differs is the everyday case — restarting or redeploying the workspace
+        layer, which for tmux and zellij is the same process that holds your
+        shells, and for kolu is not.
+      </p>
+    </div>
+  </section>
+
   {/* ── the surface framework ─────────────────────────────── */}
   <section class="mx-auto max-w-3xl px-6 pb-14">
     <h2 class="ax-head">one contract — <span class="ax-prog">@kolu/surface</span></h2>
@@ -610,6 +689,62 @@ const primitives = [
   }
   .ax-table td:first-child {
     white-space: nowrap;
+  }
+
+  /* Comparison table (tmux · zellij · kolu) — the property column wraps, the
+     tmux/zellij headers recede, and the kolu column reads brightest. */
+  .ax-cmp {
+    min-width: 40rem;
+  }
+  .ax-cmp td:first-child {
+    white-space: normal;
+    color: var(--color-ink);
+    font-weight: 500;
+  }
+  .ax-cmp thead th {
+    color: var(--color-ink-muted);
+  }
+  .ax-cmp thead th:last-child {
+    color: var(--color-amber);
+  }
+  .ax-cmp td:last-child {
+    color: var(--color-ink);
+  }
+  /* Semantic cell coding — by OUTCOME, uniform across columns (so "survives" is
+     green in every column, and the reboot row reads amber for all three). Each
+     class carries a shape glyph as well as a tint, so meaning survives without
+     colour. ✓ win · ~ partial/conditional · ✕ none/no · – not applicable. */
+  .ax-cmp td.c-yes {
+    background: color-mix(in srgb, var(--color-live-lime) 9%, transparent);
+  }
+  .ax-cmp td.c-mid {
+    background: color-mix(in srgb, var(--color-brand-amber) 10%, transparent);
+  }
+  .ax-cmp td.c-no {
+    background: color-mix(in srgb, var(--color-live-alert) 9%, transparent);
+  }
+  .ax-cmp td.c-na {
+    background: color-mix(in srgb, var(--color-ink-muted) 8%, transparent);
+  }
+  .ax-cmp td.c-yes::before {
+    content: "✓  ";
+    color: var(--color-live-lime);
+    font-weight: 700;
+  }
+  .ax-cmp td.c-mid::before {
+    content: "~  ";
+    color: var(--color-brand-amber);
+    font-weight: 700;
+  }
+  .ax-cmp td.c-no::before {
+    content: "✕  ";
+    color: var(--color-live-alert);
+    font-weight: 700;
+  }
+  .ax-cmp td.c-na::before {
+    content: "–  ";
+    color: var(--color-ink-muted);
+    font-weight: 700;
   }
 
   /* Tinted callout card — left accent bar, raised fill. */
