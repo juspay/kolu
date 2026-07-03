@@ -48,12 +48,19 @@ describe("runPadiDaemon — gate claimed FIRST (B1)", () => {
     // process — a pid `isHolderLive` reads as alive, so the acquire sees `held`.
     const socketPath = padiSocketPath(stateRoot);
     const gatePath = padiGatePath(socketPath);
+    // OWNER-ONLY perms on both the gate dir (0700) and the gate file (0600): the
+    // gate lands under a mkdtempSync'd XDG_RUNTIME_DIR (unique + owner-only), so
+    // there is no world-readable-temp exposure to begin with — the explicit mode
+    // keeps it that way and clears CodeQL js/insecure-temporary-file (same
+    // remediation as saveTerminalFile in terminalScratch.ts).
     mkdirSync(dirname(gatePath), { recursive: true, mode: 0o700 });
-    writeFileSync(gatePath, String(process.pid));
+    writeFileSync(gatePath, String(process.pid), { mode: 0o600 });
 
     // A legacy config the one-shot import WOULD read if it ran — its `.bak` copy is
     // our tripwire that the import fired.
     const legacyDir = mkdtempSync(join(tmpdir(), "padi-gate-legacy-"));
+    // Owner-only mode here too, so hardening the gate write above does not just
+    // relocate CodeQL js/insecure-temporary-file to this sibling temp write.
     writeFileSync(
       join(legacyDir, "config.json"),
       JSON.stringify({
@@ -62,6 +69,7 @@ describe("runPadiDaemon — gate claimed FIRST (B1)", () => {
           activeTerminalId: null,
         },
       }),
+      { mode: 0o600 },
     );
     process.env.KOLU_STATE_DIR = legacyDir;
 
