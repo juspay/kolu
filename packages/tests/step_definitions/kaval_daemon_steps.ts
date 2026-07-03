@@ -8,6 +8,7 @@
  * asserts that honest surface appears, not the empty-state welcome.
  */
 
+import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import {
   isPidLive,
@@ -16,6 +17,73 @@ import {
   readPadiGatePid,
 } from "../support/hooks.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+
+// Install a durable toast recorder BEFORE the recycle. solid-sonner toasts
+// auto-dismiss (~4s), so the "Failed to set parent" toast the reconcile pops
+// during the drain window can vanish before the daemon finishes warming — a
+// point-in-time query would race it. A MutationObserver captures every toast's
+// text into `window.__errorToasts` so the later assertion sees it even after it
+// has been dismissed.
+When("I start recording error toasts", async function (this: KoluWorld) {
+  // No named function bindings inside evaluate: esbuild's keepNames wraps a
+  // `const fn = () => {}` in a `__name(...)` helper that isn't defined in the
+  // page context (ReferenceError). Anonymous callbacks passed directly are safe.
+  await this.page.evaluate(() => {
+    (window as unknown as { __errorToasts: string[] }).__errorToasts = [];
+    new MutationObserver(() => {
+      const seen = (window as unknown as { __errorToasts: string[] })
+        .__errorToasts;
+      for (const li of document.querySelectorAll("[data-sonner-toaster] li")) {
+        const text = li.textContent?.trim() ?? "";
+        if (text && !seen.includes(text)) seen.push(text);
+      }
+    }).observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  });
+});
+
+Then(
+  "no {string} error toast should have been shown",
+  async function (this: KoluWorld, forbidden: string) {
+    const seen = await this.page.evaluate(
+      () =>
+        (window as unknown as { __errorToasts?: string[] }).__errorToasts ?? [],
+    );
+    const offending = seen.filter((t) => t.includes(forbidden));
+    assert.deepStrictEqual(
+      offending,
+      [],
+      `Expected no toast containing "${forbidden}", but saw: ${JSON.stringify(
+        offending,
+      )} (all toasts: ${JSON.stringify(seen)})`,
+    );
+  },
+);
+
+// Symptom 2 (the split comes back HIDDEN after a recycle+restore). STRONGER than
+// "the sub-panel should be visible": that step only waits for the tab bar, which
+// renders on `isExpanded()` = `hasSubs() && !collapsed`. A restored parent gets a
+// FRESH id whose CLIENT sub-panel state (`useSubPanel`, keyed by parent id) was
+// never seeded, so it defaults to `collapsed:false` → the tab bar shows even while
+// the split content stays hidden. The sub PANE is `visible` only when
+// `activeSubTab === subId` (TerminalContent.tsx), and the one place that seeds the
+// restored parent's active sub-tab — `hydrateFromTerminals` in useSessionRestore —
+// is short-circuited by the `viewSeeded` latch (set true on the first live load,
+// never reset; `useTerminals` is instantiated once, App.tsx). So `activeSubTab`
+// stays null and NO `[data-sub-terminal][data-visible]` element exists. Wait for the
+// sub-terminal CONTENT to actually be visible, not merely the surrounding chrome.
+Then(
+  "the restored split sub-terminal should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator("[data-sub-terminal][data-visible]")
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
 
 When("the kaval daemon is killed", async function (this: KoluWorld) {
   const pid = killKavalDaemon();
