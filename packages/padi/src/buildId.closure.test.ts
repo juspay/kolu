@@ -81,9 +81,6 @@ const EXCLUDED: Record<string, string[]> = {
   // LIBRARY surface (`index.ts`), never these, so they belong to kaval's
   // staleKey, not padi's.
   kaval: ["bin.ts", "daemonMain.ts", "stdioBridge.ts"],
-  // pulam's well-known rendezvous socket path — imported by pulam/pulam-tui, not
-  // re-exported by the barrel, and never loaded by padi.
-  "@kolu/terminal-workspace": ["socket.ts"],
 };
 
 // Bare specifiers the closure is allowed to reach. The staleKey hashes only the

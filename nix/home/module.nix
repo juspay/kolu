@@ -58,20 +58,20 @@ in
       '';
     };
 
-    pulamTuiPackage = lib.mkOption {
+    padiTuiPackage = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
       default = null;
       description = ''
-        The `pulam-tui` CLI package to install onto PATH alongside `kaval-tui`.
-        Where `kaval-tui` shows what's *running* in each terminal, `pulam-tui`
-        shows what each terminal *is in* (repo·branch · PR · agent state), and
-        `pulam-tui wait` blocks until an agent's turn ends — the done-signal for
-        driving one agent from another. When non-null it is added to
-        `home.packages`; the flake's `homeManagerModules.default` defaults this
-        to the matching `pulam-tui` build, so it ships automatically with the
+        The `padi-tui` CLI package to install onto PATH alongside `kaval-tui`.
+        Where `kaval-tui` shows what's *running* in each terminal, `padi-tui`
+        shows what each terminal *is in* (record state · agent · live byte
+        activity), and `padi-tui wait` blocks until an agent's turn ends — the
+        done-signal for driving one agent from another. When non-null it is added
+        to `home.packages`; the flake's `homeManagerModules.default` defaults this
+        to the matching `padi-tui` build, so it ships automatically with the
         service. Set to `null` to opt out, or to an explicit package to pin a
-        build. (`pulam-tui` reads a running `pulam` daemon, which you start
-        separately against the same kaval.)
+        build. (`padi-tui` reads the running padi daemon; inside a kolu terminal
+        `$PADI_SOCKET` makes it flagless.)
       '';
     };
 
@@ -148,12 +148,12 @@ in
       }
     ];
 
-    # Ship the terminal-side CLIs (kaval-tui + pulam-tui) on PATH so they can
-    # reach a pty-host / awareness socket from any shell. Each is skipped only
+    # Ship the terminal-side CLIs (kaval-tui + padi-tui) on PATH so they can
+    # reach a pty-host / padi socket from any shell. Each is skipped only
     # when its package is explicitly set null.
     home.packages =
       lib.optional (cfg.tuiPackage != null) cfg.tuiPackage
-      ++ lib.optional (cfg.pulamTuiPackage != null) cfg.pulamTuiPackage;
+      ++ lib.optional (cfg.padiTuiPackage != null) cfg.padiTuiPackage;
 
     systemd.user.services = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
       kolu = {

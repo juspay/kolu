@@ -18,12 +18,23 @@
  */
 
 import { pollOnEvent } from "@kolu/surface/server";
-import type { ActivityStreamDeps } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import type { TerminalId } from "@kolu/terminal-workspace/schema";
 import type { Logger } from "pino";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { registryMap } from "./terminal-registry.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
+
+/** The `activity` stream backing shape — the live-set `source` thunk padi's
+ *  `padiSurface` activity stream is wired with. Re-invoked per subscription
+ *  (`(input, signal) => AsyncIterable<TerminalId[]>`), so each subscriber gets
+ *  its own tracker + tap set. Spelled locally now that the dead
+ *  `terminalWorkspaceSurface` assembler that once named it is gone. */
+type ActivityStreamDeps = {
+  source: (
+    input: Record<string, never>,
+    signal: AbortSignal | undefined,
+  ) => AsyncIterable<TerminalId[]>;
+};
 
 /** Output quiet-period before a terminal reads as static again — matches the
  *  client's `useTerminalActivity` IDLE_AFTER_MS, so the padi-tui `●` and the

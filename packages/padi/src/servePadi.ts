@@ -1,7 +1,6 @@
 /**
- * `@kolu/padi/servePadi` — the ONE assembler of the `padiSurface` server deps,
- * the padi twin of `@kolu/terminal-workspace/serveTerminalWorkspace`. Built
- * ENTIRELY from padi's own domain modules (relative imports within `@kolu/padi`);
+ * `@kolu/padi/servePadi` — the ONE assembler of the `padiSurface` server deps.
+ * Built ENTIRELY from padi's own domain modules (relative imports within `@kolu/padi`);
  * it NEVER imports from `packages/server` — the dependency arrow points OUT (a
  * helper that lives only in the server, `previewRealpathGuard`, is REPRODUCED
  * here in `./preview.ts`).
@@ -20,7 +19,6 @@
 
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
-import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
 import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
@@ -30,6 +28,7 @@ import {
   requirePadiSessionStore,
 } from "./confStores.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
+import { padiFsGitDeps } from "./fsGitDeps.ts";
 import { createLiveActivitySource } from "./liveActivity.ts";
 import { readPreview } from "./preview.ts";
 import {
@@ -110,7 +109,7 @@ export function buildPadiSurfaceDeps(deps: {
   log: Logger;
 }): Omit<PadiDeps, "channel"> {
   const { endpoint, log } = deps;
-  const fsGit = fsGitSurfaceDeps(endpoint, log);
+  const fsGit = padiFsGitDeps(endpoint, log);
 
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
   // read from kaval's `currentPtyHostIdentity`). Mirrors the guard the server's
@@ -219,7 +218,7 @@ export function buildPadiSurfaceDeps(deps: {
       // has a subscriber (see `createLiveActivitySource`), so an unwatched padi
       // pays nothing. The client's per-tile green dot is unchanged — it derives
       // from its OWN `terminalAttach` bytes, never this member. The fs/git
-      // change-pulses are pure reuse of `fsGitSurfaceDeps(...).streams`.
+      // change-pulses are pure reuse of `padiFsGitDeps(...).streams`.
       activity: createLiveActivitySource(log),
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then

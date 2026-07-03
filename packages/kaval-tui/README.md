@@ -133,7 +133,7 @@ remote daemon.
 > Idle means "output stopped", not "the answer is right": the turn may have
 > **finished** or be **blocked asking you something** — both are quiescence. So
 > read the `snapshot` after `wait` returns. (For terminals a kolu-server spawned
-> — which carry shell hooks — `pulam-tui wait --until <state>` is a more precise,
+> — which carry shell hooks — `padi-tui wait --until <buckets>` is a more precise,
 > agent-state done-signal; `kaval-tui wait` is the hook-free one for any
 > terminal.)
 

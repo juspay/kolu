@@ -43,9 +43,9 @@
  * W2.2. It lives HERE (not `@kolu/surface-daemon`) and graduates only if a
  * second daemon ever adopts it (electricity test ③: proof before extraction).
  *
- * BROWSER-SAFE face: like `koluSurface`/`terminalWorkspaceSurface` this imports
+ * BROWSER-SAFE face: like `koluSurface` this imports
  * only `@kolu/surface/define`, zod-only schema modules (its own `./vocab.ts` +
- * `./transcriptSchema.ts`, `kolu-git/schemas`, `@kolu/terminal-workspace/surface`),
+ * `./transcriptSchema.ts`, `kolu-git/schemas`, `@kolu/terminal-workspace/schema`),
  * and `zod` — no `node:`/kaval runtime (that lives beside this, in the node-only
  * side the motion stage adds). The terminal VOCABULARY now lives HERE (`./vocab.ts`,
  * re-exported below): the arrow points `kolu-common → @kolu/padi`, never back. The
@@ -58,12 +58,12 @@ import {
   defineSurface,
   type SurfaceTypes,
 } from "@kolu/surface/define";
-import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
-} from "@kolu/terminal-workspace/surface";
+  TerminalIdSchema,
+} from "@kolu/terminal-workspace/schema";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import {

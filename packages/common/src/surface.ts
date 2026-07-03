@@ -436,10 +436,10 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //     it once extended `buildInfo` with moved to padi's `status` cell (W1.R7).
 //
 // The GENERIC `@kolu/terminal-workspace` surface is no longer served here: kolu's
-// own client reads padi's server-composed `terminals` collection, and pulam-tui
-// dials the pulam daemon directly, so kolu-server's dormant `terminalWorkspace`
-// sibling had zero consumers and was retired. `terminalWorkspaceSurface` (3.0,
-// frozen) lives on in `@kolu/terminal-workspace`, served by the pulam daemon.
+// own client reads padi's server-composed `terminals` collection, so kolu-server's
+// dormant `terminalWorkspace` sibling had zero consumers and was retired (W1.R7).
+// Its `terminalWorkspaceSurface` — and the `pulam` daemon that once served it —
+// were BURIED at padi W2.3; the per-host terminal surface is `padiSurface` now.
 //
 // They are NOT merged — `composeSurfaceContracts` / `implementSurfaces` /
 // `surfaceClients` multiplex them, each namespaced by its key. Each is already a
