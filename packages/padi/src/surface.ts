@@ -75,8 +75,10 @@ import {
   ActivityFeedSchema,
   CanvasLayoutSchema,
   DaemonStatusSchema,
+  DEFAULT_PADI_PROCESS_MEMORY,
   InitialTerminalMetadataSchema,
   KoluAuthoredFieldsSchema,
+  PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
   PersistedSnapshotSchema,
   PtyHostIdentitySchema,
@@ -320,6 +322,22 @@ export const PadiPreviewReadInputSchema = z.object({
    *  multi-range / malformed header collapses to a full 200. */
   range: z.string().optional(),
 });
+/** `preview.repoRootForTerminal` — resolve a TERMINAL's git repo root from padi's
+ *  OWN in-process registry (`snapshotFor(id)?.git?.repoRoot`), the single source of
+ *  truth for that mapping. The re-serving binder (kolu-server's iframe preview
+ *  route) calls this to turn the URL's terminal id into a repo path, then STREAMS
+ *  the file itself off the local disk via the shared `previewFile` (bounded heap
+ *  for large videos) — so the mapping stays in padi while the byte streaming stays
+ *  a local, uncapped stream (never forced whole through a base64 procedure). Null
+ *  when the terminal is unknown or has no git repo. */
+export const PadiRepoRootForTerminalInputSchema = z.object({
+  terminalId: TerminalIdSchema,
+});
+export const PadiRepoRootForTerminalOutputSchema = z.object({
+  /** The terminal's git repo root, or `null` when it has none / is unknown. */
+  repoRoot: z.string().nullable(),
+});
+
 export const PadiPreviewReadOutputSchema = z.object({
   /** HTTP status — `200` | `206` (ranged) | `400` | `403` | `404` | `416` |
    *  `500`, verbatim from `serveFile`. */
@@ -369,6 +387,16 @@ export const padiSurface = defineSurface({
     status: {
       schema: PadiStatusSchema,
       default: DEFAULT_PADI_STATUS,
+      verbs: ["get"],
+    },
+    /** Live process-memory readout — padi's OWN RSS + its kaval daemon's, each the
+     *  honest three-way {@link ProcessRssSchema}. padi owns kaval now, so padi is
+     *  the source of this pair; its periodic sampler (wired into daemon boot) is the
+     *  sole writer. Read-only on the client; kolu-server folds it into the rail's
+     *  `processMemory` cell. */
+    processMemory: {
+      schema: PadiProcessMemorySchema,
+      default: DEFAULT_PADI_PROCESS_MEMORY,
       verbs: ["get"],
     },
     /** Server-derived activity feed (recent repos + recent agents) — the MRU the
@@ -503,11 +531,19 @@ export const padiSurface = defineSurface({
         output: PadiScratchWriteOutputSchema,
       },
     },
-    /** Byte reads — the iframe binary preview (range-capable, serve-dir-shaped). */
+    /** Byte reads — the iframe binary preview (range-capable, serve-dir-shaped),
+     *  repo-path-keyed. `repoRootForTerminal` resolves a terminal id to its repo
+     *  root off padi's registry so the re-serving binder's HTTP preview route can
+     *  stream the file itself (bounded heap) without holding the terminal→repoRoot
+     *  map. */
     preview: {
       read: {
         input: PadiPreviewReadInputSchema,
         output: PadiPreviewReadOutputSchema,
+      },
+      repoRootForTerminal: {
+        input: PadiRepoRootForTerminalInputSchema,
+        output: PadiRepoRootForTerminalOutputSchema,
       },
     },
     /** Transcript export — the per-agent loaders (claude JSONL, codex/opencode
@@ -578,6 +614,7 @@ export const PADI_FORWARDING_POLICY = {
   version: "value",
   urgency: "value",
   status: "value",
+  processMemory: "value",
   activityFeed: "value",
   // collections
   terminals: "value",
@@ -639,6 +676,11 @@ export const PadiHelloSchema = z.object({
   surfaceVersion: z.string(),
   /** The frozen control-core version this padi speaks (always "1.0" today). */
   controlCoreVersion: z.string(),
+  /** padi's boot time (ms epoch), stamped once at daemon init — the binder reads
+   *  it for HONEST uptime (never `Date.now()` at dial time, which would reset the
+   *  age on every reconnect). Additive to the frozen core's initial served shape
+   *  (the core has never shipped served), so `CONTROL_CORE_VERSION` stays "1.0". */
+  startedAt: z.number(),
 });
 export type PadiHello = z.infer<typeof PadiHelloSchema>;
 

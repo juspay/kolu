@@ -4,8 +4,8 @@ import type { KoluWorld } from "../support/world.ts";
 
 /** Memory details live on the actual identity chip tooltip/aria-label rather
  *  than hidden test-only DOM. The figure only appears once a real value lands —
- *  server/client are present immediately under Chromium; kaval fills in once the
- *  daemon's first `system.processMemory` poll returns. */
+ *  server/client are present immediately under Chromium; padi/kaval fill in once
+ *  padi's sampler poll is folded into the rail cell (padi owns kaval now). */
 async function assertChipMemoryLabel(
   world: KoluWorld,
   testid: "kolu-identity-chip" | "kaval-identity-chip",
@@ -48,6 +48,17 @@ Then(
 );
 
 Then(
+  "the identity rail details include padi memory usage",
+  async function (this: KoluWorld) {
+    await assertChipMemoryLabel(
+      this,
+      "kolu-identity-chip",
+      /padi RSS \d+\s*MB/,
+    );
+  },
+);
+
+Then(
   "the identity rail details include client memory usage",
   async function (this: KoluWorld) {
     await assertChipMemoryLabel(
@@ -72,8 +83,9 @@ When("I open the Kaval details dialog", async function (this: KoluWorld) {
 Then(
   "the Kaval details show kaval memory usage",
   async function (this: KoluWorld) {
-    // The daemon's RSS lands once its first `system.processMemory` poll returns,
-    // so poll the dialog row until a real MB figure replaces "unavailable".
+    // The daemon's RSS lands once padi's first `system.processMemory` poll is
+    // folded into the rail cell, so poll the dialog row until a real MB figure
+    // replaces "unavailable".
     const memory = this.page.locator('[data-testid="kaval-dialog-memory"]');
     await memory.waitFor({ state: "visible", timeout: 15_000 });
     await this.page.waitForFunction(

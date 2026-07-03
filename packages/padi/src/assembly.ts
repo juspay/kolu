@@ -58,6 +58,17 @@ export {
 // cutover) resolves it from its listen port to feed `ensureLocalEndpoint`.
 export { kavalSocketPath } from "./ptyHost/localDriver.ts";
 export { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
+// ── padi process rendezvous (W2.2 binder) ───────────────────────────────
+// kolu-server's padi BINDER (`server/src/padiBinding.ts`) resolves the SAME
+// state-root → socket/gate paths padi computes for itself, so the supervisor and
+// the daemon never disagree on identity. Re-exported through this barrel so the
+// binder reaches the terminal domain only through @kolu/padi's published entry
+// points (the package-boundary seal), not a deep `@kolu/padi/stateRoot` import.
+export {
+  padiGatePath,
+  padiSocketPath,
+  resolvePadiStateRoot,
+} from "./stateRoot.ts";
 // ── publisher / surface ctx holder ──────────────────────────────────────
 export {
   publisher,

@@ -41,6 +41,7 @@ describe("padiSurface 1.0 contract", () => {
       "version",
       "urgency",
       "status",
+      "processMemory",
       "activityFeed",
       "session",
     ]);
@@ -103,7 +104,10 @@ describe("padiSurface 1.0 contract", () => {
       "worktreeRemove",
     ]);
     expect(Object.keys(procs.scratch ?? {})).toEqual(["write"]);
-    expect(Object.keys(procs.preview ?? {})).toEqual(["read"]);
+    expect(Object.keys(procs.preview ?? {})).toEqual([
+      "read",
+      "repoRootForTerminal",
+    ]);
     expect(Object.keys(procs.transcript ?? {})).toEqual(["exportHtml"]);
     expect(Object.keys(procs.session ?? {})).toEqual([
       "restore",
@@ -206,11 +210,13 @@ describe("padiSurface 1.0 contract", () => {
     expect(Object.keys(padiDaemonSurfaces).sort()).toEqual(["control", "padi"]);
     expect(padiDaemonContract.surface.control).toBeTruthy();
     expect(padiDaemonContract.surface.padi).toBeTruthy();
-    // The hello handshake validates a well-formed identity.
+    // The hello handshake validates a well-formed identity — including the
+    // additive `startedAt` boot time the binder reads for honest uptime.
     const hello = {
       stateRoot: "/home/u/.local/state/padi",
       surfaceVersion: PADI_SURFACE_VERSION,
       controlCoreVersion: CONTROL_CORE_VERSION,
+      startedAt: 1_700_000_000_000,
     };
     expect(PadiHelloSchema.parse(hello)).toEqual(hello);
   });

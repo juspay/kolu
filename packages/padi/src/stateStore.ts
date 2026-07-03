@@ -21,11 +21,15 @@ import type { CellStore } from "@kolu/surface/server";
 import type { PairedDaemon } from "./pairedDaemon.ts";
 import type { ActivityFeed, SavedSession } from "./vocab.ts";
 
-/** padi's on-disk shape — the three keys padi owns under its state-root. */
+/** padi's on-disk shape — the three keys padi owns under its state-root, plus the
+ *  one-shot import marker. */
 interface PadiPersistedState {
   session: SavedSession | null;
   activityFeed: ActivityFeed;
   lastPairedDaemon: PairedDaemon | null;
+  /** Set true once the legacy kolu-config import has run (exactly-once guard). An
+   *  internal flag, never a served cell. */
+  importedLegacyConfig: boolean;
 }
 
 /** padi's state schema version — bump when padi grows its own migration ladder. */
@@ -39,8 +43,12 @@ export interface PadiStateStores {
   lastPairedDaemon: CellStore<PairedDaemon | null>;
   /** The raw store — the state-root Conf, exposed so the one-shot import can seed
    *  keys directly (and so a boot can inspect emptiness before importing). */
-  conf: Conf<PadiPersistedState>;
+  conf: PadiConf;
 }
+
+/** The padi state-root `Conf` type — narrowed to the read/write surface the
+ *  one-shot import needs (import stays decoupled from the full `Conf` API). */
+export type PadiConf = Conf<PadiPersistedState>;
 
 /** Open padi's state-root `Conf` (`<stateRoot>/config.json`) and return the three
  *  cell stores it backs. The stores are `confStore` adapters over the one `Conf`,
@@ -54,6 +62,7 @@ export function openPadiStateStores(stateRoot: string): PadiStateStores {
       session: null,
       activityFeed: { recentRepos: [], recentAgents: [] },
       lastPairedDaemon: null,
+      importedLegacyConfig: false,
     },
   });
   return {

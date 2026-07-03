@@ -736,3 +736,142 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
   });
 });
+
+describe("adoptOrSpawnOrRefuse — the padi binder's boot policy (W2.2)", () => {
+  it("REFUSES a survivor that is a contract skew: leaves it up (NO kill, NO spawn), reports degraded, returns false", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    // A real live survivor holding live PTYs. It is a contract SKEW — but clients
+    // NEVER kill a running padi (the #1313 inversion): a dev/second binder that
+    // can't talk this padi's contract must not SIGTERM the daemon that owns
+    // another's terminals. So it is left STANDING + degraded, unlike
+    // `adoptOrEnsure`, which would recycle (kill) it.
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const survivorPid = survivor.pid as number;
+    children.push(survivorPid);
+    writeFileSync(gatePath, `${survivorPid}\n`);
+    let survivorExited = false;
+    survivor.on("exit", () => {
+      survivorExited = true;
+    });
+
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    let spawnCalled = false;
+    let connectCount = 0;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: {
+        spawn: async () => {
+          spawnCalled = true;
+        },
+      },
+      connect: async () => {
+        connectCount += 1;
+        throw new DaemonContractSkewError("padi contract skew");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+      adoptConnectAttempts: 3,
+      adoptConnectRetryMs: 1,
+    });
+
+    const adopted = await endpoint.adoptOrSpawnOrRefuse();
+    // Give any (erroneous) SIGTERM a tick to land.
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(adopted).toBe(false); // refused, not adopted
+    expect(spawnCalled).toBe(false); // NEVER spawned a fresh daemon over it
+    expect(survivorExited).toBe(false); // NEVER killed the running padi (the delta)
+    expect(connectCount).toBe(1); // skew is terminal — no retries
+    expect(endpoint.current()).toBeUndefined(); // no connection held
+    // Reports degraded: a daemon is there, incompatible, left standing.
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "degraded"]);
+  });
+
+  it("ADOPTS a live, handshake-compatible survivor: no kill, no spawn, holds it", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const survivorPid = survivor.pid as number;
+    children.push(survivorPid);
+    writeFileSync(gatePath, `${survivorPid}\n`);
+    let survivorExited = false;
+    survivor.on("exit", () => {
+      survivorExited = true;
+    });
+
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    let spawnCalled = false;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: {
+        spawn: async () => {
+          spawnCalled = true;
+        },
+      },
+      connect: async () => ({
+        client: "SURVIVOR",
+        identity: { staleKey: "survivor" },
+        startedAt: 42,
+        dispose() {},
+        onClose() {},
+      }),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    const adopted = await endpoint.adoptOrSpawnOrRefuse();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(adopted).toBe(true);
+    expect(spawnCalled).toBe(false);
+    expect(survivorExited).toBe(false);
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "survivor" });
+  });
+
+  it("with NO survivor: spawns fresh and returns false (there is nothing to refuse)", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid"); // no gate file → no survivor
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: () => fake.listen() },
+      connect: async () => ({
+        client: "FRESH",
+        identity: { staleKey: "fresh" },
+        startedAt: 1,
+        dispose() {},
+        onClose() {},
+      }),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    const adopted = await endpoint.adoptOrSpawnOrRefuse();
+    expect(adopted).toBe(false);
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
+  });
+});

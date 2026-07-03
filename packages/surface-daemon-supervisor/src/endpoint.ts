@@ -167,6 +167,17 @@ export interface Endpoint<C, I, M = undefined> {
    *  nothing to reconcile. Throws (after reporting `dead`) if it cannot bring a
    *  daemon up at all. */
   adoptOrEnsure(): Promise<boolean>;
+  /** Take the daemon to a live connection under the **adopt-or-spawn-or-refuse**
+   *  boot policy — the padi binder's policy, distinct from `adoptOrEnsure` in ONE
+   *  way: a live survivor that is a genuine contract SKEW is NOT recycled. Clients
+   *  never kill a running padi (the #1313 inversion — a dev/second binder must not
+   *  SIGTERM the daemon that owns another's PTYs), so a skewed survivor is left
+   *  STANDING and reported `degraded` (the same non-killing shape an unreachable
+   *  survivor already gets), never SIGTERM'd. An absent survivor is spawned fresh;
+   *  a compatible one is adopted. Resolves `true` iff it adopted a surviving daemon
+   *  (the caller then reconciles), `false` on a fresh-spawn / left-degraded boot.
+   *  Throws (after `dead`) only if it cannot bring a daemon up at all. */
+  adoptOrSpawnOrRefuse(): Promise<boolean>;
   /** The live connection, or `undefined` before `ensure()` or after the daemon
    *  died (`degraded`). */
   current(): DaemonConnection<C, I, M> | undefined;
@@ -572,6 +583,66 @@ export function createEndpoint<C, I, M = undefined>(
         return false;
       }
       // No live survivor — a fresh boot, identical to `ensure` minus the kill.
+      await spawnConnectHold();
+      return false;
+    },
+
+    async adoptOrSpawnOrRefuse(): Promise<boolean> {
+      emit({ state: "connecting" });
+      // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): the padi binder's policy. It is
+      // `adoptOrEnsure` with ONE deliberate difference — a proven contract SKEW is
+      // REFUSED, not recycled. Clients never kill a running padi: a second binder
+      // (a dev kolu, another worktree) that speaks an incompatible contract must
+      // NOT SIGTERM the padi that owns the real PTYs (the #1313 inversion the
+      // state-root identity exists to enforce). So a skewed survivor is left
+      // STANDING + `degraded` — the SAME non-killing shape an unreachable survivor
+      // already gets — and the operator resolves the skew (upgrade the binder, or
+      // drain the daemon through the frozen control core). The recycle arm the
+      // skew case takes in `adoptOrEnsure` is exactly the forbidden behaviour here.
+      const holder = await liveServingHolder();
+      if (holder !== undefined) {
+        const outcome = await connectSurvivor(holder);
+        if (outcome.kind === "adopted") {
+          spec.log.info(
+            {
+              hostId: spec.hostId,
+              pid: holder,
+              startedAt: outcome.conn.startedAt,
+            },
+            "adopted a surviving padi (its PTYs are preserved)",
+          );
+          holdConnection(outcome.conn);
+          return true;
+        }
+        if (outcome.kind === "skew") {
+          // REFUSE — never kill. Leave the incompatible survivor standing so its
+          // PTYs (and any other binder's session) survive; report `degraded`.
+          spec.log.error(
+            { hostId: spec.hostId, pid: holder },
+            "live padi survivor is a contract skew — REFUSING (never killing a " +
+              "running padi); leaving it up and reporting degraded. Upgrade the " +
+              "binder or drain the daemon via its control core to converge.",
+          );
+          emit({ state: "degraded" });
+          return false;
+        }
+        // `unreachable`: alive but every non-skew connect attempt failed. Same as
+        // `adoptOrEnsure` — leave it standing (do not kill), report `degraded`.
+        spec.log.error(
+          {
+            hostId: spec.hostId,
+            pid: holder,
+            attempts: adoptConnectAttempts,
+            err: String(outcome.err),
+          },
+          "live padi survivor is unreachable (non-skew connect failure) — " +
+            "leaving it up to preserve its PTYs; reporting degraded",
+        );
+        emit({ state: "degraded" });
+        return false;
+      }
+      // No live survivor — spawn fresh (identical to `adoptOrEnsure`'s no-survivor
+      // arm; there is nothing to refuse).
       await spawnConnectHold();
       return false;
     },

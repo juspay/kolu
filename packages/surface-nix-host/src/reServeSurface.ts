@@ -16,7 +16,8 @@
  *     next spawn (a rebind re-seeds the store; a collection's carry-over keys are
  *     reconciled on the fresh snapshot, so a key that departed while down is
  *     dropped without an empty flash). A cell READS from the mirror; a cell WRITE
- *     throws (the re-serve is read-only until W2.2 forwards writes).
+ *     is FORWARDED to the live agent (via the framework's cell `forward` seam) and
+ *     echoes back through the fold — the local store stays a pure read mirror.
  *   - **value streams / events** — held open per downstream subscriber
  *     ({@link relayHoldOpenStream}), rebinding across respawns.
  *   - **delta streams** (byte / liveness) — failed through per subscriber
@@ -113,6 +114,11 @@ type ProcedureFn = (
   opts?: { signal?: AbortSignal },
 ) => Promise<unknown>;
 
+/** High-water mark for each downstream subscriber's per-cell/-collection receive
+ *  queue (see the `channel` factory below). Generous enough that only a
+ *  pathologically-behind consumer trips the fail-fast abort. */
+const RESERVE_CHANNEL_HIGH_WATER_MARK = 4096;
+
 export function reServeSurface<
   S extends SurfaceSpec,
   C extends AnyContractRouter,
@@ -140,7 +146,19 @@ export function reServeSurface<
   // ONE channel factory, shared by `implementSurface` (the deps below) AND the cell
   // fold (which publishes onto the same `<key>:changed` channel a cell's `get`
   // subscribes) — `inMemoryChannelByName` returns the same instance per name.
-  const channel = inMemoryChannelByName();
+  //
+  // The factory BOUNDS each downstream subscriber's per-cell/-collection receive
+  // queue (#1661 candidate h2): a slow browser + a fast mirror fold would otherwise
+  // grow the queue without limit. At the bound the subscriber is aborted (fail-fast)
+  // so its client re-subscribes and re-snapshots from the authoritative mirror — a
+  // value channel is self-healing, so abort-and-resync is lossless. Only the
+  // channeled members (cells + collections, all `value`) ride this; the streaming
+  // members (delta byte streams, value pulses) are relayed per-subscriber and
+  // backpressured by async-generator suspension, so they never queue here.
+  const channel = inMemoryChannelByName({
+    highWaterMark: RESERVE_CHANNEL_HIGH_WATER_MARK,
+    overflow: "abort",
+  });
 
   // Live-spawn holders the pump drives; the relays read `liveClient` and the
   // procedure forwarders read `liveProcedures`. `observableHolder` gives the
@@ -167,42 +185,58 @@ export function reServeSurface<
 
   // ── implementSurface deps, derived from the policy ────────────────────────
 
-  // Cells — the re-serve is a READ mirror: a downstream READ folds from the agent,
-  // but a downstream WRITE (set/patch/test__set) must NOT silently mutate the local
-  // mirror store (a phantom write the next mirrored frame reverts). So each cell's
-  // `get` folds from a value store while its store's `set` THROWS — the wire write
-  // handlers reject loudly. The FOLD does not go through that throwing `set`: it
-  // writes the value and publishes directly onto the cell's own `<key>:changed`
-  // channel (the same instance `get` subscribes), so a mirrored frame still reaches
-  // downstream subscribers. A fixture that needs to write a cell targets the agent
-  // directly; full write-forwarding is W2.2. (#1661 candidate 8.)
+  // Cells — the re-serve is a READ mirror with WRITE-FORWARDING (#1661 candidate 8,
+  // closed at W2.2). A downstream READ folds the agent's frames from a local mirror
+  // store; a downstream WRITE (set / patch / test__set) is FORWARDED to the live
+  // agent — mirroring how PROCEDURES forward through `liveProcedures` — via the
+  // framework's cell `forward` seam, NOT applied to the local store. The agent's own
+  // write echoes back through the mirror fold (the `<key>:changed` channel), so the
+  // local store stays a PURE READ mirror: written ONLY by the fold
+  // (`ctx.cells.<key>.set`, see `makeSink`), never by a wire write.
   //
-  // W2.2 NOTE: this fold intentionally mirrors `cellHandlers.applyAndPublish`
-  // (store.set + bus.publish) MINUS the equals/onWrite gates the re-serve doesn't
-  // want — a coupling to reserve when W2.2 revisits the cell contract. The cleaner
-  // deeper form (per the altitude review) is to narrow each mirrored cell's verbs
-  // to `["get"]` at the re-serve seam — as the `connection` cell already is — so a
-  // wire write is unrepresentable rather than a runtime throw and the fold routes
-  // through a normal `ctx.set`, dropping both the throwing store and this side
-  // channel. Deferred with write-forwarding (which needs the verbs PRESENT to
-  // forward, hence throw-verbs-present here) — one W2.2 decision, not two.
-  const cellFolds = new Map<string, (v: unknown) => void>();
+  // The forward deliberately BYPASSES the framework's local `equals` dedup and
+  // `bus.publish` — the agent is the authority, so (h3) a wire write whose value
+  // equals the STALE local mirror must STILL cross (never dedup-dropped before it
+  // reaches the agent), and the mirror must not phantom-echo a value the agent
+  // hasn't confirmed (a rejected agent write would otherwise strand it). `equals`
+  // is thus left to guard only the FOLD's publish (`ctx.cells.<key>.set`), not the
+  // forward. A forward with no live upstream link throws loud (fail-fast), same
+  // stance as `forwardProcedure`.
+  const forwardCellWrite = (
+    key: string,
+    verb: "set" | "patch" | "test__set",
+    input: unknown,
+  ): Promise<unknown> => {
+    const client = liveClient.current;
+    if (client === null) {
+      throw new Error(
+        `reServeSurface: cell "${key}.${verb}" written with no live upstream link`,
+      );
+    }
+    const cellNs = (
+      client as unknown as {
+        surface: Record<string, Record<string, ProcedureFn>>;
+      }
+    ).surface[key];
+    const fn = cellNs?.[verb];
+    if (typeof fn !== "function") {
+      throw new Error(
+        `reServeSurface: live upstream client exposes no "${key}.${verb}" cell verb to forward to`,
+      );
+    }
+    return fn(input);
+  };
   const cellsDeps: Record<string, unknown> = {};
   for (const [key, cellSpec] of Object.entries(spec.cells ?? {})) {
-    const value = inMemoryStore((cellSpec as { default: unknown }).default);
-    const changed = channel<unknown>(`${key}:changed`);
-    cellFolds.set(key, (v) => {
-      value.set(v);
-      changed.publish(v);
-    });
     cellsDeps[key] = {
-      store: {
-        get: () => value.get(),
-        set: () => {
-          throw new Error(
-            `reServeSurface: cell "${key}" is read-only on the re-serve — a write does not cross to the agent (cell writes are forwarded in W2.2; see PR #1661 candidate 8). Write a fixture against the agent directly.`,
-          );
-        },
+      // The local READ mirror — written ONLY by the fold (`ctx.cells.<key>.set`,
+      // see `makeSink`), read by the framework's `get` handler.
+      store: inMemoryStore((cellSpec as { default: unknown }).default),
+      forward: {
+        set: (input: unknown) => forwardCellWrite(key, "set", input),
+        patch: (input: unknown) => forwardCellWrite(key, "patch", input),
+        test__set: (input: unknown) =>
+          forwardCellWrite(key, "test__set", input),
       },
     };
   }
@@ -351,13 +385,20 @@ export function reServeSurface<
     };
     const cells: Record<string, (v: unknown) => void> = {};
     for (const key of Object.keys(spec.cells ?? {})) {
-      const fold = cellFolds.get(key);
-      if (!fold) {
-        throw new Error(`reServeSurface: no fold registered for cell "${key}"`);
+      const cell = ctx.cells[key];
+      if (!cell) {
+        throw new Error(
+          `reServeSurface: implementSurface produced no cell ctx for "${key}"`,
+        );
       }
+      // Fold the agent's frame through the framework's OWN write path
+      // (`ctx.cells.<key>.set` = equals-gate → store.set → bus.publish) — this is
+      // the only writer of the local mirror, and the only place `equals` guards
+      // (the wire-write forward path bypasses it, closing the h3 dedup edge).
+      // `markConnected` fires on the first folded frame.
       cells[key] = (value) => {
         onFirst();
-        fold(value);
+        cell.set(value);
       };
     }
     const collections: Record<
@@ -378,7 +419,7 @@ export function reServeSurface<
       const cache = collectionCaches.get(key);
       if (!cache) {
         // Structurally guaranteed (same `Object.keys(spec.collections)` key set) —
-        // fail loud like the sibling `cellFolds`/`ctx.collections` lookups rather
+        // fail loud like the sibling `ctx.cells`/`ctx.collections` lookups rather
         // than silently degrading `initialKeys` to "nothing carried over".
         throw new Error(
           `reServeSurface: no cache registered for collection "${key}"`,

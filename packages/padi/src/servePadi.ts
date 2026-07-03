@@ -43,6 +43,7 @@ import {
   restoreSession,
 } from "./sessionRestore.ts";
 import {
+  DEFAULT_PADI_PROCESS_MEMORY,
   DEFAULT_PADI_VERSION,
   type PadiStatus,
   type PadiTerminal,
@@ -54,6 +55,7 @@ import {
   registryMap,
   requireActiveTerminal,
   requireTerminal,
+  snapshotFor,
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
@@ -129,6 +131,13 @@ export function buildPadiSurfaceDeps(deps: {
       // constant seeded once at boot (the client's `kavalUpdatePending` nudge
       // reads it against the connected daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
+      // Live process-memory readout (padi's OWN RSS + its kaval's). In-memory —
+      // a live metric has no on-disk slot. The periodic sampler
+      // (`memorySampler.ts`, wired into daemon boot) is the sole writer via
+      // `padiSurfaceCtx.cells.processMemory.set`; a fresh subscription reads the
+      // latest via `get`. No `equals` dedup: the 5s cadence + small payload is
+      // cheap, and padi can't reuse kolu-common's whole-MB helper across the seal.
+      processMemory: { store: inMemoryStore(DEFAULT_PADI_PROCESS_MEMORY) },
       // In-memory urgency store, seeded from the registry fold. The metadata seam
       // (`terminalEndpoint/metadata.ts`) re-folds `.set(recomputeUrgency())` on the
       // agent firehose through the padi ctx; `equals` dedups the redundant fires.
@@ -454,6 +463,14 @@ export function buildPadiSurfaceDeps(deps: {
       // re-enforced inside `readPreview` by padi's own `previewRealpathGuard`.
       preview: {
         read: ({ input }) => readPreview(input),
+        // Resolve a terminal's repoRoot off padi's OWN registry (`snapshotFor`, the
+        // source of truth) — the re-serving binder's iframe route turns the URL's
+        // terminal id into a repo path with this, then STREAMS the file itself via
+        // the shared `previewFile` (bounded heap), so kolu-server never holds the
+        // terminal→repoRoot map and never forces a large video whole through base64.
+        repoRootForTerminal: ({ input }) => ({
+          repoRoot: snapshotFor(input.terminalId)?.git?.repoRoot ?? null,
+        }),
       },
 
       transcript: {

@@ -13,11 +13,15 @@
  * the whole game:
  *
  *   - {@link relayHoldOpenStream} — the **value** path. HOLD OPEN across an
- *     upstream respawn: when this spawn's stream ends or its link blips, rebind
- *     to the NEXT live client and keep the downstream stream alive; the only exit
- *     is the downstream unsubscribing. Replaying a value is harmless, so a hiccup
- *     must not tear the browser's subscription down. (This is pulam-web's
- *     `forwardInputStream`, recovered into the shared stack.)
+ *     upstream respawn: when this spawn's link BLIPS (the upstream stream rejects
+ *     mid-chain), rebind to the NEXT live client and keep the downstream stream
+ *     alive — replaying a value is harmless, so a hiccup must not tear the
+ *     browser's subscription down. A CLEAN upstream end is different: it means the
+ *     source finished THIS input on purpose (a one-shot event, a value stream that
+ *     completed) while the link is live, so it SURFACES downstream rather than
+ *     parking for a respawn that isn't coming (#1661 candidate 3a). The other exit
+ *     is the downstream unsubscribing. (This is pulam-web's `forwardInputStream`,
+ *     recovered into the shared stack.)
  *
  *   - {@link relayFailThroughStream} — the **delta** path. FAIL THROUGH: forward
  *     the current live client's stream 1:1, propagating its end AND its error,
@@ -105,20 +109,35 @@ export interface RelayHoldOpenOptions<F> extends RelayStreamOptions {
  * the value/delta COMPILE guard lives on the public wrapper, not here.
  *
  * Yields `lead` (if given) on each bind, then forwards the current live client's
- * `select(client).get(input)` frames until that stream ends or its link blips — at
- * which point it does NOT complete the downstream stream but waits (via the
- * holder's `whenChanged`) for the next spawn and rebinds. The ONLY exit is the
- * downstream aborting (unsubscribe). Replaying a value across a hiccup is harmless,
- * so the downstream never sees the upstream drop.
+ * `select(client).get(input)` frames. How the upstream's TERMINATION is handled
+ * splits by KIND, which is the candidate-3a resolution (W2.2):
  *
- * KNOWN LIMITATION (#1661 candidate 3a — deferred to W2.2): "did the live client
- * change?" is the sole proxy for "did the link die?". A value stream that ENDS or
- * REJECTS for a PER-INPUT reason (e.g. a bad input) while the SAME client stays
- * live leaves `holder.current === client`, so `whenChanged` never fires and the
- * downstream parks silently until the next respawn. Latent today — padi's value
- * streams (subscribeRepoChange / subscribeFileChange) only wire through here at
- * W2.2, where the recovery semantics (surface-the-error vs re-subscribe) and the
- * link-death race are ratified (pinned as a W2.2 done-criterion in the padi note).
+ *   - a **non-abort ERROR** (the transport rejected mid-stream — a LINK blip):
+ *     do NOT complete the downstream; wait (via the holder's `whenChanged`) for
+ *     the next spawn and REBIND. Replaying a value across a hiccup is harmless,
+ *     so the browser's subscription survives an upstream respawn.
+ *   - a **clean END** (the `for await` completed WITHOUT throwing): the SOURCE
+ *     ended THIS input's stream on purpose — a one-shot that fired (`terminalExit`
+ *     is a `value`-classified event that yields once then closes) or any value
+ *     stream that legitimately finishes — while the link stays live. A transport
+ *     death never arrives as a clean end (it rejects), so a clean end is
+ *     UNAMBIGUOUSLY a per-input completion, NOT a link death — no race. SURFACE
+ *     it: end the downstream (exactly as the fail-through path does) so the
+ *     client's own STREAM_RETRY re-subscribes end-to-end if it wants more.
+ *
+ * This retires candidate-3a's park: previously a clean end while `holder.current
+ * === client` fell through to `whenChanged` (which fires only on a client change),
+ * so a one-shot completion hung the downstream forever. The clean-end/error split
+ * needs no `holder.current` liveness probe — the termination KIND carries the
+ * distinction — so the link-death race the note flagged doesn't arise. The ONLY
+ * other exit is the downstream aborting (unsubscribe).
+ *
+ * A per-input REJECT while the link stays live (a source that throws for a bad
+ * input) is not reachable for padi's current value members — the pulse sources
+ * (`subscribeRepoChange` / `subscribeFileChange`) never reject (their `pollOnEvent`
+ * read is total and ends only on abort), and `terminalExit` yields-then-returns —
+ * so it would be classed as a link blip (held) today; a future one that needs
+ * surfacing would report its per-input failure as a clean end.
  */
 export function holdOpenStreamCore<Cl, I, F>(
   member: string,
@@ -158,9 +177,19 @@ export function holdOpenStreamCore<Cl, I, F>(
         for await (const frame of await select(client).get(input, { signal })) {
           yield frame;
         }
-        log(`${member}: upstream stream ended — awaiting next spawn`);
+        // Clean end: the source completed THIS input's stream on purpose (a
+        // one-shot that fired, a value stream that finished) while the link is
+        // live — a transport death rejects, it never ends cleanly. Parking on
+        // `whenChanged` (which fires only on a client CHANGE) would hang the
+        // downstream forever, so SURFACE the completion — end the downstream and
+        // let the client re-subscribe end-to-end if it wants more (#1661
+        // candidate 3a, resolved).
+        log(`${member}: upstream stream ended (per-input completion) — ending`);
+        return;
       } catch (err) {
         if (aborted()) return;
+        // A non-abort error is a LINK blip — the pump will swap in the next
+        // spawn. HOLD OPEN: don't complete the downstream; rebind below.
         log(
           `${member}: upstream link blip — awaiting next spawn: ${(err as Error).message}`,
         );

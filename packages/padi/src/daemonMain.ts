@@ -15,6 +15,11 @@
 
 import { dirname } from "node:path";
 import { type DaemonExit, daemonMain, type Logger } from "@kolu/surface-daemon";
+
+/** padi's boot time (ms epoch), stamped ONCE when this module first loads — i.e.
+ *  at process start. The control-core `hello` echoes it so the binder measures
+ *  honest uptime instead of resetting the age on every reconnect. */
+const PADI_STARTED_AT = Date.now();
 import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
 import { implement, type Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
@@ -25,8 +30,10 @@ import {
   setPadiSessionStore,
 } from "./confStores.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
+import { importLegacyConfigOnce } from "./importLegacy.ts";
 import { ensureKoluRoot, setKoluServerProcessId } from "./koluRoot.ts";
 import { log as padiLog } from "./log.ts";
+import { startPadiMemorySampler } from "./memorySampler.ts";
 import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { publisher } from "./publisher.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
@@ -92,6 +99,12 @@ export async function runPadiDaemon(
   // serves or reconciles (a read before this crashes loudly), exactly as
   // kolu-server injected its conf stores in-process before the cutover.
   const stores = openPadiStateStores(stateRoot);
+  // The one-shot import: on the first boot with a legacy `$KOLU_STATE_DIR` set
+  // (kolu-server forwards it), carry session/activityFeed/lastPairedDaemon across
+  // from the old shared config, ONCE — taking a backup first, crashing loudly on a
+  // bad file. Runs BEFORE the stores are injected so the imported values are in
+  // place before anything reads them. (#1658's backup, inlined per the scope note.)
+  importLegacyConfigOnce(stores, log);
   setPadiSessionStore(stores.session);
   setPadiActivityFeedStore(stores.activityFeed);
   setPadiLastPairedDaemonStore(stores.lastPairedDaemon);
@@ -136,7 +149,11 @@ export async function runPadiDaemon(
     },
     {
       padi: buildPadiSurfaceDeps({ endpoint: localEndpoint, log: padiLog }),
-      control: buildControlCoreDeps({ stateRoot, onDrain }),
+      control: buildControlCoreDeps({
+        stateRoot,
+        startedAt: PADI_STARTED_AT,
+        onDrain,
+      }),
     },
   );
   // Wire the late-bound ctx so every padi domain writer publishes deltas.
@@ -161,6 +178,12 @@ export async function runPadiDaemon(
     onNotAdopted: parkSavedSession,
     onBootSettled: startInventoryReconciler,
   });
+
+  // Feed the chrome bar's memory rail: sample padi's OWN RSS + poll its kaval's on
+  // a fixed cadence and publish the pair on `padiSurface.processMemory` (kolu-server
+  // folds it into the rail's cell). Started after `ensureLocalEndpoint` so the first
+  // kaval poll can reach a connected daemon; a not-yet-connected kaval reads `absent`.
+  startPadiMemorySampler();
 
   // ── Manifests (digest → state-root) so a flag-less kaval-tui can label what it
   // discovers. padi knows the state-root the opaque digest stands for; write it

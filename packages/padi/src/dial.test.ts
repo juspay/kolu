@@ -79,6 +79,9 @@ function spawnPadi(stateRoot: string): Padi {
   delete env.INVOCATION_ID;
   delete env.KOLU_KAVAL_BIN;
   delete env.KOLU_KAVAL_SOCKET;
+  // Never let the dial test's padi run the one-shot legacy import (which would
+  // touch a real kolu config + write a backup) — its state-root is private.
+  delete env.KOLU_STATE_DIR;
   const child = spawn(
     process.execPath,
     [
@@ -179,6 +182,8 @@ describe("padi the process — dial acceptance", () => {
     expect(hello.stateRoot).toBe(resolve(stateRoot));
     expect(hello.surfaceVersion).toBe("1.0");
     expect(hello.controlCoreVersion).toBe("1.0");
+    // …and its boot time, stamped once at daemon init (honest uptime source).
+    expect(hello.startedAt).toBeGreaterThan(0);
 
     const clock = await conn.client.surface.control.core.clockNow();
     expect(clock.epochMs).toBeGreaterThan(0);

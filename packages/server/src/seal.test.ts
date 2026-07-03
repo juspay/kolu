@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { contract } from "kolu-common/contract";
 import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { appRouter } from "./router.ts";
+import { buildAppRouter } from "./router.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const ENTRY = resolve(SRC, "index.ts");
@@ -44,6 +44,11 @@ const WEB_SHELL_FILES = [
   "index",
   "log",
   "memorySampler",
+  // The W2.2 padi BINDER — the web shell's supervisor/client of the padi PROCESS
+  // (spawn/adopt + dial + the reconnect-mirror session `reServeSurface` consumes).
+  // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives
+  // beside the shell, not in @kolu/padi.
+  "padiBinding",
   "pwaIdentity",
   "router",
   "state",
@@ -301,7 +306,13 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         .sort(),
     ).toEqual(["daemon", "server"]);
 
-    const r = appRouter as Record<string, unknown>;
+    // `appRouter` is assembled in `index.ts`'s async boot now (the padi sibling is
+    // an `await`ed re-serve), so build it here with stub deps to assert the same
+    // fact: no terminal/git root namespace survives beside surface/server/daemon.
+    const r = buildAppRouter({
+      surfaceRouter: { surface: {} },
+      drainBoundPadi: async () => {},
+    }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();
   });

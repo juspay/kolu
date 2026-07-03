@@ -44,6 +44,7 @@ import { clientStale, StaleBadge } from "./StaleBadge";
 import {
   clientHeapUsedBytes,
   kavalMemoryDisplay,
+  padiMemoryDisplay,
   serverRssBytes,
 } from "./useMemoryUsage";
 
@@ -108,6 +109,16 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const stale = clientStale;
   const kavalVersion = (): string | undefined => daemon()?.contractVersion;
 
+  // The padi process's RSS for the Kolu tooltip — padi is the server-host-side
+  // process that owns kaval, so its memory reads out beside the server's here (the
+  // rail names Kolu + Kaval; padi rides Kolu's group as the third server-side row).
+  const padiMemoryText = (): string =>
+    match(padiMemoryDisplay())
+      .with({ kind: "ok" }, (d) => `padi RSS ${formatMBCompact(d.rssBytes)}`)
+      .with({ kind: "error" }, () => "padi memory poll failed")
+      .with(P.nullish, () => "padi memory unavailable")
+      .exhaustive();
+
   // Memoized: the chip binds it to both `title` and `aria-label`, and it folds in
   // the per-second memory/uptime ticks — so build the string once per change.
   const koluTip = createMemo((): string => {
@@ -117,6 +128,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       server?.version ? `server v${server.version}` : undefined,
       server?.commit ? `server ${server.commit}` : undefined,
       `server RSS ${mbText(serverRssBytes())}`,
+      padiMemoryText(),
       stale()
         ? "client build differs from server"
         : "client build matches server",
@@ -139,16 +151,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       : `running ${formatUptime(clockNow() - startedAt)}`;
   };
 
-  const kavalMemoryText = (): string => {
-    return match(kavalMemoryDisplay())
-      .with(
-        { kind: "ok" },
-        (display) => `RSS ${formatMBCompact(display.rssBytes)}`,
-      )
+  const kavalMemoryText = (): string =>
+    match(kavalMemoryDisplay())
+      .with({ kind: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
       .with({ kind: "error" }, () => "memory poll failed")
       .with(P.nullish, () => "memory unavailable")
       .exhaustive();
-  };
 
   const kavalTip = createMemo((): string =>
     joinTip(

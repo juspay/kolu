@@ -100,7 +100,8 @@ const KavalInfoDialog: Component<{
           {/* Same {@link kavalMemoryDisplay} source the identity-rail chip reads,
               so the dialog and the rail tooltip can't drift: `ok` → the RSS
               figure; `error` → an honest poll-failure marker; `null` (no daemon /
-              stale link) → unavailable. */}
+              stale link) → unavailable. padi owns kaval now, so the RSS rides
+              padi's readout, folded into the rail cell server-side. */}
           <span data-testid="kaval-dialog-memory">
             {match(kavalMemoryDisplay())
               .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))

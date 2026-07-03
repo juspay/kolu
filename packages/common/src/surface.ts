@@ -241,46 +241,54 @@ export function applyPreferencesPatch(
   };
 }
 
-/** The kaval daemon's memory as an HONEST three-way state, not a `number | null`
- *  that conflates "no daemon" with "the poll failed".
+/** A single process's resident-set size as an HONEST three-way state, not a
+ *  `number | null` that conflates "no process to measure" with "the read failed".
  *
- *   - `{ status: "ok", rssBytes }` — a live daemon answered `system.processMemory`.
- *   - `{ status: "absent" }` — there is no connected daemon to measure (down /
- *     degraded / pre-first-poll). The expected "no value", not an error.
- *   - `{ status: "error" }` — the daemon was BELIEVED connected (its `daemonStatus`
- *     says so) yet the poll threw. A real anomaly the rail must surface distinctly
- *     from `absent`, so a failing RPC never renders identically to "no daemon"
- *     (the `caught-error-must-not-collapse-to-empty` rule — a server-side log is
- *     not a user surface). The original error is logged at `error` level server-
- *     side; the wire carries only the discriminant the rail needs.
+ *   - `{ status: "ok", rssBytes }` — a live process answered.
+ *   - `{ status: "absent" }` — there is no process to measure (down / not-yet-
+ *     sampled). The expected "no value", not an error.
+ *   - `{ status: "error" }` — the process was BELIEVED up yet its RSS read threw.
+ *     A real anomaly the rail must surface distinctly from `absent`, so a failed
+ *     read never renders identically to "no process" (the
+ *     `caught-error-must-not-collapse-to-empty` rule — a server-side log is not a
+ *     user surface).
  *
- *  A discriminated union (not an extra `kavalMemoryError` flag beside a nullable
- *  number) so the three states are mutually exclusive by construction — there is
- *  no representable "error AND a stale rss". */
-export const KavalMemorySchema = z.discriminatedUnion("status", [
+ *  A discriminated union (not an extra error flag beside a nullable number) so the
+ *  three states are mutually exclusive by construction — there is no representable
+ *  "error AND a stale rss".
+ *
+ *  SEAL NOTE: `@kolu/padi` declares a BYTE-IDENTICAL copy of this union
+ *  (`ProcessRssSchema` in `@kolu/padi/surface`) — padi's `processMemory` cell
+ *  needs it, and the package-boundary seal forbids padi importing `kolu-common`
+ *  (proved in `server/src/seal.test.ts`) OR this heavily-imported module importing
+ *  `@kolu/padi`. The two are kept identical on purpose; kolu-server's memory
+ *  sampler folds padi's reading into this cell, so a shape drift breaks that fold
+ *  at the typecheck (structural assignability) rather than silently. */
+export const ProcessRssSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("ok"), rssBytes: z.number() }),
   z.object({ status: z.literal("absent") }),
   z.object({ status: z.literal("error") }),
 ]);
-export type KavalMemory = z.infer<typeof KavalMemorySchema>;
+export type ProcessRss = z.infer<typeof ProcessRssSchema>;
 
-/** Live process-memory readout for the chrome bar's identity rail — the
- *  resident-set size (RSS) of the two server-side processes the rail names. The
- *  CLIENT's own JS-heap figure is NOT here: it's a browser-local fact read off
- *  `performance.memory` in the client (no wire round-trip), so this cell carries
- *  only what the client can't measure itself.
+/** Live process-memory readout for the chrome bar's identity rail — the RSS of the
+ *  three server-side processes the rail names. The CLIENT's own JS-heap figure is
+ *  NOT here: it's a browser-local fact read off `performance.memory` in the client
+ *  (no wire round-trip), so this cell carries only what the client can't measure
+ *  itself.
  *
- *  `serverRssBytes` is the kolu-server process (always present — it's measuring
- *  itself). `kavalMemory` is the kaval pty-host daemon's RSS, a SEPARATE process
- *  the server polls over the daemon's `system.processMemory`; it is the honest
- *  three-way {@link KavalMemorySchema} so the rail can tell "no daemon" apart from
- *  "the daemon's poll failed", never collapsing a failed RPC into the same shape
- *  as no-data. A continuously-changing metric, kept off the lifecycle-transition
- *  `daemonStatus` collection so the two different change rates don't ride one
- *  channel. */
+ *  `serverRssBytes` is the kolu-server process (a plain number — always present, it
+ *  is measuring ITSELF). `padi` + `kaval` are the padi PROCESS and its kaval daemon
+ *  — a SEPARATE process pair kolu-server no longer runs in-process (W2.2). padi
+ *  serves its OWN `{ padi, kaval }` readout on `padiSurface.processMemory`; the
+ *  server's sampler folds that reading in here so the rail reads one cell. Each is
+ *  the honest {@link ProcessRssSchema} three-way so the rail can tell "the process
+ *  is down" (`absent`) apart from "its RSS read failed" (`error`), never a fake
+ *  zero — when padi is down both read `absent`. */
 export const ProcessMemorySchema = z.object({
   serverRssBytes: z.number(),
-  kavalMemory: KavalMemorySchema,
+  padi: ProcessRssSchema,
+  kaval: ProcessRssSchema,
 });
 export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
 
@@ -370,15 +378,18 @@ export const koluSurface = defineSurface({
       verbs: ["get", "patch", "test__set"],
     },
 
-    /** Live process-memory readout (server + kaval RSS) for the rail. The
-     *  server's periodic sampler is the sole writer (`koluSurfaceCtx.cells.
-     *  processMemory.set`); clients read-only. `kavalMemory` is `absent` until
-     *  the first daemon poll, and whenever the daemon is down. */
+    /** Live process-memory readout (kolu-server + padi + kaval RSS) for the rail.
+     *  The server's periodic sampler is the sole writer
+     *  (`koluSurfaceCtx.cells.processMemory.set`); clients read-only. It samples
+     *  kolu-server's own RSS and FOLDS IN padi's `{ padi, kaval }` reading off the
+     *  re-served padi surface — `padi`/`kaval` are `absent` until the first fold,
+     *  and whenever padi is down. */
     processMemory: {
       schema: ProcessMemorySchema,
       default: {
         serverRssBytes: 0,
-        kavalMemory: { status: "absent" },
+        padi: { status: "absent" },
+        kaval: { status: "absent" },
       } satisfies z.infer<typeof ProcessMemorySchema>,
       verbs: ["get"],
     },

@@ -24,10 +24,13 @@ type ControlCoreDeps = Omit<
 >;
 
 /** Assemble the control-core server deps. `stateRoot` is padi's identity (echoed
- *  by `hello`); `onDrain` persists padi's state and triggers a graceful exit —
- *  the PTYs survive in kaval, and the caller observes the socket close. */
+ *  by `hello`); `startedAt` is padi's boot time (ms epoch), stamped once at daemon
+ *  init and echoed by `hello` so the binder reports honest uptime; `onDrain`
+ *  persists padi's state and triggers a graceful exit — the PTYs survive in kaval,
+ *  and the caller observes the socket close. */
 export function buildControlCoreDeps(deps: {
   stateRoot: string;
+  startedAt: number;
   onDrain: () => void | Promise<void>;
 }): ControlCoreDeps {
   return {
@@ -43,6 +46,7 @@ export function buildControlCoreDeps(deps: {
           stateRoot: deps.stateRoot,
           surfaceVersion: PADI_SURFACE_VERSION,
           controlCoreVersion: CONTROL_CORE_VERSION,
+          startedAt: deps.startedAt,
         }),
         controlVersion: () => ({ controlCoreVersion: CONTROL_CORE_VERSION }),
         // Persist + exit. Await the caller's drain (a final session flush) BEFORE

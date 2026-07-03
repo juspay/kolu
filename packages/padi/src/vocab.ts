@@ -622,6 +622,48 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export type DaemonState = DaemonStatus["state"];
 
+// ── Process-memory readout (padi + its kaval) ─────────────────────────────
+
+/** A single process's resident-set size as an HONEST three-way state, not a
+ *  `number | null` that conflates "no process to measure" with "the read failed":
+ *  `{ status: "ok", rssBytes }` · `{ status: "absent" }` (down / not-yet-sampled) ·
+ *  `{ status: "error" }` (believed up, RSS read threw — surfaced, never collapsed
+ *  into `absent`, per `caught-error-must-not-collapse-to-empty`).
+ *
+ *  SEAL NOTE: this is a BYTE-IDENTICAL copy of `kolu-common/surface`'s
+ *  `ProcessRssSchema`. The package-boundary seal forbids `@kolu/padi` importing
+ *  `kolu-common` (proved in `server/src/seal.test.ts`), and keeps that
+ *  heavily-imported module free of `@kolu/padi`, so the honest union is declared on
+ *  BOTH sides. kolu-server's memory sampler folds this reading into its own
+ *  `processMemory` cell, so a shape drift breaks that fold at the typecheck
+ *  (structural assignability), not silently. */
+export const ProcessRssSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), rssBytes: z.number() }),
+  z.object({ status: z.literal("absent") }),
+  z.object({ status: z.literal("error") }),
+]);
+export type ProcessRss = z.infer<typeof ProcessRssSchema>;
+
+/** padi's process-memory readout — its OWN RSS plus its kaval daemon's, each the
+ *  honest {@link ProcessRssSchema} three-way. padi owns kaval now (it supervises
+ *  the kaval process), so padi is the source of this pair; it publishes it every
+ *  sampler tick and kolu-server folds it into the rail's cell. `padi` is `ok` once
+ *  padi has measured itself; `kaval` is `ok` when a connected daemon answered
+ *  `system.processMemory`, `absent` when there is no connected daemon, `error` when
+ *  a believed-connected daemon's poll threw. */
+export const PadiProcessMemorySchema = z.object({
+  padi: ProcessRssSchema,
+  kaval: ProcessRssSchema,
+});
+export type PadiProcessMemory = z.infer<typeof PadiProcessMemorySchema>;
+
+/** The value a fresh `processMemory` subscriber sees before padi's first sample —
+ *  both processes' RSS unknown (the honest `absent`, never a fake zero). */
+export const DEFAULT_PADI_PROCESS_MEMORY: PadiProcessMemory = {
+  padi: { status: "absent" },
+  kaval: { status: "absent" },
+};
+
 /** Server-derived activity feed — derived off its schema directly now that the
  *  cell rides `padiSurface` (no longer a `koluSurface` cell). */
 export type ActivityFeed = z.infer<typeof ActivityFeedSchema>;
