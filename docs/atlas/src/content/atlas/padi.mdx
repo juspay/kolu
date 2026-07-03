@@ -27,8 +27,8 @@ export const ROADMAP = [
   { d: 1, g: "✓", c: "ship", l: "W1.M · the motion — the terminal domain relocates into @kolu/padi (severing commits named)", m: "in #1652", h: "#w1m" },
   { d: 1, g: "✓", c: "ship", l: "W1.R · the rewiring — serve complete · client onto the surface · root RPC dies · seal", m: "in #1652", h: "#w1r" },
   { d: 0, g: "○", c: "prog", l: "W2 · padi the process — 3 PRs ↓ · byte-identical · warm restarts", m: "needs W1 ✓", h: "#w2" },
-  { d: 1, g: "○", c: "prog", l: "W2.1 · the re-serve machinery in @kolu/surface* — forwarding policy · per-binding scope", m: "drishti-gated · startable NOW", h: "#w21" },
-  { d: 1, g: "○", c: "prog", l: "W2.2 · padi the process — ONE PR: binary + identity + owns kaval + the cutover (bind · re-serve · store migration)", m: "needs W2.1 · baseline ✓ #1660", h: "#w22" },
+  { d: 1, g: "✓", c: "ship", l: "W2.1 · the re-serve machinery in @kolu/surface* — forwarding policy · per-binding scope", m: "#1661 · drishti #84 adopts", h: "#w21" },
+  { d: 1, g: "▶", c: "prog", l: "W2.2 · padi the process — ONE PR: binary + identity + owns kaval + the cutover (bind · re-serve · store migration)", m: "all gates ✓ — READY", h: "#w22" },
   { d: 1, g: "○", c: "prog", l: "W2.3 · padi-tui born + the burial — wait/status/create/worktree verbs · pulam* retired · terminalWorkspaceSurface DELETED", m: "needs W2.2", h: "#w23" },
   { d: 0, g: "○", c: "prog", l: "W3 · remote + the switch — 3 PRs ↓ · the user-visible feature", m: "needs W2", h: "#w3" },
   { d: 1, g: "○", c: "prog", l: "W3.1 · the remote binding — provision + front a remote padi (complete, invisible)", m: "parity e2e on a pu box", h: "#w31" },
@@ -67,7 +67,7 @@ export const LENS = [
     sub: [["C",2,false,true],["M",2,false,true],["R",4,true,true]] },
   { p: "W2", h: "#w2", user: "nothing — except kolu-server restarts stop losing terminal metadata", vis: false, work: 5, why: "process split · new daemon identity · re-serve machinery (drishti-gated) · store migration",
     beh: "the big shift, behind identical pixels — Δ2.2 a second daemon appears; sockets get new names (kaval-<port> retires); keystrokes take one extra hop (budget < 5ms); boot order changes; the session file moves (one-time import) · Δ2.3 `pulam-tui wait` becomes padi's wait",
-    sub: [["2.1",4],["2.2",5,true],["2.3",2,true]] },
+    sub: [["2.1",4,false,true],["2.2",5,true],["2.3",2,true]] },
   { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)",
     beh: "Δ3.2 each connection now belongs to one host — the client rebuilds its plumbing when you switch · Δ3.3 notifications now fire for hosts you are not looking at (3.1 ships switched off by default)",
     sub: [["3.1",2],["3.2",3,true],["3.3",1,true]] },
@@ -220,7 +220,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 | package | born | why then, not earlier/later |
 | --- | --- | --- |
 | `@kolu/padi` | **W1.C** | location is structure: code destined for the daemon must not camp in `packages/server`. Package at W1, **process at W2.2**. **The dependency arrow: padi imports no kolu app package** (libraries only) — the app imports padi, never the reverse. Otherwise app churn would pollute padi's restart hash, and kolu-tui (which exists to prove padi needs no kolu) would drag kolu back in |
-| re-serve machinery | **W2.1**, into existing `@kolu/surface` / `surface-nix-host` | it generalizes proven pulam-web code for a second consumer (kolu-server) — that *is* the graduation moment; no new package, it extends the receptacle that already owns mirroring (drishti-gated) |
+| re-serve machinery | **W2.1** ✓ <PrLink pr={1661} />, into existing `@kolu/surface` / `surface-nix-host` | it generalizes proven pulam-web code for a second consumer (kolu-server) — that *is* the graduation moment; no new package, it extends the receptacle that already owns mirroring (drishti-gated) |
 | the control core | lives in `@kolu/padi` | graduates to `@kolu/surface-daemon` only if a second daemon adopts it — electricity test ③: the proof of graduation is real, not aspirational |
 | padi's `wait` (the agent done-signal) | **W2.3**, a subcommand of the padi binary | no new package: the kaval-tui precedent (separate TUI package) is for a full client; a done-signal probe rides the daemon's own CLI |
 | `kolu-tui` | **W4**, new package | it exists to *prove* padiSurface serves a second frontend — building it earlier would be extraction before proof |
@@ -293,14 +293,16 @@ W1.R's seal guarantees the domain lives behind the contract, complete as a libra
 
 <a id="w21"></a>
 
-#### W2.1 — the re-serve machinery in `@kolu/surface*` *(startable now; drishti-gated; lands first so the surface API is frozen before W2.2)*
+#### W2.1 — the re-serve machinery in `@kolu/surface*` — *shipped* <PrLink pr={1661} />
+
+**Shipped 2026-07-03** (squash `7e7a5b4f1`), hardened by the full gauntlet plus an external 8-angle / 23-candidate review with a 22-agent verification and a 3-auditor final pass. What the rounds added beyond the plan: the **`initialKeys` reconcile hook** on `@kolu/surface`'s `mirrorCollection` (kills stale rows across a reconnect; adopted by drishti — [srid/drishti#84](https://github.com/srid/drishti/pull/84) fixes its own ghost-PID bug with it, upgrading the gate to a real second-consumer proof); the policy re-scoped to a **streaming-survival axis** (streams + events only — cells always fold, procedures always forward); mirrored cells became a **read mirror** (write verbs throw loudly until W2.2 forwards them); and the audit's residuals were pinned into W2.2's done-criteria (c)/(g)/(h) below.
 
 **W1 already shipped the classification** — every padiSurface member declares whether it's a replayable value or a fail-through byte stream, pinned by a contract test. W2.1 builds the *machinery* that honors it: move pulam-web's relay code into the shared surface stack, generalized — the per-member relay policy (values may be held open and replayed; byte streams must end downstream when upstream drops, and the helper refuses to hold open anything not declared replayable), a relay for input-keyed streams (pulam-web's version holds streams open, which is exactly wrong for attach), and per-host stores + per-connection routers (today everything is one global).
 - **Done:** unit-proven against a toy surface (kill-the-middle-hop on a fail-through member terminates downstream; a hold-open member replays values); the **paired drishti PR** passes CI pinned to final kolu HEAD per `.claude/rules/surface.md`.
 
 <a id="w22"></a>
 
-#### W2.2 — padi the process: the binary AND the cutover, one PR *(needs W2.1; baseline ✓ #1660; two commit stages inside the ONE PR — nothing here is a separate PR)*
+#### W2.2 — padi the process: the binary AND the cutover, one PR *(gates all ✓ — W2.1 <PrLink pr={1661} />, baseline <PrLink pr={1660} />; two commit stages inside the ONE PR — nothing here is a separate PR)*
 
 **Commit stage 1 — the binary and its identity.** `packages/padi` has existed since W1; this stage gives it a **process entry** and its own Nix build, and kaval's rule starts applying: the package IS the process IS the restart-hash — the boundary was drawn back in W1, so nothing moves, it just gains a `main`. Identity per the architecture section: persistent state-root with the default **spelled by the padi binary on the host**; **digest-keyed runtime rendezvous** (`padi-<digest>/`, gates auto-invalidate at boot); 0700 socket; the frozen **control core** (hello · version · drain · `clock.now`) served for real. **The daemon-pairing work extends what W1 already shipped** — `lastPairedDaemon` (matched by `startedAt`), `isReplacedDaemon`, and the preserve-and-park boot are live on master. This stage moves that pairing record into the state-root and may strengthen the match (pid, and the handshake identity where present). padi **spawns-or-adopts its kaval** under `kaval-<digest>/` (retiring `kaval-<port>`), and `kaval-tui`'s **discovery + labels move to the digest pattern + a manifest (digest → state-root) in the same stage** — a flag-less `kaval-tui` keeps working throughout. *Stage acceptance: a dial test (kaval-tui-style) spawns-or-adopts padi at a private state-root, handshakes the control core, round-trips a terminal through `padiSurface` over the socket; two padis at distinct state-roots never touch each other's kaval (the #1313 property, by construction); `nix build` produces the padi closure with a stable staleKey.*
 
