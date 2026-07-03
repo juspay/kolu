@@ -201,10 +201,29 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
  *  volatility axis. Typed here so the pump's `session` param is this ROLE, not a
  *  concrete class: a second implementation plugs in through the type system (no
  *  `as unknown as HostSession` cast), and a future pump-method addition becomes a
- *  compile obligation on BOTH sessions rather than a silent runtime gap. */
-export interface RemoteMirrorSession<C extends AnyContractRouter> {
-  pin(): Promise<AgentClient<C>>;
-  currentClient(): Promise<AgentClient<C>> | null;
+ *  compile obligation on BOTH sessions rather than a silent runtime gap.
+ *
+ *  The type parameter (`_C`, the agent's contract) names, for the reader and the
+ *  call sites, WHICH agent this receptacle mirrors; the concrete implementers DO
+ *  expose the precise per-contract `AgentClient<_C>` (see `HostSession.pin` /
+ *  `.currentClient`). The ROLE, though, yields that client at its LOOSEST — an
+ *  opaque `unknown` — because a receptacle only ever forwards it structurally
+ *  (every consumer casts it to a `SurfaceClientLike` / member-namespace view
+ *  before use; the pump never calls a procedure through the statically-typed
+ *  client). Because the client's INPUT is thus never pinned to the specific
+ *  contract, the role stays COVARIANT in its parameter: a specific-contract
+ *  session (a `HostSession<Specific>`) stays assignable to a *general* receptacle
+ *  (`RemoteMirrorSession<AnyContractRouter>`) — the shape a consumer's un-annotated
+ *  `pumpRemoteSurface(...)` collapses the parameter to, since it sits only inside
+ *  the non-inferable mapped `AgentClient<…>`. Narrowing these returns back to
+ *  `AgentClient<_C>` reintroduces input contravariance (`system.live` takes
+ *  `Record<string, never>`, not `unknown`) and breaks that assignment — the exact
+ *  regression `reServeSurface.variance.test-d.ts` pins. `_C` is therefore
+ *  documentary (underscored: unused in the structural role), retained so the four
+ *  consumer signatures and their explicit-type-arg call sites keep naming it. */
+export interface RemoteMirrorSession<_C extends AnyContractRouter> {
+  pin(): Promise<unknown>;
+  currentClient(): Promise<unknown> | null;
   isDestroyed(): boolean;
   onState(cb: (s: HostSessionState) => void): () => void;
   markConnected(): void;

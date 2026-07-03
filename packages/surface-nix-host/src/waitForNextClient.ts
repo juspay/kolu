@@ -89,7 +89,15 @@ function waitForNextClient<C extends AnyContractRouter>(
         reject(new Error("session destroyed"));
         return true;
       }
-      const clientPromise = session.currentClient();
+      // `RemoteMirrorSession` yields its client at the loose `unknown` receptacle
+      // type (so a specific-contract session stays assignable to a general
+      // receptacle — see that interface's doc). This cursor is generic over the
+      // real contract `C`, and the runtime value IS the `AgentClient<C>` the
+      // concrete session produced (only the role's static *view* was widened), so
+      // re-narrow the promise here — the single place the loosening is reconciled.
+      const clientPromise = session.currentClient() as Promise<
+        AgentClient<C>
+      > | null;
       // null (no spawn in flight) or the same promise the caller already
       // pumped (link still down / unchanged) → keep waiting. This identity
       // check on the *promise* is what stops the busy-spin.
