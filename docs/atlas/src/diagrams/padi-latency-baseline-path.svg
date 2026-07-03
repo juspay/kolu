@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b94a6" />
+    </marker>
+    <marker id="arrEcho" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7ec699" />
+    </marker>
+  </defs>
+
+  <!-- nodes -->
+  <g text-anchor="middle">
+    <rect x="20"  y="120" width="130" height="60" rx="9" fill="#141a2b" stroke="#3a4666"/>
+    <text x="85"  y="146" fill="#c8d0de" font-weight="600">client probe</text>
+    <text x="85"  y="165" fill="#8b94a6" font-size="11">Node · /rpc/ws</text>
+
+    <rect x="315" y="120" width="130" height="60" rx="9" fill="#141a2b" stroke="#3a4666"/>
+    <text x="380" y="146" fill="#c8d0de" font-weight="600">kolu-server</text>
+    <text x="380" y="165" fill="#8b94a6" font-size="11">padiSurface</text>
+
+    <rect x="610" y="120" width="130" height="60" rx="9" fill="#141a2b" stroke="#3a4666"/>
+    <text x="675" y="142" fill="#c8d0de" font-weight="600">kaval → PTY</text>
+    <text x="675" y="161" fill="#8b94a6" font-size="11">line-discipline</text>
+    <text x="675" y="175" fill="#8b94a6" font-size="11">echo</text>
+  </g>
+
+  <!-- write path (top) -->
+  <line x1="150" y1="138" x2="315" y2="138" stroke="#8b94a6" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="445" y1="138" x2="610" y2="138" stroke="#8b94a6" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="232" y="128" text-anchor="middle" fill="#8b94a6" font-size="11">sendInput</text>
+
+  <!-- echo path (bottom) -->
+  <line x1="610" y1="162" x2="445" y2="162" stroke="#7ec699" stroke-width="2" marker-end="url(#arrEcho)"/>
+  <line x1="315" y1="162" x2="150" y2="162" stroke="#7ec699" stroke-width="2" marker-end="url(#arrEcho)"/>
+  <text x="232" y="182" text-anchor="middle" fill="#7ec699" font-size="11">terminalAttach delta</text>
+
+  <!-- clock markers -->
+  <g text-anchor="middle">
+    <circle cx="150" cy="138" r="6" fill="#e6a23c"/>
+    <text x="150" y="96" fill="#e6a23c" font-weight="700">t0</text>
+    <text x="150" y="80" fill="#8b94a6" font-size="11">clock starts</text>
+
+    <circle cx="150" cy="162" r="6" fill="#7ec699"/>
+    <text x="150" y="228" fill="#7ec699" font-weight="700">t1</text>
+    <text x="150" y="244" fill="#8b94a6" font-size="11">clock stops</text>
+  </g>
+
+  <!-- W2.2 hop insertion -->
+  <g>
+    <line x1="527" y1="60" x2="527" y2="240" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <rect x="452" y="40" width="150" height="22" rx="6" fill="#221b3a" stroke="#a78bfa"/>
+    <text x="527" y="55" text-anchor="middle" fill="#c9b8ff" font-size="11">W2.2 inserts padi here</text>
+    <text x="527" y="262" text-anchor="middle" fill="#8b94a6" font-size="11">both clock points sit on the near (client) side of this hop</text>
+  </g>
+</svg>
