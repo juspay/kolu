@@ -51,38 +51,31 @@ export function setPadiLastPairedDaemonStore(
   lastPairedDaemonStore = store;
 }
 
-/** The injected `session` store, or a loud crash if a read beat the boot-time
- *  set. Fail-fast: a never-set read must surface, never silently degrade to a
- *  null session (which would drop the restore card). */
+/** Fail-fast reader for a boot-injected store: return it, or crash loudly if a
+ *  read beat the boot-time set. A never-set read must SURFACE, never silently
+ *  degrade to an empty/absent store (a null session drops the restore card; a
+ *  missing prior pairing re-opens the session-clobber path). Shared by the three
+ *  `requirePadiXStore()` getters so the fail-fast idiom lives once. */
+function requireStore<T>(store: T | undefined, name: string): T {
+  if (store === undefined) {
+    throw new Error(
+      `padi ${name} store read before it was set — padi boot (daemonMain) must set the ${name} store before serving`,
+    );
+  }
+  return store;
+}
+
+/** The injected `session` store, or a loud crash if a read beat the boot-time set. */
 export function requirePadiSessionStore(): CellStore<SavedSession | null> {
-  if (sessionStore === undefined) {
-    throw new Error(
-      "padi session store read before setPadiSessionStore() — padi boot (daemonMain) must set it before serving",
-    );
-  }
-  return sessionStore;
+  return requireStore(sessionStore, "session");
 }
 
-/** The injected `activityFeed` store, or a loud crash if a read beat the
- *  boot-time set. Fail-fast, mirroring {@link requirePadiSessionStore}. */
+/** The injected `activityFeed` store, or a loud crash if a read beat the boot-time set. */
 export function requirePadiActivityFeedStore(): CellStore<ActivityFeed> {
-  if (activityFeedStore === undefined) {
-    throw new Error(
-      "padi activityFeed store read before setPadiActivityFeedStore() — padi boot (daemonMain) must set it before serving",
-    );
-  }
-  return activityFeedStore;
+  return requireStore(activityFeedStore, "activityFeed");
 }
 
-/** The injected `lastPairedDaemon` store, or a loud crash if a read beat the
- *  boot-time set. Fail-fast, mirroring {@link requirePadiSessionStore}: a boot that
- *  can't read the prior pairing must surface, not silently skip replacement
- *  detection (which would re-open the session-clobber path). */
+/** The injected `lastPairedDaemon` store, or a loud crash if a read beat the boot-time set. */
 export function requirePadiLastPairedDaemonStore(): CellStore<PairedDaemon | null> {
-  if (lastPairedDaemonStore === undefined) {
-    throw new Error(
-      "padi lastPairedDaemon store read before setPadiLastPairedDaemonStore() — padi boot (daemonMain) must set it before adopting",
-    );
-  }
-  return lastPairedDaemonStore;
+  return requireStore(lastPairedDaemonStore, "lastPairedDaemon");
 }
