@@ -8,7 +8,7 @@ import type { KoluWorld } from "../support/world.ts";
  *  padi's sampler poll is folded into the rail cell (padi owns kaval now). */
 async function assertChipMemoryLabel(
   world: KoluWorld,
-  testid: "kolu-identity-chip" | "kaval-identity-chip",
+  testid: "kolu-identity-chip" | "padi-identity-chip" | "kaval-identity-chip",
   pattern: RegExp,
 ): Promise<void> {
   const chip = world.page.locator(`[data-testid="${testid}"]`);
@@ -50,11 +50,9 @@ Then(
 Then(
   "the identity rail details include padi memory usage",
   async function (this: KoluWorld) {
-    await assertChipMemoryLabel(
-      this,
-      "kolu-identity-chip",
-      /padi RSS \d+\s*MB/,
-    );
+    // padi has its own rail chip now, so its RSS reads out on the Padi chip
+    // (mirroring kaval), not folded into the Kolu chip's tooltip.
+    await assertChipMemoryLabel(this, "padi-identity-chip", /RSS \d+\s*MB/);
   },
 );
 

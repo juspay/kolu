@@ -1,17 +1,20 @@
 /** IdentityRail — the "which kolu am I running" chrome readout.
  *
- *  The rail is deliberately glance-first: one Kolu health group and one Kaval
- *  health group. Each keeps its one visible version; memory, uptime, and exact
- *  build details live in hover text / dialogs unless they need attention
- *  (`≠ srv`, `⬆ update`, `mem ?`). The old all-numbers strip was useful for
- *  diagnostics but too dense as always-on chrome.
+ *  The rail is deliberately glance-first: three health groups, one per process in
+ *  the ownership chain — Kolu (server + client), Padi (the per-host daemon that
+ *  owns the terminals), and Kaval (the PTY daemon padi supervises). Each keeps its
+ *  one visible version where the wire surfaces one (padi's doesn't reach the client,
+ *  so its chip is logo + state only); memory, uptime, and exact build details live
+ *  in hover text / dialogs unless they need attention (`≠ srv`, `⬆ update`,
+ *  `mem ?`). The old all-numbers strip was useful for diagnostics but too dense as
+ *  always-on chrome.
  *
- *  The server dot carries `data-ws-status` and the kaval dot
- *  `data-daemon-state` — the e2e hooks the smoke / reconnect / kaval-daemon
- *  scenarios read; exactly one element holds each. Live memory rides each chip's
- *  `aria-label`/tooltip (where the e2e asserts it); only a kaval memory-poll
- *  error surfaces its own visible chip, so the row never repaints as a process
- *  monitor. */
+ *  The server dot carries `data-ws-status`, the kaval dot `data-daemon-state`, and
+ *  the padi dot `data-padi-link` — the e2e hooks the smoke / reconnect /
+ *  kaval-daemon scenarios read; exactly one element holds each. Live memory rides
+ *  each chip's `aria-label`/tooltip (where the e2e asserts it); only a padi/kaval
+ *  memory-poll error surfaces its own visible chip, so the row never repaints as a
+ *  process monitor. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
@@ -35,8 +38,11 @@ import {
   formatUptime,
   kavalDot,
   localDaemonStatus,
+  padiLinkState,
   serverDot,
 } from "../kaval/useDaemonStatus";
+import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
+import { PADI_LINK_PRESENTATION, padiDot } from "../padi/padiPresentation";
 import type { WsStatus } from "../rpc/rpc";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { formatMBCompact, mbText } from "./memory";
@@ -76,6 +82,19 @@ const KavalMemReadout: Component = () => (
   </Show>
 );
 
+/** The padi twin of {@link KavalMemReadout}: a padi memory-poll failure is a visible
+ *  diagnostic anomaly; the normal RSS figure stays in the chip tooltip/aria-label. */
+const PadiMemReadout: Component = () => (
+  <Show when={padiMemoryDisplay()?.kind === "error"}>
+    <span
+      data-testid="padi-memory-error"
+      class="rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning"
+    >
+      mem ?
+    </span>
+  </Show>
+);
+
 /** Join the present segments of a chip tooltip with a middle dot. */
 function joinTip(...parts: Array<string | false | undefined>): string {
   return parts.filter(Boolean).join(" · ");
@@ -85,10 +104,12 @@ const StatusDot: Component<{
   class: string;
   "data-ws-status"?: WsStatus;
   "data-daemon-state"?: string;
+  "data-padi-link"?: string;
 }> = (props) => (
   <span
     data-ws-status={props["data-ws-status"]}
     data-daemon-state={props["data-daemon-state"]}
+    data-padi-link={props["data-padi-link"]}
     class={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-surface-2 ${props.class}`}
   />
 );
@@ -105,22 +126,15 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // "running" + a uptime climbing off the local clock (the #1568 green-dot class).
   const daemonLive = daemonTransportLive;
   const [koluDialogOpen, setKoluDialogOpen] = createSignal(false);
+  const [padiDialogOpen, setPadiDialogOpen] = createSignal(false);
   const [kavalDialogOpen, setKavalDialogOpen] = createSignal(false);
   const stale = clientStale;
   const kavalVersion = (): string | undefined => daemon()?.contractVersion;
 
-  // The padi process's RSS for the Kolu tooltip — padi is the server-host-side
-  // process that owns kaval, so its memory reads out beside the server's here (the
-  // rail names Kolu + Kaval; padi rides Kolu's group as the third server-side row).
-  const padiMemoryText = (): string =>
-    match(padiMemoryDisplay())
-      .with({ kind: "ok" }, (d) => `padi RSS ${formatMBCompact(d.rssBytes)}`)
-      .with({ kind: "error" }, () => "padi memory poll failed")
-      .with(P.nullish, () => "padi memory unavailable")
-      .exhaustive();
-
   // Memoized: the chip binds it to both `title` and `aria-label`, and it folds in
-  // the per-second memory/uptime ticks — so build the string once per change.
+  // the per-second memory/uptime ticks — so build the string once per change. padi's
+  // RSS is no longer folded in here: padi now owns its own rail segment (below), so
+  // its memory reads out on the Padi chip rather than beside the server's.
   const koluTip = createMemo((): string => {
     const server = pwa.server();
     return joinTip(
@@ -128,7 +142,6 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       server?.version ? `server v${server.version}` : undefined,
       server?.commit ? `server ${server.commit}` : undefined,
       `server RSS ${mbText(serverRssBytes())}`,
-      padiMemoryText(),
       stale()
         ? "client build differs from server"
         : "client build matches server",
@@ -136,6 +149,26 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       `client heap ${mbText(clientHeapUsedBytes())}`,
     );
   });
+
+  // padi's connection state (from koluSurface's `padiLink` cell) for the Padi chip
+  // — floored on transport liveness like the dot: a dead ws leaves the retained link
+  // stale, so read "unknown" rather than a frozen definite state.
+  const padiStateText = (): string => {
+    if (!daemonLive()) return "unknown";
+    const link = padiLinkState();
+    return link ? PADI_LINK_PRESENTATION[link].label : "unknown";
+  };
+
+  const padiMemoryText = (): string =>
+    match(padiMemoryDisplay())
+      .with({ kind: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
+      .with({ kind: "error" }, () => "memory poll failed")
+      .with(P.nullish, () => "memory unavailable")
+      .exhaustive();
+
+  const padiTip = createMemo((): string =>
+    joinTip(`padi ${padiStateText()}`, padiMemoryText(), "click for details"),
+  );
 
   const kavalStateText = (): string => {
     if (!daemonLive()) return "unknown";
@@ -198,6 +231,28 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
 
       <button
         type="button"
+        data-testid="padi-identity-chip"
+        onClick={() => setPadiDialogOpen(true)}
+        class="inline-flex h-7 items-center gap-2 rounded-lg px-2 leading-4 text-fg-2 transition-colors hover:bg-surface-3/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        title={padiTip()}
+        aria-label={padiTip()}
+      >
+        <IdentityMark logoSrc={PADI_LOGO_URL}>
+          <StatusDot
+            data-padi-link={
+              daemonLive() ? (padiLinkState() ?? "unknown") : "unknown"
+            }
+            class={padiDot(padiLinkState(), daemonLive())}
+          />
+        </IdentityMark>
+        <span class="text-fg">Padi</span>
+        <PadiMemReadout />
+      </button>
+
+      <Divider />
+
+      <button
+        type="button"
         data-testid="kaval-identity-chip"
         onClick={() => setKavalDialogOpen(true)}
         class="inline-flex h-7 items-center gap-2 rounded-lg px-2 leading-4 text-fg-2 transition-colors hover:bg-surface-3/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
@@ -228,6 +283,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         status={props.status}
         live={daemonLive()}
         dotClass={serverDot(props.status, daemonLive())}
+      />
+      <PadiInfoDialog
+        open={padiDialogOpen()}
+        onOpenChange={setPadiDialogOpen}
+        link={padiLinkState()}
       />
       <KavalInfoDialog
         open={kavalDialogOpen()}

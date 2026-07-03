@@ -7,13 +7,9 @@ import type { WsStatus } from "../rpc/rpc";
 import Commit, { REPO_URL } from "./Commit";
 import { OpenIcon } from "./Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "./InfoDialog";
-import { formatMBCompact, mbText } from "./memory";
+import { mbText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
-import {
-  clientHeapUsedBytes,
-  padiMemoryDisplay,
-  serverRssBytes,
-} from "./useMemoryUsage";
+import { clientHeapUsedBytes, serverRssBytes } from "./useMemoryUsage";
 
 function statusLabel(status: WsStatus, live: boolean): string {
   return match<[WsStatus, boolean], string>([status, live])
@@ -72,18 +68,11 @@ const KoluInfoDialog: Component<{
           <Commit sha={pwa.clientCommit} />
         </DetailRow>
         <DetailRow label="memory">
-          {/* Three server-side-plus-browser figures: kolu-server RSS, the padi
-              process RSS (padi owns kaval; its readout is folded into the rail
-              cell server-side), and this browser's JS heap. */}
+          {/* kolu-server's RSS and this browser's JS heap — the two processes this
+              dialog names. padi and kaval have their own rail chips + dialogs, so
+              their RSS reads out there rather than being folded in here. */}
           <span>
             server {mbText(serverRssBytes())}
-            <span class="text-fg-3"> / </span>
-            padi{" "}
-            {match(padiMemoryDisplay())
-              .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))
-              .with({ kind: "error" }, () => "poll failed")
-              .with(P.nullish, () => "unavailable")
-              .exhaustive()}
             <span class="text-fg-3"> / </span>
             browser {mbText(clientHeapUsedBytes())}
           </span>

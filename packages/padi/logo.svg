@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Padi host daemon logo</title>
+  <defs>
+    <linearGradient id="padi-host" x1="176" y1="56" x2="336" y2="216" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Supervision bracket: padi (the host, above) owns the two processes below. -->
+  <path d="M176 300V254H336V300M256 254V216" fill="none" stroke="#5eead4" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- padi: the per-host daemon that owns the workspace. -->
+  <rect x="176" y="56" width="160" height="160" rx="46" fill="url(#padi-host)"/>
+  <circle cx="256" cy="136" r="30" fill="#f0fdfa"/>
+
+  <!-- The two owned processes: your terminals + kaval. -->
+  <rect x="120" y="300" width="112" height="112" rx="34" fill="#0d9488"/>
+  <rect x="280" y="300" width="112" height="112" rx="34" fill="#14b8a6"/>
+</svg>
