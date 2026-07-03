@@ -191,6 +191,13 @@ export async function connectPadi(socketPath: string): Promise<PadiConnection> {
  *                              the binder dials.
  *   - `KOLU_KAVAL_SPAWN`     — forwarded so padi's OWN kaval driver honors the
  *                              detached escape for dev/e2e.
+ *   - `LOG_LEVEL`            — the effective log level, so padi's OWN pino domain
+ *                              logger (`packages/padi/src/log.ts`, what the relocated
+ *                              domain code logs through) honors it across the
+ *                              transient unit's env reset. `--verbose` forces `debug`
+ *                              — the split-process twin of the pre-cutover
+ *                              `padiLog.level = "debug"`; else an operator's explicit
+ *                              `LOG_LEVEL` crosses the boundary.
  *   - `NODE_OPTIONS` (scrubbed) + `KOLU_DIAG_DIR` — as kaval's driver forwards.
  *
  * The nix-shell env WHITELIST rides padi's CLI flag (`--allow-nix-shell-with-env-
@@ -199,7 +206,10 @@ export async function connectPadi(socketPath: string): Promise<PadiConnection> {
  * always the dev/e2e (`fromSource`) path, and the survivable-spawn driver layers
  * the child env OVER the full parent env on that path (systemd/prod runs off-nix).
  */
-function daemonEnv(resolvedStateRoot: string): Record<string, string> {
+function daemonEnv(
+  resolvedStateRoot: string,
+  verbose: boolean,
+): Record<string, string> {
   const env: Record<string, string> = {};
   if (process.env.XDG_RUNTIME_DIR)
     env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
@@ -210,6 +220,11 @@ function daemonEnv(resolvedStateRoot: string): Record<string, string> {
   env.KOLU_PADI_STATE_DIR = resolvedStateRoot;
   if (process.env.KOLU_KAVAL_SPAWN)
     env.KOLU_KAVAL_SPAWN = process.env.KOLU_KAVAL_SPAWN;
+  // Carry the effective log level to padi's pino domain logger across the unit's env
+  // reset — `--verbose` forces `debug` (the split-process twin of the pre-cutover
+  // `padiLog.level = "debug"`), else forward an explicit operator `LOG_LEVEL`.
+  const logLevel = verbose ? "debug" : process.env.LOG_LEVEL;
+  if (logLevel) env.LOG_LEVEL = logLevel;
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   if (process.env.KOLU_DIAG_DIR) env.KOLU_DIAG_DIR = process.env.KOLU_DIAG_DIR;
@@ -266,6 +281,7 @@ export function localPadiDriver(
   stateRoot: string,
   nixShellWhitelist: string | undefined,
   spawnVersion: string | undefined,
+  verbose: boolean,
 ): DaemonDriver {
   const { binPath, args } = resolvePadiLaunch(
     stateRoot,
@@ -277,7 +293,7 @@ export function localPadiDriver(
   return survivableSpawnDriver({
     binPath,
     args,
-    env: daemonEnv(stateRoot),
+    env: daemonEnv(stateRoot, verbose),
     unitPrefix: "padi",
     fromSource,
   });
@@ -500,6 +516,11 @@ export interface EnsurePadiBindingOptions {
    *  app version (not padi's own commit). Omitted → padi falls back to its own
    *  commit/`dev` (a standalone padi with no binder forwarding the app version). */
   spawnVersion?: string;
+  /** Forward the server's `--verbose` intent to padi's process as `LOG_LEVEL=debug`
+   *  so padi's OWN pino domain logger emits debug — the split-process twin of the
+   *  pre-cutover `padiLog.level = "debug"`. Omitted/false → padi honors an explicit
+   *  operator `LOG_LEVEL`, else its `info` default. */
+  verbose?: boolean;
   /** Reconnect backoff (test hook). */
   reconnectDelayMs?: number;
 }
@@ -548,6 +569,7 @@ export async function ensurePadiBinding(
       stateRoot,
       opts.nixShellWhitelist,
       opts.spawnVersion,
+      opts.verbose ?? false,
     ),
     connect: () => connectPadi(socketPath),
     log,

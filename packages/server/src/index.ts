@@ -102,9 +102,13 @@ const PWA_BACKGROUND_COLOR = "#0c0c0e";
 const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
 
 // `--verbose` drops the server's logger to debug. padi runs in its OWN process
-// now, and its stderr logger emits EVERY level unconditionally (no level filter —
-// see `stderrLogger` in `@kolu/padi`'s bin), so there is no in-process padi logger
-// here to raise and no `--verbose` to forward — padi already logs at full detail.
+// now: its daemon-spine stderr logger emits every level unconditionally, but its
+// DOMAIN code logs through `@kolu/padi`'s own pino logger (`packages/padi/src/log.ts`),
+// which filters at `LOG_LEVEL ?? "info"`. So `--verbose` alone would leave padi's
+// domain debug lines dropped (the split-process regression the pre-cutover
+// `padiLog.level = "debug"` guarded against). We forward the intent instead: the
+// binding launches padi with `LOG_LEVEL=debug` when verbose (see `daemonEnv` in
+// `padiBinding.ts`), the cross-process twin of raising that logger in place.
 if (argv.flags.verbose) {
   log.level = "debug";
 }
@@ -198,6 +202,10 @@ const padiSession = await ensurePadiBinding({
   // kolu app version (byte-identical to the pre-cutover in-process spawn), not
   // padi's own commit hash. padi stamps this via its `--spawn-version` flag.
   spawnVersion: serverVersion,
+  // Forward `--verbose` to padi's process (as `LOG_LEVEL=debug`) so its OWN pino
+  // domain logger emits debug — the split-process twin of the pre-cutover
+  // `padiLog.level = "debug"`.
+  verbose: argv.flags.verbose,
 });
 
 // Pin the contract type param explicitly: `padiSession` is a concrete
@@ -451,16 +459,19 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
       { signal: ctl.signal },
     );
     for await (const frame of iterable) return frame;
-    // The client was live but the cell yielded no frame — an anomaly, not "no
-    // process to measure". Report `error`, not `absent`.
-    log.warn({}, "padi memory read yielded no frame through a live client");
+    // The client was live but the cell yielded no frame — an operational anomaly,
+    // not "no process to measure". Report `error`, not `absent`, and log at `error`
+    // (a live-client read that produced nothing is a failed read, not a degraded-but-
+    // recoverable state — see `.agency/code-police.md` errors-must-log-at-error).
+    log.error({}, "padi memory read yielded no frame through a live client");
     return PADI_MEMORY_READ_ERROR;
   } catch (err) {
     // padi was BELIEVED up (a live client) yet the read threw — surface the honest
     // `error` state, distinct from `absent`, rather than collapsing a caught error
     // to the empty "no process" reading. padi's liveness still rides the re-serve's
     // own `connection` cell; this only affects the memory rail's three-way readout.
-    log.warn({ err }, "padi memory read failed through a live client");
+    // A caught read failure is a real error, not `warn` (errors-must-log-at-error).
+    log.error({ err }, "padi memory read failed through a live client");
     return PADI_MEMORY_READ_ERROR;
   } finally {
     ctl.abort();
