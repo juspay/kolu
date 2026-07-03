@@ -184,6 +184,17 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // `isRestoring()`; on success we clear `savedSession` before the toast, on
     // failure we leave it set so the user can retry.
     setIsRestoring(true);
+    // Re-arm the VIEW-STATE seed for THIS restore. `viewSeeded` latches true on
+    // the first live load so a reconnect doesn't re-pan/re-seed the canvas — but an
+    // in-session restore (the `recycleKaval` recycle→restore, no page reload) is
+    // PRECISELY a re-seed event: it re-spawns every terminal under FRESH ids whose
+    // client sub-panel state has never been seeded. Without this reset the
+    // hydration effect below short-circuits on the stale latch and never runs
+    // `hydrateFromTerminals` for the restored terminals, so a restored parent's
+    // active sub-tab is never set and its split comes back HIDDEN. Clearing it here
+    // lets the effect re-seed once the restored terminals arrive; it re-latches
+    // true after seeding, so a later reconnect is still a no-op.
+    viewSeeded = false;
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
     );

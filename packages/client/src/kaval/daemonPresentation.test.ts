@@ -5,7 +5,9 @@ import {
   DAEMON_UNKNOWN_DOT,
   kavalDot,
   liveDownState,
+  liveDownStateWithPadiLink,
   liveWarming,
+  liveWarmingWithPadiLink,
   serverDot,
   toneDot,
 } from "./daemonPresentation";
@@ -96,5 +98,75 @@ describe("liveWarming / liveDownState — daemon-state claims FLOORED on transpo
     // A non-down or unknown state is not down regardless.
     expect(liveDownState("connected", true)).toBeUndefined();
     expect(liveDownState(undefined, true)).toBeUndefined();
+  });
+});
+
+describe("the padi-link leg — the SECOND floor on the re-served kaval daemonStatus (#1034)", () => {
+  // The kaval daemonStatus rides padi's RE-SERVED surface, so its true liveness is BOTH
+  // legs: the browser↔kolu-server ws AND kolu-server's binding to padi (`padiLink`). The
+  // re-targeted "restart kaval" DRAINS padi, dropping the binding for the whole drain
+  // window — during which the re-serve value-fold HOLDS the last kaval status STALE. The
+  // fold treats a not-`connected` padi link as the honest "coming up" (warming true) AND
+  // suppresses the stale "kaval is down" claim, so the canvas shows the neutral warming
+  // surface over the whole drain window instead of a frozen re-served `degraded`.
+
+  it("liveWarmingWithPadiLink: warming whenever the padi link is not `connected` (over a live transport)", () => {
+    // A (re)connecting or dropped binding is itself 'coming up', regardless of the
+    // (frozen) re-served kaval state.
+    expect(liveWarmingWithPadiLink("connecting", "connected", true)).toBe(true);
+    expect(liveWarmingWithPadiLink("degraded", "connected", true)).toBe(true);
+    // Even a stale re-served `degraded` kaval status reads WARMING (not down) while the
+    // padi link is down — this is the whole-drain-window honesty the fix delivers.
+    expect(liveWarmingWithPadiLink("degraded", "degraded", true)).toBe(true);
+    // Pre-first-yield padiLink (undefined) is treated as not-connected → warming.
+    expect(liveWarmingWithPadiLink(undefined, "connected", true)).toBe(true);
+  });
+
+  it("liveWarmingWithPadiLink: falls through to the kaval-state warming logic when the padi link is `connected`", () => {
+    // padi bound → the kaval state alone decides, exactly as `liveWarming` did.
+    expect(liveWarmingWithPadiLink("connected", "restarting", true)).toBe(true);
+    expect(liveWarmingWithPadiLink("connected", "connecting", true)).toBe(true);
+    expect(liveWarmingWithPadiLink("connected", "connected", true)).toBe(false);
+    expect(liveWarmingWithPadiLink("connected", "dead", true)).toBe(false);
+    expect(liveWarmingWithPadiLink("connected", undefined, true)).toBe(false);
+  });
+
+  it("liveWarmingWithPadiLink: FLOORS to false over a dead browser transport — no warming off a stale padiLink", () => {
+    // The browser↔server leg dead: the whole readout is stale, so even a not-connected
+    // padi link claims no warming — mirroring `liveWarming`'s transport floor exactly.
+    expect(liveWarmingWithPadiLink("connecting", "connected", false)).toBe(
+      false,
+    );
+    expect(liveWarmingWithPadiLink("degraded", "degraded", false)).toBe(false);
+    expect(liveWarmingWithPadiLink("connected", "restarting", false)).toBe(
+      false,
+    );
+  });
+
+  it("liveDownStateWithPadiLink: suppresses a stale kaval down claim while the padi link is not `connected`", () => {
+    // This is what lets the WARMING arm win the canvas precedence over a padi drop:
+    // without it a frozen re-served `degraded` would light DegradedCanvas (which beats
+    // warming). Unknown ≠ down.
+    expect(
+      liveDownStateWithPadiLink("connecting", "degraded", true),
+    ).toBeUndefined();
+    expect(liveDownStateWithPadiLink("degraded", "dead", true)).toBeUndefined();
+    expect(
+      liveDownStateWithPadiLink(undefined, "degraded", true),
+    ).toBeUndefined();
+  });
+
+  it("liveDownStateWithPadiLink: defers to the kaval down logic when the padi link is `connected` (a genuine kaval death over a live binding still surfaces)", () => {
+    expect(liveDownStateWithPadiLink("connected", "dead", true)).toBe("dead");
+    expect(liveDownStateWithPadiLink("connected", "degraded", true)).toBe(
+      "degraded",
+    );
+    expect(
+      liveDownStateWithPadiLink("connected", "connected", true),
+    ).toBeUndefined();
+    // Still floored on the browser transport leg too (both legs must be live).
+    expect(
+      liveDownStateWithPadiLink("connected", "dead", false),
+    ).toBeUndefined();
   });
 });

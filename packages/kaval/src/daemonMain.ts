@@ -15,7 +15,11 @@ import { dirname, join } from "node:path";
 import { startHeapDiagnostics } from "@kolu/heap-diag";
 import { type DaemonExit, daemonMain, type Logger } from "@kolu/surface-daemon";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
-import { getPtyHostSocketPath, KAVAL_NS_PREFIX } from "./socketPath.ts";
+import {
+  getPtyHostSocketPath,
+  KAVAL_GATE_FILE,
+  KAVAL_NS_PREFIX,
+} from "./socketPath.ts";
 
 export interface KavalDaemonOptions {
   /** Override the default socket path (`--socket`). The gate and rcDir are
@@ -40,7 +44,7 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   // same private (0700) directory.
   const socketPath = getPtyHostSocketPath(opts.socketOverride, KAVAL_NS_PREFIX);
   const dir = dirname(socketPath);
-  const gatePath = join(dir, "kaval.pid");
+  const gatePath = join(dir, KAVAL_GATE_FILE);
   const rcDir = join(dir, "rc");
 
   const { servedRouter, terminalCount } = createInProcessPtyHost({

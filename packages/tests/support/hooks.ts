@@ -16,6 +16,11 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
+import {
+  padiGatePath,
+  padiKavalSocketPath,
+  padiSocketPath,
+} from "@kolu/padi/stateRoot";
 import getPort from "get-port";
 import { NIX_ENV_WHITELIST } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -187,41 +192,153 @@ process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
  *  `testBaseDir` means the whole run's scratch space cleans up together. */
 const koluStateDir = mkSubDir("state");
 
-/** Per-worker `XDG_RUNTIME_DIR` so each worker's kolu-server spawns its kaval
- *  daemon at an ISOLATED socket + gate (`$XDG_RUNTIME_DIR/kaval/...`). Without
- *  this, parallel workers collide on the shared runtime socket and the
- *  single-instance gate makes worker 2's kaval yield to worker 1's — the same
- *  foreign-server hazard the HTTP-port ownership check guards against. 0700
- *  because the daemon refuses a gate dir that isn't owner-only.
+/** Per-worker padi state-root — the CRITICAL isolation seam of the W2.2 cutover.
+ *  kolu-server no longer serves padi in-process; it SPAWNS a separate padi PROCESS
+ *  (server/src/padiBinding.ts), and padi in turn spawns its OWN kaval. padi's whole
+ *  identity — its socket + single-instance gate AND its kaval's socket + gate — is
+ *  DERIVED from a digest of this state-root path (padi/src/stateRoot.ts). Without a
+ *  private state-root per worker, every worker's server would resolve the SAME
+ *  default (`$XDG_STATE_HOME/padi`) → the SAME digest → all workers collide on ONE
+ *  shared padi. Passed to the server as `KOLU_PADI_STATE_DIR` (which padiBinding
+ *  forwards verbatim to padi via `--state-root`), so the digest — and thus the
+ *  socket/gate paths the reapers below compute — is this worker's alone. Nested
+ *  under `testBaseDir` so it's wiped with the rest of the run. */
+const padiStateDir = mkSubDir("padi-state");
+
+/** Per-worker `XDG_RUNTIME_DIR` so each worker's padi (and the kaval padi spawns)
+ *  land at ISOLATED sockets + gates. Both are anchored under this dir but keyed by
+ *  the state-root digest — `$XDG_RUNTIME_DIR/padi-<digest>/` and `kaval-<digest>/`
+ *  (padi/src/stateRoot.ts) — so the per-worker `padiStateDir` above and this
+ *  per-worker runtime dir TOGETHER guarantee no two workers share a padi or a
+ *  kaval. Without an isolated runtime dir, parallel workers would collide on the
+ *  shared runtime path and a single-instance gate would make worker 2's daemon
+ *  yield to worker 1's — the same foreign-server hazard the HTTP-port ownership
+ *  check guards against. 0700 because the daemon refuses a gate dir that isn't
+ *  owner-only.
  *
  *  Deliberately a SHORT, top-level path — NOT nested under `testBaseDir` (which
  *  lives under the deep nix-shell `$TMPDIR`). kolu's per-terminal scratch dir
- *  hangs off `$XDG_RUNTIME_DIR`, so a long runtime path makes a pasted scratch
- *  file path (clipboard / file-drop) wrap in the 80-col test terminal — and
- *  bash 5's bracketed-paste active-region redraw of a *wrapped* line garbles the
- *  cells so the screen-state read can't find the filename. A short runtime dir
- *  keeps the path on one line. Cleaned up by `killServer` (it sits outside
- *  `testBaseDir`, so the run's recursive remove doesn't catch it). */
+ *  hangs off `$XDG_RUNTIME_DIR`, so a deep runtime path bloats a pasted scratch
+ *  file path (clipboard / file-drop) and keeps the padi/kaval unix-socket paths
+ *  nearer the ~108-char limit — both reasons to stay short. It is NOT, however,
+ *  what keeps the screen-state assertion correct: even with this short dir the
+ *  W2.2 scratch layout (`$XDG_RUNTIME_DIR/kolu-<pid>/scratch/<uuid>/<name>`)
+ *  runs ~81 chars and the filename straddles the 80-col grid before xterm's
+ *  fit() widens it under load. The screen-state reader now rejoins hard-wrapped
+ *  rows via `isWrapped` (see `__readXtermBuffer`), so a wrapped path no longer
+ *  splits the filename — the cells are clean, not "garbled". Cleaned up by
+ *  `killServer` (it sits outside `testBaseDir`, so the run's recursive remove
+ *  doesn't catch it). */
 const runtimeDir = fs.mkdtempSync(path.join("/tmp", `kr${workerId}-`));
 fs.chmodSync(runtimeDir, 0o700);
 
-/** SIGKILL the kaval daemon this worker's server spawned (it is detached, so it
- *  outlives the server — B2 makes no survival promise, but the harness must not
- *  leak it across runs). Reads the gate kaval wrote beside its socket; returns
- *  the killed pid, or undefined if there was nothing to reap. Also the
- *  `pkill kaval mid-session` step's mechanism for the degraded-state e2e. */
-export function killKavalDaemon(): number | undefined {
-  const gate = path.join(runtimeDir, "kaval", "kaval.pid");
+/** Compute a padi/kaval rendezvous path the SAME way padi does — anchored under
+ *  THIS worker's `runtimeDir`. padi's path builders (`padiSocketPath`,
+ *  `padiKavalSocketPath`) read `process.env.XDG_RUNTIME_DIR` to anchor the
+ *  digest-keyed dir, but the harness sets that var only on the server CHILD's env,
+ *  never its own process. So pin it to `runtimeDir` for the duration of the call
+ *  and restore it after — giving a reaper the exact socket/gate the worker's padi
+ *  (and its kaval) actually wrote, WITHOUT perturbing the harness process's own
+ *  env (which Chrome and other children inherit). */
+function withWorkerRuntimeDir<T>(fn: () => T): T {
+  const prev = process.env.XDG_RUNTIME_DIR;
+  process.env.XDG_RUNTIME_DIR = runtimeDir;
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = prev;
+  }
+}
+
+/** Read a daemon's pid-gate file → the integer pid, or undefined if the gate is
+ *  missing/stale/unreadable (never throws). The read-only primitive both the
+ *  reapers below and the `@kaval-restart` pid-observability steps share (a
+ *  `recycleKaval` must CHANGE the kaval gate pid while the padi gate pid stays
+ *  put — the "recycles kaval, not padi" proof). */
+function readPidAtGate(gate: string): number | undefined {
   try {
     const pid = Number.parseInt(fs.readFileSync(gate, "utf8").trim(), 10);
-    if (Number.isInteger(pid) && pid > 0) {
-      process.kill(pid, "SIGKILL");
-      return pid;
-    }
+    if (Number.isInteger(pid) && pid > 0) return pid;
   } catch {
-    // No gate / already gone / not ours — nothing to reap.
+    // No gate / not readable — nothing to report.
   }
   return undefined;
+}
+
+/** Read a daemon's pid-gate file and SIGKILL the holder; returns the killed pid,
+ *  or undefined if the gate is missing/stale/unreadable (never throws). Shared by
+ *  the padi and kaval reapers below, which differ only in WHICH gate they read. */
+function killPidAtGate(gate: string): number | undefined {
+  const pid = readPidAtGate(gate);
+  if (pid === undefined) return undefined;
+  try {
+    process.kill(pid, "SIGKILL");
+    return pid;
+  } catch {
+    // Already gone / not ours — nothing to reap.
+  }
+  return undefined;
+}
+
+/** True iff `pid` names a live process (a signal-0 probe — checks existence
+ *  without delivering a signal). Used by the restart steps to assert a FRESH
+ *  kaval is actually running after a recycle, not just that a gate file exists. */
+export function isPidLive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The padi gate path for THIS worker — the digest-keyed `padi.pid` beside padi's
+ *  socket. Read-only counterpart to `killPadiDaemon`'s gate resolution. */
+function padiGate(): string {
+  return withWorkerRuntimeDir(() => padiGatePath(padiSocketPath(padiStateDir)));
+}
+
+/** The kaval gate path for THIS worker — `kaval.pid` beside padi's kaval socket.
+ *  Read-only counterpart to `killKavalDaemon`'s gate resolution. */
+function kavalGate(): string {
+  return withWorkerRuntimeDir(() =>
+    path.join(path.dirname(padiKavalSocketPath(padiStateDir)), "kaval.pid"),
+  );
+}
+
+/** The pid holding THIS worker's padi gate right now (or undefined). A recycle-
+ *  kaval must leave this UNCHANGED — padi stays up; only its kaval is recycled. */
+export function readPadiGatePid(): number | undefined {
+  return readPidAtGate(padiGate());
+}
+
+/** The pid holding THIS worker's kaval gate right now (or undefined). A recycle-
+ *  kaval must CHANGE this — a stuck-but-alive kaval is killed + respawned, a dead
+ *  one is spawned fresh; either way a new pid holds the gate. */
+export function readKavalGatePid(): number | undefined {
+  return readPidAtGate(kavalGate());
+}
+
+/** SIGKILL the padi PROCESS this worker's server spawned. The cutover put padi
+ *  BETWEEN the server and kaval: the server spawns padi (detached in e2e, so it
+ *  outlives the server), padi spawns kaval. padi's single-instance gate
+ *  (`padi.pid`) sits beside its socket at the digest-keyed `padi-<digest>/` dir —
+ *  derived here from THIS worker's `padiStateDir` — so we reap the worker's own
+ *  padi and never another worker's. Robust to an absent gate (nothing to reap). */
+export function killPadiDaemon(): number | undefined {
+  return killPidAtGate(padiGate());
+}
+
+/** SIGKILL the kaval daemon padi spawned for this worker (it is detached, so it
+ *  outlives padi and the server — B2 makes no survival promise, but the harness
+ *  must not leak it across runs). After the cutover kaval is padi's child, keyed
+ *  by the SAME state-root digest as padi: its gate (`kaval.pid`) lives beside its
+ *  socket at `kaval-<digest>/`, derived here from `padiStateDir`. Returns the
+ *  killed pid, or undefined if there was nothing to reap. Also the
+ *  `pkill kaval mid-session` step's mechanism for the degraded-state e2e. */
+export function killKavalDaemon(): number | undefined {
+  return killPidAtGate(kavalGate());
 }
 
 /** PR-evidence capture (set `KOLU_EVIDENCE=1`): record a Playwright video per
@@ -438,13 +555,17 @@ function httpGet(url: string): Promise<{ ok: boolean }> {
   });
 }
 
-/** Kill the server child on any exit path (crash, SIGINT, SIGTERM), then reap
- *  the kaval daemon it spawned (detached, so it survives the server). */
+/** Kill the server child on any exit path (crash, SIGINT, SIGTERM), then reap the
+ *  detached daemons the cutover chains BELOW it — padi (the server's child) and
+ *  padi's kaval (padi's child) — both of which outlive the server. Order matters:
+ *  server → padi → kaval, so a still-live parent can't race a respawn of a child
+ *  we just reaped (kill padi before its kaval, and the server before padi). */
 function killServer() {
   if (serverProcess) {
     serverProcess.kill("SIGTERM");
     serverProcess = undefined;
   }
+  killPadiDaemon();
   killKavalDaemon();
   // The per-worker runtime dir lives outside `testBaseDir` (short path, see its
   // comment), so the run's recursive remove won't catch it — reap it here.
@@ -631,14 +752,21 @@ async function startServerChild(koluServer: string): Promise<void> {
           // Route server state to an ephemeral $TMPDIR path so test runs
           // never touch ~/.config and the dir can be wiped in AfterAll.
           KOLU_STATE_DIR: koluStateDir,
-          // Per-worker runtime dir → an isolated kaval socket + gate, so
-          // parallel workers' daemons never collide on the shared path.
+          // Per-worker padi state-root: the server forwards this to the padi
+          // PROCESS it spawns, and padi's socket + gate AND its kaval's socket +
+          // gate are all keyed by this path's digest. Combined with the per-worker
+          // XDG_RUNTIME_DIR below, this is what isolates each worker's padi + kaval
+          // (the reapers recompute the same digest paths — see killPadiDaemon /
+          // killKavalDaemon). Without it every worker's padi would resolve the same
+          // default state-root and collide on one shared padi.
+          KOLU_PADI_STATE_DIR: padiStateDir,
+          // Per-worker runtime dir → isolated padi/kaval sockets + gates. Both
+          // daemons anchor here (`padi-<digest>/`, `kaval-<digest>/`), keyed by the
+          // state-root digest above, so parallel workers never collide on a shared
+          // path. (No KOLU_KAVAL_SOCKET pin: after the cutover the server doesn't
+          // spawn kaval — padi does, at its own digest-keyed path — so an explicit
+          // kaval-socket override no longer applies.)
           XDG_RUNTIME_DIR: runtimeDir,
-          // Pin the kaval rendezvous explicitly (the override wins over the
-          // server's per-port default), so the harness owns the exact gate path
-          // `killKavalDaemon` reaps — `runtimeDir/kaval/{pty-host.sock,kaval.pid}`
-          // — independent of the listen port or the default keying scheme.
-          KOLU_KAVAL_SOCKET: path.join(runtimeDir, "kaval", "pty-host.sock"),
           // Force a detached kaval spawn: e2e reaps the daemon itself and may
           // run on a box with no systemd user session (where the production
           // `systemd-run --user` path would fail).
@@ -900,7 +1028,21 @@ Before(async function (this: KoluWorld, scenario) {
       var lines = [];
       for (var i = 0; i < buf.length; i++) {
         var line = buf.getLine(i);
-        lines.push(line ? line.translateToString(true) : "");
+        if (!line) { lines.push(""); continue; }
+        // A single logical line longer than the grid width hard-wraps across
+        // several buffer rows; the continuation rows carry isWrapped=true.
+        // Rejoin them into ONE logical line so a match string that straddles a
+        // wrap column is still found — e.g. a dropped file's long scratch path
+        // wraps "notes.md" as "...no" + "tes.md", which a naive per-row join
+        // would split with a newline and never match (the file-drop/clipboard
+        // screen-state flake). translateToString(trimRight) is applied only at
+        // the logical-line END: a mid-line (continued) row fills the full width,
+        // so trimming it would drop a real space sitting on the wrap boundary.
+        var next = i + 1 < buf.length ? buf.getLine(i + 1) : null;
+        var continued = !!(next && next.isWrapped);
+        var s = line.translateToString(!continued);
+        if (line.isWrapped && lines.length) lines[lines.length - 1] += s;
+        else lines.push(s);
       }
       return lines.join("\\n");
     };
@@ -1039,12 +1181,14 @@ After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
   }
 });
 
-/** Restore the worker after a scenario that SIGKILLed its kaval daemon
- *  (`@kaval-restart`, the kaval-daemon.feature degraded-state e2e). The kill
- *  leaves the worker's server in `degraded` with NO daemon — `ensureLocalEndpoint`
- *  only spawns kaval at server boot, so the only way back to a healthy worker is
- *  to restart the server. Without this, a later scenario the cucumber queue
- *  assigns to THIS worker would fail the instant it tries to create a terminal.
+/** Restore the worker after a `@kaval-restart` scenario (kaval-daemon.feature) —
+ *  one that SIGKILLed its kaval daemon (the degraded-state e2e) OR recycled it via
+ *  the Restart button (the live/dead recycle arms). A kill leaves the worker's
+ *  server in `degraded` with NO daemon, and even a clean recycle leaves the worker
+ *  in a restored/parked session state; `ensureLocalEndpoint` only spawns kaval at
+ *  server boot, so the clean way back to a pristine worker is to reboot the server.
+ *  Without this, a later scenario the cucumber queue assigns to THIS worker could
+ *  fail the instant it tries to create a terminal.
  *  Skipped when KOLU_SERVER is a URL (a reused server we don't own/can't restart;
  *  that mode runs the suite single-server and isn't subject to the queue-poison). */
 After({ tags: "@kaval-restart" }, async function (this: KoluWorld) {

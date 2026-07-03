@@ -4,18 +4,19 @@
  * A module-level singleton so the two affordances that trigger it — the kaval
  * rail dialog (a running or degraded daemon) and the DegradedCanvas (a dead one)
  * — share one in-flight guard and one toast. The handler is deliberately thin:
- * it fires the `daemon.restart` RPC and reports the outcome. The server does the
- * session-preserving work (snapshot → drain → recycle); the restore itself is
- * the existing card, which reappears once the fresh daemon is connected and the
- * canvas is honestly empty with the preserved session. The daemon's live
+ * it fires the `padiSurface` `lifecycle.recycleKaval` procedure and reports the
+ * outcome. padi does the session-preserving work host-side (snapshot → drain →
+ * recycle kaval, padi itself staying up); the restore itself is the existing
+ * card, which reappears once the fresh kaval is connected and the canvas is
+ * honestly empty with the preserved session. The daemon's live
  * `restarting`→`connected` state rides the `daemonStatus` surface, so the rail
  * and canvas reflect progress without this hook tracking it.
  */
 
-import type { DaemonStatus } from "@kolu/padi/surface";
+import { type DaemonStatus, padiRpc } from "@kolu/padi/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../wire";
+import { padi } from "../wire";
 import { daemonTransportLive, liveWarming } from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
@@ -55,7 +56,7 @@ export async function restartDaemon(): Promise<void> {
   setRestarting(true);
   const id = toast.loading("Restarting kaval…");
   try {
-    await client.daemon.restart();
+    await padiRpc(padi).surface.lifecycle.recycleKaval();
     toast.success("kaval restarted — your session is offered for restore", {
       id,
     });

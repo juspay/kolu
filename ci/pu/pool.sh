@@ -32,11 +32,16 @@ mode="${1:-ensure}"
 log() { echo "pool-ensure: $*" >&2; }
 cfg() { echo "$HOME/.pu-state/$1/ssh_config"; }
 # Reachable AND has outbound egress — the bar a box must clear to be leasable.
+# The probe hits the Nix substituter (`cache.nixos.org`), NOT `api.github.com`:
+# GitHub's REST API rate-limits/403s unauthenticated calls from a shared CI egress
+# IP, and `curl -sf` treats that 403 as a hard failure — a FALSE "no egress" that
+# made `ensure` (below) destroy every genuinely-healthy slot. `cache.nixos.org` is
+# what CI actually depends on and does not per-IP-throttle a HEAD.
 healthy() {
   local box="$1"
   [ -f "$(cfg "$box")" ] || return 1
   ssh -F "$(cfg "$box")" -o ConnectTimeout=20 "$box" \
-    'timeout 12 curl -sf -o /dev/null https://api.github.com' >/dev/null 2>&1
+    'timeout 12 curl -sf -o /dev/null https://cache.nixos.org/nix-cache-info' >/dev/null 2>&1
 }
 
 ok=0; fixed=0; failed=0

@@ -20,7 +20,7 @@ import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setPadiSessionStore } from "./confStores.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
-import { setKoluServerProcessId } from "./koluRoot.ts";
+import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -54,7 +54,7 @@ import {
 
 // The parked-forfeit path drives `cleanupTerminalScratch`, which reads the
 // per-instance scratch root; boot injects the server id before any of this runs.
-setKoluServerProcessId("servepadi-test-server");
+setDaemonProcessId("servepadi-test-server");
 
 const ACTIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SLEEPING_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

@@ -33,6 +33,36 @@ double move. So the package exists from day one, even though no process does yet
   now lives here), and the client migrates onto it one member per commit, deleting
   the root `terminal.*` namespace as it goes. Sealed by a package-boundary test.
 
+## W2.2 — the binary and its identity (stage 1)
+
+The package graduated to a **process**: `package = process = restart-hash`.
+
+- **The entry.** `./src/bin.ts` (the `padi` executable) → `runPadiDaemon`
+  (`./daemonMain`): resolve the state-root → serve `padiSurface` + the frozen
+  control core over a unix socket → adopt-or-spawn padi's OWN kaval → reconcile
+  the saved session → stay up until drained. The Nix wrapper runs it as
+  `node --import <tsx loader> bin.ts` with a `PADI_BUILD_ID` staleKey (a content
+  hash of padi's daemon source closure — pinned by `buildId.closure.test.ts`).
+- **Identity IS the state-root** (`./stateRoot`). The persistent state-root (the
+  binary spells the default on the host: `$XDG_STATE_HOME/padi`) holds padi's
+  `session` / `activityFeed` / `lastPairedDaemon` in its OWN `Conf` (`./stateStore`,
+  a twin of kolu-server's — `preferences` stays kolu-server's). The socket + gate
+  live in the **boot-wiped runtime dir** keyed by a **digest** of the state-root
+  (`$XDG_RUNTIME_DIR/padi-<digest>/`, `kaval-<digest>/`), so a stale gate can never
+  outlive a reboot and two padis at distinct state-roots never touch each other's
+  kaval (the #1313 property). A `state-root` manifest maps the digest back, so a
+  flag-less `kaval-tui` keeps labelling what it discovers.
+- **The frozen control core** (`./surface`'s `padiControlSurface`, served in
+  `./controlCore`) — hello · version · drain · clock.now — is served BESIDE
+  `padiSurface` (sibling key `control`), so a binder reaches it even when
+  `padiSurface` is version-skewed. It never versions.
+
+The **stage-1 acceptance gate** is `./dial.test.ts`: a real spawned padi at a
+private state-root, dialed over its socket, handshakes the control core and
+round-trips a terminal through its own kaval — and two padis at distinct
+state-roots stay isolated. *(kolu-server binds this process in stage 2 — the
+cutover.)*
+
 ## The export map (the `@kolu/terminal-workspace` split)
 
 - **`@kolu/padi/surface`** — BROWSER-SAFE. The `padiSurface` 1.0 zod contract,

@@ -102,12 +102,23 @@ export {
 // connected to (kaval-tui) — one resolver both packages share so the default
 // path can never drift between them.
 export {
+  type KavalCandidateKind,
+  type KavalDaemon,
+  discoverKavalCandidates,
+  discoverKavalDaemons,
   discoverPtyHostSockets,
   getPtyHostSocketPath,
+  isPrivateOwnedDir,
+  isSocketInode,
+  KAVAL_GATE_FILE,
   KAVAL_NS_PREFIX,
   type KavalSocketCandidate,
   type KavalSocketResolution,
   kavalNamespace,
+  legacyKavalSocketPath,
   PTY_HOST_SOCK_FILE,
+  readStateRootManifest,
   resolveRunningKavalSocket,
+  STATE_ROOT_MANIFEST_FILE,
+  writeStateRootManifest,
 } from "./socketPath.ts";

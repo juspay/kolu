@@ -34,7 +34,7 @@ import type {
 } from "@kolu/terminal-workspace/schema";
 import { resumeFormFor } from "anyagent/cli";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { setKoluServerProcessId } from "../koluRoot.ts";
+import { setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -64,7 +64,7 @@ import { installSnapshot } from "./metadata.ts";
 // discardSleeping drives `cleanupTerminalScratch`, which reads the per-instance
 // scratch root. Boot injects the server id before any of this runs; mirror that
 // here so the read hits the happy path, not the boot-order crash.
-setKoluServerProcessId("sleepwake-test-server");
+setDaemonProcessId("sleepwake-test-server");
 
 const ID = "11111111-1111-4111-8111-111111111111";
 

@@ -1,11 +1,23 @@
 # B3.3 / B3.4 kaval-adoption VM tests
 
-End-to-end coverage for **kaval adoption** (#1344): terminals — shells,
-scrollback, running agents — survive a kolu-server redeploy when the kaval
-daemon outlives it. The daemon keeps running in its own `systemd-run --user`
-transient cgroup; on boot kolu *adopts* its live PTYs instead of recycling them.
-B3.4 adds the **currency** path: an adopted daemon that is a *build behind* the
-kaval the new server would spawn is detected so the rail can nudge "update pending".
+End-to-end coverage for terminal **adoption** (#1344): terminals — shells,
+scrollback, running agents — survive a kolu-server redeploy when the daemons that
+own them outlive it.
+
+> **W2.2 cutover.** kolu-server no longer talks to kaval directly. It binds a
+> separate **padi** process (its own `systemd-run --user` transient unit) that
+> owns/supervises **kaval** (a further transient unit beneath it). So adoption is
+> now TWO-LEVEL, and the rendezvous is **digest-keyed**, not per-port:
+> `$XDG_RUNTIME_DIR/padi-<digest>/padi.pid` and `kaval-<digest>/kaval.pid`, both
+> keyed by a sha256 digest of padi's state-root (`packages/padi/src/stateRoot.ts`).
+> - **kolu-server ↔ padi** — `adopt-or-spawn-or-refuse`: a surface skew is REFUSED
+>   (padi left standing + degraded), NEVER a kill-9. A server restart ADOPTS the
+>   surviving padi (padi + kaval gates unchanged).
+> - **padi ↔ kaval** — `adopt-or-ensure`: a kaval contract skew IS recycled (kill +
+>   fresh spawn); a build-only difference is adopted.
+> A kaval-level skew/currency is only exercised once a freshly-built padi meets the
+> surviving kaval — reached by DRAINing the adopted padi via the frozen control core
+> (`daemon.restart`), which respawns padi from the running binder's own closure.
 
 These tests exist because this is the **one path the Playwright e2e harness
 can't reach** — it has no systemd, runs one server per worker, and forces the
@@ -20,64 +32,63 @@ non-survivable detached spawn. A NixOS VM has *real* systemd, so the production
 | `adopt.nix` | **Positive** path → check `adoption-adopt` (also asserts NO update-pending — the #1034 no-op-deploy-no-nudge proof). |
 | `skew.nix` | **Contract-skew negative** path → check `adoption-skew`. |
 | `currency.nix` | **Build-skew** path (B3.4) → check `adoption-currency`. |
-| `default.nix` | Aggregator — pins the `port` + `kavalTui` once, imports `lib.nix`, returns the three checks. |
+| `upgrade.nix` | **W2.2 upgrade-migration** path → TWO checks. `adoption-upgrade`: a legacy PORT-keyed kaval (`kaval-<port>`) is ADOPTED — not leaked — when the digest-keyed W2.2 padi first boots (ARM 1), and a Restart-kaval recycle CONVERGES the daemon under `kaval-<digest>` (ARM 2). `adoption-upgrade-reboot`: from that adopted state, a HOST REBOOT proves the legacy residue is BOUNDED (ARM 3) — kaval is mortal (its process + its `$XDG_RUNTIME_DIR`-tmpfs gate die), so padi spawns DIGEST-keyed and the saved session (on the persistent state-root) takes the degraded-restore path. Its flow INVERTS the others' — it stands up the legacy daemon + a matching pre-W2.2 `config.json` BEFORE kolu starts. |
+| `default.nix` | Aggregator — pins the `port` + `kavalTui` + `kavalBin` once, imports `lib.nix`, returns the five checks. |
 
-`../flake.nix` spreads all three into `checks.x86_64-linux`, so they ride
+`../flake.nix` spreads all five into `checks.x86_64-linux`, so they ride
 `ci::home-manager` with no new CI recipe (see [Running](#running)).
 
 ## The two paths
 
-### `adoption-adopt` — the daemon is adopted (positive)
+### `adoption-adopt` — the running padi is adopted (positive)
 
 1. boot kolu as a systemd **user service** (with **linger** — the survival
    precondition);
 2. open a terminal over the **oRPC HTTP API** (`/rpc/surface/padi/lifecycle/create`, no browser);
 3. run a command in it (`echo <nonce>`) whose unique output we record;
-4. **`systemctl --user restart kolu`** — the *server* only; the kaval daemon
-   lives in its own transient cgroup and survives;
-5. assert the **same daemon** (gate pid), the **same PTY** (id + pid), the
-   command's **output still in the scrollback**, *and* kolu's own **reconcile
-   log** all survived → adoption, not a fresh respawn.
+4. **`systemctl --user restart kolu`** — the *server* only; padi + kaval live in
+   their own transient cgroups and survive;
+5. assert the **same padi** (gate pid), the **same kaval** (gate pid), the **same
+   PTY** (id + pid), the command's **output still in the scrollback**, *and*
+   kolu-server's own **"adopted a surviving daemon"** log all survived → adoption
+   of the running padi, not a fresh respawn.
 
-### `adoption-skew` — a contract-skewed survivor is recycled (negative)
+### `adoption-skew` — a contract-skewed kaval is recycled (negative)
 
 When a redeploy **changes kaval's wire** (a `PTY_HOST_CONTRACT_VERSION` bump),
-the surviving daemon is incompatible and must be **recycled, not adopted** — but
-the saved session is left untouched so a restore is still offered.
+the surviving kaval is incompatible and must be **recycled, not adopted** — but
+the saved session (padi's, under its state-root) is left untouched so a restore is
+still offered. Post-cutover this is padi's `adoptOrEnsure` recycling its kaval.
 
-There's no env seam for the contract version (it's a source constant read by
-*both* the daemon and the server), so the "newer kolu" is a **second build** via
-the test-only **`contractVersionOverride`** arg in the root `default.nix` (a
-`postPatch` sed of the constant, guarded by a grep that fails the build if the
-constant moves; `null` = no-op, real builds untouched). The test seeds a
-terminal + a saved session on the old (3.0) daemon, stops the old server (the
-daemon survives), then starts the bumped (9.0) server on the same port and
-asserts the survivor was **recycled** (gate pid *changed*), the **skew was
-logged**, *and* the session is **preserved**.
+There's no env seam for the contract version (a source constant), so the "newer
+kolu" is a **second build** via the test-only **`contractVersionOverride`** arg in
+the root `default.nix`. The test seeds a terminal + saved session on the old
+(contract 5.0) stack, stops the old server, starts the bumped (9.0) server (which
+merely ADOPTS the surviving old padi — its `padiSurface` is unchanged), then
+**drains** that padi so kolu-new's own contract-9.0 padi comes up, meets the
+surviving kaval, skews, and **recycles** it. Asserts the **kaval** gate pid
+*changed*, the **`pty-host contract skew`** was logged (in padi's own transient
+unit), *and* the session is **preserved**.
 
-### `adoption-currency` — a build-behind survivor is adopted + nudged (B3.4)
+### `adoption-currency` — a build-behind kaval is adopted + nudged (B3.4)
 
-When a redeploy changes kaval's **build** (its source closure) but *not* its
-wire contract, the surviving daemon is still **compatible** — so it is
-**adopted** (terminals survive), the deliberate opposite of `adoption-skew`. But
-its reported `staleKey` differs from the kaval the new server would spawn, so
-the server surfaces the divergence (`buildInfo.expectedKaval` ≠
-`daemonStatus.identity`) and the rail's read-site `kavalStale` nudge fires
-"update pending"; a restart would pick up the new build.
+When a redeploy changes kaval's **build** (its source closure) but *not* its wire
+contract, the surviving kaval is still **compatible** — so kolu-new's respawned
+padi **adopts** it across the drain (kaval gate *unchanged*), the deliberate
+opposite of `adoption-skew`'s recycle. `KAVAL_BUILD_ID` is a **nix-injected value**,
+so the "newer kolu" is a second build via **`kavalBuildIdOverride`** (only the
+wrapper `--set` changes, so `koluNew` **shares the kolu closure** — the *cheap*
+skew). The test asserts the kaval gate *unchanged* (adopted), the session intact,
+AND the adopt-time currency breadcrumb `kaval currency on adopt: running=<X>
+expected=<Y>` with `running != expected` and `expected == the override` — i.e. the
+build-id reached padi's `expectedKaval` and the build-skew is detected (the "update
+available" nudge fires). The breadcrumb is emitted in padi's OWN transient unit, so
+it is read via `journalctl --user` broadly, not `-u kolu`.
 
-`KAVAL_BUILD_ID` is a **nix-injected value** (not a source constant), so the
-"newer kolu" is a second build via the test-only **`kavalBuildIdOverride`** arg
-in the root `default.nix` — the nix-value analog of `contractVersionOverride`,
-forcing a distinct build id (`null` = the real source hash, real builds
-untouched). Because the override only changes the wrapper's `--set` (not the
-`kolu` derivation), `koluNew` **shares the kolu closure** — this is the *cheap*
-skew check (no second full build). The test seeds a terminal on the old
-(default-built) daemon, stops the old server, then starts the build-bumped server
-on the same port and asserts the survivor was **adopted** (gate pid *unchanged*)
-and the adopt-time **currency log shows `running` ≠ `expected`** with `expected`
-== the override — i.e. the build-id reached the server and the build-skew is
-detected (the nudge fires). The headless VM observes the two **operands** (a
-journal `running=<X> expected=<Y>` breadcrumb), not the rendered chip.
+> The nudge reads padi's own baked `KAVAL_BUILD_ID`. That the padi wrapper bakes it
+> (and `daemonEnv` forwards it for the from-source path) is the product fix in
+> 56e0431a9 — earlier in the cutover padi carried no expected-kaval id, so this
+> assertion had been briefly deferred.
 
 ## Running
 
@@ -123,20 +134,21 @@ These are not stylistic choices — each guards a way the test would otherwise
 - **`linger = true`.** Without it, alice's user manager (and the kaval transient
   unit it owns) dies with `systemctl --user restart kolu`, so the test would
   silently exercise a *fresh spawn*, not adoption.
-- **Runtime-layout literals are pinned to source** (`lib.nix`): the
-  `kaval-<port>/` namespace, `kaval.pid` gate file, and `config.json` (the conf
-  store's default filename — **not** `state.json`). If one drifts from what the
-  daemon actually writes, the poll just times out and is mis-diagnosed.
+- **Runtime-layout discovery is pinned to source** (`lib.nix`): the digest-keyed
+  `padi-<digest>/padi.pid` and `kaval-<digest>/kaval.pid` gates (discovered by GLOB
+  — one padi + one kaval per user — not by recomputing the sha256 digest in shell),
+  and `.local/state/padi/config.json` (padi's persisted session under its default
+  state-root). If one drifts from what the daemons actually write, the poll just
+  times out and is mis-diagnosed.
 
 ## Verification
 
-Every reviewer's edits were re-checked on the shipping tree on a KVM box:
+The pre-cutover tests were re-checked on a KVM box (same PTY + scrollback survive;
+`adoption-skew` green with `gate 1284→1528`, red under an `isContractVersionCompatible
+→ true` mutation with `gate 1289→1289`). See #1349 and PR #1350.
 
-| check | result |
-| --- | --- |
-| `adoption-adopt`, correct code | ✅ green (same PTY + scrollback survive) |
-| `adoption-skew`, correct code | ✅ green (`gate 1284→1528`, skew logged, session preserved) |
-| `adoption-skew`, `isContractVersionCompatible → true` mutation | ❌ red (`gate 1289→1289`, no skew, wrongly adopted) |
-
-Each test is both **green on correct code and red under a deliberate mutation** —
-proof the assertions actually bite. See #1349 and PR #1350.
+The **W2.2 cutover** rewired these tests for the two-level padi ↔ kaval topology
+(digest-keyed gates, padi-emitted journal lines, the `daemon.restart` drain reach).
+That rewrite has NOT yet been re-run on a KVM box — it can only run on the Linux
+`ci::home-manager` lane. Re-confirm each is green on correct code AND red under a
+mutation before trusting the bite.

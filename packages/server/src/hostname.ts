@@ -9,6 +9,13 @@ export const serverHostname = hostname();
 /** Unique ID for this server process — changes on every restart. */
 export const serverProcessId = randomUUID();
 
+/** kolu-server's boot time (ms epoch), stamped once at module init — the honest
+ *  process start (this module loads at boot), the twin of padi's `PADI_STARTED_AT`.
+ *  Surfaced on koluSurface's `processStartedAt` cell so the rail's Kolu dialog can
+ *  render `now − this` as the server's uptime (the kolu-server sibling of the Kaval
+ *  dialog's `daemonStatus.startedAt` uptime). */
+export const serverStartedAt = Date.now();
+
 /** Git commit this server was built from — the nix wrapper bakes
  *  `KOLU_COMMIT_HASH`. `""` off-nix (dev / tsx, where the wrapper isn't in
  *  play). Surfaced on `server.info` for the ChromeBar's `srv` column. */

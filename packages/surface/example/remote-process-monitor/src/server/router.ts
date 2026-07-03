@@ -167,7 +167,7 @@ export function buildRouter(opts: BuildRouterOptions) {
   // passes `connection: { set }` and the pump calls this for you (the default-on
   // path pulam-web uses). This example runs its own `bridgeAgentToParent` pump,
   // so it wires the same mapping by hand here.
-  pipeSessionStateToCell(session, (info) =>
+  pipeSessionStateToCell<typeof surface.contract>(session, (info) =>
     fragment.ctx.cells.connection.set(info),
   );
 
@@ -245,7 +245,7 @@ async function bridgeAgentToParent(
   // so this loop can't re-introduce the busy-spin by mis-threading it (the
   // client proxy is thenable, so comparing *it* spins once the link fails
   // fast; the cursor compares the stable clientPromise for us).
-  const cursor = makeClientCursor(session);
+  const cursor = makeClientCursor<typeof surface.contract>(session);
   while (!session.isDestroyed()) {
     let client: ProcessMonitorAgent;
     try {

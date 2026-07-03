@@ -19,14 +19,11 @@ export default defineConfig({
   redirects: { "/tui": "/kaval" },
   integrations: [
     mdx(),
-    // /kaval is deliberately unlisted (shared by URL only): keep it — and the
-    // /tui redirect that points at it — out of the sitemap so they stay
-    // unadvertised; the page itself also carries noindex.
+    // /kaval graduated — it's now a listed, indexable page. Only /tui stays out
+    // of the sitemap: it's a redirect to /kaval, so advertising it would double
+    // up the canonical URL.
     sitemap({
-      filter: (page) => {
-        const { pathname } = new URL(page);
-        return !pathname.startsWith("/kaval") && !pathname.startsWith("/tui");
-      },
+      filter: (page) => !new URL(page).pathname.startsWith("/tui"),
     }),
   ],
   vite: {

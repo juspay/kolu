@@ -63,7 +63,7 @@ ENV_FILE="${KOLU_CI_LEASE_ENV:-.ci/pu-lease.env}"
 log() { echo "ci/pu/lease: $*" >&2; }
 cfg() { echo "$HOME/.pu-state/$1/ssh_config"; }
 dial() { local h="$1"; shift; ssh -F "$(cfg "$h")" -o ConnectTimeout=20 "$h" "$@"; }
-egress_ok() { dial "$1" 'timeout 12 curl -sf -o /dev/null https://api.github.com' >/dev/null 2>&1; }
+egress_ok() { dial "$1" 'timeout 12 curl -sf -o /dev/null https://cache.nixos.org/nix-cache-info' >/dev/null 2>&1; }
 
 # ── lease state (set on a successful claim) ──
 LEASED=""; HOLDER_PID=""; HB_PID=""; FD_OPEN=""; EPHEMERAL=""
@@ -98,7 +98,7 @@ try_lease() {
       -o ServerAliveInterval="$HEARTBEAT" -o ServerAliveCountMax=2 "$box" \
       "exec 9>$LOCK
        flock -n 9 || { echo BUSY; exit 7; }
-       timeout 12 curl -sf -o /dev/null https://api.github.com || { echo NOEGRESS; exit 8; }
+       timeout 12 curl -sf -o /dev/null https://cache.nixos.org/nix-cache-info || { echo NOEGRESS; exit 8; }
        echo HELD
        while read -t $TTL -r _; do :; done" \
       < "$fifo" >"$out" 2>/dev/null &

@@ -77,7 +77,7 @@ const socketFlag = {
   socket: {
     type: String,
     description:
-      "socket to dial — goes AFTER the subcommand. Usually unneeded: with no --socket, kaval-tui autodiscovers the running daemon (run `kaval-tui list` to see each, labeled), and inside a kolu terminal $KAVAL_SOCKET already names your daemon. Pass --socket only to pick one when several are up: a standalone kaval serves at $XDG_RUNTIME_DIR/kaval/pty-host.sock (or /tmp/kaval-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset), and each kolu-server serves under a PER-PORT namespace, $XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock (or /tmp/kaval-<port>-$UID/pty-host.sock) — there is no single fixed kolu-server path, so use `kaval-tui list` to find it.",
+      "socket to dial — goes AFTER the subcommand. Usually unneeded: with no --socket, kaval-tui autodiscovers the running daemon (run `kaval-tui list` to see each, labeled), and inside a kolu terminal $KAVAL_SOCKET already names your daemon. Pass --socket only to pick one when several are up: a standalone kaval serves at $XDG_RUNTIME_DIR/kaval/pty-host.sock (or /tmp/kaval-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset), and a padi-spawned kaval serves under a DIGEST-keyed namespace, $XDG_RUNTIME_DIR/kaval-<digest>/pty-host.sock (the digest is of padi's state-root — opaque, not a port) — there is no single fixed path, so run `kaval-tui list` to see each (labeled from its state-root manifest) and copy the one you want.",
   },
 } as const;
 
@@ -737,12 +737,12 @@ async function assertCompatible(conn: Connection): Promise<void> {
 function connectLocal(socketPath: string): Promise<Connection> {
   return connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
-    // No hand-built kolu-server path in the hint: kolu-server namespaces its
-    // daemon per listen port (`kaval-<port>/`), so there is no single fixed path
+    // No hand-built path in the hint: a padi-spawned kaval is keyed by a DIGEST
+    // of padi's state-root (`kaval-<digest>/`), so there is no single fixed path
     // to name — point at `kaval-tui list` (autodiscovery) or $KAVAL_SOCKET (set
     // inside any kolu terminal) instead of computing a wrong one.
     return fail(
-      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is a daemon running? Start a standalone one with \`kaval\`; the socket appears once it boots. To reach a running kolu-server instead, run \`kaval-tui list\` to discover its socket (namespaced by port, so there is no fixed path), or use \`--socket "$KAVAL_SOCKET"\` from inside a kolu terminal.`,
+      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is a daemon running? Start a standalone one with \`kaval\`; the socket appears once it boots. To reach a padi-spawned kaval instead, run \`kaval-tui list\` to discover its socket (digest-keyed, so there is no fixed path), or use \`--socket "$KAVAL_SOCKET"\` from inside a kolu terminal.`,
     );
   });
 }

@@ -1,0 +1,91 @@
+/**
+ * The `padi` executable — the per-host terminal-workspace daemon's entry point.
+ *
+ * padi is the workspace authority for one host: it supervises that host's kaval
+ * (owning its PTYs), composes the terminal registry, folds awareness on the
+ * host's clock, persists the session under its state-root, and serves it all as
+ * one surface (`padiSurface`) plus the frozen control core over a unix socket.
+ * kolu-server binds it (from the W2.2 cutover); kaval-tui and a future padi-tui
+ * reach the kaval and padi it stands up.
+ *
+ *   padi                          serve at $XDG_RUNTIME_DIR/padi-<digest>/padi.sock,
+ *                                 anchored to the binary's default state-root
+ *   padi --state-root PATH        anchor to an explicit state-root (dev/e2e); the
+ *                                 digest (and so the socket + its kaval) follow it
+ *   padi --socket PATH            serve at an explicit socket (gate sits beside it)
+ *
+ * This file is the executable, never an import target — it runs the daemon on
+ * load. The bin maps the daemon's `DaemonExit` to a process exit code; the
+ * lifecycle itself (state-root → adopt kaval → serve → teardown) is the testable
+ * `runPadiDaemon`.
+ */
+
+import { parseArgs } from "node:util";
+import { daemonExitCode, stderrLogger } from "@kolu/surface-daemon";
+import { runPadiDaemon } from "./daemonMain.ts";
+
+const USAGE = `padi — the per-host terminal-workspace daemon
+
+Usage:
+  padi [--state-root PATH] [--socket PATH]
+
+Options:
+  --state-root PATH   the persistent folder padi anchors to (session · memory ·
+                      pairing). Default: $HOME/.local/state/padi (env-insensitive
+                      — it does NOT honor $XDG_STATE_HOME); override with this flag
+                      or the KOLU_PADI_STATE_DIR env var. The socket + its kaval are
+                      keyed by a digest of this path, so a distinct state-root is a
+                      distinct, isolated padi.
+  --socket PATH       unix socket to serve on (default: keyed by the state-root
+                      digest). The single-instance gate sits beside it.
+  --allow-nix-shell-with-env-whitelist LIST
+                      forward a Nix-devshell env whitelist to PTY spawns (matches
+                      kolu-server's flag), comma-separated.
+  --spawn-version VER the value stamped as spawned PTYs' TERM_PROGRAM_VERSION.
+                      The binder forwards the kolu app version here so terminal
+                      identity is byte-identical to the pre-cutover in-process
+                      spawn; standalone, padi defaults to its own commit hash.
+  --legacy-kaval-socket PATH
+                      the pre-W2.2 per-port kaval socket the BINDER hints (its own
+                      listen port's kaval-<port>/pty-host.sock) — the upgrade bridge.
+                      If padi has no digest kaval yet but a compatible pre-W2.2 kaval
+                      is alive here, it is ADOPTED (its PTYs survive the upgrade), not
+                      leaked. Standalone (no flag), padi never adopts a stray port kaval.
+  -h, --help          show this help
+
+Bind a running padi from kolu-server, or drive its kaval with \`kaval-tui\`.`;
+
+const { values } = parseArgs({
+  options: {
+    "state-root": { type: "string" },
+    socket: { type: "string" },
+    "allow-nix-shell-with-env-whitelist": { type: "string" },
+    "spawn-version": { type: "string" },
+    "legacy-kaval-socket": { type: "string" },
+    help: { type: "boolean", short: "h" },
+  },
+});
+
+if (values.help) {
+  process.stdout.write(`${USAGE}\n`);
+  process.exit(0);
+}
+
+runPadiDaemon({
+  stateRoot: values["state-root"],
+  socketOverride: values.socket,
+  nixShellWhitelist: values["allow-nix-shell-with-env-whitelist"],
+  spawnVersion: values["spawn-version"],
+  legacyKavalSocket: values["legacy-kaval-socket"],
+  log: stderrLogger(),
+})
+  .then((exit) => {
+    // The success/failure classification lives with `DaemonExit` in the spine
+    // (`already-running`/`shutdown` → 0, `serve-failed` → 1), reclassified once at
+    // the type's home rather than re-decided in every bin.
+    process.exit(daemonExitCode(exit));
+  })
+  .catch((err: unknown) => {
+    process.stderr.write(`padi: ${(err as Error).message}\n`);
+    process.exit(1);
+  });

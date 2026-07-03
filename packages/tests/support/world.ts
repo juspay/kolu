@@ -95,6 +95,13 @@ export class KoluWorld extends World {
   lastResponseText?: string;
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;
+  /** The padi + kaval gate pids captured by `I capture the padi and kaval
+   *  daemon pids`, read back by the `@kaval-restart` arms to prove a
+   *  `recycleKaval` CHANGES the kaval gate pid (the daemon was recycled) while
+   *  the padi gate pid stays UNCHANGED (padi stayed up — it recycles kaval, not
+   *  itself). */
+  capturedPadiPid?: number;
+  capturedKavalPid?: number;
   savedWorkspaceSwitcherCount?: number;
   /** Code-tab preview (diff-content) pane height captured by `I note the
    *  Code tab preview pane height`, compared after terminal switches to

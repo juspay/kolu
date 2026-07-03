@@ -11,27 +11,83 @@
  * `getRuntimeSocketPath` in `@kolu/surface/unix-socket`; this module just
  * pins kolu's names.
  *
- * kolu-server namespaces its daemon PER INSTANCE by listen port
- * (`kaval-<port>/`), so two servers on one box never collide on a single gate
- * (the prod incident where a second server recycled the first's daemon). The
- * consequence: there is no one fixed path a flag-less `kaval-tui` can assume, so
- * it `discoverPtyHostSockets()` the running daemon instead.
+ * padi spawns its kaval under a DIGEST-keyed namespace (`kaval-<digest>/`, the
+ * digest taken from padi's state-root, with a `state-root` manifest beside the
+ * socket so discovery can label it), so two padis on one box never collide on a
+ * single gate (the prod incident where a second server recycled the first's
+ * daemon). A bare standalone kaval is still `kaval/`. The legacy per-port
+ * `kaval-<port>/` — the old in-process kolu-server keying — is retired; discovery
+ * below still recognizes it for the transition. The consequence either way: there
+ * is no one fixed path a flag-less `kaval-tui` can assume, so it
+ * `discoverPtyHostSockets()` the running daemon instead.
  */
-import { lstatSync, readdirSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { gatePid } from "@kolu/surface-daemon";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 
 /** The socket filename inside every kaval rendezvous dir. */
 export const PTY_HOST_SOCK_FILE = "pty-host.sock";
 
+/** The single-instance gate filename beside every kaval socket — its holder pid as
+ *  decimal text (written by kaval's `daemonMain`, read via `gatePid`). One literal so
+ *  the daemon, the supervisor's `kavalGatePath`, and read-only discovery agree on it. */
+export const KAVAL_GATE_FILE = "kaval.pid";
+
+/** The manifest filename mapping a digest-keyed rendezvous dir back to the
+ *  padi state-root it belongs to. Written by padi (which knows both the digest
+ *  and the state-root the opaque digest stands for), read by flag-less discovery
+ *  to LABEL a `kaval-<digest>` dir it otherwise couldn't interpret. A legacy
+ *  `kaval-<port>` dir has NO manifest — its port is meaning enough. */
+export const STATE_ROOT_MANIFEST_FILE = "state-root";
+
+/** Write the `state-root` manifest into a rendezvous dir, owner-only. Ensures the
+ *  `0700` dir exists first (padi writes its kaval's manifest BEFORE kaval binds
+ *  the socket, so the dir may not exist yet). Idempotent. Owned HERE, beside the
+ *  discovery that reads it, so the on-disk format has one home (padi imports this
+ *  for writing — the dependency arrow points padi → kaval, never the reverse). */
+export function writeStateRootManifest(
+  runtimeDir: string,
+  stateRoot: string,
+): void {
+  mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(runtimeDir, STATE_ROOT_MANIFEST_FILE), `${stateRoot}\n`, {
+    mode: 0o600,
+  });
+}
+
+/** Read the state-root a rendezvous dir's manifest records, or `undefined` if it
+ *  has none (a legacy port-keyed kaval, or a bare standalone daemon). Never
+ *  throws. */
+export function readStateRootManifest(runtimeDir: string): string | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(join(runtimeDir, STATE_ROOT_MANIFEST_FILE), "utf8");
+  } catch {
+    return undefined;
+  }
+  const line = raw.split("\n", 1)[0]?.trim();
+  return line ? line : undefined;
+}
+
 /** The app-namespace prefix kaval owns. A standalone daemon serves under it
- *  bare (`kaval/`); each kolu-server serves under a per-port decoration of it
- *  (`kavalNamespace(port)` → `kaval-<port>/`). The prefix is the one literal
- *  that ties construction and discovery together. */
+ *  bare (`kaval/`); a padi's kaval decorates it with a digest of padi's
+ *  state-root (`kaval-<digest>/`), and the legacy in-process kolu-server used the
+ *  same decoration shape with a listen port (`kaval-<port>/`). The prefix is the
+ *  one literal that ties construction and discovery together. */
 export const KAVAL_NS_PREFIX = "kaval";
 
-/** The app namespace for a kolu-server's per-instance daemon, keyed by listen
- *  port so two servers on one box never collide on a single gate. */
+/** The legacy per-port app namespace — the retired in-process kolu-server keying
+ *  (`kaval-<port>/`). No longer used to CONSTRUCT a live socket (padi keys by a
+ *  state-root digest now); kept because discovery below probes it with a sentinel
+ *  to learn the `<prefix>-<...>` decoration shape, and still recognizes such dirs
+ *  for the transition. */
 export function kavalNamespace(port: number): string {
   return `${KAVAL_NS_PREFIX}-${port}`;
 }
@@ -49,6 +105,17 @@ export function getPtyHostSocketPath(override?: string, app = "kolu"): string {
   });
 }
 
+/** The LEGACY per-port kaval socket path — `$XDG_RUNTIME_DIR/kaval-<port>/
+ *  pty-host.sock` — the pre-W2.2 in-process kolu-server keying. Retired for
+ *  CONSTRUCTION (padi keys its kaval by a state-root digest now), but a W2.2
+ *  kolu-server hands THIS path (computed from its OWN listen port) to padi as an
+ *  adopt HINT so the first W2.2 boot ADOPTS the running pre-W2.2 kaval instead of
+ *  leaking it (the upgrade-migration bridge). Reuses {@link kavalNamespace} — the
+ *  one `kaval-<port>` literal — so the hint and legacy discovery can never drift. */
+export function legacyKavalSocketPath(port: number): string {
+  return getPtyHostSocketPath(undefined, kavalNamespace(port));
+}
+
 /** Is `dir` a private, owner-only directory the current user owns? The SAME
  *  boundary `serveOverUnixSocket` / `acquirePidGate` enforce before serving (cf.
  *  `isPrivateOwnedDir` in `@kolu/surface/unix-socket`). It is re-checked HERE, on
@@ -60,7 +127,7 @@ export function getPtyHostSocketPath(override?: string, app = "kolu"): string {
  *  attacker still controls the `/tmp` component of. Returns true on platforms
  *  without uid semantics (Windows: `process.getuid` is undefined) — the ACL model
  *  there is out of scope. */
-function isPrivateOwnedDir(dir: string): boolean {
+export function isPrivateOwnedDir(dir: string): boolean {
   const getuid = process.getuid?.bind(process);
   if (getuid === undefined) return true;
   try {
@@ -73,11 +140,12 @@ function isPrivateOwnedDir(dir: string): boolean {
 }
 
 /** Discover the rendezvous sockets of running pty-host daemons under the per-user
- *  runtime root, EACH LABELED by the branch that matched — every kolu-server's
- *  per-port namespace (`kaval-<port>/` → "kolu-server on port <port>") plus a bare
- *  standalone `kaval/` (→ "standalone kaval"). Lets a flag-less `kaval-tui` dial
- *  the daemon without knowing the server's port, and a `many`-candidate error name
- *  each one correctly.
+ *  runtime root, EACH LABELED by the branch that matched — a bare standalone
+ *  `kaval/` (→ "standalone kaval"), a padi's digest-keyed `kaval-<digest>/`
+ *  (labeled from its state-root manifest → "kolu @ <state-root>"), and, for the
+ *  transition, a legacy `kaval-<port>/` (no manifest, numeric suffix → "kolu-server
+ *  on port <port>"). Lets a flag-less `kaval-tui` dial the daemon without knowing
+ *  padi's digest, and a `many`-candidate error name each one correctly.
  *
  *  The runtime root and the env's namespace decoration are NOT re-derived here:
  *  they are READ BACK from `getRuntimeSocketPath` itself, so discovery can never
@@ -111,11 +179,13 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
   const root = dirname(bareDir);
   const bareName = basename(bareDir);
 
-  // Learn the env's port decoration from the builder too: a probe build with
-  // port `0` yields the decorated per-port name; turn its literal `0` back into
-  // a `(\d+)` capture group to both match any port AND read it back for the
-  // label. (Escape the rest so a `/tmp` path can't inject regex metacharacters.)
-  const portedName = basename(
+  // Learn the env's decoration from the builder too: a probe build with the
+  // sentinel `0` yields the decorated per-instance name; turn its literal `0`
+  // into a `([0-9a-f]+)` capture that matches BOTH a legacy `kaval-<port>` (the
+  // in-process kolu-server, digits) AND a padi's `kaval-<digest>` (lowercase hex)
+  // — then read the suffix back to disambiguate by the manifest below. (Escape
+  // the rest so a `/tmp` path can't inject regex metacharacters.)
+  const decoratedName = basename(
     dirname(
       getRuntimeSocketPath({
         app: kavalNamespace(0),
@@ -123,8 +193,8 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
       }),
     ),
   );
-  const portedRe = new RegExp(
-    `^${portedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "(\\d+)")}$`,
+  const decoratedRe = new RegExp(
+    `^${decoratedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "([0-9a-f]+)")}$`,
   );
 
   let entries: string[];
@@ -135,27 +205,63 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
   }
   const found: KavalSocketCandidate[] = [];
   for (const name of entries) {
-    // Classify by the branch that matches — this IS the label, decided here
-    // against this user's real bareName/portedRe, so the later "many" error
-    // never has to hedge between a port and an off-XDG `-$UID`.
+    // A name match alone is never ownership: require the namespace dir to be ours
+    // and owner-only (the serving-side boundary), so a sibling another local user
+    // planted under a shared `/tmp` root (whose name they can spell freely) is
+    // never dialed or read.
+    const dir = join(root, name);
+    if (name !== bareName && decoratedRe.exec(name) === null) continue;
+    if (!isPrivateOwnedDir(dir)) continue;
+
+    // Classify by the branch that matches — this IS the label. A bare name is the
+    // standalone daemon; a decorated one is EITHER a padi's `kaval-<digest>` (a
+    // state-root manifest present → label by that state-root) OR a legacy
+    // in-process kolu-server's `kaval-<port>` (no manifest, a numeric suffix →
+    // label by port). Manifest presence is the discriminant, so a digest that
+    // happens to be all-decimal never masquerades as a port.
     let label: string;
+    let kind: KavalCandidateKind;
+    let stateRoot: string | undefined;
     if (name === bareName) {
       label = "standalone kaval";
+      kind = "standalone";
     } else {
-      const m = portedRe.exec(name);
-      if (m === null) continue;
-      label = `kolu-server on port ${m[1]}`;
+      const suffix = decoratedRe.exec(name)?.[1] ?? "";
+      stateRoot = readStateRootManifest(dir);
+      if (stateRoot !== undefined) {
+        label = `kolu @ ${stateRoot}`;
+        kind = "stateRoot";
+      } else if (/^\d+$/.test(suffix)) {
+        label = `kolu-server on port ${suffix}`;
+        kind = "port";
+      } else {
+        label = `kaval ${suffix}`;
+        kind = "unknown";
+      }
     }
-    // Name match alone is not ownership: require the namespace dir to be ours
-    // and owner-only (the serving-side boundary), and the inode to be an actual
-    // socket — so a name-squatter's planted dir/file under a shared root is
-    // never dialed.
-    const dir = join(root, name);
-    if (!isPrivateOwnedDir(dir)) continue;
+    // The inode must itself be an actual socket — not any file a name-squatter
+    // dropped in.
     const sock = join(dir, PTY_HOST_SOCK_FILE);
-    if (isSocketInode(sock)) found.push({ socket: sock, label });
+    if (isSocketInode(sock)) {
+      found.push({ socket: sock, label, kind, stateRoot });
+    }
   }
   return found;
+}
+
+/** Discover every running kaval daemon on this host, each enriched with its
+ *  gate-holder pid (read from `kaval.pid` beside the socket, or `null` if
+ *  unreadable) — the read-only enumeration the Kaval info dialog lists so a LEAKED
+ *  pre-upgrade kaval is visible at a glance (it was only surfaced via a `kaval-tui`
+ *  CLI error before). Reuses {@link discoverKavalCandidates} (the SAME discovery
+ *  `kaval-tui` uses to report "more than one kaval daemon"); it stats dirs, reads
+ *  the gate file, and reads the manifest, but NEVER dials, kills, or reaps a
+ *  daemon — strictly read-only. */
+export function discoverKavalDaemons(): KavalDaemon[] {
+  return discoverKavalCandidates().map((candidate) => ({
+    ...candidate,
+    gatePid: gatePid(join(dirname(candidate.socket), KAVAL_GATE_FILE)) ?? null,
+  }));
 }
 
 /** The discovered sockets as bare paths — the back-compat shape for callers that
@@ -168,7 +274,7 @@ export function discoverPtyHostSockets(): string[] {
 /** Is `path` an actual socket inode? `lstatSync` (NOT `statSync`) so a symlink
  *  is judged as itself, never followed — a name-squatter must not be able to
  *  point us elsewhere with a link. A missing path or any non-socket inode → no. */
-function isSocketInode(path: string): boolean {
+export function isSocketInode(path: string): boolean {
   try {
     return lstatSync(path).isSocket();
   } catch {
@@ -176,14 +282,41 @@ function isSocketInode(path: string): boolean {
   }
 }
 
-/** A labeled candidate kaval socket — the pasteable path plus a human label that
- *  tells a kolu-server (port-namespaced) apart from a standalone daemon. The label
- *  is decided by `discoverKavalCandidates` at the matching branch (`bareName` →
- *  standalone, the ported pattern → a specific port), so it is never the hedged
- *  "port N, or a standalone" a basename re-parse would have to fall back to. */
+/** Which namespace branch a discovered kaval matched — the STRUCTURAL kind decided
+ *  at discovery's matching branch (never a later basename re-parse):
+ *   - `standalone` — a bare `kaval/` daemon (`kaval` CLI, no padi);
+ *   - `stateRoot`  — a padi's `kaval-<digest>/` (a `state-root` manifest present);
+ *   - `port`       — the LEGACY pre-W2.2 in-process kolu-server `kaval-<port>/` (no
+ *                    manifest, numeric suffix) — a kaval NOT owned by any padi, the
+ *                    leak signal a post-upgrade orphan trips;
+ *   - `unknown`    — a decorated name that is neither (defensive). */
+export type KavalCandidateKind =
+  | "standalone"
+  | "stateRoot"
+  | "port"
+  | "unknown";
+
+/** A labeled candidate kaval socket — the pasteable path, a human label that tells a
+ *  kolu-server (port-namespaced) apart from a standalone daemon, the structured
+ *  {@link KavalCandidateKind}, and the padi `stateRoot` its manifest records (only when
+ *  `kind === "stateRoot"`). The label + kind are decided by `discoverKavalCandidates`
+ *  at the matching branch (`bareName` → standalone, the ported pattern → a specific
+ *  port), so neither is ever the hedged "port N, or a standalone" a basename re-parse
+ *  would have to fall back to. */
 export interface KavalSocketCandidate {
   socket: string;
   label: string;
+  kind: KavalCandidateKind;
+  /** The padi state-root this kaval belongs to (from its `state-root` manifest),
+   *  present only when `kind === "stateRoot"`. */
+  stateRoot?: string;
+}
+
+/** A discovered kaval daemon — a {@link KavalSocketCandidate} plus the gate-holder pid
+ *  read from `kaval.pid` beside its socket (`null` if the gate is absent/malformed).
+ *  Strictly read-only diagnostic data; produced by {@link discoverKavalDaemons}. */
+export interface KavalDaemon extends KavalSocketCandidate {
+  gatePid: number | null;
 }
 
 /** The outcome of resolving which running kaval to dial — the selection policy
@@ -196,8 +329,8 @@ export type KavalSocketResolution =
 
 /** Resolve which running kaval to dial. An explicit path wins (verbatim — it's a
  *  user-supplied `--socket`/`--kaval` flag). Otherwise discover the running
- *  daemon: kolu-server namespaces its daemon by listen port (`kaval-<port>/`), so
- *  there is no single fixed path to assume. Exactly one found → `one`. More than
+ *  daemon: padi keys its kaval by a digest of its state-root (`kaval-<digest>/`),
+ *  so there is no single fixed path to assume. Exactly one found → `one`. More than
  *  one → `many`, with each candidate LABELED (the caller renders a pick-one
  *  error). None → `none` with the bare `kaval` default, so a connect error names
  *  a sensible path. */

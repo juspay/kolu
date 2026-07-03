@@ -10,27 +10,17 @@
  * Beside the browser-safe `./surface` contract; this side pulls in `node:` and
  * the daemon runtime, so browser consumers must not import it. The dependency
  * arrow points `@kolu/padi → kolu-common`, never back into `packages/server` —
- * the two server ids the domain needs (`serverProcessId`, `serverVersion`) are
- * INJECTED via `setKoluServerProcessId` / `setSpawnServerVersion`, not imported.
+ * the two ids the domain needs (`daemonProcessId`, `serverVersion`) are
+ * INJECTED via `setDaemonProcessId` / `setSpawnServerVersion`, not imported.
  */
 
-// ── injected conf stores (session + activityFeed) ───────────────────────
-// kolu-server boot injects the real `confStore`-backed stores here BEFORE serving
-// (padi does not import packages/server; the STORAGE stays kolu-server's source of
-// truth until W2.2). The `requireX` getters stay padi-internal.
-export {
-  setPadiActivityFeedStore,
-  setPadiLastPairedDaemonStore,
-  setPadiSessionStore,
-} from "./confStores.ts";
-// The persisted survivor pairing's type — kolu-server builds the conf-backed store
-// for it (`surface.ts`) and injects it via `setPadiLastPairedDaemonStore`. The
-// pairing is READ + RECORDED entirely inside padi's boot reconcile.
+// The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
+// inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
 export type { PairedDaemon } from "./pairedDaemon.ts";
 // ── scratch / roots ─────────────────────────────────────────────────────
 export {
   ensureKoluRoot,
-  setKoluServerProcessId,
+  setDaemonProcessId,
   shutdownCleanup,
 } from "./koluRoot.ts";
 export {
@@ -54,7 +44,21 @@ export {
   ptyHostClient,
   setSpawnServerVersion,
 } from "./ptyHost/index.ts";
-export { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
+// ── padi process rendezvous (W2.2 binder) ───────────────────────────────
+// kolu-server's padi BINDER (`server/src/padiBinding.ts`) resolves the SAME
+// state-root → socket/gate paths padi computes for itself, so the supervisor and
+// the daemon never disagree on identity. Re-exported through this barrel so the
+// binder reaches the terminal domain only through @kolu/padi's published entry
+// points (the package-boundary seal), not a deep `@kolu/padi/stateRoot` import.
+export {
+  type PadiDaemon,
+  discoverPadiDaemons,
+  padiDigest,
+  padiGatePath,
+  padiKavalSocketPath,
+  padiSocketPath,
+  resolvePadiStateRoot,
+} from "./stateRoot.ts";
 // ── publisher / surface ctx holder ──────────────────────────────────────
 export {
   publisher,

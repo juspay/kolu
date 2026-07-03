@@ -229,18 +229,22 @@ describe("relayHoldOpenStream (value)", () => {
     const relay = relayHoldOpenStream(POLICY, "pulse", holder, selectPulse);
     const frames: number[] = [];
     const ctl = new AbortController();
+    let completed = false;
     const run = (async () => {
       for await (const f of relay({ repo: "r" }, ctl.signal)) frames.push(f);
+      completed = true;
     })();
 
     up1.push(1);
     await delay();
     expect(frames).toEqual([1]);
 
-    // Upstream link blips (this spawn's stream ends). The relay must HOLD — the
-    // downstream stream must NOT complete.
-    up1.end();
+    // Upstream link BLIPS — a transport death rejects this spawn's stream (a link
+    // blip is an ERROR, never a clean end). The relay must HOLD — the downstream
+    // stream must NOT complete.
+    up1.fail(new Error("link blip"));
     await delay();
+    expect(completed).toBe(false); // held, did not complete
 
     // The pump swaps in the next spawn: the relay rebinds and keeps yielding.
     const up2 = controllable<number>();
@@ -255,6 +259,37 @@ describe("relayHoldOpenStream (value)", () => {
     // The ONLY exit is a downstream abort.
     ctl.abort();
     up2.fail(new Error("teardown")); // wake the forward loop so it observes the abort
+    await run;
+  });
+
+  it("surfaces a CLEAN upstream end while the client stays live — ends the downstream, does not park (candidate 3a)", async () => {
+    // A one-shot value member (e.g. `terminalExit`) fires once then the source
+    // ENDS cleanly, while the SAME client stays live (`holder.current` never
+    // changes). Parking on `whenChanged` would hang forever — so the relay must
+    // SURFACE the completion and end the downstream (the client re-subscribes
+    // end-to-end if it wants more).
+    const up = controllable<number>();
+    const holder = observableHolder<PulseClient>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up.stream(opts?.signal) } },
+    };
+    const relay = relayHoldOpenStream(POLICY, "pulse", holder, selectPulse);
+    const frames: number[] = [];
+    let ended = false;
+    const run = (async () => {
+      for await (const f of relay({ repo: "r" }, undefined)) frames.push(f);
+      ended = true; // the downstream COMPLETED — did not park
+    })();
+
+    up.push(7);
+    up.end(); // one-shot / per-input clean end, link stays live
+    await delay();
+
+    expect(frames).toEqual([7]);
+    expect(ended).toBe(true); // surfaced the end; the client was never left parked
+    // The holder still holds the SAME live client — the end was per-input, not a
+    // link death, and the relay did not wait for a respawn that isn't coming.
+    expect(holder.current).not.toBeNull();
     await run;
   });
 

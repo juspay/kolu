@@ -13,9 +13,9 @@
  * wired here. The reactive WRITE-path (padi's ctx + write-triggers publishing
  * deltas) is LIVE: the client reads the terminal record, urgency, daemon status,
  * session, activity feed, and the `terminalExit` event off `padiSurface`. The
- * `session` / `activityFeed` cells are backed by the conf stores kolu-server
- * injects at boot (`./confStores.ts`) — the STORAGE stays kolu-server-side until
- * W2.2 gives padi its own state-root, but the wire members live here.
+ * `session` / `activityFeed` cells are backed by padi's OWN state-root Conf, set by
+ * padi's `daemonMain` at boot (`openPadiStateStores` → `setPadiSessionStore` /
+ * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
@@ -36,6 +36,7 @@ import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
+import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 import { cancelPendingAutosave } from "./session.ts";
 import {
   forfeitSession,
@@ -43,6 +44,7 @@ import {
   restoreSession,
 } from "./sessionRestore.ts";
 import {
+  DEFAULT_PADI_PROCESS_MEMORY,
   DEFAULT_PADI_VERSION,
   type PadiStatus,
   type PadiTerminal,
@@ -53,7 +55,8 @@ import {
   getTerminal,
   registryMap,
   requireActiveTerminal,
-  requireTerminal,
+  requireMutableTerminal,
+  snapshotFor,
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
@@ -129,6 +132,13 @@ export function buildPadiSurfaceDeps(deps: {
       // constant seeded once at boot (the client's `kavalUpdatePending` nudge
       // reads it against the connected daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
+      // Live process-memory readout (padi's OWN RSS + its kaval's). In-memory —
+      // a live metric has no on-disk slot. The periodic sampler
+      // (`memorySampler.ts`, wired into daemon boot) is the sole writer via
+      // `padiSurfaceCtx.cells.processMemory.set`; a fresh subscription reads the
+      // latest via `get`. No `equals` dedup: the 5s cadence + small payload is
+      // cheap, and padi can't reuse kolu-common's whole-MB helper across the seal.
+      processMemory: { store: inMemoryStore(DEFAULT_PADI_PROCESS_MEMORY) },
       // In-memory urgency store, seeded from the registry fold. The metadata seam
       // (`terminalEndpoint/metadata.ts`) re-folds `.set(recomputeUrgency())` on the
       // agent firehose through the padi ctx; `equals` dedups the redundant fires.
@@ -136,8 +146,9 @@ export function buildPadiSurfaceDeps(deps: {
         store: inMemoryStore(recomputeUrgency()),
         equals: urgencyEqual,
       },
-      // The saved session — backed by the conf store kolu-server injects at boot
-      // (`requirePadiSessionStore`), until W2.2 gives padi its own state-root. The
+      // The saved session — backed by padi's OWN state-root Conf, set by padi's
+      // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here
+      // via `requirePadiSessionStore`. The
       // `get` reads that store DIRECTLY and normalizes an empty-terminals blob to
       // `null` (the legacy "nothing to restore" invariant) INLINE — it must NOT
       // delegate to `getSavedSession`, which reads THIS cell (via
@@ -160,9 +171,10 @@ export function buildPadiSurfaceDeps(deps: {
         equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
         onWrite: () => cancelPendingAutosave(),
       },
-      // The activity feed — backed by the conf store kolu-server injects at boot.
+      // The activity feed — backed by padi's OWN state-root Conf, set by padi's
+      // daemonMain at boot (`setPadiActivityFeedStore`, see `confStores.ts`).
       // A thin lazy wrapper (not the bare store) because the store is injected
-      // AFTER this deps object is built (kolu-server boot order), so calling
+      // AFTER this deps object is built (padi's boot order), so calling
       // `requirePadiActivityFeedStore()` eagerly here would read before the set.
       activityFeed: {
         store: {
@@ -200,10 +212,16 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     streams: {
-      // QUIET — kolu-server has no raw byte tap, so this truthfully yields the
-      // empty live set (the honest "nothing known to be moving"); the live source
-      // lands with padi's own process (W2.2). The fs/git change-pulses are pure
-      // reuse of `fsGitSurfaceDeps(...).streams`.
+      // QUIET — deliberately, still. `activity` (the set of terminals producing
+      // output right now) has NO consumer: the client derives its per-tile live
+      // dot LOCALLY from `terminalAttach` bytes and has never read this surface
+      // member. Lighting it now — even though padi owns the byte-taps that could
+      // feed it — would be a producer with zero consumers, the exact
+      // self-sufficiency smell this plan exists to kill. So it stays served-quiet
+      // (the honest "nothing known to be moving", no contract change); its live
+      // backing lands with its FIRST real consumer — `padi-tui wait`/`status`
+      // (W2.3) or `kolu-tui` (W4). The fs/git change-pulses are pure reuse of
+      // `fsGitSurfaceDeps(...).streams`.
       activity: quietActivity,
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
@@ -304,16 +322,40 @@ export function buildPadiSurfaceDeps(deps: {
         sendInput: ({ input }) => {
           getActiveTerminal(input.id)?.handle.write(input.data);
         },
+        // The "Restart kaval" button — force-recycle THIS host's kaval daemon,
+        // preserving the session (B3.2). padi's INTERNAL supervisory op: capture →
+        // drain → recycle (kill + spawn fresh) → park, all via `restartLocalDaemon`
+        // (the soul) through the endpoint's coalescing emit-guard. PADI STAYS UP —
+        // this is the `adopt-or-ensure` recycle arm, never a padi restart (that is
+        // the separate `control.drain` upgrade path). Resolves once the fresh kaval
+        // is connected; a failure rejects with the captured session safe on disk.
+        recycleKaval: async () => {
+          log.info({}, "recycle kaval (Restart kaval)");
+          try {
+            await restartLocalDaemon();
+          } catch (err) {
+            // A failed restart otherwise surfaces ONLY as a client toast — padi's
+            // journal would show the "recycle kaval" start line and then an
+            // unexplained silence. Surface it: the endpoint has already reported
+            // dead/degraded and the captured session is safe on disk (the user can
+            // retry or restore), but the failure must be legible in the journal.
+            log.error(
+              { err },
+              "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
+            );
+            throw err;
+          }
+        },
       },
 
       chrome: {
         setTheme: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           log.info({ terminal: input.id, theme: input.themeName }, "set theme");
           setTerminalTheme(input.id, input.themeName);
         },
         setIntent: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           log.info(
             { terminal: input.id, intentLength: input.intent.length },
             "set intent",
@@ -321,7 +363,7 @@ export function buildPadiSurfaceDeps(deps: {
           setTerminalIntent(input.id, input.intent);
         },
         setParent: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           log.info(
             { terminal: input.id, parent: input.parentId },
             "set terminal parent",
@@ -332,18 +374,18 @@ export function buildPadiSurfaceDeps(deps: {
           setActiveTerminalId(input.id);
         },
         setCanvasLayout: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           setCanvasLayout(input.id, input.layout);
         },
         setSubPanel: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           setSubPanelState(input.id, {
             collapsed: input.collapsed,
             panelSize: input.panelSize,
           });
         },
         setRightPanel: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           const { id: _id, ...state } = input;
           setRightPanelState(input.id, state);
         },
@@ -454,6 +496,14 @@ export function buildPadiSurfaceDeps(deps: {
       // re-enforced inside `readPreview` by padi's own `previewRealpathGuard`.
       preview: {
         read: ({ input }) => readPreview(input),
+        // Resolve a terminal's repoRoot off padi's OWN registry (`snapshotFor`, the
+        // source of truth) — the re-serving binder's iframe route turns the URL's
+        // terminal id into a repo path with this, then STREAMS the file itself via
+        // the shared `previewFile` (bounded heap), so kolu-server never holds the
+        // terminal→repoRoot map and never forces a large video whole through base64.
+        repoRootForTerminal: ({ input }) => ({
+          repoRoot: snapshotFor(input.terminalId)?.git?.repoRoot ?? null,
+        }),
       },
 
       transcript: {

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Padi host daemon logo</title>
+  <defs>
+    <linearGradient id="padi-stair" x1="72" y1="440" x2="440" y2="72" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d9488"/>
+      <stop offset="1" stop-color="#2dd4bf"/>
+    </linearGradient>
+  </defs>
+
+  <!-- padi (படி): the staircase in profile — the step the workspace climbs and
+       rests on. Named for the Tamil word for stair/step; the daemon is the
+       persistent per-host footing that holds your terminals across restarts.
+       Tread · riser · tread as one teal stroke, so it reads as a climb (distinct
+       from Kolu's stacked tiers — literally the கொலு படி). The path spans the box
+       corner-to-corner so its bounding box fills the 512 viewBox with a ~43px
+       margin, matching Kaval's weight — no wasted whitespace. Transparent ground. -->
+  <path d="M72 440 H196 V256 H316 V72 H440"
+        fill="none" stroke="url(#padi-stair)" stroke-width="58"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -21,7 +21,7 @@ import {
 } from "@kolu/surface/unix-socket";
 import type { Router } from "@orpc/server";
 import type { Logger } from "./logger.ts";
-import { acquirePidGate } from "./pidGate.ts";
+import { acquirePidGate, type GateAcquisition } from "./pidGate.ts";
 
 /** How long the daemon stays up once serving. `forever` waits for a signal or
  *  an external abort only; `idleTimeout` additionally shuts down after `ms` of
@@ -78,6 +78,13 @@ export interface DaemonSpec {
   /** Fired once, after the gate is held and the socket is listening — the boot
    *  log's hook and the readiness point a test awaits before connecting. */
   onReady?: (info: { socketPath: string; pid: number }) => void;
+  /** A gate the caller ALREADY acquired. Hand this in when the single-instance
+   *  gate must be claimed BEFORE the caller's own boot side effects — padi claims
+   *  it first so a daemon that lost the race never runs the legacy import, recycles
+   *  the shared kaval, or writes the state manifests. `daemonMain` then serves under
+   *  this gate and releases it on teardown, exactly as if it had acquired it.
+   *  Omitted → `daemonMain` acquires the gate itself (kaval's path). */
+  gate?: GateAcquisition;
 }
 
 /** Run the daemon: take the gate, serve the router over the socket, then wait
@@ -86,7 +93,9 @@ export interface DaemonSpec {
 export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   const { gatePath, socketPath, router, lifetime, log, signal } = spec;
 
-  const gate = acquirePidGate(gatePath);
+  // The caller may have claimed the gate already (padi, to fence its boot side
+  // effects behind it); otherwise acquire it here (kaval).
+  const gate = spec.gate ?? acquirePidGate(gatePath);
   if (gate.kind === "held") {
     log.info(
       { gatePath, pid: gate.pid },

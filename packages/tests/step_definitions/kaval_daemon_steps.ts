@@ -8,15 +8,175 @@
  * asserts that honest surface appears, not the empty-state welcome.
  */
 
+import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import { killKavalDaemon } from "../support/hooks.ts";
+import {
+  isPidLive,
+  killKavalDaemon,
+  readKavalGatePid,
+  readPadiGatePid,
+} from "../support/hooks.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+
+// Install a durable toast recorder BEFORE the recycle. solid-sonner toasts
+// auto-dismiss (~4s), so the "Failed to set parent" toast the reconcile pops
+// during the drain window can vanish before the daemon finishes warming — a
+// point-in-time query would race it. A MutationObserver captures every toast's
+// text into `window.__errorToasts` so the later assertion sees it even after it
+// has been dismissed.
+When("I start recording error toasts", async function (this: KoluWorld) {
+  // No named function bindings inside evaluate: esbuild's keepNames wraps a
+  // `const fn = () => {}` in a `__name(...)` helper that isn't defined in the
+  // page context (ReferenceError). Anonymous callbacks passed directly are safe.
+  await this.page.evaluate(() => {
+    (window as unknown as { __errorToasts: string[] }).__errorToasts = [];
+    new MutationObserver(() => {
+      const seen = (window as unknown as { __errorToasts: string[] })
+        .__errorToasts;
+      for (const li of document.querySelectorAll("[data-sonner-toaster] li")) {
+        const text = li.textContent?.trim() ?? "";
+        if (text && !seen.includes(text)) seen.push(text);
+      }
+    }).observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  });
+});
+
+Then(
+  "no {string} error toast should have been shown",
+  async function (this: KoluWorld, forbidden: string) {
+    const seen = await this.page.evaluate(
+      () =>
+        (window as unknown as { __errorToasts?: string[] }).__errorToasts ?? [],
+    );
+    const offending = seen.filter((t) => t.includes(forbidden));
+    assert.deepStrictEqual(
+      offending,
+      [],
+      `Expected no toast containing "${forbidden}", but saw: ${JSON.stringify(
+        offending,
+      )} (all toasts: ${JSON.stringify(seen)})`,
+    );
+  },
+);
+
+// Symptom 2 (the split comes back HIDDEN after a recycle+restore). STRONGER than
+// "the sub-panel should be visible": that step only waits for the tab bar, which
+// renders on `isExpanded()` = `hasSubs() && !collapsed`. A restored parent gets a
+// FRESH id whose CLIENT sub-panel state (`useSubPanel`, keyed by parent id) was
+// never seeded, so it defaults to `collapsed:false` → the tab bar shows even while
+// the split content stays hidden. The sub PANE is `visible` only when
+// `activeSubTab === subId` (TerminalContent.tsx), and the one place that seeds the
+// restored parent's active sub-tab — `hydrateFromTerminals` in useSessionRestore —
+// is short-circuited by the `viewSeeded` latch (set true on the first live load,
+// never reset; `useTerminals` is instantiated once, App.tsx). So `activeSubTab`
+// stays null and NO `[data-sub-terminal][data-visible]` element exists. Wait for the
+// sub-terminal CONTENT to actually be visible, not merely the surrounding chrome.
+Then(
+  "the restored split sub-terminal should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator("[data-sub-terminal][data-visible]")
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
 
 When("the kaval daemon is killed", async function (this: KoluWorld) {
   const pid = killKavalDaemon();
   if (pid === undefined) {
     throw new Error(
       "no kaval daemon to kill — the server should have spawned one at boot",
+    );
+  }
+});
+
+// The "recycles kaval, not padi" proof. Capture BOTH gate pids before the
+// restart; the arms below assert the kaval pid CHANGED (recycled) while the padi
+// pid stayed put (padi never restarts — `recycleKaval` is its internal
+// supervisory op, distinct from the `control.drain` padi-upgrade path).
+When(
+  "I capture the padi and kaval daemon pids",
+  async function (this: KoluWorld) {
+    this.capturedPadiPid = readPadiGatePid();
+    this.capturedKavalPid = readKavalGatePid();
+    if (this.capturedPadiPid === undefined) {
+      throw new Error(
+        "no padi gate pid to capture — the server should have spawned padi at boot",
+      );
+    }
+  },
+);
+
+// Open the kaval rail chip's info dialog, where the "Restart kaval" button lives
+// for a RUNNING (not degraded) daemon — the live-but-stuck arm's entry point.
+When("I open the kaval rail dialog", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="kaval-identity-chip"]').click();
+  await this.page.waitForSelector('[data-testid="restart-kaval"]', {
+    timeout: POLL_TIMEOUT,
+  });
+});
+
+// The same session-preserving Restart the degraded canvas fires, reached from the
+// rail dialog for a live daemon: click the button, then confirm through the
+// inline destructive-action guard.
+When("I restart kaval from the rail dialog", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="restart-kaval"]').click();
+  await this.page.locator('[data-testid="restart-kaval-confirm"]').click();
+});
+
+Then(
+  "the kaval daemon has been recycled with a fresh pid",
+  async function (this: KoluWorld) {
+    if (this.capturedKavalPid === undefined) {
+      throw new Error(
+        "no captured kaval pid — run 'I capture the padi and kaval daemon pids' first",
+      );
+    }
+    // The gate reads the fresh kaval's pid once it has claimed it; the recycle
+    // rewrites it, so poll until it differs from the captured one (or timeout).
+    let current: number | undefined;
+    const deadline = Date.now() + POLL_TIMEOUT;
+    do {
+      current = readKavalGatePid();
+      if (current !== undefined && current !== this.capturedKavalPid) break;
+      await new Promise((r) => setTimeout(r, 100));
+    } while (Date.now() < deadline);
+    if (current === undefined || current === this.capturedKavalPid) {
+      throw new Error(
+        `kaval was NOT recycled — gate pid is still ${String(current)} ` +
+          `(captured ${this.capturedKavalPid}); a stuck-but-alive kaval must be ` +
+          "killed + respawned, not adopted",
+      );
+    }
+    if (!isPidLive(current)) {
+      throw new Error(
+        `the recycled kaval's gate pid ${current} names no live process`,
+      );
+    }
+  },
+);
+
+Then("the padi daemon pid is unchanged", async function (this: KoluWorld) {
+  if (this.capturedPadiPid === undefined) {
+    throw new Error(
+      "no captured padi pid — run 'I capture the padi and kaval daemon pids' first",
+    );
+  }
+  const current = readPadiGatePid();
+  if (current !== this.capturedPadiPid) {
+    throw new Error(
+      `padi was restarted (gate pid ${String(current)} != captured ` +
+        `${this.capturedPadiPid}) — recycleKaval must recycle KAVAL, not padi`,
+    );
+  }
+  if (!isPidLive(this.capturedPadiPid)) {
+    throw new Error(
+      `padi gate pid ${this.capturedPadiPid} names no live process — padi ` +
+        "must stay up across a kaval recycle",
     );
   }
 });
@@ -29,11 +189,12 @@ Then("the degraded canvas is shown", async function (this: KoluWorld) {
   });
 });
 
-// B3.2 — the supervised restart. The degraded canvas' "Restart kaval" button
-// fires `daemon.restart`: capture the session, drain, recycle (spawn fresh +
-// connect). The same button lives in the kaval rail dialog for a running daemon.
-// Restart is destructive (kills the daemon + every terminal), so the button
-// opens an inline confirm first — click through both.
+// W2.2 — the supervised restart. The degraded canvas' "Restart kaval" button
+// fires padi's `lifecycle.recycleKaval` procedure: capture the session, drain,
+// recycle (spawn fresh + connect) — padi itself stays up. The same button lives
+// in the kaval rail dialog for a running daemon. Restart is destructive (kills
+// the daemon + every terminal), so the button opens an inline confirm first —
+// click through both.
 When(
   "I restart kaval from the degraded canvas",
   async function (this: KoluWorld) {

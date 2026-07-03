@@ -22,7 +22,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { setKoluServerProcessId } from "./koluRoot.ts";
+import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -46,7 +46,7 @@ import {
 // Restore drives the discard path (`cleanupTerminalScratch`), which reads the
 // per-instance scratch root. Boot injects the server id before any of this runs;
 // mirror that here so the read hits the happy path, not the boot-order crash.
-setKoluServerProcessId("sessionrestore-test-server");
+setDaemonProcessId("sessionrestore-test-server");
 
 const PARENT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SLEEP_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

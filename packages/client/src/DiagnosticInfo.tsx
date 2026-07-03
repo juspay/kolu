@@ -19,8 +19,22 @@ import { formatMB, readJsHeap } from "./ui/memory";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
 import { surface } from "./ui/Surface";
-import { kavalMemoryDisplay, serverRssBytes } from "./ui/useMemoryUsage";
+import {
+  kavalMemoryDisplay,
+  padiMemoryDisplay,
+  serverRssBytes,
+} from "./ui/useMemoryUsage";
 import { layoutMode } from "./useMobile";
+
+/** A per-process RSS display projected for the JSON snapshot — the byte figure
+ *  when a live process answered, `"error"` when a believed-up process's read
+ *  failed, or `null` (nothing to measure). Keeps a failed read distinct from
+ *  no-data so the snapshot never conflates the two. */
+function rssFigure(
+  d: { kind: "ok"; rssBytes: number } | { kind: "error" } | null,
+): number | "error" | null {
+  return d === null ? null : d.kind === "ok" ? d.rssBytes : "error";
+}
 
 /** WebGL2 support detection creates a throwaway canvas + WebGL context
  *  that lingers on a detached node until GC. Compute once at module load
@@ -60,18 +74,16 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         activeId: props.activeId,
         terminalCount: getDiagnostics().length,
         jsHeap: readJsHeap(),
-        // Server + kaval RSS ride the `processMemory` cell (the same source the
-        // rail reads). `kavalRss` is the honest three-way: the byte figure when
-        // a live daemon answered, `"error"` when a believed-connected daemon's
-        // poll failed, or `null` (no daemon to measure) — so the snapshot never
-        // conflates a failed poll with no-data. Read through the SHARED
-        // `kavalMemoryDisplay` derivation (which folds in the connected-now gate),
-        // so the dialog and the rail can't drift on what kaval memory to show.
+        // The three server-side processes' RSS, off the `processMemory` cell (the
+        // same source the rail reads). `serverRss` is always a real figure (the
+        // server measures itself); `padiRss`/`kavalRss` are the honest three-way —
+        // the byte figure when the process answered, `"error"` when a believed-up
+        // process's read failed, or `null` (nothing to measure) — so the snapshot
+        // never conflates a failed read with no-data. padi owns kaval now, so its
+        // RSS rides padi's readout, folded into this cell server-side.
         serverRss: serverRssBytes() ?? null,
-        kavalRss: ((d) =>
-          d === null ? null : d.kind === "ok" ? d.rssBytes : "error")(
-          kavalMemoryDisplay(),
-        ),
+        padiRss: rssFigure(padiMemoryDisplay()),
+        kavalRss: rssFigure(kavalMemoryDisplay()),
         domNodes: document.getElementsByTagName("*").length,
         canvases: webgl.totalDomCanvases,
         // Page-attention state AT SNAPSHOT TIME. The parked-rAF freeze
@@ -209,6 +221,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                   <span class="font-mono text-fg">{formatMB(rss())}</span>
                 </Row>
               )}
+            </Show>
+            <Show when={snapshot().session.padiRss !== null}>
+              <Row label="padi RSS">
+                <span class="font-mono text-fg">
+                  {(() => {
+                    const rss = snapshot().session.padiRss;
+                    return rss === "error"
+                      ? "poll failed"
+                      : formatMB(rss as number);
+                  })()}
+                </span>
+              </Row>
             </Show>
             <Show when={snapshot().session.kavalRss !== null}>
               <Row label="kaval RSS">

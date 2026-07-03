@@ -1,18 +1,20 @@
 /**
- * Server-side surface implementation — single source of truth for the
- * typed reactive layer.
+ * Server-side surface implementation — single source of truth for kolu-server's
+ * OWN typed reactive layer (the `kolu` + `surfaceApp` siblings).
  *
- *   - `surfaceRouter` — `oc.router({ surface: {...} })` fragment for the
- *     host router; spread alongside hand-listed raw oRPC procedures in
- *     `router.ts`.
+ * As of the W2.2 cutover kolu-server serves NO terminal domain: `padiSurface` is
+ * RE-SERVED off a bound padi PROCESS (see `padiBinding.ts` + the async boot in
+ * `index.ts`), not implemented in-process here. So this file implements only the
+ * two siblings kolu-server owns and exports the built kolu router FRAGMENT
+ * (`koluSurfaces.router`) for `index.ts` to splice the re-served `padi` sibling
+ * into, plus the widened `servedContract` (kolu-server serves `padi` on the wire,
+ * so the client's contract is unchanged) and the `t` builder `router.ts` binds
+ * the two remaining raw RPCs against.
+ *
  *   - The kolu surface's mutation ctx is built here and EXPORTED as
  *     `koluSurfaceCtx` (only the memory sampler in `index.ts` writes it —
  *     `processMemory` — so a plain export off the built ctx suffices; no
- *     late-bound holder). padi's OWN ctx (the terminal domain) is registered into
- *     `@kolu/padi`'s `padiSurfaceCtx` via `setPadiSurfaceCtx(...)` — every padi
- *     domain module (`activity.ts`, `session.ts`, `terminalEndpoint/*`) writes
- *     THAT, never a kolu ctx (the reverse-seal invariant). The framework owns the
- *     apply+publish chain; domain code never sees a channel name string.
+ *     late-bound holder).
  *
  * Publisher channel names are framework-derived in two layers. Each surface
  * names its own channels by primitive: `<prim>:changed` for cells,
@@ -20,26 +22,14 @@
  * `<prim>:<JSON.stringify(input)>` for events. `implementSurfaces` then
  * key-namespaces every name with its sibling key before it reaches the shared
  * publisher — so the wire publisher actually sees `kolu/preferences:changed`,
- * `surfaceApp/buildInfo:changed`, etc. The `<sibling>/` prefix is what keeps
- * two siblings that each own a same-named primitive from colliding on one
- * publisher.
+ * `surfaceApp/buildInfo:changed`, etc.
  *
- * `confStore`-backed stores (`preferences`, `activityFeed`, `session`) live
- * here so this file is the only one that knows the on-disk layout. `preferences`
- * is a `koluSurface` cell served here; `activityFeed` + `session` now RIDE
- * `padiSurface`, so their stores are exported and INJECTED into padi at boot
- * (`index.ts`) — the storage stays kolu-server's source of truth until W2.2.
+ * `preferences` is the one `confStore`-backed cell kolu-server still owns (a
+ * `koluSurface` cell served here); the `activityFeed` + `session` stores retired
+ * from here at W2.2 — padi owns its OWN state-root now, so those stores no longer
+ * cross into padi from kolu-server.
  */
 
-import {
-  buildPadiSurfaceDeps,
-  type PairedDaemon,
-  publisher,
-  resolveTerminalEndpoint,
-  setPadiSurfaceCtx,
-} from "@kolu/padi/assembly";
-import type { ActivityFeed, SavedSession } from "@kolu/padi/surface";
-import { LOCAL_LOCATION } from "@kolu/padi/surface";
 import {
   type CellStore,
   composeSurfaceContracts,
@@ -51,22 +41,27 @@ import {
 import { surfaceAppServer } from "@kolu/surface-app/server";
 import { oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
+import { publisher } from "@kolu/padi/assembly";
 import { contract } from "kolu-common/contract";
 import type {
+  DaemonInventory,
   KoluBuildInfo,
+  PadiLink,
   Preferences,
   ProcessMemory,
+  ProcessRss,
+  ProcessStartedAt,
 } from "kolu-common/surface";
-import { bytesToWholeMB, type koluSurface } from "kolu-common/surface";
+import {
+  bytesToWholeMB,
+  DEFAULT_DAEMON_INVENTORY,
+  type koluSurface,
+  surfaces,
+} from "kolu-common/surface";
 import { surfacesWithPadi } from "kolu-common/surfacesWithPadi";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import { store } from "./state.ts";
-
-// Resolved through the one `HostLocation` seam (R9.1). Eager at module-eval,
-// exactly as the prior direct reference was — the late-bound surface ctx
-// (#1005) is what keeps that read TDZ-safe across ESM load orders.
-const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 
 // kolu-server serves a SUPERSET contract locally: the padi-less kolu-common
 // `contract` (which the client consumes, byte-for-byte unchanged) PLUS the
@@ -90,56 +85,52 @@ const servedContract = oc.router({
 export const t = implement(servedContract);
 
 // ── Stores (Conf-backed; one slot per persisted cell) ──────────────────
+//
+// Only `preferences` remains kolu-server's own persisted cell. The `session` +
+// `activityFeed` + `lastPairedDaemon` stores retired from here at the W2.2
+// cutover: padi owns its OWN state-root now (`openPadiStateStores`), so those
+// stores no longer cross into padi from kolu-server.
 
 const preferencesStore: CellStore<Preferences> = confStore<Preferences>(
   store,
   "preferences",
 );
-// The `session` + `activityFeed` cells RIDE `padiSurface` now, but their conf-store
-// STORAGE stays kolu-server's single source of truth until W2.2 gives padi its own
-// state-root. So kolu-server builds them here (ONE `confStore` per key) and INJECTS
-// them into padi at boot (`index.ts` → `setPadiSessionStore` / `setPadiActivityFeedStore`).
-// padi does not import packages/server, so the arrow stays out.
-export const activityFeedStore: CellStore<ActivityFeed> =
-  confStore<ActivityFeed>(store, "activityFeed");
-export const savedSessionStore: CellStore<SavedSession | null> =
-  confStore<SavedSession | null>(store, "session");
-// The last kaval kolu-server paired with (its per-process `startedAt`), persisted
-// so a boot can tell "our survivor" from "a REPLACED daemon at the same socket" and
-// not erase the saved session against an empty replacement (the session-clobber
-// fix). Injected into padi at boot like `session`/`activityFeed`; storage stays
-// kolu-server's until W2.2.
-export const lastPairedDaemonStore: CellStore<PairedDaemon | null> =
-  confStore<PairedDaemon | null>(store, "lastPairedDaemon");
 
 // ── processMemory cell: live metric, in-memory backing + whole-MB dedup ──
 //
-// Defined here beside the cell entry, not in
-// `memorySampler.ts`: the cell's storage shape and dedup predicate are the
-// surface layer's concern. The sampler only reads+publishes via the injected
-// `publish` (→ `koluSurfaceCtx.cells.processMemory.set` → `set` below).
+// Defined here beside the cell entry, not in `memorySampler.ts`: the cell's
+// storage shape and dedup predicate are the surface layer's concern. The sampler
+// only reads+publishes via the injected `publish` (→ `koluSurfaceCtx.cells.
+// processMemory.set` → `set` below).
+//
+// W2.2 re-scope: the cell now carries kolu-server's OWN RSS plus padi's folded-in
+// `{ padi, kaval }` reading (kaval lives inside the padi PROCESS now, so padi —
+// not kolu-server — polls it; the sampler reads padi's readout off the re-serve).
+// Each is the honest three-way, so `absent`/`error` never collapse to a fake zero.
 
-/** The whole-MB rail figure of the kaval reading, plus its discriminant — a
- *  comparison key that distinguishes `absent`/`error`/`ok@N MB` from each other,
- *  so the dedup never folds an `error` state into an `absent` one (or vice
- *  versa). `ok` carries its whole-MB figure (the rail's granularity) so a sub-MB
- *  wobble within `ok` still dedups. Built on the shared {@link bytesToWholeMB} so
- *  the dedup boundary and the client's rendered figure are one computation. */
-function kavalMemoryKey(m: ProcessMemory["kavalMemory"]): string {
-  return m.status === "ok" ? `ok:${bytesToWholeMB(m.rssBytes)}` : m.status;
+/** Two per-process RSS readings render the same whole-MB figure — same status and,
+ *  when `ok`, the same whole megabytes (an `absent`/`error` pair carries no number
+ *  to compare). */
+function rssMbEqual(a: ProcessRss, b: ProcessRss): boolean {
+  if (a.status !== b.status) return false;
+  if (a.status === "ok" && b.status === "ok") {
+    return bytesToWholeMB(a.rssBytes) === bytesToWholeMB(b.rssBytes);
+  }
+  return true;
 }
 
-/** Two readouts are equal when they render the same whole-MB rail figures AND the
- *  same kaval state — the cell's `equals`, so a sub-MB RSS wobble never
- *  re-publishes, but a state transition (absent → error, ok → absent) always
- *  does. */
+/** Two readouts are equal when all three processes render the same whole-MB figure
+ *  — the cell's `equals`, so a sub-MB RSS wobble never re-publishes to every
+ *  connected client. Built on the shared {@link bytesToWholeMB} so the dedup
+ *  boundary and the client's rendered figure are one computation. */
 export function processMemoryMbEqual(
   a: ProcessMemory,
   b: ProcessMemory,
 ): boolean {
   return (
     bytesToWholeMB(a.serverRssBytes) === bytesToWholeMB(b.serverRssBytes) &&
-    kavalMemoryKey(a.kavalMemory) === kavalMemoryKey(b.kavalMemory)
+    rssMbEqual(a.padi, b.padi) &&
+    rssMbEqual(a.kaval, b.kaval)
   );
 }
 
@@ -149,12 +140,58 @@ export function processMemoryMbEqual(
  *  no on-disk slot. */
 let currentProcessMemory: ProcessMemory = {
   serverRssBytes: 0,
-  kavalMemory: { status: "absent" },
+  padi: { status: "absent" },
+  kaval: { status: "absent" },
 };
 const memoryCellStore = {
   get: (): ProcessMemory => currentProcessMemory,
   set: (value: ProcessMemory): void => {
     currentProcessMemory = value;
+  },
+};
+
+// ── padiLink cell: kolu-server's live view of its binding to padi ────────
+//
+// Server-authored (kolu-server drives it off `padiSession.onState` in `index.ts`);
+// the client folds it into the warming/degraded canvas so a padi drop shows an honest
+// connecting state, never a frozen re-served daemonStatus (#1034). A live signal, so
+// the backing is in-memory (no on-disk slot); a fresh subscription reads the latest via
+// `get`, seeded at the gate-closed `connecting` before the first transition.
+let currentPadiLink: PadiLink = "connecting";
+const padiLinkCellStore = {
+  get: (): PadiLink => currentPadiLink,
+  set: (value: PadiLink): void => {
+    currentPadiLink = value;
+  },
+};
+
+// ── processStartedAt cell: kolu-server + padi boot times for the rail's uptime ──
+//
+// Server-authored (kolu-server drives it off `padiSession.onState` in `index.ts`,
+// the SAME subscription that drives `padiLink`); the client renders `now − startedAt`
+// as each process's uptime. A live signal, so the backing is in-memory (no on-disk
+// slot); the `{ server: 0, padi: null }` seed is the honest pre-yield "unknown" (the
+// rail gates a `0`/`null` out rather than rendering a bogus uptime).
+let currentProcessStartedAt: ProcessStartedAt = { server: 0, padi: null };
+const processStartedAtCellStore = {
+  get: (): ProcessStartedAt => currentProcessStartedAt,
+  set: (value: ProcessStartedAt): void => {
+    currentProcessStartedAt = value;
+  },
+};
+
+// ── daemonInventory cell: the host-daemon inventory (kaval + padi enumeration) ──
+//
+// Server-authored diagnostic readout — the read-only inventory sampler
+// (`daemonInventory.ts`, wired in `index.ts`) is the sole writer via
+// `koluSurfaceCtx.cells.daemonInventory.set`; clients read-only. A live signal, so the
+// backing is in-memory (no on-disk slot); a fresh subscription reads the latest via
+// `get`, seeded at the honest empty-lists default before the first sample.
+let currentDaemonInventory: DaemonInventory = DEFAULT_DAEMON_INVENTORY;
+const daemonInventoryCellStore = {
+  get: (): DaemonInventory => currentDaemonInventory,
+  set: (value: DaemonInventory): void => {
+    currentDaemonInventory = value;
   },
 };
 
@@ -202,42 +239,63 @@ const koluDeps: Omit<
       store: memoryCellStore,
       equals: processMemoryMbEqual,
     },
+    padiLink: {
+      // Live signal; the in-memory store has no persistent slot. The bound-padi
+      // `onState` subscription (`index.ts`) is the sole writer via
+      // `koluSurfaceCtx.cells.padiLink.set`. `equals` dedups so a repeated
+      // same-state transition (onState fires once per endpoint status, and several
+      // map to the same padiLink) never re-publishes to every connected client.
+      store: padiLinkCellStore,
+      equals: (a, b) => a === b,
+    },
+    processStartedAt: {
+      // Live signal; the in-memory store has no persistent slot. The bound-padi
+      // `onState` subscription (`index.ts`) is the sole writer via
+      // `koluSurfaceCtx.cells.processStartedAt.set`. `equals` dedups so a transition
+      // that leaves both boot times unchanged (onState fires per endpoint status;
+      // several keep the same connected padi) never re-publishes to every client.
+      store: processStartedAtCellStore,
+      equals: (a, b) => a.server === b.server && a.padi === b.padi,
+    },
+    daemonInventory: {
+      // Live diagnostic signal; the in-memory store has no persistent slot. The
+      // read-only inventory sampler (`daemonInventory.ts`, `index.ts`) is the sole
+      // writer via `koluSurfaceCtx.cells.daemonInventory.set`. `equals` dedups a
+      // structurally-identical re-enumeration (the daemon set changes rarely) so a
+      // steady-state tick never re-publishes to every connected client — a shallow
+      // JSON compare is fine (the lists are tiny, a handful of daemons at most).
+      store: daemonInventoryCellStore,
+      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+    },
   },
 };
 
 // ── Surface implementation ─────────────────────────────────────────────
 
-const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
-  // Two SIBLING surfaces multiplexed over one transport (kolu#1197): kolu's OWN
-  // primitives under the `kolu` key, and surface-app's COMPLETE surface (the
-  // buildInfo cell + the `identity.info` restart probe) under `surfaceApp`. They
-  // are NOT merged — `implementSurfaces` keys each surface, serving them at
-  // `/surface/kolu/…` and `/surface/surfaceApp/…` with a key-namespaced channel
-  // per surface (so neither's `*:changed` channels collide on the wire).
+const koluSurfaces =
+  // The two SIBLING surfaces kolu-server OWNS, multiplexed over one transport
+  // (kolu#1197): kolu's own primitives under the `kolu` key, and surface-app's
+  // COMPLETE surface (the buildInfo cell + the `identity.info` restart probe) under
+  // `surfaceApp`. They are NOT merged — `implementSurfaces` keys each surface,
+  // serving them at `/surface/kolu/…` and `/surface/surfaceApp/…`. The third
+  // sibling, `padi`, is NOT implemented here: `index.ts`'s async boot RE-SERVES it
+  // off a bound padi process and splices it into this fragment under `/surface/padi/*`.
   //
-  // kolu seeds the buildInfo cell with `{ commit }` and patches `version` over
-  // it. `surfaceAppServer` returns the buildInfo cell carrying `.connect` — the
-  // surface runtime fires it once the cell ctx is built, republishing the
-  // resolved `{ commit, version }` through the same fragment when it settles
-  // (server-pushed, so the `srv` rail fills in without a client reload). The
-  // `expectedKaval` axis this cell once carried moved to padi's `status` cell
-  // (W1.R7 — a kaval read no longer crosses `packages/server`). No app-visible
-  // connect to call, no hand-written `ctx.cells.buildInfo.set`.
+  // kolu seeds the buildInfo cell with `{ commit }` and patches `version` over it.
+  // `surfaceAppServer` returns the buildInfo cell carrying `.connect` — the surface
+  // runtime fires it once the cell ctx is built, republishing the resolved
+  // `{ commit, version }` (server-pushed, so the `srv` rail fills in without a
+  // client reload).
   implementSurfaces(
-    // `surfacesWithPadi` (the keyed Surface map PLUS `padi`) is served here so
-    // `padiSurface` serves BESIDE the two siblings (kolu + surfaceApp) at
-    // `/surface/padi/*`. The contract widening above (`servedContract`) is what
-    // lets the padi-less kolu-common `surfaces` the client consumes stay untouched;
-    // here we add the server-only per-surface deps, keyed the same way.
-    surfacesWithPadi,
+    // The padi-LESS `surfaces` map (`{ kolu, surfaceApp }`) — kolu-server implements
+    // only its own two siblings now. The contract widening above (`servedContract`,
+    // still `composeSurfaceContracts(surfacesWithPadi)`) is what keeps the client's
+    // wire contract unchanged; the padi IMPL comes from the re-serve, not here.
+    surfaces,
     {
       channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
-      // Default subsequent-read error handler for poll-shape streams. kolu's own
-      // fs/git value streams retired at W1.R4 (the Code tab now pulse-then-
-      // requeries padiSurface's procedures), so the poll-shape streams this now
-      // covers are padi's `subscribeRepoChange`/`subscribeFileChange` pulses;
-      // per-stream overrides are absent so this fires for every poll-shape stream.
+      // Default subsequent-read error handler for poll-shape streams.
       onStreamReadError: (err, info) =>
         log.error(
           { err: err instanceof Error ? err.message : String(err), ...info },
@@ -250,10 +308,8 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // `identity.info` restart probe pinned to kolu's boot UUID. `commit` is
       // kolu's single source (`serverCommit` ← `KOLU_COMMIT_HASH`); `version`
       // lands as a `Partial<KoluBuildInfo>` patch over the library-seeded
-      // `{ commit }`. The kaval `expectedKaval` axis this cell once carried moved
-      // to padi's `status` cell (W1.R7 — a kaval read no longer crosses
-      // `packages/server`). Per-key deps are typed against the surface's own spec,
-      // so this needs no cast.
+      // `{ commit }`. Per-key deps are typed against the surface's own spec, so
+      // this needs no cast.
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
         buildInfo: async () => ({ version: serverVersion }),
         commit: serverCommit,
@@ -272,34 +328,22 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       }),
 
       // ── kolu's own server deps (sibling under `kolu`) ────────────────────
-      // Just the `preferences` + `processMemory` cells now — every terminal-derived
-      // member (session, activityFeed, terminalExit, the record, urgency, daemon
-      // status) rides `padi` below.
+      // Just the `preferences` + `processMemory` cells — every terminal-derived
+      // member rides the re-served `padi` sibling.
       kolu: koluDeps,
-
-      // ── padi's own server deps (sibling under `padi`) ────────────────────
-      // The COMPLETE `padiSurface` served natively from `@kolu/padi`, assembled by
-      // its own `buildPadiSurfaceDeps` off the SAME in-process endpoint. Every
-      // member has a functional read/procedure/source handler AND a live write path
-      // (the padi ctx registered below): the client reads the terminal record,
-      // urgency, daemon status, session, activity feed, and `terminalExit` here.
-      padi: buildPadiSurfaceDeps({ endpoint: localEndpoint, log }),
     },
   );
 
-export const surfaceRouter = surfaceRouterFragment;
+// The built kolu+surfaceApp router FRAGMENT (`{ surface: { kolu, surfaceApp } }`),
+// exported so `index.ts`'s async boot can splice the RE-SERVED `padi` sibling in
+// beside them (`{ surface: { ...koluSurfaceRouter.surface, padi } }`) and assemble
+// the final host router. padi is async (an `await`ed binding), so it cannot be
+// composed here at module-eval — hence the split.
+export const koluSurfaceRouter = koluSurfaces.router as {
+  surface: Record<string, unknown>;
+};
 // The kolu surface ctx (`implementSurfaces(...).ctx.kolu`) — exported so the memory
-// sampler (`index.ts`) writes `processMemory` through it. It is NOT a late-bound
-// holder in `@kolu/padi`: only kolu-server's own web shell writes koluSurface now
-// (padi domain code writes its OWN `padiSurfaceCtx`), so a plain export off the
-// built ctx suffices and keeps the reverse-seal honest (no padi module types
-// against `koluSurface`). surface-app's buildInfo is driven by the runtime-fired
-// cell `.connect`, not by domain code.
-export const koluSurfaceCtx = surfaceCtxBuilt.kolu;
-// padi's live publish. The composed-terminal seam
-// (`terminalEndpoint/metadata.ts`) publishes onto padi's `terminals` collection +
-// `urgency` cell; the exit publish (`local.ts`) onto its `terminalExit` event; the
-// session writer (`session.ts`) + MRU trackers (`activity.ts`) onto its `session` /
-// `activityFeed` cells; and the kaval supervisor's `publishDaemonStatus` onto its
-// `daemonStatus` collection.
-setPadiSurfaceCtx(surfaceCtxBuilt.padi);
+// sampler (`index.ts`) writes `processMemory` through it. Only kolu-server's own
+// web shell writes koluSurface now (padi domain code lives in padi's process), so a
+// plain export off the built ctx suffices.
+export const koluSurfaceCtx = koluSurfaces.ctx.kolu;

@@ -1,5 +1,5 @@
 import type { AnyContractRouter } from "@orpc/contract";
-import type { AgentClient, HostSession } from "./hostSession";
+import type { AgentClient, RemoteMirrorSession } from "./hostSession";
 
 /** A stateful cursor over a session's spawn lifecycle. Each `next()` blocks
  *  until the session exposes a genuinely NEW spawn, then resolves with that
@@ -34,7 +34,7 @@ export interface ClientCursor<C extends AnyContractRouter> {
  *  busy-spinning exactly as the bug below describes. With the token hidden,
  *  there is nothing to forget. */
 export function makeClientCursor<C extends AnyContractRouter>(
-  session: HostSession<C>,
+  session: RemoteMirrorSession<C>,
 ): ClientCursor<C> {
   let previous: Promise<AgentClient<C>> | null = null;
   return {
@@ -80,7 +80,7 @@ interface NextClient<C extends AnyContractRouter> {
  *  child's death and the next spawn — so comparing *it* correctly blocks
  *  until a real reconnect. */
 function waitForNextClient<C extends AnyContractRouter>(
-  session: HostSession<C>,
+  session: RemoteMirrorSession<C>,
   previous: Promise<AgentClient<C>> | null,
 ): Promise<NextClient<C>> {
   return new Promise((resolve, reject) => {
@@ -89,7 +89,15 @@ function waitForNextClient<C extends AnyContractRouter>(
         reject(new Error("session destroyed"));
         return true;
       }
-      const clientPromise = session.currentClient();
+      // `RemoteMirrorSession` yields its client at the loose `unknown` receptacle
+      // type (so a specific-contract session stays assignable to a general
+      // receptacle — see that interface's doc). This cursor is generic over the
+      // real contract `C`, and the runtime value IS the `AgentClient<C>` the
+      // concrete session produced (only the role's static *view* was widened), so
+      // re-narrow the promise here — the single place the loosening is reconciled.
+      const clientPromise = session.currentClient() as Promise<
+        AgentClient<C>
+      > | null;
       // null (no spawn in flight) or the same promise the caller already
       // pumped (link still down / unchanged) → keep waiting. This identity
       // check on the *promise* is what stops the busy-spin.

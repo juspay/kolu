@@ -8,7 +8,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { inMemoryChannel, inMemoryPublisher } from "./server";
+import {
+  ChannelOverflowError,
+  inMemoryChannel,
+  inMemoryPublisher,
+} from "./server";
 
 describe("inMemoryChannel", () => {
   it("delivers publishes to every live subscriber in order", async () => {
@@ -156,6 +160,105 @@ describe("inMemoryChannel", () => {
     expect(seen2).toEqual([3]); // no 999, channel was fresh
     ctl2.abort();
     await run2;
+  });
+
+  it("default (no options) preserves unbounded buffering — no drops, no abort", async () => {
+    // A slow consumer under the default: the queue grows to hold everything the
+    // publisher fanned out (the historical behavior every existing consumer
+    // relies on — the bound is strictly opt-in).
+    const chan = inMemoryChannel<number>();
+    const iterator = chan.subscribe(undefined)[Symbol.asyncIterator]();
+    for (let i = 0; i < 1000; i++) chan.publish(i); // never pulled → all queued
+    const drained: number[] = [];
+    for (let i = 0; i < 1000; i++) {
+      const r = await iterator.next();
+      if (r.done) break;
+      drained.push(r.value);
+    }
+    expect(drained.length).toBe(1000); // nothing dropped
+    expect(drained[0]).toBe(0);
+    expect(drained[999]).toBe(999);
+    await iterator.return?.();
+  });
+
+  it("throws when highWaterMark is set without an overflow policy", () => {
+    expect(() => inMemoryChannel<number>({ highWaterMark: 5 })).toThrow(
+      /overflow policy/,
+    );
+  });
+
+  it("abort policy: a slow consumer past the bound is closed with ChannelOverflowError (bounded, not unbounded)", async () => {
+    const chan = inMemoryChannel<number>({
+      highWaterMark: 3,
+      overflow: "abort",
+    });
+    const iterator = chan.subscribe(undefined)[Symbol.asyncIterator]();
+    // Publish well past the bound WITHOUT pulling — the slow consumer never drains.
+    for (let i = 0; i < 100; i++) chan.publish(i);
+
+    const drained: number[] = [];
+    let err: unknown = null;
+    try {
+      for (let i = 0; i < 200; i++) {
+        const r = await iterator.next();
+        if (r.done) break;
+        drained.push(r.value);
+      }
+    } catch (e) {
+      err = e;
+    }
+    // The queue never grew past the bound: only the first `highWaterMark` frames
+    // were buffered, then the stream ended LOUDLY so the consumer re-subscribes.
+    expect(drained).toEqual([0, 1, 2]);
+    expect(err).toBeInstanceOf(ChannelOverflowError);
+    // The aborted subscriber is REMOVED from the registry — a rejected next()
+    // never fires iterator.return(), so the abort branch must reap it itself, or
+    // the dead entry leaks (it would take every future publish as a no-op). #F1.
+    expect(chan.subscriberCount()).toBe(0);
+  });
+
+  it("drop-oldest policy: keeps the NEWEST frames and fires onOverflow per drop", async () => {
+    let drops = 0;
+    const chan = inMemoryChannel<number>({
+      highWaterMark: 3,
+      overflow: "drop-oldest",
+      onOverflow: () => {
+        drops += 1;
+      },
+    });
+    const iterator = chan.subscribe(undefined)[Symbol.asyncIterator]();
+    for (let i = 0; i < 6; i++) chan.publish(i); // 0..5; oldest three evicted
+
+    const drained: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await iterator.next();
+      if (r.done) break;
+      drained.push(r.value);
+    }
+    expect(drained).toEqual([3, 4, 5]); // newest three retained, bounded at 3
+    expect(drops).toBe(3); // 0,1,2 evicted — one signal each
+    await iterator.return?.();
+  });
+
+  it("inMemoryPublisher threads a per-name channel bound through", async () => {
+    const pub = inMemoryPublisher({ highWaterMark: 2, overflow: "abort" });
+    const iterator = pub
+      .subscribe<number>("k", { signal: undefined })
+      [Symbol.asyncIterator]();
+    for (let i = 0; i < 50; i++) pub.publish("k", i);
+    const drained: number[] = [];
+    let err: unknown = null;
+    try {
+      for (let i = 0; i < 100; i++) {
+        const r = await iterator.next();
+        if (r.done) break;
+        drained.push(r.value);
+      }
+    } catch (e) {
+      err = e;
+    }
+    expect(drained).toEqual([0, 1]); // bounded at the mark
+    expect(err).toBeInstanceOf(ChannelOverflowError);
   });
 
   it("consume() invokes onEvent per publish and cleans up via the returned fn", async () => {

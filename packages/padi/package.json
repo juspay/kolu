@@ -7,9 +7,15 @@
   "sideEffects": false,
   "main": "./src/surface.ts",
   "types": "./src/surface.ts",
+  "bin": {
+    "padi": "./src/bin.ts"
+  },
   "exports": {
     "./surface": "./src/surface.ts",
     "./assembly": "./src/assembly.ts",
+    "./daemonMain": "./src/daemonMain.ts",
+    "./stateRoot": "./src/stateRoot.ts",
+    "./buildId": "./src/buildId.ts",
     "./endpoint": "./src/endpoint.ts",
     "./log": "./src/log.ts",
     "./transcript": "./src/transcriptSchema.ts",
@@ -22,6 +28,7 @@
   "dependencies": {
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",
+    "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/terminal-workspace": "workspace:*",
     "@orpc/client": "^1.13.13",
@@ -29,6 +36,7 @@
     "@orpc/experimental-publisher": "^1.13.13",
     "@orpc/server": "^1.13.13",
     "anyagent": "workspace:*",
+    "conf": "^15.1.0",
     "anyforge": "workspace:*",
     "kaval": "workspace:*",
     "kolu-claude-code": "workspace:*",
