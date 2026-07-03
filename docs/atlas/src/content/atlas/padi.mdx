@@ -34,7 +34,7 @@ export const ROADMAP = [
   { d: 1, g: "○", c: "prog", l: "W3.1 · the remote binding — provision + front a remote padi (complete, invisible)", m: "parity e2e on a pu box", h: "#w31" },
   { d: 1, g: "○", c: "prog", l: "W3.2 · the switch — binding pool · per-view scope · host picker · clock handshake", m: "needs W3.1", h: "#w32" },
   { d: 1, g: "○", c: "prog", l: "W3.3 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W3.2", h: "#w33" },
-  { d: 0, g: "○", c: "prog", l: "W4 · consolidation — refactors · decomplecting · electricity upstreaming · deletions (the running ledger)", m: "ledger ↓ · updated per phase", h: "#w4" },
+  { d: 0, g: "○", c: "prog", l: "W4 · consolidation — refactors · decomplecting · electricity upstreaming · deletions", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "W5 · demand-driven — cross-host dock · kolu-tui · hybrid only if earned", m: "", h: "#w5" },
 ];
 
@@ -356,24 +356,14 @@ kolu-server subscribes each warm binding's **urgency-projection member** (the on
 
 <a id="w4"></a>
 
-### W4 — consolidation — the running cleanup ledger
+### W4 — consolidation — the cleanup ledger *(scope lives in [its own note](padi-cleanup.html))*
 
-W2 and W3 ship at pace (a deliberate call — the model window); W4 is where the pace's debts are paid: refactors, decomplecting, framework-level electricity upstreaming, and deletions. **This ledger is the phase's scope, and it is a living list** — appraised and appended as each W phase lands (each entry names its source and its readiness gate). Nothing user-visible ships here; that is the point.
+W2 and W3 ship at pace (a deliberate call); W4 pays the pace's debts — refactors, decomplecting, framework-level electricity upstreaming, deletions. Nothing user-visible ships here; that is the point. **The full ledger — each entry a self-sufficient, lens-framed brief an implementing agent can execute under coordinator guidance — lives in [padi — the consolidation ledger](padi-cleanup.html)**, appraised and appended as each W phase lands (a shipped phase's "deferred / acceptable-for-scope" review items land there explicitly; an entry that never ripens is deleted with a reason). The index, for orientation:
 
-- **L1 — move the poll-on-change client helper into the framework.** `createPolledQuery` (re-run a query when a `{seq}` pulse ticks) is app code, but its producer half (`pollOnEvent`) already lives in `@kolu/surface` — the consumer core belongs beside it, with only the Solid ergonomics (`.pending()`, the #818 selection guard) staying in `surface-app`. *From W1.5; doctrine already cleared it (2026-07-03); drishti-gated; ready now, or naturally with kolu-tui (W5).*
-- **L2 — upstream padi-tui's wait helper.** W2.3 hand-rolls "block until this collection satisfies a predicate" inside padi-tui (by rule: no surface edits that phase). Once a second consumer exists it moves to `@kolu/surface`. *From W2.3; drishti-gated; ready when kolu-tui (W5) exists.*
-- **L3 — the control core to `@kolu/surface-daemon`.** hello · version · drain · clock.now is generic daemon machinery, but only one daemon uses it. *From W1.C; ready when a second daemon adopts it — that adoption is the proof.*
-- **L4 — delete the legacy-kaval migration arm.** The adopter (adopt a pre-W2.2 port-keyed kaval) and the port-keyed discovery/labels exist only for upgrades from pre-W2.2 installs. Close the window at a named version ("upgrading from pre-W2.2 passes through W2.x–W3.x first") and delete the arm. *From W2.2; deletion; ready at that named version.*
-- **L5 — one home for `ProcessRssSchema`.** It's deliberately duplicated (padi + the terminal-workspace leaf) with a drift-check holding them equal. Dedupe when a natural shared home appears — possibly L1's motion creates it. *From the W2.2 gauntlet; refactor.*
-- **L6 — re-audit `padiBinding.ts` after the dial carve.** Once W2.3 moves `connectPadi` out, what remains is supervision + reconnect-session + re-serve; check whether that's one thing or three. *From W2.3; appraisal; after W2.3 lands.*
-- **L7 — re-cut `@kolu/terminal-workspace` after the burial.** With pulam dead its consumers are just padi and the client (schema, agentProjection). Decide: fold parts into padi, or keep as a shared leaf. *From W2.3; boundary appraisal; after W2.3 lands.*
-- **L8 — doc sweep for dead references.** Surface-stack comments still cite pulam/pulam-web as their graduation examples; pre-padi topology comments linger. *From the W0/W2.3 burials; docs; after W2.3.*
-- **L9 — split sensors out of padi's restart hash — only if it hurts.** Every sensor tweak restarts padi (cheap: re-seed + re-run, PTYs untouched). If deploy cadence makes that annoying in practice, the sensors leave the staleKey hash. *From W2.2's risks; evidence first, not pre-paid.*
-- **L10 — pay the flaky-test debt.** The file-drop / file-ref rotating flakes are tracked and band-aided (W2.2's screen-state reader fix helped); a real fix pass belongs here. *From the W2.2 CI rounds; test-infra; anytime.*
-- **L11 — clean the interim client-wire shapes after the binding-scoped rebuild.** W3.2 rebuilds `wire.ts`/store singletons per binding; whatever scaffolding that transition leaves gets swept. *From W3.2 (anticipated); after W3.2 lands.*
-- **L12 — a fine-grained read-only CI token.** Replaces the personal-token install on the CI pool boxes. *From the W2.2 CI incident; infra; srid mints, boxes re-provision.*
-
-*(Appraisal discipline: when a W phase ships, its review rounds' "deferred/acceptable-for-scope" items land here explicitly — an entry that never becomes ready gets deleted with a reason, not silently kept.)*
+- **Upstreamings (lowy · drishti-gated):** L1 poll-on-change client core → `@kolu/surface` (ready) · L2 padi-tui's wait helper (gated: kolu-tui) · L3 the control core → `surface-daemon` (gated: a second daemon)
+- **Boundary re-cuts (lowy):** L6 `padiBinding.ts` post-carve audit (gated: W2.3) · L7 `terminal-workspace` post-burial re-cut (gated: W2.3) · L9 sensors out of the staleKey hash (gated: evidence)
+- **Dedupes/sweeps (hickey):** L5 one home for `ProcessRssSchema` (ready) · L11 W3.2's interim wire shapes (gated: W3.2)
+- **Deletions & hygiene:** L4 the legacy-kaval migration arm (at a named version) · L8 doc sweep for the buried world (after W2.3) · L10 the flaky-test debt (ready) · L12 fine-grained CI token (srid mints)
 
 <a id="w5"></a>
 

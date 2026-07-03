@@ -1,0 +1,154 @@
+---
+title: padi — the consolidation ledger (W4)
+description: The living scope of W4, padi's cleanup phase — every refactor, decomplecting move, electricity upstreaming, and deletion that W2/W3's deliberate pace deferred. Each L-entry is a self-sufficient brief an implementing agent can execute under coordinator guidance, framed through the hickey (complecting) and lowy (volatility/boundary) lenses. Appraised and appended as each W phase ships; an entry that never ripens is deleted with a reason.
+parents: [padi]
+status: proposed
+maturity: seedling
+updated: 2026-07-03
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+
+**W4's scope, as a living ledger.** W2 and W3 ship at pace — a deliberate call. This note holds what that pace defers: refactors, decomplecting, framework-level electricity upstreaming, and deletions. Nothing here is user-visible; that is the point. Every entry names its **lens** (why it's structurally wrong today — [hickey](https://github.com/srid/agency) = things braided together that change separately; lowy = code living on the wrong side of a volatility boundary), its **gate** (what must be true before it's workable), and a **done-when** an implementer can't satisfy by the easy route.
+
+<Callout kind="note" title="How to execute an entry (the working protocol)">
+Each entry is **one PR on a fresh branch off master**, dispatched individually. The implementing agent: (1) reads this entry plus the files it names — the entry gives the shape, the code gives the truth; if they disagree, **message the coordinator before proceeding** (kolu terminal `db9a8c21`, two-step send: `kaval-tui send db9a8c21 "<msg>"` then a separate `--key Enter`; prefix `[W4-Lx]`); (2) honors the entry's gate — a `drishti` gate means a paired srid/drishti PR green against final kolu HEAD per `.claude/rules/surface.md`; (3) never merges — undraft + summary, srid decides. UX must be byte-identical for every entry (no-pixel-delta is W4's invariant); the e2e suite + the seal test are the net.
+</Callout>
+
+**Status index** — updated as entries ripen or ship:
+
+- L1 ready · L4 ready-at-named-version · L5 ready · L8 ready · L10 ready · L12 ready (srid mints)
+- L6, L7 gated on W2.3 landing · L11 gated on W3.2 · L2 gated on kolu-tui (W5) · L3 gated on a second daemon · L9 gated on evidence
+
+## The upstreamings — electricity graduating into the framework (lowy)
+
+Each of these is a real volatility whose producer half already lives in the framework while its consumer half camps in an app — *location is structure*, and these locations lie.
+
+### L1 — move the poll-on-change client core into `@kolu/surface`
+
+*Status: ready · Lens: lowy (consumer dual of a framework volatility, stranded app-side) · Gate: drishti*
+
+In plain words: the surface framework ships data two ways — pushed values, or "here's a tick, re-ask me" (`{seq}` pulses). The *server* half of the second way (`pollOnEvent`) is a framework export; the *client* half (`createPolledQuery`: call the procedure, re-call on each pulse, drop no-op results) is kolu app code. Any other surface client (drishti, kolu-tui, a script) must reinvent it. The doctrine check (2026-07-03) confirmed nothing gates this on a second consumer — the volatility is already proven by its producer half.
+
+**Target shape:** a framework-free core (subscribe pulse → re-run procedure → equality-dedupe → emit) in `@kolu/surface`, exported beside `pollOnEvent` as its named dual; the SolidJS ergonomics (`.pending()`, the #818 selection-stability guard) stay behind in `packages/client` (or graduate to `surface-app` if they're Solid-generic — implementer's call, coordinator confirms).
+
+**Where:** `packages/client/src/right-panel/createPolledQuery.ts` (the current app-local whole); `packages/surface/src/server.ts` (~line 491, `pollOnEvent` — the dual to sit beside); consumers in `CodeTab.tsx` / `BrowseFileDispatcher.tsx`.
+
+**Steps:** (1) split core from Solid wrapper in place, test the core framework-free; (2) move the core to `@kolu/surface` with its own unit tests; (3) repoint the wrapper; (4) paired drishti PR (drishti need not adopt it — the gate is API-compat, green CI at final kolu HEAD).
+
+**Done when:** the core is importable from `@kolu/surface` with zero Solid/kolu imports; Code tab byte-identical (the existing e2e + the #818 guard test pin it); drishti green.
+
+### L2 — upstream padi-tui's wait-until-predicate helper
+
+*Status: gated on kolu-tui (W5) · Lens: lowy · Gate: drishti*
+
+W2.3 hand-rolls "block until this collection satisfies a predicate, with timeout" inside padi-tui — deliberately (its phase forbade surface edits, and one consumer doesn't prove a boundary). When kolu-tui exists it will need the identical loop; that second consumer is the signal to move the helper into `@kolu/surface` beside the mirror primitives it wraps.
+
+**Where (after W2.3):** the helper in `packages/padi-tui/src/` (it will carry a `W4 ledger L2` comment); the mirror machinery in `packages/surface/src/mirrorRemoteSurface.ts` it builds on.
+
+**Done when:** one implementation, two consumers (padi-tui + kolu-tui), framework home, drishti green. *If kolu-tui never ships, delete this entry with that reason — do not upstream on one consumer.*
+
+### L3 — the control core into `@kolu/surface-daemon`
+
+*Status: gated on a second daemon adopting it · Lens: lowy · Gate: drishti (surface-daemon is stack-adjacent; check `.claude/rules/surface.md` scope at execution time)*
+
+padi's frozen side-channel (hello · version · drain · `clock.now` — the never-versioning surface that makes upgrades converge) is generic daemon machinery with one daemon using it. The axis doesn't vary yet; there is nothing to encapsulate. If a second daemon (a future kaval rev wanting drain semantics, or any new `@kolu/*` daemon) adopts the pattern, move the types + serve helper to `@kolu/surface-daemon` — the adoption *is* the proof.
+
+**Where:** `packages/padi/src/controlCore.ts`; the dial-side handshake in `@kolu/padi/dial` (post-W2.3).
+
+**Done when:** two daemons serve the same control-core contract from one shared module; padi's copy deleted.
+
+## The boundary re-cuts (lowy)
+
+Places where a phase's landing changes what the right boundary *is* — each needs a fresh look at real code before cutting, which is why they're gated on their phase.
+
+### L6 — re-audit `padiBinding.ts` after the dial carve
+
+*Status: gated on W2.3 landing · Lens: hickey (three concerns in one file?) · Gate: none (kolu-internal)*
+
+After W2.3 moves `connectPadi` into `@kolu/padi/dial`, what remains in `packages/server/src/padiBinding.ts` is roughly: the spawn/supervise driver (`localPadiDriver`, adopt-or-spawn-or-refuse, the legacy-kaval hint), the reconnect session (`PadiBindingSession`), and the re-serve wiring. Question for the audit: do these change for the same reason? The supervisor changes with daemon-lifecycle policy; the re-serve changes with the surface contract; the session bridges them. If the file reads as three braided concerns, split it (`padiSupervision.ts` / the session / re-serve wiring already partly in `reServeSurface` usage); if it reads as one binder concern with three paragraphs, leave it and record that verdict here.
+
+**Where:** `packages/server/src/padiBinding.ts` (+ its tests `padiBinding.test.ts`, `padiConverge.test.ts`, `padiLink.ts` as the neighboring already-split example).
+
+**Done when:** a verdict is recorded in this entry (split shipped, or "one concern — no-op" with reasoning); if split: seal + all binder tests green, no behavior change.
+
+### L7 — re-cut `@kolu/terminal-workspace` after the burial
+
+*Status: gated on W2.3 landing · Lens: lowy (a package whose reason-to-exist changed) · Gate: none expected (verify no drishti surface touched)*
+
+terminal-workspace was born as "one library, two homes" (kolu + pulam). After W2.3 buries pulam and deletes the package's surface, its consumers are padi (sensors · fold · endpoint — node-side internals) and the client (schema · `agentProjection` — browser-safe vocabulary). That's two *different* consumer sets for two *different* halves — a sign the package boundary now cuts nothing.
+
+**Target shape (verify against real imports first):** the node-only daemon internals (sensors, fold, fs/git endpoint) fold **into `@kolu/padi`** (they have exactly one consumer — padi assembles them); the browser-safe shared vocabulary (`TerminalSnapshot` schema family, `agentProjection`, anything the client's Dock/StatePip reads) stays a **shared leaf** — either terminal-workspace shrunk to that role, or renamed to say what it now is. The arrow rule holds throughout: padi imports the leaf; the client imports the leaf; nobody imports padi from the client side except via padiSurface types.
+
+**Where:** `packages/terminal-workspace/src/*` (check `index.ts` export map for the node/browser split already present); importers: `packages/padi/src/*`, `packages/client/src/canvas/dock/*`, `packages/common`.
+
+**Steps:** (1) map real post-burial imports (an Explore agent, not grep-by-hand); (2) propose the cut to the coordinator with the import evidence; (3) execute as pure motion (rename-detection reviewable), seal green.
+
+**Done when:** every terminal-workspace export has a consumer on the correct side of the node/browser line; no export with zero consumers survives; the seal's dependency-cone arm still green.
+
+### L9 — split the sensors out of padi's restart hash — only if it hurts
+
+*Status: gated on evidence · Lens: lowy (two volatilities under one staleKey?) · Gate: none*
+
+padi's staleKey hashes its whole package, so every sensor tweak (agent-detection patterns churn with every new CLI release) restarts padi. The restart is cheap by design — re-seed from the state-root, re-run sensors, PTYs untouched, seconds — so this is **deliberately not pre-paid**. The entry exists so the decision is made on evidence, not annoyance-of-the-day: if deploy cadence makes padi restarts a felt cost, the sensors are a *separately-volatile* concern and leave the hash (their own package or an unhashed asset — design at execution time, with the #1031 lesson in hand: never serve stale detection).
+
+**Evidence bar:** a recorded stretch where sensor-only changes forced ≥ some agreed number of padi restarts/week that users noticed. Until then: no-op. **Done when:** either the split ships (sensor changes stop restarting padi; detection freshness preserved) or this entry is deleted with "cadence never hurt" and a date.
+
+## The dedupes and sweeps (hickey)
+
+Braids and duplications the reviews flagged as acceptable-for-scope — acceptable ends here.
+
+### L5 — one home for `ProcessRssSchema`
+
+*Status: ready · Lens: hickey (deliberate duplication, drift-checked) · Gate: none*
+
+The 3-process memory rail's wire shape exists twice — in padi and in the terminal-workspace leaf — held byte-equal by a drift-check at the sampler fold (`packages/server/src/memorySampler.ts` ~lines 24/34). The duplication was the honest W2.2 call (no natural shared home existed mid-phase); the fix is one schema in the browser-safe shared leaf (which L7 may reshape — **execute L5 after or with L7**, coordinator sequences), both current homes importing it, drift-check deleted because drift is unspellable.
+
+**Done when:** one definition, two importers, the drift-check test removed *because the type system now enforces what it checked*.
+
+### L11 — sweep the interim client-wire shapes after the binding-scoped rebuild
+
+*Status: gated on W3.2 landing · Lens: hickey (transition scaffolding) · Gate: none expected*
+
+W3.2 rebuilds the client's module-level wire singletons (`wire.ts`, `useTerminalStore`, the `createSharedRoot` family) to be per-binding. Transitions of that shape leave scaffolding: compatibility shims, dual paths, "temporarily still global" markers. This entry is the post-landing sweep — inventory every `W3.2`-tagged interim in the client, delete each or convert it to the final shape.
+
+**Where:** `packages/client/src/wire.ts` and every `createSharedRoot` consumer (the W3.2 PR's own diff is the inventory's seed). **Done when:** no transition-tagged code survives; the switch e2e stays green.
+
+## The deletions and hygiene
+
+### L4 — delete the legacy-kaval migration arm
+
+*Status: ready at a named version (coordinator + srid pick it, e.g. "W3 final") · Lens: hickey (a dead arm braided into the dial path once its window closes) · Gate: none*
+
+The W2.2 adopter (a deploy adopts a running pre-W2.2 port-keyed kaval; converges to digest on recycle/reboot) exists solely for upgrades from pre-W2.2 installs. Standard migration-window practice: at a named version, declare "upgrading from pre-W2.2 passes through W2.x–W3.x first" (release note), then delete the arm — the binder's legacy-socket hint, padi's legacy-adopt branch in its kaval ensure, the port-keyed discovery/labeling in `packages/kaval/src/socketPath.ts`, and the `adoption-upgrade` VM tests (keep `adoption-upgrade-reboot`'s *digest-spawn* assertion if it still pins the reboot bound independently — implementer proposes, coordinator confirms).
+
+**Done when:** no code path can dial a port-keyed kaval; discovery scans digest dirs only; the remaining VM tests still pin adopt/skew/currency/reboot semantics; release note names the required upgrade path.
+
+### L8 — doc-and-comment sweep for the buried world
+
+*Status: ready after W2.3 · Lens: hygiene · Gate: none*
+
+Comments and READMEs across the surface stack still cite pulam/pulam-web as their graduation examples, and pre-padi topology descriptions ("kolu-server spawns kaval", per-port sockets) linger in prose. Sweep: `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus the package READMEs; update each to the padi-era truth or delete. **Atlas notes are exempt** — they're historical record; this entry is *code-adjacent* prose only.
+
+**Done when:** the grep returns only deliberate historical references (each with a comment saying so) — and the kolu/debate skills + rules docs already updated by W2.3 are verified consistent.
+
+### L10 — pay the flaky-test debt
+
+*Status: ready · Lens: test-infra · Gate: none*
+
+The rotating e2e flakes (file-drop, file-ref-link — the #1534 swallow-emit class, plus friends in the [flaky tracker](flaky-test-tracker.html)) cost every CI round retries and once masked a real regression signal during W2.2's endgame (three consecutive #5 failures had to be manually distinguished from the rotation). W2.2's screen-state reader fix (wrapped-row rejoin) helped one class. This entry is a root-cause pass over the tracker's top offenders — fix or quarantine-with-reason each, not re-tune retries.
+
+**Done when:** a full both-platform e2e run passes without retries twice consecutively, or every remaining tracked flake carries a root-cause note and a quarantine decision.
+
+### L12 — a fine-grained CI token
+
+*Status: ready — srid mints; agent wires · Lens: infra hygiene · Gate: srid*
+
+The CI pool boxes carry srid's broad personal token (installed under time pressure during W2.2's endgame, disclosed and consented; the exposed prior token needs rotation regardless). Replace with a fine-grained PAT (public-repo read-only — its only job is authenticated GitHub API rate limits for flake-input fetches), installed via the pool provisioning path (stdin, never in the store or logs).
+
+**Done when:** pool boxes authenticate with the fine-grained token; the personal token is rotated and absent from every box; `ci::nix` green on a cold box proves the fetch path.
+
+## Appraisal discipline
+
+When a W phase ships, its review rounds' "deferred / acceptable-for-scope" items land here as new L-entries — explicitly, with source and gate. An entry that never ripens is **deleted with a reason** (recorded inline, dated), not silently kept. The [parent note's](padi.html#w4) W4 section stays a pointer plus the compact index; this note is the single source of truth for W4's scope.
