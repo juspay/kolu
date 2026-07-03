@@ -1,4 +1,4 @@
-import { Then } from "@cucumber/cucumber";
+import { Then, When } from "@cucumber/cucumber";
 import type { Locator } from "playwright";
 import type { KoluWorld } from "../support/world.ts";
 
@@ -62,5 +62,28 @@ Then(
   "the identity rail details include kaval memory usage",
   async function (this: KoluWorld) {
     await assertChipMemoryLabel(this, "kaval-identity-chip", /RSS \d+\s*MB/);
+  },
+);
+
+When("I open the Kaval details dialog", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="kaval-identity-chip"]').click();
+});
+
+Then(
+  "the Kaval details show kaval memory usage",
+  async function (this: KoluWorld) {
+    // The daemon's RSS lands once its first `system.processMemory` poll returns,
+    // so poll the dialog row until a real MB figure replaces "unavailable".
+    const memory = this.page.locator('[data-testid="kaval-dialog-memory"]');
+    await memory.waitFor({ state: "visible", timeout: 15_000 });
+    await this.page.waitForFunction(
+      () =>
+        /\d+\s*MB/.test(
+          document.querySelector('[data-testid="kaval-dialog-memory"]')
+            ?.textContent ?? "",
+        ),
+      undefined,
+      { timeout: 15_000 },
+    );
   },
 );

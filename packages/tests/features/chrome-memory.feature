@@ -1,7 +1,13 @@
 Feature: Chrome bar memory detail
   The compact identity rail keeps live memory telemetry for the processes it
   names — the kolu-server's RSS, this browser's JS heap, and the kaval daemon's
-  RSS — without crowding the always-visible chrome.
+  RSS — without crowding the always-visible chrome. The full figures also read
+  out inside each identity dialog, the same way the Kolu dialog shows its memory.
+
+  Scenario: The Kaval details dialog shows the daemon's memory usage
+    Given the terminal is ready
+    When I open the Kaval details dialog
+    Then the Kaval details show kaval memory usage
 
   Scenario: The identity rail keeps live, changing memory usage in details
     Given the terminal is ready
