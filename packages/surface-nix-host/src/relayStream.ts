@@ -43,9 +43,12 @@ import type { LiveSpawnHolder, ObservableHolder } from "./hostFanout";
 
 // ── The forwarding policy (surface-generic) ────────────────────────────────
 
-/** A per-member forwarding policy over a surface's top-level member keys: each
- *  member is `"value"` (hold-open, replayable) or `"delta"` (fail-through byte
- *  stream). A surface's authored policy (e.g. padi's `PADI_FORWARDING_POLICY`,
+/** The forwarding policy for a surface's input-keyed STREAMING members: each
+ *  stream / event is `"value"` (hold-open, replayable across an upstream respawn)
+ *  or `"delta"` (fail-through byte stream). This is the streaming-SURVIVAL axis —
+ *  cells and collections are always folded as values and procedures always
+ *  forwarded, so only streams and events carry a real hold-open-vs-fail-through
+ *  choice. A surface's authored policy (e.g. padi's `PADI_FORWARDING_POLICY`,
  *  `... as const satisfies Record<string, ForwardingPolicy>`) structurally
  *  satisfies this, so the re-serve helpers read the SAME classification W1 pinned
  *  — no second declaration to drift. */

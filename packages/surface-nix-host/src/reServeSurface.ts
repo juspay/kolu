@@ -74,11 +74,15 @@ export interface ReServeSurfaceOptions<
 > {
   /** The surface the remote agent serves and this parent re-serves. */
   source: Surface<S>;
-  /** The per-member forwarding policy — every top-level member (cell, collection,
-   *  stream, event, or procedure NAMESPACE) classified `value` | `delta`. A
-   *  surface's authored policy (e.g. padi's `PADI_FORWARDING_POLICY`) satisfies
-   *  this; the re-serve reads the SAME classification W1 pinned. Every member must
-   *  be present or the assembly fails loud (no silent-skip default). */
+  /** The forwarding policy for the surface's input-keyed STREAMING members
+   *  (streams + events) — each classified `value` (hold open across an upstream
+   *  respawn) or `delta` (fail through, ending the downstream on a drop). This is a
+   *  streaming-SURVIVAL axis, not a whole-surface checklist: cells and collections
+   *  are always folded as values and procedures are always forwarded, so a policy
+   *  entry for one of those kinds is inert. A surface's authored policy (e.g.
+   *  padi's `PADI_FORWARDING_POLICY`) satisfies this; the re-serve reads the SAME
+   *  classification W1 pinned. Every stream / event must be classified or the
+   *  assembly fails loud (no silent-skip default). */
   policy: RelayPolicy;
   /** The long-lived host session whose successive spawns are mirrored. */
   session: HostSession<C>;
@@ -137,29 +141,20 @@ export function reServeSurface<
 
   // ── implementSurface deps, derived from the policy ────────────────────────
 
-  // Cells (always value) → in-memory stores the mirror sink folds into. Plus the
-  // seeded, gate-closed `connection` cell the pump writes off `session.onState`.
-  const requireValue = (member: string, kind: string): void => {
-    if (requirePolicy(member) !== "value") {
-      throw new Error(
-        `reServeSurface: ${kind} "${member}" is declared "delta", but a ${kind} is always a replayable value — only a byte/liveness STREAM can fail through`,
-      );
-    }
-  };
-
+  // Cells (always folded as value) → in-memory stores the mirror sink folds into.
+  // Plus the seeded, gate-closed `connection` cell the pump writes off
+  // `session.onState`.
   const cellsDeps: Record<string, unknown> = {};
   for (const [key, cellSpec] of Object.entries(spec.cells ?? {})) {
-    requireValue(key, "cell");
     const store = inMemoryStore((cellSpec as { default: unknown }).default);
     cellStores.set(key, store);
     cellsDeps[key] = { store };
   }
   cellsDeps.connection = seedConnectionCell();
 
-  // Collections (always value) → per-key caches the mirror sink folds into.
+  // Collections (always folded as value) → per-key caches the mirror sink folds into.
   const collectionsDeps: Record<string, unknown> = {};
   for (const key of Object.keys(spec.collections ?? {})) {
-    requireValue(key, "collection");
     const cache = new Map<unknown, unknown>();
     collectionCaches.set(key, cache);
     collectionsDeps[key] = {

@@ -401,28 +401,32 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     await teardown(b.session, b.done, b.upstream);
   });
 
-  it("fails loud on a mis-classified or unannotated policy (no silent fold)", () => {
+  it("fails loud on a mis-classified or unannotated streaming member (no silent fold)", () => {
     // The throw fires during the synchronous deps build, before any pump starts.
+    // Only STREAMS / events carry a real hold-open-vs-fail-through choice, so the
+    // policy is consulted (and enforced) for those alone — cells, collections, and
+    // procedures fold / forward regardless of any policy entry. Both cases target
+    // the `attach` STREAM, the one member whose classification the re-serve reads.
     const s = makeSession() as unknown as HostSession<
       typeof toySurface.contract
     >;
-    // A cell marked "delta" — a cell is always a replayable value, never a byte stream.
+    // A stream classified as neither "value" nor "delta".
     expect(() =>
       reServeSurface({
         source: toySurface,
-        policy: { ...toyPolicy, counter: "delta" } as RelayPolicy,
+        policy: { ...toyPolicy, attach: "bogus" } as unknown as RelayPolicy,
         session: s,
       }),
-    ).toThrow(/cell "counter" is declared "delta"/);
-    // A member missing from the policy entirely.
-    const noCounter: RelayPolicy = {
+    ).toThrow(/no forwarding policy/);
+    // The same stream missing from the policy entirely.
+    const noAttach: RelayPolicy = {
+      counter: "value",
       items: "value",
-      attach: "delta",
       pulses: "value",
       ctl: "value",
     };
     expect(() =>
-      reServeSurface({ source: toySurface, policy: noCounter, session: s }),
+      reServeSurface({ source: toySurface, policy: noAttach, session: s }),
     ).toThrow(/no forwarding policy/);
   });
 });
