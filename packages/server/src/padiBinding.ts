@@ -12,8 +12,11 @@
  * into the reconnect-mirror `HostSession` shape `reServeSurface`'s pump loops
  * over.
  *
- * THREE parts + the adapter:
- *   1. `connectPadi`         — the twin of `connectKaval`: dial + handshake.
+ * The DIAL itself (`connectPadi` / `dialPadiHello` — dial + control-core
+ * handshake + typed skew refusal) is imported from `@kolu/padi/dial`: W2.3 carved
+ * it into padi's package as the client-side dial kit `padi-tui` shares. What stays
+ * here is SUPERVISION over that dial — the parts that mutate padi's lifecycle:
+ *   1. the version ORDERING + `bindPadiOnce` — the drain-vs-refuse convergence.
  *   2. `localPadiDriver`      — the twin of `localKavalDriver`: how to launch padi.
  *   3. `PadiBindingSession`   — Endpoint → reconnect-mirror `HostSession` (the crux).
  *   4. `ensurePadiBinding`    — the twin of `ensureLocalEndpoint`: boot the binding.
@@ -44,9 +47,21 @@ import {
   padiSocketPath,
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
+// The client-side dial kit — carved out of THIS module in W2.3 so `padi-tui` and
+// the binder share it (`@kolu/padi/dial`). What stays here is SUPERVISION: the
+// drivers, the newer-binder drain convergence, the reconnect-mirror session, and
+// the re-serve — everything that mutates padi's lifecycle, never a mere dial.
+import {
+  connectPadi,
+  dialPadiHello,
+  type PadiConnectionMetadata,
+  type PadiDaemonClient,
+  type PadiDial,
+  type PadiIdentity,
+  type PadiSurfaceClient,
+} from "@kolu/padi/dial";
 import {
   PADI_SURFACE_VERSION,
-  type PadiDaemonContract,
   type PadiHello,
   type padiSurface,
 } from "@kolu/padi/surface";
@@ -54,20 +69,15 @@ import {
   isContractVersionCompatible,
   scopeSibling,
 } from "@kolu/surface/define";
-import { stdioLink } from "@kolu/surface/links/stdio";
 import {
   createEndpoint,
-  type DaemonConnection,
-  DaemonContractSkewError,
   type DaemonDriver,
-  dialSocket,
   type Endpoint,
   type EndpointStatus,
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import type {
-  AgentClient,
   HostSessionState,
   RemoteMirrorSession,
 } from "@kolu/surface-nix-host";
@@ -94,32 +104,13 @@ type ConvergeLogger = {
 const DRAIN_TEARDOWN_CEILING_MS = 2000;
 
 // ── Types ──────────────────────────────────────────────────────────────────
+//
+// The connection/identity/client types (`PadiDaemonClient`, `PadiSurfaceClient`,
+// `PadiIdentity`, `PadiConnectionMetadata`, `PadiConnection`, `PadiDial`) moved
+// into `@kolu/padi/dial` with `connectPadi` in W2.3 and are imported above. The
+// SUPERVISION-only endpoint types stay here — they parameterize the supervisor
+// `Endpoint` a binder owns, which a plain dial has no business naming.
 
-/** The client the dial produces — typed to the COMBINED contract, so the
- *  handshake reaches `.surface.control.core.hello()` AND the re-serve can scope
- *  `.surface.padi`. */
-type PadiDaemonClient = AgentClient<PadiDaemonContract>;
-
-/** The padi-SIBLING-scoped client the re-serve mirrors: `{ surface: <padi> }`, so
- *  the relay's `client.surface.<member>` walk resolves at `/surface/padi/<member>`.
- *  Produced by `scopeSibling(combined, "padi")`. */
-type PadiSurfaceClient = AgentClient<typeof padiSurface.contract>;
-
-/** padi's wire identity, from its control-core `hello`. `commit` is the RUNNING padi's
- *  navigable git build (the Padi dialog's "build commit"); optional — a survivor padi
- *  predating the hello field omits it (honest "—"). */
-type PadiIdentity =
-  | { stateRoot: string; surfaceVersion: string; commit?: string }
-  | undefined;
-type PadiConnectionMetadata = {
-  surfaceVersion: string;
-  controlCoreVersion: string;
-};
-type PadiConnection = DaemonConnection<
-  PadiDaemonClient,
-  PadiIdentity,
-  PadiConnectionMetadata
->;
 type PadiEndpoint = Endpoint<
   PadiDaemonClient,
   PadiIdentity,
@@ -128,7 +119,11 @@ type PadiEndpoint = Endpoint<
 type PadiEndpointStatus = EndpointStatus<PadiIdentity, PadiConnectionMetadata>;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. connectPadi — the twin of connectKaval (packages/padi/src/ptyHost/connect.ts)
+// 1. The version ORDERING (drain-vs-refuse) — the SUPERVISION half of the
+//    newest-wins convergence the dial kit (`@kolu/padi/dial`) deliberately omits.
+//    A plain dial only judges COMPATIBILITY (`connectPadi` refuses a skew it can't
+//    speak to); ORDERING two proven-skewed versions to decide which side drains is
+//    a supervisor's call, so it stays here beside `probePadiSkew`/`bindPadiOnce`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Parse a `major.minor` version into its two numbers, FAIL-FAST: an
@@ -171,97 +166,10 @@ export function isBinderNewer(binderVer: string, runningVer: string): boolean {
   return bMinor > rMinor;
 }
 
-/** The dialed-but-unjudged result of reaching padi's frozen control core: the
- *  live client, its socket, and the `hello` it answered. The skew judgement
- *  (`isContractVersionCompatible` / `isBinderNewer`) is the CALLER's — this only
- *  opens the link and reads identity. Shared by `connectPadi` (which judges then
- *  holds or refuses) and `probePadiSkew` (which judges then drains or leaves be). */
-type PadiDial = {
-  socket: Awaited<ReturnType<typeof dialSocket>>;
-  client: PadiDaemonClient;
-  hello: PadiHello;
-};
-
-/** Dial padi at `socketPath` and read the FROZEN control core's `hello` — the
- *  version-agnostic handshake, always reachable even at a `padiSurface` skew (the
- *  control-core schemas never move). Mirrors `connectKaval` on link choice:
- *  `dialSocket` + `stdioLink` (NOT `unixSocketLink`, which hides the socket's
- *  `close` event the endpoint's `onClose` needs). Rejects with a plain Error if
- *  the socket is unreachable or `hello` is unreadable — a non-skew failure. */
-async function dialPadiHello(socketPath: string): Promise<PadiDial> {
-  const socket = await dialSocket(socketPath);
-  const client = stdioLink<PadiDaemonContract>({
-    read: socket,
-    write: socket,
-  }) as PadiDaemonClient;
-  try {
-    const hello = await client.surface.control.core.hello();
-    return { socket, client, hello };
-  } catch (err) {
-    socket.destroy();
-    throw new Error(
-      `padi handshake failed — could not read control.core.hello (${(err as Error).message})`,
-    );
-  }
-}
-
-/**
- * Dial padi, handshake the FROZEN control core, and return the live connection.
- * Typed to `PadiDaemonContract` so the handshake reaches
- * `client.surface.control.core.hello()`.
- *
- * The handshake gates on the SURFACE version (`hello.surfaceVersion` vs
- * `PADI_SURFACE_VERSION`), NOT the frozen control-core version (which never
- * moves). Three failure classes, same as connectKaval:
- *   - raw socket error → plain reject (transient);
- *   - unreadable hello → plain Error (non-skew);
- *   - genuine surface skew → `DaemonContractSkewError` — the endpoint's generic
- *     signal to REFUSE (padi left standing + degraded, never recycled — a binder
- *     never kill-9's a running padi, #1313 inversion). The NEWER-binder DRAIN arm
- *     runs BEFORE this, in `bindPadiOnce`'s pre-flight (`probePadiSkew`), so by the
- *     time the endpoint calls `connectPadi` a newer binder's skewed survivor is
- *     already drained + gone and this connect is against the fresh newer closure.
- */
-export async function connectPadi(socketPath: string): Promise<PadiConnection> {
-  const { socket, client, hello } = await dialPadiHello(socketPath);
-
-  if (
-    !isContractVersionCompatible(hello.surfaceVersion, PADI_SURFACE_VERSION)
-  ) {
-    socket.destroy();
-    throw new DaemonContractSkewError(
-      `padi contract skew: padi serves padiSurface ${hello.surfaceVersion}, binder needs ${PADI_SURFACE_VERSION}`,
-    );
-  }
-
-  let closed = false;
-  socket.once("close", () => {
-    closed = true;
-  });
-  return {
-    client,
-    identity: {
-      stateRoot: hello.stateRoot,
-      surfaceVersion: hello.surfaceVersion,
-      // The RUNNING padi's navigable git commit off the hello (optional — a survivor
-      // padi predating the field omits it → honest "—" downstream).
-      commit: hello.commit,
-    },
-    // padi's HONEST boot time — stamped once at padi's daemon init and echoed by
-    // the frozen `hello` (W2.2 added `startedAt` to `PadiHelloSchema`), so a
-    // reconnect reports true uptime instead of resetting the age to `Date.now()`.
-    startedAt: hello.startedAt,
-    metadata: {
-      surfaceVersion: hello.surfaceVersion,
-      controlCoreVersion: hello.controlCoreVersion,
-    },
-    dispose: () => socket.destroy(),
-    onClose: (cb) => {
-      if (closed) queueMicrotask(cb);
-      else socket.once("close", cb);
-    },
-  };
-}
+// `connectPadi` + `dialPadiHello` (dial + control-core handshake + typed skew
+// refusal) live in `@kolu/padi/dial` now (imported above) — the shared dial kit.
+// `probePadiSkew` below reuses `dialPadiHello` and layers the SUPERVISION judgement
+// (`isBinderNewer` ordering → drain-vs-refuse) the dial kit deliberately excludes.
 
 /** The minimal connection shape the drain plumbing needs: the COMBINED dialed
  *  client (to reach `surface.control.core.drain`) and an `onClose` (the socket
