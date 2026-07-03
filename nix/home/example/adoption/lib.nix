@@ -70,11 +70,16 @@ let
   # freshly-built padi meet a surviving older kaval (the skew/currency probes need
   # it — a plain binder swap merely ADOPTS the old padi, leaving its kaval untouched).
   #
-  # Deliberately DOUBLE-QUOTE-FREE (single-quoted URL + body) so it embeds cleanly
-  # inside a Python `machine.succeed("...")` in the testScript, unlike the seed/verify
-  # scripts which run as alice via machinectl. This RPC is unauthenticated loopback
-  # (packages/server/src/index.ts), so a root curl to 127.0.0.1 reaches alice's server.
-  daemonRestart = ''${curl} -fsS -X POST 'http://127.0.0.1:${port}/rpc/daemon/restart' -H 'content-type: application/json' -d '{"json":{}}' >/dev/null'';
+  # This is used inside a Python `machine.succeed("...")` / `wait_until_succeeds("...")`
+  # DOUBLE-quoted string in the testScript (unlike the seed/verify scripts, which run
+  # as alice via machinectl). The oRPC body MUST be the `{"json":...}` envelope, whose
+  # literal `"` would close that Python string early — so the payload's quotes are
+  # ESCAPED as `\"`. A nix `''` string passes `\"` through verbatim, Python reads it as
+  # an escaped quote (value: `-d '{"json":{}}'`), and the shell's OUTER single-quotes
+  # keep the `"` literal for curl. URL + header stay single-quoted (no `"` to escape).
+  # This RPC is unauthenticated loopback (packages/server/src/index.ts), so a root curl
+  # to 127.0.0.1 reaches alice's server.
+  daemonRestart = ''${curl} -fsS -X POST 'http://127.0.0.1:${port}/rpc/daemon/restart' -H 'content-type: application/json' -d '{\"json\":{}}' >/dev/null'';
 
   # "Open a terminal over the app's padiSurface lifecycle.create RPC and return
   # its id" — the application-contract prologue both seed scripts share. The root
