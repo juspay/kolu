@@ -31,10 +31,11 @@ Usage:
 
 Options:
   --state-root PATH   the persistent folder padi anchors to (session · memory ·
-                      pairing). Default: $XDG_STATE_HOME/padi (else
-                      ~/.local/state/padi). The socket + its kaval are keyed by a
-                      digest of this path, so a distinct state-root is a distinct,
-                      isolated padi.
+                      pairing). Default: $HOME/.local/state/padi (env-insensitive
+                      — it does NOT honor $XDG_STATE_HOME); override with this flag
+                      or the KOLU_PADI_STATE_DIR env var. The socket + its kaval are
+                      keyed by a digest of this path, so a distinct state-root is a
+                      distinct, isolated padi.
   --socket PATH       unix socket to serve on (default: keyed by the state-root
                       digest). The single-instance gate sits beside it.
   --allow-nix-shell-with-env-whitelist LIST
