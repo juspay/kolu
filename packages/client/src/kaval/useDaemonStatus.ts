@@ -176,6 +176,25 @@ export function daemonWarming(): boolean {
   );
 }
 
+/** True ONLY when the local kaval daemon is genuinely CONNECTED — and the client
+ *  is therefore the lifecycle authority over its terminals. The inverse of
+ *  "warming, down, or not-yet-known": it folds transport + padi-link liveness in
+ *  through {@link daemonWarming} / {@link downState} (both floored on them), so a
+ *  half-open link or a dropped padi binding reads NOT-connected, and the
+ *  pre-first-yield window ({@link daemonStatusPending}) reads NOT-connected too.
+ *
+ *  The list-driven reconcile (`useActiveReconcile`) gates its authoritative
+ *  promote-on-departure writes on this: during a SUPERVISED transition (a
+ *  `recycleKaval` restart holds `restarting`, published BEFORE the drain empties
+ *  the terminal list) the departures are the server's doing and are undone by
+ *  restore, so the client must NOT react to them with `chrome.setParent(...)`
+ *  writes. Only a real user-close happens while this is true. */
+export function daemonConnected(): boolean {
+  return (
+    !daemonStatusPending() && !daemonWarming() && downState() === undefined
+  );
+}
+
 /** The warming-canvas message for the current daemon state — the verbier,
  *  capitalized `canvasLabel` projection the App.tsx warming arm renders (e.g.
  *  "Restarting kaval…" / "Connecting…"). Projects from the presentation table

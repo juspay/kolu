@@ -55,7 +55,7 @@ import {
   getTerminal,
   registryMap,
   requireActiveTerminal,
-  requireTerminal,
+  requireMutableTerminal,
   snapshotFor,
   terminalNotFound,
 } from "./terminal-registry.ts";
@@ -337,12 +337,12 @@ export function buildPadiSurfaceDeps(deps: {
 
       chrome: {
         setTheme: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           log.info({ terminal: input.id, theme: input.themeName }, "set theme");
           setTerminalTheme(input.id, input.themeName);
         },
         setIntent: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           log.info(
             { terminal: input.id, intentLength: input.intent.length },
             "set intent",
@@ -350,7 +350,7 @@ export function buildPadiSurfaceDeps(deps: {
           setTerminalIntent(input.id, input.intent);
         },
         setParent: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           log.info(
             { terminal: input.id, parent: input.parentId },
             "set terminal parent",
@@ -361,18 +361,18 @@ export function buildPadiSurfaceDeps(deps: {
           setActiveTerminalId(input.id);
         },
         setCanvasLayout: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           setCanvasLayout(input.id, input.layout);
         },
         setSubPanel: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           setSubPanelState(input.id, {
             collapsed: input.collapsed,
             panelSize: input.panelSize,
           });
         },
         setRightPanel: ({ input }) => {
-          requireTerminal(input.id);
+          requireMutableTerminal(input.id);
           const { id: _id, ...state } = input;
           setRightPanelState(input.id, state);
         },

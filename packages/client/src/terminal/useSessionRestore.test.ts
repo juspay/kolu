@@ -1,6 +1,6 @@
 import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
 // `isLoading` is a pure read over three reactive inputs: the terminal list's
@@ -55,11 +55,12 @@ vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),
 }));
+const subPanelSpy = vi.hoisted(() => ({ setActiveSubTab: vi.fn() }));
 vi.mock("./useSubPanel", () => ({
   useSubPanel: () => ({
     seedPanel: () => {},
     getSubPanel: () => ({ activeSubTab: null }),
-    setActiveSubTab: () => {},
+    setActiveSubTab: subPanelSpy.setActiveSubTab,
   }),
 }));
 const toastSpy = vi.hoisted(() => ({ success: vi.fn() }));
@@ -399,6 +400,101 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
             await new Promise((r) => setTimeout(r, 0));
             expect(setActiveSilently).toHaveBeenCalledWith("B");
             expect(setMruOrder).toHaveBeenCalledWith(["B", "A"]);
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+});
+
+describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSeeded reset)", () => {
+  // FIX 2: `viewSeeded` latches true on the first live load so a reconnect doesn't
+  // re-pan/re-seed. But an in-session `recycleKaval` restore (no page reload)
+  // re-spawns every terminal under FRESH ids and IS a re-seed event. Without the
+  // reset in `handleRestoreSession`, the hydration effect short-circuits on the
+  // stale latch, so a restored parent's active sub-tab is never set and its split
+  // comes back HIDDEN. This drives the real sequence — live load (latch) → drain
+  // (empty, restore card) → restore click (reset) → restored terminals arrive —
+  // and asserts the restored parent's sub-tab IS seeded on the second hydration.
+  // Red-when-reverted: without the reset, the final `setActiveSubTab(P1, S1)` never
+  // fires.
+  function reactiveStore() {
+    const [list, setList] = createSignal<TerminalInfo[] | undefined>(undefined);
+    const [meta, setMeta] = createSignal<Record<string, TerminalMetadata>>({});
+    let active: string | null = null;
+    const listSub = Object.assign(() => list(), { pending: () => false });
+    const store = {
+      listSub,
+      terminalIds: () =>
+        (list() ?? [])
+          .map((t) => t.id)
+          .filter((id) => !meta()[id]?.parentId) as TerminalId[],
+      getMetadata: (id: TerminalId) => meta()[id],
+      setActiveSilently: (id: string | null) => {
+        active = id;
+      },
+      activeId: () => active,
+      setMruOrder: () => {},
+    } as unknown as TerminalStore;
+    return { store, setList, setMeta };
+  }
+
+  const splitMeta = (parentId?: string): TerminalMetadata =>
+    ({ state: "active", parentId }) as unknown as TerminalMetadata;
+
+  it("re-runs hydrateFromTerminals for the restored terminals (fresh parent gets its sub-tab)", async () => {
+    subPanelSpy.setActiveSubTab.mockClear();
+    h.sessionPending = false;
+    h.savedSession = {
+      terminals: [],
+      activeTerminalId: "P0",
+      savedAt: 1,
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const { store, setList, setMeta } = reactiveStore();
+
+            // 1) FIRST live load — a parent P0 with a split S0. viewSeeded latches.
+            setMeta({ P0: splitMeta(), S0: splitMeta("P0") });
+            setList([{ id: "P0" }, { id: "S0" }] as TerminalInfo[]);
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(subPanelSpy.setActiveSubTab).toHaveBeenCalledWith(
+              "P0" as TerminalId,
+              "S0" as TerminalId,
+            );
+
+            // 2) The recycle drains the canvas → the re-fetch effect populates the
+            // restore card's saved session (terminalIds is now empty).
+            setMeta({});
+            setList([]);
+            await new Promise((r) => setTimeout(r, 0));
+            expect(session.savedSession()).toEqual(h.savedSession);
+
+            subPanelSpy.setActiveSubTab.mockClear();
+
+            // 3) The user clicks Restore — `handleRestoreSession` resets the latch.
+            await session.handleRestoreSession({});
+
+            // 4) The restored terminals arrive under FRESH ids. With the latch
+            // reset, the hydration effect re-seeds the restored parent's sub-tab.
+            setMeta({ P1: splitMeta(), S1: splitMeta("P1") });
+            setList([{ id: "P1" }, { id: "S1" }] as TerminalInfo[]);
+            await new Promise((r) => setTimeout(r, 0));
+
+            expect(subPanelSpy.setActiveSubTab).toHaveBeenCalledWith(
+              "P1" as TerminalId,
+              "S1" as TerminalId,
+            );
+
             dispose();
             resolve();
           } catch (err) {
