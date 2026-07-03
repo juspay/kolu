@@ -10,7 +10,9 @@ import {
   PadiPreviewReadOutputSchema,
   PadiTerminalSchema,
   PadiVersionSchema,
-  padiControlCore,
+  padiControlSurface,
+  padiDaemonContract,
+  padiDaemonSurfaces,
   padiMemberKeys,
   padiSurface,
 } from "./surface.ts";
@@ -187,15 +189,23 @@ describe("padiSurface 1.0 contract", () => {
     expect(out.headers["Content-Range"]).toBe("bytes 0-1023/4096");
   });
 
-  it("defines the frozen control core (hello · version · drain · clock.now)", () => {
+  it("serves the frozen control core surface (hello · version · drain · clock.now)", () => {
     expect(CONTROL_CORE_VERSION).toBe("1.0");
-    expect(padiControlCore.version).toBe(CONTROL_CORE_VERSION);
-    // The four control-core members are present as schema shapes (served for
-    // real in W2.2; W1.C pins their existence).
-    expect(padiControlCore.hello.output).toBeTruthy();
-    expect(padiControlCore.controlVersion.output).toBeTruthy();
-    expect(padiControlCore.drain).toEqual({});
-    expect(padiControlCore.clockNow.output).toBeTruthy();
+    // The frozen `version` cell echoes the control-core version, distinct from
+    // padiSurface's own version cell (which may move; this one never does).
+    expect(padiControlSurface.spec.cells?.version.default).toEqual({
+      controlCoreVersion: CONTROL_CORE_VERSION,
+    });
+    // The four control verbs live under the single `control` namespace — served
+    // for real in W2.2 (W1.C pinned their existence as schema shapes).
+    expect(
+      Object.keys(padiControlSurface.spec.procedures?.core ?? {}).sort(),
+    ).toEqual(["clockNow", "controlVersion", "drain", "hello"]);
+    // The daemon serves BOTH surfaces on one socket, keyed `padi` + `control`, so
+    // a binder reaches the frozen core even when padiSurface is version-skewed.
+    expect(Object.keys(padiDaemonSurfaces).sort()).toEqual(["control", "padi"]);
+    expect(padiDaemonContract.surface.control).toBeTruthy();
+    expect(padiDaemonContract.surface.padi).toBeTruthy();
     // The hello handshake validates a well-formed identity.
     const hello = {
       stateRoot: "/home/u/.local/state/padi",

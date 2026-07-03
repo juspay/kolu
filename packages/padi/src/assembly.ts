@@ -54,6 +54,9 @@ export {
   ptyHostClient,
   setSpawnServerVersion,
 } from "./ptyHost/index.ts";
+// The per-instance kaval socket path — kolu-server (in-process, until the W2.2
+// cutover) resolves it from its listen port to feed `ensureLocalEndpoint`.
+export { kavalSocketPath } from "./ptyHost/localDriver.ts";
 export { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 // ── publisher / surface ctx holder ──────────────────────────────────────
 export {

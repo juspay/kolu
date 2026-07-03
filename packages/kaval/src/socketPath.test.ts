@@ -18,6 +18,7 @@ import {
   kavalNamespace,
   PTY_HOST_SOCK_FILE,
   resolveRunningKavalSocket,
+  writeStateRootManifest,
 } from "./socketPath.ts";
 
 /** Bind a real `net.Server` at `path`, leaving a genuine socket inode behind —
@@ -260,6 +261,33 @@ describe("resolveRunningKavalSocket", () => {
     expect(byLabel.get(join(runtime, "kaval", PTY_HOST_SOCK_FILE))).toBe(
       "standalone kaval",
     );
+    expect(byLabel.get(join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE))).toBe(
+      "kolu-server on port 7692",
+    );
+  });
+
+  it("labels a padi's kaval-<digest> from its state-root manifest, distinct from a legacy port", async () => {
+    // A padi's kaval lives under `kaval-<digest>/` with a `state-root` manifest;
+    // discovery labels it by that state-root (the digest carries no meaning). A
+    // legacy in-process kolu-server's `kaval-<port>/` has NO manifest, so it keeps
+    // the port label — manifest presence is the discriminant, so an all-decimal
+    // digest could never masquerade as a port.
+    const digest = "680023982235a767";
+    const runtime = await seed([`kaval-${digest}`, "kaval-7692"]);
+    writeStateRootManifest(
+      join(runtime, `kaval-${digest}`),
+      "/home/u/.local/state/padi",
+    );
+    process.env.XDG_RUNTIME_DIR = runtime;
+    const resolved = resolveRunningKavalSocket(undefined);
+    expect(resolved.kind).toBe("many");
+    if (resolved.kind !== "many") throw new Error("unreachable");
+    const byLabel = new Map(
+      resolved.candidates.map((c) => [c.socket, c.label] as const),
+    );
+    expect(
+      byLabel.get(join(runtime, `kaval-${digest}`, PTY_HOST_SOCK_FILE)),
+    ).toBe("kolu @ /home/u/.local/state/padi");
     expect(byLabel.get(join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE))).toBe(
       "kolu-server on port 7692",
     );

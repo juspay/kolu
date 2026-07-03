@@ -10,6 +10,7 @@ import {
   ensureKoluRoot,
   ensureLocalEndpoint,
   initSessionAutoSave,
+  kavalSocketPath,
   LOCAL_HOST_ID,
   parkSavedSession,
   previewFile,
@@ -382,7 +383,10 @@ const { host, port } = argv.flags;
 // endpoint; a boot failure reports `dead` (not a crash), so the server still
 // listens and the UI honestly shows the down state.
 await ensureLocalEndpoint({
-  port,
+  // In-process serving (until the W2.2 cutover): the kaval socket is still keyed
+  // per listen port (`kaval-<port>`). The padi PROCESS keys it by state-root
+  // digest instead; `ensureLocalEndpoint` takes the resolved socket either way.
+  kavalSocket: kavalSocketPath(port),
   onStatus: publishDaemonStatus,
   onAdopted: adoptSurvivingSession,
   // No-survivor boot (fresh / recycled daemon): park the saved session so the

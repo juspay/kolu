@@ -34,11 +34,7 @@ import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import { log } from "../log.ts";
 import { connectKaval, type KavalConnectionMetadata } from "./connect.ts";
 import { getLocalSocketPath, setLocalSocketPath } from "./daemonStatus.ts";
-import {
-  kavalGatePath,
-  kavalSocketPath,
-  localKavalDriver,
-} from "./localDriver.ts";
+import { kavalGatePath, localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity | undefined;
 
@@ -163,9 +159,12 @@ export function __setEndpointForTest(
  *  listen and the UI honestly shows the dead/degraded state (never a crash, never
  *  an import-time throw). */
 export async function ensureLocalEndpoint(opts: {
-  /** This server's HTTP listen port — namespaces the kaval socket per instance
-   *  (`kaval-<port>`), so a second kolu-server never recycles this one's daemon. */
-  port: number;
+  /** The exact socket this endpoint's kaval serves and is dialed on — resolved by
+   *  the caller. kolu-server (in-process, until the W2.2 cutover) passes the
+   *  per-port `kavalSocketPath(port)`; the padi process passes its digest-keyed
+   *  `padiKavalSocketPath(stateRoot)` (`kaval-<digest>`). One resolved string, so
+   *  the boot is caller-agnostic — no port assumption survives here. */
+  kavalSocket: string;
   onStatus: (
     hostId: string,
     status: EndpointStatus<Identity, KavalConnectionMetadata>,
@@ -195,7 +194,7 @@ export async function ensureLocalEndpoint(opts: {
    *  the same way — it simply waits, then picks up once the daemon connects). */
   onBootSettled?: (signal: AbortSignal) => void;
 }): Promise<void> {
-  const socketPath = kavalSocketPath(opts.port);
+  const socketPath = opts.kavalSocket;
   // Surface where this kaval listens, so the dialog can show it (and `kaval-tui`
   // users can target it explicitly). Set before the endpoint's first status emit.
   setLocalSocketPath(socketPath);

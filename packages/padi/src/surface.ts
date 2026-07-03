@@ -38,10 +38,10 @@
  *      one host, so the dock has no foreign host to name yet — but present in
  *      the contract from 1.0 so the cross-host dock (W4) lands without a break.
  *
- * Beside the surface, the frozen {@link padiControlCore} (hello · version ·
+ * Beside the surface, the frozen {@link padiControlSurface} (hello · version ·
  * drain · clock.now) — version-agnostic, never versions, served for real in
- * W2.2. They live HERE (not `@kolu/surface-daemon`) and graduate only if a
- * second daemon ever adopts them (electricity test ③: proof before extraction).
+ * W2.2. It lives HERE (not `@kolu/surface-daemon`) and graduates only if a
+ * second daemon ever adopts it (electricity test ③: proof before extraction).
  *
  * BROWSER-SAFE face: like `koluSurface`/`terminalWorkspaceSurface` this imports
  * only `@kolu/surface/define`, zod-only schema modules (its own `./vocab.ts` +
@@ -53,7 +53,11 @@
  * coordinator restructures that next).
  */
 
-import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import {
+  composeSurfaceContracts,
+  defineSurface,
+  type SurfaceTypes,
+} from "@kolu/surface/define";
 import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
 import {
   FsFileInputSchema,
@@ -651,17 +655,57 @@ export type PadiControlVersion = z.infer<typeof PadiControlVersionSchema>;
 export const PadiClockNowSchema = z.object({ epochMs: z.number() });
 export type PadiClockNow = z.infer<typeof PadiClockNowSchema>;
 
-/** The frozen control-core contract — hello · version · drain · clock.now.
- *  Defined as pure schema shapes in W1.C (pinned by the contract test); W2.2
- *  serves them for real over the padi socket. `drain` takes no input and returns
- *  nothing (persist state + exit; the caller observes the socket close). */
-export const padiControlCore = {
-  version: CONTROL_CORE_VERSION,
-  hello: { output: PadiHelloSchema },
-  controlVersion: { output: PadiControlVersionSchema },
-  drain: {},
-  clockNow: { output: PadiClockNowSchema },
+/** The frozen control-core SURFACE — hello · version · drain · clock.now.
+ *  Defined as pure schema shapes in W1.C; W2.2 serves them for real, BESIDE
+ *  `padiSurface` (as the sibling surface key `control`), over padi's socket. A
+ *  binder reaches it even when `padiSurface` is version-skewed — the schemas here
+ *  NEVER change (the frozen side channel), so a newer binder can always call
+ *  `control.drain` to converge the daemon onto the newest closure rather than
+ *  livelock, and no path ever kill-9s a padi.
+ *
+ *  The frozen `version` cell (`controlCoreVersion`, always "1.0") is DISTINCT from
+ *  `padiSurface`'s own `version` cell — this one is contractually immovable. */
+export const padiControlSurface = defineSurface({
+  cells: {
+    version: {
+      schema: PadiControlVersionSchema,
+      default: { controlCoreVersion: CONTROL_CORE_VERSION },
+      verbs: ["get"],
+    },
+  },
+  procedures: {
+    /** The frozen control verbs — the ONE namespace, never versions. Reached as
+     *  `surface.control.core.<verb>` (the surface key `control` + this namespace). */
+    core: {
+      /** Identity handshake — who this padi is (`stateRoot`) + which
+       *  `padiSurface` version it serves. Read FIRST by a binder. */
+      hello: { output: PadiHelloSchema },
+      /** The frozen core's own version probe (just `controlCoreVersion`). */
+      controlVersion: { output: PadiControlVersionSchema },
+      /** Persist state + exit; the PTYs survive in kaval, and the caller observes
+       *  the socket close. Takes no input, returns nothing. */
+      drain: {},
+      /** padi's current clock — the binder RTT-halves it once per bind to age
+       *  memory against the host's clock (deliberately NOT a ticking cell). */
+      clockNow: { output: PadiClockNowSchema },
+    },
+  },
+});
+
+/** The two surfaces the padi daemon serves on its socket: the versioned
+ *  `padiSurface` at `surface.padi.*`, and the frozen control core at
+ *  `surface.control.*`. One keyed map, consumed by `implementSurfaces` (server)
+ *  and `composeSurfaceContracts` (the binder's wire contract) so the two stay in
+ *  lock-step. */
+export const padiDaemonSurfaces = {
+  padi: padiSurface,
+  control: padiControlSurface,
 } as const;
+
+/** The combined wire contract a binder / dial-test client types its link off —
+ *  `{ surface: { padi, control } }`. */
+export const padiDaemonContract = composeSurfaceContracts(padiDaemonSurfaces);
+export type PadiDaemonContract = typeof padiDaemonContract;
 
 // The composed sibling registry (`surfacesWithPadi = { ...surfaces, padi }`)
 // lives in `kolu-common/surface` now, NOT here: composing the app's `surfaces`

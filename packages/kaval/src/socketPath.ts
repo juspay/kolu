@@ -17,12 +17,54 @@
  * consequence: there is no one fixed path a flag-less `kaval-tui` can assume, so
  * it `discoverPtyHostSockets()` the running daemon instead.
  */
-import { lstatSync, readdirSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 
 /** The socket filename inside every kaval rendezvous dir. */
 export const PTY_HOST_SOCK_FILE = "pty-host.sock";
+
+/** The manifest filename mapping a digest-keyed rendezvous dir back to the
+ *  padi state-root it belongs to. Written by padi (which knows both the digest
+ *  and the state-root the opaque digest stands for), read by flag-less discovery
+ *  to LABEL a `kaval-<digest>` dir it otherwise couldn't interpret. A legacy
+ *  `kaval-<port>` dir has NO manifest — its port is meaning enough. */
+export const STATE_ROOT_MANIFEST_FILE = "state-root";
+
+/** Write the `state-root` manifest into a rendezvous dir, owner-only. Ensures the
+ *  `0700` dir exists first (padi writes its kaval's manifest BEFORE kaval binds
+ *  the socket, so the dir may not exist yet). Idempotent. Owned HERE, beside the
+ *  discovery that reads it, so the on-disk format has one home (padi imports this
+ *  for writing — the dependency arrow points padi → kaval, never the reverse). */
+export function writeStateRootManifest(
+  runtimeDir: string,
+  stateRoot: string,
+): void {
+  mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(runtimeDir, STATE_ROOT_MANIFEST_FILE), `${stateRoot}\n`, {
+    mode: 0o600,
+  });
+}
+
+/** Read the state-root a rendezvous dir's manifest records, or `undefined` if it
+ *  has none (a legacy port-keyed kaval, or a bare standalone daemon). Never
+ *  throws. */
+export function readStateRootManifest(runtimeDir: string): string | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(join(runtimeDir, STATE_ROOT_MANIFEST_FILE), "utf8");
+  } catch {
+    return undefined;
+  }
+  const line = raw.split("\n", 1)[0]?.trim();
+  return line ? line : undefined;
+}
 
 /** The app-namespace prefix kaval owns. A standalone daemon serves under it
  *  bare (`kaval/`); each kolu-server serves under a per-port decoration of it
@@ -111,11 +153,13 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
   const root = dirname(bareDir);
   const bareName = basename(bareDir);
 
-  // Learn the env's port decoration from the builder too: a probe build with
-  // port `0` yields the decorated per-port name; turn its literal `0` back into
-  // a `(\d+)` capture group to both match any port AND read it back for the
-  // label. (Escape the rest so a `/tmp` path can't inject regex metacharacters.)
-  const portedName = basename(
+  // Learn the env's decoration from the builder too: a probe build with the
+  // sentinel `0` yields the decorated per-instance name; turn its literal `0`
+  // into a `([0-9a-f]+)` capture that matches BOTH a legacy `kaval-<port>` (the
+  // in-process kolu-server, digits) AND a padi's `kaval-<digest>` (lowercase hex)
+  // — then read the suffix back to disambiguate by the manifest below. (Escape
+  // the rest so a `/tmp` path can't inject regex metacharacters.)
+  const decoratedName = basename(
     dirname(
       getRuntimeSocketPath({
         app: kavalNamespace(0),
@@ -123,8 +167,8 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
       }),
     ),
   );
-  const portedRe = new RegExp(
-    `^${portedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "(\\d+)")}$`,
+  const decoratedRe = new RegExp(
+    `^${decoratedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "([0-9a-f]+)")}$`,
   );
 
   let entries: string[];
@@ -135,23 +179,35 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
   }
   const found: KavalSocketCandidate[] = [];
   for (const name of entries) {
-    // Classify by the branch that matches — this IS the label, decided here
-    // against this user's real bareName/portedRe, so the later "many" error
-    // never has to hedge between a port and an off-XDG `-$UID`.
+    // A name match alone is never ownership: require the namespace dir to be ours
+    // and owner-only (the serving-side boundary), so a sibling another local user
+    // planted under a shared `/tmp` root (whose name they can spell freely) is
+    // never dialed or read.
+    const dir = join(root, name);
+    if (name !== bareName && decoratedRe.exec(name) === null) continue;
+    if (!isPrivateOwnedDir(dir)) continue;
+
+    // Classify by the branch that matches — this IS the label. A bare name is the
+    // standalone daemon; a decorated one is EITHER a padi's `kaval-<digest>` (a
+    // state-root manifest present → label by that state-root) OR a legacy
+    // in-process kolu-server's `kaval-<port>` (no manifest, a numeric suffix →
+    // label by port). Manifest presence is the discriminant, so a digest that
+    // happens to be all-decimal never masquerades as a port.
     let label: string;
     if (name === bareName) {
       label = "standalone kaval";
     } else {
-      const m = portedRe.exec(name);
-      if (m === null) continue;
-      label = `kolu-server on port ${m[1]}`;
+      const suffix = decoratedRe.exec(name)?.[1] ?? "";
+      const stateRoot = readStateRootManifest(dir);
+      label =
+        stateRoot !== undefined
+          ? `kolu @ ${stateRoot}`
+          : /^\d+$/.test(suffix)
+            ? `kolu-server on port ${suffix}`
+            : `kaval ${suffix}`;
     }
-    // Name match alone is not ownership: require the namespace dir to be ours
-    // and owner-only (the serving-side boundary), and the inode to be an actual
-    // socket — so a name-squatter's planted dir/file under a shared root is
-    // never dialed.
-    const dir = join(root, name);
-    if (!isPrivateOwnedDir(dir)) continue;
+    // The inode must itself be an actual socket — not any file a name-squatter
+    // dropped in.
     const sock = join(dir, PTY_HOST_SOCK_FILE);
     if (isSocketInode(sock)) found.push({ socket: sock, label });
   }

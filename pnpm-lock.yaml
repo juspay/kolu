@@ -654,6 +654,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      '@kolu/surface-daemon':
+        specifier: workspace:*
+        version: link:../surface-daemon
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
@@ -678,6 +681,9 @@ importers:
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
+      conf:
+        specifier: ^15.1.0
+        version: 15.1.0
       kaval:
         specifier: workspace:*
         version: link:../kaval

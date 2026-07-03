@@ -109,5 +109,8 @@ export {
   type KavalSocketResolution,
   kavalNamespace,
   PTY_HOST_SOCK_FILE,
+  readStateRootManifest,
   resolveRunningKavalSocket,
+  STATE_ROOT_MANIFEST_FILE,
+  writeStateRootManifest,
 } from "./socketPath.ts";
