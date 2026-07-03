@@ -43,7 +43,7 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
 
 import { inMemoryStore } from "@kolu/surface/server";
 import { setPadiLastPairedDaemonStore } from "../confStores.ts";
-import { setKoluServerProcessId } from "../koluRoot.ts";
+import { setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -66,7 +66,7 @@ import {
 } from "../vocab.ts";
 import { adoptSurvivingSession } from "./reattach.ts";
 
-setKoluServerProcessId("reattach-test-server");
+setDaemonProcessId("reattach-test-server");
 
 const A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

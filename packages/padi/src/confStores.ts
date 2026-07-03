@@ -8,7 +8,7 @@
  * {@link setPadiActivityFeedStore} / {@link setPadiLastPairedDaemonStore} — BEFORE
  * anything serves or reconciles. A read before the boot-time set is a boot-order
  * bug, so the `requireX()` getters crash loudly rather than silently degrading to
- * an empty/absent session or feed — the same fail-fast idiom `requireServerProcessId`
+ * an empty/absent session or feed — the same fail-fast idiom `requireDaemonProcessId`
  * uses in `koluRoot.ts`.
  *
  * These setters keep the store WIRING at the single boot site: every serve /

@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { dirname } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { setKoluServerProcessId } from "./koluRoot.ts";
+import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   cleanupTerminalScratch,
   sanitizeUploadName,
@@ -46,7 +46,7 @@ describe("saveTerminalFile creates owner-only scratch (js/insecure-temporary-fil
   const terminalId = "scratch-perms-test-terminal";
   beforeAll(() => {
     // koluScratchDir() reads the injected server id (fail-fast otherwise).
-    setKoluServerProcessId("scratch-perms-test-server");
+    setDaemonProcessId("scratch-perms-test-server");
   });
   afterAll(() => {
     cleanupTerminalScratch(terminalId);

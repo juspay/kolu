@@ -10,8 +10,8 @@
  * Beside the browser-safe `./surface` contract; this side pulls in `node:` and
  * the daemon runtime, so browser consumers must not import it. The dependency
  * arrow points `@kolu/padi → kolu-common`, never back into `packages/server` —
- * the two server ids the domain needs (`serverProcessId`, `serverVersion`) are
- * INJECTED via `setKoluServerProcessId` / `setSpawnServerVersion`, not imported.
+ * the two ids the domain needs (`daemonProcessId`, `serverVersion`) are
+ * INJECTED via `setDaemonProcessId` / `setSpawnServerVersion`, not imported.
  */
 
 // The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
@@ -20,7 +20,7 @@ export type { PairedDaemon } from "./pairedDaemon.ts";
 // ── scratch / roots ─────────────────────────────────────────────────────
 export {
   ensureKoluRoot,
-  setKoluServerProcessId,
+  setDaemonProcessId,
   shutdownCleanup,
 } from "./koluRoot.ts";
 export {

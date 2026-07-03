@@ -20,7 +20,7 @@
 
 import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { setKoluServerProcessId } from "./koluRoot.ts";
+import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -55,7 +55,7 @@ import {
 
 // Boot injects the server id before any of this runs; some registry paths read
 // the per-instance scratch root, so seed it here as the other padi tests do.
-setKoluServerProcessId("padi-session-test");
+setDaemonProcessId("padi-session-test");
 
 const ACTIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PARKED_A = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";

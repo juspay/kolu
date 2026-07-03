@@ -36,7 +36,7 @@ import {
 } from "./confStores.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
 import { importLegacyConfigOnce } from "./importLegacy.ts";
-import { ensureKoluRoot, setKoluServerProcessId } from "./koluRoot.ts";
+import { ensureKoluRoot, setDaemonProcessId } from "./koluRoot.ts";
 import { log as padiLog } from "./log.ts";
 import { startPadiMemorySampler } from "./memorySampler.ts";
 import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
@@ -139,7 +139,7 @@ export async function runPadiDaemon(
 
   // The per-process identity padi's koluRoot + PTY spawns need — padi's OWN pid
   // (a standalone daemon owns its disk) and the version stamped on spawned PTYs.
-  setKoluServerProcessId(String(process.pid));
+  setDaemonProcessId(String(process.pid));
   // `||` not `??`: currentPadiCommitHash() is "" off-nix (no baked env), and the
   // spawn-version setter refuses an empty value — fall through to "dev".
   setSpawnServerVersion(opts.spawnVersion || currentPadiCommitHash() || "dev");
