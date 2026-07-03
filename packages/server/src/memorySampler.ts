@@ -61,7 +61,15 @@ export const MEMORY_SAMPLE_INTERVAL_MS = 5_000;
  *  ticks) and `unref`'d so the interval never holds the process open on its own (it
  *  serves forever under systemd; unref is the right hygiene, matching
  *  `@kolu/heap-diag`). */
-export function startMemorySampler(deps: MemorySamplerDeps): void {
+export function startMemorySampler(
+  deps: MemorySamplerDeps,
+  /** An optional liveness signal — the bound padi's connection-state changes.
+   *  Each transition force-samples IMMEDIATELY (through the same non-overlap
+   *  guard), so when padi drops the rail flips to `absent` at once instead of
+   *  showing a frozen MB figure for up to a full {@link MEMORY_SAMPLE_INTERVAL_MS}
+   *  until the next tick notices `padiMemory()` now reads `null`. */
+  subscribeResample?: (resample: () => void) => void,
+): void {
   let inFlight = false;
   const tick = (): void => {
     if (inFlight) return;
@@ -72,6 +80,7 @@ export function startMemorySampler(deps: MemorySamplerDeps): void {
   };
   tick();
   setInterval(tick, MEMORY_SAMPLE_INTERVAL_MS).unref();
+  subscribeResample?.(tick);
 }
 
 /** Build the production deps from `process.memoryUsage` + a reader of padi's

@@ -480,6 +480,10 @@ startMemorySampler(
     publish: (m) => koluSurfaceCtx.cells.processMemory.set(m),
     readPadiMemory: readPadiMemoryOnce,
   }),
+  // The bound padi's own liveness: a disconnect projects into `onState` IMMEDIATELY
+  // (before the next 5s tick), so a resample runs at once and the rail reports padi +
+  // its kaval as `absent` right away — never a frozen RSS for an already-gone process.
+  (resample) => padiSession.onState(() => resample()),
 );
 
 // --- TLS setup ---

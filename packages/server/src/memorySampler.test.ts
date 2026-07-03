@@ -2,7 +2,11 @@ import type { PadiProcessMemory } from "@kolu/padi/surface";
 import type { ProcessMemory } from "kolu-common/surface";
 import { BYTES_PER_MB as MB } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
-import { type MemorySamplerDeps, sampleMemoryOnce } from "./memorySampler.ts";
+import {
+  type MemorySamplerDeps,
+  sampleMemoryOnce,
+  startMemorySampler,
+} from "./memorySampler.ts";
 
 /** A deps stub with sane defaults; override per test. */
 function deps(over: Partial<MemorySamplerDeps> = {}): {
@@ -79,5 +83,39 @@ describe("sampleMemoryOnce", () => {
     rss = 75 * MB;
     await sampleMemoryOnce(d);
     expect(published.map((m) => m.serverRssBytes)).toEqual([50 * MB, 75 * MB]);
+  });
+});
+
+describe("startMemorySampler — a liveness signal force-samples immediately", () => {
+  it("resamples at once when the subscribed signal fires, so a padi drop reports `absent` without waiting for the next tick", async () => {
+    let padiUp = true;
+    const { d, published } = deps({
+      padiMemory: async () =>
+        padiUp
+          ? {
+              padi: { status: "ok", rssBytes: 20 * MB },
+              kaval: { status: "ok", rssBytes: 30 * MB },
+            }
+          : null,
+    });
+    let resample: (() => void) | undefined;
+    startMemorySampler(d, (r) => {
+      resample = r;
+    });
+    // The T+0 anchor sample fired with padi up.
+    await vi.waitFor(() =>
+      expect(published.at(-1)?.padi).toEqual({
+        status: "ok",
+        rssBytes: 20 * MB,
+      }),
+    );
+    // padi drops; the liveness signal fires → an IMMEDIATE resample publishes the
+    // honest `absent` at once, not up to a full interval later.
+    padiUp = false;
+    resample?.();
+    await vi.waitFor(() =>
+      expect(published.at(-1)?.padi).toEqual({ status: "absent" }),
+    );
+    expect(published.at(-1)?.kaval).toEqual({ status: "absent" });
   });
 });
