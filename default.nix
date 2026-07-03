@@ -507,9 +507,14 @@ let
   # state-root, and serves `padiSurface` + the frozen control core over its own
   # unix socket. Runs from the SAME built workspace closure as `kolu` (so padi +
   # kaval + @kolu/surface resolve identically). Carries its OWN identity env
-  # (PADI_BUILD_ID / PADI_COMMIT_HASH), and — because padi is what SPAWNS kaval —
-  # KOLU_KAVAL_BIN points at the kaval derivation above (mirroring how koluBin
-  # tells the in-process server which kaval to spawn).
+  # (PADI_BUILD_ID / PADI_COMMIT_HASH), and — because padi SPAWNS + owns kaval now
+  # — KOLU_KAVAL_BIN points at the kaval derivation above AND it bakes that kaval's
+  # KAVAL_BUILD_ID / KAVAL_COMMIT_HASH. The build id is load-bearing: padi's
+  # boot-currency check compares the RUNNING kaval's id against the one padi WOULD
+  # spawn (`process.env.KAVAL_BUILD_ID`, read in `terminalEndpoint/reattach.ts`) to
+  # fire the kaval "update available" nudge — pre-cutover the in-process server
+  # carried it; padi owns kaval now, so its closure knows it at build time (a baked
+  # required value per fail-fast; the binder's env-forward stays only for dev).
   #
   # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
   # single-process loader form delivers SIGTERM to the daemon so its socket + gate
@@ -530,6 +535,8 @@ let
       --set PADI_BUILD_ID "${padiBuildId}" \
       --set PADI_COMMIT_HASH "${commitHash}" \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
+      --set KAVAL_BUILD_ID "${kavalBuildId}" \
+      --set KAVAL_COMMIT_HASH "${commitHash}" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}

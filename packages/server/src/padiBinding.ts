@@ -520,6 +520,16 @@ function daemonEnv(
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   if (process.env.KOLU_DIAG_DIR) env.KOLU_DIAG_DIR = process.env.KOLU_DIAG_DIR;
+  // Forward kaval's build identity for the FROM-SOURCE / dev path ONLY: the nix-built
+  // padi wrapper BAKES `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` (padi owns kaval — its
+  // closure knows them at build time; see default.nix), so a production padi already
+  // has them. But a from-source padi (e2e / dev, no wrapper) would otherwise inherit
+  // nothing, leaving its kaval-currency check (`expectedKaval`, terminalEndpoint/
+  // reattach.ts) reading "" so the "update available" nudge can never fire. Forward
+  // kolu-server's own baked value so dev matches production.
+  if (process.env.KAVAL_BUILD_ID) env.KAVAL_BUILD_ID = process.env.KAVAL_BUILD_ID;
+  if (process.env.KAVAL_COMMIT_HASH)
+    env.KAVAL_COMMIT_HASH = process.env.KAVAL_COMMIT_HASH;
   return env;
 }
 
