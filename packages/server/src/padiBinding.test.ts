@@ -26,17 +26,39 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { PADI_FORWARDING_POLICY, padiSurface } from "@kolu/padi/surface";
 import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
 } from "@kolu/padi/stateRoot";
+import {
+  PADI_FORWARDING_POLICY,
+  PADI_SURFACE_VERSION,
+  padiSurface,
+} from "@kolu/padi/surface";
+import { createEndpoint } from "@kolu/surface-daemon-supervisor";
 import { reServeSurface } from "@kolu/surface-nix-host";
 import { createRouterClient } from "@orpc/server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { ensurePadiBinding, type PadiBindingSession } from "./padiBinding.ts";
+import {
+  bindPadiOnce,
+  connectPadi,
+  ensurePadiBinding,
+  localPadiDriver,
+  PADI_HOST_ID,
+  type PadiBindingSession,
+  probePadiSkew,
+} from "./padiBinding.ts";
 import { buildAppRouter } from "./router.ts";
+
+/** A silent structural logger for the in-test endpoint + the newer-binder bind
+ *  (the drain path logs at info/warn/error; the test keeps stdout clean). */
+const silentLog = {
+  debug() {},
+  info() {},
+  warn() {},
+  error() {},
+};
 
 // tsx must resolve so the spawned padi (and its kaval) launch from source.
 createRequire(import.meta.url).resolve("tsx");
@@ -396,5 +418,130 @@ describe("kolu-server padi binder — cutover acceptance", () => {
       await sleep(50);
     }
     expect(minAfter).toBeGreaterThanOrEqual(before);
+  }, 90000);
+
+  it("a NEWER binder DRAINS a running older padi + respawns: padi gate pid CHANGES, the surviving kaval is re-adopted (pid UNCHANGED), the session is intact (newest-wins convergence)", async () => {
+    const stateRoot = makeStateRoot();
+    const first = await bootReServedPadi(stateRoot);
+
+    // Build a NON-EMPTY session: create a terminal through the re-served surface.
+    let id: string | undefined;
+    for (let i = 0; i < 200 && id === undefined; i++) {
+      try {
+        ({ id } = await first.padi.lifecycle.create({ cwd: makeStateRoot() }));
+      } catch {
+        await sleep(100);
+      }
+    }
+    if (id === undefined)
+      throw new Error("re-served lifecycle.create never bound");
+
+    // Record the padi gate pid + the surviving kaval gate pid BEFORE the drain.
+    const kavalGate = join(
+      dirname(padiKavalSocketPath(stateRoot)),
+      "kaval.pid",
+    );
+    const padiPidBefore = gatePid(padiGatePath(padiSocketPath(stateRoot)));
+    const kavalPidBefore = gatePid(kavalGate);
+    expect(padiPidBefore).toBeDefined();
+    expect(kavalPidBefore).toBeDefined();
+
+    // The persisted session terminal count BEFORE (padi autosaves to config.json).
+    const confPath = join(stateRoot, "config.json");
+    const savedLen = (): number | null => {
+      try {
+        return (
+          (
+            JSON.parse(readFileSync(confPath, "utf8")) as {
+              session?: { terminals?: unknown[] };
+            }
+          ).session?.terminals?.length ?? 0
+        );
+      } catch {
+        return null;
+      }
+    };
+    let before = 0;
+    for (let i = 0; i < 200 && before < 1; i++) {
+      before = savedLen() ?? 0;
+      if (before < 1) await sleep(100);
+    }
+    expect(before).toBeGreaterThanOrEqual(1);
+
+    // Simulate a kolu-server restart as a NEWER binder: drop the OLD binder's link
+    // (padi + its detached kaval survive) WITHOUT touching padi, then re-bind with
+    // a NEWER binderVersion. The running padi serves the real `PADI_SURFACE_VERSION`
+    // (1.0); a fake newer binder ("1.1") is how we exercise the drain arm without a
+    // second padiSurface build — the pre-flight reads the real hello, sees the skew,
+    // and (isBinderNewer) drains it; the fresh spawn then connects genuinely
+    // compatibly (real vs real), adopts the surviving kaval, and restores the session.
+    first.session.destroy();
+    await sleep(400);
+    const isAlive = (pid: number): boolean => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    expect(isAlive(padiPidBefore as number)).toBe(true); // padi survived the drop.
+
+    // Sanity: the pre-flight probe reaches the running padi's frozen control core
+    // and reads its REAL surface version (whatever this build serves).
+    const socketPath = padiSocketPath(stateRoot);
+    const preProbe = await probePadiSkew(socketPath);
+    expect(preProbe).not.toBeNull();
+    expect(preProbe?.hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
+    preProbe?.dispose();
+
+    // A binder one MINOR ahead of what the running padi actually serves — derived
+    // from the real constant so the skew holds regardless of the build's version.
+    const [maj, min] = PADI_SURFACE_VERSION.split(".");
+    const newerBinderVersion = `${maj}.${Number(min) + 1}`;
+
+    // Build the SAME endpoint `ensurePadiBinding` builds, and run the REAL
+    // `bindPadiOnce` pre-flight (`probePadiSkew` → drain) as that newer binder.
+    const ep = createEndpoint({
+      hostId: PADI_HOST_ID,
+      gatePath: padiGatePath(socketPath),
+      socketPath,
+      driver: localPadiDriver(stateRoot, "default", undefined, false),
+      connect: () => connectPadi(socketPath),
+      log: silentLog,
+      onStatus: () => {},
+    });
+    await bindPadiOnce({
+      endpoint: ep,
+      probe: () => probePadiSkew(socketPath),
+      binderVersion: newerBinderVersion, // strictly NEWER than the running padi
+      log: silentLog,
+    });
+
+    // padi gate pid CHANGED — the old padi drained (persist + exit), a fresh (this
+    // binder's own) padi spawned in its place.
+    const padiPidAfter = gatePid(padiGatePath(padiSocketPath(stateRoot)));
+    expect(padiPidAfter).toBeDefined();
+    expect(padiPidAfter).not.toBe(padiPidBefore);
+    expect(isAlive(padiPidBefore as number)).toBe(false); // the old padi exited.
+
+    // The surviving kaval is UNCHANGED — the fresh padi RE-ADOPTED it (never killed;
+    // its PTYs + the session they carry rode through the drain).
+    const kavalPidAfter = gatePid(kavalGate);
+    expect(kavalPidAfter).toBe(kavalPidBefore);
+
+    // Session intact — the persisted blob never nulled/shrank across the drain →
+    // respawn (poll across the re-bind; skip transient read misses).
+    let minAfter = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < 40; i++) {
+      const s = savedLen();
+      if (s !== null) minAfter = Math.min(minAfter, s);
+      await sleep(50);
+    }
+    expect(minAfter).toBeGreaterThanOrEqual(before);
+
+    // Drop the in-test endpoint's live link so the afterEach reap is the only thing
+    // that stops the fresh padi (no dangling reconnect loop — this raw endpoint has none).
+    ep.current()?.dispose();
   }, 90000);
 });

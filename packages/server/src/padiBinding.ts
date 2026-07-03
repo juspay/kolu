@@ -18,15 +18,27 @@
  *   3. `PadiBindingSession`   — Endpoint → reconnect-mirror `HostSession` (the crux).
  *   4. `ensurePadiBinding`    — the twin of `ensureLocalEndpoint`: boot the binding.
  *
- * padi is NEVER kill-9'd: the boot policy is `adoptOrSpawnOrRefuse` (a proven
- * `padiSurface` skew REFUSES rather than recycling a running padi), and the
- * "restart" verb DRAINS the running padi (persist + exit; the PTYs survive in
- * kaval) via the frozen control core, then the reconnect loop re-spawns it.
+ * padi is NEVER kill-9'd. The boot/reconnect policy is `bindPadiOnce` — the
+ * NEWEST-WINS convergence arm the frozen control core was designed for
+ * (`controlCore.ts`: "upgrade-me (binder older → refuse) vs drain-you (binder
+ * newer → control.drain)"), layered over the endpoint's generic
+ * `adoptOrSpawnOrRefuse`:
+ *   - a `padiSurface` skew where THIS binder is NEWER than the running padi →
+ *     DRAIN it over the frozen control core (persist + exit; its kaval + PTYs
+ *     survive), so the spawn path brings up this binder's OWN newer closure —
+ *     the padi gate pid changes, the surviving kaval is re-adopted, the session
+ *     is intact;
+ *   - a skew where the binder is OLDER / major-behind → the endpoint's loud
+ *     REFUSE, UNCHANGED (leave padi standing + degraded, never touch it). Older
+ *     NEVER drains — that asymmetry is the monotonicity that stops two
+ *     mixed-version binders from livelocking (only the strictly-newer one acts).
+ * And the "restart" verb DRAINS the running padi (persist + exit; the PTYs
+ * survive in kaval) via the frozen control core, then the reconnect loop
+ * re-spawns it.
  */
 
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { match, P } from "ts-pattern";
 import {
   padiGatePath,
   padiSocketPath,
@@ -35,6 +47,7 @@ import {
 import {
   PADI_SURFACE_VERSION,
   type PadiDaemonContract,
+  type PadiHello,
   type padiSurface,
 } from "@kolu/padi/surface";
 import {
@@ -58,7 +71,19 @@ import type {
   HostSessionState,
   RemoteMirrorSession,
 } from "@kolu/surface-nix-host";
+import { match, P } from "ts-pattern";
 import { log } from "./log.ts";
+
+/** The minimal structured logger the convergence arm writes to — the same
+ *  `(obj, msg)` shape `@kolu/surface-daemon`'s `Logger` (what the endpoint takes)
+ *  declares, so the server's pino `log` passes through unchanged AND a unit test
+ *  can supply a silent stub. Narrower than pino's `Logger` on purpose: these
+ *  functions log only, so they should not demand pino's full surface. */
+type ConvergeLogger = {
+  info: (obj: Record<string, unknown>, msg: string) => void;
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+  error: (obj: Record<string, unknown>, msg: string) => void;
+};
 
 /** How long `drainBoundPadi` waits for the socket to CLOSE after the drain RPC
  *  rejects, before treating the rejection as a real failure. A drain that reached
@@ -102,11 +127,82 @@ type PadiEndpointStatus = EndpointStatus<PadiIdentity, PadiConnectionMetadata>;
 // 1. connectPadi — the twin of connectKaval (packages/padi/src/ptyHost/connect.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Parse a `major.minor` version into its two numbers, FAIL-FAST: an
+ *  unparseable version is a bug (padi always sends a valid `major.minor`, and
+ *  `PADI_SURFACE_VERSION` is a build constant), so crash loudly rather than
+ *  silently comparing garbage. Distinct from `isContractVersionCompatible`'s
+ *  own tolerant parse (which returns `false` on garbage to fail-closed on a
+ *  handshake) — here we are ORDERING two versions already proven to be a skew,
+ *  and a silent mis-parse would pick the wrong convergence arm. */
+function parseMajorMinor(v: string): [number, number] {
+  const m = /^(\d+)\.(\d+)(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?$/.exec(v);
+  if (!m) {
+    throw new Error(
+      `padi version is not a major.minor string: ${JSON.stringify(v)}`,
+    );
+  }
+  return [Number(m[1]), Number(m[2])];
+}
+
 /**
- * Dial padi at `socketPath`, handshake the FROZEN control core, and return the
- * live connection. Mirrors `connectKaval` EXACTLY on link choice: `dialSocket`
- * (from the supervisor) + `stdioLink` — NOT `unixSocketLink`, because the endpoint
- * needs the socket's `close` event for `onClose` (which `unixSocketLink` hides).
+ * Is the binder's expected `padiSurface` version STRICTLY NEWER than a running
+ * padi's — the drain-you side of the newest-wins convergence? Both `major.minor`.
+ * Newer = a higher major, or an equal major with a higher minor.
+ *
+ * Only meaningful on a proven SKEW: the compatible case (same major, running
+ * minor >= binder minor) already ADOPTS and never reaches here, so on a skew the
+ * two versions are never equal and this is a strict ordering. Equal inputs return
+ * `false` (not strictly newer) as a defensive floor, so a caller can never
+ * mistake "same version" for "drain it".
+ *
+ * The asymmetry is load-bearing: only the strictly-newer binder ever drains, so
+ * two binders at different versions contending over one padi converge to the
+ * NEWEST (it drains the older's padi once) and never oscillate — the older binder
+ * never drains the newer's padi back (the anti-livelock monotonicity).
+ */
+export function isBinderNewer(binderVer: string, runningVer: string): boolean {
+  const [bMajor, bMinor] = parseMajorMinor(binderVer);
+  const [rMajor, rMinor] = parseMajorMinor(runningVer);
+  if (bMajor !== rMajor) return bMajor > rMajor;
+  return bMinor > rMinor;
+}
+
+/** The dialed-but-unjudged result of reaching padi's frozen control core: the
+ *  live client, its socket, and the `hello` it answered. The skew judgement
+ *  (`isContractVersionCompatible` / `isBinderNewer`) is the CALLER's — this only
+ *  opens the link and reads identity. Shared by `connectPadi` (which judges then
+ *  holds or refuses) and `probePadiSkew` (which judges then drains or leaves be). */
+type PadiDial = {
+  socket: Awaited<ReturnType<typeof dialSocket>>;
+  client: PadiDaemonClient;
+  hello: PadiHello;
+};
+
+/** Dial padi at `socketPath` and read the FROZEN control core's `hello` — the
+ *  version-agnostic handshake, always reachable even at a `padiSurface` skew (the
+ *  control-core schemas never move). Mirrors `connectKaval` on link choice:
+ *  `dialSocket` + `stdioLink` (NOT `unixSocketLink`, which hides the socket's
+ *  `close` event the endpoint's `onClose` needs). Rejects with a plain Error if
+ *  the socket is unreachable or `hello` is unreadable — a non-skew failure. */
+async function dialPadiHello(socketPath: string): Promise<PadiDial> {
+  const socket = await dialSocket(socketPath);
+  const client = stdioLink<PadiDaemonContract>({
+    read: socket,
+    write: socket,
+  }) as PadiDaemonClient;
+  try {
+    const hello = await client.surface.control.core.hello();
+    return { socket, client, hello };
+  } catch (err) {
+    socket.destroy();
+    throw new Error(
+      `padi handshake failed — could not read control.core.hello (${(err as Error).message})`,
+    );
+  }
+}
+
+/**
+ * Dial padi, handshake the FROZEN control core, and return the live connection.
  * Typed to `PadiDaemonContract` so the handshake reaches
  * `client.surface.control.core.hello()`.
  *
@@ -115,34 +211,20 @@ type PadiEndpointStatus = EndpointStatus<PadiIdentity, PadiConnectionMetadata>;
  * moves). Three failure classes, same as connectKaval:
  *   - raw socket error → plain reject (transient);
  *   - unreadable hello → plain Error (non-skew);
- *   - genuine surface skew → `DaemonContractSkewError` — REFUSED (never recycled).
+ *   - genuine surface skew → `DaemonContractSkewError` — the endpoint's generic
+ *     signal to REFUSE (padi left standing + degraded, never recycled — a binder
+ *     never kill-9's a running padi, #1313 inversion). The NEWER-binder DRAIN arm
+ *     runs BEFORE this, in `bindPadiOnce`'s pre-flight (`probePadiSkew`), so by the
+ *     time the endpoint calls `connectPadi` a newer binder's skewed survivor is
+ *     already drained + gone and this connect is against the fresh newer closure.
  */
 export async function connectPadi(socketPath: string): Promise<PadiConnection> {
-  const socket = await dialSocket(socketPath);
-  const client = stdioLink<PadiDaemonContract>({
-    read: socket,
-    write: socket,
-  }) as PadiDaemonClient;
-
-  let hello: Awaited<
-    ReturnType<PadiDaemonClient["surface"]["control"]["core"]["hello"]>
-  >;
-  try {
-    hello = await client.surface.control.core.hello();
-  } catch (err) {
-    socket.destroy();
-    throw new Error(
-      `padi handshake failed — could not read control.core.hello (${(err as Error).message})`,
-    );
-  }
+  const { socket, client, hello } = await dialPadiHello(socketPath);
 
   if (
     !isContractVersionCompatible(hello.surfaceVersion, PADI_SURFACE_VERSION)
   ) {
     socket.destroy();
-    // The ONE failure that proves the survivor is incompatible. In
-    // `adoptOrSpawnOrRefuse` this is REFUSED (padi left standing + degraded),
-    // never recycled — a binder never kill-9's a running padi (#1313 inversion).
     throw new DaemonContractSkewError(
       `padi contract skew: padi serves padiSurface ${hello.surfaceVersion}, binder needs ${PADI_SURFACE_VERSION}`,
     );
@@ -172,6 +254,215 @@ export async function connectPadi(socketPath: string): Promise<PadiConnection> {
       else socket.once("close", cb);
     },
   };
+}
+
+/** The minimal connection shape the drain plumbing needs: the COMBINED dialed
+ *  client (to reach `surface.control.core.drain`) and an `onClose` (the socket
+ *  close that is the drain's ground truth). Both a held endpoint connection
+ *  (`endpoint.current()`) and a fresh skew probe (`probePadiSkew`) satisfy it. */
+type DrainableConn = {
+  client: PadiDaemonClient;
+  onClose: (cb: () => void) => void;
+};
+
+/**
+ * DRAIN a padi over the FROZEN control core, then confirm it actually exited by
+ * the SOCKET CLOSING within the teardown window. The one drain mechanism, shared
+ * by BOTH the user-facing "restart" (`PadiBindingSession.drainBoundPadi`) and the
+ * newer-binder convergence drain (`drainSkewedSurvivorIfNewer`) — never re-rolled.
+ *
+ * GROUND TRUTH is the SOCKET CLOSE (padi actually exited), NOT the drain call's
+ * resolve/reject. padi's `onDrain` persists, REPLIES, then triggers the exit that
+ * closes the socket — so `drain()` can RESOLVE with padi still momentarily alive
+ * (a reply beats the exit), or REJECT (the reply lost as the socket died mid-write),
+ * and neither is the completion signal. Waiting only for the resolve would let the
+ * convergence pre-flight race `adoptOrSpawnOrRefuse` in and RE-ADOPT the still-live,
+ * about-to-exit padi (its gate pid unchanged) — the bug the newer-drain arm exists
+ * to avoid. So we ALWAYS wait for the socket to close (the same signal the endpoint
+ * reads to flip to `degraded`), and FAIL-FAST if it does not close within the
+ * teardown window (a wedged `onDrain`, or a stale link the drain never reached) —
+ * so no caller reports success on a drain that did not happen, and the pre-flight
+ * never spawns over a padi that did not exit.
+ */
+async function drainViaControlCore(conn: DrainableConn): Promise<void> {
+  // Arm the close wait BEFORE the drain, so a fast exit that closes the socket
+  // before `drain()` even settles is never missed.
+  let onClosed!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    onClosed = resolve;
+  });
+  conn.onClose(onClosed);
+
+  // Kick the drain. `.catch` keeps a mid-write rejection from going unhandled and
+  // remembers it only to enrich a timeout failure — the call's outcome does not
+  // decide completion (the socket close does).
+  let drainErr: unknown;
+  void conn.client.surface.control.core.drain().catch((e) => {
+    drainErr = e;
+  });
+
+  let timer!: ReturnType<typeof setTimeout>;
+  const timedOut = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), DRAIN_TEARDOWN_CEILING_MS);
+  });
+  try {
+    const outcome = await Promise.race([
+      closed.then(() => "closed" as const),
+      timedOut,
+    ]);
+    if (outcome === "timeout") {
+      throw new Error(
+        `padi drain did not complete — its socket did not close within ${DRAIN_TEARDOWN_CEILING_MS}ms (padi did not exit)` +
+          (drainErr ? `; drain call rejected: ${String(drainErr)}` : ""),
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1b. The newer-binder DRAIN arm (newest-wins convergence) — pre-flight to the
+//     endpoint's generic adopt-or-spawn-or-refuse. Reaches padi's FROZEN control
+//     core (always live at a skew), decides upgrade-me vs drain-you, and — only
+//     when strictly NEWER — drains the running padi so the spawn path below brings
+//     up this binder's own newer closure. Older/behind is a no-op here (the
+//     endpoint's refuse arm handles it, UNCHANGED).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A live probe of a running padi's identity + a way to drain it. Its `drain`
+ *  reuses {@link drainViaControlCore} (RPC + socket-close window); `dispose` drops
+ *  the probe socket. */
+export type PadiSkewProbe = {
+  hello: PadiHello;
+  drain: () => Promise<void>;
+  dispose: () => void;
+};
+
+/** Dial a possibly-running padi and return a {@link PadiSkewProbe}, or `null` if
+ *  none answers (a fresh boot, or padi mid-teardown) — in which case the caller's
+ *  `adoptOrSpawnOrRefuse` simply spawns fresh. This is the intended first use of
+ *  the frozen control core: "a binder dials the socket, reads control.hello FIRST"
+ *  (controlCore.ts), then decides. */
+export async function probePadiSkew(
+  socketPath: string,
+): Promise<PadiSkewProbe | null> {
+  let dialed: PadiDial;
+  try {
+    dialed = await dialPadiHello(socketPath);
+  } catch {
+    return null; // no live padi answering — nothing to drain; spawn will handle it.
+  }
+  const { socket, client, hello } = dialed;
+  let closed = false;
+  socket.once("close", () => {
+    closed = true;
+  });
+  return {
+    hello,
+    drain: () =>
+      drainViaControlCore({
+        client,
+        onClose: (cb) => {
+          if (closed) queueMicrotask(cb);
+          else socket.once("close", cb);
+        },
+      }),
+    dispose: () => socket.destroy(),
+  };
+}
+
+/**
+ * The newer-binder DRAIN decision + action. Given a probe of the running padi and
+ * THIS binder's expected `padiSurface` version:
+ *   - no live survivor            → no-op (spawn path brings a fresh padi up);
+ *   - compatible survivor          → no-op (`adoptOrSpawnOrRefuse` ADOPTS it);
+ *   - skew, binder OLDER / behind  → no-op (`adoptOrSpawnOrRefuse` REFUSES →
+ *                                    degraded, UNCHANGED). Older NEVER drains;
+ *   - skew, binder strictly NEWER  → DRAIN the running padi over the frozen
+ *                                    control core (persist + exit; its kaval + PTYs
+ *                                    survive), so the spawn path that follows brings
+ *                                    up this binder's OWN newer closure.
+ *
+ * FAIL-FAST, NEVER KILL: if the drain RPC never reaches padi, or padi does not exit
+ * within the teardown window, this does NOT SIGKILL — it logs the honest error and
+ * returns. The `adoptOrSpawnOrRefuse` that follows then re-probes the still-skewed,
+ * still-standing survivor and REFUSES → degraded, so the reconnect loop keeps
+ * trying to converge without ever nuking a running padi and without a half-drained
+ * respawn that could livelock.
+ */
+async function drainSkewedSurvivorIfNewer(deps: {
+  probe: () => Promise<PadiSkewProbe | null>;
+  binderVersion: string;
+  log: ConvergeLogger;
+}): Promise<void> {
+  const probe = await deps.probe();
+  if (!probe) return;
+  try {
+    const running = probe.hello.surfaceVersion;
+    if (isContractVersionCompatible(running, deps.binderVersion)) return; // adopt
+    if (!isBinderNewer(deps.binderVersion, running)) {
+      // Skew, but the binder is OLDER / major-behind — REFUSE, never drain. Left
+      // to the endpoint's refuse arm (the #1313 inversion + the monotonicity).
+      deps.log.warn(
+        { binderVersion: deps.binderVersion, running },
+        "padi survivor is a padiSurface skew and this binder is OLDER/behind — " +
+          "REFUSING (never draining a running padi); adoptOrSpawnOrRefuse leaves " +
+          "it standing + degraded. Upgrade this binder to converge.",
+      );
+      return;
+    }
+    deps.log.info(
+      { binderVersion: deps.binderVersion, running },
+      "padi survivor is a padiSurface skew and this binder is NEWER — draining it " +
+        "(persist + exit; its kaval + PTYs survive) so the spawn path brings up " +
+        "this binder's own newer closure (newest-wins convergence)",
+    );
+    try {
+      await probe.drain();
+    } catch (err) {
+      deps.log.error(
+        { err, binderVersion: deps.binderVersion, running },
+        "newer-binder drain of a skewed padi FAILED (padi did not exit in the " +
+          "teardown window) — NOT killing it; adoptOrSpawnOrRefuse will refuse " +
+          "(degraded) and the reconnect loop will retry, so no livelock, no SIGKILL",
+      );
+    }
+  } finally {
+    probe.dispose();
+  }
+}
+
+/**
+ * ONE bind attempt under the NEWEST-WINS convergence policy: pre-flight the
+ * newer-binder drain, then run the endpoint's generic adopt-or-spawn-or-refuse.
+ *
+ * The two-step is the whole arm. The pre-flight ({@link drainSkewedSurvivorIfNewer})
+ * is the ONLY place the padi-specific version ORDERING lives (the endpoint stays
+ * soul-agnostic — it only knows the typed `DaemonContractSkewError`); it drains a
+ * strictly-newer binder's skewed survivor so that the `adoptOrSpawnOrRefuse` that
+ * follows finds NO survivor and spawns this binder's own newer closure. In every
+ * other case the pre-flight is a no-op and `adoptOrSpawnOrRefuse` does exactly what
+ * it does today: adopt a compatible survivor, refuse an older/behind skew
+ * (degraded), or spawn fresh when none is running.
+ *
+ * Exposed (over injectable deps) so the drain-vs-refuse DECISION, the drain→spawn
+ * wiring, and the no-flap convergence are unit-testable without a real padi.
+ * Resolves whatever `adoptOrSpawnOrRefuse` resolves (whether a survivor was
+ * adopted).
+ */
+export async function bindPadiOnce(deps: {
+  endpoint: Pick<PadiEndpoint, "adoptOrSpawnOrRefuse">;
+  probe: () => Promise<PadiSkewProbe | null>;
+  binderVersion: string;
+  log: ConvergeLogger;
+}): Promise<boolean> {
+  await drainSkewedSurvivorIfNewer({
+    probe: deps.probe,
+    binderVersion: deps.binderVersion,
+    log: deps.log,
+  });
+  return deps.endpoint.adoptOrSpawnOrRefuse();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -459,45 +750,16 @@ export class PadiBindingSession
    *  invoke the FROZEN control core's `drain` over the COMBINED dialed client —
    *  padi persists its layout + exits, its kaval + PTYs survive, the socket closes
    *  → the endpoint flips to degraded → the reconnect loop re-spawns padi onto the
-   *  surviving kaval. NEVER a kill-9.
-   *
-   *  The drain RPC races its own teardown: padi's `onDrain` persists then triggers
-   *  the exit that closes the socket, so the reply may or may not flush before the
-   *  socket dies mid-write — a rejection is EXPECTED there and NOT a failure. But a
-   *  rejection is NOT proof the drain landed either: a stale link that never reached
-   *  padi, or an `onDrain` that threw before it persisted, also reject. So the
-   *  ground truth is the SOCKET CLOSE — the same signal the endpoint reads to flip
-   *  to `degraded` — not the call's resolve/reject. A clean resolve means padi
-   *  replied (drain landed). A rejection is accepted ONLY if the socket then closes
-   *  within the teardown window; a rejection with the link still UP is a real
-   *  failure and is surfaced (fail-fast), so the "restart" verb never reports
-   *  success on a drain that did not happen. */
+   *  surviving kaval. NEVER a kill-9. The RPC/socket-close race is handled by the
+   *  shared {@link drainViaControlCore} (the same plumbing the newer-binder
+   *  convergence drain reuses), so the "restart" verb never reports success on a
+   *  drain that did not happen. */
   async drainBoundPadi(): Promise<void> {
     const conn = this.deps.endpoint.current();
     if (!conn) {
       throw new Error("padi is not bound — cannot drain (the daemon is down)");
     }
-    try {
-      await conn.client.surface.control.core.drain();
-      // Clean resolve — padi replied before its socket tore down. Drain landed.
-    } catch (err) {
-      // The call rejected. Accept it as the expected mid-response teardown ONLY if
-      // the socket actually closes (padi persisted + exited); otherwise the drain
-      // never took, so rethrow the original error rather than fake a success.
-      await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        conn.onClose(() => {
-          if (settled) return;
-          settled = true;
-          resolve();
-        });
-        setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          reject(err);
-        }, DRAIN_TEARDOWN_CEILING_MS);
-      });
-    }
+    await drainViaControlCore(conn);
   }
 
   private setState(s: HostSessionState): void {
@@ -598,16 +860,31 @@ export async function ensurePadiBinding(
     },
   });
 
+  // One bind attempt under the newest-wins convergence policy: pre-flight the
+  // newer-binder drain (this binder's `PADI_SURFACE_VERSION` vs the running padi's
+  // `hello.surfaceVersion`), then the endpoint's generic adopt-or-spawn-or-refuse.
+  // Used for BOTH boot and reconnect — a fresh deploy dialing a running older padi
+  // is the primary case (drain it → spawn our own newer closure); a skew where we
+  // are older/behind refuses, UNCHANGED.
+  const connectOnce = (): Promise<boolean> =>
+    bindPadiOnce({
+      endpoint: ep,
+      probe: () => probePadiSkew(socketPath),
+      binderVersion: PADI_SURFACE_VERSION,
+      log,
+    });
+
   session = new PadiBindingSession({
     endpoint: ep,
-    // Reconnect = re-run the boot policy: adopt the surviving padi (its socket +
-    // its kaval's PTYs persist), or spawn fresh if it died. NEVER recycles on skew.
-    connectOnce: () => ep.adoptOrSpawnOrRefuse(),
+    // Reconnect = re-run the boot policy: drain-if-newer, then adopt the surviving
+    // padi (its socket + its kaval's PTYs persist), or spawn fresh if it died.
+    // NEVER recycles on skew; older never drains.
+    connectOnce,
     reconnectDelayMs: opts.reconnectDelayMs,
   });
 
   try {
-    await ep.adoptOrSpawnOrRefuse(); // skew → REFUSE (degraded), never recycle.
+    await connectOnce(); // newer → drain + spawn; older skew → REFUSE (degraded).
   } catch (err) {
     // The endpoint already reported `dead`; don't crash the server boot.
     log.error({ err }, "padi endpoint failed to come up at boot");
