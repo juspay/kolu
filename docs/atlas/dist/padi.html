@@ -390,103 +390,20 @@
 <a id="w4"></a>
 <h3 id="w4--consolidation--the-running-cleanup-ledger">W4 — consolidation — the running cleanup ledger</h3>
 <p>W2 and W3 ship at pace (a deliberate call — the model window); W4 is where the pace’s debts are paid: refactors, decomplecting, framework-level electricity upstreaming, and deletions. <strong>This ledger is the phase’s scope, and it is a living list</strong> — appraised and appended as each W phase lands (each entry names its source and its readiness gate). Nothing user-visible ships here; that is the point.</p>
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>candidate</th>
-<th>source</th>
-<th>shape</th>
-<th>ready when</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>L1</td>
-<td><code>createPolledQuery</code>’s framework-free core → <code>@kolu/surface</code> beside <code>pollOnEvent</code> (its producer dual); the Solid <code>.use()</code> ergonomics (<code>.pending()</code>, the #818 guard) → <code>surface-app</code></td>
-<td>W1.5; the doctrine check (2026-07-03) confirmed nothing blocks it</td>
-<td>extraction (drishti-gated)</td>
-<td>now — or naturally with kolu-tui (W5)</td>
-</tr>
-<tr>
-<td>L2</td>
-<td>padi-tui’s hand-rolled wait-until-predicate helper → <code>@kolu/surface</code></td>
-<td>W2.3’s zero-surface-edits rule</td>
-<td>extraction (drishti-gated)</td>
-<td>second consumer exists (kolu-tui, W5)</td>
-</tr>
-<tr>
-<td>L3</td>
-<td>the control core → <code>@kolu/surface-daemon</code></td>
-<td>W1.C</td>
-<td>extraction</td>
-<td>a second daemon adopts it (test ③ proof)</td>
-</tr>
-<tr>
-<td>L4</td>
-<td>delete the legacy-kaval <strong>adopter arm</strong> + port-keyed discovery/labeling</td>
-<td>W2.2’s migration (adopt-not-reap)</td>
-<td>deletion, migration-window close</td>
-<td>a named version: “upgrading from pre-W2.2 passes through W2.x–W3.x first”</td>
-</tr>
-<tr>
-<td>L5</td>
-<td><code>ProcessRssSchema</code>’s deliberate duplication (padi ↔ terminal-workspace leaf) — dedupe into one home</td>
-<td>W2.2 gauntlet (drift-checked at the sampler fold)</td>
-<td>refactor</td>
-<td>a natural shared home appears (possibly with L1’s motion)</td>
-</tr>
-<tr>
-<td>L6</td>
-<td><code>packages/server/src/padiBinding.ts</code> post-dial-carve: audit what remains (supervision vs re-serve vs binding-session) for a further split</td>
-<td>W2.3’s carve</td>
-<td>refactor appraisal</td>
-<td>after W2.3 lands</td>
-</tr>
-<tr>
-<td>L7</td>
-<td><code>@kolu/terminal-workspace</code> post-burial: pulam dead leaves consumers = padi + client (schema/agentProjection) — re-appraise the package cut (fold into padi? keep as shared leaf?)</td>
-<td>W2.3’s burial</td>
-<td>boundary appraisal</td>
-<td>after W2.3 lands</td>
-</tr>
-<tr>
-<td>L8</td>
-<td>doc/comment sweep: surface-stack prose still citing pulam/pulam-web as its graduation examples; stale pre-padi topology comments</td>
-<td>W0/W2.3 burials</td>
-<td>docs</td>
-<td>after W2.3</td>
-</tr>
-<tr>
-<td>L9</td>
-<td>sensors out of padi’s staleKey hash (restart-cadence relief)</td>
-<td>W2.2 risks — “an observed decision, not pre-paid”</td>
-<td>boundary split</td>
-<td>only if deploy cadence actually hurts (evidence first)</td>
-</tr>
-<tr>
-<td>L10</td>
-<td>e2e flaky-tracker debt: the file-drop/file-ref rotating flakes (tracked, band-aided in W2.2 with the screen-state reader fix)</td>
-<td>W2.2 CI rounds</td>
-<td>test-infra</td>
-<td>anytime; batch with W4</td>
-</tr>
-<tr>
-<td>L11</td>
-<td>the interim shapes W3.2’s binding-scoped client rebuild leaves behind in <code>wire.ts</code>/store singletons</td>
-<td>W3.2 (anticipated)</td>
-<td>refactor</td>
-<td>after W3.2 lands</td>
-</tr>
-<tr>
-<td>L12</td>
-<td>fine-grained read-only CI token replacing the personal-token install on the CI pool</td>
-<td>W2.2 CI incident</td>
-<td>infra</td>
-<td>anytime (srid mints; boxes re-provision)</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><strong>L1 — move the poll-on-change client helper into the framework.</strong> <code>createPolledQuery</code> (re-run a query when a <code>{seq}</code> pulse ticks) is app code, but its producer half (<code>pollOnEvent</code>) already lives in <code>@kolu/surface</code> — the consumer core belongs beside it, with only the Solid ergonomics (<code>.pending()</code>, the #818 selection guard) staying in <code>surface-app</code>. <em>From W1.5; doctrine already cleared it (2026-07-03); drishti-gated; ready now, or naturally with kolu-tui (W5).</em></li>
+<li><strong>L2 — upstream padi-tui’s wait helper.</strong> W2.3 hand-rolls “block until this collection satisfies a predicate” inside padi-tui (by rule: no surface edits that phase). Once a second consumer exists it moves to <code>@kolu/surface</code>. <em>From W2.3; drishti-gated; ready when kolu-tui (W5) exists.</em></li>
+<li><strong>L3 — the control core to <code>@kolu/surface-daemon</code>.</strong> hello · version · drain · clock.now is generic daemon machinery, but only one daemon uses it. <em>From W1.C; ready when a second daemon adopts it — that adoption is the proof.</em></li>
+<li><strong>L4 — delete the legacy-kaval migration arm.</strong> The adopter (adopt a pre-W2.2 port-keyed kaval) and the port-keyed discovery/labels exist only for upgrades from pre-W2.2 installs. Close the window at a named version (“upgrading from pre-W2.2 passes through W2.x–W3.x first”) and delete the arm. <em>From W2.2; deletion; ready at that named version.</em></li>
+<li><strong>L5 — one home for <code>ProcessRssSchema</code>.</strong> It’s deliberately duplicated (padi + the terminal-workspace leaf) with a drift-check holding them equal. Dedupe when a natural shared home appears — possibly L1’s motion creates it. <em>From the W2.2 gauntlet; refactor.</em></li>
+<li><strong>L6 — re-audit <code>padiBinding.ts</code> after the dial carve.</strong> Once W2.3 moves <code>connectPadi</code> out, what remains is supervision + reconnect-session + re-serve; check whether that’s one thing or three. <em>From W2.3; appraisal; after W2.3 lands.</em></li>
+<li><strong>L7 — re-cut <code>@kolu/terminal-workspace</code> after the burial.</strong> With pulam dead its consumers are just padi and the client (schema, agentProjection). Decide: fold parts into padi, or keep as a shared leaf. <em>From W2.3; boundary appraisal; after W2.3 lands.</em></li>
+<li><strong>L8 — doc sweep for dead references.</strong> Surface-stack comments still cite pulam/pulam-web as their graduation examples; pre-padi topology comments linger. <em>From the W0/W2.3 burials; docs; after W2.3.</em></li>
+<li><strong>L9 — split sensors out of padi’s restart hash — only if it hurts.</strong> Every sensor tweak restarts padi (cheap: re-seed + re-run, PTYs untouched). If deploy cadence makes that annoying in practice, the sensors leave the staleKey hash. <em>From W2.2’s risks; evidence first, not pre-paid.</em></li>
+<li><strong>L10 — pay the flaky-test debt.</strong> The file-drop / file-ref rotating flakes are tracked and band-aided (W2.2’s screen-state reader fix helped); a real fix pass belongs here. <em>From the W2.2 CI rounds; test-infra; anytime.</em></li>
+<li><strong>L11 — clean the interim client-wire shapes after the binding-scoped rebuild.</strong> W3.2 rebuilds <code>wire.ts</code>/store singletons per binding; whatever scaffolding that transition leaves gets swept. <em>From W3.2 (anticipated); after W3.2 lands.</em></li>
+<li><strong>L12 — a fine-grained read-only CI token.</strong> Replaces the personal-token install on the CI pool boxes. <em>From the W2.2 CI incident; infra; srid mints, boxes re-provision.</em></li>
+</ul>
 <p><em>(Appraisal discipline: when a W phase ships, its review rounds’ “deferred/acceptable-for-scope” items land here explicitly — an entry that never becomes ready gets deleted with a reason, not silently kept.)</em></p>
 <a id="w5"></a>
 <h3 id="w5--demand-driven">W5 — demand-driven</h3>
