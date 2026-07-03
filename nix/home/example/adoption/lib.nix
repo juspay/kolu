@@ -202,4 +202,10 @@ in
   # Re-exported so adopt.nix's lifecycle (a plain `systemctl --user restart`) and
   # both tests' boot/listener polls can compose without re-spelling them.
   inherit systemctlUser waitForListener;
+
+  # Re-exported so upgrade.nix (whose flow differs — stand up a legacy port-keyed
+  # kaval FIRST, then start kolu) can compose the SAME survival node, alice-run,
+  # result-assert, and boot-poll primitives the two `mkAdoptionTest` outcomes use,
+  # without re-spelling the machinectl/result-file discipline.
+  inherit survivalVmNode runAsAlice assertResult bootPoll;
 }

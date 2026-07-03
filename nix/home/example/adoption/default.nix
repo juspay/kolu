@@ -28,11 +28,16 @@ let
 
   kavalTui = "${kolu.packages.${system}.kaval-tui}/bin/kaval-tui";
 
+  # The kaval DAEMON binary (distinct from kaval-tui, the CLI). upgrade.nix stands up
+  # a LEGACY port-keyed kaval with it — `kaval --socket $XDG_RUNTIME_DIR/kaval-<port>/
+  # pty-host.sock` — to model the pre-W2.2 daemon a W2.2 upgrade must ADOPT, not leak.
+  kavalBin = "${kolu.packages.${system}.kaval}/bin/kaval";
+
   lib = import ./lib.nix {
     inherit pkgs home-manager nixosModule port kavalTui;
   };
 
-  args = { inherit pkgs kolu system port kavalTui lib; };
+  args = { inherit pkgs kolu system port kavalTui kavalBin lib; };
 in
 # Symmetric attr names that decline one stem after the file stems
   # (adopt.nix → adoption-adopt, skew.nix → adoption-skew, currency.nix →
@@ -43,4 +48,9 @@ in
   adoption-adopt = import ./adopt.nix args;
   adoption-skew = import ./skew.nix args;
   adoption-currency = import ./currency.nix args;
+  # The W2.2 UPGRADE-migration path: a pre-W2.2 port-keyed kaval (kaval-<port>) is
+  # ADOPTED — not leaked — when the digest-keyed W2.2 padi first boots, and a later
+  # Restart-kaval recycle CONVERGES the daemon under kaval-<digest>. Its own file
+  # because its flow inverts the others' (seed a legacy daemon BEFORE kolu starts).
+  adoption-upgrade = import ./upgrade.nix args;
 }
