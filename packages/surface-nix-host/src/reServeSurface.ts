@@ -284,7 +284,11 @@ export function reServeSurface<
     const cells: Record<string, (v: unknown) => void> = {};
     for (const key of Object.keys(spec.cells ?? {})) {
       const cell = ctx.cells[key];
-      if (!cell) continue;
+      if (!cell) {
+        throw new Error(
+          `reServeSurface: implementSurface produced no cell for "${key}"`,
+        );
+      }
       cells[key] = (value) => {
         onFirst();
         cell.set(value);
@@ -296,7 +300,11 @@ export function reServeSurface<
     > = {};
     for (const key of Object.keys(spec.collections ?? {})) {
       const coll = ctx.collections[key];
-      if (!coll) continue;
+      if (!coll) {
+        throw new Error(
+          `reServeSurface: implementSurface produced no collection for "${key}"`,
+        );
+      }
       collections[key] = {
         upsert: (k, v) => {
           onFirst();
