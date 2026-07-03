@@ -230,7 +230,7 @@
 <tr>
 <td>the control core</td>
 <td>lives in <code>@kolu/padi</code></td>
-<td>graduates to <code>@kolu/surface-daemon</code> only if a second daemon adopts it — electricity test ③: the proof of graduation is real, not aspirational</td>
+<td>extraction is gated on electricity test ② (a real axis of variation), and with one daemon the axis doesn’t vary yet — nothing to encapsulate. If a second daemon adopts it, that’s test ③’s after-the-fact proof and it graduates to <code>@kolu/surface-daemon</code>. (Corrected 2026-07-03: an earlier wording here inverted the doctrine into ‘proof before extraction’ — the second consumer is the proof extraction was right, never the gate for doing it)</td>
 </tr>
 <tr>
 <td>padi’s <code>wait</code> (the agent done-signal)</td>
@@ -240,7 +240,7 @@
 <tr>
 <td><code>kolu-tui</code></td>
 <td><strong>W4</strong>, new package</td>
-<td>it exists to <em>prove</em> padiSurface serves a second frontend — building it earlier would be extraction before proof</td>
+<td>a new consumer app, not an extraction — it exists to prove padiSurface serves a second frontend (test ③’s proof). W4 because it’s demand-driven, not because anything forbids it earlier</td>
 </tr>
 </tbody>
 </table>
@@ -314,7 +314,7 @@
 </table>
 <a id="w1c"></a>
 <h4 id="w1c--the-contract-commit-stage-1-small-and-dense--read-every-line">W1.C — the contract <em>(commit stage 1: small and dense — read every line)</em></h4>
-<p><strong>Creates <code>packages/padi</code></strong> — the daemon package, from day one, though no process exists until W2.2 (the export-map split <code>terminal-workspace</code> already uses: <code>./surface</code> browser-safe, the node-only side beside it). In it, the <strong>contract only</strong> — nothing served, zero runtime change: every member from the <a href="#padisurface">surface section</a> — the composed <code>terminals</code> collection (with <code>parked</code> in the record-state union and the host axis reserved on the dock projection), the urgency projection (counts + ids, recency-free), <code>activity</code>, the repo/file pulses, fs/git + worktree + byte procedures (<strong><code>preview.read</code> is range-capable from day one</strong> — serve-dir-shaped <code>{status, headers, bodyBase64}</code> with an optional <code>range</code>; a whole-file-blob-only shape would bake a large-file regression into the contract), <code>transcript.exportHtml</code>, lifecycle + chrome procedures, <code>session.restore</code>/<code>session.import</code>, <code>terminalExit</code>, <code>terminalAttach</code> — each annotated with its <strong>forwarding policy</strong> (value vs fail-through), plus the frozen control-core types (hello · version · drain · <code>clock.now</code> — they live in <code>@kolu/padi</code>, and move to a shared package only if a second daemon ever adopts them). This is #1651’s good half, carried nearly verbatim.</p>
+<p><strong>Creates <code>packages/padi</code></strong> — the daemon package, from day one, though no process exists until W2.2 (the export-map split <code>terminal-workspace</code> already uses: <code>./surface</code> browser-safe, the node-only side beside it). In it, the <strong>contract only</strong> — nothing served, zero runtime change: every member from the <a href="#padisurface">surface section</a> — the composed <code>terminals</code> collection (with <code>parked</code> in the record-state union and the host axis reserved on the dock projection), the urgency projection (counts + ids, recency-free), <code>activity</code>, the repo/file pulses, fs/git + worktree + byte procedures (<strong><code>preview.read</code> is range-capable from day one</strong> — serve-dir-shaped <code>{status, headers, bodyBase64}</code> with an optional <code>range</code>; a whole-file-blob-only shape would bake a large-file regression into the contract), <code>transcript.exportHtml</code>, lifecycle + chrome procedures, <code>session.restore</code>/<code>session.import</code>, <code>terminalExit</code>, <code>terminalAttach</code> — each annotated with its <strong>forwarding policy</strong> (value vs fail-through), plus the frozen control-core types (hello · version · drain · <code>clock.now</code> — they live in <code>@kolu/padi</code>, and graduate to a shared package whenever a second daemon wants them). This is #1651’s good half, carried nearly verbatim.</p>
 <ul>
 <li><strong>Stage acceptance:</strong> the contract test pins the member list, <strong>set-equality</strong> between members and policy annotations (no unannotated member, no orphan), delta = exactly terminalAttach, and version <code>1.0</code>; nothing else in the repo changes.</li>
 </ul>
