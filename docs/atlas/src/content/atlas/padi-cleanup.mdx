@@ -18,8 +18,9 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- L1 ready · L4 ready-at-named-version · L5 ready · L8 ready · L10 ready · L12 ready (srid mints)
-- L6, L7 gated on W2.3 landing · L11 gated on W3.2 · L2 gated on kolu-tui (W5) · L3 gated on a second daemon · L9 gated on evidence
+- **Ready now:** L1 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) — and L4 at a named version; L5's remaining half (video-ext table)
+- **Gated:** L6, L7 on W2.3 · L11 on W3.2 · L2 on kolu-tui (W5) · L3 on a second daemon · L9, L22 on evidence
+- **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
 
@@ -37,7 +38,7 @@ In plain words: the surface framework ships data two ways — pushed values, or 
 
 **Steps:** (1) split core from Solid wrapper in place, test the core framework-free; (2) move the core to `@kolu/surface` with its own unit tests; (3) repoint the wrapper; (4) paired drishti PR (drishti need not adopt it — the gate is API-compat, green CI at final kolu HEAD).
 
-**Done when:** the core is importable from `@kolu/surface` with zero Solid/kolu imports; Code tab byte-identical (the existing e2e + the #818 guard test pin it); drishti green.
+**Done when:** the core is importable from `@kolu/surface` with zero Solid/kolu imports; Code tab byte-identical (the existing e2e + the #818 guard test pin it); drishti green. *Scope note (from #1652's lens round): the current app copy duplicates the framework-private `writeWrappedValue` — the move lets it use the real one; delete the copy.*
 
 ### L2 — upstream padi-tui's wait-until-predicate helper
 
@@ -69,6 +70,8 @@ Places where a phase's landing changes what the right boundary *is* — each nee
 
 After W2.3 moves `connectPadi` into `@kolu/padi/dial`, what remains in `packages/server/src/padiBinding.ts` is roughly: the spawn/supervise driver (`localPadiDriver`, adopt-or-spawn-or-refuse, the legacy-kaval hint), the reconnect session (`PadiBindingSession`), and the re-serve wiring. Question for the audit: do these change for the same reason? The supervisor changes with daemon-lifecycle policy; the re-serve changes with the surface contract; the session bridges them. If the file reads as three braided concerns, split it (`padiSupervision.ts` / the session / re-serve wiring already partly in `reServeSurface` usage); if it reads as one binder concern with three paragraphs, leave it and record that verdict here.
 
+**The audit passes sharpened this entry — three named sub-items:** (a) the header claims three concerns but there is a **fourth**: the newest-wins convergence pre-flight (`parseMajorMinor`/`probePadiSkew`/`drainSkewedSurvivorIfNewer`/`bindPadiOnce`, ~300 lines) varies with contract-skew policy and is already deps-injected + independently tested — split candidate `padiConvergence.ts`; (b) `PadiBindingSession` shatters one identity into **three parallel nullable fields** (`padiStartedAtMs`/`padiSurfaceVersionStr`/`padiBuildCommitStr`, set/cleared together in four places) — collapse to one `boundIdentity | null` value; (c) the reconnect/re-dial loop lives in the binding adapter rather than the supervisor spine (`padiBinding.ts` ~386, #1664 hickey-8) — decide whether it relocates to `surface-daemon-supervisor` (that half would be drishti-gated) or is binder-specific by nature.
+
 **Where:** `packages/server/src/padiBinding.ts` (+ its tests `padiBinding.test.ts`, `padiConverge.test.ts`, `padiLink.ts` as the neighboring already-split example).
 
 **Done when:** a verdict is recorded in this entry (split shipped, or "one concern — no-op" with reasoning); if split: seal + all binder tests green, no behavior change.
@@ -87,6 +90,22 @@ terminal-workspace was born as "one library, two homes" (kolu + pulam). After W2
 
 **Done when:** every terminal-workspace export has a consumer on the correct side of the node/browser line; no export with zero consumers survives; the seal's dependency-cone arm still green.
 
+### L14 — the memory readout should ride the mirror it already has
+
+*Status: ready · Lens: lowy (a second data path beside the source of truth) · Gate: none*
+
+`readPadiMemoryOnce` (`packages/server/src/index.ts` ~401) re-dials a raw padi client every sampler tick — bypassing the re-serve mirror that already folds `processMemory`. One fact, two transports. Also fold in the sampler-harness nits from the same review (`memorySampler.ts` ~29: the unref'd interval harness + the 5s cadence constant duplicated).
+
+**Done when:** the rail's padi/kaval RSS reads come from the mirror (or one clearly-argued dedicated path, recorded here); one cadence constant; the event-driven flip-to-absent behavior (a W2.2 fix) preserved by its existing test.
+
+### L17 — split the chrome vocabulary out of `vocab.ts`
+
+*Status: ready · Lens: lowy (two volatility axes in one 910-line module) · Gate: none*
+
+`packages/padi/src/vocab.ts` mixes PTY-lifecycle shapes (`ActiveTerminalSchema`, `DaemonStatusSchema`) with UI-chrome shapes (`CanvasLayoutSchema`, `SubPanelStateSchema`, `CodeTabViewSchema`) — a canvas feature and a PTY change both churn one file; `viewLabel`/`rightPanelView` are presentation *logic* living in vocabulary. Split a sibling `chromeVocab.ts` (chrome schemas + their presentation helpers), same export surface.
+
+**Done when:** pure motion (rename-detection reviewable); no import cycles; padi contract tests untouched.
+
 ### L9 — split the sensors out of padi's restart hash — only if it hurts
 
 *Status: gated on evidence · Lens: lowy (two volatilities under one staleKey?) · Gate: none*
@@ -99,13 +118,71 @@ padi's staleKey hashes its whole package, so every sensor tweak (agent-detection
 
 Braids and duplications the reviews flagged as acceptable-for-scope — acceptable ends here.
 
-### L5 — one home for `ProcessRssSchema`
+### L5 — one home for duplicated wire tables — *half shipped*
 
-*Status: ready · Lens: hickey (deliberate duplication, drift-checked) · Gate: none*
+*Status: ProcessRss half SHIPPED (in W2.2 itself, commit `3b3550642` — the lens round homed the union on the terminal-workspace leaf and the drift-check is gone); the pattern's second instance is ready · Lens: hickey (deliberate duplication, drift-checked) · Gate: none*
 
-The 3-process memory rail's wire shape exists twice — in padi and in the terminal-workspace leaf — held byte-equal by a drift-check at the sampler fold (`packages/server/src/memorySampler.ts` ~lines 24/34). The duplication was the honest W2.2 call (no natural shared home existed mid-phase); the fix is one schema in the browser-safe shared leaf (which L7 may reshape — **execute L5 after or with L7**, coordinator sequences), both current homes importing it, drift-check deleted because drift is unspellable.
+The audit sweep found the same pattern again: **`UPLOAD_VIDEO_EXTENSIONS`** exists in `packages/padi/src/upload.ts` (~lines 12–25, 93–97) and `packages/common/src/preview.ts` (~53–63), held equal by a drift-guard test because the seal forbids padi→kolu-common. Same fix shape: padi is the file-domain authority — home the classification table in `@kolu/padi` (browser-safe entry), `kolu-common/preview.ts` imports it (the sanctioned arrow), drift test deleted because drift becomes unspellable.
 
-**Done when:** one definition, two importers, the drift-check test removed *because the type system now enforces what it checked*.
+**Done when:** one definition, importers on both sides of the line, the drift-guard test removed *because the type system now enforces what it checked*. (Coordinate with L7 if it reshapes the shared leaf.)
+
+### L15 — one `AutosaveGate` for the save-safety decision
+
+*Status: ready · Lens: hickey (one invariant fragmented across seven files, held by comments) · Gate: none — the highest-value entry on this ledger*
+
+"Is it safe to fire `saveSession()` now, and with what value?" is currently assembled from: a module-level timer (`session.ts` ~21–70, ~267–313), a restart flag set by another lifecycle (`ptyHost/restartLocal.ts` ~50–82), a live registry query (`hasParkedTerminals`, `terminal-registry.ts` ~166–176), a cell `onWrite` hook (`servePadi.ts` ~163–173), and four per-call-site conventions in `terminalEndpoint/metadata.ts` (~126–247) documented as "must NOT arm autosave here". This is the exact bug class behind the zest session-clobber — currently held together by prose.
+
+**Target shape:** one `AutosaveGate` module owning explicit state — `idle | armed | frozen(reason) | suppressed(parked)` — with a single `notifyDirty()` every writer calls; registry/restart push facts into the gate instead of the gate querying them. The W1/W2.2 red-when-reverted session-safety tests must pass unchanged against the new gate.
+
+**Done when:** no comment of the form "must not arm/save here" survives — each becomes a gate-state transition; `restartLocal.test.ts` + `reattach.test.ts` + the drain/capture tests green untouched.
+
+### L16 — make `runPadiDaemon`'s boot order compile-time
+
+*Status: ready · Lens: hickey (~10 boot concerns ordered only by prose) · Gate: none*
+
+`packages/padi/src/daemonMain.ts` (~106–284) sequences gate → stores → import → identity → koluRoot → autosave → drain hooks → serve → kaval → sampler → manifest, with correctness resting on comments ("Claim the gate FIRST", "Runs BEFORE the stores are injected") — the exact ordering W2.2's B1 blocker was about, fixed then by *reordering prose*. Same shape recurs in `ptyHost/index.ts` (~161–283). Target: each step's precondition is a **type** (e.g. `openStateStores(gate: HeldGate)`), so a reorder is a compile error, not a silent violation.
+
+**Done when:** the boot reads as a typed pipeline; the dial test + daemonMain tests green; the second instance (`ensureLocalEndpoint`) either converted or recorded as fine-as-is with a reason.
+
+### L18 — a named `HydrationPhase` for session restore
+
+*Status: ready · Lens: hickey (a hand-rolled state machine in two booleans + an out-of-band re-arm) · Gate: none*
+
+`useSessionRestore.ts` (~51–99, ~187–197) runs `decided`/`viewSeeded` closure latches with `handleRestoreSession` resetting one from outside the owning effect — valid combinations never enumerated. Replace with one `HydrationPhase = "pending" | "decided-empty" | "decided-restore" | "seeded"` signal with named transitions (`markSeeded()`, `reseedForRestore()`). The W2.2 split-restore e2e pins behavior.
+
+**Done when:** no boolean pair; transitions named; restore + reload + in-session-recycle e2e green.
+
+### L19 — urgency refold rides the one publish funnel
+
+*Status: ready · Lens: hickey (an invariant re-derived at three of four write seams) · Gate: none*
+
+"Does this write change the urgency projection?" is answered independently by `commitSnapshot`/`dropSnapshot`/`publishTerminalState` and by *omission* in `updateMemory` (`terminalEndpoint/metadata.ts` ~99–246) — the rule lives in prose. Fold `publishUrgency()` into `publishComposedTerminal` and recompute on every composed publish; the existing `urgencyEqual` dedup makes the extra fire free.
+
+**Done when:** one call site computes urgency; the badge/urgency tests green; the prose justifications deleted.
+
+### L20 — one navigation for the re-serve's opaque client
+
+*Status: ready · Lens: hickey (three cast sites for one navigation) · Gate: drishti (`surface-nix-host`)*
+
+`reServeSurface.ts` (~282, #1664 hickey-7) reaches into the opaque upstream client via three separate cast sites. Extract one typed navigation helper; the casts collapse to one place with one justification.
+
+**Done when:** a single cast site; reServe tests green; paired drishti PR green.
+
+### L21 — extract the additive `inMemoryCollection` dedup
+
+*Status: ready · Lens: hickey (a clean dedup deferred from #1661, candidate 21) · Gate: drishti (`@kolu/surface`)*
+
+The serving internals hand-roll the same additive in-memory collection shape in more than one place; #1661's review scoped extracting `inMemoryCollection<K,V>()` to W2.2, which shipped without it. Verify the duplication still exists on master (the implementer's first step), then extract.
+
+**Done when:** one implementation; the serving tests green; drishti green — or the entry deleted with "duplication no longer exists".
+
+### L22 — framework-wide backpressure for surface subscribers
+
+*Status: gated on evidence (a measured slow-consumer incident or a load test) · Lens: lowy (a robustness axis owned nowhere) · Gate: drishti (`@kolu/surface`)*
+
+W2.2's h2 bounded the **re-serve's** per-subscriber channels (HWM 4096, loud overflow) — but that bound lives at one consumer; the framework's underlying oRPC receive queue remains unbounded for an unpaced sender (#1661 final-audit residual, explicitly framework-wide). Either the framework grows a first-class subscriber-bound (every serve site inherits it), or a recorded decision says the re-serve bound is the only place that needs one.
+
+**Done when:** a load test demonstrates bounded memory under an unpaced sender at every serve site — or the entry closes with the recorded per-consumer-bound decision.
 
 ### L11 — sweep the interim client-wire shapes after the binding-scoped rebuild
 
@@ -141,6 +218,14 @@ The rotating e2e flakes (file-drop, file-ref-link — the #1534 swallow-emit cla
 
 **Done when:** a full both-platform e2e run passes without retries twice consecutively, or every remaining tracked flake carries a root-cause note and a quarantine decision.
 
+### L13 — close the seal's test-file flank
+
+*Status: ready · Lens: hygiene (an asymmetry between the seal's own arms) · Gate: none*
+
+The seal's forward arm skips `*.test.ts` when walking import edges (`seal.test.ts` ~280) while the reverse arm explicitly includes tests — and a test already exploits the gap: `padiBinding.test.ts` imports `@kolu/padi/stateRoot`, a published subpath absent from `ALLOWED_PADI` (3 sanctioned vs 9 exported). Either widen `ALLOWED_PADI` to the deliberate export set and walk tests too, or narrow padi's export map to the sanctioned entries and let module resolution enforce. *(Context: the namespace-import/export-from evasion suspected from W1 is **verified closed** — arm (d) catches all forms via AST and arm (e) bans the underlying imports transitively; this entry is the one flank left.)*
+
+**Done when:** test files are inside the seal's walk; `ALLOWED_PADI` and padi's `exports` map agree on purpose, with each entry's reason one comment away.
+
 ### L12 — a fine-grained CI token
 
 *Status: ready — srid mints; agent wires · Lens: infra hygiene · Gate: srid*
@@ -148,6 +233,14 @@ The rotating e2e flakes (file-drop, file-ref-link — the #1534 swallow-emit cla
 The CI pool boxes carry srid's broad personal token (installed under time pressure during W2.2's endgame, disclosed and consented; the exposed prior token needs rotation regardless). Replace with a fine-grained PAT (public-repo read-only — its only job is authenticated GitHub API rate limits for flake-input fetches), installed via the pool provisioning path (stdin, never in the store or logs).
 
 **Done when:** pool boxes authenticate with the fine-grained token; the personal token is rotated and absent from every box; `ci::nix` green on a cold box proves the fetch path.
+
+## Considered and skipped (dated, with reasons)
+
+- *#1661 cand 5d* (`RelayPolicy` vocab → `@kolu/surface`): arguably correct where it is — a re-serve concern. Revisit only if a third policy consumer appears. (2026-07-03)
+- *#1661 cand 14* (zod-per-frame passthrough opt-out): speculative perf; below the evidence bar L9/L22 set. (2026-07-03)
+- *W1 residual (c)* (pre-existing scratch dirs not retro-chmodded): verified moot — the parent runtime dir is itself 0700 tmpfs; requires same-session PID reuse across the fix boundary. (2026-07-03)
+- *#1204* (CI-pool egress): infra, not padi cleanup; tracked as its own issue. *#1658* (boot state backups): deliberately descoped by srid; the import's copy-aside covers the migration case. (2026-07-03)
+- *User-visible correctness bugs found by the sweep* (worktree-remove stranding · mass-depart dead-id focus · deleted-file-before-first-frame "Loading…") are **not** ledger entries by charter — filed as GitHub issues instead. (2026-07-03)
 
 ## Appraisal discipline
 
