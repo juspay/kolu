@@ -22,7 +22,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(Object.keys(surfaces)).not.toContain("terminalWorkspace");
   });
 
-  it("koluSurface serves ONLY preferences + processMemory — no terminal-derived member", () => {
+  it("koluSurface serves only kolu-server's OWN non-terminal cells — no terminal-derived member", () => {
     const spec = surfaces.kolu.spec as {
       cells?: Record<string, unknown>;
       collections?: Record<string, unknown>;
@@ -30,9 +30,12 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     };
     // Every terminal-derived wire member — `session`, `activityFeed`, `terminalList`,
     // and the `terminalExit` event — relocated onto `padiSurface` (the W1 padi
-    // seam). koluSurface keeps only its two non-terminal cells, no collections, no
-    // events.
+    // seam). koluSurface keeps only kolu-server's OWN cells: `preferences`,
+    // `processMemory`, and `padiLink` (kolu-server's live view of its binding to padi
+    // — a #1034 honesty leg, server-authored, NOT a terminal member). No collections,
+    // no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
+      "padiLink",
       "preferences",
       "processMemory",
     ]);

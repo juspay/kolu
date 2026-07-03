@@ -45,6 +45,7 @@ import {
 import { log } from "./log.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { ensurePadiBinding } from "./padiBinding.ts";
+import { mapConnectionToPadiLink } from "./padiLink.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { buildAppRouter } from "./router.ts";
 import { koluSurfaceCtx, koluSurfaceRouter } from "./surface.ts";
@@ -484,6 +485,18 @@ startMemorySampler(
   // (before the next 5s tick), so a resample runs at once and the rail reports padi +
   // its kaval as `absent` right away — never a frozen RSS for an already-gone process.
   (resample) => padiSession.onState(() => resample()),
+);
+
+// Drive koluSurface's `padiLink` cell off the bound padi's connection state. koluSurface
+// is served DIRECTLY by kolu-server — never through the re-serve value-fold that HOLDS
+// STALE while padi is unbound — so its value is never a frozen-but-live-looking read.
+// The client folds `padiLink` into the warming/degraded canvas so a padi drop (the
+// re-targeted "restart kaval" drains padi) shows an honest connecting state over the
+// WHOLE drain window instead of a frozen re-served daemonStatus (#1034). `onState` fires
+// the current state synchronously on subscribe, so the cell is seeded before the first
+// transition.
+padiSession.onState((s) =>
+  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection)),
 );
 
 // --- TLS setup ---

@@ -49,6 +49,11 @@ const WEB_SHELL_FILES = [
   // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives
   // beside the shell, not in @kolu/padi.
   "padiBinding",
+  // The pure `HostSessionState.connection` → koluSurface `padiLink` mapping — the web
+  // shell's own honest view of its binding to padi (#1034), driven off the binding
+  // session. Shell code (a projection of the binder's state onto kolu-server's OWN
+  // surface), not terminal domain.
+  "padiLink",
   "pwaIdentity",
   "router",
   "state",

@@ -267,6 +267,23 @@ export const ProcessMemorySchema = z.object({
 });
 export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
 
+/** kolu-server's live view of its binding to the local padi — the client folds this
+ *  into the warming/degraded canvas so a padi drop shows an honest connecting state,
+ *  never a frozen-but-live-looking world (#1034). Server-authored (kolu-server drives
+ *  it off the bound padi session's connection state); clients read-only.
+ *
+ *    - `connecting` — the binding is (re)establishing (boot, or reconnecting after a drop);
+ *    - `connected`  — kolu-server is bound to a live padi;
+ *    - `degraded`   — the binding dropped (padi is down / the reconnect loop is re-dialing).
+ *
+ *  The kaval `daemonStatus` the canvas reads rides padi's RE-SERVED surface, whose
+ *  value-fold HOLDS STALE while padi is unbound — so the client floors that status on
+ *  THIS leg too (padiLink === "connected"), exactly as it already floors on the
+ *  browser↔server ws liveness, and treats a not-`connected` link as the honest "coming
+ *  up" (warming) rather than trusting the frozen re-served state. */
+export const PadiLinkSchema = z.enum(["connecting", "connected", "degraded"]);
+export type PadiLink = z.infer<typeof PadiLinkSchema>;
+
 /** Bytes in one megabyte. The single source of truth both the server-side dedup
  *  boundary and the client-side rail rendering read, so they can't drift. */
 export const BYTES_PER_MB = 1_048_576;
@@ -303,7 +320,7 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 // `padi` sibling kolu-server adds locally (`server/src/surface.ts`):
 //
 //   - `koluSurface` — the primitives kolu OWNS that are NOT part of the terminal
-//     domain: today just the `preferences` + `processMemory` cells. Served under
+//     domain: the `preferences` + `processMemory` + `padiLink` cells. Served under
 //     the `kolu` key. Every terminal-DERIVED member (`activityFeed`, `session`,
 //     the `terminalExit` event, the per-terminal record, urgency, daemon status,
 //     the expected-kaval axis) relocated to `@kolu/padi` (the package-boundary
@@ -329,9 +346,10 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 /** surface-app served as a sibling, extended with kolu's build identity. */
 export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
 
-/** The primitives kolu OWNS that are NOT part of the terminal domain — today just
- *  `preferences` (local-authority user prefs) and `processMemory` (the live
- *  server+kaval RSS rail metric). Every terminal-DERIVED wire member —
+/** The primitives kolu OWNS that are NOT part of the terminal domain —
+ *  `preferences` (local-authority user prefs), `processMemory` (the live
+ *  server+kaval RSS rail metric), and `padiLink` (kolu-server's live view of its
+ *  binding to padi — a #1034 canvas-honesty leg). Every terminal-DERIVED wire member —
  *  `activityFeed`, `session`, the `terminalExit` event, the terminal record,
  *  urgency, daemon status — now rides `padiSurface` (the package-boundary seal):
  *  only the conf-store STORAGE for session/activityFeed stays kolu-server-side
@@ -366,6 +384,20 @@ export const koluSurface = defineSurface({
         padi: { status: "absent" },
         kaval: { status: "absent" },
       } satisfies z.infer<typeof ProcessMemorySchema>,
+      verbs: ["get"],
+    },
+
+    /** kolu-server's live view of its binding to the local padi (see
+     *  {@link PadiLinkSchema}). Server-authored — kolu-server is the sole writer,
+     *  driving it off the bound padi session's connection state
+     *  (`server/src/index.ts` via `koluSurfaceCtx.cells.padiLink.set`); clients
+     *  read-only. The client folds it into the warming/degraded canvas so a padi drop
+     *  shows an honest connecting state, never a frozen-but-live-looking world (#1034).
+     *  Gate-closed default `connecting`, so a fresh subscription reads "coming up"
+     *  before the first transition rather than a premature `connected`. */
+    padiLink: {
+      schema: PadiLinkSchema,
+      default: "connecting" satisfies PadiLink,
       verbs: ["get"],
     },
   },

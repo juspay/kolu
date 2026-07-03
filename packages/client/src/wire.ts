@@ -115,10 +115,11 @@ const link = conn.link;
 // `MultiHostApp` control-plane strip); `surfaceClient.health.test.ts` pins the fold.
 const clients = conn.clients;
 
-/** kolu's OWN surface client — `app.cells.preferences.use(...)` and
- *  `app.cells.processMemory.use(...)`. Those two cells are all koluSurface owns
- *  now; the terminal record, urgency, daemon status, session, activity feed, and
- *  the `terminalExit` event ride `padi.*`. */
+/** kolu's OWN surface client — `app.cells.preferences.use(...)`,
+ *  `app.cells.processMemory.use(...)`, and `app.cells.padiLink.use(...)` (kolu-server's
+ *  live view of its binding to padi). Those cells are all koluSurface owns now; the
+ *  terminal record, urgency, daemon status, session, activity feed, and the
+ *  `terminalExit` event ride `padi.*`. */
 export const app = clients.kolu;
 
 /** surface-app's surface client — the build-identity `buildInfo` cell (read via
