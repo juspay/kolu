@@ -32,7 +32,6 @@ import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import CompactTileView from "./CompactTileView";
-import CanvasWatermark from "./canvas/CanvasWatermark";
 import Dock from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import { buildWorkspaceEntries } from "./canvas/dockModel";
@@ -432,21 +431,19 @@ const App: Component = () => {
               // and the dock's `+` reach, so the affordance is identical at zero
               // terminals or many. Guarded to the background
               // (`target === currentTarget`): EmptyState centers its card under a
-              // `pointer-events-none` wrapper (the contract lives there) and the
-              // watermark is `pointer-events-none` too, so a bare-area
-              // double-click targets THIS container, while one on the card or the
-              // dock targets that element instead and is left alone.
+              // `pointer-events-none` wrapper (the contract lives there), so a
+              // bare-area double-click targets THIS container, while one on the
+              // card or the dock targets that element instead and is left alone.
               onDblClick={(e) => {
                 if (e.target === e.currentTarget) dockPalette.onCreate();
               }}
             >
-              <CanvasWatermark text={appTitle()} />
               {/* The Dock stays mounted at zero terminals (desktop only) so its
                *  `+` new-terminal button is the always-reachable mouse path to
                *  the first terminal — the welcome card advertises ⌘⏎ but carries
                *  no clickable affordance (#1202). The empty Dock is just its
                *  header; the `relative` parent anchors its tiled-posture float
-               *  (`top-12 left-4`), the only posture reachable at zero tiles.
+               *  (`top-16 left-4`), the only posture reachable at zero tiles.
                *  The touch layouts mount no tile view (and so no pull-down nav)
                *  at zero terminals — `EmptyState`'s own `onCreate` button is
                *  their tappable path to the first terminal instead. */}
@@ -563,7 +560,6 @@ const App: Component = () => {
                   >
                     <TerminalCanvas
                       tileIds={tileStore.tileIds()}
-                      watermark={appTitle()}
                       getLayout={tileStore.getLayout}
                       onLayoutChange={tileStore.setLayout}
                       onAutoArrange={arrange.handleCanvasAutoArrange}

@@ -16,14 +16,12 @@ When("I request {string}", async function (this: KoluWorld, path: string) {
 });
 
 Then(
-  "the canvas watermark should contain {string}",
+  "the page title should contain {string}",
   async function (this: KoluWorld, text: string) {
-    const watermark = this.page.locator('[data-testid="canvas-watermark"]');
-    await watermark.waitFor({ state: "visible" });
-    const content = await watermark.textContent();
+    const content = await this.page.title();
     assert.ok(
       content?.includes(text),
-      `Watermark "${content}" does not contain "${text}"`,
+      `Page title "${content}" does not contain "${text}"`,
     );
   },
 );

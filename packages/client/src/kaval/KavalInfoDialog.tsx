@@ -19,7 +19,10 @@ import {
   kavalDot,
 } from "./useDaemonStatus";
 
-const KAVAL_LOGO_URL = new URL("../../../kaval/logo.svg", import.meta.url).href;
+export const KAVAL_LOGO_URL = new URL(
+  "../../../kaval/logo.svg",
+  import.meta.url,
+).href;
 
 const KavalInfoDialog: Component<{
   open: boolean;
