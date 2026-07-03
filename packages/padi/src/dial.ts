@@ -45,9 +45,11 @@ import {
 // compute a socket path.
 export {
   type PadiDaemon,
+  type PadiSocketResolution,
   discoverPadiDaemons,
   padiSocketPath,
   resolvePadiStateRoot,
+  resolveRunningPadiSocket,
 } from "./stateRoot.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────

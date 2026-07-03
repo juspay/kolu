@@ -1,0 +1,113 @@
+# padi-tui
+
+<img src="../padi/logo.svg" width="128" align="right" alt="padi — the per-host workspace authority" />
+
+**padi-tui** is the terminal-side client for [`padi`](../padi), the per-host
+workspace daemon (registry · fold · lifecycle · fs/git · kaval supervision). It
+dials padi's digest-keyed unix socket — through the shared
+[`@kolu/padi/dial`](../padi/src/dial.ts) kit — and reads its `padiSurface`: what
+each terminal *is in* (record state · repo·branch · PR · agent state ·
+foreground) and, crucially, the precise agent-state **done-signal** for driving
+an agent that drives another agent.
+
+It is the raw, non-interactive sibling of [`kaval-tui`](../kaval-tui) — verbs,
+no canvas (where kaval-tui shows what's *running* in each PTY, padi-tui shows
+what each terminal *is in*). It **replaces `pulam-tui`**: its `wait` reads real
+agent state off padi (better than kaval-tui's guess-from-silence), and its
+`create` spawns terminals, split tiles, and worktree'd agents that appear on the
+canvas.
+
+```
+padi-tui status [--json]                a one-shot snapshot of every terminal
+padi-tui watch [<id>] [--json]          follow live until Ctrl+C (● = live byte activity)
+padi-tui wait <id> --until <buckets>    block until that terminal's agent reaches a state, then exit
+padi-tui create [--parent <id>] [--worktree <branch>] [--repo <path>] [-- argv]
+                                        spawn a terminal / split tile / worktree'd agent, print its id
+```
+
+## Discovery — usually no flag
+
+padi keys its socket by a **digest of its state-root**, so there's no single
+fixed path. You rarely name it:
+
+- **Inside a kolu terminal**, padi stamps `$PADI_SOCKET` (the `$TMUX` /
+  `$KAVAL_SOCKET` convention) pointing at the padi that owns the terminal — so a
+  flag-less `padi-tui` "just works", and an agent driving its siblings never
+  scans or guesses a path.
+- **Otherwise** padi-tui autodiscovers the running padi. If several are up it
+  lists them and asks you to pick.
+
+Point it elsewhere (dev/e2e), flags going **after** the subcommand:
+
+```sh
+padi-tui status --state-root ~/some/state   # derive the digest→socket from a state-root
+padi-tui status --socket /path/to/padi.sock # a literal socket path
+```
+
+*(A remote padi over ssh is W3; today padi-tui is local-only.)*
+
+## wait — the agent-drives-agent done-signal
+
+`wait` blocks until a terminal's agent enters one of the coarse buckets
+`working` · `awaiting` · `waiting` (the shared `agentBucket` fold, so the
+vocabulary matches the Dock), then exits. `--until` is a comma list;
+`--until awaiting,waiting` means "the agent's turn ended".
+
+```sh
+id=$(padi-tui create -- claude)              # spawn a Claude Code agent
+kaval-tui send "$id" "explain this repo"     # prompt it
+kaval-tui send "$id" --key Enter
+padi-tui wait "$id" --until awaiting,waiting  # …block until its turn ends
+```
+
+Because the mirror **replays each terminal's current state on connect**, an
+agent already in a target bucket matches immediately. That makes the canonical
+**two-phase** loop robust against the stale-state race — first wait for the turn
+to *start*, then for it to *end*:
+
+```sh
+padi-tui wait "$id" --until working           # 1. the agent picked up the prompt
+padi-tui wait "$id" --until awaiting,waiting   # 2. …and finished its turn
+```
+
+`--timeout <ms>` caps the wait and fails loud. Exit codes let a driver branch:
+
+| exit | meaning |
+| --- | --- |
+| `0` | met — the agent reached a target bucket (`--json` prints `{ id, agent }`) |
+| `2` | timed out (still alive, but stuck) |
+| `3` | the terminal exited before reaching the state (the agent died) |
+| `130` | interrupted (Ctrl+C) |
+| `1` | usage / link error |
+
+## create — a terminal, a split tile, a worktree'd agent
+
+`create` spawns a terminal on the host; padi owns it and it appears on the
+canvas. stdout is just the new id (`id=$(padi-tui create)`); the rest is on
+stderr.
+
+```sh
+padi-tui create                          # a shell in the current directory
+padi-tui create --parent a1b2c3d4        # a SPLIT TILE of another terminal
+padi-tui create -- claude                # …and launch an agent in it
+padi-tui create --worktree feat -- claude  # a fresh git worktree + a Claude Code in one command
+```
+
+`--worktree <branch>` runs `git.worktreeCreate` on the host (off `--repo`,
+default the cwd) and opens the terminal there; anything after `--` is run in the
+new terminal. It composes the same `git.worktreeCreate` + create-with-cwd +
+`sendInput` the canvas worktree flow uses, so a worktree'd agent created here is
+byte-identical to one created from the browser.
+
+## status / watch
+
+`status` prints one row per terminal (record state · repo·branch · PR · agent ·
+foreground) and exits. `watch` follows the collection live, a line per change
+until Ctrl+C, with a trailing `●` when a terminal is **moving bytes right now**
+— padi's live `activity` stream (the daemon-side twin of the browser's green
+dot). `--json` makes both scriptable (`status` an array, `watch` NDJSON).
+
+```sh
+padi-tui status
+padi-tui watch a1b2c3d4        # follow just one terminal
+```

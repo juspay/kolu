@@ -71,6 +71,11 @@ const HASHED_ROOTS: Record<string, string> = {
 // because they are NOT in padi's process closure. Paths are relative to
 // `<root>/src`. Keep in lockstep with default.nix's `padiSrc`.
 const EXCLUDED: Record<string, string[]> = {
+  // padi's CLIENT dial kit (`@kolu/padi/dial`, W2.3) — it runs in a padi CLIENT
+  // (padi-tui, the kolu-server binder), NEVER in padi's daemon process (neither
+  // `bin.ts` nor the `assembly.ts` barrel reaches it), so it belongs to those
+  // consumers' code, not padi's staleKey.
+  "@kolu/padi": ["dial.ts"],
   // kaval's daemon EXECUTABLE — the separate process padi spawns via
   // KOLU_KAVAL_BIN, carrying its OWN KAVAL_BUILD_ID. padi embeds only kaval's
   // LIBRARY surface (`index.ts`), never these, so they belong to kaval's

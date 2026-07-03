@@ -96,6 +96,7 @@ let
       ./packages/pulam
       ./packages/pulam-tui
       ./packages/padi
+      ./packages/padi-tui
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -210,8 +211,17 @@ let
   padiSrc = pkgs.lib.fileset.toSource {
     root = ./packages;
     fileset = pkgs.lib.fileset.unions [
-      # padi itself — both entry roots (bin.ts · assembly.ts) live here.
-      (padiPkgRoot ./packages/padi)
+      # padi itself — both entry roots (bin.ts · assembly.ts) live here. MINUS
+      # `dial.ts` (`@kolu/padi/dial`, W2.3): the CLIENT dial kit runs in a padi
+      # CLIENT (padi-tui, the kolu-server binder), NEVER in padi's daemon process,
+      # so it belongs to those consumers' code — not padi's staleKey (a dial-only
+      # change must not flip what a padi restart would load).
+      (pkgs.lib.fileset.unions [
+        (pkgs.lib.fileset.difference
+          (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/padi/src)
+          ./packages/padi/src/dial.ts)
+        ./packages/padi/package.json
+      ])
       # kaval — but ONLY its LIBRARY surface (what padi embeds in-process from
       # `index.ts`), NOT its daemon EXECUTABLE (bin.ts · daemonMain.ts ·
       # stdioBridge.ts). padi spawns that executable as a SEPARATE process via
@@ -628,6 +638,21 @@ let
     agentDrvsJson = pulamAgentDrvsJson;
   };
 
+  # padi-tui (W2.3): the terminal-side CLI that dials a running padi's digest-keyed
+  # socket and reads its `padiSurface` — `status`/`watch` (record state · agent ·
+  # live byte activity) and the precise agent-state `wait` done-signal, plus
+  # `create` (a terminal / split tile / worktree'd agent). kaval-tui's sibling and
+  # `pulam-tui`'s replacement (see `packages/padi-tui/README.md`). Runs from the
+  # SAME built workspace closure as `kolu` under tsx, via `mkAgentTuiWrapper`.
+  # `PADI_AGENT_DRVS_JSON` is set-but-unused today (padi-tui is local-only); the
+  # remote `--host` leg that would consume it is W3, which wires the real drv map.
+  padi-tui = mkAgentTuiWrapper {
+    name = "padi-tui";
+    entry = "packages/padi-tui/src/main.ts";
+    envVar = "PADI_AGENT_DRVS_JSON";
+    agentDrvsJson = "{}";
+  };
+
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
   # so the fixed-output fetch is cached once.
@@ -673,5 +698,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui pulam pulam-tui padi koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui pulam pulam-tui padi padi-tui koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample // oduPackages

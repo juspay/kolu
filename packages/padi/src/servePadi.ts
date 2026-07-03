@@ -21,7 +21,6 @@
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
 import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
-import { quietActivity } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
@@ -31,6 +30,7 @@ import {
   requirePadiSessionStore,
 } from "./confStores.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
+import { createLiveActivitySource } from "./liveActivity.ts";
 import { readPreview } from "./preview.ts";
 import {
   readDaemonStatus,
@@ -212,17 +212,15 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     streams: {
-      // QUIET — deliberately, still. `activity` (the set of terminals producing
-      // output right now) has NO consumer: the client derives its per-tile live
-      // dot LOCALLY from `terminalAttach` bytes and has never read this surface
-      // member. Lighting it now — even though padi owns the byte-taps that could
-      // feed it — would be a producer with zero consumers, the exact
-      // self-sufficiency smell this plan exists to kill. So it stays served-quiet
-      // (the honest "nothing known to be moving", no contract change); its live
-      // backing lands with its FIRST real consumer — `padi-tui wait`/`status`
-      // (W2.3) or `kolu-tui` (W4). The fs/git change-pulses are pure reuse of
-      // `fsGitSurfaceDeps(...).streams`.
-      activity: quietActivity,
+      // LIVE (W2.3) — the set of terminals producing output right now, tapped from
+      // kaval's per-terminal byte deltas. Deferred out of W2.2 as a producer with
+      // no consumer; lit here with its FIRST consumer, `padi-tui watch`/`status`,
+      // per the self-sufficiency rule. LAZY: byte taps open only while this stream
+      // has a subscriber (see `createLiveActivitySource`), so an unwatched padi
+      // pays nothing. The client's per-tile green dot is unchanged — it derives
+      // from its OWN `terminalAttach` bytes, never this member. The fs/git
+      // change-pulses are pure reuse of `fsGitSurfaceDeps(...).streams`.
+      activity: createLiveActivitySource(log),
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
