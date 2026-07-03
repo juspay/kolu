@@ -109,7 +109,11 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
     // double-click on the card never reaches the create handler.
     <div
       data-testid="empty-state"
-      class="flex items-center justify-center h-full pointer-events-none"
+      class="flex h-full items-start justify-center overflow-y-auto px-5 pb-6 pointer-events-none"
+      classList={{
+        "pt-20": isDesktop(),
+        "pt-5": !isDesktop(),
+      }}
     >
       <div class={`${chrome.class} p-5 max-w-md w-full pointer-events-auto`}>
         {/* The bird's-eye welcome — desktop only (no mobile welcome, by design). */}

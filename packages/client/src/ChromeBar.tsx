@@ -116,18 +116,9 @@ const ChromeBar: Component<{
             }
       }
     >
-      {/* Identity: logo (→ kolu.dev) + connection dot. App name lives as
-       *  a corner watermark on the canvas, not in the chrome. */}
-      <div class="flex items-center gap-2 shrink-0 pointer-events-auto">
-        <a
-          href="https://kolu.dev"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="flex items-center"
-          aria-label="kolu.dev"
-        >
-          <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
-        </a>
+      {/* Identity rail. Server details live in the rail dialogs, not as
+       * duplicate branding on the canvas. */}
+      <div class="shrink-0 pointer-events-auto">
         <IdentityRail status={props.status} />
       </div>
 
