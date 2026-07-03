@@ -3,10 +3,11 @@
  * kolu.dev/kaval — quick reference for kaval (the PTY daemon) and kaval-tui
  * (its terminal client), beta.
  *
- * Deliberately UNLISTED: linked from nowhere on the site, excluded from the
- * sitemap (astro.config.mjs), and noindex'd below — it's a URL you hand to
- * someone trying the beta, not a navigation destination. Flip those three
- * switches together when the pair graduates.
+ * A LISTED page: it's in the sitemap (astro.config.mjs), indexable, and linked
+ * from the home page (index.astro's Power-features section). The pair graduated
+ * out of the hand-out-the-URL-only phase, so the old noindex tag and sitemap
+ * exclusion are gone. The beta banner below STAYS — the CLI is still beta; only
+ * the indexing/linking graduated.
  *
  * /tui redirects here (see astro.config.mjs) — the old name from before the
  * daemon (kaval) and its client (kaval-tui) were named apart.
@@ -62,8 +63,6 @@ const escapes = [
   title="kaval"
   description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, send input to, and kill your terminals from the shell."
 >
-  <meta name="robots" content="noindex" slot="head" />
-
   <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
     {/* Warning orange (--color-brand-amber), NOT the site accent: the
         `amber` token is the purple brand accent, and an alpha warning must
@@ -130,12 +129,15 @@ const escapes = [
     <h2 class="kv-head">how it fits together</h2>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mb-6">
       One daemon owns the terminals; everything else is a client.{" "}
-      <code class="mono text-ink">kolu</code> no longer runs PTYs in-process — it
-      spawns its <em>own</em> <code class="mono text-ink">kaval</code> and dials
-      it over a unix socket, exactly as{" "}
-      <code class="mono text-ink">kaval-tui</code> does from the shell. Same
-      daemon, same terminals, two faces — and the link runs <em>both</em> ways:
-      the daemon streams live updates back to every client, so a terminal you{" "}
+      <code class="mono text-ink">kolu</code> no longer runs PTYs in-process — its
+      per-host daemon, <code class="mono text-ink">padi</code> (Tamil{" "}
+      <em>paḍi</em> — the stepped stand a <em>koḷu</em> sits on), spawns and
+      supervises its <em>own</em> <code class="mono text-ink">kaval</code> and
+      dials it over a unix socket, exactly as{" "}
+      <code class="mono text-ink">kaval-tui</code> does from the shell (the
+      kolu-server is just the web shell your browser talks to in front of padi).
+      Same daemon, same terminals, many faces — and the link runs <em>both</em>{" "}
+      ways: kaval streams live updates back to every client, so a terminal you{" "}
       <code class="mono text-ink">kaval-tui create</code> from the shell shows up
       in <code class="mono text-ink">kolu</code> the moment it's born.
     </p>
@@ -147,10 +149,10 @@ const escapes = [
         aria-labelledby="kv-diagram-title"
       >
         <title id="kv-diagram-title"
-          >kolu and kaval-tui are both clients of one kaval daemon, which owns
-          the PTYs and serves them over a unix socket — clients call the daemon
-          and the daemon streams live updates back, so a terminal either client
-          creates appears in the other</title
+          >padi (the per-host daemon behind kolu) and kaval-tui are both clients
+          of one kaval daemon, which owns the PTYs and serves them over a unix
+          socket — clients call the daemon and the daemon streams live updates
+          back, so a terminal either client creates appears in the other</title
         >
         <defs>
           <marker
@@ -204,9 +206,9 @@ const escapes = [
         {/* client boxes */}
         <rect x="24" y="70" width="150" height="56" rx="9" class="kv-d-box"
         ></rect>
-        <text x="99" y="97" text-anchor="middle" class="kv-d-label">kolu</text>
+        <text x="99" y="97" text-anchor="middle" class="kv-d-label">padi</text>
         <text x="99" y="114" text-anchor="middle" class="kv-d-sub"
-          >the desktop app</text
+          >kolu's host daemon</text
         >
 
         <rect x="24" y="146" width="150" height="56" rx="9" class="kv-d-box"
@@ -290,8 +292,9 @@ const escapes = [
   <section class="mx-auto max-w-3xl px-6 pb-14">
     <h2 class="kv-head">drive a running <span class="kv-prog">kolu</span></h2>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
-      kolu doesn't run terminals in-process anymore — it spawns a kaval daemon
-      of its own and is just another client of it. So the same{" "}
+      kolu doesn't run terminals in-process anymore — its per-host daemon{" "}
+      <code class="mono text-ink">padi</code> spawns a kaval of its own and dials
+      it, so kolu is just another consumer of it. So the same{" "}
       <code class="mono text-ink">kaval-tui</code> reaches the terminals you have
       open in kolu, from the shell, with <span class="text-ink">no flags</span>:
     </p>
@@ -304,7 +307,9 @@ const escapes = [
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
       kaval-tui discovers the daemon by scanning the per-user runtime dir — both
       a standalone <code class="mono text-ink">kaval</code> and every kolu (each
-      kolu-server namespaces its daemon by listen port). One running → it's
+      kolu's <code class="mono text-ink">padi</code> namespaces its kaval by a
+      digest of its state-root, and drops a manifest beside the socket so
+      kaval-tui can label it back to the kolu it belongs to). One running → it's
       picked automatically. More than one → kaval-tui lists them and asks you to
       choose with <code class="mono text-ink">--socket &lt;path&gt;</code>.
     </p>
@@ -452,9 +457,11 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
       daemon there, runs it against the remote kaval, and streams the same
       awareness — the thin client is the only thing that runs locally. The
       remote pulam <span class="text-ink">discovers</span> the running kaval — a
-      standalone one, or a kolu-server (each namespaced by listen port) — so it
-      lands on your remote kolu's terminals with <span class="text-ink">no
-      flag</span>; add <code class="mono text-ink">--kaval &lt;path&gt;</code>{" "}
+      standalone one, or the kaval a kolu's{" "}
+      <code class="mono text-ink">padi</code> owns (each namespaced by its
+      state-root digest) — so it lands on your remote kolu's terminals with{" "}
+      <span class="text-ink">no flag</span>; add{" "}
+      <code class="mono text-ink">--kaval &lt;path&gt;</code>{" "}
       only to pick one when several kavals run on the host.
     </p>
     <div class="kv-term">
@@ -626,8 +633,10 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
         <code class="mono text-ink">kaval-tui list --socket …</code>).
       </li>
       <li>
-        kolu's daemon is namespaced by listen port —{" "}
-        <code class="mono text-ink">$XDG_RUNTIME_DIR/kaval-&lt;port&gt;/pty-host.sock</code>{" "}
+        A kolu's kaval is spawned by its{" "}
+        <code class="mono text-ink">padi</code> and namespaced by a digest of
+        padi's state-root —{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR/kaval-&lt;digest&gt;/pty-host.sock</code>{" "}
         — so two kolus on one box never collide. kaval-tui's auto-discovery walks
         all of them; pass <code class="mono text-ink">--socket</code> only to
         disambiguate when several daemons are up.
