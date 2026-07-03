@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { controllable } from "./controllableStream.testutil";
 import { observableHolder } from "./hostFanout";
 import {
   type ForwardableStream,
@@ -23,63 +24,6 @@ import {
 } from "./relayStream";
 
 const delay = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
-/** A stream whose frames the test pushes by hand, and which the test can end
- *  cleanly (`end`) or kill with an error (`fail`, i.e. a mid-chain link death).
- *  `stream(signal)` observes the caller's abort signal — rejecting a pending pull
- *  with `signal.reason`, exactly as a real oRPC publisher does on teardown — so a
- *  downstream abort actually unblocks the relay rather than hanging on an await. */
-interface Controllable<T> {
-  stream(signal?: AbortSignal): AsyncIterable<T>;
-  push(v: T): void;
-  end(): void;
-  fail(err: unknown): void;
-}
-function controllable<T>(): Controllable<T> {
-  const queue: T[] = [];
-  let wake: (() => void) | null = null;
-  let closed: "open" | "end" | { err: unknown } = "open";
-  const nudge = (): void => {
-    const w = wake;
-    wake = null;
-    w?.();
-  };
-  return {
-    stream(signal) {
-      return {
-        async *[Symbol.asyncIterator]() {
-          const onAbort = (): void => nudge();
-          signal?.addEventListener("abort", onAbort);
-          try {
-            while (true) {
-              while (queue.length > 0) yield queue.shift() as T;
-              if (signal?.aborted) throw signal.reason;
-              if (closed === "end") return;
-              if (typeof closed === "object") throw closed.err;
-              await new Promise<void>((r) => {
-                wake = r;
-              });
-            }
-          } finally {
-            signal?.removeEventListener("abort", onAbort);
-          }
-        },
-      };
-    },
-    push(v) {
-      queue.push(v);
-      nudge();
-    },
-    end() {
-      closed = "end";
-      nudge();
-    },
-    fail(err) {
-      closed = { err };
-      nudge();
-    },
-  };
-}
 
 const POLICY = {
   liveBytes: "delta",
@@ -204,6 +148,47 @@ describe("relayFailThroughStream (delta)", () => {
     up.push("only");
     await run;
     expect(frames).toEqual(["only"]);
+  });
+
+  it("ends cleanly (no throw) on a downstream abort DURING the subscribe handshake", async () => {
+    // A `get()` that stays pending until the caller's signal aborts, then rejects
+    // with the signal reason — a real oRPC subscribe torn down mid-handshake.
+    const holder = observableHolder<ByteClient>();
+    holder.current = {
+      surface: {
+        s: {
+          get: (_input, opts) =>
+            new Promise<AsyncIterable<string>>((_resolve, reject) => {
+              opts?.signal?.addEventListener(
+                "abort",
+                () => reject(opts.signal?.reason),
+                { once: true },
+              );
+            }),
+        },
+      },
+    };
+    const relay = relayFailThroughStream(
+      POLICY,
+      "liveBytes",
+      holder,
+      selectByte,
+    );
+    const ctl = new AbortController();
+    let threw = false;
+    const run = (async () => {
+      try {
+        for await (const _ of relay({ id: "t1" }, ctl.signal)) {
+          /* no frames before the abort */
+        }
+      } catch {
+        threw = true;
+      }
+    })();
+    await delay();
+    ctl.abort(); // abort while the subscribe handshake (get()) is still pending
+    await run;
+    expect(threw).toBe(false); // handshake abort → clean return, not a spurious throw
   });
 });
 

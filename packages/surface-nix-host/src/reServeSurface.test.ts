@@ -20,6 +20,7 @@ import type { createRouterClient } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { mirroredSurface } from "./connection";
+import { type Controllable, controllable } from "./controllableStream.testutil";
 import type { AgentClient, HostSession, HostSessionState } from "./hostSession";
 import { reServeSurface } from "./reServeSurface";
 import type { RelayPolicy } from "./relayStream";
@@ -77,53 +78,12 @@ type ToyContract = typeof mirroredToy.contract;
 const link = (router: unknown) =>
   directLink<ToyContract>(router as Parameters<typeof createRouterClient>[0]);
 
-// ── A hand-driven stream + a fake upstream agent ───────────────────────────
+// ── A fake upstream agent over hand-driven, signal-aware streams ────────────
 
-interface Controllable<T> {
-  iterable: AsyncIterable<T>;
-  push(v: T): void;
-  end(): void;
-  fail(err: unknown): void;
-}
-function controllable<T>(): Controllable<T> {
-  const queue: T[] = [];
-  let wake: (() => void) | null = null;
-  let closed: "open" | "end" | { err: unknown } = "open";
-  const signal = (): void => {
-    const w = wake;
-    wake = null;
-    w?.();
-  };
-  return {
-    iterable: {
-      async *[Symbol.asyncIterator]() {
-        while (true) {
-          while (queue.length > 0) yield queue.shift() as T;
-          if (closed === "end") return;
-          if (typeof closed === "object") throw closed.err;
-          await new Promise<void>((r) => {
-            wake = r;
-          });
-        }
-      },
-    },
-    push(v) {
-      queue.push(v);
-      signal();
-    },
-    end() {
-      closed = "end";
-      signal();
-    },
-    fail(err) {
-      closed = { err };
-      signal();
-    },
-  };
-}
-
-/** A fake agent serving the toy surface off controllable streams. `kill()` fails
- *  every stream it has handed out — a whole-agent link death. */
+/** A fake agent serving the toy surface off controllable streams (the shared
+ *  signal-AWARE helper, so a downstream abort actually unblocks the relay's
+ *  upstream read). `kill()` fails every stream it has handed out — a whole-agent
+ *  link death. */
 function makeUpstream(
   counterValue: number,
   items: Record<string, number> = {},
@@ -142,31 +102,43 @@ function makeUpstream(
 
   const client = {
     surface: {
-      counter: { get: async () => counter.iterable },
+      counter: {
+        get: async (_i: unknown, opts?: { signal?: AbortSignal }) =>
+          counter.stream(opts?.signal),
+      },
       items: {
-        keys: async () => {
+        keys: async (_i: unknown, opts?: { signal?: AbortSignal }) => {
           const c = track(controllable<string[]>());
           c.push(Object.keys(items));
-          return c.iterable;
+          return c.stream(opts?.signal);
         },
-        get: async ({ key }: { key: string }) => {
+        get: async (
+          { key }: { key: string },
+          opts?: { signal?: AbortSignal },
+        ) => {
           const c = track(controllable<{ n: number }>());
           c.push({ n: items[key] ?? 0 });
-          return c.iterable;
+          return c.stream(opts?.signal);
         },
       },
       attach: {
-        get: async ({ id }: { id: string }) => {
+        get: async (
+          { id }: { id: string },
+          opts?: { signal?: AbortSignal },
+        ) => {
           const c = track(controllable<string>());
           attachStreams.set(id, c);
-          return c.iterable;
+          return c.stream(opts?.signal);
         },
       },
       pulses: {
-        get: async ({ repo }: { repo: string }) => {
+        get: async (
+          { repo }: { repo: string },
+          opts?: { signal?: AbortSignal },
+        ) => {
           const c = track(controllable<number>());
           pulseStreams.set(repo, c);
-          return c.iterable;
+          return c.stream(opts?.signal);
         },
       },
       ctl: {
@@ -428,5 +400,71 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     expect(() =>
       reServeSurface({ source: toySurface, policy: noAttach, session: s }),
     ).toThrow(/no forwarding policy/);
+  });
+
+  it("reconciles a collection across a reconnect — a departed-while-down key is pruned (no stale row, no flash)", async () => {
+    const { session, upstream, done, downstream } = setup(1, { a: 10, b: 20 });
+    await delay(15);
+
+    const keyFrames: string[][] = [];
+    const ctl = new AbortController();
+    const sub = (async () => {
+      for await (const keys of await downstream.surface.items.keys(
+        {},
+        { signal: ctl.signal },
+      ))
+        keyFrames.push([...keys].sort());
+    })();
+    await delay();
+    expect(keyFrames.at(-1)).toEqual(["a", "b"]); // both present initially
+
+    // Kill the middle hop, then rebind to an upstream serving only {a} — b departed
+    // while the link was down.
+    upstream.kill();
+    const upstream2 = makeUpstream(1, { a: 10 });
+    session.setClient(upstream2.client);
+    await delay(25);
+
+    // The held keys subscription reconciled to {a}: b was pruned (no stale ghost
+    // row) and no frame ever dropped `a` (no empty flash).
+    expect(keyFrames.at(-1)).toEqual(["a"]);
+    expect(keyFrames.every((f) => f.includes("a"))).toBe(true);
+
+    ctl.abort();
+    await teardown(session, done, upstream2);
+    await sub;
+  });
+
+  it("a downstream cell WRITE throws — the re-serve is a read mirror until W2.2", async () => {
+    const { session, upstream, done, downstream } = setup(5);
+    await delay(15);
+
+    // A read folds from the agent…
+    expect(
+      await take(await downstream.surface.counter.get(undefined), 1),
+    ).toEqual([5]);
+    // …but a write does NOT silently mutate the mirror (a phantom the next frame
+    // reverts) — it throws loudly.
+    await expect(
+      (
+        downstream.surface.counter as unknown as {
+          set: (v: number) => Promise<unknown>;
+        }
+      ).set(9),
+    ).rejects.toThrow(/read-only on the re-serve/);
+
+    await teardown(session, done, upstream);
+  });
+
+  it("fails loud on a source surface with no cells (markConnected has no on-connect cue)", () => {
+    const cellless = defineSurface({
+      streams: {
+        s: { inputSchema: z.object({}), outputSchema: z.string() },
+      },
+    });
+    const s = makeSession() as unknown as HostSession<typeof cellless.contract>;
+    expect(() =>
+      reServeSurface({ source: cellless, policy: { s: "delta" }, session: s }),
+    ).toThrow(/no cells/);
   });
 });

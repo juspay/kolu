@@ -28,14 +28,16 @@
  *     corrupt the screen — pulam-web's hold-open forwarder was *exactly wrong*
  *     for attach, and this is its correction.
  *
- * The split is enforced at the type level, not by convention: {@link
+ * The split is guarded at the type level for DIRECT callers: {@link
  * relayHoldOpenStream} accepts only a {@link ValueMembers} key and {@link
- * relayFailThroughStream} only a {@link DeltaMembers} key of the same policy. So
- * "hold open a byte stream" is unspellable — a compile error at the call site,
- * making the splice-a-snapshot-into-a-live-terminal corruption impossible to
- * express rather than a rule to remember. W2.1 graduates the machinery; W1
- * already shipped the per-member classification the policy encodes (padi's
- * `PADI_FORWARDING_POLICY`, pinned by a set-equality contract test).
+ * relayFailThroughStream} only a {@link DeltaMembers} key of the same policy, so
+ * "hold open a byte stream" is a compile error at such a call site (pinned by
+ * `relayStream.test`'s `_typeGuards`). The re-serve ASSEMBLY (`reServeSurface`)
+ * instead routes by reading `policy[member]` at RUNTIME — its member keys come
+ * from `Object.keys(spec.*)` as `string`, with no literal to guard on — so its
+ * enforcement is the runtime `requirePolicy` plus W1's set-equality contract test
+ * pinning which members are `delta` (padi's `PADI_FORWARDING_POLICY`). W2.1
+ * graduates the machinery; W1 shipped that classification.
  */
 
 import { isAbortReason, iterateUntilAborted } from "@kolu/surface/server";
@@ -94,17 +96,26 @@ export interface RelayHoldOpenOptions<F> extends RelayStreamOptions {
 }
 
 /**
- * Relay an input-keyed VALUE stream, HELD OPEN across upstream respawns.
+ * Relay an input-keyed VALUE stream, HELD OPEN across upstream respawns — the impl
+ * behind the type-guarded {@link relayHoldOpenStream}, also called directly by the
+ * re-serve assembly (which routes by runtime policy). Takes a bare `member` label;
+ * the value/delta COMPILE guard lives on the public wrapper, not here.
  *
  * Yields `lead` (if given) on each bind, then forwards the current live client's
- * `select(client).get(input)` frames until that stream ends or its link blips —
- * at which point it does NOT complete the downstream stream but waits (via the
+ * `select(client).get(input)` frames until that stream ends or its link blips — at
+ * which point it does NOT complete the downstream stream but waits (via the
  * holder's `whenChanged`) for the next spawn and rebinds. The ONLY exit is the
- * downstream aborting (unsubscribe). Replaying a value across a hiccup is
- * harmless, so the downstream never sees the upstream drop.
+ * downstream aborting (unsubscribe). Replaying a value across a hiccup is harmless,
+ * so the downstream never sees the upstream drop.
  *
- * `member` is constrained to a `"value"` key of `policy`: passing a `"delta"`
- * member is a COMPILE error — a byte stream can't be held open here.
+ * KNOWN LIMITATION (#1661 candidate 3a — deferred to W2.2): "did the live client
+ * change?" is the sole proxy for "did the link die?". A value stream that ENDS or
+ * REJECTS for a PER-INPUT reason (e.g. a bad input) while the SAME client stays
+ * live leaves `holder.current === client`, so `whenChanged` never fires and the
+ * downstream parks silently until the next respawn. Latent today — padi's value
+ * streams (subscribeRepoChange / subscribeFileChange) only wire through here at
+ * W2.2, where the recovery semantics (surface-the-error vs re-subscribe) and the
+ * link-death race are ratified (pinned as a W2.2 done-criterion in the padi note).
  */
 export function holdOpenStreamCore<Cl, I, F>(
   member: string,
@@ -124,8 +135,12 @@ export function holdOpenStreamCore<Cl, I, F>(
         log(`${member}: no live client — holding for next spawn`);
         try {
           await holder.whenChanged(signal);
-        } catch {
-          return; // aborted: the downstream unsubscribed
+        } catch (err) {
+          // `whenChanged` rejects only on abort (the downstream unsubscribed) →
+          // clean return; a non-abort rejection must surface, not be swallowed —
+          // matching the sibling `failThroughStreamCore`. (#1661 candidate 3a.)
+          if (isAbortReason(err, signal)) return;
+          throw err;
         }
         continue;
       }
@@ -142,12 +157,14 @@ export function holdOpenStreamCore<Cl, I, F>(
         );
       }
       // Don't busy-loop back onto the SAME just-dead client: wait for the pump to
-      // swap in the next one (or clear it) before rebinding.
-      if (holder.current === client || holder.current === null) {
+      // swap in the next one before rebinding. (A clear to `null` needs no test
+      // here — the loop head's `client === null` branch awaits `whenChanged`.)
+      if (holder.current === client) {
         try {
           await holder.whenChanged(signal);
-        } catch {
-          return; // aborted: the downstream unsubscribed
+        } catch (err) {
+          if (isAbortReason(err, signal)) return; // downstream unsubscribed
+          throw err;
         }
       }
     }
@@ -227,8 +244,12 @@ export function failThroughStreamCore<Cl, I, F>(
     // client's STREAM_RETRY re-subscribes end-to-end. We do NOT catch that error
     // (which would strand the client on a silently-dead stream) and we do NOT
     // rebind (the hold-open anti-pattern that corrupts a live terminal).
-    const upstream = await select(client).get(input, { signal });
     try {
+      // The subscribe handshake is INSIDE the try: an abort during `get(...)` (the
+      // downstream unsubscribed before the first frame) rejects with the signal's
+      // reason, which `isAbortReason` below turns into a clean return — not a throw
+      // that would surface a spurious error to the client (#1661 candidate 10).
+      const upstream = await select(client).get(input, { signal });
       for await (const frame of iterateUntilAborted(upstream, signal)) {
         yield frame;
       }

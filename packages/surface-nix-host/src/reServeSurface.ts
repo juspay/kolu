@@ -13,8 +13,10 @@
  *
  *   - **cells** + **collections** (always `value`) — folded into per-binding
  *     stores by the mirror sink, held across an upstream drop and REPLAYED on the
- *     next spawn (a rebind re-seeds the store; the downstream cell subscription
- *     never tears down, so no healthy-but-empty flash).
+ *     next spawn (a rebind re-seeds the store; a collection's carry-over keys are
+ *     reconciled on the fresh snapshot, so a key that departed while down is
+ *     dropped without an empty flash). A cell READS from the mirror; a cell WRITE
+ *     throws (the re-serve is read-only until W2.2 forwards writes).
  *   - **value streams / events** — held open per downstream subscriber
  *     ({@link relayHoldOpenStream}), rebinding across respawns.
  *   - **delta streams** (byte / liveness) — failed through per subscriber
@@ -24,8 +26,13 @@
  *   - **procedures** — forwarded to the live spawn's stubs; a call while the link
  *     is down throws loudly (fail-fast), never a silent no-op.
  *
- * The routing can't be told to hold open a byte stream: the two stream relays are
- * type-guarded on the policy, so the corruption is unspellable, not a convention.
+ * The assembly routes each member by reading `policy[member]` at RUNTIME
+ * (`requirePolicy`), because the member keys come from `Object.keys(spec.*)` as
+ * `string` — no compile-time member literal to guard on here. The COMPILE guard
+ * (holding open a byte stream is a type error) lives on the direct-use relays
+ * {@link relayHoldOpenStream} / {@link relayFailThroughStream} and is pinned by
+ * relayStream.test's `_typeGuards`; the runtime `requirePolicy` is the assembly's
+ * equivalent, and W1's set-equality contract test pins which members are `delta`.
  *
  * **Per-binding scope (item 3).** Each `reServeSurface` call mints its OWN store
  * set + router, so a parent that fronts N hosts calls it once per host (through
@@ -48,11 +55,7 @@ import {
 } from "@kolu/surface/server";
 import type { AnyContractRouter } from "@orpc/contract";
 import { implement } from "@orpc/server";
-import {
-  type ConnectionInfo,
-  mirroredSurface,
-  type WithConnection,
-} from "./connection";
+import { mirroredSurface, type WithConnection } from "./connection";
 import { seedConnectionCell } from "./connectionPipe";
 import {
   type LiveSpawnHolder,
@@ -94,7 +97,12 @@ export interface ReServedSurface<S extends SurfaceSpec> {
   surface: Surface<WithConnection<S>>;
   /** The per-binding oRPC router (flattened for a handler / `directLink`). */
   router: unknown;
-  /** Settles when the pump loop exits (the session was destroyed). */
+  /** Settles when the pump loop exits (the session was destroyed). It can also
+   *  REJECT on an unrecoverable mirror fault — a `SinkError` (a broken local fold)
+   *  or a client/surface mismatch — which STOPS the pump (no further reconnect). A
+   *  consumer MUST observe `done` and surface such a fault loudly (e.g. drive the
+   *  `connection` cell to failed); dropping it leaks an unhandled rejection and a
+   *  silently-dead binding. (#1661 candidate 9; consumer wiring is W2.2.) */
   done: Promise<void>;
 }
 
@@ -114,6 +122,24 @@ export function reServeSurface<
   const spec = source.spec;
   // The downstream surface = the agent's base + the gate-closed `connection` cell.
   const surface = mirroredSurface(source);
+
+  // A source surface must declare at least one CELL. `markConnected` (below) fires
+  // on the first folded CELL frame — a cell always emits a snapshot on connect, so
+  // it is the structural on-connect handshake cue, and it also keeps the mirror
+  // alive (a foldless mirror would settle instantly and clear `liveClient`). A
+  // cell-less surface would never mark connected → the connection gate stays closed
+  // and the connect watchdog cycles the link to failed. Fail loud at build. (#1661
+  // candidate 7.)
+  if (Object.keys(spec.cells ?? {}).length === 0) {
+    throw new Error(
+      "reServeSurface: source surface declares no cells — markConnected is wired to the first folded cell frame (a cell's on-connect snapshot), so a cell-less surface would never mark the session connected. Add a status cell.",
+    );
+  }
+
+  // ONE channel factory, shared by `implementSurface` (the deps below) AND the cell
+  // fold (which publishes onto the same `<key>:changed` channel a cell's `get`
+  // subscribes) — `inMemoryChannelByName` returns the same instance per name.
+  const channel = inMemoryChannelByName();
 
   // Live-spawn holders the pump drives; the relays read `liveClient` and the
   // procedure forwarders read `liveProcedures`. `observableHolder` gives the
@@ -140,21 +166,48 @@ export function reServeSurface<
 
   // ── implementSurface deps, derived from the policy ────────────────────────
 
-  // Cells (always folded as value) → in-memory stores the mirror sink folds into.
-  // Plus the seeded, gate-closed `connection` cell the pump writes off
-  // `session.onState`.
+  // Cells — the re-serve is a READ mirror: a downstream READ folds from the agent,
+  // but a downstream WRITE (set/patch/test__set) must NOT silently mutate the local
+  // mirror store (a phantom write the next mirrored frame reverts). So each cell's
+  // `get` folds from a value store while its store's `set` THROWS — the wire write
+  // handlers reject loudly. The FOLD does not go through that throwing `set`: it
+  // writes the value and publishes directly onto the cell's own `<key>:changed`
+  // channel (the same instance `get` subscribes), so a mirrored frame still reaches
+  // downstream subscribers. A fixture that needs to write a cell targets the agent
+  // directly; full write-forwarding is W2.2. (#1661 candidate 8.)
+  const cellFolds = new Map<string, (v: unknown) => void>();
   const cellsDeps: Record<string, unknown> = {};
   for (const [key, cellSpec] of Object.entries(spec.cells ?? {})) {
+    const value = inMemoryStore((cellSpec as { default: unknown }).default);
+    const changed = channel<unknown>(`${key}:changed`);
+    cellFolds.set(key, (v) => {
+      value.set(v);
+      changed.publish(v);
+    });
     cellsDeps[key] = {
-      store: inMemoryStore((cellSpec as { default: unknown }).default),
+      store: {
+        get: () => value.get(),
+        set: () => {
+          throw new Error(
+            `reServeSurface: cell "${key}" is read-only on the re-serve — a write does not cross to the agent (cell writes are forwarded in W2.2; see PR #1661 candidate 8). Write a fixture against the agent directly.`,
+          );
+        },
+      },
     };
   }
+  // The connection cell IS written locally — by the pump, off `session.onState`
+  // (server-internal, via `ctx`), not by a wire client — so it keeps a normal store.
   cellsDeps.connection = seedConnectionCell();
 
   // Collections (always folded as value) → per-key caches the mirror sink folds into.
+  // Each cache is kept per key so the sink can hand the mirror its carry-over keys
+  // (`initialKeys`) on reconnect — the fresh snapshot then prunes keys that departed
+  // while the link was down (no stale ghost rows, no empty flash). (#1661 candidate 1.)
+  const collectionCaches = new Map<string, Map<unknown, unknown>>();
   const collectionsDeps: Record<string, unknown> = {};
   for (const key of Object.keys(spec.collections ?? {})) {
     const cache = new Map<unknown, unknown>();
+    collectionCaches.set(key, cache);
     collectionsDeps[key] = {
       readAll: () => cache,
       upsert: (k: unknown, v: unknown) => {
@@ -236,7 +289,7 @@ export function reServeSurface<
   // pass per kind, plus `connection`). The dynamic build is cast once at this
   // boundary, exactly as the framework's own dynamic walks cast.
   const deps = {
-    channel: inMemoryChannelByName(),
+    channel,
     cells: cellsDeps,
     collections: collectionsDeps,
     streams: streamsDeps,
@@ -283,20 +336,22 @@ export function reServeSurface<
     };
     const cells: Record<string, (v: unknown) => void> = {};
     for (const key of Object.keys(spec.cells ?? {})) {
-      const cell = ctx.cells[key];
-      if (!cell) {
-        throw new Error(
-          `reServeSurface: implementSurface produced no cell for "${key}"`,
-        );
+      const fold = cellFolds.get(key);
+      if (!fold) {
+        throw new Error(`reServeSurface: no fold registered for cell "${key}"`);
       }
       cells[key] = (value) => {
         onFirst();
-        cell.set(value);
+        fold(value);
       };
     }
     const collections: Record<
       string,
-      { upsert: (k: unknown, v: unknown) => void; remove: (k: unknown) => void }
+      {
+        upsert: (k: unknown, v: unknown) => void;
+        remove: (k: unknown) => void;
+        initialKeys: () => Iterable<unknown>;
+      }
     > = {};
     for (const key of Object.keys(spec.collections ?? {})) {
       const coll = ctx.collections[key];
@@ -305,12 +360,16 @@ export function reServeSurface<
           `reServeSurface: implementSurface produced no collection for "${key}"`,
         );
       }
+      const cache = collectionCaches.get(key);
       collections[key] = {
         upsert: (k, v) => {
           onFirst();
           coll.upsert(k, v);
         },
         remove: (k) => coll.remove(k),
+        // Hand the mirror this spawn's carry-over keys so its first fresh snapshot
+        // prunes the ones that departed while the link was down (#1661 candidate 1).
+        initialKeys: () => cache?.keys() ?? [],
       };
     }
     return { cells, collections } as unknown as SurfaceSink<S>;
@@ -325,7 +384,7 @@ export function reServeSurface<
     // Passing `connection` makes the pump carry link health onto the cell itself
     // (subscribes `session.onState` once) — the wiring #1564 says a re-serve
     // can't forget.
-    connection: { set: (info: ConnectionInfo) => connectionCell.set(info) },
+    connection: { set: connectionCell.set },
     log,
   });
 
