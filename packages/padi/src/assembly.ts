@@ -51,7 +51,11 @@ export {
 // binder reaches the terminal domain only through @kolu/padi's published entry
 // points (the package-boundary seal), not a deep `@kolu/padi/stateRoot` import.
 export {
+  type PadiDaemon,
+  discoverPadiDaemons,
+  padiDigest,
   padiGatePath,
+  padiKavalSocketPath,
   padiSocketPath,
   resolvePadiStateRoot,
 } from "./stateRoot.ts";

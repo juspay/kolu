@@ -39,6 +39,11 @@ const ENTRY = resolve(SRC, "index.ts");
  *  file here is a conscious decision: either it is web-shell code (add it) or it
  *  is terminal-domain code that belongs in `@kolu/padi` (the seal caught it). */
 const WEB_SHELL_FILES = [
+  // The read-only host-daemon inventory sampler — the web shell's diagnostic
+  // enumeration of every running kaval + padi (reusing kaval/padi discovery), marking
+  // kolu's active one. Shell code (it publishes koluSurface's `daemonInventory` cell,
+  // runs no terminal domain), not a terminal-domain module.
+  "daemonInventory",
   "hostname",
   "iframePreviewRoute",
   "index",

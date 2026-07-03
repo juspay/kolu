@@ -3,13 +3,15 @@
 import type { DaemonStatus } from "@kolu/padi/surface";
 import { isCleanRef } from "@kolu/surface-app";
 import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { For, Show } from "solid-js";
 import { match, P } from "ts-pattern";
+import type { RunningKaval } from "kolu-common/surface";
 import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "../ui/Commit";
 import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import { formatMBCompact } from "../ui/memory";
+import { runningKavals } from "../ui/useDaemonInventory";
 import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
 import { expectedKaval } from "./KavalUpdateBadge";
 import { kavalStale } from "./kavalCurrency";
@@ -26,6 +28,54 @@ export const KAVAL_LOGO_URL = new URL(
   "../../../kaval/logo.svg",
   import.meta.url,
 ).href;
+
+/** A "—" for an honestly-unknown value (a probe the server couldn't read), so the row
+ *  never fabricates a zero/version. */
+const dash = "—";
+
+/** One row in the "Running kaval daemons" diagnostic list — a discovered kaval with
+ *  its gate pid, live terminal count, contract/build, and a badge marking whether kolu
+ *  actively uses it (or flagging a LEGACY port-keyed one not owned by any padi — the
+ *  leak signal). */
+const RunningKavalRow: Component<{ kaval: RunningKaval }> = (props) => (
+  <li class="rounded-lg border border-edge bg-surface-1 px-2.5 py-2">
+    <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span class="min-w-0 flex-1 truncate text-[11px] font-medium text-fg">
+        {props.kaval.label}
+      </span>
+      <Show when={props.kaval.active}>
+        <span class="shrink-0 rounded-full border border-accent/40 bg-accent/10 px-1.5 text-[9px] font-medium leading-4 text-accent">
+          in use by kolu
+        </span>
+      </Show>
+      <Show when={!props.kaval.active && props.kaval.kind === "port"}>
+        <span class="shrink-0 rounded-full border border-warning/40 bg-warning/10 px-1.5 text-[9px] font-medium leading-4 text-warning">
+          legacy · not owned by padi
+        </span>
+      </Show>
+    </div>
+    <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-fg-3">
+      <span>gate pid {props.kaval.gatePid ?? dash}</span>
+      <span>
+        {props.kaval.terminalCount ?? dash}
+        {props.kaval.terminalCount === 1 ? " terminal" : " terminals"}
+      </span>
+      <span>contract {props.kaval.contractVersion ?? dash}</span>
+      <span class="inline-flex items-center gap-1">
+        build
+        <Show when={props.kaval.buildCommit} fallback={<span>{dash}</span>}>
+          {(sha) => <Commit sha={sha()} />}
+        </Show>
+      </span>
+    </div>
+    <div
+      class="mt-1 truncate font-mono text-[10px] text-fg-3"
+      title={props.kaval.socket}
+    >
+      {props.kaval.socket}
+    </div>
+  </li>
+);
 
 const KavalInfoDialog: Component<{
   open: boolean;
@@ -147,6 +197,28 @@ const KavalInfoDialog: Component<{
         <p class="text-[11px] leading-relaxed text-fg-3">
           Captures the session first, then offers restore on the fresh daemon.
         </p>
+      </div>
+
+      {/* Every running kaval on this host, active one badged, legacy/orphaned ones
+          flagged — so a LEAKED post-upgrade kaval (once only surfaced by a `kaval-tui:
+          more than one kaval daemon is running` CLI error) is diagnosable at a glance.
+          Honesty (#1034): an honest empty line when none is discovered, never a fake. */}
+      <div class="space-y-2">
+        <h3 class="text-xs font-medium text-fg">Running kaval daemons</h3>
+        <Show
+          when={runningKavals().length > 0}
+          fallback={
+            <p class="text-[11px] leading-relaxed text-fg-3">
+              No running kaval daemons discovered.
+            </p>
+          }
+        >
+          <ul class="space-y-1.5">
+            <For each={runningKavals()}>
+              {(kaval) => <RunningKavalRow kaval={kaval} />}
+            </For>
+          </ul>
+        </Show>
       </div>
 
       <div class="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">

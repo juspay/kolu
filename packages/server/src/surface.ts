@@ -44,6 +44,7 @@ import { implement } from "@orpc/server";
 import { publisher } from "@kolu/padi/assembly";
 import { contract } from "kolu-common/contract";
 import type {
+  DaemonInventory,
   KoluBuildInfo,
   PadiLink,
   Preferences,
@@ -53,6 +54,7 @@ import type {
 } from "kolu-common/surface";
 import {
   bytesToWholeMB,
+  DEFAULT_DAEMON_INVENTORY,
   type koluSurface,
   surfaces,
 } from "kolu-common/surface";
@@ -178,6 +180,21 @@ const processStartedAtCellStore = {
   },
 };
 
+// ── daemonInventory cell: the host-daemon inventory (kaval + padi enumeration) ──
+//
+// Server-authored diagnostic readout — the read-only inventory sampler
+// (`daemonInventory.ts`, wired in `index.ts`) is the sole writer via
+// `koluSurfaceCtx.cells.daemonInventory.set`; clients read-only. A live signal, so the
+// backing is in-memory (no on-disk slot); a fresh subscription reads the latest via
+// `get`, seeded at the honest empty-lists default before the first sample.
+let currentDaemonInventory: DaemonInventory = DEFAULT_DAEMON_INVENTORY;
+const daemonInventoryCellStore = {
+  get: (): DaemonInventory => currentDaemonInventory,
+  set: (value: DaemonInventory): void => {
+    currentDaemonInventory = value;
+  },
+};
+
 // ── kolu's own-surface implementation deps (concretely typed) ───────────
 //
 // Typed against `koluSurface.spec` so every stream `read(input)` / collection
@@ -239,6 +256,16 @@ const koluDeps: Omit<
       // several keep the same connected padi) never re-publishes to every client.
       store: processStartedAtCellStore,
       equals: (a, b) => a.server === b.server && a.padi === b.padi,
+    },
+    daemonInventory: {
+      // Live diagnostic signal; the in-memory store has no persistent slot. The
+      // read-only inventory sampler (`daemonInventory.ts`, `index.ts`) is the sole
+      // writer via `koluSurfaceCtx.cells.daemonInventory.set`. `equals` dedups a
+      // structurally-identical re-enumeration (the daemon set changes rarely) so a
+      // steady-state tick never re-publishes to every connected client — a shallow
+      // JSON compare is fine (the lists are tiny, a handful of daemons at most).
+      store: daemonInventoryCellStore,
+      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
     },
   },
 };

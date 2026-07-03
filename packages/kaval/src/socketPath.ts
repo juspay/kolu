@@ -29,10 +29,16 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { gatePid } from "@kolu/surface-daemon";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 
 /** The socket filename inside every kaval rendezvous dir. */
 export const PTY_HOST_SOCK_FILE = "pty-host.sock";
+
+/** The single-instance gate filename beside every kaval socket — its holder pid as
+ *  decimal text (written by kaval's `daemonMain`, read via `gatePid`). One literal so
+ *  the daemon, the supervisor's `kavalGatePath`, and read-only discovery agree on it. */
+export const KAVAL_GATE_FILE = "kaval.pid";
 
 /** The manifest filename mapping a digest-keyed rendezvous dir back to the
  *  padi state-root it belongs to. Written by padi (which knows both the digest
@@ -110,7 +116,7 @@ export function getPtyHostSocketPath(override?: string, app = "kolu"): string {
  *  attacker still controls the `/tmp` component of. Returns true on platforms
  *  without uid semantics (Windows: `process.getuid` is undefined) — the ACL model
  *  there is out of scope. */
-function isPrivateOwnedDir(dir: string): boolean {
+export function isPrivateOwnedDir(dir: string): boolean {
   const getuid = process.getuid?.bind(process);
   if (getuid === undefined) return true;
   try {
@@ -203,24 +209,48 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
     // label by port). Manifest presence is the discriminant, so a digest that
     // happens to be all-decimal never masquerades as a port.
     let label: string;
+    let kind: KavalCandidateKind;
+    let stateRoot: string | undefined;
     if (name === bareName) {
       label = "standalone kaval";
+      kind = "standalone";
     } else {
       const suffix = decoratedRe.exec(name)?.[1] ?? "";
-      const stateRoot = readStateRootManifest(dir);
-      label =
-        stateRoot !== undefined
-          ? `kolu @ ${stateRoot}`
-          : /^\d+$/.test(suffix)
-            ? `kolu-server on port ${suffix}`
-            : `kaval ${suffix}`;
+      stateRoot = readStateRootManifest(dir);
+      if (stateRoot !== undefined) {
+        label = `kolu @ ${stateRoot}`;
+        kind = "stateRoot";
+      } else if (/^\d+$/.test(suffix)) {
+        label = `kolu-server on port ${suffix}`;
+        kind = "port";
+      } else {
+        label = `kaval ${suffix}`;
+        kind = "unknown";
+      }
     }
     // The inode must itself be an actual socket — not any file a name-squatter
     // dropped in.
     const sock = join(dir, PTY_HOST_SOCK_FILE);
-    if (isSocketInode(sock)) found.push({ socket: sock, label });
+    if (isSocketInode(sock)) {
+      found.push({ socket: sock, label, kind, stateRoot });
+    }
   }
   return found;
+}
+
+/** Discover every running kaval daemon on this host, each enriched with its
+ *  gate-holder pid (read from `kaval.pid` beside the socket, or `null` if
+ *  unreadable) — the read-only enumeration the Kaval info dialog lists so a LEAKED
+ *  pre-upgrade kaval is visible at a glance (it was only surfaced via a `kaval-tui`
+ *  CLI error before). Reuses {@link discoverKavalCandidates} (the SAME discovery
+ *  `kaval-tui` uses to report "more than one kaval daemon"); it stats dirs, reads
+ *  the gate file, and reads the manifest, but NEVER dials, kills, or reaps a
+ *  daemon — strictly read-only. */
+export function discoverKavalDaemons(): KavalDaemon[] {
+  return discoverKavalCandidates().map((candidate) => ({
+    ...candidate,
+    gatePid: gatePid(join(dirname(candidate.socket), KAVAL_GATE_FILE)) ?? null,
+  }));
 }
 
 /** The discovered sockets as bare paths — the back-compat shape for callers that
@@ -233,7 +263,7 @@ export function discoverPtyHostSockets(): string[] {
 /** Is `path` an actual socket inode? `lstatSync` (NOT `statSync`) so a symlink
  *  is judged as itself, never followed — a name-squatter must not be able to
  *  point us elsewhere with a link. A missing path or any non-socket inode → no. */
-function isSocketInode(path: string): boolean {
+export function isSocketInode(path: string): boolean {
   try {
     return lstatSync(path).isSocket();
   } catch {
@@ -241,14 +271,41 @@ function isSocketInode(path: string): boolean {
   }
 }
 
-/** A labeled candidate kaval socket — the pasteable path plus a human label that
- *  tells a kolu-server (port-namespaced) apart from a standalone daemon. The label
- *  is decided by `discoverKavalCandidates` at the matching branch (`bareName` →
- *  standalone, the ported pattern → a specific port), so it is never the hedged
- *  "port N, or a standalone" a basename re-parse would have to fall back to. */
+/** Which namespace branch a discovered kaval matched — the STRUCTURAL kind decided
+ *  at discovery's matching branch (never a later basename re-parse):
+ *   - `standalone` — a bare `kaval/` daemon (`kaval` CLI, no padi);
+ *   - `stateRoot`  — a padi's `kaval-<digest>/` (a `state-root` manifest present);
+ *   - `port`       — the LEGACY pre-W2.2 in-process kolu-server `kaval-<port>/` (no
+ *                    manifest, numeric suffix) — a kaval NOT owned by any padi, the
+ *                    leak signal a post-upgrade orphan trips;
+ *   - `unknown`    — a decorated name that is neither (defensive). */
+export type KavalCandidateKind =
+  | "standalone"
+  | "stateRoot"
+  | "port"
+  | "unknown";
+
+/** A labeled candidate kaval socket — the pasteable path, a human label that tells a
+ *  kolu-server (port-namespaced) apart from a standalone daemon, the structured
+ *  {@link KavalCandidateKind}, and the padi `stateRoot` its manifest records (only when
+ *  `kind === "stateRoot"`). The label + kind are decided by `discoverKavalCandidates`
+ *  at the matching branch (`bareName` → standalone, the ported pattern → a specific
+ *  port), so neither is ever the hedged "port N, or a standalone" a basename re-parse
+ *  would have to fall back to. */
 export interface KavalSocketCandidate {
   socket: string;
   label: string;
+  kind: KavalCandidateKind;
+  /** The padi state-root this kaval belongs to (from its `state-root` manifest),
+   *  present only when `kind === "stateRoot"`. */
+  stateRoot?: string;
+}
+
+/** A discovered kaval daemon — a {@link KavalSocketCandidate} plus the gate-holder pid
+ *  read from `kaval.pid` beside its socket (`null` if the gate is absent/malformed).
+ *  Strictly read-only diagnostic data; produced by {@link discoverKavalDaemons}. */
+export interface KavalDaemon extends KavalSocketCandidate {
+  gatePid: number | null;
 }
 
 /** The outcome of resolving which running kaval to dial — the selection policy

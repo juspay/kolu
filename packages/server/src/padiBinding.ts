@@ -666,6 +666,15 @@ export class PadiBindingSession
    *  a real uptime or an honest "unknown", never a stale boot time from the old
    *  process. Feeds koluSurface's `processStartedAt` cell (the rail's padi uptime). */
   private padiStartedAtMs: number | null = null;
+  /** The bound padi's HONEST `padiSurface` version off its control-core `hello`
+   *  (`connectPadi` reads it into `identity.surfaceVersion`; the handshake proved
+   *  it compatible), or `null` while padi is unbound. Managed on the SAME lifecycle
+   *  as `clientPromise`/`padiStartedAtMs` — set on a fresh `connected`, cleared on a
+   *  degraded/dead close — so `padiSurfaceVersion()` reports the version the LIVE
+   *  padi actually serves or an honest "unknown", never a stale value from the old
+   *  process. Feeds koluSurface's `daemonInventory` cell (the Padi dialog + rail
+   *  chip's "contract v<x.y>" readout). */
+  private padiSurfaceVersionStr: string | null = null;
   /** A reconnect timer is already scheduled — so overlapping degraded/dead events
    *  (a close, then the endpoint's own `dead` emit) don't STACK timers, each firing
    *  its own `adoptOrSpawnOrRefuse`. Cleared when the scheduled attempt fires. */
@@ -690,6 +699,11 @@ export class PadiBindingSession
         this.padiStartedAtMs = s.startedAt ?? null;
         const conn = this.deps.endpoint.current();
         if (conn) {
+          // The bound padi's honest surface version off the handshake `hello`
+          // (`connectPadi` → `identity.surfaceVersion`) — the version the LIVE padi
+          // actually serves, so the Padi dialog/rail read it rather than the binder's
+          // build constant.
+          this.padiSurfaceVersionStr = conn.identity?.surfaceVersion ?? null;
           // Scope the COMBINED dialed client down to the padi sibling so the relay's
           // `client.surface.<member>` resolves at /surface/padi/<member>.
           const scoped = scopeSibling(
@@ -706,6 +720,7 @@ export class PadiBindingSession
         // unit; the re-adopt re-attaches the surviving kaval + PTYs).
         this.clientPromise = null;
         this.padiStartedAtMs = null;
+        this.padiSurfaceVersionStr = null;
         this.scheduleReconnect();
       })
       // connecting | restarting: transient warming — no client-handle change; the
@@ -756,6 +771,14 @@ export class PadiBindingSession
     return this.destroyed ? null : this.padiStartedAtMs;
   }
 
+  /** The bound padi's `padiSurface` version off its control-core `hello`, or `null`
+   *  while padi is unbound (or the session is destroyed). koluSurface's
+   *  `daemonInventory` cell carries it as the active padi's `surfaceVersion`; `null`
+   *  renders as the honest "—". */
+  padiSurfaceVersion(): string | null {
+    return this.destroyed ? null : this.padiSurfaceVersionStr;
+  }
+
   onState(cb: (s: HostSessionState) => void): () => void {
     this.stateListeners.add(cb);
     cb(this.state); // snapshot-then-delta, like an inMemoryCell-backed onState.
@@ -774,6 +797,7 @@ export class PadiBindingSession
     this.destroyed = true;
     this.clientPromise = null;
     this.padiStartedAtMs = null;
+    this.padiSurfaceVersionStr = null;
     this.deps.endpoint.current()?.dispose();
     // Re-publish to wake any cursor blocked on the next client so the pump exits.
     this.fire();

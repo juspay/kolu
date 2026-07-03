@@ -7,7 +7,15 @@ import { startHeapDiagnostics } from "@kolu/heap-diag";
 // entry points (the package-boundary seal). Post-cutover it keeps just the
 // streaming preview read (`previewFile`, for the iframe binary route) and its own
 // publisher size (a diagnostic); it no longer runs the terminal domain.
-import { previewFile, publisherSize } from "@kolu/padi/assembly";
+import {
+  discoverPadiDaemons,
+  padiKavalSocketPath,
+  padiSocketPath,
+  previewFile,
+  publisherSize,
+  resolvePadiStateRoot,
+} from "@kolu/padi/assembly";
+import { discoverKavalDaemons } from "kaval";
 import {
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
@@ -48,6 +56,10 @@ import {
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
+import {
+  probeKavalStatus,
+  startDaemonInventorySampler,
+} from "./daemonInventory.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { ensurePadiBinding } from "./padiBinding.ts";
 import { mapConnectionToPadiLink } from "./padiLink.ts";
@@ -512,6 +524,30 @@ padiSession.onState((s) => {
     padi: padiSession.padiStartedAt(),
   });
 });
+
+// Feed the Kaval + Padi dialogs' host-daemon inventory: enumerate EVERY running kaval
+// + padi on this host (read-only — scan the runtime dir, read each gate `.pid`, and a
+// best-effort `system.version`/`terminal.list` probe per kaval; NEVER touches a
+// daemon's lifecycle), mark which one kolu's bound padi owns, and publish
+// `daemonInventory`. So a LEAKED post-upgrade daemon — invisible in the UI before,
+// surfaced only by a `kaval-tui` CLI error — is diagnosable at a glance. The active
+// kaval/padi sockets are DETERMINISTIC from padi's state-root digest (`ensurePadiBinding`
+// resolves the SAME default), so they mark "in use by kolu" by socket identity; the
+// active padi's honest `surfaceVersion` (off its control-core `hello`) rides the bound
+// session. A padi (re)bind force-samples so its version + marking refresh at once.
+const inventoryStateRoot = resolvePadiStateRoot();
+startDaemonInventorySampler(
+  {
+    discoverKavals: discoverKavalDaemons,
+    discoverPadis: discoverPadiDaemons,
+    probe: probeKavalStatus,
+    activeKavalSocket: padiKavalSocketPath(inventoryStateRoot),
+    activePadiSocket: padiSocketPath(inventoryStateRoot),
+    activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
+    publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
+  },
+  (resample) => padiSession.onState(() => resample()),
+);
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);

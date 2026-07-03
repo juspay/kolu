@@ -302,6 +302,78 @@ export const ProcessStartedAtSchema = z.object({
 });
 export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
 
+/** One running kaval PTY daemon the host-daemon inventory enumerated — a diagnostic
+ *  row the Kaval dialog lists so a LEAKED pre-upgrade kaval is visible AT A GLANCE.
+ *  (srid hit this dogfooding W2.2: after an upgrade a leaked pre-W2.2 kaval was
+ *  invisible in the UI — only a `kaval-tui: more than one kaval daemon is running`
+ *  CLI error surfaced it.) Server-authored, read-only enumeration: scan the runtime
+ *  dir, read each gate pid, and best-effort probe status — it NEVER kills/reaps/
+ *  touches a daemon.
+ *
+ *  Honesty (#1034): every field the probe couldn't read is an honest `null` (rendered
+ *  "—"), never a fabricated zero/version. */
+export const RunningKavalSchema = z.object({
+  /** The rendezvous socket path — the pasteable `--socket` value. */
+  socket: z.string(),
+  /** Discovery's human label ("standalone kaval" | "kolu @ <state-root>" |
+   *  "kolu-server on port <port>"), decided at discovery's matching branch. */
+  label: z.string(),
+  /** The structural kind: `stateRoot` (a padi's kaval), `port` (the LEGACY pre-W2.2
+   *  keying — a kaval NOT owned by any padi, the leak signal), `standalone`, or
+   *  `unknown`. */
+  kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
+  /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
+  gatePid: z.number().int().nullable(),
+  /** Live terminal count from a best-effort `terminal.list` probe, or null when the
+   *  probe failed / the daemon didn't answer (never a fake 0). */
+  terminalCount: z.number().int().nullable(),
+  /** The kaval's build commit (`navigableCommit`) from a best-effort `system.version`
+   *  probe, or null when unreadable. */
+  buildCommit: z.string().nullable(),
+  /** The pty-host contract version from the probe, or null when unreadable. */
+  contractVersion: z.string().nullable(),
+  /** True iff this is the kaval kolu's bound padi ACTIVELY owns ("in use by kolu"). */
+  active: z.boolean(),
+});
+export type RunningKaval = z.infer<typeof RunningKavalSchema>;
+
+/** One running padi daemon the host-daemon inventory enumerated — the Padi dialog's
+ *  diagnostic row (a second padi at a different state-root is a leak, visible here).
+ *  Same read-only enumeration + honesty contract as {@link RunningKavalSchema}. */
+export const RunningPadiSchema = z.object({
+  /** padi's rendezvous socket path. */
+  socket: z.string(),
+  /** padi's state-root (from the digest→root manifest), or null if unreadable. */
+  stateRoot: z.string().nullable(),
+  /** The gate-holder pid (`padi.pid`), or null if unreadable. */
+  gatePid: z.number().int().nullable(),
+  /** The `padiSurface` version the RUNNING padi serves — the bound padi's honest
+   *  `hello.surfaceVersion` for the active one; null for a padi kolu-server is not
+   *  bound to (not probed) or before the first sample. */
+  surfaceVersion: z.string().nullable(),
+  /** True iff this is the padi kolu-server is bound to ("in use by kolu"). */
+  active: z.boolean(),
+});
+export type RunningPadi = z.infer<typeof RunningPadiSchema>;
+
+/** The host-daemon inventory — every running kaval + padi on this host, each marked
+ *  whether kolu's bound padi actively owns it. Server-authored diagnostic cell (the
+ *  Kaval/Padi dialogs render it); read-only on the client. Presentation/diagnostic
+ *  data, so it rides koluSurface like the memory/uptime readouts — NOT a padiSurface
+ *  member (no `PADI_SURFACE_VERSION` bump). */
+export const DaemonInventorySchema = z.object({
+  kavals: z.array(RunningKavalSchema),
+  padis: z.array(RunningPadiSchema),
+});
+export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
+
+/** The honest pre-sample "unknown" — empty lists, so a fresh subscription renders no
+ *  fabricated daemons until the first server enumeration lands. */
+export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
+  kavals: [],
+  padis: [],
+};
+
 /** Bytes in one megabyte. The single source of truth both the server-side dedup
  *  boundary and the client-side rail rendering read, so they can't drift. */
 export const BYTES_PER_MB = 1_048_576;
@@ -431,6 +503,20 @@ export const koluSurface = defineSurface({
       default: { server: 0, padi: null } satisfies z.infer<
         typeof ProcessStartedAtSchema
       >,
+      verbs: ["get"],
+    },
+
+    /** The host-daemon inventory — every running kaval + padi on this host, each
+     *  marked whether kolu's bound padi owns it (see {@link DaemonInventorySchema}).
+     *  Server-authored diagnostic readout (a dedicated read-only enumerator is the
+     *  sole writer via `koluSurfaceCtx.cells.daemonInventory.set`); clients read-only.
+     *  The Kaval/Padi dialogs list it so a LEAKED post-upgrade daemon — invisible in
+     *  the UI before, surfaced only by a `kaval-tui` CLI error — is diagnosable at a
+     *  glance. Presentation data, so it rides koluSurface like memory/uptime — NOT a
+     *  padiSurface member. Empty-lists default is the honest pre-sample "unknown". */
+    daemonInventory: {
+      schema: DaemonInventorySchema,
+      default: DEFAULT_DAEMON_INVENTORY,
       verbs: ["get"],
     },
   },

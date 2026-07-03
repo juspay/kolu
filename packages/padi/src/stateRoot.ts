@@ -32,14 +32,22 @@
 
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { readdirSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { gatePid } from "@kolu/surface-daemon";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
-import { getPtyHostSocketPath } from "kaval";
+import {
+  getPtyHostSocketPath,
+  isPrivateOwnedDir,
+  isSocketInode,
+  readStateRootManifest,
+} from "kaval";
 
 // The `state-root` manifest (digest → state-root) is OWNED by kaval, beside the
 // discovery that reads it (the dependency arrow points padi → kaval, never the
 // reverse). Re-exported here so padi callers reach it through the same module as
-// the rest of padi's rendezvous paths.
+// the rest of padi's rendezvous paths. `readStateRootManifest` is imported above
+// (not re-exported — kolu-common already re-exports it) for padi discovery below.
 export { writeStateRootManifest } from "kaval";
 
 /** The socket filename padi serves inside its `padi-<digest>/` runtime dir. */
@@ -140,4 +148,64 @@ export function padiKavalSocketPath(
     override,
     kavalNamespaceForDigest(padiDigest(stateRoot)),
   );
+}
+
+/** A discovered padi daemon — its socket, the state-root its `state-root` manifest
+ *  records (or `null` if unreadable), and the gate-holder pid read from `padi.pid`
+ *  beside the socket (or `null`). Strictly read-only diagnostic data; produced by
+ *  {@link discoverPadiDaemons}. */
+export interface PadiDaemon {
+  socket: string;
+  stateRoot: string | null;
+  gatePid: number | null;
+}
+
+/** Discover every running padi daemon on this host — the read-only enumeration the
+ *  Padi info dialog lists so a LEAKED padi (a second padi at a different state-root)
+ *  is visible at a glance. Mirrors kaval's `discoverKavalDaemons`: it reads the
+ *  runtime root and the `padi-<digest>` decoration back from the SAME
+ *  {@link getRuntimeSocketPath} builder a live padi constructs its socket with (a
+ *  sentinel digest whose literal `0` becomes a `([0-9a-f]+)` capture), so discovery
+ *  can never spell the path shape differently than construction. Reuses kaval's
+ *  owner-only privacy check + socket-inode check (the same boundary the serving side
+ *  enforces) so a sibling another local user planted under a shared `/tmp` root is
+ *  never read. It stats dirs, reads the gate file, and reads the manifest, but NEVER
+ *  dials, kills, or reaps a daemon — strictly read-only. Never throws (an unreadable
+ *  root → []). */
+export function discoverPadiDaemons(): PadiDaemon[] {
+  // The decorated dir for a sentinel digest: `<root>/padi-0[-$UID]/padi.sock`.
+  // Whatever shape surface gives it (XDG `padi-0/`, or `/tmp` `padi-0-$UID/`) the
+  // decoration is baked in, never re-decided here.
+  const decoratedDir = dirname(
+    getRuntimeSocketPath({ app: padiNamespace("0"), file: PADI_SOCK_FILE }),
+  );
+  const root = dirname(decoratedDir);
+  const decoratedName = basename(decoratedDir);
+  const decoratedRe = new RegExp(
+    `^${decoratedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "([0-9a-f]+)")}$`,
+  );
+
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return [];
+  }
+  const found: PadiDaemon[] = [];
+  for (const name of entries) {
+    if (decoratedRe.exec(name) === null) continue;
+    const dir = join(root, name);
+    // The same owner-only boundary the serving side enforces — a name match alone
+    // is never ownership under the shared `/tmp` root.
+    if (!isPrivateOwnedDir(dir)) continue;
+    const socket = join(dir, PADI_SOCK_FILE);
+    // The inode must itself be an actual socket, not any file a name-squatter dropped.
+    if (!isSocketInode(socket)) continue;
+    found.push({
+      socket,
+      stateRoot: readStateRootManifest(dir) ?? null,
+      gatePid: gatePid(join(dir, PADI_GATE_FILE)) ?? null,
+    });
+  }
+  return found;
 }

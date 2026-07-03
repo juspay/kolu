@@ -34,12 +34,14 @@ import {
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { KAVAL_GATE_FILE } from "kaval";
 
 /** The single-instance gate kaval claims, beside its socket — the same path
  *  kaval's own `daemonMain` derives (`<socket-dir>/kaval.pid`), so the
- *  supervisor reads the true current holder. */
+ *  supervisor reads the true current holder. Reuses kaval's own {@link
+ *  KAVAL_GATE_FILE} literal so the daemon and the supervisor can't drift on it. */
 export function kavalGatePath(socketPath: string): string {
-  return join(dirname(socketPath), "kaval.pid");
+  return join(dirname(socketPath), KAVAL_GATE_FILE);
 }
 
 /** Resolve how to launch kaval: the built wrapper in production, or the

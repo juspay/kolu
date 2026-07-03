@@ -44,6 +44,7 @@ import {
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
 import { PADI_LINK_PRESENTATION, padiDot } from "../padi/padiPresentation";
 import type { WsStatus } from "../rpc/rpc";
+import { activePadiSurfaceVersion } from "./useDaemonInventory";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { formatMBCompact, mbText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
@@ -166,8 +167,19 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       .with(P.nullish, () => "memory unavailable")
       .exhaustive();
 
+  // The RUNNING padi's actual `padiSurface` version (off its control-core `hello`),
+  // mirroring the kaval chip's `contract v<x.y>`. Honest `undefined` (no chip / tip
+  // segment) when padi is unbound, never a fabricated build constant.
+  const padiVersion = (): string | undefined =>
+    activePadiSurfaceVersion() ?? undefined;
+
   const padiTip = createMemo((): string =>
-    joinTip(`padi ${padiStateText()}`, padiMemoryText(), "click for details"),
+    joinTip(
+      `padi ${padiStateText()}`,
+      padiVersion() ? `contract v${padiVersion()}` : undefined,
+      padiMemoryText(),
+      "click for details",
+    ),
   );
 
   const kavalStateText = (): string => {
@@ -246,6 +258,9 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           />
         </IdentityMark>
         <span class="text-fg">Padi</span>
+        <Show when={padiVersion()}>
+          {(v) => <span class="tabular-nums text-fg-3">contract v{v()}</span>}
+        </Show>
         <PadiMemReadout />
       </button>
 

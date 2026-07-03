@@ -32,10 +32,13 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // and the `terminalExit` event — relocated onto `padiSurface` (the W1 padi
     // seam). koluSurface keeps only kolu-server's OWN cells: `preferences`,
     // `processMemory`, `padiLink` (kolu-server's live view of its binding to padi
-    // — a #1034 honesty leg, server-authored, NOT a terminal member), and
-    // `processStartedAt` (the server + padi boot times the rail renders as uptime).
-    // No collections, no events.
+    // — a #1034 honesty leg, server-authored, NOT a terminal member),
+    // `processStartedAt` (the server + padi boot times the rail renders as uptime),
+    // and `daemonInventory` (the read-only host-daemon enumeration the Kaval/Padi
+    // dialogs list — presentation/diagnostic data, NOT a terminal member). No
+    // collections, no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
+      "daemonInventory",
       "padiLink",
       "preferences",
       "processMemory",
