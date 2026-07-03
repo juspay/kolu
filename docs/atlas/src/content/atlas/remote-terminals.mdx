@@ -55,18 +55,18 @@ export const RemoteCanvas = () => (
       <span style="margin-left:.4rem;color:#8b94a6">kolu</span>
     </div>
     <div style="display:flex;align-items:center;gap:.4rem;padding:.45rem .7rem;background:#0d0f15;border-bottom:1px solid #1c2231">
-      <span style="color:#5b6678;font-size:.78em;margin-right:.15rem">hosts</span>
-      <HostPill name="local" active dot />
+      <span style="color:#5b6678;font-size:.78em;margin-right:.15rem">host</span>
+      <HostPill name="local" />
       <HostPill name="nix@prod" active dot />
       <HostPill name="staging" />
       <span style="margin-left:.15rem;color:#3f4858">+ host</span>
-      <span style="margin-left:auto;color:#5b6678;font-size:.78em">⟳ live</span>
+      <span style="margin-left:auto;color:#5b6678;font-size:.78em">⌥H switch · one host per canvas</span>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem;padding:.6rem">
-      <Tile host="local" repo="kolu" branch="master" agent="codex" state="working" kind="work" />
       <Tile host="nix@prod" remote repo="kolu" branch="feat/dial-ssh" pr="#1412 ✓" agent="claude" state="awaiting you" kind="need" />
       <Tile host="nix@prod" remote repo="infra" branch="deploy" agent="—" state="working" kind="work" />
-      <Tile host="local" repo="notes" branch="main" agent="claude" state="idle" kind="idle" />
+      <Tile host="nix@prod" remote repo="kolu" branch="master" agent="codex" state="working" kind="work" />
+      <Tile host="nix@prod" remote repo="notes" branch="main" agent="claude" state="idle" kind="idle" />
     </div>
   </div>
 );
