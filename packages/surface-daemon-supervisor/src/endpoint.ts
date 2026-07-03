@@ -439,6 +439,18 @@ export function createEndpoint<C, I, M = undefined>(
     // twin of `adoptAt` firing `onAdopted` before its `holdConnection`.
     held = primaryRv;
     spec.onSpawned?.();
+    // A fresh daemon is a load-bearing lifecycle event — the twin of "adopted a
+    // surviving daemon". Logged so a cold boot, a recycle respawn, and a
+    // drain-then-respawn each leave an honest "brought a new daemon up here" line
+    // in the journal (the adoption path already logs; a fresh spawn must too).
+    spec.log.info(
+      {
+        hostId: spec.hostId,
+        socketPath: spec.socketPath,
+        startedAt: next.startedAt,
+      },
+      "spawned a fresh daemon and connected",
+    );
     holdConnection(next);
   };
 
@@ -533,6 +545,11 @@ export function createEndpoint<C, I, M = undefined>(
     connect: () => Promise<DaemonConnection<C, I, M>>,
     onAdopted: (() => void) | undefined,
     onSkew: (holder: number) => void | Promise<void>,
+    // Which rendezvous this adoption is against — `primary` (the digest socket) or
+    // `upgrade-hint` (the pre-W2.2 legacy port socket, the migration bridge). Stamped
+    // on the adopted log so an operator can grep "did the W2.2 upgrade bridge fire?"
+    // without decoding the socket path.
+    via: "primary" | "upgrade-hint",
   ): Promise<boolean> => {
     held = rv;
     // A single failure is NOT proof of skew (F4): only a `DaemonContractSkewError`
@@ -549,6 +566,7 @@ export function createEndpoint<C, I, M = undefined>(
           pid: holder,
           startedAt: outcome.conn.startedAt,
           socketPath: rv.socketPath,
+          via,
         },
         "adopted a surviving daemon (its PTYs are preserved)",
       );
@@ -594,7 +612,14 @@ export function createEndpoint<C, I, M = undefined>(
     emit({ state: "connecting" });
     const primaryHolder = await liveServingHolder(primaryRv);
     if (primaryHolder !== undefined) {
-      return adoptAt(primaryRv, primaryHolder, spec.connect, undefined, onSkew);
+      return adoptAt(
+        primaryRv,
+        primaryHolder,
+        spec.connect,
+        undefined,
+        onSkew,
+        "primary",
+      );
     }
     // PRIMARY has no live survivor. On a W2.2 upgrade the pre-W2.2 kaval may still be
     // alive at the adopt-HINT (legacy port) rendezvous the digest primary does not
@@ -613,6 +638,7 @@ export function createEndpoint<C, I, M = undefined>(
           spec.adoptHint.connect,
           spec.adoptHint.onAdopted,
           onSkew,
+          "upgrade-hint",
         );
       }
     }

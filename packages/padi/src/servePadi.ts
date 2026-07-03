@@ -331,7 +331,20 @@ export function buildPadiSurfaceDeps(deps: {
         // is connected; a failure rejects with the captured session safe on disk.
         recycleKaval: async () => {
           log.info({}, "recycle kaval (Restart kaval)");
-          await restartLocalDaemon();
+          try {
+            await restartLocalDaemon();
+          } catch (err) {
+            // A failed restart otherwise surfaces ONLY as a client toast — padi's
+            // journal would show the "recycle kaval" start line and then an
+            // unexplained silence. Surface it: the endpoint has already reported
+            // dead/degraded and the captured session is safe on disk (the user can
+            // retry or restore), but the failure must be legible in the journal.
+            log.error(
+              { err },
+              "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
+            );
+            throw err;
+          }
         },
       },
 
