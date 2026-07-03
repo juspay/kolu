@@ -1,11 +1,13 @@
 /** PadiInfoDialog — compact identity panel for the Padi rail chip. Padi is the
  *  per-host daemon that owns the live terminals and supervises kaval; this mirrors
- *  {@link KavalInfoDialog}'s shape on the shared {@link InfoDialogShell}, minus the
- *  bits padi doesn't surface to the client. `padiLink` (kolu-server's binding state),
- *  the folded RSS, and padi's honest uptime (`now − startedAt` off the server-authored
- *  `processStartedAt` cell — mirroring the Kaval dialog's uptime) reach the browser;
- *  padi's build commit still lives server-side (the control-core `hello`), so this
- *  omits the version chip and build row rather than plumbing a drishti-gated member. */
+ *  {@link KavalInfoDialog}'s shape on the shared {@link InfoDialogShell} — same rows
+ *  in the same order where the concept applies to both (contract-version chip, build
+ *  commit, socket, memory, uptime, the running-daemons list). Genuine per-daemon
+ *  differences stay: kaval carries a currency/stale nudge + a restart affordance;
+ *  padi's status is its `padiLink` (kolu-server's binding state), not a `daemonStatus`
+ *  liveness. padi's contract version + build commit + socket ride the server-authored
+ *  `daemonInventory` cell (the bound padi's honest `hello.surfaceVersion` / `.commit`),
+ *  the padi twin of kaval's `system.version`. */
 
 import type { PadiLink, RunningPadi } from "kolu-common/surface";
 import type { Component } from "solid-js";
@@ -13,8 +15,10 @@ import { For, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { daemonTransportLive, formatUptime } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
+import Commit from "../ui/Commit";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import {
+  activePadi,
   activePadiSurfaceVersion,
   runningPadis,
 } from "../ui/useDaemonInventory";
@@ -41,9 +45,17 @@ const RunningPadiRow: Component<{ padi: RunningPadi }> = (props) => (
         </span>
       </Show>
     </div>
+    {/* Same metrics shape as the Kaval running-daemon row (gate pid · contract ·
+        build), minus the terminal count kaval owns and padi does not. */}
     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-fg-3">
       <span>gate pid {props.padi.gatePid ?? dash}</span>
       <span>contract {props.padi.surfaceVersion ?? dash}</span>
+      <span class="inline-flex items-center gap-1">
+        build
+        <Show when={props.padi.buildCommit} fallback={<span>{dash}</span>}>
+          {(sha) => <Commit sha={sha()} />}
+        </Show>
+      </span>
     </div>
     <div
       class="mt-1 truncate font-mono text-[10px] text-fg-3"
@@ -120,7 +132,20 @@ const PadiInfoDialog: Component<{
         </div>
       </div>
 
+      {/* Detail rows mirror the Kaval dialog's set + order: build commit, socket,
+          memory. padi's build commit is the RUNNING padi's `hello.commit` off the
+          active `daemonInventory` row (the padi twin of kaval's `system.version`
+          identity); `<Commit>` renders it as the SAME navigable commit link the Kaval
+          dialog uses, or an honest "—" when unknown (#1034). */}
       <div class="space-y-1">
+        <DetailRow label="build commit">
+          <Commit sha={activePadi()?.buildCommit ?? undefined} />
+        </DetailRow>
+        <DetailRow label="socket">
+          <span title={activePadi()?.socket}>
+            {activePadi()?.socket ?? "unavailable"}
+          </span>
+        </DetailRow>
         <DetailRow label="memory">
           {/* Same {@link padiMemoryDisplay} source the identity-rail chip reads (the
               3-process `processMemory` cell — padi measures its own RSS), so the dialog

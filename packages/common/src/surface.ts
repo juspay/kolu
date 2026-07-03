@@ -358,6 +358,12 @@ export const RunningPadiSchema = z.object({
    *  `hello.surfaceVersion` for the active one; null for a padi kolu-server is not
    *  bound to (not probed) or before the first sample. */
   surfaceVersion: z.string().nullable(),
+  /** The RUNNING padi's navigable git commit — the bound padi's honest `hello.commit`
+   *  for the active one (mirroring {@link RunningKavalSchema}'s `buildCommit`, whose
+   *  commit rides kaval's `system.version`); null for a padi kolu-server is not bound
+   *  to (not probed), a survivor padi predating the hello field, or before the first
+   *  sample. */
+  buildCommit: z.string().nullable(),
   /** True iff this is the padi kolu-server is bound to ("in use by kolu"). */
   active: z.boolean(),
 });

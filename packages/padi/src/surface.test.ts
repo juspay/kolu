@@ -214,13 +214,24 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiDaemonContract.surface.control).toBeTruthy();
     expect(padiDaemonContract.surface.padi).toBeTruthy();
     // The hello handshake validates a well-formed identity — including the
-    // additive `startedAt` boot time the binder reads for honest uptime.
+    // additive `startedAt` boot time the binder reads for honest uptime, and the
+    // additive `commit` (the RUNNING padi's build the Padi dialog surfaces).
     const hello = {
       stateRoot: "/home/u/.local/state/padi",
       surfaceVersion: PADI_SURFACE_VERSION,
       controlCoreVersion: CONTROL_CORE_VERSION,
       startedAt: 1_700_000_000_000,
+      commit: "abc1234",
     };
     expect(PadiHelloSchema.parse(hello)).toEqual(hello);
+    // `commit` is OPTIONAL — a survivor padi predating the field omits it and STILL
+    // handshakes (its hello validates), so the bind never breaks; it reads "—".
+    const helloNoCommit = {
+      stateRoot: "/home/u/.local/state/padi",
+      surfaceVersion: PADI_SURFACE_VERSION,
+      controlCoreVersion: CONTROL_CORE_VERSION,
+      startedAt: 1_700_000_000_000,
+    };
+    expect(PadiHelloSchema.parse(helloNoCommit)).toEqual(helloNoCommit);
   });
 });

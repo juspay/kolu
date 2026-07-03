@@ -188,7 +188,17 @@ export async function runPadiDaemon(
     // while the registry is empty or parked-only must NOT null a non-empty saved blob
     // (the W1 zest-loss class) — an empty snapshot leaves the existing session intact,
     // and the write cancels any pending autosave that could re-null it afterward.
-    setSavedSessionFromSnapshot(snapshotSession());
+    const snap = snapshotSession();
+    // A control-core drain is why padi is about to exit — logged HERE (the spine only
+    // logs the generic "daemon shutting down {reason: abort}", which can't be told from
+    // a plain signal). This is the newer-binder convergence / "restart" endpoint; the
+    // kaval + PTYs survive it, so name that so an operator reads a graceful handover,
+    // not a crash.
+    log.info(
+      { terminals: snap.terminals.length },
+      "control-core drain received — persisting session and exiting; kaval + PTYs survive",
+    );
+    setSavedSessionFromSnapshot(snap);
     drainController.abort();
   };
 
@@ -206,6 +216,9 @@ export async function runPadiDaemon(
       control: buildControlCoreDeps({
         stateRoot,
         startedAt: PADI_STARTED_AT,
+        // padi's navigable git commit (`PADI_COMMIT_HASH`), echoed by `hello` so the
+        // binder surfaces the RUNNING padi's build. Empty "" off-nix → honest "—".
+        commit: currentPadiCommitHash(),
         onDrain,
       }),
     },

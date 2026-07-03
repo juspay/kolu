@@ -553,6 +553,7 @@ startDaemonInventorySampler(
     legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
     activePadiSocket: padiSocketPath(inventoryStateRoot),
     activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
+    activePadiBuildCommit: () => padiSession.padiBuildCommit(),
     publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
   },
   (resample) => padiSession.onState(() => resample()),

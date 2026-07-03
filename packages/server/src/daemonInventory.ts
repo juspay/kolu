@@ -109,17 +109,19 @@ export function assembleKavalInventory(
 
 /**
  * PURE: assemble `RunningPadi[]` from discovered padi daemons, the socket of the padi
- * kolu-server is bound to, and that bound padi's honest `surfaceVersion` (off its
- * control-core `hello`).
+ * kolu-server is bound to, and that bound padi's honest `surfaceVersion` + `buildCommit`
+ * (both off its control-core `hello`).
  *
  * `active` is decided by SOCKET IDENTITY. Only the ACTIVE padi gets a `surfaceVersion`
- * — kolu-server already knows it from the bind handshake, so no re-dial is needed; a
- * padi kolu-server is NOT bound to reads `null` (not probed), the honest "unknown".
+ * and `buildCommit` — kolu-server already knows them from the bind handshake, so no
+ * re-dial is needed (mirroring how the kaval probe carries kaval's build); a padi
+ * kolu-server is NOT bound to reads `null` (not probed), the honest "unknown".
  */
 export function assemblePadiInventory(
   daemons: readonly PadiDaemon[],
   activeSocket: string | null,
   activeSurfaceVersion: string | null,
+  activeBuildCommit: string | null,
 ): RunningPadi[] {
   return daemons.map((d) => {
     const active = activeSocket !== null && d.socket === activeSocket;
@@ -128,6 +130,7 @@ export function assemblePadiInventory(
       stateRoot: d.stateRoot,
       gatePid: d.gatePid,
       surfaceVersion: active ? activeSurfaceVersion : null,
+      buildCommit: active ? activeBuildCommit : null,
       active,
     };
   });
@@ -206,6 +209,10 @@ export interface DaemonInventoryDeps {
   /** The bound padi's honest `surfaceVersion` off its control-core `hello`, or `null`
    *  while padi is unbound — read fresh each tick so a (re)bind updates it. */
   activePadiSurfaceVersion: () => string | null;
+  /** The bound padi's honest navigable git `commit` off its control-core `hello`, or
+   *  `null` while unbound / a survivor padi predating the field — read fresh each tick.
+   *  Mirrors how the kaval probe carries kaval's build commit. */
+  activePadiBuildCommit: () => string | null;
   /** Publish the assembled inventory — `koluSurfaceCtx.cells.daemonInventory.set`. */
   publish: (inv: DaemonInventory) => void;
 }
@@ -243,6 +250,7 @@ export async function enumerateDaemonInventoryOnce(
       padiDaemons,
       deps.activePadiSocket,
       deps.activePadiSurfaceVersion(),
+      deps.activePadiBuildCommit(),
     ),
   });
 }

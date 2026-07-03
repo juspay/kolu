@@ -208,7 +208,7 @@ const padi = (over: Partial<PadiDaemon>): PadiDaemon => ({
 });
 
 describe("assemblePadiInventory", () => {
-  it("marks the bound padi active and gives ONLY it the honest surfaceVersion", () => {
+  it("marks the bound padi active and gives ONLY it the honest surfaceVersion + buildCommit", () => {
     const rows = assemblePadiInventory(
       [
         padi({ socket: PADI_ACTIVE }),
@@ -216,30 +216,52 @@ describe("assemblePadiInventory", () => {
       ],
       PADI_ACTIVE,
       "1.1",
+      "padi9f8",
     );
     const active = rows.find((r) => r.socket === PADI_ACTIVE);
     const other = rows.find((r) => r.socket === PADI_OTHER);
-    expect(active).toMatchObject({ active: true, surfaceVersion: "1.1" });
-    // A padi kolu-server is NOT bound to is not probed → null surfaceVersion (honest
-    // "unknown"), never the active padi's version leaking onto it.
-    expect(other).toMatchObject({ active: false, surfaceVersion: null });
+    // Build commit rides the active padi, mirroring the Kaval running-daemon row.
+    expect(active).toMatchObject({
+      active: true,
+      surfaceVersion: "1.1",
+      buildCommit: "padi9f8",
+    });
+    // A padi kolu-server is NOT bound to is not probed → null surfaceVersion AND null
+    // buildCommit (honest "unknown"), never the active padi's identity leaking onto it.
+    expect(other).toMatchObject({
+      active: false,
+      surfaceVersion: null,
+      buildCommit: null,
+    });
   });
 
-  it("no active socket → nothing active, no surfaceVersion anywhere", () => {
+  it("no active socket → nothing active, no surfaceVersion / buildCommit anywhere", () => {
     const rows = assemblePadiInventory(
       [padi({ socket: PADI_ACTIVE })],
       null,
       "1.1",
+      "padi9f8",
     );
-    expect(rows[0]).toMatchObject({ active: false, surfaceVersion: null });
+    expect(rows[0]).toMatchObject({
+      active: false,
+      surfaceVersion: null,
+      buildCommit: null,
+    });
   });
 
-  it("active padi with an unknown surfaceVersion stays honestly null", () => {
+  it("active padi with an unknown build commit stays honestly null (a survivor predating the hello field)", () => {
     const rows = assemblePadiInventory(
       [padi({ socket: PADI_ACTIVE })],
       PADI_ACTIVE,
+      "1.1",
       null,
     );
-    expect(rows[0]).toMatchObject({ active: true, surfaceVersion: null });
+    // The bind is live (surfaceVersion known) but the commit is unknown → honest null,
+    // never fabricated (#1034) — the Padi dialog renders "—".
+    expect(rows[0]).toMatchObject({
+      active: true,
+      surfaceVersion: "1.1",
+      buildCommit: null,
+    });
   });
 });

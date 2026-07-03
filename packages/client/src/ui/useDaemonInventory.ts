@@ -30,10 +30,18 @@ export function runningPadis(): RunningPadi[] {
   return sub.value()?.padis ?? [];
 }
 
+/** The padi kolu-server is bound to (`active`), or `undefined` before the first
+ *  enumeration / while unbound. The Padi dialog reads its `surfaceVersion` /
+ *  `buildCommit` / `socket` for the header + detail rows, mirroring how the Kaval
+ *  dialog sources those from the active daemon's status. */
+export function activePadi(): RunningPadi | undefined {
+  return runningPadis().find((p) => p.active);
+}
+
 /** The `padiSurface` version the RUNNING active padi serves — the bound padi's honest
  *  `hello.surfaceVersion`, or `null` when padi is unbound / before the first sample (an
  *  honest "—", never the binder's build constant). Read by the Padi dialog + rail chip's
  *  "contract v<x.y>" readout, mirroring how Kaval sources its own contract version. */
 export function activePadiSurfaceVersion(): string | null {
-  return runningPadis().find((p) => p.active)?.surfaceVersion ?? null;
+  return activePadi()?.surfaceVersion ?? null;
 }

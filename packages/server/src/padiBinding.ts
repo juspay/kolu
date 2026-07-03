@@ -105,8 +105,12 @@ type PadiDaemonClient = AgentClient<PadiDaemonContract>;
  *  Produced by `scopeSibling(combined, "padi")`. */
 type PadiSurfaceClient = AgentClient<typeof padiSurface.contract>;
 
-/** padi's wire identity, from its control-core `hello`. */
-type PadiIdentity = { stateRoot: string; surfaceVersion: string } | undefined;
+/** padi's wire identity, from its control-core `hello`. `commit` is the RUNNING padi's
+ *  navigable git build (the Padi dialog's "build commit"); optional — a survivor padi
+ *  predating the hello field omits it (honest "—"). */
+type PadiIdentity =
+  | { stateRoot: string; surfaceVersion: string; commit?: string }
+  | undefined;
 type PadiConnectionMetadata = {
   surfaceVersion: string;
   controlCoreVersion: string;
@@ -239,6 +243,9 @@ export async function connectPadi(socketPath: string): Promise<PadiConnection> {
     identity: {
       stateRoot: hello.stateRoot,
       surfaceVersion: hello.surfaceVersion,
+      // The RUNNING padi's navigable git commit off the hello (optional — a survivor
+      // padi predating the field omits it → honest "—" downstream).
+      commit: hello.commit,
     },
     // padi's HONEST boot time — stamped once at padi's daemon init and echoed by
     // the frozen `hello` (W2.2 added `startedAt` to `PadiHelloSchema`), so a
@@ -684,6 +691,13 @@ export class PadiBindingSession
    *  process. Feeds koluSurface's `daemonInventory` cell (the Padi dialog + rail
    *  chip's "contract v<x.y>" readout). */
   private padiSurfaceVersionStr: string | null = null;
+  /** The bound padi's navigable git commit off its control-core `hello`
+   *  (`connectPadi` reads it into `identity.commit`), or `null` while unbound / when a
+   *  survivor padi predates the field. Managed on the SAME lifecycle as
+   *  `padiSurfaceVersionStr` — set on a fresh `connected`, cleared on close — so
+   *  `padiBuildCommit()` reports the LIVE padi's build or an honest "unknown". Feeds
+   *  koluSurface's `daemonInventory` cell (the Padi dialog's "build commit"). */
+  private padiBuildCommitStr: string | null = null;
   /** A reconnect timer is already scheduled — so overlapping degraded/dead events
    *  (a close, then the endpoint's own `dead` emit) don't STACK timers, each firing
    *  its own `adoptOrSpawnOrRefuse`. Cleared when the scheduled attempt fires. */
@@ -713,6 +727,9 @@ export class PadiBindingSession
           // actually serves, so the Padi dialog/rail read it rather than the binder's
           // build constant.
           this.padiSurfaceVersionStr = conn.identity?.surfaceVersion ?? null;
+          // The RUNNING padi's build commit off the same hello identity (empty "" →
+          // null, the honest "unknown", so off-nix reads "—" not a blank link).
+          this.padiBuildCommitStr = conn.identity?.commit || null;
           // Scope the COMBINED dialed client down to the padi sibling so the relay's
           // `client.surface.<member>` resolves at /surface/padi/<member>.
           const scoped = scopeSibling(
@@ -730,6 +747,7 @@ export class PadiBindingSession
         this.clientPromise = null;
         this.padiStartedAtMs = null;
         this.padiSurfaceVersionStr = null;
+        this.padiBuildCommitStr = null;
         this.scheduleReconnect();
       })
       // connecting | restarting: transient warming — no client-handle change; the
@@ -788,6 +806,14 @@ export class PadiBindingSession
     return this.destroyed ? null : this.padiSurfaceVersionStr;
   }
 
+  /** The bound padi's navigable git commit off its control-core `hello`, or `null`
+   *  while unbound / when a survivor padi predates the field (or the session is
+   *  destroyed). koluSurface's `daemonInventory` cell carries it as the active padi's
+   *  `buildCommit`; `null` renders as the honest "—". */
+  padiBuildCommit(): string | null {
+    return this.destroyed ? null : this.padiBuildCommitStr;
+  }
+
   onState(cb: (s: HostSessionState) => void): () => void {
     this.stateListeners.add(cb);
     cb(this.state); // snapshot-then-delta, like an inMemoryCell-backed onState.
@@ -807,6 +833,7 @@ export class PadiBindingSession
     this.clientPromise = null;
     this.padiStartedAtMs = null;
     this.padiSurfaceVersionStr = null;
+    this.padiBuildCommitStr = null;
     this.deps.endpoint.current()?.dispose();
     // Re-publish to wake any cursor blocked on the next client so the pump exits.
     this.fire();

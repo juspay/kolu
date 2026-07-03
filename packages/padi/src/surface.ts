@@ -695,6 +695,15 @@ export const PadiHelloSchema = z.object({
    *  age on every reconnect). Additive to the frozen core's initial served shape
    *  (the core has never shipped served), so `CONTROL_CORE_VERSION` stays "1.0". */
   startedAt: z.number(),
+  /** padi's navigable git commit (`PADI_COMMIT_HASH`) — the RUNNING padi's build,
+   *  which the binder surfaces as the Padi dialog's "build commit" (mirroring the
+   *  Kaval dialog's, whose commit rides kaval's `system.version.identity`). padi's
+   *  socket serves no `system.version`-style member, so the hello is padi's identity
+   *  channel; the binder already reads it. Additive like `startedAt` (core never
+   *  shipped served → `CONTROL_CORE_VERSION` stays "1.0"), but OPTIONAL — a survivor
+   *  padi predating the field omits it and STILL handshakes (its hello validates),
+   *  reading as the honest "—" rather than breaking the bind. Empty `""` off-nix. */
+  commit: z.string().optional(),
 });
 export type PadiHello = z.infer<typeof PadiHelloSchema>;
 

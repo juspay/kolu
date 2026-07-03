@@ -25,12 +25,15 @@ type ControlCoreDeps = Omit<
 
 /** Assemble the control-core server deps. `stateRoot` is padi's identity (echoed
  *  by `hello`); `startedAt` is padi's boot time (ms epoch), stamped once at daemon
- *  init and echoed by `hello` so the binder reports honest uptime; `onDrain`
- *  persists padi's state and triggers a graceful exit — the PTYs survive in kaval,
- *  and the caller observes the socket close. */
+ *  init and echoed by `hello` so the binder reports honest uptime; `commit` is padi's
+ *  navigable git commit (`PADI_COMMIT_HASH`), echoed by `hello` so the binder surfaces
+ *  the RUNNING padi's build (the Padi dialog's "build commit"); `onDrain` persists
+ *  padi's state and triggers a graceful exit — the PTYs survive in kaval, and the
+ *  caller observes the socket close. */
 export function buildControlCoreDeps(deps: {
   stateRoot: string;
   startedAt: number;
+  commit: string;
   onDrain: () => void | Promise<void>;
 }): ControlCoreDeps {
   return {
@@ -47,6 +50,7 @@ export function buildControlCoreDeps(deps: {
           surfaceVersion: PADI_SURFACE_VERSION,
           controlCoreVersion: CONTROL_CORE_VERSION,
           startedAt: deps.startedAt,
+          commit: deps.commit,
         }),
         controlVersion: () => ({ controlCoreVersion: CONTROL_CORE_VERSION }),
         // Persist + exit. Await the caller's drain (a final session flush) BEFORE
