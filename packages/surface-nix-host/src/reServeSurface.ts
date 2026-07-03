@@ -175,6 +175,16 @@ export function reServeSurface<
   // channel (the same instance `get` subscribes), so a mirrored frame still reaches
   // downstream subscribers. A fixture that needs to write a cell targets the agent
   // directly; full write-forwarding is W2.2. (#1661 candidate 8.)
+  //
+  // W2.2 NOTE: this fold intentionally mirrors `cellHandlers.applyAndPublish`
+  // (store.set + bus.publish) MINUS the equals/onWrite gates the re-serve doesn't
+  // want — a coupling to reserve when W2.2 revisits the cell contract. The cleaner
+  // deeper form (per the altitude review) is to narrow each mirrored cell's verbs
+  // to `["get"]` at the re-serve seam — as the `connection` cell already is — so a
+  // wire write is unrepresentable rather than a runtime throw and the fold routes
+  // through a normal `ctx.set`, dropping both the throwing store and this side
+  // channel. Deferred with write-forwarding (which needs the verbs PRESENT to
+  // forward, hence throw-verbs-present here) — one W2.2 decision, not two.
   const cellFolds = new Map<string, (v: unknown) => void>();
   const cellsDeps: Record<string, unknown> = {};
   for (const [key, cellSpec] of Object.entries(spec.cells ?? {})) {
@@ -245,14 +255,18 @@ export function reServeSurface<
       ? holdOpenStreamCore(member, liveClient, select, { log })
       : failThroughStreamCore(member, liveClient, select, { log });
   };
-  const streamsDeps: Record<string, unknown> = {};
-  for (const key of Object.keys(spec.streams ?? {})) {
-    streamsDeps[key] = { source: relayForMember(key) };
-  }
-  const eventsDeps: Record<string, unknown> = {};
-  for (const key of Object.keys(spec.events ?? {})) {
-    eventsDeps[key] = { source: relayForMember(key) };
-  }
+  // Streams and events route identically (both per-subscriber relays via
+  // `relayForMember`), so build both dep maps from one pass.
+  const buildRelayDeps = (
+    members: Record<string, unknown> | undefined,
+  ): Record<string, unknown> => {
+    const deps: Record<string, unknown> = {};
+    for (const key of Object.keys(members ?? {}))
+      deps[key] = { source: relayForMember(key) };
+    return deps;
+  };
+  const streamsDeps = buildRelayDeps(spec.streams);
+  const eventsDeps = buildRelayDeps(spec.events);
 
   // Procedures → forward every verb through the live spawn's stubs. A call while
   // the link is down throws loudly (fail-fast); the client retries.

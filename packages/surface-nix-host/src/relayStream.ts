@@ -40,6 +40,7 @@
  * graduates the machinery; W1 shipped that classification.
  */
 
+import type { UpstreamSource } from "@kolu/surface/project";
 import { isAbortReason, iterateUntilAborted } from "@kolu/surface/server";
 import type { LiveSpawnHolder, ObservableHolder } from "./hostFanout";
 
@@ -73,11 +74,13 @@ export type DeltaMembers<P extends RelayPolicy> = {
 // ── The forwardable-stream shape a client exposes per member ──────────────
 
 /** The slice of a live client one member's relay reads: `client.surface.<member>`
- *  as a `get(input, { signal }) => Promise<AsyncIterable<F>>`. Narrower than the
- *  full oRPC client so a relay can be handed `(client) => client.surface.attach`
- *  directly without re-spelling the whole surface type. */
+ *  — an object whose `.get` is a {@link UpstreamSource} (`(input, { signal }) =>
+ *  Promise<AsyncIterable<F>>`, the same client-stream shape `@kolu/surface`'s
+ *  projection helpers consume). Narrower than the full oRPC client so a relay can
+ *  be handed `(client) => client.surface.attach` directly; typing `.get` as
+ *  `UpstreamSource` reuses that one signature rather than re-spelling it. */
 export interface ForwardableStream<I, F> {
-  get(input: I, opts: { signal?: AbortSignal }): Promise<AsyncIterable<F>>;
+  get: UpstreamSource<I, F>;
 }
 
 /** Shared options for both relays — a diagnostic sink, default no-op. */
@@ -126,6 +129,20 @@ export function holdOpenStreamCore<Cl, I, F>(
   const log = opts.log ?? (() => {});
   return async function* (input, signal) {
     const aborted = (): boolean => signal?.aborted === true;
+    // Wait for the pump to (re)set the live client. Returns `true` when it changed
+    // (rebind), `false` on a downstream abort (the ONLY thing `whenChanged` rejects
+    // with — a non-abort rejection must surface, not be swallowed, matching the
+    // sibling `failThroughStreamCore`; #1661 candidate 3a). A generator can't
+    // `return` from a helper, so callers do `if (!(await waitNextSpawn())) return`.
+    const waitNextSpawn = async (): Promise<boolean> => {
+      try {
+        await holder.whenChanged(signal);
+        return true;
+      } catch (err) {
+        if (isAbortReason(err, signal)) return false;
+        throw err;
+      }
+    };
     while (!aborted()) {
       const client = holder.current;
       if (client === null) {
@@ -133,15 +150,7 @@ export function holdOpenStreamCore<Cl, I, F>(
         // spawn). HOLD — don't complete the downstream — and wake on the next
         // `.current` change.
         log(`${member}: no live client — holding for next spawn`);
-        try {
-          await holder.whenChanged(signal);
-        } catch (err) {
-          // `whenChanged` rejects only on abort (the downstream unsubscribed) →
-          // clean return; a non-abort rejection must surface, not be swallowed —
-          // matching the sibling `failThroughStreamCore`. (#1661 candidate 3a.)
-          if (isAbortReason(err, signal)) return;
-          throw err;
-        }
+        if (!(await waitNextSpawn())) return;
         continue;
       }
       if (opts.lead !== undefined) yield opts.lead;
@@ -159,14 +168,7 @@ export function holdOpenStreamCore<Cl, I, F>(
       // Don't busy-loop back onto the SAME just-dead client: wait for the pump to
       // swap in the next one before rebinding. (A clear to `null` needs no test
       // here — the loop head's `client === null` branch awaits `whenChanged`.)
-      if (holder.current === client) {
-        try {
-          await holder.whenChanged(signal);
-        } catch (err) {
-          if (isAbortReason(err, signal)) return; // downstream unsubscribed
-          throw err;
-        }
-      }
+      if (holder.current === client && !(await waitNextSpawn())) return;
     }
   };
 }
