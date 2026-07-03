@@ -284,6 +284,24 @@ export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
 export const PadiLinkSchema = z.enum(["connecting", "connected", "degraded"]);
 export type PadiLink = z.infer<typeof PadiLinkSchema>;
 
+/** Live boot-time readout for the identity rail's uptime — kolu-server's OWN boot
+ *  time and the bound padi's. Server-authored (kolu-server stamps its own boot at
+ *  module init and reads padi's honest `startedAt` off the bound session's control-core
+ *  `hello`); clients read-only and render `now − startedAt`. kaval's boot time is NOT
+ *  here — it already rides `daemonStatus.startedAt` (the Kaval dialog's uptime source),
+ *  so this cell carries only the two processes that lacked one.
+ *
+ *  Honesty (#1034): `server` is `0` until the first server yield — a sentinel the
+ *  rail gates out on truthiness, so the pre-yield state shows nothing, never a bogus
+ *  multi-decade uptime climbing off `now − 0`. `padi` is `null` whenever padi is
+ *  unbound (the (re)connecting / dropped binding) — an honest "unknown", never a fake
+ *  `0`, and it re-reads a FRESH boot time when a respawned padi (a new process) binds. */
+export const ProcessStartedAtSchema = z.object({
+  server: z.number(),
+  padi: z.number().nullable(),
+});
+export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
+
 /** Bytes in one megabyte. The single source of truth both the server-side dedup
  *  boundary and the client-side rail rendering read, so they can't drift. */
 export const BYTES_PER_MB = 1_048_576;
@@ -320,8 +338,8 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 // `padi` sibling kolu-server adds locally (`server/src/surface.ts`):
 //
 //   - `koluSurface` — the primitives kolu OWNS that are NOT part of the terminal
-//     domain: the `preferences` + `processMemory` + `padiLink` cells. Served under
-//     the `kolu` key. Every terminal-DERIVED member (`activityFeed`, `session`,
+//     domain: the `preferences` + `processMemory` + `padiLink` + `processStartedAt`
+//     cells. Served under the `kolu` key. Every terminal-DERIVED member (`activityFeed`, `session`,
 //     the `terminalExit` event, the per-terminal record, urgency, daemon status,
 //     the expected-kaval axis) relocated to `@kolu/padi` (the package-boundary
 //     seal) — so koluSurface has NO collections and NO events, and the terminal
@@ -348,8 +366,9 @@ export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
 
 /** The primitives kolu OWNS that are NOT part of the terminal domain —
  *  `preferences` (local-authority user prefs), `processMemory` (the live
- *  server+kaval RSS rail metric), and `padiLink` (kolu-server's live view of its
- *  binding to padi — a #1034 canvas-honesty leg). Every terminal-DERIVED wire member —
+ *  server+kaval RSS rail metric), `padiLink` (kolu-server's live view of its
+ *  binding to padi — a #1034 canvas-honesty leg), and `processStartedAt` (the
+ *  server + padi boot times the rail renders as uptime). Every terminal-DERIVED wire member —
  *  `activityFeed`, `session`, the `terminalExit` event, the terminal record,
  *  urgency, daemon status — now rides `padiSurface` (the package-boundary seal):
  *  only the conf-store STORAGE for session/activityFeed stays kolu-server-side
@@ -398,6 +417,20 @@ export const koluSurface = defineSurface({
     padiLink: {
       schema: PadiLinkSchema,
       default: "connecting" satisfies PadiLink,
+      verbs: ["get"],
+    },
+
+    /** Live boot-time readout (kolu-server + padi) for the rail's uptime (see
+     *  {@link ProcessStartedAtSchema}). Server-authored — kolu-server drives it off
+     *  the bound padi session's connection state, the SAME `onState` that drives
+     *  `padiLink` (`server/src/index.ts` via `koluSurfaceCtx.cells.processStartedAt.set`);
+     *  clients read-only. The `{ server: 0, padi: null }` default is the honest pre-yield
+     *  "unknown" (the rail gates a `0`/`null` out rather than rendering a bogus uptime). */
+    processStartedAt: {
+      schema: ProcessStartedAtSchema,
+      default: { server: 0, padi: null } satisfies z.infer<
+        typeof ProcessStartedAtSchema
+      >,
       verbs: ["get"],
     },
   },

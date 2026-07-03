@@ -39,14 +39,24 @@ import {
 import { createEndpoint } from "@kolu/surface-daemon-supervisor";
 import { reServeSurface } from "@kolu/surface-nix-host";
 import { createRouterClient } from "@orpc/server";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   bindPadiOnce,
   connectPadi,
   ensurePadiBinding,
   localPadiDriver,
   PADI_HOST_ID,
-  type PadiBindingSession,
+  PadiBindingSession,
+  type PadiBindingSessionDeps,
   probePadiSkew,
 } from "./padiBinding.ts";
 import { buildAppRouter } from "./router.ts";
@@ -544,4 +554,74 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // that stops the fresh padi (no dangling reconnect loop — this raw endpoint has none).
     ep.current()?.dispose();
   }, 90000);
+});
+
+describe("PadiBindingSession.padiStartedAt — honest boot time for the rail's padi uptime", () => {
+  // A pure unit test of the boot-time lifecycle — no real padi. Fake timers so the
+  // degraded-branch `scheduleReconnect()` timer never lingers past the test (the
+  // reconnect itself is irrelevant here — we only assert the boot-time accessor).
+  // The inner afterEach restores real timers BEFORE the file-level afterEach's
+  // `await sleep(50)` runs (innermost hooks run first).
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  // Minimal fake endpoint: `onEndpointStatus` reads `endpoint.current()` only to scope
+  // the client on `connected`, and the boot-time lifecycle reads the STATUS's
+  // `startedAt` (not `current()`), so a null current is fine — `clientPromise` stays
+  // null and we assert only `padiStartedAt()`.
+  const makeSession = (): PadiBindingSession =>
+    new PadiBindingSession({
+      endpoint: {
+        current: () => null,
+      } as unknown as PadiBindingSessionDeps["endpoint"],
+      connectOnce: async () => true,
+      reconnectDelayMs: 10_000, // never fires — cleared by the afterEach
+    });
+
+  type Status = Parameters<PadiBindingSession["onEndpointStatus"]>[0];
+  const connected = (startedAt: number): Status => ({
+    state: "connected",
+    identity: { stateRoot: "/x", surfaceVersion: PADI_SURFACE_VERSION },
+    startedAt,
+    metadata: {
+      surfaceVersion: PADI_SURFACE_VERSION,
+      controlCoreVersion: "1.0",
+    },
+  });
+
+  it("is null before any connection (honest unknown, never a fake 0)", () => {
+    const s = makeSession();
+    expect(s.padiStartedAt()).toBeNull();
+    s.destroy();
+  });
+
+  it("reports the connected status's startedAt, then clears to null on a drop", () => {
+    const s = makeSession();
+    s.onEndpointStatus(connected(1_700_000_000_000));
+    expect(s.padiStartedAt()).toBe(1_700_000_000_000);
+    // A degraded close clears it — the padi uptime reads "unknown", never a stale age.
+    s.onEndpointStatus({ state: "degraded" } as Status);
+    expect(s.padiStartedAt()).toBeNull();
+    s.destroy();
+  });
+
+  it("re-reads a FRESH boot time on reconnect (a respawned padi is a new process)", () => {
+    const s = makeSession();
+    s.onEndpointStatus(connected(111));
+    expect(s.padiStartedAt()).toBe(111);
+    s.onEndpointStatus({ state: "degraded" } as Status);
+    s.onEndpointStatus(connected(222)); // respawn → new boot time, not the old 111
+    expect(s.padiStartedAt()).toBe(222);
+    s.destroy();
+  });
+
+  it("is null once destroyed", () => {
+    const s = makeSession();
+    s.onEndpointStatus(connected(555));
+    s.destroy();
+    expect(s.padiStartedAt()).toBeNull();
+  });
 });

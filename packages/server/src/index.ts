@@ -37,7 +37,12 @@ import {
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
 import { type WebSocket, WebSocketServer } from "ws";
-import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
+import {
+  serverHostname,
+  serverProcessId,
+  serverStartedAt,
+  serverVersion,
+} from "./hostname.ts";
 import {
   previewTailFromRawUrl,
   rawTargetFromContext,
@@ -495,9 +500,18 @@ startMemorySampler(
 // WHOLE drain window instead of a frozen re-served daemonStatus (#1034). `onState` fires
 // the current state synchronously on subscribe, so the cell is seeded before the first
 // transition.
-padiSession.onState((s) =>
-  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection)),
-);
+padiSession.onState((s) => {
+  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection));
+  // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
+  // time (constant) plus the bound padi's honest boot time (`null` while unbound). A
+  // padi (re)connect refreshes padi's uptime and a drop clears it to the honest
+  // "unknown" at once — never a stale age. The cell's `equals` dedups a transition
+  // that moves neither boot time. kaval's uptime is NOT here (it rides `daemonStatus`).
+  koluSurfaceCtx.cells.processStartedAt.set({
+    server: serverStartedAt,
+    padi: padiSession.padiStartedAt(),
+  });
+});
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);

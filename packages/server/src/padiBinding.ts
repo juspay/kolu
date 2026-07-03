@@ -658,6 +658,14 @@ export class PadiBindingSession
 {
   private clientPromise: Promise<PadiSurfaceClient> | null = null;
   private destroyed = false;
+  /** The bound padi's HONEST boot time (ms epoch) off its control-core `hello`
+   *  (echoed on every `connected` endpoint status as `startedAt`), or `null` while
+   *  padi is unbound. Managed on the SAME lifecycle as `clientPromise` — set on a
+   *  fresh `connected` (a respawned padi is a new process, so its boot time is
+   *  fresh), cleared to `null` on a degraded/dead close — so `padiStartedAt()` reports
+   *  a real uptime or an honest "unknown", never a stale boot time from the old
+   *  process. Feeds koluSurface's `processStartedAt` cell (the rail's padi uptime). */
+  private padiStartedAtMs: number | null = null;
   /** A reconnect timer is already scheduled — so overlapping degraded/dead events
    *  (a close, then the endpoint's own `dead` emit) don't STACK timers, each firing
    *  its own `adoptOrSpawnOrRefuse`. Cleared when the scheduled attempt fires. */
@@ -676,6 +684,10 @@ export class PadiBindingSession
     // currentClient()), then project + fire ONCE for every transition.
     match(s.state)
       .with("connected", () => {
+        // padi's honest boot time rides the connected status (`hello.startedAt` →
+        // endpoint `startedAt`). Read it off the STATUS, not `endpoint.current()`, so
+        // a respawned padi's FRESH boot time lands (never the old process's).
+        this.padiStartedAtMs = s.startedAt ?? null;
         const conn = this.deps.endpoint.current();
         if (conn) {
           // Scope the COMBINED dialed client down to the padi sibling so the relay's
@@ -689,9 +701,11 @@ export class PadiBindingSession
       })
       .with(P.union("degraded", "dead"), () => {
         // The live link dropped. Clear the client so a forward in the gap fails
-        // honestly, then schedule ONE reconnect (padi survives its own unit; the
-        // re-adopt re-attaches the surviving kaval + PTYs).
+        // honestly, clear padi's boot time so its uptime reads the honest "unknown"
+        // (never a stale age), then schedule ONE reconnect (padi survives its own
+        // unit; the re-adopt re-attaches the surviving kaval + PTYs).
         this.clientPromise = null;
+        this.padiStartedAtMs = null;
         this.scheduleReconnect();
       })
       // connecting | restarting: transient warming — no client-handle change; the
@@ -735,6 +749,13 @@ export class PadiBindingSession
     return this.destroyed;
   }
 
+  /** The bound padi's boot time (ms epoch), or `null` while padi is unbound (or the
+   *  session is destroyed). kolu-server publishes `now`-relative uptime from this onto
+   *  koluSurface's `processStartedAt` cell; `null` renders as the honest "unknown". */
+  padiStartedAt(): number | null {
+    return this.destroyed ? null : this.padiStartedAtMs;
+  }
+
   onState(cb: (s: HostSessionState) => void): () => void {
     this.stateListeners.add(cb);
     cb(this.state); // snapshot-then-delta, like an inMemoryCell-backed onState.
@@ -752,6 +773,7 @@ export class PadiBindingSession
   destroy(): void {
     this.destroyed = true;
     this.clientPromise = null;
+    this.padiStartedAtMs = null;
     this.deps.endpoint.current()?.dispose();
     // Re-publish to wake any cursor blocked on the next client so the pump exits.
     this.fire();

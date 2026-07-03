@@ -31,13 +31,15 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // Every terminal-derived wire member — `session`, `activityFeed`, `terminalList`,
     // and the `terminalExit` event — relocated onto `padiSurface` (the W1 padi
     // seam). koluSurface keeps only kolu-server's OWN cells: `preferences`,
-    // `processMemory`, and `padiLink` (kolu-server's live view of its binding to padi
-    // — a #1034 honesty leg, server-authored, NOT a terminal member). No collections,
-    // no events.
+    // `processMemory`, `padiLink` (kolu-server's live view of its binding to padi
+    // — a #1034 honesty leg, server-authored, NOT a terminal member), and
+    // `processStartedAt` (the server + padi boot times the rail renders as uptime).
+    // No collections, no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "padiLink",
       "preferences",
       "processMemory",
+      "processStartedAt",
     ]);
     expect(spec.cells?.session).toBeUndefined();
     expect(spec.cells?.activityFeed).toBeUndefined();

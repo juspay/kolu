@@ -49,6 +49,7 @@ import type {
   Preferences,
   ProcessMemory,
   ProcessRss,
+  ProcessStartedAt,
 } from "kolu-common/surface";
 import {
   bytesToWholeMB,
@@ -162,6 +163,21 @@ const padiLinkCellStore = {
   },
 };
 
+// ── processStartedAt cell: kolu-server + padi boot times for the rail's uptime ──
+//
+// Server-authored (kolu-server drives it off `padiSession.onState` in `index.ts`,
+// the SAME subscription that drives `padiLink`); the client renders `now − startedAt`
+// as each process's uptime. A live signal, so the backing is in-memory (no on-disk
+// slot); the `{ server: 0, padi: null }` seed is the honest pre-yield "unknown" (the
+// rail gates a `0`/`null` out rather than rendering a bogus uptime).
+let currentProcessStartedAt: ProcessStartedAt = { server: 0, padi: null };
+const processStartedAtCellStore = {
+  get: (): ProcessStartedAt => currentProcessStartedAt,
+  set: (value: ProcessStartedAt): void => {
+    currentProcessStartedAt = value;
+  },
+};
+
 // ── kolu's own-surface implementation deps (concretely typed) ───────────
 //
 // Typed against `koluSurface.spec` so every stream `read(input)` / collection
@@ -214,6 +230,15 @@ const koluDeps: Omit<
       // map to the same padiLink) never re-publishes to every connected client.
       store: padiLinkCellStore,
       equals: (a, b) => a === b,
+    },
+    processStartedAt: {
+      // Live signal; the in-memory store has no persistent slot. The bound-padi
+      // `onState` subscription (`index.ts`) is the sole writer via
+      // `koluSurfaceCtx.cells.processStartedAt.set`. `equals` dedups so a transition
+      // that leaves both boot times unchanged (onState fires per endpoint status;
+      // several keep the same connected padi) never re-publishes to every client.
+      store: processStartedAtCellStore,
+      equals: (a, b) => a.server === b.server && a.padi === b.padi,
     },
   },
 };
