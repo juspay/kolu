@@ -211,6 +211,10 @@ describe("inMemoryChannel", () => {
     // were buffered, then the stream ended LOUDLY so the consumer re-subscribes.
     expect(drained).toEqual([0, 1, 2]);
     expect(err).toBeInstanceOf(ChannelOverflowError);
+    // The aborted subscriber is REMOVED from the registry — a rejected next()
+    // never fires iterator.return(), so the abort branch must reap it itself, or
+    // the dead entry leaks (it would take every future publish as a no-op). #F1.
+    expect(chan.subscriberCount()).toBe(0);
   });
 
   it("drop-oldest policy: keeps the NEWEST frames and fires onOverflow per drop", async () => {

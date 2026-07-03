@@ -698,8 +698,14 @@ export function inMemoryChannel<T>(
             onOverflow?.();
             queue.push(value);
           } else {
-            // "abort": close loudly so the consumer re-subscribes end-to-end.
+            // "abort": close loudly so the consumer re-subscribes end-to-end, AND
+            // drop the sub from the registry. A rejected pending `next()` never
+            // triggers `iterator.return()` (the consumer just abandons the
+            // iterator), so nothing else reaps this entry — without the remove it
+            // would linger forever, taking every later publish's now-no-op
+            // `sub.push()`. Mirrors the onAbort + return() paths, which removeSub too.
             sub.close(new ChannelOverflowError(queue.length));
+            removeSub(sub);
           }
           return;
         }
