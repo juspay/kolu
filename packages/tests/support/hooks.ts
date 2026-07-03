@@ -218,12 +218,17 @@ const padiStateDir = mkSubDir("padi-state");
  *
  *  Deliberately a SHORT, top-level path — NOT nested under `testBaseDir` (which
  *  lives under the deep nix-shell `$TMPDIR`). kolu's per-terminal scratch dir
- *  hangs off `$XDG_RUNTIME_DIR`, so a long runtime path makes a pasted scratch
- *  file path (clipboard / file-drop) wrap in the 80-col test terminal — and
- *  bash 5's bracketed-paste active-region redraw of a *wrapped* line garbles the
- *  cells so the screen-state read can't find the filename. A short runtime dir
- *  keeps the path on one line. Cleaned up by `killServer` (it sits outside
- *  `testBaseDir`, so the run's recursive remove doesn't catch it). */
+ *  hangs off `$XDG_RUNTIME_DIR`, so a deep runtime path bloats a pasted scratch
+ *  file path (clipboard / file-drop) and keeps the padi/kaval unix-socket paths
+ *  nearer the ~108-char limit — both reasons to stay short. It is NOT, however,
+ *  what keeps the screen-state assertion correct: even with this short dir the
+ *  W2.2 scratch layout (`$XDG_RUNTIME_DIR/kolu-<pid>/scratch/<uuid>/<name>`)
+ *  runs ~81 chars and the filename straddles the 80-col grid before xterm's
+ *  fit() widens it under load. The screen-state reader now rejoins hard-wrapped
+ *  rows via `isWrapped` (see `__readXtermBuffer`), so a wrapped path no longer
+ *  splits the filename — the cells are clean, not "garbled". Cleaned up by
+ *  `killServer` (it sits outside `testBaseDir`, so the run's recursive remove
+ *  doesn't catch it). */
 const runtimeDir = fs.mkdtempSync(path.join("/tmp", `kr${workerId}-`));
 fs.chmodSync(runtimeDir, 0o700);
 
@@ -1023,7 +1028,21 @@ Before(async function (this: KoluWorld, scenario) {
       var lines = [];
       for (var i = 0; i < buf.length; i++) {
         var line = buf.getLine(i);
-        lines.push(line ? line.translateToString(true) : "");
+        if (!line) { lines.push(""); continue; }
+        // A single logical line longer than the grid width hard-wraps across
+        // several buffer rows; the continuation rows carry isWrapped=true.
+        // Rejoin them into ONE logical line so a match string that straddles a
+        // wrap column is still found — e.g. a dropped file's long scratch path
+        // wraps "notes.md" as "...no" + "tes.md", which a naive per-row join
+        // would split with a newline and never match (the file-drop/clipboard
+        // screen-state flake). translateToString(trimRight) is applied only at
+        // the logical-line END: a mid-line (continued) row fills the full width,
+        // so trimming it would drop a real space sitting on the wrap boundary.
+        var next = i + 1 < buf.length ? buf.getLine(i + 1) : null;
+        var continued = !!(next && next.isWrapped);
+        var s = line.translateToString(!continued);
+        if (line.isWrapped && lines.length) lines[lines.length - 1] += s;
+        else lines.push(s);
       }
       return lines.join("\\n");
     };
