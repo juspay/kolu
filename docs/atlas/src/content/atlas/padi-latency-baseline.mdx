@@ -84,7 +84,7 @@ breached, padi's carve-out permits a raw-byte relay on the padi→kolu-server le
 ## How the probe drives the stack
 
 The measurement is a small, reusable script — not a one-off — so W2.2 re-runs the
-**identical** method:
+**identical** method (bench + this note shipped in <PrLink pr={1660} />):
 
 - **`packages/server/bench/typingEchoLatency.ts`** — the client probe. It dials
   `ws://host:port/rpc/ws` with Node's global `WebSocket`, wraps it in
