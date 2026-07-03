@@ -48,21 +48,27 @@ export const PADI_SOCK_FILE = "padi.sock";
 /** The gate filename padi's single-instance lock claims, beside the socket. */
 export const PADI_GATE_FILE = "padi.pid";
 
-/** The default state-root the padi binary spells ON the host — `$XDG_STATE_HOME/
- *  padi`, else `$HOME/.local/state/padi`. Persistent (survives reboots), distinct
- *  from kolu-server's `~/.config/kolu` config (session layout is *state*, not user
- *  *config*). Crashes loudly if neither `$XDG_STATE_HOME` nor a home dir resolves
- *  — a bare launch with no anchor must fail fast, never silently pick a throwaway
- *  path that would strand the saved session. A client passes an explicit path
- *  (dev/e2e) to bypass this default. */
+/** The default state-root the padi binary spells ON the host —
+ *  `$HOME/.local/state/padi` (the OS passwd home if `$HOME` is unset). Persistent
+ *  (survives reboots), distinct from kolu-server's `~/.config/kolu` config (session
+ *  layout is *state*, not user *config*).
+ *
+ *  Deliberately **env-insensitive** — it does NOT honor `$XDG_STATE_HOME`, even
+ *  though that is the XDG-standard base for state. This is an IDENTITY anchor, not
+ *  a user-tunable config path: `$XDG_STATE_HOME` is set in some launch contexts (a
+ *  login shell) and unset in others (a bare systemd unit, an `ssh` exec), so
+ *  honoring it would let two contexts — the binder and padi, or two binder launches
+ *  — resolve DIFFERENT roots and split padi's identity + saved session. `$HOME` is
+ *  stable across every context, so the digest is the same wherever it is computed.
+ *  Crashes loudly if no home resolves — a bare launch with no anchor must fail
+ *  fast, never silently pick a throwaway path that would strand the saved session.
+ *  A client wanting a custom path passes `KOLU_PADI_STATE_DIR` / `--state-root`. */
 export function defaultPadiStateRoot(): string {
-  const xdgStateHome = process.env.XDG_STATE_HOME;
-  if (xdgStateHome) return join(resolve(xdgStateHome), "padi");
   const home = process.env.HOME || homedir();
   if (home) return join(resolve(home), ".local", "state", "padi");
   throw new Error(
-    "padi: cannot resolve a default state-root — set $XDG_STATE_HOME or $HOME, " +
-      "or pass an explicit --state-root. A bare launch with no anchor is refused " +
+    "padi: cannot resolve a default state-root — set $HOME, or pass an explicit " +
+      "--state-root / KOLU_PADI_STATE_DIR. A bare launch with no anchor is refused " +
       "rather than silently picking a throwaway path that would strand the session.",
   );
 }

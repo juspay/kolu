@@ -14,18 +14,8 @@
  * INJECTED via `setKoluServerProcessId` / `setSpawnServerVersion`, not imported.
  */
 
-// ── injected conf stores (session + activityFeed) ───────────────────────
-// kolu-server boot injects the real `confStore`-backed stores here BEFORE serving
-// (padi does not import packages/server; the STORAGE stays kolu-server's source of
-// truth until W2.2). The `requireX` getters stay padi-internal.
-export {
-  setPadiActivityFeedStore,
-  setPadiLastPairedDaemonStore,
-  setPadiSessionStore,
-} from "./confStores.ts";
-// The persisted survivor pairing's type — kolu-server builds the conf-backed store
-// for it (`surface.ts`) and injects it via `setPadiLastPairedDaemonStore`. The
-// pairing is READ + RECORDED entirely inside padi's boot reconcile.
+// The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
+// inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
 export type { PairedDaemon } from "./pairedDaemon.ts";
 // ── scratch / roots ─────────────────────────────────────────────────────
 export {
@@ -54,10 +44,6 @@ export {
   ptyHostClient,
   setSpawnServerVersion,
 } from "./ptyHost/index.ts";
-// The per-instance kaval socket path — kolu-server (in-process, until the W2.2
-// cutover) resolves it from its listen port to feed `ensureLocalEndpoint`.
-export { kavalSocketPath } from "./ptyHost/localDriver.ts";
-export { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 // ── padi process rendezvous (W2.2 binder) ───────────────────────────────
 // kolu-server's padi BINDER (`server/src/padiBinding.ts`) resolves the SAME
 // state-root → socket/gate paths padi computes for itself, so the supervisor and

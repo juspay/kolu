@@ -39,12 +39,16 @@ afterEach(() => {
 });
 
 describe("defaultPadiStateRoot — the binary spells it on the host", () => {
-  it("uses $XDG_STATE_HOME/padi when set", () => {
-    process.env.XDG_STATE_HOME = "/home/u/.local/state";
+  it("IGNORES $XDG_STATE_HOME — HOME-only, so two launch contexts can't split padi's identity", () => {
+    // Even with $XDG_STATE_HOME set (a login shell), the default is env-INSENSITIVE:
+    // HOME-only, so a context WITHOUT it (a bare systemd unit, an ssh exec) resolves
+    // the exact SAME root and the digest never diverges.
+    process.env.XDG_STATE_HOME = "/somewhere/else/state";
+    process.env.HOME = "/home/u";
     expect(defaultPadiStateRoot()).toBe("/home/u/.local/state/padi");
   });
 
-  it("falls back to $HOME/.local/state/padi with no XDG_STATE_HOME", () => {
+  it("is $HOME/.local/state/padi with no $XDG_STATE_HOME either", () => {
     delete process.env.XDG_STATE_HOME;
     process.env.HOME = "/home/u";
     expect(defaultPadiStateRoot()).toBe("/home/u/.local/state/padi");
@@ -78,10 +82,11 @@ describe("resolvePadiStateRoot — override wins, always absolute", () => {
     expect(resolvePadiStateRoot()).toBe("/e2e/worker-3/padi");
   });
 
-  it("falls to the binary default with neither override nor env", () => {
+  it("falls to the binary default (HOME-only) with neither override nor env", () => {
     delete process.env.KOLU_PADI_STATE_DIR;
-    process.env.XDG_STATE_HOME = "/x/state";
-    expect(resolvePadiStateRoot()).toBe("/x/state/padi");
+    process.env.XDG_STATE_HOME = "/x/state"; // ignored — the default is env-insensitive
+    process.env.HOME = "/home/u";
+    expect(resolvePadiStateRoot()).toBe("/home/u/.local/state/padi");
   });
 });
 

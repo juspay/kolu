@@ -14,7 +14,12 @@
  */
 
 import { dirname } from "node:path";
-import { type DaemonExit, daemonMain, type Logger } from "@kolu/surface-daemon";
+import {
+  acquirePidGate,
+  type DaemonExit,
+  daemonMain,
+  type Logger,
+} from "@kolu/surface-daemon";
 
 /** padi's boot time (ms epoch), stamped ONCE when this module first loads — i.e.
  *  at process start. The control-core `hello` echoes it so the binder measures
@@ -39,7 +44,7 @@ import { publisher } from "./publisher.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint, setSpawnServerVersion } from "./ptyHost/index.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
-import { initSessionAutoSave, saveSession } from "./session.ts";
+import { initSessionAutoSave, setSavedSessionFromSnapshot } from "./session.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
@@ -93,6 +98,29 @@ export async function runPadiDaemon(
   const gatePath = padiGatePath(socketPath);
   const kavalSocket = padiKavalSocketPath(stateRoot);
 
+  // ── Claim the single-instance gate FIRST, before ANY boot side effect ──
+  // A second padi racing this same state-root must learn it lost the race BEFORE it
+  // runs the legacy import, recycles the shared kaval (`ensureLocalEndpoint`), or
+  // writes the state manifests — else the loser clobbers the winner's disk. So the
+  // gate is acquired here, at the top, and HANDED to the spine's `daemonMain` (which
+  // otherwise acquires it last, after all of that). A crash mid-boot (the fail-fast
+  // import) leaves a gate held by a dead pid, which the next launch reclaims.
+  const gate = acquirePidGate(gatePath);
+  if (gate.kind === "held") {
+    log.info(
+      { gatePath, pid: gate.pid },
+      "padi already running for this state-root; yielding to the live instance",
+    );
+    return { kind: "already-running", pid: gate.pid };
+  }
+  if (gate.kind === "dir-not-private") {
+    log.error(
+      { gatePath, dir: gate.dir },
+      "padi gate directory is not private (owner-only); refusing to start",
+    );
+    return { kind: "serve-failed", detail: "dir-not-private" };
+  }
+
   // ── padi's own state-root store (the W2.2 move off kolu-server's conf) ──
   // The three cells padi owns — session, activityFeed, lastPairedDaemon — now
   // read/write padi's OWN `Conf` under the state-root. Injected BEFORE anything
@@ -132,9 +160,11 @@ export async function runPadiDaemon(
   }
   const onDrain = (): void => {
     // Persist the live layout so a re-spawn restores it; the PTYs stay alive in
-    // kaval. The session-safety guards inside `saveSession` still apply (a
-    // non-empty registry persists its terminals; they own the empty-shrink guard).
-    saveSession(snapshotSession());
+    // kaval. `setSavedSessionFromSnapshot` is the EMPTY-PRESERVE receptacle: a drain
+    // while the registry is empty or parked-only must NOT null a non-empty saved blob
+    // (the W1 zest-loss class) — an empty snapshot leaves the existing session intact,
+    // and the write cancels any pending autosave that could re-null it afterward.
+    setSavedSessionFromSnapshot(snapshotSession());
     drainController.abort();
   };
 
@@ -199,5 +229,8 @@ export async function runPadiDaemon(
     log,
     signal: drainController.signal,
     onReady: opts.onReady,
+    // The gate we already claimed at the top — the spine serves under it and
+    // releases it on teardown, rather than acquiring it here (too late).
+    gate,
   });
 }

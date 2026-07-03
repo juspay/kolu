@@ -11,11 +11,15 @@
  * `getRuntimeSocketPath` in `@kolu/surface/unix-socket`; this module just
  * pins kolu's names.
  *
- * kolu-server namespaces its daemon PER INSTANCE by listen port
- * (`kaval-<port>/`), so two servers on one box never collide on a single gate
- * (the prod incident where a second server recycled the first's daemon). The
- * consequence: there is no one fixed path a flag-less `kaval-tui` can assume, so
- * it `discoverPtyHostSockets()` the running daemon instead.
+ * padi spawns its kaval under a DIGEST-keyed namespace (`kaval-<digest>/`, the
+ * digest taken from padi's state-root, with a `state-root` manifest beside the
+ * socket so discovery can label it), so two padis on one box never collide on a
+ * single gate (the prod incident where a second server recycled the first's
+ * daemon). A bare standalone kaval is still `kaval/`. The legacy per-port
+ * `kaval-<port>/` — the old in-process kolu-server keying — is retired; discovery
+ * below still recognizes it for the transition. The consequence either way: there
+ * is no one fixed path a flag-less `kaval-tui` can assume, so it
+ * `discoverPtyHostSockets()` the running daemon instead.
  */
 import {
   lstatSync,
@@ -67,13 +71,17 @@ export function readStateRootManifest(runtimeDir: string): string | undefined {
 }
 
 /** The app-namespace prefix kaval owns. A standalone daemon serves under it
- *  bare (`kaval/`); each kolu-server serves under a per-port decoration of it
- *  (`kavalNamespace(port)` → `kaval-<port>/`). The prefix is the one literal
- *  that ties construction and discovery together. */
+ *  bare (`kaval/`); a padi's kaval decorates it with a digest of padi's
+ *  state-root (`kaval-<digest>/`), and the legacy in-process kolu-server used the
+ *  same decoration shape with a listen port (`kaval-<port>/`). The prefix is the
+ *  one literal that ties construction and discovery together. */
 export const KAVAL_NS_PREFIX = "kaval";
 
-/** The app namespace for a kolu-server's per-instance daemon, keyed by listen
- *  port so two servers on one box never collide on a single gate. */
+/** The legacy per-port app namespace — the retired in-process kolu-server keying
+ *  (`kaval-<port>/`). No longer used to CONSTRUCT a live socket (padi keys by a
+ *  state-root digest now); kept because discovery below probes it with a sentinel
+ *  to learn the `<prefix>-<...>` decoration shape, and still recognizes such dirs
+ *  for the transition. */
 export function kavalNamespace(port: number): string {
   return `${KAVAL_NS_PREFIX}-${port}`;
 }
@@ -115,11 +123,12 @@ function isPrivateOwnedDir(dir: string): boolean {
 }
 
 /** Discover the rendezvous sockets of running pty-host daemons under the per-user
- *  runtime root, EACH LABELED by the branch that matched — every kolu-server's
- *  per-port namespace (`kaval-<port>/` → "kolu-server on port <port>") plus a bare
- *  standalone `kaval/` (→ "standalone kaval"). Lets a flag-less `kaval-tui` dial
- *  the daemon without knowing the server's port, and a `many`-candidate error name
- *  each one correctly.
+ *  runtime root, EACH LABELED by the branch that matched — a bare standalone
+ *  `kaval/` (→ "standalone kaval"), a padi's digest-keyed `kaval-<digest>/`
+ *  (labeled from its state-root manifest → "kolu @ <state-root>"), and, for the
+ *  transition, a legacy `kaval-<port>/` (no manifest, numeric suffix → "kolu-server
+ *  on port <port>"). Lets a flag-less `kaval-tui` dial the daemon without knowing
+ *  padi's digest, and a `many`-candidate error name each one correctly.
  *
  *  The runtime root and the env's namespace decoration are NOT re-derived here:
  *  they are READ BACK from `getRuntimeSocketPath` itself, so discovery can never
@@ -252,8 +261,8 @@ export type KavalSocketResolution =
 
 /** Resolve which running kaval to dial. An explicit path wins (verbatim — it's a
  *  user-supplied `--socket`/`--kaval` flag). Otherwise discover the running
- *  daemon: kolu-server namespaces its daemon by listen port (`kaval-<port>/`), so
- *  there is no single fixed path to assume. Exactly one found → `one`. More than
+ *  daemon: padi keys its kaval by a digest of its state-root (`kaval-<digest>/`),
+ *  so there is no single fixed path to assume. Exactly one found → `one`. More than
  *  one → `many`, with each candidate LABELED (the caller renders a pick-one
  *  error). None → `none` with the bare `kaval` default, so a connect error names
  *  a sensible path. */

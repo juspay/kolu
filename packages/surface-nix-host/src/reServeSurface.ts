@@ -116,7 +116,7 @@ type ProcedureFn = (
 
 /** High-water mark for each downstream subscriber's per-cell/-collection receive
  *  queue (see the `channel` factory below). Generous enough that only a
- *  pathologically-behind consumer trips the fail-fast abort. */
+ *  pathologically-behind consumer trips the drop-oldest eviction. */
 const RESERVE_CHANNEL_HIGH_WATER_MARK = 4096;
 
 export function reServeSurface<
@@ -149,15 +149,27 @@ export function reServeSurface<
   //
   // The factory BOUNDS each downstream subscriber's per-cell/-collection receive
   // queue (#1661 candidate h2): a slow browser + a fast mirror fold would otherwise
-  // grow the queue without limit. At the bound the subscriber is aborted (fail-fast)
-  // so its client re-subscribes and re-snapshots from the authoritative mirror — a
-  // value channel is self-healing, so abort-and-resync is lossless. Only the
-  // channeled members (cells + collections, all `value`) ride this; the streaming
-  // members (delta byte streams, value pulses) are relayed per-subscriber and
-  // backpressured by async-generator suspension, so they never queue here.
+  // grow the queue without limit. At the bound the OLDEST queued frame is EVICTED
+  // (`drop-oldest`) to admit the newest, and `onOverflow` LOGS the drop so it's
+  // observable, never silent. This is correct precisely BECAUSE these are VALUE
+  // channels (cells + collections, snapshot-then-delta): a dropped intermediate
+  // frame is harmless — the next snapshot/delta re-converges the mirror to the
+  // authoritative state, so the consumer self-heals in place with the stream still
+  // flowing. An `abort` here would be WRONG: it surfaces to the browser as a
+  // non-retriable ORPCError, which would STRAND the mirror (it never self-heals)
+  // instead of recovering. Fail-fast/abort is the right policy for a byte or
+  // fail-through stream (a lost frame is a real gap), NOT for a re-converging value
+  // channel — see `relayFailThroughStream`. Only the channeled members (cells +
+  // collections, all `value`) ride this; the streaming members (delta byte streams,
+  // value pulses) are relayed per-subscriber and backpressured by async-generator
+  // suspension, so they never queue here.
   const channel = inMemoryChannelByName({
     highWaterMark: RESERVE_CHANNEL_HIGH_WATER_MARK,
-    overflow: "abort",
+    overflow: "drop-oldest",
+    onOverflow: () =>
+      log(
+        "reServeSurface: a mirrored value channel's downstream receive queue overflowed — dropped the oldest frame (harmless: the next snapshot/delta re-converges the mirror)",
+      ),
   });
 
   // Live-spawn holders the pump drives; the relays read `liveClient` and the

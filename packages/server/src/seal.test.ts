@@ -128,17 +128,36 @@ const PADI_PKG = resolve(PADI_SRC, "..", "package.json");
 const APP_PACKAGES = ["kolu-common", "kolu-server", "kolu-client"];
 
 /** Map every workspace package NAME → its `package.json` path, so a workspace
- *  dep (`@kolu/terminal-workspace`, `kaval`, …) resolves to its dir even when the
- *  dir name differs from the package name. */
+ *  dep (`@kolu/terminal-workspace`, `kaval`, `kolu-pty`, …) resolves to its dir
+ *  even when the dir name differs from the package name.
+ *
+ *  Discovery is RECURSIVE, mirroring the ROOT `pnpm-workspace.yaml`, whose sole
+ *  workspace glob is a fully-recursive `packages/**`: a workspace package may live
+ *  at ANY depth under `packages/` — top-level (`packages/kaval`), nested
+ *  (`packages/integrations/kolu-pty`), an `example/*` sub-package, and so on. The
+ *  old top-level-only `readdirSync(PACKAGES_DIR)` silently DROPPED
+ *  `packages/integrations/*` — ~7 of padi's OWN deps (kolu-pty, kolu-git,
+ *  anyagent, anyforge, kolu-claude-code, kolu-codex, kolu-opencode) — so arm (e)'s
+ *  cone walk never reached them and passed vacuously. We prune `node_modules`
+ *  (pnpm never treats it as a workspace root) and dot-dirs; every remaining
+ *  `package.json` is a workspace member, keyed by its declared `name`. */
 function workspacePkgJsonByName(): Map<string, string> {
   const byName = new Map<string, string>();
-  for (const dir of readdirSync(PACKAGES_DIR)) {
-    const pj = resolve(PACKAGES_DIR, dir, "package.json");
-    if (!existsSync(pj)) continue;
-    try {
-      byName.set(JSON.parse(readFileSync(pj, "utf8")).name, pj);
-    } catch {}
-  }
+  const walk = (dir: string): void => {
+    const pj = resolve(dir, "package.json");
+    if (existsSync(pj)) {
+      try {
+        const name = JSON.parse(readFileSync(pj, "utf8")).name;
+        if (typeof name === "string" && name) byName.set(name, pj);
+      } catch {}
+    }
+    for (const ent of readdirSync(dir, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      if (ent.name === "node_modules" || ent.name.startsWith(".")) continue;
+      walk(resolve(dir, ent.name));
+    }
+  };
+  walk(PACKAGES_DIR);
   return byName;
 }
 
@@ -371,13 +390,30 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         "The terminal vocabulary lives in @kolu/padi now; import it locally, not from the app.",
     ).toEqual([]);
 
-    // (3) transitive: padi's DIRECT workspace deps declare no app package either,
-    //     so `padi → <lib> → app` can't smuggle the app back into the cone.
+    // (3) transitive: walk padi's WHOLE workspace dependency cone to a FIXPOINT —
+    //     follow every workspace runtime dep (integrations included, at any
+    //     nesting under `packages/**`) until no new package appears — and flag any
+    //     node that declares an app package. A one-hop check saw only padi's
+    //     DIRECT deps, so `padi → <lib> → <lib2> → app` slipped through; and with
+    //     the old top-level-only discovery, padi's integrations deps (kolu-pty,
+    //     kolu-git, …) weren't even in the map, so this arm passed vacuously.
     const byName = workspacePkgJsonByName();
+    // The discovery fix as a CI-enforced fact: a known `packages/integrations/*`
+    // package IS in scope now, so the cone walk below is non-vacuous.
+    expect(
+      byName.has("kolu-pty"),
+      "workspace discovery is missing packages/integrations/* (e.g. kolu-pty) — " +
+        "the cone walk would skip ~7 of padi's own deps and pass vacuously.",
+    ).toBe(true);
     const transitiveOffenders: string[] = [];
-    for (const dep of Object.keys(
+    const expanded = new Set<string>(); // package NAMES already expanded
+    const worklist = Object.keys(
       JSON.parse(readFileSync(PADI_PKG, "utf8")).dependencies ?? {},
-    )) {
+    );
+    while (worklist.length > 0) {
+      const dep = worklist.pop() as string;
+      if (expanded.has(dep)) continue;
+      expanded.add(dep);
       const depPkg = byName.get(dep);
       if (!depPkg) continue; // non-workspace (registry) dep — can't reach app workspaces
       for (const a of declaredDeps(depPkg).filter((d) =>
@@ -385,11 +421,19 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       )) {
         transitiveOffenders.push(`${dep} → ${a}`);
       }
+      // Follow this node's own RUNTIME deps — the runtime cone that determines
+      // padi's staleKey/closure. Registry deps aren't in `byName`, so the worklist
+      // only ever grows by workspace packages and the fixpoint terminates.
+      for (const next of Object.keys(
+        JSON.parse(readFileSync(depPkg, "utf8")).dependencies ?? {},
+      )) {
+        if (!expanded.has(next) && byName.has(next)) worklist.push(next);
+      }
     }
     expect(
       transitiveOffenders,
-      "a workspace dependency of @kolu/padi itself depends on the app — padi's " +
-        "transitive cone is polluted (this is why the flip matters for W2.2: padi's " +
+      "a package in @kolu/padi's transitive dependency cone depends on the app — " +
+        "padi's cone is polluted (this is why the flip matters for W2.2: padi's " +
         "staleKey/closure must not move when app-only code churns).",
     ).toEqual([]);
   });

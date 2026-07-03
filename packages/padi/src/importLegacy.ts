@@ -45,6 +45,24 @@ export function importLegacyConfigOnce(
   // later writes are never clobbered by a re-import.
   if (conf.get("importedLegacyConfig")) return;
 
+  // Clobber guard: a padi that already accrued its OWN session must NEVER be
+  // overwritten by a later bind. The window: padi ran STANDALONE (no
+  // `$KOLU_STATE_DIR` → the no-legacy path below deliberately leaves the marker
+  // UNSET, so a later bind could still carry data across), a user built a workspace
+  // in it, and only THEN does kolu-server bind it WITH `$KOLU_STATE_DIR` set — the
+  // marker is still unset, so without this the import would clobber padi's live
+  // session with the shared `config.json`. padi owns its state now; the legacy file
+  // only ever wins a FRESH padi's first boot. So if padi already holds a session,
+  // mark done (never re-scan) and skip LOUDLY — padi's accrued state wins.
+  if (stores.session.get() != null) {
+    conf.set("importedLegacyConfig", true);
+    log.warn(
+      { legacyStateDir: process.env.KOLU_STATE_DIR ?? null },
+      "padi already holds its own session — skipping the legacy import (padi's accrued state wins over the shared config.json; marked done so no later bind re-scans)",
+    );
+    return;
+  }
+
   const legacyStateDir = process.env.KOLU_STATE_DIR;
   if (!legacyStateDir) return; // a dev/e2e padi with its own fresh state-root
 

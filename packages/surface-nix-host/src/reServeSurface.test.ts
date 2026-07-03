@@ -183,6 +183,10 @@ function makeUpstream(
 
   return {
     client,
+    // The raw `counter` cell stream, exposed so a test can FLOOD the mirror fold
+    // (push far more frames than the downstream drains) and exercise the channel's
+    // per-subscriber overflow policy.
+    counterStream: counter,
     attachStreams,
     pulseStreams,
     echoes,
@@ -362,6 +366,76 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     ctl.abort();
     await teardown(session, done, upstream2);
     await sub; // the downstream subscription drained cleanly
+  });
+
+  it("a VALUE channel under back-pressure DROPS OLDEST + keeps flowing + LOGS — never aborts the consumer", async () => {
+    // (h2) The mirrored cell/collection channels are VALUE channels: a dropped
+    // intermediate frame is harmless because the next snapshot/delta re-converges
+    // the mirror. So the re-serve bounds each downstream receive queue with
+    // `overflow: "drop-oldest"` (NOT "abort") + an `onOverflow` that LOGS the drop.
+    // An "abort" would surface as a non-retriable ORPCError and STRAND the mirror;
+    // this test pins that a flooded consumer keeps flowing and never sees that abort.
+    const logs: string[] = [];
+    const overflowLogged = (): boolean =>
+      logs.some((l) => /dropped the oldest frame/.test(l));
+
+    const session = makeSession();
+    const upstream = makeUpstream(0);
+    session.setClient(upstream.client);
+    const { router, done } = reServeSurface({
+      source: toySurface,
+      policy: toyPolicy,
+      session: session as unknown as HostSession<typeof toySurface.contract>,
+      log: (line) => logs.push(line),
+    });
+    const downstream = directLink<ToyContract>(
+      router as Parameters<typeof createRouterClient>[0],
+    );
+    await delay(15); // bind + fold the initial snapshot (0)
+
+    // Open a downstream cell subscription and drive it PAST the snapshot so it
+    // SUBSCRIBES to the `<key>:changed` channel (the cell `get` handler is
+    // snapshot-THEN-subscribe), then STALL — never pull again — so the channel's
+    // per-subscriber queue fills as the mirror keeps folding.
+    const iter = (await downstream.surface.counter.get(undefined))[
+      Symbol.asyncIterator
+    ]();
+    const r1 = await iter.next(); // snapshot (registers no subscriber yet)
+    expect(r1.done).toBe(false);
+    const p2 = iter.next(); // drives the generator into `bus.subscribe()` + parks
+    await delay();
+    upstream.counterStream.push(1); // first delta wakes the parked pull
+    const r2 = await p2; // generator now suspended at `yield v`, subscriber live
+    expect(r2.done).toBe(false);
+
+    // FLOOD: push far more distinct frames than the high-water mark (4096) while
+    // the subscriber is stalled → the channel evicts the OLDEST per drop-oldest and
+    // fires onOverflow (which logs) for each eviction.
+    const FLOOD = 6000; // > RESERVE_CHANNEL_HIGH_WATER_MARK (4096)
+    for (let i = 2; i <= FLOOD; i++) upstream.counterStream.push(i);
+    for (let t = 0; t < 50 && !overflowLogged(); t++) await delay(10);
+
+    // onOverflow fired → the drop is OBSERVABLE, not silent.
+    expect(overflowLogged()).toBe(true);
+
+    // KEEPS FLOWING + does NOT abort: resuming the stalled consumer yields a value,
+    // it never REJECTS with a ChannelOverflowError (which "abort" would have raised).
+    const r3 = await iter.next();
+    expect(r3.done).toBe(false);
+    expect(typeof r3.value).toBe("number");
+
+    // The mirror re-converged to the authoritative LATEST: a FRESH subscription
+    // snapshots the newest folded value (drop-oldest keeps the newest frames).
+    let latest: number | undefined;
+    for (let t = 0; t < 50; t++) {
+      [latest] = await take(await downstream.surface.counter.get(undefined), 1);
+      if (latest === FLOOD) break;
+      await delay(10);
+    }
+    expect(latest).toBe(FLOOD);
+
+    await iter.return?.();
+    await teardown(session, done, upstream);
   });
 
   it("holds a VALUE stream (pulse) open across a rebind", async () => {

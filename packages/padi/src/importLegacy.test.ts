@@ -105,6 +105,33 @@ describe("importLegacyConfigOnce", () => {
     expect(stores.conf.get("importedLegacyConfig")).toBe(false);
   });
 
+  it("SKIPS the import when padi already holds its OWN session — padi's state wins (never clobbered)", () => {
+    // padi accrued its own session standalone (a workspace built with no legacy env,
+    // which leaves the marker unset), and is only LATER bound WITH $KOLU_STATE_DIR.
+    const stores = openPadiStateStores(stateRoot);
+    stores.session.set({
+      terminals: [{ id: "99999999-9999-9999-9999-999999999999" }],
+      activeTerminalId: null,
+      // biome-ignore lint/suspicious/noExplicitAny: a minimal SavedSession for the clobber-guard test.
+    } as any);
+    // A legacy file with a DIFFERENT session is present at bind time.
+    writeLegacy(legacyBlob());
+
+    importLegacyConfigOnce(stores, log);
+
+    // padi's own session is UNTOUCHED — the shared config.json did not win.
+    expect(stores.session.get()?.terminals).toHaveLength(1);
+    expect(stores.session.get()?.terminals[0]?.id).toBe(
+      "99999999-9999-9999-9999-999999999999",
+    );
+    // Marked done, so no later bind re-scans and clobbers.
+    expect(stores.conf.get("importedLegacyConfig")).toBe(true);
+    // The skip happened BEFORE the read — no backup was taken.
+    expect(existsSync(join(legacyDir, "config.json.pre-padi-import.bak"))).toBe(
+      false,
+    );
+  });
+
   it("is a clean no-op with no $KOLU_STATE_DIR (a dev/e2e padi with its own root)", () => {
     delete process.env.KOLU_STATE_DIR;
     const stores = openPadiStateStores(stateRoot);

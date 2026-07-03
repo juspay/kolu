@@ -272,4 +272,124 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     }
     expect(warm).toContain("WARMMARK");
   }, 90000);
+
+  it("a padi death MID-ATTACH ends the held downstream iterator — never splices (done-criterion c)", async () => {
+    const stateRoot = makeStateRoot();
+    const { padi } = await bootReServedPadi(stateRoot);
+
+    // Create a terminal (retry across the pump's bind gap, like roundTripTerminal).
+    let id: string | undefined;
+    for (let i = 0; i < 200 && id === undefined; i++) {
+      try {
+        ({ id } = await padi.lifecycle.create({ cwd: makeStateRoot() }));
+      } catch {
+        await sleep(100);
+      }
+    }
+    if (id === undefined)
+      throw new Error("re-served lifecycle.create never bound");
+
+    // Open the attach iterator and pull its FIRST (snapshot) frame, then HOLD the
+    // iterator open — a pending pull is exactly the mid-attach state under test.
+    const attach = (await padi.terminalAttach.get({ id }))[
+      Symbol.asyncIterator
+    ]();
+    const first = await attach.next();
+    expect(typeof first.value).toBe("string");
+
+    // Kill the bound padi WHILE the iterator is held.
+    const padiPid = gatePid(padiGatePath(padiSocketPath(stateRoot)));
+    expect(padiPid).toBeDefined();
+    process.kill(padiPid as number, "SIGTERM");
+
+    // The held downstream iterator must END (throw or `done:true`), not hang and
+    // not silently splice another terminal's bytes. kolu-server's fail-through
+    // relay ENDS the browser stream with a non-retriable ORPCError on the
+    // mid-chain death; here we assert that END happens. (In the browser,
+    // `consumeReattachingStream` is what re-subscribes on this end.) Frames the
+    // relay emitted just before the death are fine to drain — the invariant is
+    // that the stream TERMINATES, so we pull until it ends or times out.
+    async function drainUntilEnd(): Promise<"threw" | "done"> {
+      for (;;) {
+        let res: IteratorResult<unknown>;
+        try {
+          res = await attach.next();
+        } catch {
+          return "threw"; // relay ended the stream with an error — correct.
+        }
+        if (res.done) return "done"; // relay closed the stream — also correct.
+        // A pre-death frame for THIS terminal — keep pulling until the end lands.
+      }
+    }
+    const outcome = await Promise.race([
+      drainUntilEnd(),
+      sleep(30000).then(() => "timeout" as const),
+    ]);
+    expect(outcome).not.toBe("timeout"); // a hang would strand the tile forever.
+    expect(["threw", "done"]).toContain(outcome);
+  }, 90000);
+
+  it("a drain ACROSS THE WIRE persists the session — the state-root blob never nulls/shrinks (done-criterion f)", async () => {
+    const stateRoot = makeStateRoot();
+    const { session, padi } = await bootReServedPadi(stateRoot);
+
+    // Build a NON-EMPTY session: create two terminals through the re-served surface.
+    for (let n = 0; n < 2; n++) {
+      let id: string | undefined;
+      for (let i = 0; i < 200 && id === undefined; i++) {
+        try {
+          ({ id } = await padi.lifecycle.create({ cwd: makeStateRoot() }));
+        } catch {
+          await sleep(100);
+        }
+      }
+      if (id === undefined)
+        throw new Error("re-served lifecycle.create never bound");
+    }
+
+    // padi persists its session into `<stateRoot>/config.json` (its own Conf). Read
+    // the live blob's terminal count straight off disk — the property under test is
+    // that THIS number never nulls or shrinks across the wire-crossing drain.
+    const confPath = join(stateRoot, "config.json");
+    // The persisted terminal count, or `null` on a transient read/parse miss (Conf
+    // writes atomically via temp+rename, so a genuine EMPTY session reads as `0` —
+    // distinct from `null` — and a real null/shrink still fails the assertion below).
+    const savedLen = (): number | null => {
+      try {
+        return (
+          (
+            JSON.parse(readFileSync(confPath, "utf8")) as {
+              session?: { terminals?: unknown[] };
+            }
+          ).session?.terminals?.length ?? 0
+        );
+      } catch {
+        return null;
+      }
+    };
+    let before = 0;
+    for (let i = 0; i < 200 && before < 2; i++) {
+      before = savedLen() ?? 0;
+      if (before < 2) await sleep(100);
+    }
+    expect(before).toBeGreaterThanOrEqual(2);
+
+    // Drain the bound padi ACROSS THE kolu↔padi WIRE: kolu-server → `control.drain`
+    // → padi's `onDrain` (persist via the empty-preserve receptacle, then exit). The
+    // binder's reconnect loop re-binds a fresh padi that adopts the surviving kaval.
+    await session.drainBoundPadi();
+
+    // The persisted blob must NEVER have nulled or shrunk — the drain used the
+    // empty-preserve receptacle (a parked-only/empty snapshot leaves it intact) and
+    // no autosave nulled it in the hand-off gap. Poll across the re-bind; skip
+    // transient read misses (null) but count a real `0` — the MINIMUM must hold
+    // ≥ before.
+    let minAfter = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < 30; i++) {
+      const s = savedLen();
+      if (s !== null) minAfter = Math.min(minAfter, s);
+      await sleep(50);
+    }
+    expect(minAfter).toBeGreaterThanOrEqual(before);
+  }, 90000);
 });

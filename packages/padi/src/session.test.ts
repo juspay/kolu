@@ -34,6 +34,7 @@ import {
   getSavedSession,
   initSessionAutoSave,
   setSavedSession,
+  setSavedSessionFromSnapshot,
 } from "./session.ts";
 import {
   type ActiveTerminalProcess,
@@ -272,5 +273,48 @@ describe("session autosave — the PATH-B session-clobber guard", () => {
     expect([...terminalEntries()].map(([id, e]) => [id, e.meta.state])).toEqual(
       registryBefore,
     );
+  });
+});
+
+describe("setSavedSessionFromSnapshot — the drain-path no-shrink receptacle", () => {
+  // The W2.2 drain (padi drains + exits; the surviving kaval keeps the PTYs) captures
+  // the live registry through `setSavedSessionFromSnapshot`. When it fires with an
+  // EMPTY snapshot — the parked-only / empty-registry case a drain hits — it must NOT
+  // erase the user's only restore data. This pins the F1 empty-preserve invariant on
+  // the path the drain now actually depends on.
+  it("an EMPTY snapshot preserves the existing saved session (never null/shrink) and cancels any pending autosave", async () => {
+    // A non-empty session already on disk — the pre-drain blob the restore card offers.
+    setSavedSession(savedBlob());
+    // Arm a pending autosave the way a stale `terminals:dirty` would: schedule the
+    // 500 ms timer but don't let it fire yet. Registry is EMPTY (no active, no parked).
+    terminalsDirtyChannel.publish({});
+    await tick(10);
+
+    // The drain captures an EMPTY registry snapshot.
+    setSavedSessionFromSnapshot({ terminals: [], activeTerminalId: null });
+
+    // Empty-preserve: the existing blob is left intact, not shrunk or nulled.
+    expect(getSavedSession()?.terminals.length).toBe(2);
+
+    // …and the pending autosave was cancelled: past the 500 ms window it never fires,
+    // so it cannot clobber the preserved blob to null (an uncancelled timer would call
+    // `saveSession([])` on the empty registry and clear it).
+    await tick(650);
+    expect(getSavedSession()?.terminals.length).toBe(2);
+  });
+
+  it("a NON-EMPTY snapshot persists normally, replacing the on-disk blob", () => {
+    setSavedSession(savedBlob()); // 2 records on disk
+    const fresh = savedActive("99999999-9999-4999-8999-999999999999", "/fresh");
+
+    setSavedSessionFromSnapshot({
+      terminals: [fresh],
+      activeTerminalId: fresh.id,
+    });
+
+    // The fresh single-terminal snapshot was written (with a `savedAt` stamp).
+    expect(getSavedSession()?.terminals.length).toBe(1);
+    expect(getSavedSession()?.terminals[0]?.id).toBe(fresh.id);
+    expect(getSavedSession()?.activeTerminalId).toBe(fresh.id);
   });
 });

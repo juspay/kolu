@@ -17,10 +17,12 @@ import type { KavalConnectionMetadata } from "./connect.ts";
 
 const store = new Map<string, DaemonStatus>();
 
-/** The local kaval's unix socket path (from `kavalSocketPath(port)`), set once at
- *  boot and constant for the daemon's life. Folded onto every published status so
- *  the kaval dialog can show where the daemon listens — a server fact the client
- *  can't construct (it doesn't know the server's `XDG_RUNTIME_DIR`). */
+/** The local kaval's unix socket path (padi resolves it as
+ *  `padiKavalSocketPath(stateRoot)` → `kaval-<digest>/pty-host.sock`, keyed by a
+ *  digest of padi's state-root), set once at boot and constant for the daemon's
+ *  life. Folded onto every published status so the kaval dialog can show where the
+ *  daemon listens — a server fact the client can't construct (it doesn't know
+ *  padi's `XDG_RUNTIME_DIR`). */
 let localSocketPath: string | undefined;
 
 /** Every host's current daemon status (for the collection's `readAll`). */
