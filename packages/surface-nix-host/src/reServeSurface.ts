@@ -124,12 +124,13 @@ export function reServeSurface<
   const surface = mirroredSurface(source);
 
   // A source surface must declare at least one CELL. `markConnected` (below) fires
-  // on the first folded CELL frame — a cell always emits a snapshot on connect, so
-  // it is the structural on-connect handshake cue, and it also keeps the mirror
-  // alive (a foldless mirror would settle instantly and clear `liveClient`). A
-  // cell-less surface would never mark connected → the connection gate stays closed
-  // and the connect watchdog cycles the link to failed. Fail loud at build. (#1661
-  // candidate 7.)
+  // on the first folded value of EITHER kind (a cell frame OR a collection upsert),
+  // but a CELL is the required backstop: a cell always emits a snapshot on connect,
+  // whereas a collection may be empty on connect (no upsert → `markConnected` would
+  // never fire). A cell also keeps the mirror alive (a foldless mirror would settle
+  // instantly and clear `liveClient`). So a cell-less surface would never mark
+  // connected → the connection gate stays closed and the connect watchdog cycles
+  // the link to failed. Fail loud at build. (#1661 candidate 7.)
   if (Object.keys(spec.cells ?? {}).length === 0) {
     throw new Error(
       "reServeSurface: source surface declares no cells — markConnected is wired to the first folded cell frame (a cell's on-connect snapshot), so a cell-less surface would never mark the session connected. Add a status cell.",
@@ -375,6 +376,14 @@ export function reServeSurface<
         );
       }
       const cache = collectionCaches.get(key);
+      if (!cache) {
+        // Structurally guaranteed (same `Object.keys(spec.collections)` key set) —
+        // fail loud like the sibling `cellFolds`/`ctx.collections` lookups rather
+        // than silently degrading `initialKeys` to "nothing carried over".
+        throw new Error(
+          `reServeSurface: no cache registered for collection "${key}"`,
+        );
+      }
       collections[key] = {
         upsert: (k, v) => {
           onFirst();
@@ -383,7 +392,7 @@ export function reServeSurface<
         remove: (k) => coll.remove(k),
         // Hand the mirror this spawn's carry-over keys so its first fresh snapshot
         // prunes the ones that departed while the link was down (#1661 candidate 1).
-        initialKeys: () => cache?.keys() ?? [],
+        initialKeys: () => cache.keys(),
       };
     }
     return { cells, collections } as unknown as SurfaceSink<S>;

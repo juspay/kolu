@@ -75,8 +75,6 @@ const toyPolicy = {
 
 const mirroredToy = mirroredSurface(toySurface);
 type ToyContract = typeof mirroredToy.contract;
-const link = (router: unknown) =>
-  directLink<ToyContract>(router as Parameters<typeof createRouterClient>[0]);
 
 // ── A fake upstream agent over hand-driven, signal-aware streams ────────────
 
@@ -220,7 +218,16 @@ function setup(counterValue: number, items: Record<string, number> = {}) {
     policy: toyPolicy,
     session: session as unknown as HostSession<typeof toySurface.contract>,
   });
-  return { session, upstream, surface, router, done, downstream: link(router) };
+  return {
+    session,
+    upstream,
+    surface,
+    router,
+    done,
+    downstream: directLink<ToyContract>(
+      router as Parameters<typeof createRouterClient>[0],
+    ),
+  };
 }
 
 /** End a test cleanly: kill the live upstream so the mirror settles, destroy the

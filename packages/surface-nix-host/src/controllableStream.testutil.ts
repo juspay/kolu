@@ -25,6 +25,8 @@ export function controllable<T>(): Controllable<T> {
   const queue: T[] = [];
   let wake: (() => void) | null = null;
   let closed: "open" | "end" | { err: unknown } = "open";
+  // Wake the parked iterator. Null `wake` BEFORE invoking it so a re-entrant
+  // push/end during the resume installs a FRESH waiter instead of being clobbered.
   const nudge = (): void => {
     const w = wake;
     wake = null;
@@ -38,6 +40,9 @@ export function controllable<T>(): Controllable<T> {
           signal?.addEventListener("abort", onAbort);
           try {
             while (true) {
+              // Order is load-bearing: DRAIN queued frames first, so a frame
+              // pushed just before end()/fail() still delivers; then check abort
+              // BEFORE end/fail, so a teardown reason wins a race with a close.
               while (queue.length > 0) yield queue.shift() as T;
               if (signal?.aborted) throw signal.reason;
               if (closed === "end") return;
