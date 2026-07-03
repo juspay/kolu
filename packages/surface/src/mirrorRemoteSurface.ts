@@ -595,7 +595,19 @@ async function mirrorCollection<K, V>(opts: {
   // departure sweep below — which only removes keys THIS spawn opened — can't catch
   // them). Reconciling on the fresh snapshot keeps survivors (no empty flash) and
   // drops ghosts (no stale row).
-  const carriedOver = new Set<K>(opts.initialKeys?.() ?? []);
+  // `initialKeys` is a caller-supplied sink callback (part of the collections
+  // sink), so a throw here — or in the iterable it returns — is a broken local
+  // fold, NOT an upstream blip. It runs synchronously at spawn, before the
+  // `rejectSink` channel exists, so tag it as a `SinkError` and rethrow: the async
+  // `mirrorCollection` returns a rejected promise, `Promise.allSettled` in the
+  // caller sees a `SinkError`, and `done` REJECTS — the same fail-fast contract as
+  // a throwing `onUpsert`/`onRemove`, never a silent collapse to a resolved mirror.
+  let carriedOver: Set<K>;
+  try {
+    carriedOver = new Set<K>(opts.initialKeys?.() ?? []);
+  } catch (sinkErr) {
+    throw new SinkError(sinkErr);
+  }
   let reconciledCarryOver = false;
   // Thread the parent signal's reason into every per-key abort (with a fallback
   // for a mid-stream key departure, when the parent has NOT aborted) so the

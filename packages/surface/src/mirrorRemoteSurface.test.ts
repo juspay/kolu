@@ -220,6 +220,39 @@ describe("mirrorRemoteSurface", () => {
     await m2.done;
   });
 
+  it("rejects (does not resolve) when a collection's initialKeys sink throws — fail-fast", async () => {
+    // `initialKeys` is a caller-supplied sink callback. A throw from it (a broken
+    // local fold) must surface on `done` exactly like a throwing upsert/remove —
+    // never collapse to a quietly-resolved mirror. It runs synchronously at spawn,
+    // before the per-key sink-failure channel exists, so it must be tagged a
+    // SinkError the same way, or the raw throw would be swallowed by allSettled.
+    const client = {
+      surface: {
+        items: {
+          keys: async () =>
+            (async function* () {
+              yield ["a"];
+              await delay(50);
+            })(),
+          get: async () => gen({ v: 1 }),
+        },
+      },
+    };
+    await expect(
+      mirrorRemoteSurface(testSurface, asClient(client), {
+        collections: {
+          items: {
+            initialKeys: () => {
+              throw new Error("initialKeys fold blew up");
+            },
+            upsert: () => {},
+            remove: () => {},
+          },
+        },
+      }).done,
+    ).rejects.toThrow("initialKeys fold blew up");
+  });
+
   it("subscribes only the opted-in primitives and tolerates a missing client entry", async () => {
     // The client serves only `count`; the sink opts into only `count`. The other
     // three primitives (no sink) are skipped, and the missing client entries are

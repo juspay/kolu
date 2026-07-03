@@ -929,7 +929,12 @@ mirrorRemoteSurface(sourceSurface, client, sink, { signal?, log? }): MirroredSur
 // SurfaceSink<S> — every STREAMING entry OPTIONAL (mirrored iff a sink is given);
 // procedures are NOT in the sink (they're PULL, returned as stubs above):
 //   cells:       { <k>: (value) => void }
-//   collections: { <k>: { upsert: (key, value) => void; remove: (key) => void } }
+//   collections: { <k>: { upsert: (key, value) => void; remove: (key) => void;
+//                         initialKeys?: () => Iterable<key> } }
+//        initialKeys — OPTIONAL cross-reconnect prune: keys a prior spawn left in
+//        a re-serve's carry-over cache. On the FIRST `keys` frame any absent from
+//        the fresh snapshot are `remove`d (they departed while the link was down),
+//        survivors untouched (no empty flash). Omit on a first-connect mirror.
 //   streams:     { <k>: { input; onFrame: (frame) => void } }
 //   events:      { <k>: { input; onFrame: (frame) => void } }
 ```

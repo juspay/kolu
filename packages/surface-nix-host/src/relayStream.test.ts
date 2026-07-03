@@ -125,6 +125,32 @@ describe("relayFailThroughStream (delta)", () => {
     ).rejects.toBeInstanceOf(NoLiveUpstreamError);
   });
 
+  it("ends cleanly (no NoLiveUpstreamError) on an already-aborted subscribe with no live upstream", async () => {
+    // A teardown can race an upstream drop: the downstream aborts while
+    // `holder.current` is null, and the generator is first pulled AFTER the abort.
+    // That abort is teardown, not a dead-link condition, so it must end cleanly —
+    // NOT surface a spurious NoLiveUpstreamError to a client that already walked
+    // away (the abort check precedes the `client === null` branch).
+    const holder = observableHolder<ByteClient>(); // current === null
+    const relay = relayFailThroughStream(
+      POLICY,
+      "liveBytes",
+      holder,
+      selectByte,
+    );
+    const ctl = new AbortController();
+    ctl.abort(); // downstream torn down before the first pull
+    let error: unknown = null;
+    const frames: string[] = [];
+    try {
+      for await (const f of relay({ id: "t" }, ctl.signal)) frames.push(f);
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeNull(); // clean return, not NoLiveUpstreamError
+    expect(frames).toEqual([]);
+  });
+
   it("ends cleanly (no throw) on a downstream abort", async () => {
     const up = controllable<string>();
     const holder = observableHolder<ByteClient>();

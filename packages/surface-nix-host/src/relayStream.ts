@@ -231,6 +231,14 @@ export function failThroughStreamCore<Cl, I, F>(
 ): (input: I, signal: AbortSignal | undefined) => AsyncGenerator<F> {
   const log = opts.log ?? (() => {});
   return async function* (input, signal) {
+    // Already-aborted subscribe — the downstream unsubscribed before the first
+    // pull. Clean return, NOT a `NoLiveUpstreamError`: an abort is teardown, not a
+    // dead-link condition, so surfacing an error to a client that already walked
+    // away would be spurious (the sibling `holdOpenStreamCore`'s `while (!aborted())`
+    // head returns the same way, and the subscribe-handshake abort below is already
+    // swallowed via `isAbortReason` — #1661 candidate 10). Checked BEFORE
+    // `holder.current` so a teardown racing an upstream drop can't throw.
+    if (signal?.aborted === true) return;
     const client = holder.current;
     if (client === null) {
       // No live upstream at subscribe — end (loudly) so the client re-subscribes
