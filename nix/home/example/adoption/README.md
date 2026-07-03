@@ -69,7 +69,7 @@ surviving kaval, skews, and **recycles** it. Asserts the **kaval** gate pid
 *changed*, the **`pty-host contract skew`** was logged (in padi's own transient
 unit), *and* the session is **preserved**.
 
-### `adoption-currency` — a build-behind kaval is adopted (B3.4, partial)
+### `adoption-currency` — a build-behind kaval is adopted + nudged (B3.4)
 
 When a redeploy changes kaval's **build** (its source closure) but *not* its wire
 contract, the surviving kaval is still **compatible** — so kolu-new's respawned
@@ -77,17 +77,17 @@ padi **adopts** it across the drain (kaval gate *unchanged*), the deliberate
 opposite of `adoption-skew`'s recycle. `KAVAL_BUILD_ID` is a **nix-injected value**,
 so the "newer kolu" is a second build via **`kavalBuildIdOverride`** (only the
 wrapper `--set` changes, so `koluNew` **shares the kolu closure** — the *cheap*
-skew).
+skew). The test asserts the kaval gate *unchanged* (adopted), the session intact,
+AND the adopt-time currency breadcrumb `kaval currency on adopt: running=<X>
+expected=<Y>` with `running != expected` and `expected == the override` — i.e. the
+build-id reached padi's `expectedKaval` and the build-skew is detected (the "update
+available" nudge fires). The breadcrumb is emitted in padi's OWN transient unit, so
+it is read via `journalctl --user` broadly, not `-u kolu`.
 
-> ⚠️ **The currency NUDGE half is DEFERRED.** Pre-cutover the assert included the
-> adopt-time breadcrumb `running != expected` (expected == the override). Post-cutover
-> that is **unreachable through padi**: padi computes `expectedKaval` from its OWN
-> `process.env.KAVAL_BUILD_ID`, but padi's nix wrapper bakes no `KAVAL_BUILD_ID` and
-> the binder's `daemonEnv` doesn't forward it, so under systemd-run padi's `expected`
-> is empty and the nudge can never fire. This is a real product gap the cutover
-> opened; restore the nudge assertion once padi carries the expected-kaval build id
-> (bake it on padi's wrapper, or forward it in `daemonEnv`). The test currently
-> asserts only the reachable ADOPT half.
+> The nudge reads padi's own baked `KAVAL_BUILD_ID`. That the padi wrapper bakes it
+> (and `daemonEnv` forwards it for the from-source path) is the product fix in
+> 56e0431a9 — earlier in the cutover padi carried no expected-kaval id, so this
+> assertion had been briefly deferred.
 
 ## Running
 

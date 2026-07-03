@@ -17,20 +17,22 @@
 # wrapper `--set` changes; koluNew shares the kolu closure).
 #
 # Asserts: after the drain respawns kolu-new's padi, the surviving kaval's gate pid is
-# UNCHANGED (ADOPTED, not recycled — the inverse of skew.nix) AND the terminal's PTY
-# is still live. A regression that recycled the compatible kaval would CHANGE its gate
-# → the poll times out red.
+# UNCHANGED (ADOPTED, not recycled — the inverse of skew.nix), the session record is
+# intact, AND the B3.4 currency NUDGE fires — padi's adopt-time breadcrumb `kaval
+# currency on adopt: running=<X> expected=<Y>` shows running != expected with expected
+# == the override (kolu-new is provably a build AHEAD of the adopted survivor, so the
+# rail's "update available" nudge fires). A regression that recycled the compatible
+# kaval would CHANGE its gate, and one that lost the build-skew signal would not match
+# the override → the poll times out red.
 #
-# ⚠️ DEFERRED — the B3.4 currency NUDGE half (the adopt-time `running != expected`
-# breadcrumb) is NOT asserted here, because it is currently UNREACHABLE through padi:
-# padi computes `expectedKaval` from its OWN `process.env.KAVAL_BUILD_ID`
-# (packages/padi/src/terminalEndpoint/reattach.ts:257 → kaval's `currentBuildId`),
-# but padi's nix wrapper bakes no `KAVAL_BUILD_ID` (default.nix `padi` runCommand) and
-# the binder's `daemonEnv` (packages/server/src/padiBinding.ts) does not forward it —
-# so under systemd-run padi's `expected` is the empty string and the nudge predicate
-# (`running != expected`, expected non-empty) can never hold. The nudge is a real
-# product gap the cutover opened; restore this assertion once padi carries the
-# expected-kaval build id (bake it on padi's wrapper, or forward it in `daemonEnv`).
+# The nudge reads padi's `expectedKaval` (padi's own baked KAVAL_BUILD_ID, via
+# packages/padi/src/terminalEndpoint/reattach.ts:257 → kaval's `currentBuildId`)
+# against the adopted kaval's REPORTED running staleKey. Padi now CARRIES that expected
+# id: its nix wrapper bakes `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` (default.nix `padi`
+# runCommand) and the binder's `daemonEnv` forwards them for the from-source/dev path
+# (packages/server/src/padiBinding.ts) — the product gap this test earlier DEFERRED,
+# fixed in 56e0431a9. The breadcrumb lands in padi's OWN systemd-run --user transient
+# unit, so the verify greps `journalctl --user` broadly, NOT `-u kolu`.
 # lib.nix owns the shared scaffold; only the distinguishing data lives here.
 { pkgs, kolu, system, port, lib, ... }:
 let
@@ -87,24 +89,41 @@ let
 
   # Verify (after the build-bumped server boots AND its padi is respawned by the
   # drain). POLL until kolu-new's fresh padi has ADOPTED the surviving kaval (gate
-  # UNCHANGED) and the terminal is still live — never a single-shot read. A recycle
-  # would CHANGE the kaval gate → the loop times out, writing FAIL.
+  # UNCHANGED), the session is intact, AND the adopt-time currency breadcrumb shows the
+  # build-skew (running != expected, expected == the override) — never a single-shot
+  # read. A recycle would CHANGE the kaval gate; a lost build-skew signal would not
+  # match the override → the loop times out, writing FAIL.
   verify = pkgs.writeShellScript "kolu-currency-verify" ''
     set -uo pipefail
     ${gateHelpers}
     id=$(cat /tmp/currency-id); oldkaval=$(cat /tmp/currency-kaval-gate)
+    want="${overrideStaleKey}"
 
-    newkaval=""
+    newkaval=""; curline=""; crun=""; cexp=""
     for _ in $(seq 1 90); do
       newkaval=$(kaval_gate_pid)
-      # The surviving kaval must be ADOPTED across kolu-new's padi respawn: its gate
-      # pid is UNCHANGED (a recycle would kill+respawn it → new pid) and its session
-      # record is still present. (grep without `-q` over the config would be fine
-      # here, but a plain `grep -q` on a FILE — not a pipe — is safe: no producer to
-      # SIGPIPE. The pipe-SIGPIPE hazard only applies to journalctl|grep chains.)
+      # The adopt-time currency breadcrumb kolu-new's padi logs when it adopts the
+      # surviving kaval: `kaval currency on adopt: running=<X> expected=<Y>`. It lands
+      # in padi's OWN systemd-run --user transient unit, so grep `journalctl --user`
+      # broadly (NOT -u kolu). Plain `grep -o` (drains the pipe, prints every match),
+      # NOT `grep -q`: under `pipefail`, `-q` exits on the first match and SIGPIPEs
+      # journalctl, so the pipeline could report 141 on a real match; `grep -o` reads
+      # to EOF, leaving the pipeline status clean. Take the LATEST such line.
+      curline=$(journalctl --user --no-pager 2>/dev/null \
+                | grep -o 'kaval currency on adopt: running=[0-9a-f]* expected=[0-9a-f]*' | tail -1)
+      crun=$(echo "$curline" | sed -n 's/.*running=\([0-9a-f]*\) .*/\1/p')
+      cexp=$(echo "$curline" | sed -n 's/.*expected=\([0-9a-f]*\)$/\1/p')
+      # ADOPT half: the surviving kaval is ADOPTED across kolu-new's padi respawn —
+      # gate pid UNCHANGED (a recycle → new pid) and the session record still present.
+      # (A plain `grep -q` on a FILE — not a pipe — is safe: no producer to SIGPIPE.)
+      # NUDGE half (B3.4): the breadcrumb shows the build-skew — expected == the
+      # override (the build-id reached padi's expectedKaval) and running != expected
+      # (the adopted survivor is a build behind → "update available" fires).
       if [ -n "$newkaval" ] && [ "$newkaval" = "$oldkaval" ] \
-         && grep -q "$id" "$HOME/${configFile}" 2>/dev/null; then
-        echo "OK build-skew adopted: kaval gate $oldkaval UNCHANGED (adopted, not recycled) across kolu-new's padi respawn; session for $id intact" \
+         && grep -q "$id" "$HOME/${configFile}" 2>/dev/null \
+         && [ -n "$cexp" ] && [ "$cexp" = "$want" ] \
+         && [ -n "$crun" ] && [ "$crun" != "$cexp" ]; then
+        echo "OK build-skew adopted + update available: kaval gate $oldkaval UNCHANGED (adopted, not recycled); session for $id intact; running=$crun != expected=$cexp (== override)" \
           > ${verifyResultFile}
         exit 0
       fi
@@ -112,9 +131,12 @@ let
     done
     sessionSeen=no; grep -q "$id" "$HOME/${configFile}" 2>/dev/null && sessionSeen=yes
     {
-      echo "FAIL(currency-verify): the build-skewed kaval was not adopted across the padi respawn."
+      echo "FAIL(currency-verify): the build-skewed kaval was not adopted-with-update-available across the padi respawn."
       echo "  kaval gate pid: $oldkaval -> $newkaval (must be UNCHANGED — adopted, not recycled)"
       echo "  session $id in $HOME/${configFile}: $sessionSeen (must be yes)"
+      echo "  currency line: [$curline]"
+      echo "  expected (must == override $want): [$cexp]"
+      echo "  running (must be non-empty and != expected): [$crun]"
     } > ${verifyResultFile}
     exit 1
   '';
