@@ -115,6 +115,15 @@ export interface SurfaceSink<S extends SurfaceSpec> {
           ? Kk
           : never,
       ) => void;
+      /** Keys already held for this collection from a PRIOR spawn (a re-serve's
+       *  cross-reconnect cache). On the FIRST `keys` frame of THIS mirror, any of
+       *  these absent from the fresh snapshot are pruned via `remove` — so a key
+       *  that departed while the link was down is reconciled on reconnect (no
+       *  stale ghost row) without clearing survivors (no empty flash). Omit for a
+       *  first-connect mirror with nothing carried over (the default). */
+      initialKeys?: () => Iterable<
+        SurfaceTypes<S>["collections"][K] extends { Key: infer Kk } ? Kk : never
+      >;
     };
   };
   streams?: {
@@ -358,6 +367,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
   type CollSink = {
     upsert: (key: unknown, value: unknown) => void;
     remove: (key: unknown) => void;
+    initialKeys?: () => Iterable<unknown>;
   };
   type FlowSink = { input: unknown; onFrame: (frame: unknown) => void };
   const cellSinks = sink.cells as
@@ -427,6 +437,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
             >,
           onUpsert: colSink.upsert,
           onRemove: colSink.remove,
+          initialKeys: colSink.initialKeys,
         }),
       );
     }
@@ -572,8 +583,32 @@ async function mirrorCollection<K, V>(opts: {
   get: (key: K, signal: AbortSignal) => Promise<AsyncIterable<V>>;
   onUpsert: (key: K, value: V) => void;
   onRemove: (key: K) => void;
+  /** Keys a prior spawn left in the caller's cross-reconnect cache. On the FIRST
+   *  `keys` frame, any absent from the fresh snapshot are removed (they departed
+   *  while the link was down); survivors are untouched. Omit on a first connect. */
+  initialKeys?: () => Iterable<K>;
 }): Promise<void> {
   const open = new Map<K, AbortController>();
+  // Keys carried over from a prior spawn (a re-serve's persistent cache). The FIRST
+  // fresh `keys` frame reconciles them: any not re-asserted departed while the link
+  // was down and must be pruned (a fresh mirror's `open` map starts empty, so the
+  // departure sweep below — which only removes keys THIS spawn opened — can't catch
+  // them). Reconciling on the fresh snapshot keeps survivors (no empty flash) and
+  // drops ghosts (no stale row).
+  // `initialKeys` is a caller-supplied sink callback (part of the collections
+  // sink), so a throw here — or in the iterable it returns — is a broken local
+  // fold, NOT an upstream blip. It runs synchronously at spawn, before the
+  // `rejectSink` channel exists, so tag it as a `SinkError` and rethrow: the async
+  // `mirrorCollection` returns a rejected promise, `Promise.allSettled` in the
+  // caller sees a `SinkError`, and `done` REJECTS — the same fail-fast contract as
+  // a throwing `onUpsert`/`onRemove`, never a silent collapse to a resolved mirror.
+  let carriedOver: Set<K>;
+  try {
+    carriedOver = new Set<K>(opts.initialKeys?.() ?? []);
+  } catch (sinkErr) {
+    throw new SinkError(sinkErr);
+  }
+  let reconciledCarryOver = false;
   // Thread the parent signal's reason into every per-key abort (with a fallback
   // for a mid-stream key departure, when the parent has NOT aborted) so the
   // per-key publisher rejects its pending pull with *this* reason — and the
@@ -642,6 +677,24 @@ async function mirrorCollection<K, V>(opts: {
             // then wins the race and the top-level fold rethrows the cause.
             rejectSink(new SinkError(sinkErr));
             return;
+          }
+        }
+        // First fresh snapshot of THIS spawn: reconcile the carry-over cache once.
+        // A carried-over key the snapshot does NOT re-assert departed during the
+        // link outage — prune it through `onRemove` (the wrapped publish path) so
+        // an already-subscribed downstream sees the departure, not just a silent
+        // cache mutation. Fires once (later frames belong to the departure sweep
+        // above), and only for keys THIS spawn didn't re-open.
+        if (!reconciledCarryOver) {
+          reconciledCarryOver = true;
+          for (const key of carriedOver) {
+            if (next.has(key)) continue;
+            try {
+              opts.onRemove(key);
+            } catch (sinkErr) {
+              rejectSink(new SinkError(sinkErr));
+              return;
+            }
           }
         }
       }

@@ -141,6 +141,118 @@ describe("mirrorRemoteSurface", () => {
     await done;
   });
 
+  it("prunes a carry-over key the fresh snapshot omits (cross-reconnect reconcile)", async () => {
+    // A re-serve holds one cache across reconnects; each spawn is a fresh mirror.
+    // A key that departs WHILE THE LINK IS DOWN is not in the new spawn's `open`
+    // map, so the within-spawn departure sweep can't catch it — `initialKeys` +
+    // the first-frame reconcile is what prunes it (no stale ghost row), while a
+    // surviving key is left untouched (no empty flash).
+    const cache = new Map<string, { v: number }>();
+    const removes: string[] = [];
+    const sink = {
+      collections: {
+        items: {
+          initialKeys: () => cache.keys(),
+          upsert: (k: string, v: { v: number }) => {
+            cache.set(k, v);
+          },
+          remove: (k: string) => {
+            cache.delete(k);
+            removes.push(k);
+          },
+        },
+      },
+    };
+
+    // Spawn 1 serves {a, b}; both land in the cache, then the link drops.
+    let close1!: () => void;
+    const open1 = new Promise<void>((r) => {
+      close1 = r;
+    });
+    const client1 = {
+      surface: {
+        items: {
+          keys: async () =>
+            (async function* () {
+              yield ["a", "b"];
+              await open1;
+            })(),
+          get: async ({ key }: { key: string }) =>
+            (async function* () {
+              yield { v: key === "a" ? 1 : 2 };
+              await open1;
+            })(),
+        },
+      },
+    };
+    const m1 = mirrorRemoteSurface(testSurface, asClient(client1), sink);
+    await delay(20);
+    expect([...cache.keys()].sort()).toEqual(["a", "b"]);
+    close1();
+    await m1.done;
+
+    // Spawn 2 (reconnect) serves ONLY {a} — b departed while the link was down.
+    let close2!: () => void;
+    const open2 = new Promise<void>((r) => {
+      close2 = r;
+    });
+    const client2 = {
+      surface: {
+        items: {
+          keys: async () =>
+            (async function* () {
+              yield ["a"];
+              await open2;
+            })(),
+          get: async () =>
+            (async function* () {
+              yield { v: 1 };
+              await open2;
+            })(),
+        },
+      },
+    };
+    const m2 = mirrorRemoteSurface(testSurface, asClient(client2), sink);
+    await delay(20);
+    expect(removes).toContain("b"); // the ghost was pruned on the fresh snapshot
+    expect([...cache.keys()]).toEqual(["a"]); // the survivor was held, no flash
+    close2();
+    await m2.done;
+  });
+
+  it("rejects (does not resolve) when a collection's initialKeys sink throws — fail-fast", async () => {
+    // `initialKeys` is a caller-supplied sink callback. A throw from it (a broken
+    // local fold) must surface on `done` exactly like a throwing upsert/remove —
+    // never collapse to a quietly-resolved mirror. It runs synchronously at spawn,
+    // before the per-key sink-failure channel exists, so it must be tagged a
+    // SinkError the same way, or the raw throw would be swallowed by allSettled.
+    const client = {
+      surface: {
+        items: {
+          keys: async () =>
+            (async function* () {
+              yield ["a"];
+              await delay(50);
+            })(),
+          get: async () => gen({ v: 1 }),
+        },
+      },
+    };
+    await expect(
+      mirrorRemoteSurface(testSurface, asClient(client), {
+        collections: {
+          items: {
+            initialKeys: () => {
+              throw new Error("initialKeys fold blew up");
+            },
+            upsert: () => {},
+            remove: () => {},
+          },
+        },
+      }).done,
+    ).rejects.toThrow("initialKeys fold blew up");
+  });
+
   it("subscribes only the opted-in primitives and tolerates a missing client entry", async () => {
     // The client serves only `count`; the sink opts into only `count`. The other
     // three primitives (no sink) are skipped, and the missing client entries are
