@@ -165,6 +165,14 @@ export async function ensureLocalEndpoint(opts: {
    *  pass any pinned path. One resolved string, so the boot is caller-agnostic — no
    *  port or digest assumption survives here. */
   kavalSocket: string;
+  /** The LEGACY per-port kaval socket the BINDER hints (its OWN listen port's
+   *  `kaval-<port>/pty-host.sock`) — the W2.2 upgrade bridge. On the first W2.2 boot,
+   *  if this padi's digest-keyed kaval gate is empty but a COMPATIBLE pre-W2.2 kaval
+   *  is alive here, ADOPT it (so its live PTYs survive the upgrade) instead of
+   *  spawning a fresh one and leaking it. Absent for a STANDALONE padi (no binder, no
+   *  hint) — which therefore never adopts a stray port kaval (e.g. a dev instance at
+   *  another port). SPAWN stays digest-keyed, so a later recycle converges off it. */
+  legacyKavalSocket?: string;
   onStatus: (
     hostId: string,
     status: EndpointStatus<Identity, KavalConnectionMetadata>,
@@ -195,8 +203,11 @@ export async function ensureLocalEndpoint(opts: {
   onBootSettled?: (signal: AbortSignal) => void;
 }): Promise<void> {
   const socketPath = opts.kavalSocket;
+  const legacyKavalSocket = opts.legacyKavalSocket;
   // Surface where this kaval listens, so the dialog can show it (and `kaval-tui`
-  // users can target it explicitly). Set before the endpoint's first status emit.
+  // users can target it explicitly). Set before the endpoint's first status emit —
+  // the digest socket by default; the adopt-hint below flips it to the legacy socket
+  // when an upgrade adopts the port kaval, and a spawn resets it back.
   setLocalSocketPath(socketPath);
   const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
     hostId: LOCAL_HOST_ID,
@@ -206,6 +217,22 @@ export async function ensureLocalEndpoint(opts: {
     connect: () => connectKaval(socketPath),
     log,
     onStatus: opts.onStatus,
+    // The W2.2 upgrade bridge (only when the binder hints a legacy port socket):
+    // if the digest gate is empty but a COMPATIBLE pre-W2.2 kaval is alive at the
+    // port socket, ADOPT it and RECORD it as this kaval's live location (so spawned
+    // PTYs' `KAVAL_SOCKET` and the daemon dialog point at the adopted daemon). SPAWN
+    // stays the digest socket, so `onSpawned` resets the recorded location on the
+    // recycle that converges the migration.
+    adoptHint:
+      legacyKavalSocket === undefined
+        ? undefined
+        : {
+            gatePath: kavalGatePath(legacyKavalSocket),
+            socketPath: legacyKavalSocket,
+            connect: () => connectKaval(legacyKavalSocket),
+            onAdopted: () => setLocalSocketPath(legacyKavalSocket),
+          },
+    onSpawned: () => setLocalSocketPath(socketPath),
   });
   endpoint = ep;
   triggerRestart = serializeRestart(ep);

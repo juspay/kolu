@@ -58,6 +58,7 @@ import {
   PadiBindingSession,
   type PadiBindingSessionDeps,
   probePadiSkew,
+  resolvePadiLaunch,
 } from "./padiBinding.ts";
 import { buildAppRouter } from "./router.ts";
 
@@ -516,7 +517,13 @@ describe("kolu-server padi binder — cutover acceptance", () => {
       hostId: PADI_HOST_ID,
       gatePath: padiGatePath(socketPath),
       socketPath,
-      driver: localPadiDriver(stateRoot, "default", undefined, false),
+      driver: localPadiDriver(
+        stateRoot,
+        "default",
+        undefined,
+        false,
+        undefined,
+      ),
       connect: () => connectPadi(socketPath),
       log: silentLog,
       onStatus: () => {},
@@ -623,5 +630,27 @@ describe("PadiBindingSession.padiStartedAt — honest boot time for the rail's p
     s.onEndpointStatus(connected(555));
     s.destroy();
     expect(s.padiStartedAt()).toBeNull();
+  });
+});
+
+describe("resolvePadiLaunch — the legacy-kaval-socket adopt-hint (binder hints its OWN port)", () => {
+  const stateRoot = "/state/root";
+
+  it("forwards `--legacy-kaval-socket <path>` VERBATIM when the binder hints one (its own listen port's legacy socket)", () => {
+    const hint = "/run/user/1000/kaval-7681/pty-host.sock";
+    const { args } = resolvePadiLaunch(stateRoot, undefined, undefined, hint);
+    const i = args.indexOf("--legacy-kaval-socket");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe(hint); // exactly what the binder passed — padi never guesses
+  });
+
+  it("OMITS the flag entirely for a standalone bring-up (no hint) — so a padi with no binder never adopts a stray port kaval", () => {
+    const { args } = resolvePadiLaunch(
+      stateRoot,
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(args).not.toContain("--legacy-kaval-socket");
   });
 });

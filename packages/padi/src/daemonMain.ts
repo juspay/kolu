@@ -45,7 +45,10 @@ import { log as padiLog } from "./log.ts";
 import { startPadiMemorySampler } from "./memorySampler.ts";
 import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { publisher } from "./publisher.ts";
-import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
+import {
+  getLocalSocketPath,
+  publishDaemonStatus,
+} from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint, setSpawnServerVersion } from "./ptyHost/index.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { initSessionAutoSave, setSavedSessionFromSnapshot } from "./session.ts";
@@ -81,6 +84,13 @@ export interface PadiDaemonOptions {
   /** The version stamped as spawned PTYs' `TERM_PROGRAM_VERSION`. Defaults to
    *  padi's own commit; kolu-server forwards the app version for byte-identity. */
   spawnVersion?: string;
+  /** The LEGACY per-port kaval socket the BINDER hints (its OWN listen port's
+   *  `kaval-<port>/pty-host.sock`, `--legacy-kaval-socket`) — the W2.2 upgrade bridge.
+   *  On the first W2.2 boot, if the digest kaval gate is empty but a compatible
+   *  pre-W2.2 kaval is alive here, this padi ADOPTS it (its PTYs survive the upgrade)
+   *  instead of leaking it. Absent for a STANDALONE padi (no binder → no legacy
+   *  adoption, so a dev instance's port kaval is never touched). */
+  legacyKavalSocket?: string;
   log: Logger;
   /** External stop signal (tests / a parent teardown). Composed with the
    *  drain-triggered abort. */
@@ -217,6 +227,10 @@ export async function runPadiDaemon(
   // in-process until W2.2; it now runs in padi's process, keyed by state-root.)
   await ensureLocalEndpoint({
     kavalSocket,
+    // The W2.2 upgrade bridge: adopt a surviving pre-W2.2 port-keyed kaval (if the
+    // binder hinted its port socket and this padi has no digest kaval yet) rather
+    // than leaking it. Standalone padi (no binder) passes nothing → no legacy adopt.
+    legacyKavalSocket: opts.legacyKavalSocket,
     onStatus: publishDaemonStatus,
     onAdopted: adoptSurvivingSession,
     onNotAdopted: parkSavedSession,
@@ -233,7 +247,14 @@ export async function runPadiDaemon(
   // discovers. padi knows the state-root the opaque digest stands for; write it
   // into both padi's and its kaval's runtime dirs.
   writeStateRootManifest(dirname(socketPath), stateRoot);
-  writeStateRootManifest(dirname(kavalSocket), stateRoot);
+  // Beside the kaval this padi ACTUALLY holds — `getLocalSocketPath()` is the digest
+  // socket normally, but the adopted LEGACY port socket after an upgrade adoption. So
+  // discovery labels the real daemon "kolu @ <state-root>" (not the bare "port N"),
+  // and no empty digest dir is minted when the port kaval was adopted instead.
+  writeStateRootManifest(
+    dirname(getLocalSocketPath() ?? kavalSocket),
+    stateRoot,
+  );
 
   return daemonMain({
     gatePath,

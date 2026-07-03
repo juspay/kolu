@@ -45,6 +45,12 @@ Options:
                       The binder forwards the kolu app version here so terminal
                       identity is byte-identical to the pre-cutover in-process
                       spawn; standalone, padi defaults to its own commit hash.
+  --legacy-kaval-socket PATH
+                      the pre-W2.2 per-port kaval socket the BINDER hints (its own
+                      listen port's kaval-<port>/pty-host.sock) — the upgrade bridge.
+                      If padi has no digest kaval yet but a compatible pre-W2.2 kaval
+                      is alive here, it is ADOPTED (its PTYs survive the upgrade), not
+                      leaked. Standalone (no flag), padi never adopts a stray port kaval.
   -h, --help          show this help
 
 Bind a running padi from kolu-server, or drive its kaval with \`kaval-tui\`.`;
@@ -55,6 +61,7 @@ const { values } = parseArgs({
     socket: { type: "string" },
     "allow-nix-shell-with-env-whitelist": { type: "string" },
     "spawn-version": { type: "string" },
+    "legacy-kaval-socket": { type: "string" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -69,6 +76,7 @@ runPadiDaemon({
   socketOverride: values.socket,
   nixShellWhitelist: values["allow-nix-shell-with-env-whitelist"],
   spawnVersion: values["spawn-version"],
+  legacyKavalSocket: values["legacy-kaval-socket"],
   log: stderrLogger(),
 })
   .then((exit) => {

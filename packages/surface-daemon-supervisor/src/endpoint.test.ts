@@ -875,3 +875,292 @@ describe("adoptOrSpawnOrRefuse — the padi binder's boot policy (W2.2)", () => 
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
   });
 });
+
+describe("adoptOrEnsure — the W2.2 upgrade adopt-hint (legacy port kaval)", () => {
+  const tick = (ms = 50): Promise<void> =>
+    new Promise((r) => setTimeout(r, ms));
+
+  // A live serving survivor at rendezvous `rv`: a real `sleep` pid in the gate AND a
+  // listening socket — the exact `liveServingHolder` candidate. Returns the pid and an
+  // exited() flag so a recycle's SIGTERM can be observed.
+  async function liveSurvivor(rv: {
+    gatePath: string;
+    socketPath: string;
+  }): Promise<{ pid: number; exited: () => boolean }> {
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const pid = survivor.pid as number;
+    children.push(pid);
+    writeFileSync(rv.gatePath, `${pid}\n`);
+    let hasExited = false;
+    survivor.on("exit", () => {
+      hasExited = true;
+    });
+    const fake = fakeDaemon(rv.socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+    return { pid, exited: () => hasExited };
+  }
+
+  function conn(id: string, startedAt = 1): DaemonConnection<string, Identity> {
+    return {
+      client: id,
+      identity: { staleKey: id },
+      startedAt,
+      dispose() {},
+      onClose() {},
+    };
+  }
+
+  it("PRIMARY (digest) gate live → adopts the PRIMARY, NEVER probes the hint", async () => {
+    const d = dir();
+    const primary = {
+      gatePath: join(d, "p.pid"),
+      socketPath: join(d, "p.sock"),
+    };
+    const hint = { gatePath: join(d, "l.pid"), socketPath: join(d, "l.sock") };
+    await liveSurvivor(primary);
+    const legacy = await liveSurvivor(hint); // also alive — but must be IGNORED
+
+    let hintConnectCalled = false;
+    let onAdoptedCalled = false;
+    let driverSpawnCalled = false;
+    const ep = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath: primary.gatePath,
+      socketPath: primary.socketPath,
+      driver: {
+        spawn: async () => {
+          driverSpawnCalled = true;
+        },
+      },
+      connect: async () => conn("primary", 99),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptHint: {
+        gatePath: hint.gatePath,
+        socketPath: hint.socketPath,
+        connect: async () => {
+          hintConnectCalled = true;
+          return conn("legacy", 5);
+        },
+        onAdopted: () => {
+          onAdoptedCalled = true;
+        },
+      },
+      onSpawned: () => {},
+    });
+
+    const adopted = await ep.adoptOrEnsure();
+    await tick();
+
+    expect(adopted).toBe(true);
+    expect(ep.current()?.identity).toEqual({ staleKey: "primary" });
+    expect(hintConnectCalled).toBe(false); // the hint is only a PRIMARY-empty fallback
+    expect(onAdoptedCalled).toBe(false);
+    expect(driverSpawnCalled).toBe(false);
+    expect(legacy.exited()).toBe(false); // the legacy survivor is left untouched
+  });
+
+  it("PRIMARY empty + a COMPATIBLE legacy survivor at the hint → ADOPTS it, fires onAdopted, no spawn, no kill", async () => {
+    const d = dir();
+    const primary = {
+      gatePath: join(d, "p.pid"),
+      socketPath: join(d, "p.sock"),
+    };
+    const hint = { gatePath: join(d, "l.pid"), socketPath: join(d, "l.sock") };
+    const legacy = await liveSurvivor(hint); // no primary survivor written/listening
+
+    let onAdoptedCalled = false;
+    let driverSpawnCalled = false;
+    const ep = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath: primary.gatePath,
+      socketPath: primary.socketPath,
+      driver: {
+        spawn: async () => {
+          driverSpawnCalled = true;
+        },
+      },
+      connect: async () => conn("primary-fresh"),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptHint: {
+        gatePath: hint.gatePath,
+        socketPath: hint.socketPath,
+        connect: async () => conn("legacy", 5),
+        onAdopted: () => {
+          onAdoptedCalled = true;
+        },
+      },
+      onSpawned: () => {},
+    });
+
+    const adopted = await ep.adoptOrEnsure();
+    await tick();
+
+    expect(adopted).toBe(true);
+    expect(ep.current()?.identity).toEqual({ staleKey: "legacy" }); // adopted the hint
+    expect(onAdoptedCalled).toBe(true); // recorded the hint socket as the live location
+    expect(driverSpawnCalled).toBe(false); // adopted, never spawned a fresh digest kaval
+    expect(legacy.exited()).toBe(false); // adopted, never killed
+  });
+
+  it("PRIMARY empty + a SKEWED legacy survivor at the hint → RECYCLES it (kills the legacy holder) and spawns fresh at the PRIMARY", async () => {
+    const d = dir();
+    const primary = {
+      gatePath: join(d, "p.pid"),
+      socketPath: join(d, "p.sock"),
+    };
+    const hint = { gatePath: join(d, "l.pid"), socketPath: join(d, "l.sock") };
+    const legacy = await liveSurvivor(hint);
+    const fakePrimary = fakeDaemon(primary.socketPath);
+    servers.push(fakePrimary.server);
+
+    let driverSpawnCalled = false;
+    let onSpawnedCalled = 0;
+    const ep = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath: primary.gatePath,
+      socketPath: primary.socketPath,
+      driver: {
+        spawn: async () => {
+          driverSpawnCalled = true;
+          await fakePrimary.listen(); // the fresh (digest) kaval comes up
+        },
+      },
+      connect: async () => conn("primary-fresh"),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptConnectRetryMs: 1,
+      adoptHint: {
+        gatePath: hint.gatePath,
+        socketPath: hint.socketPath,
+        connect: async () => {
+          throw new DaemonContractSkewError("legacy kaval is a contract skew");
+        },
+        onAdopted: () => {},
+      },
+      onSpawned: () => {
+        onSpawnedCalled += 1;
+      },
+    });
+
+    const adopted = await ep.adoptOrEnsure();
+    await tick();
+
+    expect(adopted).toBe(false);
+    expect(legacy.exited()).toBe(true); // the SKEWED legacy kaval was recycled (killed)
+    expect(driverSpawnCalled).toBe(true); // fresh spawn — at the PRIMARY (digest), not the hint
+    expect(ep.current()?.identity).toEqual({ staleKey: "primary-fresh" });
+    expect(onSpawnedCalled).toBe(1);
+  });
+
+  it("PRIMARY empty + NO live survivor at the hint → spawns fresh at the PRIMARY (never probes the dead hint)", async () => {
+    const d = dir();
+    const primary = {
+      gatePath: join(d, "p.pid"),
+      socketPath: join(d, "p.sock"),
+    };
+    const hint = { gatePath: join(d, "l.pid"), socketPath: join(d, "l.sock") };
+    const fakePrimary = fakeDaemon(primary.socketPath);
+    servers.push(fakePrimary.server);
+
+    let hintConnectCalled = false;
+    let onAdoptedCalled = false;
+    let onSpawnedCalled = 0;
+    const ep = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath: primary.gatePath,
+      socketPath: primary.socketPath,
+      driver: { spawn: () => fakePrimary.listen() },
+      connect: async () => conn("primary-fresh"),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptHint: {
+        gatePath: hint.gatePath, // no gate file, nobody listening
+        socketPath: hint.socketPath,
+        connect: async () => {
+          hintConnectCalled = true;
+          return conn("legacy");
+        },
+        onAdopted: () => {
+          onAdoptedCalled = true;
+        },
+      },
+      onSpawned: () => {
+        onSpawnedCalled += 1;
+      },
+    });
+
+    const adopted = await ep.adoptOrEnsure();
+    expect(adopted).toBe(false);
+    expect(ep.current()?.identity).toEqual({ staleKey: "primary-fresh" });
+    expect(hintConnectCalled).toBe(false); // no live daemon at the hint gate to connect to
+    expect(onAdoptedCalled).toBe(false);
+    expect(onSpawnedCalled).toBe(1);
+  });
+
+  it("CONVERGENCE: a recycle AFTER a hint adoption kills the adopted legacy kaval and respawns at the PRIMARY (digest)", async () => {
+    const d = dir();
+    const primary = {
+      gatePath: join(d, "p.pid"),
+      socketPath: join(d, "p.sock"),
+    };
+    const hint = { gatePath: join(d, "l.pid"), socketPath: join(d, "l.sock") };
+    const legacy = await liveSurvivor(hint);
+    const fakePrimary = fakeDaemon(primary.socketPath);
+    servers.push(fakePrimary.server);
+
+    let driverSpawnCalled = 0;
+    let onSpawnedCalled = 0;
+    let onAdoptedCalled = false;
+    const ep = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath: primary.gatePath,
+      socketPath: primary.socketPath,
+      driver: {
+        spawn: async () => {
+          driverSpawnCalled += 1;
+          await fakePrimary.listen();
+        },
+      },
+      connect: async () => conn("primary-fresh", 42),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptHint: {
+        gatePath: hint.gatePath,
+        socketPath: hint.socketPath,
+        connect: async () => conn("legacy", 5),
+        onAdopted: () => {
+          onAdoptedCalled = true;
+        },
+      },
+      onSpawned: () => {
+        onSpawnedCalled += 1;
+      },
+    });
+
+    // Boot: no digest survivor, adopt the legacy hint.
+    const adopted = await ep.adoptOrEnsure();
+    expect(adopted).toBe(true);
+    expect(ep.current()?.identity).toEqual({ staleKey: "legacy" });
+    expect(onAdoptedCalled).toBe(true);
+    expect(driverSpawnCalled).toBe(0); // adopted, never spawned
+
+    // A Restart-kaval recycle (`ensure()`) probes the HELD rendezvous — the adopted
+    // legacy socket, not the primary — so it SIGTERMs the legacy daemon and spawns
+    // fresh at the PRIMARY (digest). The bounded migration converges here.
+    await ep.ensure();
+    await tick();
+
+    expect(legacy.exited()).toBe(true); // the adopted legacy kaval was killed by the recycle
+    expect(driverSpawnCalled).toBe(1); // respawned at the primary (digest)
+    expect(ep.current()?.identity).toEqual({ staleKey: "primary-fresh" });
+    expect(onSpawnedCalled).toBe(1); // the spawn reset the recorded location to the primary
+  });
+});

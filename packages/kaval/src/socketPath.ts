@@ -105,6 +105,17 @@ export function getPtyHostSocketPath(override?: string, app = "kolu"): string {
   });
 }
 
+/** The LEGACY per-port kaval socket path — `$XDG_RUNTIME_DIR/kaval-<port>/
+ *  pty-host.sock` — the pre-W2.2 in-process kolu-server keying. Retired for
+ *  CONSTRUCTION (padi keys its kaval by a state-root digest now), but a W2.2
+ *  kolu-server hands THIS path (computed from its OWN listen port) to padi as an
+ *  adopt HINT so the first W2.2 boot ADOPTS the running pre-W2.2 kaval instead of
+ *  leaking it (the upgrade-migration bridge). Reuses {@link kavalNamespace} — the
+ *  one `kaval-<port>` literal — so the hint and legacy discovery can never drift. */
+export function legacyKavalSocketPath(port: number): string {
+  return getPtyHostSocketPath(undefined, kavalNamespace(port));
+}
+
 /** Is `dir` a private, owner-only directory the current user owns? The SAME
  *  boundary `serveOverUnixSocket` / `acquirePidGate` enforce before serving (cf.
  *  `isPrivateOwnedDir` in `@kolu/surface/unix-socket`). It is re-checked HERE, on

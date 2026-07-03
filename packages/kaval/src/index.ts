@@ -115,6 +115,7 @@ export {
   type KavalSocketCandidate,
   type KavalSocketResolution,
   kavalNamespace,
+  legacyKavalSocketPath,
   PTY_HOST_SOCK_FILE,
   readStateRootManifest,
   resolveRunningKavalSocket,

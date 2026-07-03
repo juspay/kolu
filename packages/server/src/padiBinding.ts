@@ -547,11 +547,18 @@ export function resolvePadiLaunch(
   stateRoot: string,
   nixShellWhitelist: string | undefined,
   spawnVersion: string | undefined,
+  legacyKavalSocket: string | undefined,
 ): { binPath: string; args: string[] } {
   const baseArgs = ["--state-root", stateRoot];
   if (nixShellWhitelist != null)
     baseArgs.push("--allow-nix-shell-with-env-whitelist", nixShellWhitelist);
   if (spawnVersion != null) baseArgs.push("--spawn-version", spawnVersion);
+  // The W2.2 upgrade bridge: hand padi the binder's OWN listen-port legacy kaval
+  // socket so a first W2.2 boot ADOPTS a running pre-W2.2 kaval instead of leaking
+  // it. Passed on EVERY spawn (never import-gated); padi ignores it once its own
+  // digest kaval is live, so it is a harmless no-op after the migration converges.
+  if (legacyKavalSocket != null)
+    baseArgs.push("--legacy-kaval-socket", legacyKavalSocket);
 
   const wrapper = process.env.KOLU_PADI_BIN;
   if (wrapper) return { binPath: wrapper, args: baseArgs };
@@ -585,11 +592,13 @@ export function localPadiDriver(
   nixShellWhitelist: string | undefined,
   spawnVersion: string | undefined,
   verbose: boolean,
+  legacyKavalSocket: string | undefined,
 ): DaemonDriver {
   const { binPath, args } = resolvePadiLaunch(
     stateRoot,
     nixShellWhitelist,
     spawnVersion,
+    legacyKavalSocket,
   );
   const fromSource =
     !process.env.KOLU_PADI_BIN || process.env.KOLU_PADI_SPAWN === "detached";
@@ -853,6 +862,13 @@ export interface EnsurePadiBindingOptions {
    *  app version (not padi's own commit). Omitted → padi falls back to its own
    *  commit/`dev` (a standalone padi with no binder forwarding the app version). */
   spawnVersion?: string;
+  /** The LEGACY per-port kaval socket to hint padi — the binder computes it from its
+   *  OWN listen port (`legacyKavalSocketPath(port)`), so a first W2.2 boot ADOPTS the
+   *  running pre-W2.2 kaval instead of leaking it. Forwarded to padi's
+   *  `--legacy-kaval-socket` on EVERY spawn. Omitting it (a standalone padi bring-up)
+   *  disables legacy adoption entirely — the binder is the ONLY hinter, and only of
+   *  its own port, so a dev instance at another port is never adopted. */
+  legacyKavalSocket?: string;
   /** Forward the server's `--verbose` intent to padi's process as `LOG_LEVEL=debug`
    *  so padi's OWN pino domain logger emits debug — the split-process twin of the
    *  pre-cutover `padiLog.level = "debug"`. Omitted/false → padi honors an explicit
@@ -907,6 +923,7 @@ export async function ensurePadiBinding(
       opts.nixShellWhitelist,
       opts.spawnVersion,
       opts.verbose ?? false,
+      opts.legacyKavalSocket,
     ),
     connect: () => connectPadi(socketPath),
     log,

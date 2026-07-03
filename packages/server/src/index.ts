@@ -15,7 +15,7 @@ import {
   publisherSize,
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
-import { discoverKavalDaemons } from "kaval";
+import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import {
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
@@ -216,6 +216,12 @@ const padiSession = await ensurePadiBinding({
   // spawns PTYs — padi's kaval does — so `configureNixShellEnv` is FORWARDED to
   // padi, not called here).
   nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
+  // The W2.2 upgrade bridge: hand padi THIS binder's OWN listen-port legacy kaval
+  // socket, so a first W2.2 boot ADOPTS a running pre-W2.2 kaval (`kaval-<port>/`)
+  // instead of spawning a fresh digest kaval and leaking it. The binder is the ONLY
+  // hinter — and only of its OWN port — so a dev instance at another port is never
+  // adopted; padi ignores the hint once its digest kaval is live, so it converges.
+  legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
   // Forward the kolu app version so spawned PTYs' `TERM_PROGRAM_VERSION` stays the
   // kolu app version (byte-identical to the pre-cutover in-process spawn), not
   // padi's own commit hash. padi stamps this via its `--spawn-version` flag.

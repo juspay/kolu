@@ -25,6 +25,7 @@ import {
   KAVAL_GATE_FILE,
   KAVAL_NS_PREFIX,
   kavalNamespace,
+  legacyKavalSocketPath,
   PTY_HOST_SOCK_FILE,
   resolveRunningKavalSocket,
   writeStateRootManifest,
@@ -77,6 +78,34 @@ describe("getPtyHostSocketPath", () => {
     );
     // default is unchanged
     expect(getPtyHostSocketPath()).toBe("/run/user/1000/kolu/pty-host.sock");
+  });
+});
+
+describe("legacyKavalSocketPath — the W2.2 upgrade adopt-hint (binder hints its OWN port)", () => {
+  const savedXdg = process.env.XDG_RUNTIME_DIR;
+  afterEach(() => {
+    if (savedXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = savedXdg;
+  });
+
+  it("is the port-keyed kaval-<port>/pty-host.sock — the same namespace as kavalNamespace(port)", () => {
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
+    expect(legacyKavalSocketPath(7681)).toBe(
+      "/run/user/1000/kaval-7681/pty-host.sock",
+    );
+    // Derived purely from the port via the ONE `kaval-<port>` literal, so the hint
+    // and legacy discovery can never spell it differently.
+    expect(legacyKavalSocketPath(7681)).toBe(
+      getPtyHostSocketPath(undefined, kavalNamespace(7681)),
+    );
+  });
+
+  it("is a pure function of the port — a DIFFERENT listen port yields a DIFFERENT hint (a dev instance at another port is never adopted)", () => {
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
+    expect(legacyKavalSocketPath(9999)).toBe(
+      "/run/user/1000/kaval-9999/pty-host.sock",
+    );
+    expect(legacyKavalSocketPath(7681)).not.toBe(legacyKavalSocketPath(9999));
   });
 });
 
