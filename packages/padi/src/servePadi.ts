@@ -209,10 +209,16 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     streams: {
-      // QUIET — kolu-server has no raw byte tap, so this truthfully yields the
-      // empty live set (the honest "nothing known to be moving"); the live source
-      // lands with padi's own process (W2.2). The fs/git change-pulses are pure
-      // reuse of `fsGitSurfaceDeps(...).streams`.
+      // QUIET — deliberately, still. `activity` (the set of terminals producing
+      // output right now) has NO consumer: the client derives its per-tile live
+      // dot LOCALLY from `terminalAttach` bytes and has never read this surface
+      // member. Lighting it now — even though padi owns the byte-taps that could
+      // feed it — would be a producer with zero consumers, the exact
+      // self-sufficiency smell this plan exists to kill. So it stays served-quiet
+      // (the honest "nothing known to be moving", no contract change); its live
+      // backing lands with its FIRST real consumer — `padi-tui wait`/`status`
+      // (W2.3) or `kolu-tui` (W4). The fs/git change-pulses are pure reuse of
+      // `fsGitSurfaceDeps(...).streams`.
       activity: quietActivity,
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then

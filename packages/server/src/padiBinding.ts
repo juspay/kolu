@@ -254,7 +254,13 @@ export function resolvePadiLaunch(
 /** The padi driver: `survivableSpawnDriver` bound to padi's values. Twin of
  *  `localKavalDriver`. Under systemd-run (`--user`, INVOCATION_ID) so padi's
  *  NESTED kaval lands in its OWN unit that outlives padi restarts; `fromSource`
- *  is the dev/e2e detached escape (KOLU_PADI_SPAWN=detached OR no KOLU_PADI_BIN). */
+ *  is the detached escape (`KOLU_PADI_SPAWN=detached` OR no `KOLU_PADI_BIN`) — the
+ *  exact twin of kaval's `KOLU_KAVAL_SPAWN`, not a new knob class. It covers dev/
+ *  e2e (from-source, already detached) AND a nix-built kolu on a **bare,
+ *  non-systemd box** (a `pu` box, a bare container): there `KOLU_PADI_BIN` is
+ *  baked so the driver would try `systemd-run --user`, but with no user session
+ *  that fails — set `KOLU_PADI_SPAWN=detached` to spawn detached instead. A real
+ *  systemd host (kolu under `kolu.service`) needs neither. */
 export function localPadiDriver(
   stateRoot: string,
   nixShellWhitelist: string | undefined,
