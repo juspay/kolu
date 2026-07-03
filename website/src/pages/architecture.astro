@@ -388,10 +388,14 @@ const primitives = [
       terminal, kill one, restore a session) you call and await. That's the whole
       contract, and it's served over <span class="text-ink">any transport</span>:
       in-process with no wire at all, over a local unix socket, over a browser
-      websocket, or — soon, for kolu — over ssh. Swap the transport; the client
-      code doesn't change. That's exactly how <code class="mono text-ink">padi</code>
-      grew up: it ran in-process inside kolu-server, then moved out into its own
-      process behind a unix socket, and the client never noticed.
+      websocket, or over ssh. That ssh transport is <span class="text-ink">already
+      live</span> — it's how <code class="mono text-ink">kaval-tui --host</code> and
+      drishti reach a daemon on another machine; what's still coming is kolu itself
+      using it to bind a <code class="mono text-ink">padi</code> on a remote host.
+      Swap the transport; the client code doesn't change. That's exactly how{" "}
+      <code class="mono text-ink">padi</code> grew up: it ran in-process inside
+      kolu-server, then moved out into its own process behind a unix socket, and
+      the client never noticed.
     </p>
 
     <div class="ax-callout mt-6 max-w-xl">
@@ -469,6 +473,14 @@ const primitives = [
       The design lives in the atlas — the working notes behind each piece.
     </p>
     <div class="grid sm:grid-cols-2 gap-x-8 gap-y-4 max-w-xl">
+      <a
+        href="https://kolu.dev/atlas/padi.html"
+        class="ax-link"
+        rel="noopener"
+      >
+        <span class="ax-link-t">the padi note</span>
+        <span class="ax-link-d">the workspace daemon — layers, identity, restore</span>
+      </a>
       <a href="/kaval" class="ax-link">
         <span class="ax-link-t">kaval</span>
         <span class="ax-link-d">the PTY daemon &amp; its shell client — on the site</span>
