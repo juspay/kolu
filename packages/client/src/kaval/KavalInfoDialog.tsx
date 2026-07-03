@@ -4,10 +4,13 @@ import type { DaemonStatus } from "@kolu/padi/surface";
 import { isCleanRef } from "@kolu/surface-app";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
+import { match, P } from "ts-pattern";
 import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "../ui/Commit";
 import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
+import { formatMBCompact } from "../ui/memory";
+import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
 import { expectedKaval } from "./KavalUpdateBadge";
 import { kavalStale } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
@@ -91,6 +94,19 @@ const KavalInfoDialog: Component<{
         <DetailRow label="socket">
           <span title={props.status?.socketPath}>
             {props.status?.socketPath ?? "unavailable"}
+          </span>
+        </DetailRow>
+        <DetailRow label="memory">
+          {/* Same {@link kavalMemoryDisplay} source the identity-rail chip reads,
+              so the dialog and the rail tooltip can't drift: `ok` → the RSS
+              figure; `error` → an honest poll-failure marker; `null` (no daemon /
+              stale link) → unavailable. */}
+          <span data-testid="kaval-dialog-memory">
+            {match(kavalMemoryDisplay())
+              .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))
+              .with({ kind: "error" }, () => "poll failed")
+              .with(P.nullish, () => "unavailable")
+              .exhaustive()}
           </span>
         </DetailRow>
       </div>
