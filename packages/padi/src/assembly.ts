@@ -17,6 +17,11 @@
 // The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
 // inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
 export type { PairedDaemon } from "./pairedDaemon.ts";
+// padi's staleKey read — the binder's build-convergence key (#1670). Re-exported
+// through this barrel (not a deep `@kolu/padi/buildId` import) so the binder honors
+// the package-boundary seal: on boot it compares its own baked `PADI_BUILD_ID`
+// against the running padi's `hello.buildId` and drains a same-contract build change.
+export { currentPadiBuildId } from "./buildId.ts";
 // ── scratch / roots ─────────────────────────────────────────────────────
 export {
   ensureKoluRoot,

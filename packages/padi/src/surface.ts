@@ -704,6 +704,21 @@ export const PadiHelloSchema = z.object({
    *  padi predating the field omits it and STILL handshakes (its hello validates),
    *  reading as the honest "—" rather than breaking the bind. Empty `""` off-nix. */
   commit: z.string().optional(),
+  /** padi's staleKey (`PADI_BUILD_ID`) — the content hash of padi's daemon source
+   *  closure, which flips iff a restart would load DIFFERENT daemon code. This is the
+   *  binder's build-convergence key (#1670): a binder compares it against its OWN baked
+   *  `PADI_BUILD_ID` and, on a same-contract mismatch, drains the survivor once at boot
+   *  and respawns its own build. Distinct from `commit` — the git ref is navigable but
+   *  does NOT capture the closure (two builds off one commit can differ; one commit can
+   *  change nothing padi runs). Additive like `commit` (the frozen core has never
+   *  shipped served → `CONTROL_CORE_VERSION` stays "1.0"), and OPTIONAL so a survivor
+   *  padi predating the field STILL handshakes. But an ABSENT id is NOT "adopt anyway":
+   *  a nix-built binder (which always bakes its own `PADI_BUILD_ID`) reads a missing id
+   *  as "this padi predates the field, so it is by definition an OLDER build" and DRAINS
+   *  it — otherwise the fix would fail to fire on the very first upgrade past a pre-field
+   *  padi (exactly the deploy it exists for). Only an OFF-NIX binder (its own id `""`)
+   *  never drains on build grounds — it cannot judge builds. Empty `""` off-nix. */
+  buildId: z.string().optional(),
 });
 export type PadiHello = z.infer<typeof PadiHelloSchema>;
 

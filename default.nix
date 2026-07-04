@@ -31,8 +31,10 @@
 , kavalBuildIdOverride ? null
   # TEST-ONLY hook (padi's twin of `kavalBuildIdOverride`, default null): when
   # set, FORCE this build's PADI_BUILD_ID to the given value instead of padi's
-  # source-closure hash. Reserved for a future padi build-skew test; the real
-  # build always takes the source hash.
+  # source-closure hash — baked onto BOTH the padi wrapper AND the koluBin wrapper
+  # (the binder's expected == what it would spawn), so a second build reads as a
+  # padi-build skew to the drain-on-build-mismatch convergence (#1670). Consumed by
+  # the `adoption-padi-upgrade` VM arm; the real build always takes the source hash.
 , padiBuildIdOverride ? null
   # Per-system `{ system → kaval .drv }` map, baked onto the kaval-tui wrapper as
   # KAVAL_AGENT_DRVS_JSON so `kaval-tui --host <ssh>` can ship the target-arch
@@ -265,9 +267,13 @@ let
   };
 
   # A content digest of padi's daemon source closure, baked into PADI_BUILD_ID —
-  # computed PURELY in Nix (no IFD) exactly like `kavalBuildId`.
-  # `padiBuildIdOverride` (TEST-ONLY, default null) forces the value for a future
-  # build-skew test; the real build always takes the source hash.
+  # computed PURELY in Nix (no IFD) exactly like `kavalBuildId`. Baked onto the padi
+  # wrapper (what the RUNNING padi reports in its control-core hello) AND the koluBin
+  # wrapper (what the BINDER expects, since it spawns exactly this padi) — the two
+  # agree by construction, so the drain-on-build-mismatch convergence (#1670) fires
+  # only across an actual redeploy, never within one build. `padiBuildIdOverride`
+  # (TEST-ONLY, default null) forces the value for the build-skew VM arm; the real
+  # build always takes the source hash.
   padiBuildId =
     if padiBuildIdOverride != null
     then padiBuildIdOverride
@@ -436,6 +442,7 @@ let
       --set KAVAL_COMMIT_HASH "${commitHash}" \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
+      --set PADI_BUILD_ID "${padiBuildId}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';

@@ -28,7 +28,7 @@ const PADI_STARTED_AT = Date.now();
 import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
 import { implement, type Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
-import { currentPadiCommitHash } from "./buildId.ts";
+import { currentPadiBuildId, currentPadiCommitHash } from "./buildId.ts";
 import {
   setPadiActivityFeedStore,
   setPadiLastPairedDaemonStore,
@@ -225,6 +225,10 @@ export async function runPadiDaemon(
         // padi's navigable git commit (`PADI_COMMIT_HASH`), echoed by `hello` so the
         // binder surfaces the RUNNING padi's build. Empty "" off-nix → honest "—".
         commit: currentPadiCommitHash(),
+        // padi's staleKey (`PADI_BUILD_ID`) — the binder's build-convergence key: a
+        // same-contract build mismatch drains this padi once at binder boot (#1670).
+        // Empty "" off-nix (the binder never build-drains a "" survivor of a "" binder).
+        buildId: currentPadiBuildId(),
         onDrain,
       }),
     },
