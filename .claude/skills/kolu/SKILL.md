@@ -71,7 +71,8 @@ cause — `snapshot` and look for the prompt sitting unsent). `--submit` schedul
 the Enter *past* that debounce, so it lands after the text settles. Bare
 `--submit` waits **250ms**; `--submit=<ms>` tunes it (raise it for a sluggish
 agent). It is a blind delay — no screen read, no idle-detection — so the command
-returns in well under a second whatever the agent is doing; you still `wait` +
+returns after the grace regardless of what the agent is doing — bare `--submit`
+in well under a second, a tuned `--submit=<ms>` after that many ms; you still `wait` +
 `snapshot` afterward to read the reply.
 
 > **Manual control — raw `send`, no `--submit`.** Plain `kaval-tui send <id>

@@ -18,6 +18,11 @@
 // stdin still read throughout — so a submit fired at a busy agent is never lost.
 
 const DEBOUNCE_MS = Number(process.env.FIXTURE_DEBOUNCE_MS ?? 120);
+// How many 25ms ticks the mid-turn "busy" burst runs before it prints DONE.
+// Parameterized so a test that needs a DETERMINISTICALLY busy agent (the second
+// prompt must land while the first turn is still streaming) can hold the burst
+// open long past its own submit, instead of racing the default ~500ms window.
+const BUSY_TICKS = Number(process.env.FIXTURE_BUSY_TICKS ?? 20);
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 
@@ -29,14 +34,14 @@ let submits = 0;
 // A monotonic clock in ms — hrtime, so it can't skew backward mid-test.
 const nowMs = () => Number(process.hrtime.bigint() / 1_000_000n);
 
-// Emit a short burst of output over ~500ms to model a mid-turn "busy" agent.
+// Emit a burst of output (BUSY_TICKS × 25ms) to model a mid-turn "busy" agent.
 // stdin keeps being read while this runs (Node's data events fire regardless),
 // so a paste+submit landing during the burst is still staged and submitted.
 function streamBusy(tag) {
   let i = 0;
   const timer = setInterval(() => {
     process.stdout.write(".");
-    if (++i >= 20) {
+    if (++i >= BUSY_TICKS) {
       clearInterval(timer);
       process.stdout.write(`\nDONE ${tag}\n`);
     }

@@ -425,14 +425,22 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
   );
   const DEBOUNCE_MS = 120;
 
-  /** Spawn the fixture in a real PTY and wait until it's listening. */
-  async function spawnFixture(): Promise<string> {
+  /** Spawn the fixture in a real PTY and wait until it's listening. `extraEnv`
+   *  lets a test tune the fixture — e.g. hold the busy burst open (FIXTURE_BUSY_TICKS)
+   *  so the "mid-turn" case is deterministic rather than racing a ~500ms window. */
+  async function spawnFixture(
+    extraEnv: Record<string, string> = {},
+  ): Promise<string> {
     const dir = mkdtempSync(join(tmpdir(), "kolu-submit-"));
     const { id } = await conn.client.surface.terminal.spawn(
       buildCreateInput({
         id: newPtyId(),
         cwd: dir,
-        env: { ...process.env, FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS) },
+        env: {
+          ...process.env,
+          FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS),
+          ...extraEnv,
+        },
         command: ["node", FIXTURE],
         kavalSocket: KAVAL_SOCK,
       }),
@@ -523,7 +531,11 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
   it("(b) BUSY agent (mid-turn, streaming) + --submit → the message is accepted, never lost", {
     timeout: 30_000,
   }, async () => {
-    const id = await spawnFixture();
+    // Hold the first turn's busy burst open (200 × 25ms ≈ 5s) so it is STILL
+    // streaming when the second prompt lands — otherwise a slow CI loop could let
+    // the first turn print DONE T1 first, and the test would no longer prove the
+    // mid-turn case it claims. The assertion below pins that determinism.
+    const id = await spawnFixture({ FIXTURE_BUSY_TICKS: "200" });
     const first = planSend({
       text: "first prompt",
       paste: true,
@@ -533,11 +545,14 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
     });
     await runPlan(id, first);
     // Wait until the first turn is UNDERWAY (the fixture is streaming busy output).
-    await untilScreen(
+    const midTurn = await untilScreen(
       id,
       (s) => s.includes("SUBMITTED#1"),
       "first turn to start",
     );
+    // The first turn must still be mid-stream — DONE T1 not yet printed — so the
+    // second submit genuinely lands at a BUSY agent, not a quiesced one.
+    expect(midTurn).not.toContain("DONE T1");
     // Fire the second --submit while it's mid-stream; the paste lands amid the
     // streaming output, and the scheduled Enter still submits it — not lost.
     const second = planSend({

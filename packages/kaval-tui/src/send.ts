@@ -37,6 +37,7 @@ import {
   metaByte,
   NAMED_KEY_BYTES,
 } from "@kolu/terminal-protocol";
+import { MAX_TIMER_MS } from "./wait.ts";
 
 /** The Enter byte `--submit` writes after the grace delay — the SAME carriage
  *  return `--key Enter` sends (`NAMED_KEY_BYTES.enter`), so the auto-submit and
@@ -52,8 +53,14 @@ export const DEFAULT_SUBMIT_GRACE_MS = 250;
 /** Turn the value `--submit` carries into a grace delay in ms. type-flag hands a
  *  bare `--submit` as "" (→ the default) and `--submit=<ms>` as the digits.
  *  Integer milliseconds only: a non-integer or negative value fails LOUD rather
- *  than NaN-degrading silently back to the default (no fallback). The caller runs
- *  this inside the command's try, so the throw surfaces as `kaval-tui: <msg>`. */
+ *  than NaN-degrading silently back to the default (no fallback). A value above
+ *  {@link MAX_TIMER_MS} is ALSO rejected loud: `executeSendPlan` feeds this to
+ *  `setTimeout`, which silently CLAMPS an over-32-bit delay to 1ms and fires
+ *  near-instantly — so `--submit=2147483648` would drop the tuned grace and race
+ *  the debounce exactly as a bare same-breath Enter does. That is the same
+ *  overflow guard `wait.ts` applies to `--until idle:<ms>` / `--timeout`. The
+ *  caller runs this inside the command's try, so the throw surfaces as
+ *  `kaval-tui: <msg>`. */
 export function parseSubmitGrace(raw: string): number {
   if (raw === "") return DEFAULT_SUBMIT_GRACE_MS;
   if (!/^\d+$/.test(raw)) {
@@ -61,7 +68,13 @@ export function parseSubmitGrace(raw: string): number {
       `--submit expects a non-negative integer of milliseconds — pass it bare (--submit) for the ${DEFAULT_SUBMIT_GRACE_MS}ms default, or --submit=<ms>; got ${JSON.stringify(raw)}`,
     );
   }
-  return Number(raw);
+  const ms = Number(raw);
+  if (ms > MAX_TIMER_MS) {
+    throw new Error(
+      `--submit grace must be ≤ ${MAX_TIMER_MS}ms (~24.8 days): a larger delay overflows setTimeout, which clamps it to 1ms and fires near-instantly — dropping the grace and racing the paste debounce; got ${JSON.stringify(raw)}`,
+    );
+  }
+  return ms;
 }
 
 /** The named keys `send` accepts, as one human string for the command help, the

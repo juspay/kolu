@@ -8,6 +8,7 @@ import {
   planSend,
   SUBMIT_ENTER,
 } from "./send.ts";
+import { MAX_TIMER_MS } from "./wait.ts";
 
 const START = "\x1b[200~";
 const END = "\x1b[201~";
@@ -277,5 +278,21 @@ describe("parseSubmitGrace — bare vs =<ms>", () => {
     expect(() => parseSubmitGrace("-5")).toThrow(/non-negative integer/);
     expect(() => parseSubmitGrace("12.5")).toThrow(/non-negative integer/);
     expect(() => parseSubmitGrace("250ms")).toThrow(/non-negative integer/);
+  });
+
+  it("accepts the exact setTimeout ceiling (MAX_TIMER_MS)", () => {
+    // The boundary is honorable: setTimeout can wait a signed-32-bit delay.
+    expect(parseSubmitGrace(String(MAX_TIMER_MS))).toBe(MAX_TIMER_MS);
+  });
+
+  it("rejects a grace above the setTimeout ceiling rather than clamping it to 1ms", () => {
+    // MAX_TIMER_MS + 1 and a huge digit string both overflow setTimeout, which
+    // would silently fire at 1ms and drop the tuned grace — fail loud instead.
+    expect(() => parseSubmitGrace(String(MAX_TIMER_MS + 1))).toThrow(
+      /overflows setTimeout/,
+    );
+    expect(() => parseSubmitGrace("99999999999999999999")).toThrow(
+      /overflows setTimeout/,
+    );
   });
 });

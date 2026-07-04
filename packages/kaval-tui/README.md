@@ -62,8 +62,10 @@ point — an Enter written in the same breath as the text _raced Claude Code's
 bracketed-paste / debounced input and was silently dropped_, leaving the prompt
 staged while `send` reported success. `--submit` schedules the Enter *past* that
 debounce. Bare `--submit` waits **250ms**; `--submit=<ms>` tunes it. It's a blind
-delay — no screen read, no idle-detection — so it returns in well under a second
-whatever the agent is doing; `wait` + `snapshot` afterward to read the reply.
+delay — no screen read, no idle-detection — so it returns after the grace
+regardless of what the agent is doing: bare `--submit` in well under a second, a
+tuned `--submit=<ms>` after that many ms. `wait` + `snapshot` afterward to read
+the reply.
 
 Without `--submit`, `send` writes **exactly what you pass — the literal text and
 any `--key`s, with no implicit Enter** — the raw channel for menus, partial

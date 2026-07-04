@@ -37,7 +37,7 @@ const commands = [
   },
   {
     cmd: "kaval-tui send <id> [text...]",
-    flags: "--paste/--no-paste · --key <name> · --json",
+    flags: "--submit[=<ms>] · --paste/--no-paste · --key <name> · --json",
     what: "Write input to a terminal without attaching — a prompt to a Claude Code / Codex / opencode agent running in it, so one agent can drive another. Add `--submit` to type AND submit in one command: it writes the text, waits a grace, then sends Enter past the TUI's paste debounce (bare `--submit` waits 250ms; `--submit=<ms>` tunes it). Without it, `send` writes exactly the text (and any --key) you pass — no implicit Enter; submit by hand with `send <id> --key Enter`. Multiline text or piped stdin is sent as one bracketed paste so it doesn't submit line-by-line; --key also sends control keys (Escape, C-c, Up…) after the text. --json emits { id, bytes, paste, keys } (plus submitted + graceMs under --submit).",
   },
   {
