@@ -341,9 +341,9 @@ Then **pulam-tui and the pulam daemon retire** — padi-tui's `wait` takes over 
 
 <a id="w31"></a>
 
-#### W3.1 — the remote binding *(READY — the next PR; complete but invisible)*
+#### W3.1 — the remote binding *(READY — the next PR; complete, no new UI)*
 
-The named path this PR exists to prove: **`padiSurface` consumed over ssh**. The done-criterion can only be met by driving the ssh leg — no local shortcut satisfies it.
+The named path this PR exists to prove: **`padiSurface` consumed over ssh**. The done-criterion can only be met by driving the ssh leg — no local shortcut satisfies it. "No new UI" does NOT mean untestable from the UI: set the knob and **the whole canvas becomes the remote host** — tiles spawn there, the Code tab reads its repos, paste/upload/transcripts land there — same pixels, different machine; the manual test is simply using kolu normally against a pu box and trying to catch a lie. What doesn't exist yet is *switching* (one knob, all-or-nothing, off by default; unset = today's local behavior byte-identical) — the picker and per-connection bindings are W3.2. *(Sequencing note: W3.1 does NOT depend on the L3 convergence-kit PR — the provisioning machinery predates it and the dial calls are the same either way; but both touch `padiBinding.ts`, so land L3 first as merge hygiene.)*
 
 **What W2 already built for this (reuse, do not reinvent):**
 - **The re-serve seam is session-shaped and published**: `RemoteMirrorSession<C>` (`surface-nix-host`, published + variance-fixed in W2.2) is the receptacle both session kinds plug into — `PadiBindingSession` (local Endpoint) today, **`HostSession` (ssh) is the second arm** — so the remote leg slots into `reServeSurface` exactly where the local one does. The per-member forwarding policy (values hold-open · `terminalAttach`/`activity` fail-through) applies unchanged over ssh.
