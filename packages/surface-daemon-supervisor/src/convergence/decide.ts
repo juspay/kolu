@@ -31,18 +31,18 @@ import {
 import type { AnyConvergencePolicy } from "./policy.ts";
 
 /** The typed decision `converge()` enacts. `drain-and-replace` carries which `axis` fired
- *  (for the breadcrumb + to know whether to spend the build fence); `report-mismatch`
- *  carries the running identity the caller surfaces (the currency nudge). */
+ *  (to know whether to spend the build fence); `report-mismatch` carries the running
+ *  identity the caller surfaces (the currency nudge). The prose for each arm lives at
+ *  converge's log edge, not here — this is the pure decision table. */
 export type Decision =
   | { readonly kind: "spawn" }
   | { readonly kind: "adopt" }
-  | { readonly kind: "recycle"; readonly reason: string }
+  | { readonly kind: "recycle" }
   | {
       readonly kind: "drain-and-replace";
       readonly axis: "contract" | "build";
-      readonly reason: string;
     }
-  | { readonly kind: "refuse"; readonly reason: string }
+  | { readonly kind: "refuse" }
   | { readonly kind: "report-mismatch"; readonly running: ConvergenceIdentity };
 
 export function decide(
@@ -56,29 +56,15 @@ export function decide(
 
   // ── Axis 1 — CONTRACT (ordered). A skew decides here; the build id is irrelevant. ──
   if (!contractIsCompatible(baked.contractVersion, running.contractVersion)) {
-    const versions = `running ${running.contractVersion}, mine ${baked.contractVersion}`;
     switch (policy.onContractSkew.kind) {
       case "recycle":
-        return {
-          kind: "recycle",
-          reason: `contract skew (${versions}) — recycle-on-skew`,
-        };
+        return { kind: "recycle" };
       case "refuse":
-        return {
-          kind: "refuse",
-          reason: `contract skew (${versions}) — refuse (never touch a running daemon)`,
-        };
+        return { kind: "refuse" };
       case "drain-newer-else-refuse":
         return contractIsNewer(baked.contractVersion, running.contractVersion)
-          ? {
-              kind: "drain-and-replace",
-              axis: "contract",
-              reason: `contract skew, mine newer (${versions}) — drain + replace`,
-            }
-          : {
-              kind: "refuse",
-              reason: `contract skew, mine older/behind (${versions}) — refuse (never drain; the monotonicity)`,
-            };
+          ? { kind: "drain-and-replace", axis: "contract" }
+          : { kind: "refuse" };
       default: {
         const _exhaustive: never = policy.onContractSkew;
         throw new Error(
@@ -103,11 +89,7 @@ export function decide(
       // Once per supervisor boot: a spent fence means a reconnect must NOT re-drain → adopt.
       return buildFenceSpent
         ? { kind: "adopt" }
-        : {
-            kind: "drain-and-replace",
-            axis: "build",
-            reason: `same contract, build mismatch (running ${running.buildId || "<absent>"}, mine ${baked.buildId}) — drain + replace once`,
-          };
+        : { kind: "drain-and-replace", axis: "build" };
     default: {
       const _exhaustive: never = policy.onBuildMismatch;
       throw new Error(

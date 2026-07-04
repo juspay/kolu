@@ -72,8 +72,8 @@ type AnyConvergenceProbe = DrainableProbe | PlainProbe;
 export type ConvergenceOutcome =
   | { readonly kind: "adopted" }
   | { readonly kind: "spawned" }
-  | { readonly kind: "recycled"; readonly reason: string }
-  | { readonly kind: "refused"; readonly reason: string }
+  | { readonly kind: "recycled" }
+  | { readonly kind: "refused" }
   | {
       readonly kind: "drained-replacing";
       readonly axis: "contract" | "build";
@@ -134,26 +134,42 @@ export async function converge<Cap extends DrainCapability>(args: {
       }
       case "recycle": {
         args.log.warn(
-          { reason: decision.reason },
+          {
+            runningContract: probe.identity.contractVersion,
+            mineContract: args.baked.contractVersion,
+            runningBuild: probe.identity.buildId,
+            mineBuild: args.baked.buildId,
+          },
           "convergence: recycling a contract-skewed survivor (kill + respawn)",
         );
         await bind(); // recycle-on-skew policy → bind is `adoptOrEnsure`.
-        return { kind: "recycled", reason: decision.reason };
+        return { kind: "recycled" };
       }
       case "refuse": {
         args.log.warn(
-          { reason: decision.reason },
+          {
+            runningContract: probe.identity.contractVersion,
+            mineContract: args.baked.contractVersion,
+            runningBuild: probe.identity.buildId,
+            mineBuild: args.baked.buildId,
+          },
           "convergence: REFUSING a skewed survivor — left standing + degraded, never touched",
         );
         await bind(); // refuse/drain policy → bind is `adoptOrSpawnOrRefuse` (refuses the skew).
-        return { kind: "refused", reason: decision.reason };
+        return { kind: "refused" };
       }
       case "drain-and-replace": {
         // Spend the fence for a BUILD drain BEFORE the await, so even a drain failure
         // spends it (degraded-loudly, never a retry that could livelock two supervisors).
         if (decision.axis === "build") args.buildFence.markFired();
         args.log.info(
-          { reason: decision.reason, axis: decision.axis },
+          {
+            axis: decision.axis,
+            runningContract: probe.identity.contractVersion,
+            mineContract: args.baked.contractVersion,
+            runningBuild: probe.identity.buildId,
+            mineBuild: args.baked.buildId,
+          },
           "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
         );
         // Pin 1 at runtime: `decide` only returns drain-and-replace for a drainable policy,
@@ -168,7 +184,14 @@ export async function converge<Cap extends DrainCapability>(args: {
           await probe.drain();
         } catch (err) {
           args.log.error(
-            { err, reason: decision.reason, axis: decision.axis },
+            {
+              err,
+              axis: decision.axis,
+              runningContract: probe.identity.contractVersion,
+              mineContract: args.baked.contractVersion,
+              runningBuild: probe.identity.buildId,
+              mineBuild: args.baked.buildId,
+            },
             "convergence: drain FAILED (daemon did not exit) — NOT killing it; the follow-on bind adopts/refuses the still-standing survivor (degraded, logged), and the fence stays spent so no reconnect re-drains",
           );
         }
