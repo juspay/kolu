@@ -30,6 +30,14 @@ export function runningPadis(): RunningPadi[] {
   return sub.value()?.padis ?? [];
 }
 
+/** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
+ *  LOCAL binding / before the first enumeration. When non-null, this inventory is a scan
+ *  of THIS machine — NOT the bound host — so the dialogs label + separate it from the
+ *  bound-kaval identity (which rides padiSurface and reflects the REMOTE host). */
+export function daemonScanBoundHost(): string | null {
+  return sub.value()?.boundHost ?? null;
+}
+
 /** The padi kolu-server is bound to (`active`), or `undefined` before the first
  *  enumeration / while unbound. The Padi dialog reads its `surfaceVersion` /
  *  `buildCommit` / `socket` for the header + detail rows, mirroring how the Kaval

@@ -378,14 +378,24 @@ export type RunningPadi = z.infer<typeof RunningPadiSchema>;
 export const DaemonInventorySchema = z.object({
   kavals: z.array(RunningKavalSchema),
   padis: z.array(RunningPadiSchema),
+  /** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
+   *  LOCAL binding. When set, this inventory is a scan of THIS machine's daemons — NOT
+   *  the bound host's — so the dialog labels it "local daemons — this machine, not the
+   *  bound host" and visually separates it from the bound-kaval identity (which rides
+   *  padiSurface and reflects the REMOTE host). Without this the two hosts' truths mix
+   *  unlabeled (W3.1: a remote bind must never present this-machine daemons as the
+   *  bound host's). */
+  boundHost: z.string().nullable(),
 });
 export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
 
 /** The honest pre-sample "unknown" — empty lists, so a fresh subscription renders no
- *  fabricated daemons until the first server enumeration lands. */
+ *  fabricated daemons until the first server enumeration lands. `boundHost` null until
+ *  the first enumeration reports the binding. */
 export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
   kavals: [],
   padis: [],
+  boundHost: null,
 };
 
 /** Bytes in one megabyte. The single source of truth both the server-side dedup

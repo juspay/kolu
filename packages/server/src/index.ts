@@ -597,6 +597,9 @@ startDaemonInventorySampler(
     // never pins the remote padi's identity onto a local socket. Remote inventory is a
     // later slice; this keeps the local readout honest meanwhile.
     boundLocally: !remoteHost,
+    // The remote host, so the dialog can LABEL this local scan "this machine, not the
+    // bound host" + separate it from the (padiSurface-borne) bound-kaval identity.
+    boundHost: remoteHost ?? null,
     publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
   },
   (resample) => padiSession.onState(() => resample()),

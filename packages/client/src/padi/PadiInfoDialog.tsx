@@ -20,6 +20,7 @@ import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import {
   activePadi,
   activePadiSurfaceVersion,
+  daemonScanBoundHost,
   runningPadis,
 } from "../ui/useDaemonInventory";
 import { formatMBCompact } from "../ui/memory";
@@ -165,8 +166,31 @@ const PadiInfoDialog: Component<{
           at another state-root (the padi twin of the orphaned-kaval leak) is
           diagnosable at a glance. Honesty (#1034): an honest empty line when none is
           discovered, never a fake. */}
-      <div class="space-y-2">
-        <h3 class="text-xs font-medium text-fg">Running padi daemons</h3>
+      <div
+        class="space-y-2"
+        classList={{
+          // Bound remotely: this scan is THIS machine's daemons, NOT the bound host's —
+          // fence it off so two hosts' truths can't read as one (the identity above
+          // rides padiSurface = the REMOTE host).
+          "rounded-lg border border-edge bg-surface-2/50 p-2.5":
+            daemonScanBoundHost() !== null,
+        }}
+      >
+        <h3 class="text-xs font-medium text-fg">
+          <Show when={daemonScanBoundHost()} fallback="Running padi daemons">
+            Local daemons — this machine, not the bound host
+          </Show>
+        </h3>
+        <Show when={daemonScanBoundHost()}>
+          {(host) => (
+            <p class="text-[11px] leading-relaxed text-fg-3">
+              kolu-server is bound to padi on{" "}
+              <span class="text-fg-2">{host()}</span> over ssh — the padi
+              identity above is that host's. These are daemons discovered on
+              THIS machine (a leak diagnostic), not the bound host's.
+            </p>
+          )}
+        </Show>
         <Show
           when={runningPadis().length > 0}
           fallback={

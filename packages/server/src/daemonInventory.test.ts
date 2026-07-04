@@ -310,6 +310,33 @@ describe("enumerateDaemonInventoryOnce — remote binding (boundLocally)", () =>
     });
   });
 
+  it("publishes boundHost = the remote host when bound remotely, null when local — so the dialog labels this LOCAL scan 'not the bound host'", async () => {
+    let remote: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        publish: (inv) => {
+          remote = inv;
+        },
+        boundLocally: false,
+        boundHost: "nix@prod.example",
+      }),
+    );
+    // Bound remotely → the host rides the inventory so the dialog can fence off + label
+    // this local scan as "this machine, not the bound host".
+    expect(remote?.boundHost).toBe("nix@prod.example");
+
+    let local: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        publish: (inv) => {
+          local = inv;
+        },
+      }),
+    );
+    // Local bind (no boundHost dep) → null, so the dialog keeps "Running kaval daemons".
+    expect(local?.boundHost).toBeNull();
+  });
+
   it("boundLocally omitted (local bind) marks the local bound daemon active — unchanged", async () => {
     let published: DaemonInventory | undefined;
     await enumerateDaemonInventoryOnce(

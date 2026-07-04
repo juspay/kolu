@@ -11,7 +11,7 @@ import Commit, { REPO_URL } from "../ui/Commit";
 import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import { formatMBCompact } from "../ui/memory";
-import { runningKavals } from "../ui/useDaemonInventory";
+import { daemonScanBoundHost, runningKavals } from "../ui/useDaemonInventory";
 import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
 import { expectedKaval } from "./KavalUpdateBadge";
 import { kavalStale } from "./kavalCurrency";
@@ -225,8 +225,31 @@ const KavalInfoDialog: Component<{
           flagged — so a LEAKED post-upgrade kaval (once only surfaced by a `kaval-tui:
           more than one kaval daemon is running` CLI error) is diagnosable at a glance.
           Honesty (#1034): an honest empty line when none is discovered, never a fake. */}
-      <div class="space-y-2">
-        <h3 class="text-xs font-medium text-fg">Running kaval daemons</h3>
+      <div
+        class="space-y-2"
+        classList={{
+          // Bound remotely: this is a scan of THIS machine's daemons, NOT the bound
+          // host's — fence it off in a bordered, muted panel so two hosts' truths can't
+          // read as one (the kaval identity above rides padiSurface = the REMOTE host).
+          "rounded-lg border border-edge bg-surface-2/50 p-2.5":
+            daemonScanBoundHost() !== null,
+        }}
+      >
+        <h3 class="text-xs font-medium text-fg">
+          <Show when={daemonScanBoundHost()} fallback="Running kaval daemons">
+            Local daemons — this machine, not the bound host
+          </Show>
+        </h3>
+        <Show when={daemonScanBoundHost()}>
+          {(host) => (
+            <p class="text-[11px] leading-relaxed text-fg-3">
+              kolu-server is bound to padi on{" "}
+              <span class="text-fg-2">{host()}</span> over ssh — the kaval
+              identity above is that host's. These are daemons discovered on
+              THIS machine (a leak diagnostic), not the bound host's.
+            </p>
+          )}
+        </Show>
         <Show
           when={runningKavals().length > 0}
           fallback={

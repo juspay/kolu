@@ -216,6 +216,11 @@ export interface DaemonInventoryDeps {
    *  inventory is a later slice; here the local list stays honest (leaks still visible,
    *  none marked active). */
   boundLocally?: boolean;
+  /** The ssh host the bound padi lives on (`KOLU_PADI_HOST`), or `null`/undefined for a
+   *  LOCAL binding — published onto the inventory so the dialog labels this LOCAL scan
+   *  "this machine, not the bound host <boundHost>" and separates it from the bound-kaval
+   *  identity. Derived from the same knob as {@link boundLocally}. */
+  boundHost?: string | null;
   /** The bound padi's honest `surfaceVersion` off its control-core `hello`, or `null`
    *  while padi is unbound — read fresh each tick so a (re)bind updates it. */
   activePadiSurfaceVersion: () => string | null;
@@ -255,6 +260,7 @@ export async function enumerateDaemonInventoryOnce(
       )
     : null;
   deps.publish({
+    boundHost: deps.boundHost ?? null,
     kavals: assembleKavalInventory(
       kavalDaemons,
       probes,
