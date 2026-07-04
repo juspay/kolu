@@ -854,6 +854,44 @@ async function startServerChild(koluServer: string): Promise<void> {
       `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempts`,
     );
   }
+  // W3.1 — the ssh leg: a REMOTE padi binding warms ASYNC (fail-open by design;
+  // provisioning + fronting over ssh takes seconds), so — unlike the LOCAL arm, which
+  // awaits its first connect before the server listens — the server is up before the
+  // remote padi is live. Wait for it here, on EVERY server start (boot AND the mid-run
+  // restarts reconnect/session-restore/@kaval-restart trigger), so scenarios never
+  // race the warm-up (a `killAll` against a not-yet-connected binding is the "no live
+  // upstream link" 500). Local runs (knob unset) skip this entirely — byte-identical.
+  await waitForRemotePadiLive();
+}
+
+/** Poll a padi procedure until the (async-warming) remote binding is live, or throw
+ *  after 120s. No-op unless `KOLU_E2E_PADI_HOST` is set (the ssh-leg e2e). */
+async function waitForRemotePadiLive(): Promise<void> {
+  if (!process.env.KOLU_E2E_PADI_HOST) return;
+  const deadline = Date.now() + 120_000;
+  let lastStatus = 0;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      lastStatus = res.status;
+      if (res.ok) {
+        console.log(
+          `[worker:${workerId}] remote padi is live — running against the ssh host`,
+        );
+        return;
+      }
+    } catch {
+      // server not answering yet — keep polling
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(
+    `[worker:${workerId}] remote padi (KOLU_E2E_PADI_HOST=${process.env.KOLU_E2E_PADI_HOST}) never became live within 120s (last killAll status ${lastStatus})`,
+  );
 }
 
 BeforeAll(async () => {
@@ -878,48 +916,9 @@ BeforeAll(async () => {
   if (koluServer.startsWith("http")) {
     // Reuse an already-running server
     baseUrl = koluServer;
+    await waitForRemotePadiLive();
   } else {
-    await startServerChild(koluServer);
-  }
-
-  // W3.1 — the ssh leg: a REMOTE padi binding warms ASYNC (fail-open by design;
-  // provisioning + fronting over ssh takes seconds), so unlike the LOCAL arm — which
-  // awaits its first connect before the server listens — the server is up before the
-  // remote padi is live. Wait for it here, ONCE, so scenarios don't race the warm-up
-  // (a `killAll` against a not-yet-connected binding is the "no live upstream link"
-  // 500). Local runs (knob unset) skip this entirely — byte-identical to today.
-  if (process.env.KOLU_E2E_PADI_HOST) {
-    const deadline = Date.now() + 120_000;
-    let ready = false;
-    let lastStatus = 0;
-    while (Date.now() < deadline) {
-      try {
-        const res = await fetch(
-          `${baseUrl}/rpc/surface/padi/lifecycle/killAll`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: "{}",
-          },
-        );
-        lastStatus = res.status;
-        if (res.ok) {
-          ready = true;
-          break;
-        }
-      } catch {
-        // server not answering yet — keep polling
-      }
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-    if (!ready) {
-      throw new Error(
-        `[worker:${workerId}] remote padi (KOLU_E2E_PADI_HOST=${process.env.KOLU_E2E_PADI_HOST}) never became live within 120s (last killAll status ${lastStatus})`,
-      );
-    }
-    console.log(
-      `[worker:${workerId}] remote padi is live — running the suite over ssh`,
-    );
+    await startServerChild(koluServer); // waits for a live remote padi internally
   }
 
   // Launch browser — always use CI args for consistency and performance.
