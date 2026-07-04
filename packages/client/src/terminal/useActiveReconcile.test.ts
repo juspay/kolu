@@ -70,7 +70,7 @@ describe("evictTerminal — top-level branch", () => {
       getSubTerminalIds: (p) => (p === T("P") ? [T("S1"), T("S2")] : []),
       activeId: () => T("P"),
     });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")]);
+    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
 
     expect(calls.promoteToTopLevel.mock.calls).toEqual([[T("S1")], [T("S2")]]);
     expect(calls.removeSub).toHaveBeenCalledWith(T("P"));
@@ -83,8 +83,36 @@ describe("evictTerminal — top-level branch", () => {
 
   it("does not auto-switch when the removed tile was not active", () => {
     const { ports, calls } = makePorts({ activeId: () => T("Q") });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")]);
+    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
     expect(calls.activate).not.toHaveBeenCalled();
+  });
+
+  it("clamps focus to null when EVERY top-level tile departs in one frame", () => {
+    const { ports, calls } = makePorts({ activeId: () => T("A") });
+    // A, B, C all leave this frame — no true survivor, so focus falls to null,
+    // never onto a still-departing sibling.
+    evictTerminal(
+      ports,
+      T("A"),
+      null,
+      [T("A"), T("B"), T("C")],
+      new Set([T("A"), T("B"), T("C")]),
+    );
+    expect(calls.activate).toHaveBeenCalledWith(null);
+  });
+
+  it("skips departing siblings when picking the survivor (partial batch)", () => {
+    const { ports, calls } = makePorts({ activeId: () => T("A") });
+    // A and B leave together; C and D survive. A sat at index 0 → the survivor in
+    // that slot is C, never the departing sibling B.
+    evictTerminal(
+      ports,
+      T("A"),
+      null,
+      [T("A"), T("B"), T("C"), T("D")],
+      new Set([T("A"), T("B")]),
+    );
+    expect(calls.activate).toHaveBeenCalledWith(T("C"));
   });
 });
 
@@ -93,7 +121,7 @@ describe("evictTerminal — sub-terminal branch", () => {
     const { ports, calls } = makePorts({
       getSubTerminalIds: () => [], // no siblings remain
     });
-    evictTerminal(ports, T("S"), T("P"), []);
+    evictTerminal(ports, T("S"), T("P"), [], new Set([T("S")]));
     expect(calls.collapse).toHaveBeenCalledWith(T("P"));
     // The active tab is cleared so it can't dangle at the departed sub — the
     // invariant "activeSubTab is null or a live sub" that lets adopt/restore
@@ -107,7 +135,7 @@ describe("evictTerminal — sub-terminal branch", () => {
       getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []), // S1 already gone
       activeSubTab: () => T("S1"),
     });
-    evictTerminal(ports, T("S1"), T("P"), []);
+    evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
     expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
     expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
     expect(calls.collapse).not.toHaveBeenCalled();
@@ -118,7 +146,7 @@ describe("evictTerminal — sub-terminal branch", () => {
       getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []),
       activeSubTab: () => T("S2"), // a different tab is active
     });
-    evictTerminal(ports, T("S1"), T("P"), []);
+    evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
     expect(calls.setActiveSubTab).not.toHaveBeenCalled();
     expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
   });
@@ -129,14 +157,14 @@ describe("createEvictionDedup", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
     d.evictImperatively(T("P"), null, [T("P")], true); // kill: claim + evict
-    d.evictDeparted(T("P"), null, [T("P")]); // the later list-drop
+    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")])); // the later list-drop
     expect(runEvict).toHaveBeenCalledTimes(1); // NOT twice
   });
 
   it("runs the cleanup for an UNCLAIMED departure (natural exit)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictDeparted(T("P"), null, [T("P")]);
+    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")]));
     expect(runEvict).toHaveBeenCalledTimes(1);
   });
 
@@ -144,7 +172,7 @@ describe("createEvictionDedup", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
     d.evictImperatively(T("P"), null, [T("P")], false); // already-gone kill
-    d.evictDeparted(T("P"), null, [T("P")]); // an unrelated later departure
+    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")])); // an unrelated later departure
     expect(runEvict).toHaveBeenCalledTimes(2); // not skipped → no stale claim leak
   });
 });
@@ -195,8 +223,9 @@ function setupReconcile(init: {
     calls.activate.mockImplementation((id) => {
       state.active = id;
     });
-    const eviction = createEvictionDedup((id, parentId, topLevelBefore) =>
-      evictTerminal(ports, id, parentId, topLevelBefore),
+    const eviction = createEvictionDedup(
+      (id, parentId, topLevelBefore, departing) =>
+        evictTerminal(ports, id, parentId, topLevelBefore, departing),
     );
     useActiveReconcile({
       rawList: rawIds,
@@ -326,6 +355,46 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
     expect(h.calls.removeSub).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
+    h.dispose();
+  });
+
+  it("(f) connected batch departure of EVERY top-level tile clamps focus to null (not a dead id)", async () => {
+    // All top-level tiles [A,B,C] depart in ONE frame while CONNECTED (a user
+    // close-all, not a supervised drain), active A. The auto-switch must clamp to
+    // null — there is no survivor. The bug: it filtered only the id being
+    // processed out of the pre-removal order, so it landed focus on B (itself a
+    // departed id), then echoed that dead id to the server via chrome.setActive.
+    const h = setupReconcile({
+      rawIds: [T("A"), T("B"), T("C")],
+      parents: { A: null, B: null, C: null },
+      activeId: T("A"),
+    });
+    await tick();
+
+    h.setRawIds([]); // every top-level tile leaves at once
+
+    // Focus falls to null — never to a departed id.
+    expect(h.calls.activate).toHaveBeenCalledWith(null);
+    expect(h.calls.activate).not.toHaveBeenCalledWith(T("B"));
+    expect(h.calls.activate).not.toHaveBeenCalledWith(T("C"));
+    h.dispose();
+  });
+
+  it("(g) connected batch departure keeps focus on a real survivor when some remain", async () => {
+    // A,B depart together (active A); C,D survive. Focus must land on a LIVE
+    // survivor (the tile now in A's slot), never on the departing sibling B.
+    const h = setupReconcile({
+      rawIds: [T("A"), T("B"), T("C"), T("D")],
+      parents: { A: null, B: null, C: null, D: null },
+      activeId: T("A"),
+    });
+    await tick();
+
+    h.setRawIds([T("C"), T("D")]);
+
+    // A sat at index 0; true survivors are [C,D]; slot 0 → C.
+    expect(h.calls.activate).toHaveBeenCalledWith(T("C"));
+    expect(h.calls.activate).not.toHaveBeenCalledWith(T("B"));
     h.dispose();
   });
 

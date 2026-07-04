@@ -25,8 +25,9 @@ import { createHostScopedParentSnapshot } from "./parentSnapshot";
 
 /** Pick the tile that inherits focus when the active tile is removed: the
  *  survivor now occupying the removed tile's slot (its old index, clamped to the
- *  new last), or `null` when none remain. `survivors` is the top-level list
- *  WITHOUT the removed id and `removedIndex` is where it sat before it went. The
+ *  new last), or `null` when none remain. `survivors` is the top-level list of
+ *  TRUE survivors — every id departing this frame removed, not just the one being
+ *  processed — and `removedIndex` is where the removed id sat before it went. The
  *  ONE home for "which sibling does focus fall to" — both callers of
  *  `evictTerminal` reach it through here, so they can never diverge. A
  *  `removedIndex` of `-1` (the removed id was never top-level) yields `null`. */
@@ -65,13 +66,17 @@ export interface TerminalEvictionPorts {
 /** Reconcile the tree/chrome for a removed terminal. `parentId` is EXPLICIT (not
  *  read from metadata) so the list-driven caller can run this after the metadata
  *  is gone; `topLevelBefore` is the top-level order that STILL CONTAINS `id`, for
- *  byte-identical switch-target selection. Byte-for-byte the old
- *  `removeAndAutoSwitch` body, minus the metadata read. */
+ *  byte-identical switch-target selection. `departing` is EVERY id leaving in this
+ *  frame — just `id` for a single close, the whole batch for a list-driven
+ *  multi-departure — so the auto-switch survivor set is `topLevelBefore` minus all
+ *  of them: a frame that empties the top level clamps focus to null instead of a
+ *  still-departing sibling. */
 export function evictTerminal(
   ports: TerminalEvictionPorts,
   id: TerminalId,
   parentId: TerminalId | null,
   topLevelBefore: readonly TerminalId[],
+  departing: ReadonlySet<TerminalId>,
 ) {
   if (parentId !== null) {
     // Sub-terminal: switch/collapse the parent's sub-panel; a sub is never the
@@ -112,7 +117,7 @@ export function evictTerminal(
     // stay centered on the just-removed tile.
     ports.activate(
       pickAutoSwitchTarget(
-        topLevelBefore.filter((x) => x !== id),
+        topLevelBefore.filter((x) => !departing.has(x)),
         topLevelBefore.indexOf(id),
       ),
     );
@@ -131,6 +136,7 @@ export function createEvictionDedup(
     id: TerminalId,
     parentId: TerminalId | null,
     topLevelBefore: readonly TerminalId[],
+    departing: ReadonlySet<TerminalId>,
   ) => void,
 ) {
   const claimed = new Set<TerminalId>();
@@ -142,15 +148,18 @@ export function createEvictionDedup(
       willDrop: boolean,
     ) {
       if (willDrop) claimed.add(id);
-      runEvict(id, parentId, topLevelBefore);
+      // The imperative close path departs exactly this one id, so it is the whole
+      // departing set — the batch case only ever arrives via `evictDeparted`.
+      runEvict(id, parentId, topLevelBefore, new Set([id]));
     },
     evictDeparted(
       id: TerminalId,
       parentId: TerminalId | null,
       topLevelBefore: readonly TerminalId[],
+      departing: ReadonlySet<TerminalId>,
     ) {
       if (claimed.delete(id)) return; // already evicted by the imperative path
-      runEvict(id, parentId, topLevelBefore);
+      runEvict(id, parentId, topLevelBefore, departing);
     },
   };
 }
@@ -167,11 +176,14 @@ export function useActiveReconcile(deps: {
    *  newly-active host. Carried in the snapshot so a switch RESETS the baseline
    *  (like the first run) instead of evicting the departed host's tiles. */
   activeHostKey: () => string;
-  /** Run the full cleanup for a naturally-departed terminal (dedup-guarded). */
+  /** Run the full cleanup for a naturally-departed terminal (dedup-guarded).
+   *  `departing` is every id leaving in the same frame, so the auto-switch can
+   *  clamp focus past all of them (never onto a still-departing sibling). */
   evictDeparted: (
     id: TerminalId,
     parentId: TerminalId | null,
     topLevelBefore: TerminalId[],
+    departing: ReadonlySet<TerminalId>,
   ) => void;
   /** Whether the terminal list is a COMPLETE, authoritative census — i.e. the
    *  client is the lifecycle authority. When it is NOT (a supervised
@@ -229,8 +241,12 @@ export function useActiveReconcile(deps: {
       for (const [id, parentId] of prev) {
         if (parentId === null) topLevelBefore.push(id);
       }
+      // The whole departing set for THIS frame — so the per-tile auto-switch
+      // clamps focus past every leaving tile at once. Without it a batch that
+      // empties the top level lands focus on a sibling that is itself departing.
+      const departing = new Set(departed);
       for (const id of departed) {
-        deps.evictDeparted(id, prev.get(id) ?? null, topLevelBefore);
+        deps.evictDeparted(id, prev.get(id) ?? null, topLevelBefore, departing);
       }
     }),
   );
