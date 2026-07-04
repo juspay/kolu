@@ -31,10 +31,10 @@ export const ROADMAP = [
   { d: 1, g: "✓", c: "ship", l: "W2.2 · padi the process — ONE PR: binary + identity + owns kaval + the cutover (bind · re-serve · store migration)", m: "#1664 · 2026-07-03", h: "#w22" },
   { d: 1, g: "✓", c: "ship", l: "W2.3 · dial carve + padi-tui born + the burial — wait/status/create/worktree · pulam* retired · terminalWorkspaceSurface DELETED", m: "#1665 · 2026-07-03", h: "#w23" },
   { d: 0, g: "▶", c: "prog", l: "W3 · remote + the switch — 3 PRs ↓ · the user-visible feature", m: "READY — W2 ✓", h: "#w3" },
-  { d: 1, g: "▶", c: "prog", l: "W3.1 · the remote binding — provision + front a remote padi (complete, invisible)", m: "NEXT — parity e2e on a pu box", h: "#w31" },
-  { d: 1, g: "○", c: "prog", l: "W3.2 · the switch — binding pool · per-view scope · host picker · clock handshake", m: "needs W3.1", h: "#w32" },
+  { d: 1, g: "✓", c: "ship", l: "W3.1 · the remote binding — provision + front a remote padi over ssh (KOLU_PADI_HOST)", m: "#1675 · 2026-07-04", h: "#w31" },
+  { d: 1, g: "○", c: "prog", l: "W3.2 · the switch — binding pool · per-view scope · host picker · clock handshake · the two W3.1 gaps", m: "READY — W3.1 ✓", h: "#w32" },
   { d: 1, g: "○", c: "prog", l: "W3.3 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W3.2", h: "#w33" },
-  { d: 1, g: "○", c: "prog", l: "W3.4 · remote e2e parity in CI — the FULL suite vs KOLU_PADI_HOST=<pool box>, every PR", m: "needs W3.1 · parallel with W3.2", h: "#w34" },
+  { d: 1, g: "○", c: "prog", l: "W3.4 · remote e2e parity in CI — the FULL suite vs KOLU_PADI_HOST=<pool box>, every PR", m: "READY — parallel with W3.2", h: "#w34" },
   { d: 0, g: "○", c: "prog", l: "W4 · consolidation — refactors · decomplecting · electricity upstreaming · deletions", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "W5 · demand-driven — cross-host dock · kolu-tui · hybrid only if earned", m: "", h: "#w5" },
 ];
@@ -72,7 +72,7 @@ export const LENS = [
     sub: [["2.1",4,false,true],["2.2",5,true,true],["2.3",2,true,true]] },
   { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)",
     beh: "Δ3.2 each connection now belongs to one host — the client rebuilds its plumbing when you switch · Δ3.3 notifications now fire for hosts you are not looking at (3.1 ships switched off by default)",
-    sub: [["3.1",2],["3.2",3,true],["3.3",1,true],["3.4",1]] },
+    sub: [["3.1",2,true,true],["3.2",3,true],["3.3",1,true],["3.4",1]] },
   { p: "W4", h: "#w4", user: "nothing — that is the point", vis: false, work: 3, why: "paying down what W2–W3's pace deferred: refactors, upstreaming, deletions off the ledger",
     beh: null, sub: null },
   { p: "W5", h: "#w5", user: "cross-host dock rows · kolu-tui — only if demanded", vis: true, faint: true, work: 1, why: "additive layers over unchanged daemons",
@@ -342,7 +342,11 @@ Then **pulam-tui and the pulam daemon retire** — padi-tui's `wait` takes over 
 
 <a id="w31"></a>
 
-#### W3.1 — the remote binding *(READY — the next PR; complete, no new UI)*
+#### W3.1 — the remote binding — *shipped* <PrLink pr={1675} />
+
+**Shipped 2026-07-04** (merge `20a346c38`). What landed, beyond the section's original scope: the knob (`KOLU_PADI_HOST`) + `RemotePadiSession` as `BoundPadi`'s ssh arm through the same re-serve seam; the arch-keyed drv map with kaval inside padi's closure (one dial provisions both, cross-arch verified); `padi --stdio` fronting the durable daemon; convergence hardened for the transport — the **instance-keyed drain fence** (no unix socket-close signal over ssh, so took-detection rides the hello probe; bounded per instance on BOTH axes via one `admitDrain`) and **adopt-loudly** on budget exhaustion (srid's ruling — emergent owner/guest, parity with the local kit's fence-spent row); **every degraded bind a standing dialog state** (adopted-stale banner · skew · unconverged · link-failed) with the bound host named in both dialogs, the header chip, and the browser title; **deterministic bounded daemon logs** (pino-roll + boot-rotated stderr crash-catcher, all spawn paths, no knob — born from the sincereintent watcher forensics, incl. the 0700 fix that unbroke fresh-host boots); the ssh e2e lane (`just e2e-ssh` self-ssh + `e2e-ssh-2box`, destructive-ack-guarded) with the typing bench recorded (p50 2.69ms / p99 14.38ms over a real hop vs 4.36ms local). Issues spawned: #1679 (orpc-teardown CI flake), #1680 (darwin WAL-watcher death, repro-first), #1681 (browser subscription drops post-rebind frame — the gray kaval chip; client convicted by frame trace, server exonerated; fix in a separate surface-stack PR together with the cell equals-gate drop). The two known remote-mode gaps below are W3.2-owned.
+
+*(Original build-ready spec, kept for the record:)*
 
 The named path this PR exists to prove: **`padiSurface` consumed over ssh**. The done-criterion can only be met by driving the ssh leg — no local shortcut satisfies it. "No new UI" does NOT mean untestable from the UI: set the knob and **the whole canvas becomes the remote host** — tiles spawn there, the Code tab reads its repos, paste/upload/transcripts land there — same pixels, different machine; the manual test is simply using kolu normally against a pu box and trying to catch a lie. What doesn't exist yet is *switching* (one knob, all-or-nothing, off by default; unset = today's local behavior byte-identical) — the picker and per-connection bindings are W3.2. **Known remote-mode gaps (W3.1 ships with exactly two, both loud, neither in the original section — recorded 2026-07-04):** (1) **file preview** — the iframe route refuses with a 501 under a remote binding ("file preview is unavailable…") instead of serving bytes. Root cause worth knowing: `padiSurface.preview.read` (range-capable, forwards remotely) has existed since W2, but kolu-server's route shares the *implementation function* as a direct local-disk read rather than dialing the procedure — invisible on one machine, wrong-host on two, hence the fail-closed guard. The honest fix is small (route the remote arm through the existing procedure, ranges looped for streaming) — **owned by W3.2**. (2) **the "Running daemons" inventory list** — scans the local machine only, now explicitly labeled "this machine, not the bound host"; the remote host's other daemons are invisible — **owned by W3.2**. Both gaps are named W3.2 deliverables (see its section); the W3 overview's "full peer… nothing silently wrong-host" promise completes there, and W3.2's done-criteria include closing them.
 

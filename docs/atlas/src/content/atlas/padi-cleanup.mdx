@@ -18,8 +18,8 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L1 · L6 · L7 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) — and L4 at a named version; L5's remaining half (video-ext table)
-- **Gated:** L11 on W3.2 · L2 on kolu-tui (W5) · L9, L22 on evidence · L23, L24 on W3.1 (#1675) merging
+- **Ready now:** L1 · L6 · L7 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
+- **Gated:** L11 on W3.2 · L2 on kolu-tui (W5) · L9, L22 on evidence
 - **Shipped:** L3 — the convergence kit (#1674, merged 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
@@ -97,7 +97,7 @@ terminal-workspace was born as "one library, two homes" (kolu + pulam). After W2
 
 ### L23 — route W3.1's remote arm through the convergence kit
 
-*Status: gated on W3.1 (#1675) merging · Lens: lowy (same policy, second hand-rolled site) · Gate: none (kolu-internal)*
+*Status: READY (W3.1 merged 2026-07-04) · Lens: lowy (same policy, second hand-rolled site) · Gate: none (kolu-internal)*
 
 W3.1's `RemotePadiSession` (`packages/server/src/remotePadiBinding.ts`) hand-mirrors the local arm's convergence policy in `handshakeAndScope`: contract-skew refusal + the #1671 drain-on-build-mismatch with a once-per-boot fence. That mirroring was the deliberate call when L3 (#1674) and W3.1 (#1675) were in flight simultaneously — correct policy now, unification later. Once both are merged, this is L3's story repeating one arm over: the same decision table hand-rolled at a second site.
 
@@ -111,7 +111,7 @@ W3.1's `RemotePadiSession` (`packages/server/src/remotePadiBinding.ts`) hand-mir
 
 ### L24 — `padi-tui --host`: the CLI's remote leg
 
-*Status: gated on W3.1 (#1675) merging · Lens: parity (kaval-tui `--host` is the shipped precedent) · Gate: none (kolu-internal)*
+*Status: READY (W3.1 merged 2026-07-04) · Lens: parity (kaval-tui `--host` is the shipped precedent) · Gate: none (kolu-internal)*
 
 Reach a padi on a remote machine from the CLI: `padi-tui --host <ssh> wait|status|create|watch`, the exact twin of kaval-tui's `--host`. Everything it needs ships in W3.1 — `getHostSession({binary:"padi", extraArgs:["--stdio"]})`, the stdio front, and the per-system drv map **already baked** onto padi-tui's wrapper (`PADI_AGENT_DRVS_JSON` in `default.nix`, wired there by #1675 with this exact consumer named in its comment). The work is a thin flag: resolve `--host` → `getHostSession` instead of the local socket, same verbs on top. Mind F1's lesson: the remote padi is the target host's PRODUCTION daemon — read verbs are safe, but `create` lands real terminals there (that's the point), and nothing here may drain/converge (a tui is a dial, #1313 — guests never converge).
 
