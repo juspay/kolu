@@ -26,6 +26,12 @@ describe("pickAutoSwitchTarget", () => {
     // Batch departure — survivors are the FULL order minus the WHOLE departing
     // set, so focus never lands on a still-departing sibling (the #1667 bug):
     expect(pickAutoSwitchTarget([a, b, c, d], new Set([a, b]), a)).toBe(c); // a,b leave → slot 0 is c
+    // removedIndex is indexOf on the FULL pre-removal order, NOT a pruned one:
+    // b sits at index 1 of [a,b,c,d] even though its earlier departing sibling a
+    // is filtered from survivors [c,d], so slot 1 is d (a pruned-order index would
+    // wrongly pick c). Pins the full-order contract when a departing sibling
+    // precedes the removed active tile.
+    expect(pickAutoSwitchTarget([a, b, c, d], new Set([a, b]), b)).toBe(d);
     expect(pickAutoSwitchTarget([a, b, c], new Set([a, b, c]), a)).toBeNull(); // all leave → null
     // A removedId that was never top-level (indexOf -1) → null:
     expect(pickAutoSwitchTarget([a, b], new Set([c]), c)).toBeNull();
