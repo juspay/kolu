@@ -106,11 +106,12 @@ export type PadiConnection = DaemonConnection<
 >;
 
 /** The dialed-but-unjudged result of reaching padi's frozen control core: the
- *  live client, its socket, and the `hello` it answered. The skew judgement
- *  (`isContractVersionCompatible`, or the binder's own `isBinderNewer` ordering)
- *  is the CALLER's — this only opens the link and reads identity. Shared by
- *  {@link connectPadi} (which judges then holds or refuses) and the binder's skew
- *  probe (which judges then drains or leaves be). */
+ *  live client, its socket, and the `hello` it answered. The version judgement is
+ *  the CALLER's — this only opens the link and reads identity. Shared by
+ *  {@link connectPadi} (which applies the `isContractVersionCompatible` gate, then
+ *  holds or refuses) and the binder's convergence probe
+ *  (`probePadiForConvergence`, which reads identity for padi's `ConvergencePolicy`
+ *  to drain or leave be). */
 export type PadiDial = {
   socket: Awaited<ReturnType<typeof dialSocket>>;
   client: PadiDaemonClient;
