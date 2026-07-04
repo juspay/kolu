@@ -18,6 +18,7 @@ import type {
 } from "@kolu/surface-nix-host";
 import type { AnyContractRouter } from "@orpc/contract";
 import { beforeEach, describe, expect, it } from "vitest";
+import { createBuildDrainFence } from "./padiBinding.ts";
 import { RemotePadiSession, remotePadiHost } from "./remotePadiBinding.ts";
 
 // ── Fakes ────────────────────────────────────────────────────────────────────
@@ -58,14 +59,56 @@ function makeCombined(hello: {
 }
 
 const helloOk = (
-  over: Partial<{ commit: string; startedAt: number }> = {},
+  over: Partial<{
+    commit: string;
+    startedAt: number;
+    buildId: string;
+    surfaceVersion: string;
+  }> = {},
 ) => ({
   stateRoot: "/remote/.local/state/padi",
-  surfaceVersion: PADI_SURFACE_VERSION,
+  surfaceVersion: over.surfaceVersion ?? PADI_SURFACE_VERSION,
   controlCoreVersion: "1.0",
   startedAt: over.startedAt ?? 1000,
   commit: over.commit ?? "abc1234",
+  buildId: over.buildId ?? "build-base",
 });
+
+/** A fake combined client that MODELS the drain→exit: `drain()` flips the daemon
+ *  "dead", after which `hello()` rejects — exactly the "link death" the real ssh
+ *  leg produces when padi exits, so `drainAndAwaitClose`'s liveness poll returns.
+ *  `alive: false` at the drain does NOT die (models a drain that did not take). */
+function makeDrainable(
+  hello: ReturnType<typeof helloOk>,
+  opts: { diesOnDrain?: boolean } = {},
+): {
+  client: unknown;
+  drainCount: () => number;
+} {
+  let dead = false;
+  let drains = 0;
+  const dies = opts.diesOnDrain ?? true;
+  return {
+    drainCount: () => drains,
+    client: {
+      surface: {
+        control: {
+          core: {
+            hello: async () => {
+              if (dead) throw new Error("link dead (padi exited)");
+              return hello;
+            },
+            drain: async () => {
+              drains += 1;
+              if (dies) dead = true;
+            },
+          },
+        },
+        padi: { marker: "padi-scoped" },
+      },
+    },
+  };
+}
 
 /** A hand-driven `RemoteMirrorSession` standing in for the ssh `HostSession`. */
 class FakeHost implements RemoteMirrorSession<AnyContractRouter> {
@@ -133,9 +176,13 @@ class FakeHost implements RemoteMirrorSession<AnyContractRouter> {
 
 const newSession = (): { host: FakeHost; rp: RemotePadiSession } => {
   const host = new FakeHost();
+  // binderBuildId "" — an off-nix binder that never drains on build grounds — so
+  // these handshake/scope/skew/reconnect cases ADOPT deterministically regardless of
+  // the ambient PADI_BUILD_ID; the build-convergence path has its own describe below.
   const rp = new RemotePadiSession(
     host as RemoteMirrorSession<never>,
     "remote-e2e",
+    { binderBuildId: "" },
   );
   return { host, rp };
 };
@@ -241,6 +288,121 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
     expect(host.destroyed).toBe(true);
     expect(rp.isDestroyed()).toBe(true);
     expect(rp.currentClient()).toBeNull();
+  });
+});
+
+describe("RemotePadiSession — build/contract convergence at the remote bind (mirrors drainSupersededSurvivor, over ssh)", () => {
+  // Inject a specific binder build id + a shared fence so the drain path runs without
+  // two real nix builds — the same shape the local arm's bindPadiOnce is unit-tested at.
+  const make = (
+    deps: {
+      binderBuildId?: string;
+      binderVersion?: string;
+      fence?: ReturnType<typeof createBuildDrainFence>;
+    } = {},
+  ) => {
+    const host = new FakeHost();
+    const rp = new RemotePadiSession(
+      host as RemoteMirrorSession<never>,
+      "rmt",
+      {
+        binderBuildId: deps.binderBuildId,
+        binderVersion: deps.binderVersion,
+        buildDrainFence: deps.fence,
+        // Fast fail-fast window so a drain-that-doesn't-take test isn't slow.
+        drainTeardownCeilingMs: 60,
+        drainPollMs: 10,
+      },
+    );
+    return { host, rp };
+  };
+
+  it("same build → ADOPTS, no drain", async () => {
+    const { host, rp } = make({ binderBuildId: "build-X" });
+    const c = makeDrainable(helloOk({ buildId: "build-X" }));
+    host.setClient(c.client);
+    const scoped = (await rp.currentClient()) as { surface: unknown };
+    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
+    expect(c.drainCount()).toBe(0);
+  });
+
+  it("build MISMATCH → drains ONCE (fence fires), then adopts the respawned build", async () => {
+    const fence = createBuildDrainFence();
+    const { host, rp } = make({ binderBuildId: "build-NEW", fence });
+
+    // Spawn 1 — the survivor is an OLD build. The mismatch drains + rejects (the pump
+    // cursor waits), fence fires. This is the flagship #1670 redeploy, over ssh.
+    const old = makeDrainable(helloOk({ buildId: "build-OLD" }));
+    host.setClient(old.client);
+    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
+    expect(old.drainCount()).toBe(1);
+    expect(fence.hasFired()).toBe(true);
+
+    // Spawn 2 — the HostSession reconnect respawned THIS binder's build. Now it matches
+    // → ADOPT, no second drain.
+    const fresh = makeDrainable(helloOk({ buildId: "build-NEW" }));
+    host.setClient(fresh.client);
+    const scoped = (await rp.currentClient()) as { surface: unknown };
+    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
+    expect(fresh.drainCount()).toBe(0);
+  });
+
+  it("ABSENT buildId (a pre-field survivor) → drains as an older build", async () => {
+    const { host, rp } = make({ binderBuildId: "build-NEW" });
+    // A hello with NO buildId field — `?? ""` folds it to "", which never equals the
+    // binder's non-empty id, so it drains (a pre-field padi is an older build).
+    const preField = makeDrainable({
+      stateRoot: "/remote/.local/state/padi",
+      surfaceVersion: PADI_SURFACE_VERSION,
+      controlCoreVersion: "1.0",
+      startedAt: 1000,
+      commit: "abc",
+    } as ReturnType<typeof helloOk>);
+    host.setClient(preField.client);
+    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
+    expect(preField.drainCount()).toBe(1);
+  });
+
+  it("fence already fired → ADOPTS a mismatch (no re-drain — anti-livelock)", async () => {
+    const fence = createBuildDrainFence();
+    fence.markFired();
+    const { host, rp } = make({ binderBuildId: "build-NEW", fence });
+    const old = makeDrainable(helloOk({ buildId: "build-OLD" }));
+    host.setClient(old.client);
+    const scoped = (await rp.currentClient()) as { surface: unknown };
+    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
+    expect(old.drainCount()).toBe(0);
+  });
+
+  it("off-nix binder (binderBuildId='') → never drains on build grounds", async () => {
+    const { host, rp } = make({ binderBuildId: "" });
+    const old = makeDrainable(helloOk({ buildId: "build-OLD" }));
+    host.setClient(old.client);
+    await rp.currentClient(); // adopts
+    expect(old.drainCount()).toBe(0);
+  });
+
+  it("build-mismatch drain that does NOT take → ADOPTS the old build (degraded), fence spent, never a kill", async () => {
+    const fence = createBuildDrainFence();
+    const { host, rp } = make({ binderBuildId: "build-NEW", fence });
+    // `diesOnDrain: false` — the daemon keeps answering after drain (the drain didn't
+    // take). The fail-fast window elapses → ADOPT the old build, never a kill.
+    const stubborn = makeDrainable(helloOk({ buildId: "build-OLD" }), {
+      diesOnDrain: false,
+    });
+    host.setClient(stubborn.client);
+    const scoped = (await rp.currentClient()) as { surface: unknown };
+    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
+    expect(stubborn.drainCount()).toBe(1); // attempted once
+    expect(fence.hasFired()).toBe(true); // fence spent even on failure — no re-drain
+  });
+
+  it("contract skew, binder NEWER → drains (newest-wins), never a fence", async () => {
+    const { host, rp } = make({ binderVersion: "9.0", binderBuildId: "b" });
+    const oldContract = makeDrainable(helloOk({ surfaceVersion: "1.1" }));
+    host.setClient(oldContract.client);
+    await expect(rp.currentClient()).rejects.toThrow(/newer contract/i);
+    expect(oldContract.drainCount()).toBe(1);
   });
 });
 
