@@ -149,4 +149,64 @@ describe("importLegacyConfigOnce", () => {
     expect(stores.conf.get("importedLegacyConfig")).toBe(true);
     expect(stores.session.get()).toBeNull();
   });
+
+  it("DIRECT pre-W2.2 → W2.3 upgrade: imports from the strip-backup when the live file is already stripped — session intact, zero loss", () => {
+    // The end-to-end direct-jump: kolu-server's `1.31.0` strip-migration ran FIRST
+    // (on its own boot, before padi's), so the live `config.json` has already lost
+    // session/activityFeed/lastPairedDaemon — only `preferences` survives — and the
+    // byte-exact pre-strip file sits beside it as `config.json.pre-1.31-strip.bak`
+    // (the SAME name kolu-server's strip writes, pinned by `stateMigration.test.ts`).
+    // padi must seed from that backup, not the stripped live file.
+    const oldPath = writeLegacy({
+      preferences: {
+        theme: "dark",
+        newTerminalTheme: "x",
+        shuffleBehavior: "y",
+      },
+    });
+    writeFileSync(
+      `${oldPath}.pre-1.31-strip.bak`,
+      JSON.stringify(legacyBlob()),
+    );
+
+    const stores = openPadiStateStores(stateRoot);
+    importLegacyConfigOnce(stores, log);
+
+    // The session survived the direct jump — imported FROM the strip-backup.
+    expect(stores.session.get()?.terminals).toHaveLength(1);
+    expect(stores.session.get()?.terminals[0]?.id).toBe(
+      "11111111-1111-1111-1111-111111111111",
+    );
+    expect(stores.activityFeed.get().recentRepos).toEqual(["/repo/a"]);
+    expect(stores.lastPairedDaemon.get()).toEqual({ startedAt: 1234 });
+    expect(stores.conf.get("importedLegacyConfig")).toBe(true);
+    // The strip-backup is already durable — no SECOND `pre-padi-import` copy.
+    expect(existsSync(`${oldPath}.pre-padi-import.bak`)).toBe(false);
+  });
+
+  it("prefers the LIVE file when it still carries the keys, even if a strip-backup also exists", () => {
+    // Defensive: the strip-backup is the source ONLY when the live file is stripped.
+    // A live file that still has the session wins (the strip hasn't run yet), and it
+    // takes its own `pre-padi-import` backup as usual.
+    const oldPath = writeLegacy(legacyBlob());
+    writeFileSync(
+      `${oldPath}.pre-1.31-strip.bak`,
+      JSON.stringify({
+        ...legacyBlob(),
+        session: {
+          terminals: [{ id: "00000000-0000-0000-0000-000000000000" }],
+          activeTerminalId: null,
+        },
+      }),
+    );
+
+    const stores = openPadiStateStores(stateRoot);
+    importLegacyConfigOnce(stores, log);
+
+    // The LIVE session won — not the backup's.
+    expect(stores.session.get()?.terminals[0]?.id).toBe(
+      "11111111-1111-1111-1111-111111111111",
+    );
+    expect(existsSync(`${oldPath}.pre-padi-import.bak`)).toBe(true);
+  });
 });

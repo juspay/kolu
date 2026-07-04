@@ -53,7 +53,14 @@ function changePulseSource(
  *  `subscribeRepoChange` / `subscribeFileChange`, backed by padi's own
  *  `TerminalEndpoint` fs watchers. `servePadi` spreads `...padiFsGitDeps(...).streams`
  *  into its full `streams` deps (its own `activity` + `terminalAttach` ride
- *  alongside). */
+ *  alongside).
+ *
+ *  **STREAMS-ONLY, deliberately: the fs/git PROCEDURES live in `servePadi`, which
+ *  carries semantics the retired `serveFsGit` never had** — the ENOENT→NOT_FOUND
+ *  mapping (`fileGoneAsNotFound`) and the worktree create/remove mutations. This
+ *  helper absorbed only the *pulse* streams when `terminalWorkspaceSurface` was
+ *  deleted (W2.3); pulling the procedures in here to "finish the dedupe" would
+ *  REGRESS that richer serving. Keep the procedures in `servePadi`. */
 export function padiFsGitDeps(
   endpoint: TerminalEndpoint,
   log: Logger,
