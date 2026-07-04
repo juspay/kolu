@@ -17,7 +17,7 @@ import type {
   RemoteMirrorSession,
 } from "@kolu/surface-nix-host";
 import type { AnyContractRouter } from "@orpc/contract";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createBuildDrainFence } from "@kolu/surface-daemon-supervisor";
 import { RemotePadiSession, remotePadiHost } from "./remotePadiBinding.ts";
 
@@ -31,11 +31,12 @@ const BASE_STATE: HostSessionState = {
   failureCause: null,
 };
 
-let drainCalls = 0;
-
 /** A fake padi COMBINED client: answers the frozen control core (`hello`/`drain`)
  *  and carries a `.surface.padi` marker so `scopePadiSurface` (which returns
- *  `{ surface: client.surface.padi }`) has something to scope to. */
+ *  `{ surface: client.surface.padi }`) has something to scope to. Its `hello` NEVER
+ *  rejects (a live daemon), so the drain-and-await-close poll never sees an exit — a
+ *  handshake/scope/skew fixture, not a drain one (the drain paths use
+ *  {@link makeDrainable}, which models the link death). */
 function makeCombined(hello: {
   stateRoot: string;
   surfaceVersion: string;
@@ -48,9 +49,7 @@ function makeCombined(hello: {
       control: {
         core: {
           hello: async () => hello,
-          drain: async () => {
-            drainCalls += 1;
-          },
+          drain: async () => {},
         },
       },
       padi: { marker: "padi-scoped" },
@@ -195,10 +194,6 @@ const newSession = (): { host: FakeHost; rp: RemotePadiSession } => {
   return { host, rp };
 };
 
-beforeEach(() => {
-  drainCalls = 0;
-});
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => {
@@ -237,17 +232,48 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
     expect(rp.padiSurfaceVersion()).toBeNull();
   });
 
-  it("drains the bound padi over the COMBINED control-core client (the restart verb)", async () => {
-    const { host, rp } = newSession();
-    host.setClient(makeCombined(helloOk()));
-    await rp.currentClient();
+  it("drains the bound padi and WAITS for its exit (the restart verb) — resolves only once the link dies", async () => {
+    const host = new FakeHost();
+    const rp = new RemotePadiSession(host as RemoteMirrorSession<never>, "rmt", {
+      binderBuildId: "", // off-nix → adopt on bind, no build drain
+      drainTeardownCeilingMs: 200,
+      drainPollMs: 10,
+    });
+    const d = makeDrainable(helloOk()); // dies on drain (graceHellos 0)
+    host.setClient(d.client);
+    await rp.currentClient(); // adopt → bound
+    await rp.drainBoundPadi(); // resolves only after the modelled link death
+    expect(d.drainCount()).toBe(1);
+  });
 
-    await rp.drainBoundPadi();
-    expect(drainCalls).toBe(1);
+  it("drainBoundPadi THROWS when the padi does not exit in the window (never a phantom success)", async () => {
+    const host = new FakeHost();
+    const rp = new RemotePadiSession(host as RemoteMirrorSession<never>, "rmt", {
+      binderBuildId: "",
+      drainTeardownCeilingMs: 40,
+      drainPollMs: 10,
+    });
+    // The daemon keeps answering after drain (the drain did not take) — the fail-fast
+    // window elapses and the restart verb THROWS rather than reporting a success that
+    // did not happen. Never a kill.
+    const stubborn = makeDrainable(helloOk(), { diesOnDrain: false });
+    host.setClient(stubborn.client);
+    await rp.currentClient();
+    await expect(rp.drainBoundPadi()).rejects.toThrow(/did not (complete|exit)/i);
+    expect(stubborn.drainCount()).toBe(1); // attempted once, no kill
   });
 
   it("throws on drain when unbound (no crash, an honest error)", async () => {
     const { rp } = newSession();
+    await expect(rp.drainBoundPadi()).rejects.toThrow(/not bound/i);
+  });
+
+  it("refuses to drain a padi it only REFUSED for a skew — honors the bind verdict, never downgrades it", async () => {
+    const { host, rp } = newSession();
+    host.setClient(makeCombined({ ...helloOk(), surfaceVersion: "99.0" }));
+    await expect(rp.currentClient()).rejects.toThrow(/skew/i);
+    // The restart verb must NOT reach the raw host client for a padi we never adopted:
+    // an older binder draining a refused newer padi would DOWNGRADE it (anti-monotonic).
     await expect(rp.drainBoundPadi()).rejects.toThrow(/not bound/i);
   });
 
@@ -440,6 +466,42 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(last?.connection).toBe("disconnected");
     expect(last?.failureCause).toBe("remote");
     expect(rp.padiSurfaceVersion()).toBeNull();
+  });
+
+  it("stays BOUNDED when the post-drain liveness probe HANGS (a wedged link never blocks past the ceiling)", async () => {
+    const host = new FakeHost();
+    const rp = new RemotePadiSession(host as RemoteMirrorSession<never>, "rmt", {
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: 40,
+      drainPollMs: 10,
+    });
+    // After the drain the daemon's `hello` NEVER settles — a wedged ssh link that
+    // neither answers nor rejects. A bare `await hello()` would hang the whole handshake
+    // forever; the per-probe ceiling race must instead give up within the window and
+    // ADOPT the old build (degraded), never a hang, never a kill.
+    let drained = false;
+    const wedged = {
+      surface: {
+        control: {
+          core: {
+            hello: async () =>
+              drained
+                ? new Promise(() => {}) // hang forever (link wedged post-drain)
+                : helloOk({ buildId: "build-OLD" }),
+            drain: async () => {
+              drained = true;
+            },
+          },
+        },
+        padi: { marker: "padi-scoped" },
+      },
+    };
+    host.setClient(wedged);
+    // Build mismatch → drain → the probe hangs → the ceiling elapses → did-not-take →
+    // ADOPT the old build. The `await` below RESOLVING at all is the bound-ceiling proof
+    // (an unbounded probe would time out the test).
+    const scoped = (await rp.currentClient()) as { surface: unknown };
+    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
   });
 
   it("build-mismatch drain converges when the link takes SEVERAL polls to die (multi-poll success loop, not just synchronous death)", async () => {

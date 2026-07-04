@@ -529,13 +529,29 @@ export class RemotePadiSession implements BoundPadi {
     // only exhausted after a hello that STILL answered — so a real exit is never
     // misread as "did not take".
     while (true) {
-      try {
-        await combined.surface.control.core.hello();
-      } catch {
-        return true; // the daemon stopped answering → it exited → the drain took.
-      }
-      if (Date.now() >= deadline) return false; // still answering past the window.
-      await sleep(this.drainPollMs);
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return false; // window exhausted → did not take.
+      // RACE the liveness probe against the REMAINING window. Over ssh a wedged link
+      // can leave `hello()` hanging — neither answering nor rejecting — and a bare
+      // `await` on it would defeat the ceiling entirely (the deadline check after it
+      // never runs). So bound each probe: a REJECT (link/daemon gone) → the drain took
+      // (true); an outstanding probe that OUTLIVES the window → cannot confirm the exit
+      // → did-not-take (false), the caller adopts/refuses, NEVER a kill. The probe is
+      // pre-caught so a late-settling hello can't surface as an unhandled rejection
+      // after the ceiling already won.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const probe = combined.surface.control.core
+        .hello()
+        .then(() => "answered" as const)
+        .catch(() => "dead" as const);
+      const ceiling = new Promise<"ceiling">((resolve) => {
+        timer = setTimeout(() => resolve("ceiling"), remaining);
+      });
+      const outcome = await Promise.race([probe, ceiling]);
+      clearTimeout(timer);
+      if (outcome === "dead") return true; // stopped answering → it exited → took.
+      if (outcome === "ceiling") return false; // probe outlived the window → not taken.
+      await sleep(this.drainPollMs); // still answering — poll again until the deadline.
     }
   }
 
@@ -573,11 +589,29 @@ export class RemotePadiSession implements BoundPadi {
 
   /** DRAIN the bound padi over the FROZEN control core (the "restart" verb): padi
    *  persists + exits, its kaval + PTYs survive, the front's relay ends → the
-   *  HostSession reconnects and `frontDaemonOverStdio` re-adopts or respawns. The
-   *  drain call may resolve OR reject as the ssh link tears down mid-response (the
-   *  same teardown race the local `drainViaControlCore` reads off the socket close),
-   *  so swallow that rejection — the drain reached padi either way. NEVER a kill-9. */
+   *  HostSession reconnects and `frontDaemonOverStdio` re-adopts or respawns. NEVER a
+   *  kill-9.
+   *
+   *  Two guarantees the local arm's `drainViaControlCore` also makes, so the "restart"
+   *  verb behaves identically over ssh:
+   *
+   *    1. **Only a BOUND padi drains.** The user restarts a padi this session actually
+   *       adopted — not one we merely REFUSED for a version skew (bindState `skew`) nor
+   *       a mid-reconnect gap (bindState `unbound`). Draining a refused padi would
+   *       bypass the bind verdict and, for an OLDER binder that refused a NEWER padi,
+   *       DOWNGRADE it against the newest-wins monotonicity guarantee. So refuse with an
+   *       honest error rather than drain over the raw host client.
+   *    2. **Ground truth is the LINK DEATH, not the drain reply.** padi's control-core
+   *       `drain` REPLIES before its socket closes, so returning on the reply would
+   *       report "restarted" with the old padi still alive. Wait for the exit
+   *       (fail-fast) via {@link drainAndAwaitClose} and THROW if it does not exit in
+   *       the window, so the restart never reports a success that did not happen. */
   async drainBoundPadi(): Promise<void> {
+    if (this.bindState.kind !== "bound") {
+      throw new Error(
+        `remote padi is not bound — cannot drain (${this.bindState.kind}: skew/refused or mid-reconnect)`,
+      );
+    }
     const combinedP = this.host.currentClient();
     if (combinedP === null) {
       throw new Error(
@@ -585,9 +619,11 @@ export class RemotePadiSession implements BoundPadi {
       );
     }
     const combined = (await combinedP) as PadiDaemonClient;
-    await combined.surface.control.core.drain().catch(() => {
-      // The link tore down mid-response (padi exited) — the expected teardown.
-    });
+    if (!(await this.drainAndAwaitClose(combined))) {
+      throw new Error(
+        `remote padi drain did not complete — it did not exit within ${this.drainCeilingMs}ms (padi did not exit)`,
+      );
+    }
   }
 
   padiStartedAt(): number | null {
@@ -639,6 +675,15 @@ export interface EnsureRemotePadiBindingOptions {
   /** The ssh host to bind (an `~/.ssh/config` alias or `user@host`), from the
    *  {@link KOLU_PADI_HOST_ENV} knob. */
   host: string;
+  /** The kolu app version to stamp as the remote-spawned PTYs' `TERM_PROGRAM_VERSION`
+   *  — the SAME value the LOCAL arm forwards through padi's `--spawn-version`
+   *  (`serverVersion`). Passed to the remote `padi --stdio` in `extraArgs`; the
+   *  `--stdio` front's `reExecAsDetachedDaemon` re-execs argv MINUS `--stdio`, so the
+   *  flag rides through to the durable daemon `runPadiDaemon` spawns — without it a
+   *  remote terminal reports the remote padi's OWN commit/dev version, not the kolu
+   *  app version a local terminal from the same build reports. Omitted → the remote
+   *  padi falls back to its own commit (a standalone bring-up). */
+  spawnVersion?: string;
   /** Reconnect backoff between an ssh drop and the next front attempt (test hook;
    *  default is `getHostSession`'s 2s). */
   reconnectDelayMs?: number;
@@ -666,11 +711,21 @@ export function ensureRemotePadiBinding(
   // synchronously with no try/catch — fail-fast) instead of degrading the canvas
   // through the deferred resolver's retry-then-terminal path.
   const drvMap = parsePadiDrvMap();
+  // `padi --stdio [--spawn-version <ver>]`. The `--stdio` front re-execs argv minus
+  // `--stdio` to bring up the durable daemon (`reExecAsDetachedDaemon`), so the
+  // `--spawn-version` flag rides straight through to `runPadiDaemon` — the remote twin
+  // of the local arm forwarding `serverVersion` into padi's `--spawn-version`, so a
+  // remote terminal's `TERM_PROGRAM_VERSION` is the kolu app version, not the remote
+  // padi's own commit.
+  const extraArgs =
+    opts.spawnVersion != null
+      ? ["--stdio", "--spawn-version", opts.spawnVersion]
+      : ["--stdio"];
   const session = getHostSession<PadiDaemonContract>({
     host,
     // `${agentPath}/bin/padi`, run as `padi --stdio` — the durable-daemon front.
     binary: "padi",
-    extraArgs: ["--stdio"],
+    extraArgs,
     resolveDrvPath: makeResolvePadiDrv(host, drvMap),
     onLog: (line) => log.info({ host, line }, "remote padi session"),
     reconnectDelayMs: opts.reconnectDelayMs,

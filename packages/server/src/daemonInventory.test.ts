@@ -6,10 +6,12 @@
 
 import type { PadiDaemon } from "@kolu/padi/assembly";
 import type { KavalDaemon } from "kaval";
+import type { DaemonInventory } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
   assembleKavalInventory,
   assemblePadiInventory,
+  enumerateDaemonInventoryOnce,
   type KavalProbe,
   resolveActiveKavalSocket,
 } from "./daemonInventory.ts";
@@ -262,6 +264,66 @@ describe("assemblePadiInventory", () => {
       active: true,
       surfaceVersion: "1.1",
       buildCommit: null,
+    });
+  });
+});
+
+describe("enumerateDaemonInventoryOnce — remote binding (boundLocally)", () => {
+  const remoteDeps = (
+    over: Partial<Parameters<typeof enumerateDaemonInventoryOnce>[0]>,
+  ): Parameters<typeof enumerateDaemonInventoryOnce>[0] => ({
+    discoverKavals: () => [kaval({ socket: DIGEST })],
+    discoverPadis: () => [padi({ socket: PADI_ACTIVE })],
+    probe: async () => probe(),
+    digestKavalSocket: DIGEST,
+    legacyKavalSocket: LEGACY,
+    activePadiSocket: PADI_ACTIVE,
+    activePadiSurfaceVersion: () => "1.1",
+    activePadiBuildCommit: () => "localcommit",
+    publish: () => {},
+    ...over,
+  });
+
+  it("boundLocally:false marks NO local daemon active and never pins the remote padi's identity onto a local socket", async () => {
+    let published: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        // The bound padi is REMOTE — its honest identity must NOT land on any local row.
+        activePadiSurfaceVersion: () => "9.9",
+        activePadiBuildCommit: () => "remotecommit",
+        publish: (inv) => {
+          published = inv;
+        },
+        boundLocally: false,
+      }),
+    );
+    // Local daemons are still LISTED (a leak stays visible) …
+    expect(published?.kavals).toHaveLength(1);
+    expect(published?.padis).toHaveLength(1);
+    // … but NONE is kolu's active one, and the remote padi's version/commit attach to
+    // nothing local (no "in use by kolu" lie, no remote identity on a local socket).
+    expect(published?.kavals[0]?.active).toBe(false);
+    expect(published?.padis[0]).toMatchObject({
+      active: false,
+      surfaceVersion: null,
+      buildCommit: null,
+    });
+  });
+
+  it("boundLocally omitted (local bind) marks the local bound daemon active — unchanged", async () => {
+    let published: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        publish: (inv) => {
+          published = inv;
+        },
+      }),
+    );
+    expect(published?.kavals[0]?.active).toBe(true);
+    expect(published?.padis[0]).toMatchObject({
+      active: true,
+      surfaceVersion: "1.1",
+      buildCommit: "localcommit",
     });
   });
 });

@@ -225,7 +225,14 @@ const rpcPlugins = [
 // reports copying/connecting/degraded while it warms).
 const remoteHost = remotePadiHost();
 const padiSession: BoundPadi = remoteHost
-  ? ensureRemotePadiBinding({ host: remoteHost })
+  ? ensureRemotePadiBinding({
+      host: remoteHost,
+      // Forward THIS kolu build's app version so the remote-spawned PTYs' own
+      // `TERM_PROGRAM_VERSION` is the kolu app version (byte-identical to the local
+      // arm's `--spawn-version`), not the remote padi's own commit. Rides through
+      // `padi --stdio`'s re-exec to the durable daemon.
+      spawnVersion: serverVersion,
+    })
   : await ensurePadiBinding({
       // The nix-shell env whitelist rides padi's CLI flag (kolu-server no longer
       // spawns PTYs — padi's kaval does — so `configureNixShellEnv` is FORWARDED to
@@ -351,6 +358,20 @@ mountArtifactSdk(app, {
 // shadow this route with `serveStatic`'s `/*` matcher.
 app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const terminalId = c.req.param("terminalId");
+  // Remote binding (KOLU_PADI_HOST): the terminal registry lives on the ssh HOST, so
+  // `repoRootForTerminal` below answers with an absolute path in the REMOTE
+  // filesystem. `previewFile` further down reads THIS machine's LOCAL disk, so handing
+  // it a remote path would serve unrelated local bytes from the same absolute path (or
+  // 404) — a wrong-data path that violates the remote-host contract. There is no remote
+  // preview STREAM yet (that rides a later slice with the picker), so fail CLOSED with a
+  // loud 501 rather than read the wrong machine's disk — fail-fast per conventions.md,
+  // never a silent local read of a remote path.
+  if (remoteHost) {
+    return c.text(
+      "file preview is unavailable while bound to a remote padi (KOLU_PADI_HOST) — the remote preview stream is a later slice",
+      501,
+    );
+  }
   // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
   // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
   // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
@@ -570,6 +591,12 @@ startDaemonInventorySampler(
     activePadiSocket: padiSocketPath(inventoryStateRoot),
     activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
     activePadiBuildCommit: () => padiSession.padiBuildCommit(),
+    // A REMOTE binding (KOLU_PADI_HOST) owns no LOCAL daemon — the discovered local
+    // padi/kaval are NOT kolu's active ones (its padi + kaval live on the ssh host). So
+    // the local inventory lists them (a leak is still visible) but marks none active and
+    // never pins the remote padi's identity onto a local socket. Remote inventory is a
+    // later slice; this keeps the local readout honest meanwhile.
+    boundLocally: !remoteHost,
     publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
   },
   (resample) => padiSession.onState(() => resample()),

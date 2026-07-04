@@ -204,8 +204,18 @@ export interface DaemonInventoryDeps {
    *  hint (`legacyKavalSocketPath(this binder's listen port)`, constant). The address
    *  an upgrade-adopted kaval sits at until it converges onto the digest one. */
   legacyKavalSocket: string;
-  /** The socket of the padi kolu-server is bound to (constant). */
+  /** The socket of the LOCAL padi kolu-server is bound to (constant). Only consulted
+   *  when {@link boundLocally} — a remote binding owns no local socket. */
   activePadiSocket: string;
+  /** Whether kolu-server is bound to a LOCAL padi (the default) vs a REMOTE one over
+   *  ssh (`KOLU_PADI_HOST`). Default `true`. When `false` the bound padi lives on
+   *  another host, so NO locally-discovered daemon is kolu's active one: this gate
+   *  suppresses the local active-marking (kaval + padi) AND the remote-identity
+   *  attribution, so the diagnostic never falsely labels a local daemon "in use by
+   *  kolu" or pins the remote padi's version onto a local socket. The remote padi's own
+   *  inventory is a later slice; here the local list stays honest (leaks still visible,
+   *  none marked active). */
+  boundLocally?: boolean;
   /** The bound padi's honest `surfaceVersion` off its control-core `hello`, or `null`
    *  while padi is unbound — read fresh each tick so a (re)bind updates it. */
   activePadiSurfaceVersion: () => string | null;
@@ -232,13 +242,18 @@ export async function enumerateDaemonInventoryOnce(
     ),
   );
   const probes = new Map(probeEntries);
+  const boundLocally = deps.boundLocally ?? true;
   // Which kaval padi actually holds — the digest address normally, the adopted legacy
   // address after a W2.2 upgrade (mirroring padi's adopt precedence off the live set).
-  const activeKavalSocket = resolveActiveKavalSocket(
-    kavalDaemons,
-    deps.digestKavalSocket,
-    deps.legacyKavalSocket,
-  );
+  // A REMOTE binding owns no local kaval, so mark NONE active (a stray local kaval is
+  // still listed — just never labelled "in use by kolu").
+  const activeKavalSocket = boundLocally
+    ? resolveActiveKavalSocket(
+        kavalDaemons,
+        deps.digestKavalSocket,
+        deps.legacyKavalSocket,
+      )
+    : null;
   deps.publish({
     kavals: assembleKavalInventory(
       kavalDaemons,
@@ -248,7 +263,10 @@ export async function enumerateDaemonInventoryOnce(
     ),
     padis: assemblePadiInventory(
       padiDaemons,
-      deps.activePadiSocket,
+      // Remote binding: no local padi is kolu's active one, so pass a null active
+      // socket — `assemblePadiInventory` then marks none active AND attributes the
+      // remote padi's version/commit to nothing (they only annotate the active row).
+      boundLocally ? deps.activePadiSocket : null,
       deps.activePadiSurfaceVersion(),
       deps.activePadiBuildCommit(),
     ),
