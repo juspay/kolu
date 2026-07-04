@@ -1,9 +1,13 @@
 /**
  * The running kaval daemon's build identity — pure reads of the env nix bakes.
  *
- * `currentBuildId()` is the **staleKey**: a hash of kaval's source closure (the
- * package, plus the daemon-side roots `terminal-protocol` and `surface-daemon`),
- * baked into `KAVAL_BUILD_ID` by `default.nix` and `--set` on both the kolu
+ * `currentBuildId()` is the **staleKey**: a hash of kaval's BEHAVIORAL slice (the
+ * package, plus the daemon-side root `terminal-protocol` — the `surface-daemon`
+ * spine runs in the binary but is DELIBERATELY EXCLUDED from the currency key, #L3:
+ * a contract-compatible spine change is behaviorally interchangeable by the wire
+ * contract, so keying the human nudge on it over-fires and costs live PTYs; see
+ * `buildId.closure.test.ts`), baked into `KAVAL_BUILD_ID` by `default.nix` and
+ * `--set` on both the kolu
  * wrapper (kaval runs in-process there until B2) and kaval's own bin. It flips
  * iff a restart would load different daemon wire/behaviour code — phase B
  * compares it against the server's expected build to derive "update pending",

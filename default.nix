@@ -144,12 +144,13 @@ let
       && !pkgs.lib.hasSuffix ".testlib.ts" f.name;
 
   # kaval's baked identity. Its behavioralFileset — kaval's OWN decision of what a restart
-  # would load — is the three roots that run IN the daemon: kaval itself,
-  # `@kolu/terminal-protocol` (the wire/behaviour it serves), and the `@kolu/surface-daemon`
-  # spine (both halves of the kaval *binary*). The set hashed here is asserted to equal the
-  # daemon's reachable closure by `packages/kaval/src/buildId.closure.test.ts` — keep this
-  # fileset and that test in lockstep. `kavalBuildIdOverride` (TEST-ONLY) forces the id for
-  # the build-skew VM arms.
+  # would load that MATTERS to the currency nudge — is the two BEHAVIORAL roots: kaval
+  # itself and `@kolu/terminal-protocol` (the wire/behaviour it serves). The
+  # `@kolu/surface-daemon` spine also runs in the kaval *binary* but is DELIBERATELY EXCLUDED
+  # (#L3, see the inline note below) — it is a stable leaf for kaval's currency key, not a
+  # hashed root. The set hashed here is asserted to equal kaval's behavioral slice by
+  # `packages/kaval/src/buildId.closure.test.ts` — keep this fileset and that test in
+  # lockstep. `kavalBuildIdOverride` (TEST-ONLY) forces the id for the build-skew VM arms.
   kavalIdentity = mkDaemonIdentity {
     name = "kaval";
     prefix = "KAVAL";

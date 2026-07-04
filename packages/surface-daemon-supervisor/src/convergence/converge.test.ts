@@ -79,7 +79,7 @@ function plainProbe(identity: ConvergenceIdentity) {
 }
 
 describe("converge — enactment + outcomes", () => {
-  it("no survivor → adoptOrSpawnOrRefuse spawns; outcome spawned", async () => {
+  it("no survivor → adoptOrSpawnOrRefuse binds; bind did not adopt → outcome not-adopted", async () => {
     const { endpoint, calls } = fakeEndpoint(false);
     const out = await converge({
       endpoint,
@@ -89,7 +89,7 @@ describe("converge — enactment + outcomes", () => {
       buildFence: createBuildDrainFence(),
       log: silent,
     });
-    expect(out.kind).toBe("spawned");
+    expect(out.kind).toBe("not-adopted");
     expect(calls).toEqual(["adoptOrSpawnOrRefuse"]);
   });
 

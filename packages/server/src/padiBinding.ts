@@ -760,10 +760,15 @@ export async function ensurePadiBinding(
     // `padi build change on boot: running=<hex> expected=<hex>`.
     if (outcome.kind === "drained-replacing" && outcome.axis === "build") {
       log.info(
-        { binderBuildId, runningBuild: outcome.running.buildId },
+        {
+          binderBuildId,
+          runningBuild: outcome.running.buildId,
+          running: outcome.running,
+        },
         `padi build change on boot: running=${outcome.running.buildId} expected=${binderBuildId}` +
           " — draining the survivor once (persist + exit; its kaval + PTYs survive) and " +
-          "respawning this binder's own build (drain-on-build-mismatch, #1670)",
+          "respawning this binder's own build (drain-on-build-mismatch, #1670; store " +
+          "hashes don't order, so this fires at most once per binder boot)",
       );
     }
     return outcome.kind === "adopted";

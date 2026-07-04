@@ -68,10 +68,17 @@ type AnyConvergenceProbe = DrainableProbe | PlainProbe;
 /** The typed outcome `converge` returns; the CALLER wires it to its own surfaces/logs.
  *  `drained-replacing`/`mismatch-reported` carry `adopted` — whether the follow-on bind
  *  adopted a survivor (true only on the degraded fallback where the drain didn't land, or
- *  the compatible survivor a mismatch is reported over). */
+ *  the compatible survivor a mismatch is reported over).
+ *
+ *  `not-adopted` is DELIBERATELY imprecise: the endpoint's bind methods return only a
+ *  boolean (`true` = a survivor was adopted), so a `false` cannot be resolved to "spawned
+ *  fresh" vs "found a survivor but left it standing degraded" (the non-skew connect-failure
+ *  path in `adoptSurvivor`). We report exactly what the boolean proves — NOT adopted — and
+ *  never overclaim a `spawned` the endpoint can't attest. The endpoint surfaces the degraded
+ *  case itself, loudly, via `onStatus`; the caller keys its own effects on `adopted`. */
 export type ConvergenceOutcome =
   | { readonly kind: "adopted" }
-  | { readonly kind: "spawned" }
+  | { readonly kind: "not-adopted" }
   | { readonly kind: "recycled" }
   | { readonly kind: "refused" }
   | {
@@ -116,7 +123,7 @@ export async function converge<Cap extends DrainCapability>(args: {
   // daemon — adopt/recycle the endpoint's hint).
   if (probe === null) {
     const adopted = await bind();
-    return adopted ? { kind: "adopted" } : { kind: "spawned" };
+    return adopted ? { kind: "adopted" } : { kind: "not-adopted" };
   }
 
   try {
@@ -130,7 +137,7 @@ export async function converge<Cap extends DrainCapability>(args: {
       case "spawn":
       case "adopt": {
         const adopted = await bind();
-        return adopted ? { kind: "adopted" } : { kind: "spawned" };
+        return adopted ? { kind: "adopted" } : { kind: "not-adopted" };
       }
       case "recycle": {
         args.log.warn(

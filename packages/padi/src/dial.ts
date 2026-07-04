@@ -14,9 +14,10 @@
  *   - `padi-tui`, which dials, runs one verb, and disposes.
  *
  * Supervision is NOT here, on purpose. The version ORDERING that decides
- * drain-vs-refuse (`isBinderNewer`), the drivers, `bindPadiOnce`/`probePadiSkew`,
- * and the session all stay binder-only: a running padi is never killed or drained
- * by a mere dial — only by the supervisor that owns it (#1313). The dial kit does
+ * drain-vs-refuse (padi's `ConvergencePolicy`, enacted by the shared convergence
+ * kit's `converge()` over a version-agnostic identity probe), the drivers, and the
+ * reconnect-mirror session all stay binder-only: a running padi is never killed or
+ * drained by a mere dial — only by the supervisor that owns it (#1313). The dial kit does
  * exactly one version judgement — the COMPATIBILITY gate (`connectPadi` refuses a
  * padi it cannot speak to, loudly) — and nothing that mutates padi's lifecycle.
  */
