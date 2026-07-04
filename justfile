@@ -148,14 +148,17 @@ e2e-ssh-2box boxB port='7099': install
     echo "e2e-ssh-2box: standing up kolu-server (KOLU_PADI_HOST=$boxB) on :$port"
     KOLU_STATE_DIR="$sr" KOLU_PADI_HOST="$boxB" {{ nix_shell }} nix run .#koluBin -- --port "$port" >"$log" 2>&1 &
     srv=$!; trap 'kill $srv 2>/dev/null || true' EXIT
+    # Readiness gate = the daemonInventory read itself (a subscription; grep -m1 = first
+    # frame), NON-destructive, polled until the ssh binding has warmed enough to publish
+    # the bound padi's identity. (A killAll probe would be destructive AND its input schema
+    # is `void` — an object payload 400s, so it never gates.)
+    frame=""
     for i in $(seq 1 120); do
-        curl -sf -o /dev/null -X POST "http://127.0.0.1:$port/rpc/surface/padi/lifecycle/killAll" \
-            -H 'content-type: application/json' -d '{"json":{}}' && break
+        frame=$(timeout 12 curl -s -N --max-time 10 -X POST "http://127.0.0.1:$port/rpc/surface/kolu/daemonInventory/get" \
+            -H 'content-type: application/json' -d '{"json":{}}' 2>/dev/null | grep -m1 '^data:' | sed 's/^data: //' || true)
+        echo "$frame" | grep -qE "\"boundPadi\":\{\"surfaceVersion\":\"[^\"]+\"" && break
         sleep 1
     done
-    # daemonInventory is a subscription (SSE) — bound the read; grep -m1 takes the first frame.
-    frame=$(timeout 12 curl -s -N --max-time 10 -X POST "http://127.0.0.1:$port/rpc/surface/kolu/daemonInventory/get" \
-        -H 'content-type: application/json' -d '{"json":{}}' 2>/dev/null | grep -m1 '^data:' | sed 's/^data: //' || true)
     echo "daemonInventory (bound to $boxB): $frame"
     echo "$frame" | grep -qE "\"boundHost\":\"$boxB\"" \
         || { echo "FAIL: boundHost != $boxB (the dialog can't label the local scan)" >&2; exit 1; }
