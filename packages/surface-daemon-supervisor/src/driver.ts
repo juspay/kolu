@@ -34,13 +34,7 @@
  */
 
 import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  renameSync,
-} from "node:fs";
+import { closeSync, mkdirSync, openSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 
 export interface DaemonSpawnConfig {
@@ -213,9 +207,16 @@ export function survivableSpawnDriver(
         // (#1313 owner-only). Creating it 0755 (the umask-022 default of a bare `mkdir`) makes
         // kaval refuse → padi's ensureLocalEndpoint times out → the whole remote bind flaps.
         mkdirSync(dirname(cfg.stderrLog), { recursive: true, mode: 0o700 });
-        if (existsSync(cfg.stderrLog))
+        // Rotate the prior capture WITHOUT a check-then-use race: attempt the rename and
+        // swallow only ENOENT (no prior boot), never existsSync-then-rename (a TOCTOU).
+        try {
           renameSync(cfg.stderrLog, `${cfg.stderrLog}.old`);
-        stderrFd = openSync(cfg.stderrLog, "a");
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        }
+        // Mode 0o600: the crash-catcher can hold sensitive stderr — owner-only, never the
+        // world-readable 0644 a bare openSync would create under umask 022.
+        stderrFd = openSync(cfg.stderrLog, "a", 0o600);
       }
       const child = spawnProcess(cfg.binPath, cfg.args, {
         detached: true,

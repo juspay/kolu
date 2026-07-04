@@ -132,6 +132,8 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     expect(typeof stdio[2]).toBe("number");
     expect(existsSync(`${logFile}.old`)).toBe(true);
     expect(readFileSync(`${logFile}.old`, "utf8")).toBe("prior\n");
+    // Owner-only (0600) — the crash-catcher can hold sensitive stderr, never world-readable.
+    expect(statSync(logFile).mode & 0o777).toBe(0o600);
   });
 
   it("with stderrLog off systemd: creates the crash-catcher dir OWNER-ONLY (0700) — kaval's private-dir guard refuses 0755 (P0 regression)", async () => {

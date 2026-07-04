@@ -39,13 +39,7 @@
  */
 
 import { spawn as nodeSpawn } from "node:child_process";
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  renameSync,
-} from "node:fs";
+import { closeSync, mkdirSync, openSync, renameSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { dirname } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -134,10 +128,15 @@ export function reExecAsDetachedDaemon(
     // bare `mkdir` under umask 022 makes it 0755 → kaval refuses → the daemon never comes up.
     mkdirSync(dirname(opts.stderrLog), { recursive: true, mode: 0o700 });
     // Truncate-on-boot bound: keep ONE prior generation as `.old`, start this boot fresh, so
-    // the crash-catcher never grows unbounded (no size rotation to hand-roll).
-    if (existsSync(opts.stderrLog))
+    // the crash-catcher never grows unbounded (no size rotation to hand-roll). Attempt the
+    // rename and swallow only ENOENT (no prior boot) — never existsSync-then-rename (a TOCTOU).
+    try {
       renameSync(opts.stderrLog, `${opts.stderrLog}.old`);
-    stderr = openSync(opts.stderrLog, "a");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    // Mode 0o600: the crash-catcher can hold sensitive stderr — owner-only, never world-readable.
+    stderr = openSync(opts.stderrLog, "a", 0o600);
   }
   const child = spawn(process.execPath, args, {
     detached: true,

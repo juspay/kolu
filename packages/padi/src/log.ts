@@ -51,7 +51,7 @@ function buildDaemonLogger(): Logger {
   // `mode: 0o700` keeps a freshly-created state root owner-only (consistent with the daemon's
   // other private dirs; a bare mkdir under umask 022 would be 0755).
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  closeSync(openSync(file, "a"));
+  closeSync(openSync(file, "a", 0o600)); // owner-only probe file (the dir is 0700 too)
   const roll = {
     target: "pino-roll",
     level,

@@ -278,6 +278,8 @@ describe("reExecAsDetachedDaemon", () => {
     expect(existsSync(`${logFile}.old`)).toBe(true);
     expect(readFileSync(`${logFile}.old`, "utf8")).toBe("prior boot\n");
     expect(existsSync(logFile)).toBe(true);
+    // Owner-only (0600) — the crash-catcher can hold sensitive stderr, never world-readable.
+    expect(statSync(logFile).mode & 0o777).toBe(0o600);
   });
 
   it("with stderrLog: creates the crash-catcher dir OWNER-ONLY (0700) — a detached daemon's runtime home must stay private (P0 regression)", () => {
