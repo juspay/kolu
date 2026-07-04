@@ -43,3 +43,5 @@ export {
   type WaitForPidGoneOptions,
   waitForPidGone,
 } from "./waitForPidGone.ts";
+// The daemon-convergence kit — policy-as-the-parameter over the endpoint (Pins 1/2/3).
+export * from "./convergence/index.ts";

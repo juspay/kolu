@@ -36,7 +36,11 @@ import {
   PADI_SURFACE_VERSION,
   padiSurface,
 } from "@kolu/padi/surface";
-import { createEndpoint } from "@kolu/surface-daemon-supervisor";
+import {
+  converge,
+  createBuildDrainFence,
+  createEndpoint,
+} from "@kolu/surface-daemon-supervisor";
 import { reServeSurface } from "@kolu/surface-nix-host";
 import { createRouterClient } from "@orpc/server";
 import {
@@ -53,14 +57,13 @@ import {
 // (bind/drain convergence, drivers, the reconnect session) stays in the binder.
 import { connectPadi } from "@kolu/padi/dial";
 import {
-  bindPadiOnce,
-  createBuildDrainFence,
   ensurePadiBinding,
   localPadiDriver,
+  PADI_CONVERGENCE_POLICY,
   PADI_HOST_ID,
   PadiBindingSession,
   type PadiBindingSessionDeps,
-  probePadiSkew,
+  probePadiForConvergence,
   resolvePadiLaunch,
 } from "./padiBinding.ts";
 import { buildAppRouter } from "./router.ts";
@@ -486,8 +489,8 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // (padi + its detached kaval survive) WITHOUT touching padi, then re-bind with
     // a NEWER binderVersion. The running padi serves the real `PADI_SURFACE_VERSION`
     // (1.0); a fake newer binder ("1.1") is how we exercise the drain arm without a
-    // second padiSurface build — the pre-flight reads the real hello, sees the skew,
-    // and (isBinderNewer) drains it; the fresh spawn then connects genuinely
+    // second padiSurface build — the kit's probe reads the real identity, sees the skew,
+    // and (drain-newer-else-refuse) drains it; the fresh spawn then connects genuinely
     // compatibly (real vs real), adopts the surviving kaval, and restores the session.
     first.session.destroy();
     await sleep(400);
@@ -504,9 +507,9 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // Sanity: the pre-flight probe reaches the running padi's frozen control core
     // and reads its REAL surface version (whatever this build serves).
     const socketPath = padiSocketPath(stateRoot);
-    const preProbe = await probePadiSkew(socketPath);
+    const preProbe = await probePadiForConvergence(socketPath);
     expect(preProbe).not.toBeNull();
-    expect(preProbe?.hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
+    expect(preProbe?.identity.contractVersion).toBe(PADI_SURFACE_VERSION);
     preProbe?.dispose();
 
     // A binder one MINOR ahead of what the running padi actually serves — derived
@@ -515,7 +518,7 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     const newerBinderVersion = `${maj}.${Number(min) + 1}`;
 
     // Build the SAME endpoint `ensurePadiBinding` builds, and run the REAL
-    // `bindPadiOnce` pre-flight (`probePadiSkew` → drain) as that newer binder.
+    // `converge` (`probePadiForConvergence` → drain) as that newer binder.
     const ep = createEndpoint({
       hostId: PADI_HOST_ID,
       gatePath: padiGatePath(socketPath),
@@ -531,14 +534,15 @@ describe("kolu-server padi binder — cutover acceptance", () => {
       log: silentLog,
       onStatus: () => {},
     });
-    await bindPadiOnce({
+    await converge({
       endpoint: ep,
-      probe: () => probePadiSkew(socketPath),
-      binderVersion: newerBinderVersion, // strictly NEWER than the running padi
-      // From-source padi has no baked PADI_BUILD_ID, and this exercises the CONTRACT
-      // drain — so the binder is off-nix ("") too, keeping the build axis dormant.
-      binderBuildId: "",
-      buildDrainFence: createBuildDrainFence(),
+      // strictly NEWER contract than the running padi. From-source padi has no baked
+      // PADI_BUILD_ID, and this exercises the CONTRACT drain — so baked.buildId is ""
+      // too, keeping the BUILD axis dormant.
+      baked: { contractVersion: newerBinderVersion, buildId: "" },
+      probe: () => probePadiForConvergence(socketPath),
+      policy: PADI_CONVERGENCE_POLICY,
+      buildFence: createBuildDrainFence(),
       log: silentLog,
     });
 
