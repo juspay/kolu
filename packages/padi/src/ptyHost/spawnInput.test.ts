@@ -129,6 +129,29 @@ describe("composeSpawnInput env layering", () => {
     expect(input.env.KAVAL_SOCKET).toBe(KAVAL_SOCK);
   });
 
+  it("stamps PADI_SOCKET with padi's own serving socket (the $KAVAL_SOCKET twin)", () => {
+    // padi's OWN socket is stamped so a `padi-tui` running INSIDE the terminal
+    // reaches the padi that owns it flag-free (the /kolu agent-drives-agent loop
+    // runs `padi-tui wait` with no --socket). Passed as data, keeping the composer
+    // pure — buildTerminalSpawnInput reads it from getPadiServeSocketPath() at boot.
+    const PADI_SOCK = "/run/user/1000/padi-abc123/padi.sock";
+    const input = composeSpawnInput(
+      { id: "T-padi-socket" },
+      info(),
+      KAVAL_SOCK,
+      PADI_SOCK,
+    );
+    expect(input.env.PADI_SOCKET).toBe(PADI_SOCK);
+  });
+
+  it("omits PADI_SOCKET when padi's serving socket is unknown (autodiscovery covers it)", () => {
+    // Unlike the REQUIRED kaval locator, an absent padi socket just omits the
+    // hint and padi-tui autodiscovers — so the composer stamps it only when known
+    // (the 4th arg is optional), never a bare/empty PADI_SOCKET.
+    const input = composeSpawnInput({ id: "T-no-padi" }, info(), KAVAL_SOCK);
+    expect(input.env.PADI_SOCKET).toBeUndefined();
+  });
+
   it("resolves a real shell when the local env omits SHELL", () => {
     // With SHELL absent from the parent env, the composition still resolves a
     // real absolute shell rather than crashing — the same path a systemd user

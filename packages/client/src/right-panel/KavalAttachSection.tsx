@@ -10,10 +10,10 @@
  *     its splits are labelled Main / Split N when a split exists; a lone
  *     terminal heads its card with a plain `Terminal` label.
  *  2. **Command reference** — the rest of the `kaval-tui` surface (list, create,
- *     kill) plus its awareness sibling `pulam-tui` (status, watch, wait), as a
- *     compact cheatsheet so the section covers the whole CLI, not just the three
- *     commands a card can pin to an id.
- *  3. **Drive an agent** — the `kaval-tui send` + `pulam-tui wait` + `snapshot`
+ *     kill) plus its workspace sibling `padi-tui` (status, watch, wait, create),
+ *     as a compact cheatsheet so the section covers the whole CLI, not just the
+ *     three commands a card can pin to an id.
+ *  3. **Drive an agent** — the `kaval-tui send` + `padi-tui wait` + `snapshot`
  *     loop that lets one agent supervise another, pointing at the `/kolu` skill
  *     and the `llm-debate` worked example.
  *
@@ -32,9 +32,9 @@
  *    socket is also surfaced once at the foot — as a ready-to-append `--socket
  *    <path>` argument — so the *kaval-tui* reference commands (list/create/kill,
  *    which take no id) can target this server too. It is kaval's pty-host
- *    socket, NOT pulam's: the `pulam-tui` reference rows dial their own
- *    awareness socket (default `$XDG_RUNTIME_DIR/pulam/awareness.sock`), so this
- *    one is deliberately scoped to kaval-tui and never offered for pulam-tui.
+ *    socket, NOT padi's: the `padi-tui` reference rows dial padi's own socket
+ *    (inside a kolu terminal `$PADI_SOCKET` makes padi-tui flagless), so this
+ *    one is deliberately scoped to kaval-tui and never offered for padi-tui.
  *
  *  Composes the shared `CopyCommandButton`, which uses `writeTextToClipboard`
  *  so copy survives the plain-HTTP / Tailscale contexts kolu is often reached
@@ -51,17 +51,18 @@ import { kavalCmd, kavalSocketArg } from "./kavalCmd";
 const SHORT_ID_LEN = 8;
 
 /** The `kaval-tui` surface beyond the id-targeted card commands, plus the
- *  awareness sibling `pulam-tui` — a reference cheatsheet so the section
+ *  workspace sibling `padi-tui` — a reference cheatsheet so the section
  *  documents the whole CLI. (attach/snapshot/send live in the cards above.) */
 const KAVAL_REFERENCE: ReadonlyArray<readonly [string, string]> = [
   ["list", "your live terminals"],
   ["create", "spawn a new terminal"],
   ["kill", "end a terminal the daemon owns"],
 ];
-const PULAM_REFERENCE: ReadonlyArray<readonly [string, string]> = [
+const PADI_REFERENCE: ReadonlyArray<readonly [string, string]> = [
   ["status", "snapshot every terminal"],
-  ["watch", "follow awareness live"],
+  ["watch", "follow the workspace live"],
   ["wait", "block until an agent's turn ends"],
+  ["create", "spawn a terminal / split / worktree'd agent"],
 ];
 
 /** One terminal's card: a short-id chip header (copies the full uuid) over the
@@ -212,7 +213,7 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
           command, not just the three a card pins to an id. */}
       <div class="space-y-2 border-t border-edge pt-2.5">
         <ReferenceGroup cli="kaval-tui" rows={KAVAL_REFERENCE} />
-        <ReferenceGroup cli="pulam-tui · awareness" rows={PULAM_REFERENCE} />
+        <ReferenceGroup cli="padi-tui · workspace" rows={PADI_REFERENCE} />
       </div>
 
       {/* Drive-an-agent callout — the send → wait → snapshot loop, with the
@@ -237,13 +238,24 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
           </a>{" "}
           is a worked example.
         </p>
+        <p class="text-[11px] leading-relaxed text-fg-3">
+          For a hooked agent, wait in <em>two phases</em>:{" "}
+          <span class="font-mono text-fg-2">
+            padi-tui wait "$id" --until working
+          </span>{" "}
+          to catch it start, THEN{" "}
+          <span class="font-mono text-fg-2">--until awaiting,waiting</span> for
+          it to hand back — otherwise a stale{" "}
+          <span class="font-mono">awaiting</span> from the previous turn reads
+          as done before it even begins.
+        </p>
       </div>
 
       {/* The kaval socket, surfaced once as a ready-to-append `--socket <path>`
           argument — the kaval-tui reference commands take no id, so this is how
           they target THIS server's kaval rather than whatever auto-discovery
-          would pick. Scoped to kaval-tui on purpose: pulam-tui dials its own
-          awareness socket, so this one is NOT for its status/watch/wait rows. */}
+          would pick. Scoped to kaval-tui on purpose: padi-tui dials padi's own
+          socket, so this one is NOT for its status/watch/wait rows. */}
       <Show when={socket()}>
         {(s) => (
           <div class="space-y-1 border-t border-edge pt-2.5">

@@ -1,7 +1,8 @@
 /**
  * `@kolu/terminal-workspace/endpoint` — the host-side fs/git wrapper, lifted out
- * of kolu-server's `localEndpoint` (R6) so it has ONE home both kolu (in-process)
- * and pulam (remote) drive. A thin layer over `kolu-git`: it unwraps each
+ * of kolu-server's `localEndpoint` (R6) so it has ONE home both kolu-server
+ * (in-process) and padi (the per-host terminal daemon) drive. A thin layer over
+ * `kolu-git`: it unwraps each
  * `GitResult` into a value or a thrown `ORPCError` (fail-fast — a git error
  * surfaces, never collapses to an empty result), and adapts the watcher
  * callbacks. The terminal-endpoint ORCHESTRATION around it (spawn · adopt · the
@@ -105,19 +106,18 @@ export function unwrapGit<T>(result: GitResult<T>): T {
 }
 
 /** The host-side fs/git endpoint — `createTerminalWorkspaceEndpoint`'s two faces
- *  (`fs`, `git`). The NAMED injection seam both `serveFsGit` and
- *  `serveTerminalWorkspace` accept, so the shape is spelled once instead of
- *  re-derived at each boundary. */
+ *  (`fs`, `git`). The NAMED injection seam, so the shape is spelled once instead
+ *  of re-derived at each boundary. */
 export type TerminalWorkspaceEndpoint = {
   fs: TerminalEndpointFs;
   git: TerminalEndpointGit;
 };
 
 /** The host-side fs/git endpoint — shell out to `kolu-git` on this machine. One
- *  impl, two faces: kolu-server binds it to its in-process `TerminalEndpoint`,
- *  and `serveFsGit` exposes it on the `terminalWorkspaceSurface` (procedures +
- *  watcher streams) that pulam serves and R8 mirrors. `log` is injected — the
- *  package's lone host coupling, never a fallback knob. */
+ *  impl the Code tab's reads + watcher pulses bind to: kolu-server binds it to
+ *  its in-process `TerminalEndpoint`, and padi's `padiFsGitDeps` exposes its
+ *  watcher streams on `padiSurface`. `log` is injected — the package's lone host
+ *  coupling, never a fallback knob. */
 export function createTerminalWorkspaceEndpoint(
   log: Logger,
 ): TerminalWorkspaceEndpoint {
