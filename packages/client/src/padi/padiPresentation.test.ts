@@ -1,7 +1,11 @@
 import type { PadiLink } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { DAEMON_UNKNOWN_DOT, toneDot } from "../kaval/daemonPresentation";
-import { PADI_LINK_PRESENTATION, padiDot } from "./padiPresentation";
+import {
+  PADI_LINK_PRESENTATION,
+  padiBoundHostSegment,
+  padiDot,
+} from "./padiPresentation";
 
 describe("padiDot — the padi dot's tone is FLOORED on transport liveness (the padiLink sibling of kavalDot)", () => {
   it("paints the padiLink tone only when the transport is LIVE", () => {
@@ -32,5 +36,19 @@ describe("padiDot — the padi dot's tone is FLOORED on transport liveness (the 
     // The honest signal: a dropped padi shows an unhealthy pip, not a green light.
     expect(padiDot("degraded", true)).toBe(toneDot.down);
     expect(padiDot("degraded", true)).not.toBe(toneDot.ok);
+  });
+});
+
+describe("padiBoundHostSegment — the Padi chip names WHERE padi is, and reads as remote", () => {
+  it("renders the ssh host segment when bound to a REMOTE host", () => {
+    // daemonScanBoundHost() non-null → the chip gains `ssh · <host>`, so the rail
+    // reads e.g. `Padi · ssh · sincereintent · contract v1.1`.
+    expect(padiBoundHostSegment("sincereintent")).toBe("ssh · sincereintent");
+  });
+
+  it("renders NO host segment when LOCAL — the local chip stays byte-identical", () => {
+    // daemonScanBoundHost() null (local binding / pre-first-enumeration) → no host
+    // noise, exactly today's `Padi · contract v<x.y>`.
+    expect(padiBoundHostSegment(null)).toBeNull();
   });
 });
