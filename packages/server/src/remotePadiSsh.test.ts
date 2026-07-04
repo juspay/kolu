@@ -27,13 +27,23 @@
  * leg — deliberately, and noted as such in the PR (no silent coverage cap).
  */
 
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { isContractVersionCompatible } from "@kolu/surface/define";
-import { type PadiDaemonClient, scopePadiSurface } from "@kolu/padi/dial";
+import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
+import {
+  type PadiDaemonClient,
+  type PadiSurfaceClient,
+  scopePadiSurface,
+} from "@kolu/padi/dial";
 import {
   PADI_SURFACE_VERSION,
   type PadiDaemonContract,
+  type PadiTerminal,
 } from "@kolu/padi/surface";
 import { getHostSession, isLocalHost } from "@kolu/surface-nix-host";
+import type { TerminalId } from "@kolu/terminal-workspace/schema";
 import { afterAll, describe, expect, it } from "vitest";
 
 const SSH_HOST = process.env.KOLU_E2E_SSH_HOST;
@@ -61,6 +71,113 @@ function pct(sortedAsc: number[], p: number): number {
   if (sortedAsc.length === 0) return Number.NaN;
   const rank = Math.ceil((p / 100) * sortedAsc.length);
   return sortedAsc[Math.min(rank, sortedAsc.length) - 1] ?? Number.NaN;
+}
+
+// ── Agent-state (Padi/Dock) fixtures for the live-transition assertion ──────
+//
+// The claude adapter (running IN the remote padi over the ssh leg) reads
+// `~/.claude/{sessions,projects}` on the host where padi runs, with no
+// KOLU_CLAUDE_SESSIONS_DIR set. This suite's SELF-SSH binding means padi runs on
+// THIS box, so the test writes those fixtures to THIS box's `$HOME/.claude`
+// directly and the padi picks them up over its own fs.watch — no cross-host copy.
+// The shapes below MATCH the code exactly (verified against
+// `packages/integrations/claude-code/src/core.ts`):
+//   - a session file `~/.claude/sessions/{fgpid}.json` = `{pid, sessionId, cwd,
+//     startedAt}` (`readSessionFile`), matched by the terminal's FOREGROUND pid;
+//   - a transcript `~/.claude/projects/<enc(cwd)>/<sessionId>.jsonl` whose NEWEST
+//     entry sets the state (`deriveState`): an assistant `tool_use` whose only
+//     pending tool is `AskUserQuestion` → `awaiting_user`; an assistant `end_turn`
+//     → `waiting`; `message.usage` (input + cache_creation + cache_read) → the
+//     running `contextTokens`.
+
+/** Claude's project-dir key for a cwd — `encodeProjectPath` in core.ts
+ *  (`cwd.replace(/[/.]/g, "-")`). Inlined (not imported) so this server test does
+ *  not pull the claude package's Agent-SDK evaluation just for a one-liner. */
+const encodeProjectPath = (cwd: string): string => cwd.replace(/[/.]/g, "-");
+
+/** The active-arm agent value the `terminals` collection carries — the claude
+ *  info union member (`kind: "claude-code"`, `state`, `contextTokens`, …). */
+type PadiActiveAgent = NonNullable<
+  Extract<PadiTerminal, { state: "active" }>["agent"]
+>;
+
+/** Read the terminal's CURRENT composed record off the `terminals` collection —
+ *  each `get` opens a snapshot-then-delta stream whose first frame is the live
+ *  value (the surface snapshot contract), so re-subscribing per poll reads fresh.
+ *  Returns the live agent when the record is active, else null. */
+async function currentAgent(
+  padi: PadiSurfaceClient,
+  id: TerminalId,
+): Promise<PadiActiveAgent | null> {
+  const rec = await firstFrameOrUndefined<PadiTerminal>(
+    await padi.surface.terminals.get({ key: id }),
+  );
+  if (!rec || rec.state !== "active") return null;
+  return rec.agent;
+}
+
+/** Poll the terminal's agent value until `ok` holds (agent-state resolution is
+ *  async), bounded by `timeoutMs`. Returns the matched agent, or the last one
+ *  seen for a diagnostic assertion when the deadline passes. */
+async function pollAgent(
+  padi: PadiSurfaceClient,
+  id: TerminalId,
+  ok: (a: PadiActiveAgent) => boolean,
+  timeoutMs: number,
+): Promise<PadiActiveAgent | null> {
+  const deadline = Date.now() + timeoutMs;
+  let last: PadiActiveAgent | null = null;
+  while (Date.now() < deadline) {
+    last = await currentAgent(padi, id);
+    if (last && ok(last)) return last;
+    await sleep(250);
+  }
+  return last;
+}
+
+/** Every candidate pid a kaval `tcgetpgrp` foreground sample could report for a
+ *  foreground command: the process itself, its process-group leader (`pgrp` — what
+ *  `tcgetpgrp` returns under interactive job control), and its parent shell
+ *  (`ppid` — the fallback if job control is off and the shell stays the foreground
+ *  group). Read from `/proc/<pid>/stat`, whose `comm` field can contain spaces and
+ *  parens, so the numeric fields are parsed AFTER the last ')'. Planting the
+ *  session file under every candidate makes the match robust to which one the
+ *  daemon actually reports. */
+function foregroundCandidates(pid: number): number[] {
+  const out = new Set<number>([pid]);
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    const rest = stat
+      .slice(stat.lastIndexOf(")") + 2)
+      .trim()
+      .split(/\s+/);
+    // rest = [state, ppid, pgrp, session, …]
+    const ppid = Number(rest[1]);
+    const pgrp = Number(rest[2]);
+    if (Number.isInteger(ppid) && ppid > 0) out.add(ppid);
+    if (Number.isInteger(pgrp) && pgrp > 0) out.add(pgrp);
+  } catch {
+    // /proc entry vanished — the sole-pid candidate stands.
+  }
+  return [...out];
+}
+
+/** Find a process on THIS box (padi's host == the test's host, one PID namespace)
+ *  whose full cmdline exactly equals `needle`. Used to resolve the foreground
+ *  `sleep`'s pid — the pid the claude adapter keys its session lookup on. */
+function findByCmdline(needle: string): number | undefined {
+  for (const name of fs.readdirSync("/proc")) {
+    if (!/^\d+$/.test(name)) continue;
+    let raw: Buffer;
+    try {
+      raw = fs.readFileSync(`/proc/${name}/cmdline`);
+    } catch {
+      continue; // process exited between readdir and read
+    }
+    const cmd = raw.toString("utf8").split("\0").filter(Boolean).join(" ");
+    if (cmd === needle) return Number(name);
+  }
+  return undefined;
 }
 
 describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
@@ -217,5 +334,196 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     }
     expect(recovered).toBe(true);
     console.log("[ssh] convergence OK — the leg recovered after a drain");
+  }, 180_000);
+
+  it("surfaces a LIVE agent-state transition (awaiting_user → waiting) over the ssh leg", async () => {
+    // FINDING 2's enforced coverage: prove the agent-state (Padi/Dock) pipeline
+    // works over a REAL ssh binding, pinning a LIVE TRANSITION on disk — not just
+    // first-snapshot presence. padi runs `startSensors` in-process on THIS box;
+    // its claude adapter reads `~/.claude/{sessions,projects}` HERE (no
+    // KOLU_CLAUDE_SESSIONS_DIR set). We drive a terminal's foreground to a known
+    // `sleep`, plant the session file keyed on that foreground pid + an
+    // AskUserQuestion transcript (→ awaiting_user), then MUTATE the transcript to
+    // an assistant `end_turn` with a bumped token usage (→ waiting) and assert the
+    // SAME `terminals` record transitions state AND its contextTokens changes.
+    const session = dial();
+    const combined = (await session.pin()) as PadiDaemonClient;
+    session.markConnected();
+    const padi = scopePadiSurface(combined);
+
+    const home = process.env.HOME;
+    if (!home)
+      throw new Error(
+        "HOME unset — cannot locate padi's ~/.claude on the host",
+      );
+    const sessionsDir = path.join(home, ".claude", "sessions");
+    const projectDir = path.join(
+      home,
+      ".claude",
+      "projects",
+      encodeProjectPath(home),
+    );
+    const sessionId = randomUUID();
+    const transcriptPath = path.join(projectDir, `${sessionId}.jsonl`);
+    const plantedSessionFiles: string[] = [];
+    let createdId: TerminalId | undefined;
+
+    // Pre-create the claude dirs so the adapter's `externalChanges.isPresent`
+    // (`fs.existsSync(SESSIONS_DIR)`) holds on the sensor's FIRST reconcile and it
+    // installs its SESSIONS_DIR watcher — so a session file planted LATER fires
+    // that watcher and re-resolves. (A pre-existing real ~/.claude on the box only
+    // helps this.)
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    try {
+      const { id } = await padi.surface.lifecycle.create({ cwd: home });
+      createdId = id;
+
+      // Drive the foreground to a known long-running `sleep` — a stable, non-shell
+      // foreground process group the claude adapter can key its session lookup on
+      // (`resolveSession` matches by the terminal's FOREGROUND pid). A unique
+      // duration makes the process findable in /proc by its exact cmdline.
+      const sleepSecs = 700000 + Math.floor(Math.random() * 299999);
+      const sleepCmd = `sleep ${sleepSecs}`;
+      await padi.surface.lifecycle.sendInput({ id, data: `${sleepCmd}\r` });
+
+      // Resolve the sleep's pid (== the foreground pid the daemon reports). Poll
+      // until it appears — the shell needs a beat to exec it.
+      let sleepPid: number | undefined;
+      const findDeadline = Date.now() + 20_000;
+      while (Date.now() < findDeadline && sleepPid === undefined) {
+        sleepPid = findByCmdline(sleepCmd);
+        if (sleepPid === undefined) await sleep(200);
+      }
+      if (sleepPid === undefined)
+        throw new Error(
+          `foreground '${sleepCmd}' never appeared in /proc — the PTY did not run it`,
+        );
+      // Let kaval's post-preexec foreground-sample burst capture the sleep before
+      // we plant, so the reconcile that the plant triggers sees the sleep pid.
+      await sleep(1500);
+      const candidates = foregroundCandidates(sleepPid);
+      console.log(
+        `[ssh] agent-state fixture: sleepPid=${sleepPid} foreground-pid candidates=${candidates.join(",")}`,
+      );
+
+      // 1) Plant the AskUserQuestion transcript FIRST (so the watcher, once the
+      // session file lands, finds it immediately), then the session file(s). The
+      // newest entry is an assistant `tool_use` whose only pending tool is
+      // AskUserQuestion → `deriveState` → awaiting_user; its usage sums to 6000.
+      const askLine = JSON.stringify({
+        type: "assistant",
+        timestamp: new Date().toISOString(),
+        message: {
+          stop_reason: "tool_use",
+          model: "claude-opus-4-8",
+          content: [
+            { type: "tool_use", name: "AskUserQuestion", id: "tu_w31" },
+          ],
+          usage: {
+            input_tokens: 1000,
+            cache_creation_input_tokens: 2000,
+            cache_read_input_tokens: 3000,
+          },
+        },
+      });
+      fs.writeFileSync(transcriptPath, `${askLine}\n`);
+
+      // Every candidate file carries the SAME `pid` field (a stable sessionKey =
+      // `${sessionId}:${pid}:${startedAt}`), so whichever candidate the daemon's
+      // foreground pid matches resolves to one identical session (no watcher
+      // churn). cwd MUST equal the terminal's cwd so `findTranscriptPath` resolves
+      // the transcript above.
+      const startedAt = Date.now();
+      for (const pid of candidates) {
+        const p = path.join(sessionsDir, `${pid}.json`);
+        fs.writeFileSync(
+          p,
+          JSON.stringify({ pid: sleepPid, sessionId, cwd: home, startedAt }),
+        );
+        plantedSessionFiles.push(p);
+      }
+
+      // Assert the FIRST snapshot: agent resolves to claude-code / awaiting_user.
+      const awaiting = await pollAgent(
+        padi,
+        id,
+        (a) => a.kind === "claude-code" && a.state === "awaiting_user",
+        60_000,
+      );
+      console.log(
+        `[ssh] agent snapshot #1: kind=${awaiting?.kind} state=${awaiting?.state} contextTokens=${awaiting?.kind === "claude-code" ? awaiting.contextTokens : "n/a"}`,
+      );
+      expect(awaiting?.kind).toBe("claude-code");
+      expect(awaiting?.state).toBe("awaiting_user");
+      // Narrow to claude-code for the token read (the load-bearing baseline).
+      if (awaiting?.kind !== "claude-code")
+        throw new Error("agent is not claude-code");
+      const tokensBefore = awaiting.contextTokens;
+      expect(tokensBefore).toBe(6000);
+
+      // 2) MUTATE the transcript on disk: append an assistant `end_turn` (→
+      // waiting) whose usage sums to 12000 (a bumped contextTokens). Appending
+      // makes it the NEWEST entry `deriveState` reads and fires the transcript
+      // fs.watch → re-derive. The awaiting_user→waiting demote rides the adapter's
+      // screen-scrape self-demote (the raw waiting emit is deferred to the ~1s
+      // poll, which re-confirms no on-screen prompt over the bash/sleep screen and
+      // republishes the raw `waiting`), so give it a generous deadline.
+      const endTurnLine = JSON.stringify({
+        type: "assistant",
+        timestamp: new Date().toISOString(),
+        message: {
+          stop_reason: "end_turn",
+          model: "claude-opus-4-8",
+          usage: {
+            input_tokens: 1000,
+            cache_creation_input_tokens: 2000,
+            cache_read_input_tokens: 9000,
+          },
+        },
+      });
+      fs.appendFileSync(transcriptPath, `${endTurnLine}\n`);
+
+      const waiting = await pollAgent(
+        padi,
+        id,
+        (a) =>
+          a.kind === "claude-code" &&
+          a.state === "waiting" &&
+          a.contextTokens !== tokensBefore,
+        60_000,
+      );
+      console.log(
+        `[ssh] agent snapshot #2: kind=${waiting?.kind} state=${waiting?.state} contextTokens=${waiting?.kind === "claude-code" ? waiting.contextTokens : "n/a"}`,
+      );
+      expect(waiting?.kind).toBe("claude-code");
+      expect(waiting?.state).toBe("waiting");
+      if (waiting?.kind !== "claude-code")
+        throw new Error("agent is not claude-code after mutation");
+      // The LIVE delta — a first-snapshot-only check is explicitly insufficient.
+      expect(waiting.contextTokens).toBe(12000);
+      expect(waiting.contextTokens).not.toBe(tokensBefore);
+      console.log(
+        `[ssh] agent-state transition OK over ssh — awaiting_user(${tokensBefore}) → waiting(${waiting.contextTokens})`,
+      );
+    } finally {
+      // Tear down the fixture: kill the terminal (its shell + the child sleep die
+      // with it) and remove the planted session files + transcript.
+      if (createdId !== undefined)
+        await padi.surface.lifecycle.kill({ id: createdId }).catch(() => {});
+      for (const p of plantedSessionFiles) {
+        try {
+          fs.rmSync(p, { force: true });
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+      try {
+        fs.rmSync(transcriptPath, { force: true });
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
   }, 180_000);
 });
