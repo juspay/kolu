@@ -204,23 +204,19 @@ export interface DaemonInventoryDeps {
    *  hint (`legacyKavalSocketPath(this binder's listen port)`, constant). The address
    *  an upgrade-adopted kaval sits at until it converges onto the digest one. */
   legacyKavalSocket: string;
-  /** The socket of the LOCAL padi kolu-server is bound to (constant). Only consulted
-   *  when {@link boundLocally} — a remote binding owns no local socket. */
+  /** The socket of the LOCAL padi kolu-server is bound to (constant). Only consulted for
+   *  a LOCAL binding (`boundHost === null`) — a remote binding owns no local socket. */
   activePadiSocket: string;
-  /** Whether kolu-server is bound to a LOCAL padi (the default) vs a REMOTE one over
-   *  ssh (`KOLU_PADI_HOST`). Default `true`. When `false` the bound padi lives on
-   *  another host, so NO locally-discovered daemon is kolu's active one: this gate
-   *  suppresses the local active-marking (kaval + padi) AND the remote-identity
-   *  attribution, so the diagnostic never falsely labels a local daemon "in use by
-   *  kolu" or pins the remote padi's version onto a local socket. The remote padi's own
-   *  inventory is a later slice; here the local list stays honest (leaks still visible,
-   *  none marked active). */
-  boundLocally?: boolean;
-  /** The ssh host the bound padi lives on (`KOLU_PADI_HOST`), or `null`/undefined for a
-   *  LOCAL binding — published onto the inventory so the dialog labels this LOCAL scan
-   *  "this machine, not the bound host <boundHost>" and separates it from the bound-kaval
-   *  identity. Derived from the same knob as {@link boundLocally}. */
-  boundHost?: string | null;
+  /** The ssh host the bound padi lives on (`KOLU_PADI_HOST`), or `null` for a LOCAL
+   *  binding — the SINGLE source for both "is this a remote bind?" and the dialog label.
+   *  When non-null the bound padi lives on ANOTHER host, so NO locally-discovered daemon
+   *  is kolu's active one: `boundLocally` (DERIVED = `boundHost === null`) suppresses the
+   *  local active-marking (kaval + padi) AND the remote-identity attribution, so the
+   *  diagnostic never falsely labels a local daemon "in use by kolu" or pins the remote
+   *  padi's version onto a local socket; and the dialog labels this LOCAL scan "this
+   *  machine, not the bound host <boundHost>". The remote padi's own inventory is a later
+   *  slice; here the local list stays honest (leaks visible, none marked active). */
+  boundHost: string | null;
   /** The bound padi's honest `surfaceVersion` off its control-core `hello`, or `null`
    *  while padi is unbound — read fresh each tick so a (re)bind updates it. */
   activePadiSurfaceVersion: () => string | null;
@@ -247,7 +243,7 @@ export async function enumerateDaemonInventoryOnce(
     ),
   );
   const probes = new Map(probeEntries);
-  const boundLocally = deps.boundLocally ?? true;
+  const boundLocally = deps.boundHost === null;
   // Which kaval padi actually holds — the digest address normally, the adopted legacy
   // address after a W2.2 upgrade (mirroring padi's adopt precedence off the live set).
   // A REMOTE binding owns no local kaval, so mark NONE active (a stray local kaval is
@@ -260,7 +256,7 @@ export async function enumerateDaemonInventoryOnce(
       )
     : null;
   deps.publish({
-    boundHost: deps.boundHost ?? null,
+    boundHost: deps.boundHost,
     // The BOUND padi's honest identity (both arms) — read fresh off the session's hello
     // readouts, so the Padi dialog's version + build-commit rows work over ssh even
     // though no LOCAL padi is `active` under a remote binding.

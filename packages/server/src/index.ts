@@ -591,15 +591,13 @@ startDaemonInventorySampler(
     activePadiSocket: padiSocketPath(inventoryStateRoot),
     activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
     activePadiBuildCommit: () => padiSession.padiBuildCommit(),
-    // A REMOTE binding (KOLU_PADI_HOST) owns no LOCAL daemon — the discovered local
-    // padi/kaval are NOT kolu's active ones (its padi + kaval live on the ssh host). So
-    // the local inventory lists them (a leak is still visible) but marks none active and
-    // never pins the remote padi's identity onto a local socket. Remote inventory is a
-    // later slice; this keeps the local readout honest meanwhile.
-    boundLocally: !remoteHost,
-    // The remote host, so the dialog can LABEL this local scan "this machine, not the
-    // bound host" + separate it from the (padiSurface-borne) bound-kaval identity.
-    boundHost: remoteHost ?? null,
+    // The SINGLE bind knob: the remote host (`KOLU_PADI_HOST`), or null for a local bind
+    // (`|| null` folds an empty KOLU_PADI_HOST to null, matching the `remoteHost ?` bind
+    // decision above). daemonInventory derives `boundLocally = boundHost === null` — a
+    // REMOTE binding owns no LOCAL daemon, so the local scan lists discovered daemons (a
+    // leak stays visible) but marks none active, pins no remote identity onto a local
+    // socket, and the dialog labels the scan "this machine, not the bound host".
+    boundHost: remoteHost || null,
     publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
   },
   (resample) => padiSession.onState(() => resample()),

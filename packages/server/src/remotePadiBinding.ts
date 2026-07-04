@@ -195,8 +195,8 @@ type BindState =
   | { kind: "unconverged"; error: string };
 
 /** The convergence deps — the binder's side of the two-axis drain decision, and the
- *  once-per-boot fence. All default to the production values; injected in tests to
- *  drive the drain path without two real builds. */
+ *  instance-keyed drain budget. All default to the production values; injected in tests
+ *  to drive the drain path without two real builds. */
 export interface RemotePadiSessionDeps {
   /** The binder's `padiSurface` version (the contract axis's "us" side). */
   binderVersion?: string;
@@ -235,11 +235,11 @@ export interface RemotePadiSessionDeps {
  */
 export class RemotePadiSession implements BoundPadi {
   private destroyed = false;
-  /** The binder's contract version + expected build id + the once-per-boot fence —
-   *  the "us" side of the same two-axis convergence the LOCAL arm now declares as
-   *  `PADI_CONVERGENCE_POLICY` and runs through the shared `converge()`/`decide()` kit,
-   *  hand-mirrored here at the remote bind (the future both-arms-unification ledger
-   *  item). */
+  /** The binder's contract version + expected build id + the instance-keyed drain
+   *  tracker — the "us" side of a HAND-MIRRORED two-axis convergence keyed on the SAME
+   *  facts as the LOCAL arm's `PADI_CONVERGENCE_POLICY`, with a DELIBERATE policy fork on
+   *  the drain-did-not-take row (see {@link handshakeAndScope}); both-arms unification
+   *  onto the shared kit is the future ledger item L23. */
   private readonly binderVersion: string;
   private readonly binderBuildId: string;
   private readonly maxDrainsPerInstance: number;
@@ -354,26 +354,32 @@ export class RemotePadiSession implements BoundPadi {
   }
 
   /**
-   * The control-core `hello` handshake over a fresh spawn's combined client, plus
-   * the SAME two-axis convergence the LOCAL arm declares as `PADI_CONVERGENCE_POLICY`
-   * (run through the shared `decide()`/`converge()` kit) — hand-mirrored here at the
-   * remote bind because `hello.buildId` (running) and the baked
-   * arch-independent `PADI_BUILD_ID` (this binder) put BOTH sides of the #1670
-   * comparison in hand over the ssh dial:
+   * The control-core `hello` handshake over a fresh spawn's combined client, plus a
+   * two-axis convergence keyed on the SAME facts the LOCAL arm's `PADI_CONVERGENCE_POLICY`
+   * uses (`hello.buildId` = running, the baked arch-independent `PADI_BUILD_ID` = this
+   * binder) — but HAND-MIRRORED, not run through the shared `decide()`/`converge()` kit,
+   * and with a DELIBERATE policy FORK on one row (see (b)). Unifying both arms onto the
+   * kit is the future ledger item (L23).
    *
    *   Axis 1 — CONTRACT (`padiSurface` version): skew + binder NEWER → DRAIN
-   *   (newest-wins); skew + binder OLDER → REFUSE (degraded, never drain).
+   *   (newest-wins, instance-keyed bounded); skew + binder OLDER → REFUSE (never drain).
    *   Axis 2 — BUILD (same contract; #1670): a different OR absent `buildId` is a
-   *   MISMATCH → DRAIN ONCE per binder boot (fenced); else ADOPT.
+   *   MISMATCH → DRAIN (instance-keyed, bounded per {@link admitDrain}); a matched /
+   *   off-nix build ADOPTS.
    *
-   * The transport-adapted difference from the local arm: a DRAIN here tears down the
-   * SAME link this handshake rode, so on a successful drain we REJECT (the cursor
-   * waits) and the HostSession's own reconnect respawns this binder's closure (the
-   * exact drain→respawn the pu-box run proves) — where the local arm's separate
-   * `adoptOrSpawnOrRefuse` spawns. A drain that does NOT take is NEVER a kill: on the
-   * build axis we ADOPT the compatible old-build survivor (degraded, fence spent); on
-   * the contract axis we REFUSE (can't speak an incompatible surface). An ADOPT hands
-   * back the padi-scoped client the re-serve mirrors.
+   * Two transport-adaptations from the local arm, both because a DRAIN here tears down the
+   * SAME link this handshake rode:
+   *   (a) on a successful drain we REJECT (the cursor waits) and the HostSession's own
+   *       reconnect respawns this binder's closure (the exact drain→respawn the pu-box run
+   *       proves) — where the local arm's separate `adoptOrSpawnOrRefuse` spawns.
+   *   (b) THE POLICY FORK — when a drain does NOT provably take (a flapping/wedged link, or
+   *       a respawn treadmill): the LOCAL arm ADOPTS the stale survivor, because its socket
+   *       CLOSE event authoritatively proved the old daemon exited, so adopting keeps a
+   *       WORKING canvas. Over ssh a `hello()` rejection is NOT such a proof (it can be a
+   *       blip), so adopting a stale build here would be silent-permanent-wrong — this arm
+   *       instead goes {@link unconverged} (LOUD degraded, canvas dead until restart) on
+   *       BOTH axes. So the two arms hold OPPOSITE policies on this one row BY DESIGN; L23
+   *       owns the reconciliation. A drain that does not take is NEVER a kill.
    */
   private handshakeAndScope(
     combinedP: Promise<unknown>,
@@ -477,8 +483,10 @@ export class RemotePadiSession implements BoundPadi {
       // never-exited instance after a blip is convergence, and only a DIFFERENT instance
       // still mismatched (two supervisors / the absent-id dev loop) is the livelock the
       // fence guards. Bounded so a flapping link converges to a LOUD degraded state,
-      // never a silent stale adopt. Ledger L23: the both-arms unification's ssh probe
-      // MUST inherit this guard. ──
+      // never a silent stale adopt — and THIS is the deliberate policy fork: the local arm
+      // ADOPTS the stale survivor on this exhausted row (its socket CLOSE proved the exit),
+      // this arm goes `unconverged` (see handshakeAndScope (b)). Ledger L23: the both-arms
+      // unification's ssh probe MUST inherit this guard AND reconcile the fork. ──
       const runningBuild = hello.buildId ?? "";
       if (this.binderBuildId === "" || runningBuild === this.binderBuildId) {
         // off-nix binder (cannot judge builds) or provably-equal build → CONVERGED (or
@@ -566,9 +574,12 @@ export class RemotePadiSession implements BoundPadi {
    *  a flapping/wedged ssh link, or a treadmill of respawned wrong instances), on EITHER
    *  axis (build mismatch, or a newer-contract skew we can't drain away). Surfaces the
    *  reason in the connection cell (exactly like {@link refuse}) AND at `log.error`, and
-   *  REJECTS the client so the pump keeps waiting — NEVER a silent stale adopt (the
-   *  design-philosophy failure class: silent + permanent + wrong). Distinct from `refuse`
-   *  (a monotonicity refusal of an OLDER binder): a plain Error, not a skew error. */
+   *  REJECTS the client so the pump keeps waiting — never a silent stale adopt, which OVER
+   *  SSH would be silent + permanent + wrong (a `hello()` rejection isn't a proven exit).
+   *  This is the fork from the LOCAL arm, which DOES adopt this row — NOT a philosophy
+   *  violation there: its socket CLOSE proves the exit, so its adopt keeps a working canvas
+   *  honestly (see {@link handshakeAndScope} (b) + ledger L23). Distinct from `refuse` (a
+   *  monotonicity refusal of an OLDER binder): a plain Error, not a skew error. */
   private unconverged(msg: string): never {
     log.error({ host: this.hostName }, `remote padi UNCONVERGED — ${msg}`);
     this.bindState = { kind: "unconverged", error: msg };
@@ -809,9 +820,6 @@ export interface EnsureRemotePadiBindingOptions {
    *  app version a local terminal from the same build reports. Omitted → the remote
    *  padi falls back to its own commit (a standalone bring-up). */
   spawnVersion?: string;
-  /** Reconnect backoff between an ssh drop and the next front attempt (test hook;
-   *  default is `getHostSession`'s 2s). */
-  reconnectDelayMs?: number;
 }
 
 /**
@@ -852,7 +860,6 @@ export function ensureRemotePadiBinding(
     extraArgs,
     resolveDrvPath: makeResolvePadiDrv(host, drvMap),
     onLog: (line) => log.info({ host, line }, "remote padi session"),
-    reconnectDelayMs: opts.reconnectDelayMs,
   });
   return new RemotePadiSession(session, host);
 }

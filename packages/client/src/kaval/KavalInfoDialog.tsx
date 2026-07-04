@@ -159,9 +159,22 @@ const KavalInfoDialog: Component<{
           <Commit sha={props.status?.identity?.navigableCommit} />
         </DetailRow>
         <DetailRow label="socket">
-          <span title={props.status?.socketPath}>
-            {props.status?.socketPath ?? "unavailable"}
-          </span>
+          {/* Local bind → the bound kaval's unix socket. Remote bind → the kaval lives on
+              the ssh host, so its socketPath is a path THERE (not locally meaningful);
+              name the host instead, matching PadiInfoDialog. The real remote path stays in
+              the title for diagnostics. */}
+          <Show
+            when={daemonScanBoundHost()}
+            fallback={
+              <span title={props.status?.socketPath}>
+                {props.status?.socketPath ?? "unavailable"}
+              </span>
+            }
+          >
+            {(host) => (
+              <span title={props.status?.socketPath}>ssh · {host()}</span>
+            )}
+          </Show>
         </DetailRow>
         <DetailRow label="memory">
           {/* Same {@link kavalMemoryDisplay} source the identity-rail chip reads,

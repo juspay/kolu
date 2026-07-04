@@ -867,7 +867,18 @@ async function startServerChild(koluServer: string): Promise<void> {
 /** Poll a padi procedure until the (async-warming) remote binding is live, or throw
  *  after 120s. No-op unless `KOLU_E2E_PADI_HOST` is set (the ssh-leg e2e). */
 async function waitForRemotePadiLive(): Promise<void> {
-  if (!process.env.KOLU_E2E_PADI_HOST) return;
+  const remotePadiHost = process.env.KOLU_E2E_PADI_HOST;
+  if (!remotePadiHost) return;
+  // DESTRUCTIVE-ACK guard: this ssh leg killAll's the padi on KOLU_E2E_PADI_HOST on every
+  // server start AND per scenario — it kills that host's live terminals. Refuse LOUDLY
+  // without an explicit ack so a mistyped host can't murder a workstation's terminals.
+  if (process.env.KOLU_E2E_SSH_DESTRUCTIVE_ACK !== "1") {
+    throw new Error(
+      `REFUSING: the cucumber ssh leg (KOLU_E2E_PADI_HOST=${remotePadiHost}) is DESTRUCTIVE — ` +
+        `it killAll's that host's padi (its live terminals) every server start. Set ` +
+        `KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 ONLY if '${remotePadiHost}' is a disposable test host.`,
+    );
+  }
   const deadline = Date.now() + 120_000;
   let lastStatus = 0;
   while (Date.now() < deadline) {

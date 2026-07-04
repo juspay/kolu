@@ -268,7 +268,7 @@ describe("assemblePadiInventory", () => {
   });
 });
 
-describe("enumerateDaemonInventoryOnce — remote binding (boundLocally)", () => {
+describe("enumerateDaemonInventoryOnce — remote binding (boundHost)", () => {
   const remoteDeps = (
     over: Partial<Parameters<typeof enumerateDaemonInventoryOnce>[0]>,
   ): Parameters<typeof enumerateDaemonInventoryOnce>[0] => ({
@@ -280,11 +280,14 @@ describe("enumerateDaemonInventoryOnce — remote binding (boundLocally)", () =>
     activePadiSocket: PADI_ACTIVE,
     activePadiSurfaceVersion: () => "1.1",
     activePadiBuildCommit: () => "localcommit",
+    // Default LOCAL bind; a remote case overrides with a host (boundLocally is DERIVED
+    // = boundHost === null, so a non-null host is the sole remote signal).
+    boundHost: null,
     publish: () => {},
     ...over,
   });
 
-  it("boundLocally:false marks NO local daemon active and never pins the remote padi's identity onto a local socket", async () => {
+  it("a remote boundHost marks NO local daemon active and never pins the remote padi's identity onto a local socket", async () => {
     let published: DaemonInventory | undefined;
     await enumerateDaemonInventoryOnce(
       remoteDeps({
@@ -294,7 +297,7 @@ describe("enumerateDaemonInventoryOnce — remote binding (boundLocally)", () =>
         publish: (inv) => {
           published = inv;
         },
-        boundLocally: false,
+        boundHost: "nix@remote.example",
       }),
     );
     // Local daemons are still LISTED (a leak stays visible) …
@@ -317,7 +320,6 @@ describe("enumerateDaemonInventoryOnce — remote binding (boundLocally)", () =>
         publish: (inv) => {
           remote = inv;
         },
-        boundLocally: false,
         boundHost: "nix@prod.example",
       }),
     );
@@ -345,7 +347,7 @@ describe("enumerateDaemonInventoryOnce — remote binding (boundLocally)", () =>
     expect(local?.boundHost).toBeNull();
   });
 
-  it("boundLocally omitted (local bind) marks the local bound daemon active — unchanged", async () => {
+  it("boundHost null (local bind) marks the local bound daemon active — unchanged", async () => {
     let published: DaemonInventory | undefined;
     await enumerateDaemonInventoryOnce(
       remoteDeps({

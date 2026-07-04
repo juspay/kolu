@@ -103,8 +103,11 @@ test-unit: install
 # to override. This is the ONLY enforced run of `remotePadiSsh.test.ts` — CI has NO ssh
 # lane (no sshd in the build sandbox), so the ssh leg is exercised HERE, on a box, and
 # its transcript is W3.1's recorded evidence. See the test header for the full contract.
-#   just e2e-ssh                 # auto-detect this box's non-loopback IP
-#   just e2e-ssh 10.47.48.150    # explicit ssh host/alias
+# DESTRUCTIVE: it killAll's + drains the padi on the target host — its terminals die. The
+# test REFUSES without KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 (a conscious "this host is disposable"
+# so a mistyped host can't murder a workstation).
+#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh                 # auto-detect this box's IP
+#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh 10.47.48.150    # explicit ssh host/alias
 e2e-ssh host='': install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -128,14 +131,18 @@ e2e-ssh host='': install
 # (the bound padi's honest hello identity) — the enforced twin of the manual two-box repro
 # (the dialog labels this-machine's scan "not the bound host" and reads the padi identity
 # from `boundPadi`, not the local `active` row). Run on a `pu` box that can ssh to <boxB>.
-#   just e2e-ssh-2box nix@boxB          # <boxB> = a genuinely-different ssh host/alias
+# DESTRUCTIVE (killAll's + drains <boxB>'s padi) — requires KOLU_E2E_SSH_DESTRUCTIVE_ACK=1.
+#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh-2box nix@boxB   # <boxB> = a different ssh host
 e2e-ssh-2box boxB port='7099': install
     #!/usr/bin/env bash
     set -euo pipefail
     boxB="{{ boxB }}"; port="{{ port }}"
-    # 1) the ssh-transport lane (round-trip · latency · drain-converge · agent-state) against
-    #    the genuinely-different host — self-ssh confound removed.
-    just e2e-ssh "$boxB"
+    [ "${KOLU_E2E_SSH_DESTRUCTIVE_ACK:-}" = "1" ] || { echo "e2e-ssh-2box: DESTRUCTIVE against '$boxB' — set KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 (only if '$boxB' is disposable)" >&2; exit 1; }
+    # 1) the ssh-transport lane (round-trip · latency · drain-converge) against the
+    #    genuinely-different host — self-ssh confound removed. KOLU_E2E_SSH_TWO_BOX=1 skips
+    #    the self-ssh-ONLY agent-state test (its local /proc + $HOME fixtures can't match a
+    #    padi on the OTHER host; that test runs under `just e2e-ssh` self-ssh).
+    KOLU_E2E_SSH_TWO_BOX=1 just e2e-ssh "$boxB"
     # 2) FINDING 1 over ssh: a full kolu-server bound to <boxB> must publish boundHost + boundPadi.
     sr="${TMPDIR:-/tmp}/kolu-2box-$$/state"; log="${TMPDIR:-/tmp}/kolu-2box-$$.log"
     echo "e2e-ssh-2box: standing up kolu-server (KOLU_PADI_HOST=$boxB) on :$port"
