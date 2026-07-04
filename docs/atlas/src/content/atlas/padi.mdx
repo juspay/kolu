@@ -34,6 +34,7 @@ export const ROADMAP = [
   { d: 1, g: "▶", c: "prog", l: "W3.1 · the remote binding — provision + front a remote padi (complete, invisible)", m: "NEXT — parity e2e on a pu box", h: "#w31" },
   { d: 1, g: "○", c: "prog", l: "W3.2 · the switch — binding pool · per-view scope · host picker · clock handshake", m: "needs W3.1", h: "#w32" },
   { d: 1, g: "○", c: "prog", l: "W3.3 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W3.2", h: "#w33" },
+  { d: 1, g: "○", c: "prog", l: "W3.4 · remote e2e parity in CI — the FULL suite vs KOLU_PADI_HOST=<pool box>, every PR", m: "needs W3.1 · parallel with W3.2", h: "#w34" },
   { d: 0, g: "○", c: "prog", l: "W4 · consolidation — refactors · decomplecting · electricity upstreaming · deletions", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "W5 · demand-driven — cross-host dock · kolu-tui · hybrid only if earned", m: "", h: "#w5" },
 ];
@@ -71,7 +72,7 @@ export const LENS = [
     sub: [["2.1",4,false,true],["2.2",5,true,true],["2.3",2,true,true]] },
   { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)",
     beh: "Δ3.2 each connection now belongs to one host — the client rebuilds its plumbing when you switch · Δ3.3 notifications now fire for hosts you are not looking at (3.1 ships switched off by default)",
-    sub: [["3.1",2],["3.2",3,true],["3.3",1,true]] },
+    sub: [["3.1",2],["3.2",3,true],["3.3",1,true],["3.4",1]] },
   { p: "W4", h: "#w4", user: "nothing — that is the point", vis: false, work: 3, why: "paying down what W2–W3's pace deferred: refactors, upstreaming, deletions off the ledger",
     beh: null, sub: null },
   { p: "W5", h: "#w5", user: "cross-host dock rows · kolu-tui — only if demanded", vis: true, faint: true, work: 1, why: "additive layers over unchanged daemons",
@@ -374,6 +375,18 @@ Binding pool in kolu-server; **per-connection binding declared in the wire scope
 
 kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
 - **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
+
+<a id="w34"></a>
+
+#### W3.4 — remote e2e parity in CI *(needs only W3.1 — a parallel track beside W3.2; srid's call, 2026-07-04)*
+
+Today the full e2e suite (~493 scenarios) runs in CI per-PR **locally only**; the `KOLU_PADI_HOST` path has zero CI coverage (the sandbox claim is honest but the exposure is real — the two live bugs of 2026-07-04 were both found by hand). This phase closes it: **every PR's CI runs the existing e2e suite AS-IS, twice — local (as today) and with kolu-server bound remotely** (`KOLU_PADI_HOST=<a second pu box leased from the pool>`). No tagged subsets, no reduced tier: the same scenarios, a real ssh hop.
+
+Mechanics (we do NOT control the pool boxes' config — everything rides ssh we already have): the CI recipe leases a **pair** of pool boxes — box A runs the lane as today, box B is the bind target; box B's per-run hygiene (state wipe before, destructive-ack, provisioning via the baked drv map — which also exercises the cross-arch arm when the darwin lane binds a linux box) is done over the ssh session, never via box config. The `just e2e-ssh` transport lane folds into the same node.
+
+The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios that failed the one manual full-suite ssh run need their tight Playwright waits widened to remote-tolerant timeouts — behaviour was correct, the waits were not; (b) the agent-state scenarios' fixtures (mock session dirs, env-pointed) must be **provisioned onto box B over ssh** so those scenarios run remotely for real instead of being excluded; (c) lane wall-time budgeted (remote suite ran ~2× local on the manual run) — it runs as a parallel odu node on the paired box, so the wall grows only if it becomes the slowest node.
+
+- **Done:** a PR that breaks any feature only-under-remote-binding goes RED in normal CI on both platform lanes; the remote node's scenario count equals the local node's (no silent exclusions — an excluded scenario is a named, counted skip with a reason); the pair-lease returns both boxes clean.
 
 <a id="w4"></a>
 
