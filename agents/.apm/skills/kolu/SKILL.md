@@ -33,17 +33,17 @@ terminals a **kolu owns** (the last section); for raw terminals, reach for
 
 ```sh
 id=$(kaval-tui create --json -- claude | jq -r .id)            # spawn the inner agent
-kaval-tui send  "$id" "refactor the parser to use a lexer"     # 1. TYPE the prompt
-kaval-tui send  "$id" --key Enter                              # 2. SUBMIT it (its own step)
-kaval-tui wait  "$id" --until idle:800 --timeout 600000        # 3. let its turn finish (below)
-kaval-tui snapshot "$id" --viewport                            # 4. read the screen
-kaval-tui send  "$id" "now add tests for it"; kaval-tui send "$id" --key Enter   # loop
+kaval-tui send  "$id" "refactor the parser to use a lexer" --submit   # 1. type AND submit
+kaval-tui wait  "$id" --until idle:800 --timeout 600000        # 2. let its turn finish (below)
+kaval-tui snapshot "$id" --viewport                            # 3. read the screen
+kaval-tui send  "$id" "now add tests for it" --submit          # loop
 ```
 
-Leaf commands, all `kaval-tui`: **create** (spawn) · **send** (type) ·
-**send --key Enter** (submit) · **wait** (block until the turn ends) ·
-**snapshot** (read) · **kill**. **Typing and submitting are two separate
-`send`s** — that is load-bearing, see below.
+Leaf commands, all `kaval-tui`: **create** (spawn) · **send --submit** (type +
+submit in one command) · **wait** (block until the turn ends) · **snapshot**
+(read) · **kill**. `--submit` is what makes prompt delivery one command; raw
+`send` (no `--submit`) types without an Enter — the manual-control channel, see
+below.
 
 > **Read with `snapshot --viewport`, not `| tail`.** A bare `snapshot` prints the
 > **whole scrollback** — thousands of lines on a long-running or compacted agent —
@@ -54,36 +54,46 @@ Leaf commands, all `kaval-tui`: **create** (spawn) · **send** (type) ·
 > different size). `--tail N` (alias `--lines N`) bounds it to the last N lines
 > when you want a fixed slice.
 
-## `kaval-tui send` — type, then submit (two steps)
+## `kaval-tui send --submit` — type and submit in one command
 
-`kaval-tui send <id> [text...]` writes input to the terminal — **exactly the text
-(and any `--key`s) you pass, with NO implicit Enter**. It types; it does not
-submit. **Submitting a prompt is its own second `send`:**
+`kaval-tui send <id> [text...] --submit` writes the prompt AND submits it:
 
 ```sh
-kaval-tui send "$id" "fix the failing test in parser.ts"   # 1. type the prompt
-kaval-tui send "$id" --key Enter                           # 2. submit it
+kaval-tui send "$id" "fix the failing test in parser.ts" --submit
 ```
 
-**Do this as two separate `send` commands — not `send "text" --key Enter` in one
-call.** The separation is load-bearing: an Enter sent in the same breath as the
-text races Claude Code's bracketed-paste / debounced input handling — it arrives
-before the pasted text has registered and is **silently dropped**, leaving the
-prompt staged on the `❯` line while `send` reports success. A standalone
-follow-up `send --key Enter` lands after the text has settled, so it actually
-submits. (If a turn never seems to start, this is the #1 cause — `snapshot` and
-look for the prompt sitting unsent on the `❯` line.)
+`--submit` writes the text (paste rules below unchanged), waits a fixed grace,
+**then** sends Enter. The grace is the whole point — an Enter sent in the *same
+breath* as the text races Claude Code's bracketed-paste / debounced input
+handling and is **silently dropped**, leaving the prompt staged on the `❯` line
+while `send` reports success (if a turn never seems to start, this is the #1
+cause — `snapshot` and look for the prompt sitting unsent). `--submit` schedules
+the Enter *past* that debounce, so it lands after the text settles. Bare
+`--submit` waits **250ms**; `--submit=<ms>` tunes it (raise it for a sluggish
+agent). It is a blind delay — no screen read, no idle-detection — so the command
+returns in well under a second whatever the agent is doing; you still `wait` +
+`snapshot` afterward to read the reply.
+
+> **Manual control — raw `send`, no `--submit`.** Plain `kaval-tui send <id>
+> [text...]` writes **exactly** the text (and any `--key`s) with **NO implicit
+> Enter** — the raw channel for driving menus, partial input, or control keys.
+> To submit by hand, send Enter as its own later step: `kaval-tui send "$id"
+> --key Enter` (a standalone follow-up lands after the text settles). `--submit`
+> owns the Enter, so it is **mutually exclusive with `--key`** — use one or the
+> other.
 
 Specifics:
 
 - **Multiline prompts and piped stdin go as one bracketed paste**, so they land
   in the input box as a block instead of submitting line-by-line. Automatic
-  (`--paste` / `--no-paste` force it). For a big prompt, pipe it —
-  `cat task.md | kaval-tui send "$id"` — then `send "$id" --key Enter`.
-- **`--key <name>`** (repeatable, sent after the text) is both the submit channel
-  (`Enter`) and the control channel: `Escape`, `C-c`, `Enter`,
-  `Up`/`Down`/`Left`/`Right`, `Tab`, `Home`, `End`, `Backspace`, `M-<char>`.
-- **`--json`** → `{ id, bytes, paste, keys }` to confirm what was written.
+  (`--paste` / `--no-paste` force it). For a big prompt, pipe it and submit in
+  one go — `cat task.md | kaval-tui send "$id" --submit`.
+- **`--key <name>`** (repeatable, sent after the text) is the control channel for
+  manual driving: `Escape`, `C-c`, `Enter`, `Up`/`Down`/`Left`/`Right`, `Tab`,
+  `Home`, `End`, `Backspace`, `M-<char>`. (`--key Enter` submits by hand; prefer
+  `--submit` for prompt delivery.)
+- **`--json`** → `{ id, bytes, paste, keys }` (plus `submitted` + `graceMs` under
+  `--submit`) to confirm what was written.
 
 **`send` is blind** — it writes whether or not the agent is ready for input.
 Always pair it with `snapshot` so you don't fire a prompt into a not-yet-ready
@@ -184,7 +194,7 @@ fails loud too (exit 3 — the agent you were driving died); `--json` →
 > pickup first, then the turn-end:
 >
 > ```sh
-> kaval-tui send "$id" "fix the parser"; kaval-tui send "$id" --key Enter
+> kaval-tui send "$id" "fix the parser" --submit
 > padi-tui wait "$id" --until working           # 1. it picked up the prompt
 > padi-tui wait "$id" --until awaiting,waiting   # 2. its turn ended
 > ```
@@ -253,9 +263,10 @@ Two ways to point at a specific daemon instead of autodiscovering:
 
 Before calling a driven turn done:
 
-- You **submitted with a separate `send --key Enter`** (not an implicit Enter,
-  not `send "text" --key Enter` in one call) — a prompt left staged on the `❯`
-  line is the #1 failure here.
+- You **submitted with `send … --submit`** (or, when driving by hand, a separate
+  follow-up `send --key Enter`) — never `send "text" --key Enter` in one call,
+  whose Enter races the paste debounce. A prompt left staged on the `❯` line is
+  the #1 failure here; `--submit` is what removes the race.
 - The inner agent's **reply is actually in the `snapshot`** — not an empty box or
   a half-rendered stream. `wait --until idle` means "output stopped", not "the
   answer is right"; verify the content.

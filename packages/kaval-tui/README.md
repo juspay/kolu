@@ -53,17 +53,23 @@ driving a program in a PTY. Its headline use is handing a prompt to an agent
 another: `create` it, `send` it a task, `snapshot` its reply, `send` the next.
 
 ```sh
-kaval-tui send a1b2 "refactor the parser to use a lexer"   # type the prompt…
-kaval-tui send a1b2 --key Enter                            # …then submit it
+kaval-tui send a1b2 "refactor the parser to use a lexer" --submit   # type AND submit
 ```
 
-`send` writes **exactly what you pass — the literal text and any `--key`s, with
-no implicit Enter**. A prompt is submitted only when you say so, as its own step:
-`send <id> --key Enter`. Keeping submit explicit is deliberate — an implicit Enter
-is invisible magic the caller can't time, and against Claude Code's
-bracketed-paste / debounced input it _raced the paste and was silently dropped_,
-leaving the prompt staged while `send` reported success. A separate
-`send --key Enter` lands after the text has settled, so it always submits.
+`--submit` delivers a prompt in **one command**: it writes the text (paste rules
+below unchanged), waits a fixed grace, **then** sends Enter. The grace is the
+point — an Enter written in the same breath as the text _raced Claude Code's
+bracketed-paste / debounced input and was silently dropped_, leaving the prompt
+staged while `send` reported success. `--submit` schedules the Enter *past* that
+debounce. Bare `--submit` waits **250ms**; `--submit=<ms>` tunes it. It's a blind
+delay — no screen read, no idle-detection — so it returns in well under a second
+whatever the agent is doing; `wait` + `snapshot` afterward to read the reply.
+
+Without `--submit`, `send` writes **exactly what you pass — the literal text and
+any `--key`s, with no implicit Enter** — the raw channel for menus, partial
+input, or control keys. To submit by hand, send Enter as its own later step:
+`send <id> --key Enter` (a separate follow-up lands after the text settles).
+`--submit` owns the Enter, so it is **mutually exclusive with `--key`**.
 
 **Multiline text is sent as one bracketed paste**, so it lands in the agent's
 input box as a block instead of submitting line-by-line (each `\n` would
@@ -73,18 +79,17 @@ positional words or, when you give none, from **stdin** — so large prompts ski
 shell quoting:
 
 ```sh
-cat prompt.md | kaval-tui send a1b2        # big prompt → one bracketed paste
-kaval-tui send a1b2 --key Enter            # submit it
+cat prompt.md | kaval-tui send a1b2 --submit   # big prompt → paste, then submit
 ```
 
-`--key` sends named or control keys **after** the text, in order — both the submit
-channel (`--key Enter`) and the channel for interrupting or steering an agent
-rather than typing at it:
+`--key` sends named or control keys **after** the text, in order — the manual
+submit channel (`--key Enter`) and the channel for interrupting or steering an
+agent rather than typing at it:
 
 ```sh
 kaval-tui send a1b2 --key Escape           # interrupt the agent mid-stream
 kaval-tui send a1b2 --key C-c              # SIGINT to whatever's running
-kaval-tui send a1b2 --key Enter            # submit the staged prompt
+kaval-tui send a1b2 --key Enter            # submit a staged prompt by hand
 ```
 
 Names: `Enter`, `Escape`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Home`, `End`,
@@ -92,8 +97,9 @@ Names: `Enter`, `Escape`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Home`, `End`,
 
 `send` is **blind** — it writes whether or not the program is ready for input —
 so pair it with `snapshot` to look before (or after) you write. `--json` prints
-`{ id, bytes, paste, keys }` for scripts; the human one-line confirmation goes
-to stderr, so stdout stays empty unless you ask for JSON.
+`{ id, bytes, paste, keys }` for scripts (plus `submitted` + `graceMs` under
+`--submit`); the human one-line confirmation goes to stderr, so stdout stays
+empty unless you ask for JSON.
 
 ## Waiting for a turn to end
 
@@ -105,7 +111,7 @@ agent went quiet" is exact and works the same for `claude` / `codex` / `grok` /
 `opencode`:
 
 ```sh
-kaval-tui send a1b2 "refactor the parser"; kaval-tui send a1b2 --key Enter
+kaval-tui send a1b2 "refactor the parser" --submit
 kaval-tui wait a1b2 --until idle:800 --timeout 600000   # block until the turn ends
 kaval-tui snapshot a1b2 --viewport                      # read the reply
 ```
