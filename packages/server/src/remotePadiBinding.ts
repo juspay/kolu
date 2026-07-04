@@ -202,6 +202,16 @@ interface RemotePadiIdentity {
   startedAt: number | null;
 }
 
+/** The padi's bind outcome as ONE named state — unbound, adopted (with the honest
+ *  identity off its `hello`), or refused for a version skew (with the loud error).
+ *  A single discriminated field makes the illegal "both an identity AND a skew"
+ *  combination unrepresentable, replacing the old parallel-nullable `identity` +
+ *  `skewError` pair and its scattered "at most one is ever set" invariant. */
+type BindState =
+  | { kind: "unbound" }
+  | { kind: "bound"; identity: RemotePadiIdentity }
+  | { kind: "skew"; error: string };
+
 /**
  * The ssh arm of {@link BoundPadi}: adapts a `@kolu/surface-nix-host` `HostSession`
  * (already a `RemoteMirrorSession`, so the transport/reconnect are its problem)
@@ -263,15 +273,14 @@ export class RemotePadiSession implements BoundPadi {
   private readonly hostUnsub: () => void;
   private readonly stateListeners = new Set<(s: HostSessionState) => void>();
 
-  /** The bound padi's identity off its last successful `hello`, or `null` while
-   *  unbound / mid-warm — cleared when the link drops (a respawned padi is a fresh
-   *  process). */
-  private identity: RemotePadiIdentity | null = null;
-  /** Set when the last handshake found a padiSurface version this kolu-server can't
-   *  speak — overlays the connection state as a loud, honest degraded/skew frame
-   *  (not the transport-level "connected" the HostSession would otherwise report).
-   *  Cleared on a fresh spawn (which re-handshakes) or a link drop. */
-  private skewError: string | null = null;
+  /** The padi's bind outcome — one named state, not two parallel nullables. `bound`
+   *  carries the identity read off the last successful `hello`; `skew` carries the
+   *  loud degraded frame's error when the handshake found a padiSurface version this
+   *  kolu-server can't speak (overlaying the transport-level "connected" the
+   *  HostSession would otherwise report). Both fall back to `unbound` when the link
+   *  drops (a respawned padi is a fresh process) or the handshake re-runs on a fresh
+   *  spawn. */
+  private bindState: BindState = { kind: "unbound" };
 
   /** Memoize the scoped+handshaked client per HOST spawn: keyed by the host's
    *  `currentClient()` promise IDENTITY (the same axis `makeClientCursor` advances
@@ -300,8 +309,7 @@ export class RemotePadiSession implements BoundPadi {
       // (copying/connecting) leaves a just-read identity in place, matching the
       // local arm's "clear on degraded/dead only".
       if (s.connection === "disconnected" || s.connection === "failed") {
-        this.identity = null;
-        this.skewError = null;
+        this.bindState = { kind: "unbound" };
         this.memoKey = null;
         this.memoScoped = null;
       }
@@ -479,11 +487,13 @@ export class RemotePadiSession implements BoundPadi {
     combined: PadiDaemonClient,
     hello: PadiHello,
   ): PadiSurfaceClient {
-    this.skewError = null;
-    this.identity = {
-      surfaceVersion: hello.surfaceVersion,
-      commit: hello.commit || null,
-      startedAt: hello.startedAt ?? null,
+    this.bindState = {
+      kind: "bound",
+      identity: {
+        surfaceVersion: hello.surfaceVersion,
+        commit: hello.commit || null,
+        startedAt: hello.startedAt ?? null,
+      },
     };
     this.fire();
     return scopePadiSurface(combined);
@@ -493,8 +503,7 @@ export class RemotePadiSession implements BoundPadi {
    *  reads, and REJECT so the pump's cursor keeps waiting (`waitForNextClient`
    *  swallows it — no crash, no spin), never a kill. */
   private refuse(msg: string): never {
-    this.skewError = msg;
-    this.identity = null;
+    this.bindState = { kind: "skew", error: msg };
     this.fire();
     throw new DaemonContractSkewError(msg);
   }
@@ -551,7 +560,10 @@ export class RemotePadiSession implements BoundPadi {
   destroy(): void {
     this.destroyed = true;
     this.hostUnsub();
-    this.identity = null;
+    // Faithful to the pre-union `this.identity = null`: drop a bound identity; a
+    // standing skew verdict is left as-is (the readouts below already gate on
+    // `destroyed`, and derivedState kept the skew frame the same way before).
+    if (this.bindState.kind === "bound") this.bindState = { kind: "unbound" };
     this.memoKey = null;
     this.memoScoped = null;
     this.host.destroy();
@@ -579,15 +591,18 @@ export class RemotePadiSession implements BoundPadi {
   }
 
   padiStartedAt(): number | null {
-    return this.destroyed ? null : (this.identity?.startedAt ?? null);
+    if (this.destroyed || this.bindState.kind !== "bound") return null;
+    return this.bindState.identity.startedAt;
   }
 
   padiSurfaceVersion(): string | null {
-    return this.destroyed ? null : (this.identity?.surfaceVersion ?? null);
+    if (this.destroyed || this.bindState.kind !== "bound") return null;
+    return this.bindState.identity.surfaceVersion;
   }
 
   padiBuildCommit(): string | null {
-    return this.destroyed ? null : (this.identity?.commit ?? null);
+    if (this.destroyed || this.bindState.kind !== "bound") return null;
+    return this.bindState.identity.commit;
   }
 
   /** The state the connection cell reads: the HostSession's link phase, overlaid
@@ -595,11 +610,11 @@ export class RemotePadiSession implements BoundPadi {
    *  is up but we refuse to speak the surface — an honest "reconnecting/degraded",
    *  never a silent "connected but empty"). */
   private derivedState(): HostSessionState {
-    if (this.skewError) {
+    if (this.bindState.kind === "skew") {
       return {
         ...this.hostState,
         connection: "disconnected",
-        lastError: this.skewError,
+        lastError: this.bindState.error,
         failureCause: "remote",
       };
     }
