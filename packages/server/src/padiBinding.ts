@@ -58,6 +58,7 @@ import {
   type PadiDaemonClient,
   type PadiDial,
   type PadiIdentity,
+  scopePadiSurface,
   type PadiSurfaceClient,
 } from "@kolu/padi/dial";
 import {
@@ -65,10 +66,7 @@ import {
   type PadiHello,
   type padiSurface,
 } from "@kolu/padi/surface";
-import {
-  isContractVersionCompatible,
-  scopeSibling,
-} from "@kolu/surface/define";
+import { isContractVersionCompatible } from "@kolu/surface/define";
 import {
   createEndpoint,
   type DaemonDriver,
@@ -575,7 +573,7 @@ export interface PadiBindingSessionDeps {
  *
  * Each successful connect swaps `clientPromise` to a NEW resolved promise so the
  * pump's client cursor advances on identity. `currentClient()`/`pin()` return the
- * padi-SIBLING-scoped client (`scopeSibling(combined, "padi")`).
+ * padi-SIBLING-scoped client (the dial kit's `scopePadiSurface(combined)`).
  */
 export class PadiBindingSession
   implements RemoteMirrorSession<typeof padiSurface.contract>
@@ -639,11 +637,10 @@ export class PadiBindingSession
           // null, the honest "unknown", so off-nix reads "—" not a blank link).
           this.padiBuildCommitStr = conn.identity?.commit || null;
           // Scope the COMBINED dialed client down to the padi sibling so the relay's
-          // `client.surface.<member>` resolves at /surface/padi/<member>.
-          const scoped = scopeSibling(
-            conn.client,
-            "padi",
-          ) as unknown as PadiSurfaceClient;
+          // `client.surface.<member>` resolves at /surface/padi/<member>. The binder
+          // keeps `conn.client` (combined) for supervision (`control.core.drain`) and
+          // uses the dial kit's projection only for the relay's scoped client.
+          const scoped = scopePadiSurface(conn.client);
           this.clientPromise = Promise.resolve(scoped);
         }
       })

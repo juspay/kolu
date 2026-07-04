@@ -6,8 +6,11 @@
  * client the verbs call. The kaval precedent: a daemon's package owns its dial kit.
  */
 
-import { connectPadi, type PadiSurfaceClient } from "@kolu/padi/dial";
-import { scopeSibling } from "@kolu/surface/define";
+import {
+  connectPadi,
+  type PadiSurfaceClient,
+  scopePadiSurface,
+} from "@kolu/padi/dial";
 
 /** The typed `padiSurface` client the verbs speak — `.surface.terminals`,
  *  `.surface.lifecycle.create`, `.surface.git.worktreeCreate`, `.surface.activity`,
@@ -34,6 +37,7 @@ export async function connectPadiTui(socketPath: string): Promise<Connection> {
   const conn = await connectPadi(socketPath);
   // Scope the COMBINED dialed client to the padi sibling so `.surface.<member>`
   // resolves at `/surface/padi/<member>` — the same scope the re-serve mirrors.
-  const client = scopeSibling(conn.client, "padi") as unknown as PadiTuiClient;
+  // The `"padi"` key + cast live in the dial kit (`scopePadiSurface`), not here.
+  const client = scopePadiSurface(conn.client);
   return { client, dispose: conn.dispose };
 }

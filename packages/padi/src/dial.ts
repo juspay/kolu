@@ -23,7 +23,10 @@
 
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
-import { isContractVersionCompatible } from "@kolu/surface/define";
+import {
+  isContractVersionCompatible,
+  scopeSibling,
+} from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import {
   type DaemonConnection,
@@ -73,6 +76,17 @@ export type PadiSurfaceClient = ContractRouterClient<
   typeof padiSurface.contract,
   ClientRetryPluginContext
 >;
+
+/** Narrow a dialed COMBINED client down to its `.surface.padi` sibling — the LAST
+ *  mile of "reaching padi's surface", owned by the kit that owns
+ *  {@link PadiSurfaceClient}. The `"padi"` sibling key and the (framework-forced)
+ *  cast live HERE, once, so a plain-dial consumer asks for a padi client instead of
+ *  re-narrowing the combined one itself. The binder keeps the combined `.client`
+ *  for supervision (`control.core.drain`) and calls this only for its relay's
+ *  scoped client; padi-tui's dial calls it for the verbs. */
+export function scopePadiSurface(client: PadiDaemonClient): PadiSurfaceClient {
+  return scopeSibling(client, "padi") as unknown as PadiSurfaceClient;
+}
 
 /** padi's wire identity, from its control-core `hello`. `commit` is the RUNNING
  *  padi's navigable git build (the Padi dialog's "build commit"); optional — a
