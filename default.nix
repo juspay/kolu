@@ -163,12 +163,21 @@ let
       # grammars the daemon serves; a protocol change must not escape the staleKey.
       (pkgs.lib.fileset.fileFilter isHashedSource ./packages/terminal-protocol/src)
       ./packages/terminal-protocol/package.json
-      # @kolu/surface-daemon — the daemon spine (serve: pid-gate + `daemonMain`; front:
-      # `frontDaemonOverStdio` reached from `bin.ts`'s `--stdio` dispatch), both halves of
-      # the kaval *binary* a restart loads. Hashed WHOLE (its standing invariant: only
-      # daemon-BINARY code lives there; the supervisor half is its own un-hashed package).
-      (pkgs.lib.fileset.fileFilter isHashedSource ./packages/surface-daemon/src)
-      ./packages/surface-daemon/package.json
+      # `@kolu/surface-daemon` (the transport SPINE) is DELIBERATELY NOT in kaval's
+      # currency slice (#L3). kaval's staleKey drives ONLY the human "update available"
+      # nudge, and acting on it RECYCLES kaval — killing live PTYs. The spine's behavioral
+      # surface to a consumer IS the wire contract (`PTY_HOST_CONTRACT_VERSION`, in
+      # kaval/src above): a contract-COMPATIBLE spine change is behaviorally interchangeable
+      # BY THE CONTRACT'S DEFINITION, so keying currency on the spine double-counts what the
+      # contract already covers and over-fires the nudge on every compatible spine refactor.
+      # This was paid for in production (zest, 2026-07-03): a spine-only change with no kaval
+      # behavior delta flipped kaval's staleKey and fired a spurious nudge. A spine change
+      # that DOES matter to the wire bumps the contract (hashed here) → recycle-on-skew
+      # converges it, a separate sanctioned signal. So kaval's currency = its BEHAVIORAL
+      # closure (kaval + terminal-protocol), spine excluded. (padi keeps the full closure —
+      # its staleness response is a cheap auto-drain, so over-firing is harmless.) The
+      # closure guard in packages/kaval/src/buildId.closure.test.ts pins this restated
+      # invariant — keep the two in lockstep.
     ];
   };
 
