@@ -26,12 +26,12 @@ export const ROADMAP = [
   { d: 1, g: "✓", c: "ship", l: "W1.C · the contract — packages/padi born: padiSurface 1.0 + control core + tests", m: "in #1652", h: "#w1c" },
   { d: 1, g: "✓", c: "ship", l: "W1.M · the motion — the terminal domain relocates into @kolu/padi (severing commits named)", m: "in #1652", h: "#w1m" },
   { d: 1, g: "✓", c: "ship", l: "W1.R · the rewiring — serve complete · client onto the surface · root RPC dies · seal", m: "in #1652", h: "#w1r" },
-  { d: 0, g: "○", c: "prog", l: "W2 · padi the process — 3 PRs ↓ · byte-identical · warm restarts", m: "needs W1 ✓", h: "#w2" },
+  { d: 0, g: "✓", c: "ship", l: "W2 · padi the process — 3 PRs · byte-identical · warm restarts", m: "all shipped", h: "#w2" },
   { d: 1, g: "✓", c: "ship", l: "W2.1 · the re-serve machinery in @kolu/surface* — forwarding policy · per-binding scope", m: "#1661 · drishti #84 adopts", h: "#w21" },
   { d: 1, g: "✓", c: "ship", l: "W2.2 · padi the process — ONE PR: binary + identity + owns kaval + the cutover (bind · re-serve · store migration)", m: "#1664 · 2026-07-03", h: "#w22" },
-  { d: 1, g: "▶", c: "prog", l: "W2.3 · dial carve + padi-tui born + the burial — wait/status/create/worktree · pulam* retired · terminalWorkspaceSurface DELETED", m: "READY — W2.2 ✓", h: "#w23" },
-  { d: 0, g: "○", c: "prog", l: "W3 · remote + the switch — 3 PRs ↓ · the user-visible feature", m: "needs W2", h: "#w3" },
-  { d: 1, g: "○", c: "prog", l: "W3.1 · the remote binding — provision + front a remote padi (complete, invisible)", m: "parity e2e on a pu box", h: "#w31" },
+  { d: 1, g: "✓", c: "ship", l: "W2.3 · dial carve + padi-tui born + the burial — wait/status/create/worktree · pulam* retired · terminalWorkspaceSurface DELETED", m: "#1665 · 2026-07-03", h: "#w23" },
+  { d: 0, g: "▶", c: "prog", l: "W3 · remote + the switch — 3 PRs ↓ · the user-visible feature", m: "READY — W2 ✓", h: "#w3" },
+  { d: 1, g: "▶", c: "prog", l: "W3.1 · the remote binding — provision + front a remote padi (complete, invisible)", m: "NEXT — parity e2e on a pu box", h: "#w31" },
   { d: 1, g: "○", c: "prog", l: "W3.2 · the switch — binding pool · per-view scope · host picker · clock handshake", m: "needs W3.1", h: "#w32" },
   { d: 1, g: "○", c: "prog", l: "W3.3 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W3.2", h: "#w33" },
   { d: 0, g: "○", c: "prog", l: "W4 · consolidation — refactors · decomplecting · electricity upstreaming · deletions", m: "→ the ledger note", h: "padi-cleanup.html" },
@@ -66,9 +66,9 @@ export const LENS = [
   { p: "W1", h: "#w1", done: true, user: "nothing — pixels byte-identical, pinned by tests", vis: false, work: 4, why: "the client re-wired member-by-member; the root RPC namespace dies; one new contract",
     beh: "same process, but the rewiring stages (ΔR) changed how data flows — timestamps now stamped by the server · the Code tab re-fetches on change instead of receiving pushed values · preview bytes come through a procedure (with ranges), not a raw HTTP route · restore runs server-side (the old respawn race is gone); C and M changed nothing by construction",
     sub: [["C",2,false,true],["M",2,false,true],["R",4,true,true]] },
-  { p: "W2", h: "#w2", user: "nothing — except kolu-server restarts stop losing terminal metadata", vis: false, work: 5, why: "process split · new daemon identity · re-serve machinery (drishti-gated) · store migration",
+  { p: "W2", h: "#w2", done: true, user: "nothing — except kolu-server restarts stop losing terminal metadata", vis: false, work: 5, why: "process split · new daemon identity · re-serve machinery (drishti-gated) · store migration",
     beh: "the big shift, behind identical pixels — Δ2.2 a second daemon appears; sockets get new names (kaval-<port> retires); keystrokes take one extra hop (budget < 5ms); boot order changes; the session file moves (one-time import) · Δ2.3 `pulam-tui wait` becomes padi's wait",
-    sub: [["2.1",4,false,true],["2.2",5,true,true],["2.3",2,true]] },
+    sub: [["2.1",4,false,true],["2.2",5,true,true],["2.3",2,true,true]] },
   { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)",
     beh: "Δ3.2 each connection now belongs to one host — the client rebuilds its plumbing when you switch · Δ3.3 notifications now fire for hosts you are not looking at (3.1 ships switched off by default)",
     sub: [["3.1",2],["3.2",3,true],["3.3",1,true]] },
@@ -318,7 +318,13 @@ W1.R's seal guarantees the domain lives behind the contract, complete as a libra
 
 <a id="w23"></a>
 
-#### W2.3 — padi-tui is born, and the burial *(needs W2.2)*
+#### W2.3 — padi-tui is born, and the burial — *shipped* <PrLink pr={1665} />
+
+**Shipped 2026-07-03** (squash `30ea598fa`) — all three movements: the **dial carve** (`connectPadi` + `dialPadiHello` → `@kolu/padi/dial`, the shared client-side dial kit; supervision/convergence/re-serve stay binder-only; the seal's allowed set is exactly `{assembly, surface, dial, log}`); **padi-tui born** (wait/status with the two-phase done-signal off real agent state · `create --parent` · `create --worktree <branch> -- <agent>` · the `activity` stream lit LIVE with lazy kaval byte-taps, landing with its first consumer · **`$PADI_SOCKET` stamped on every padi-spawned terminal** so the agent-drives-agent loop is flagless · nix wrapper + home-manager `padiTuiPackage`); and **the burial** (packages/pulam + pulam-tui deleted; `terminalWorkspaceSurface` + its assemblers DELETED — the fs/git handlers absorbed into padi typed against padiSurface, `@kolu/terminal-workspace` now exports sensors·fold·schema·endpoint·agentProjection only; the legacy-conf **fossils stripped** by a 1.31 migration that **backs the file up first** (`config.json.pre-1.31-strip.bak`) — and padi's one-shot import learned to **read from that bak** when a direct pre-W2.2→W2.3 jump strips the live file before import, closing that hole at zero loss; `/kolu` skill + Inspector reference rewritten to padi-tui with the two-phase stale-state pattern preserved; kolu-server's conf now carries exactly `preferences` + markers). Review was checkpoint-driven (delete-list sanity, the A/B untangles, the bak-aware import) with the gauntlet at the end; CI green both platforms; pu-box two-phase evidence recorded on the PR.
+
+Original plan text below, kept as the record.
+
+#### W2.3 — the original plan *(superseded by the shipped record above)*
 
 **First, the dial kit moves home**: `connectPadi` (state-root→digest→socket resolve · control-core handshake · typed skew refusal · the padiSurface client) is carved out of `packages/server/src/padiBinding.ts` into a **`@kolu/padi/dial`** entry — the kaval precedent: a daemon's package owns its client-side dial kit. kolu-server and padi-tui both import it (the seal's allowed-entries list grows by `/dial`); supervision/re-serve stay binder-only, the verbs stay tui-only. **Zero `@kolu/surface*` edits in this phase** — if a helper feels missing (e.g. wait-until-predicate over a collection), hand-roll it in padi-tui and note it on the W4 ledger (its upstreaming is gated on kolu-tui — W5 — as the second consumer that forces the honest split).
 
@@ -335,9 +341,22 @@ Then **pulam-tui and the pulam daemon retire** — padi-tui's `wait` takes over 
 
 <a id="w31"></a>
 
-#### W3.1 — the remote binding *(needs W2.3; complete but invisible)*
+#### W3.1 — the remote binding *(READY — the next PR; complete but invisible)*
 
-The named path this PR exists to prove: **`padiSurface` consumed over ssh**. Arch-keyed drv maps for padi (kaval rides *inside* padi's closure reference — one `provisionAgent` dial provisions both); `getHostSession` + `frontDaemonOverStdio` front the remote padi exactly as kaval-tui fronts kaval; blip-survival from `HostSession` reconnect + the durable daemon; the remote binding is reachable via a config/env knob only — **no UI yet**.
+The named path this PR exists to prove: **`padiSurface` consumed over ssh**. The done-criterion can only be met by driving the ssh leg — no local shortcut satisfies it.
+
+**What W2 already built for this (reuse, do not reinvent):**
+- **The re-serve seam is session-shaped and published**: `RemoteMirrorSession<C>` (`surface-nix-host`, published + variance-fixed in W2.2) is the receptacle both session kinds plug into — `PadiBindingSession` (local Endpoint) today, **`HostSession` (ssh) is the second arm** — so the remote leg slots into `reServeSurface` exactly where the local one does. The per-member forwarding policy (values hold-open · `terminalAttach`/`activity` fail-through) applies unchanged over ssh.
+- **The dial kit is shared**: `@kolu/padi/dial` (`connectPadi`, `dialPadiHello`, typed skew refusal) is transport-shaped by the link it's handed — the ssh leg fronts padi via `frontDaemonOverStdio` (adopt-or-spawn, never kills — same policy as the local binder) exactly as `kaval-tui --host` fronts kaval.
+- **Convergence works remotely by construction**: the control core (hello · version · drain · clock.now) is reachable under skew over any link; #1671's build-mismatch drain + the newest-wins arm apply to a remote padi identically (once-per-binder-boot fence included). The L3 convergence kit, if merged by then, is the same calls behind a cleaner seam.
+- **Identity needs nothing new**: the remote padi spells its own default state-root on ITS host ($HOME/.local/state/padi); the binder passes nothing. A fresh remote has no `KOLU_STATE_DIR` → the legacy import correctly no-ops. Digest rendezvous, pid-gate, 0700 socket: all host-local machinery, unchanged.
+
+**What this PR must build:**
+- **Nix provisioning**: an arch-keyed drv map for padi (`{system → drvPath}` env map, the retired `pulamAgentDrvsJson` pattern) — kaval rides INSIDE padi's closure (`KOLU_KAVAL_BIN` is baked in padi's wrapper), so **one `provisionAgent` dial provisions both**; `resolveSystem` probes the remote arch.
+- **The binding**: `getHostSession({host, binary: "padi"})` → `frontDaemonOverStdio` → control-core handshake → re-serve via the `RemoteMirrorSession` arm. Blip-survival = `HostSession` reconnect + the durable daemon (PTYs live in the remote kaval regardless).
+- **The knob**: a config/env selector for the bound host (e.g. `KOLU_PADI_HOST=<ssh host>`), **off by default, no UI** — the ChromeBar switcher is W3.2.
+- **The ssh-user caveat carries over** (from the kaval-sessions era, still true): the remote padi runs as the SSH user; its sockets are 0700 owner-only, so the SSH identity IS the daemon owner.
+- **Latency**: no fixed budget (network-dependent) — but run the typing-echo bench over the ssh leg and record the numbers in the PR as the W3 reference point.
 - **Done:** the remote-canvas **parity checklist e2e** against a real ssh host (a pu box): PTY echo · Code tab git/diff/tree · binary preview · paste/upload · transcript export (all three agent kinds) · sleep/wake · worktree flow · kolu-server restart re-adopt · browser reload re-dial · host-reboot park-and-restore — every axis, plus all local e2e green. *The done-criterion can only be met by driving the ssh leg — no local shortcut satisfies it.*
 
 <a id="w32"></a>

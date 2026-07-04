@@ -18,8 +18,8 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L1 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) — and L4 at a named version; L5's remaining half (video-ext table)
-- **Gated:** L6, L7 on W2.3 · L11 on W3.2 · L2 on kolu-tui (W5) · L3 on #1670 landing (then ready — upgraded scope, prioritized) · L9, L22 on evidence
+- **Ready now:** L1 · L6 · L7 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) — and L4 at a named version; L5's remaining half (video-ext table)
+- **Gated:** L11 on W3.2 · L2 on kolu-tui (W5) · L9, L22 on evidence — L3 is IN FLIGHT (the convergence-kit PR, stacked on merged #1671)
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
@@ -70,7 +70,7 @@ Places where a phase's landing changes what the right boundary *is* — each nee
 
 ### L6 — re-audit `padiBinding.ts` after the dial carve
 
-*Status: gated on W2.3 landing · Lens: hickey (three concerns in one file?) · Gate: none (kolu-internal)*
+*Status: READY (W2.3 shipped 2026-07-03) · Lens: hickey (three concerns in one file?) · Gate: none (kolu-internal)*
 
 After W2.3 moves `connectPadi` into `@kolu/padi/dial`, what remains in `packages/server/src/padiBinding.ts` is roughly: the spawn/supervise driver (`localPadiDriver`, adopt-or-spawn-or-refuse, the legacy-kaval hint), the reconnect session (`PadiBindingSession`), and the re-serve wiring. Question for the audit: do these change for the same reason? The supervisor changes with daemon-lifecycle policy; the re-serve changes with the surface contract; the session bridges them. If the file reads as three braided concerns, split it (`padiSupervision.ts` / the session / re-serve wiring already partly in `reServeSurface` usage); if it reads as one binder concern with three paragraphs, leave it and record that verdict here.
 
@@ -82,7 +82,7 @@ After W2.3 moves `connectPadi` into `@kolu/padi/dial`, what remains in `packages
 
 ### L7 — re-cut `@kolu/terminal-workspace` after the burial
 
-*Status: gated on W2.3 landing · Lens: lowy (a package whose reason-to-exist changed) · Gate: none expected (verify no drishti surface touched)*
+*Status: READY (W2.3 shipped — the burial already absorbed the fs/git assemblers into padi and shrank the library to sensors·fold·schema·endpoint·agentProjection; re-verify what remains before cutting) · Lens: lowy (a package whose reason-to-exist changed) · Gate: none expected (verify no drishti surface touched)*
 
 terminal-workspace was born as "one library, two homes" (kolu + pulam). After W2.3 buries pulam and deletes the package's surface, its consumers are padi (sensors · fold · endpoint — node-side internals) and the client (schema · `agentProjection` — browser-safe vocabulary). That's two *different* consumer sets for two *different* halves — a sign the package boundary now cuts nothing.
 
@@ -208,7 +208,7 @@ The W2.2 adopter (a deploy adopts a running pre-W2.2 port-keyed kaval; converges
 
 ### L8 — doc-and-comment sweep for the buried world
 
-*Status: ready after W2.3 · Lens: hygiene · Gate: none*
+*Status: READY (W2.3 shipped) · Lens: hygiene · Gate: none*
 
 Comments and READMEs across the surface stack still cite pulam/pulam-web as their graduation examples, and pre-padi topology descriptions ("kolu-server spawns kaval", per-port sockets) linger in prose. Sweep: `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus the package READMEs; update each to the padi-era truth or delete. **Atlas notes are exempt** — they're historical record; this entry is *code-adjacent* prose only.
 
