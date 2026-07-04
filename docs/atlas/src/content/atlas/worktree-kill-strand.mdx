@@ -1,0 +1,283 @@
+---
+title: Closing a worktree can strand a running terminal at a deleted cwd
+description: A failed PTY kill is swallowed at every layer — the padi endpoint unregisters anyway and the client evicts anyway — so the worktree is removed out from under a still-running shell. Fix (one PR) — surface the kill failure as a typed error, keep the entry, and abort the worktree removal, mirroring the sleeping-terminal discard path that already does this.
+parents: [bug]
+status: proposed
+maturity: seedling
+updated: 2026-07-04
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import diagram from "../../diagrams/worktree-kill-strand.svg?raw";
+
+Plan of record · branch `aged-break` · [issue #1666](https://github.com/juspay/kolu/issues/1666) · **`status: proposed`**
+
+The **Close and remove worktree** action closes a terminal and then deletes its
+git worktree. If the close's PTY kill *fails*, the flow deletes the worktree
+anyway — leaving a still-running shell sitting in a directory that no longer
+exists. The issue was filed from the W4 comprehensiveness sweep as a code-path
+defect: a swallowed error nobody had turned into a real failure yet.
+
+<Callout kind="danger" title="Root cause — the failure signal is dropped twice">
+A kill failure has to travel back up from kaval to the client for the worktree
+removal to know to stop. It never arrives. **The padi endpoint** catches the
+pty-host kill error and *unregisters the terminal anyway*, then returns success
+(`terminalEndpoint/local.ts:956` — "pty-host kill failed; unregistering anyway").
+**The client's `handleKill`** then swallows *any* error and evicts the tile
+anyway (`useTerminalCrud.ts:242` — `catch {}`). So `handleKillWorktree` sees a
+clean success and removes the worktree. The one error code the client *can* see
+today — `NOT_FOUND` — is the *benign* "already exited" case, so the issue's
+one-line "just check the client" framing would fix nothing: there is no genuine
+failure to catch until the endpoint stops hiding it.
+</Callout>
+
+## What a user sees
+
+Today, closing a worktree whose terminal can't be killed **silently removes the
+worktree** and drops the tile — the shell keeps running, orphaned, in a deleted
+directory, with no UI handle left to stop it. After this fix, the worktree is
+**kept**, the tile **stays**, and a toast explains why — so the user can retry
+once the terminal host is reachable again. This is exactly how closing a
+**sleeping** terminal's worktree already behaves when its discard fails; the fix
+brings the *active* path in line.
+
+export const Outcome = () => (
+  <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "1.5rem 0", fontFamily: "ui-sans-serif,system-ui" }}>
+    {[
+      {
+        tag: "today — broken",
+        tagBg: "#fdecea", tagFg: "#b42318", border: "#f3c9c4",
+        steps: [
+          "you pick “Close and remove worktree”",
+          "the terminal host is unreachable → the PTY kill fails",
+          "endpoint unregisters anyway · client evicts anyway",
+        ],
+        outcome: "✗ worktree deleted · tile gone · a live shell stranded at a path that no longer exists",
+        outcomeFg: "#b42318",
+        toast: null,
+      },
+      {
+        tag: "this plan — fixed",
+        tagBg: "#e3f4e9", tagFg: "#1b7a3a", border: "#bce3c8",
+        steps: [
+          "you pick “Close and remove worktree”",
+          "the PTY kill fails → the endpoint surfaces it, keeps the terminal",
+          "handleKill returns false → the removal is aborted",
+        ],
+        outcome: "✓ worktree kept · tile stays · retry when the host is back",
+        outcomeFg: "#1b7a3a",
+        toast: "Failed to close terminal: the terminal host is unreachable, so the kill could not be confirmed",
+      },
+    ].map((c) => (
+      <div style={{ flex: "1 1 20rem", border: `1px solid ${c.border}`, borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 12px rgba(0,0,0,.06)" }}>
+        <div style={{ padding: ".4rem .8rem", background: c.tagBg, color: c.tagFg, font: "600 .72rem/1 ui-monospace,monospace", borderBottom: `1px solid ${c.border}` }}>{c.tag}</div>
+        <div style={{ padding: ".9rem 1rem", background: "#fff" }}>
+          <ol style={{ margin: 0, paddingLeft: "1.1rem", fontSize: ".78rem", color: "#4a4f57", lineHeight: 1.55 }}>
+            {c.steps.map((s) => <li>{s}</li>)}
+          </ol>
+          {c.toast && (
+            <div style={{ marginTop: ".8rem", display: "flex", gap: ".5rem", alignItems: "flex-start", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "8px", padding: ".5rem .6rem" }}>
+              <span style={{ color: "#dc2626", fontWeight: 700, fontSize: ".85rem", lineHeight: 1.2 }}>⚠</span>
+              <span style={{ fontSize: ".72rem", color: "#7f1d1d", lineHeight: 1.4 }}>{c.toast}</span>
+            </div>
+          )}
+          <div style={{ marginTop: ".8rem", paddingTop: ".6rem", borderTop: "1px dashed #e6e2d6", fontSize: ".78rem", fontWeight: 600, color: c.outcomeFg }}>{c.outcome}</div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+<Outcome />
+
+There is **no new UI, no new setting, no new affordance** — the only visible
+change is that a failed close now shows an error toast (the repo's standard
+`toast.error`, red via `richColors`) and *doesn't* destroy anything. On the
+happy path (the kill succeeds, the overwhelmingly common case) nothing changes
+at all.
+
+## Architecture — one chokepoint, one contract inversion
+
+<Svg svg={diagram} caption="The five-layer kill path, before and after. A kill fails at kaval's transport; today it's swallowed at the padi endpoint and again at the client, so the worktree is removed. The fix removes both swallow points: the endpoint throws a typed terminalKillFailed and keeps the entry; the client's handleKill returns false; handleKillWorktree aborts the removal." />
+
+The fix is **one coherent change threading three existing seams** — it warrants a
+single PR, not a staged rollout.
+
+**The volatility this touches is already bounded — this is a leaf change, not a
+new boundary.** Nothing here is a domain-agnostic capability hiding a hard
+volatility, so no new `@kolu/*` package is involved. It edits the terminal
+lifecycle in place: one server chokepoint (`endpoint.killTerminal`), one typed
+error beside an existing one, and two client handlers.
+
+**Reuse the source of truth — the abort pattern already exists.** The
+sleeping-terminal path solved this exact problem for the *discard* case:
+`handleDiscard` returns `false` on a surfaced failure, and `handleKillWorktree`
+bails before removing the worktree (`useWorktreeOps.ts:86` — `if (!discarded)
+return;`). The active path just never got the mirror guard. So `handleKill`
+learns to return a boolean the same way `handleDiscard` does, and the active
+branch gains the same `if (!allKilled) return;`. No parallel mechanism is
+invented; the fix makes two siblings symmetric.
+
+**Fail fast — the swallow *is* the defect.** The endpoint's "catch → unregister
+anyway → return success" is textbook graceful-degradation: it pretends a kill
+succeeded so the UI stays tidy, at the cost of a destructive follow-up firing on
+an unconfirmed result. The interface contract even *documents* this as
+intentional (`endpoint.ts:131` — "it still unregisters (so a failed kill never
+strands a dead entry in the UI) and relies on reattach-time reconciliation ...
+to reap any surviving orphan"). This fix **inverts that contract**: on a genuine
+failure the endpoint *keeps* the entry and *throws*, so the caller can decline a
+destructive follow-up and the user can retry. That doc comment is rewritten as
+part of the change.
+
+<Callout kind="note" title="Why keeping the entry is safe (not a stuck tile)">
+A genuine pty-host kill failure means the kaval **transport** failed — and a
+local unix socket doesn't blip while the process lives, so in practice kaval
+itself is down and its PTYs died with it. Keeping the entry can't strand a live
+shell against a *healthy* kaval, because a healthy kaval never fails the kill.
+The kept entry is not a permanent zombie: **(a)** a retry-kill closes it once
+kaval is reachable (kaval's kill is idempotent — `ptyHost.ts:859`); **(b)** the
+boot adopt-or-reap reconcile *drops* a saved active entry whose PTY is gone and
+*re-adopts* one still alive (`reconcile.ts` — unit-pinned in `reconcile.test.ts`);
+and **(c)** "Restart kaval" drains and re-parks everything. This mirrors
+`releaseSleptPty`, which already keeps its (sleeping) record on a kill failure
+and leans on the same reconcile.<Footnote>One honest residual: `killTerminal`
+tears sensors down *before* the kill (`local.ts:955`, deliberately — so the
+kill's own exit event can't double-fire `handleExit`). A kept entry is therefore
+sensorless until a retry/recycle/boot re-arms it. But this window is exactly when
+the *whole* kaval endpoint is `degraded` and every tile is stale anyway, so the
+fix simply keeps this one tile present (so it's retryable) instead of vanishing
+it. Re-arming sensors on the failure path is both impossible — the link is down,
+you can't subscribe — and redundant, since every recovery path rebuilds from the
+saved session. So the fix does **not** attempt it.</Footnote>
+</Callout>
+
+## Implementation
+
+Three edits plus tests and docs. File-level integration points, in dependency
+order:
+
+**1 · Mint the typed error** — `packages/padi/src/terminal-registry.ts`, beside
+`terminalNotFound` (line 291). oRPC scrubs *bare* errors to an opaque "Internal
+server error", so the failure must be a **typed** `ORPCError` to reach the client
+with a legible message. A custom code round-trips fine (the repo already ships
+one — `SURFACE_STDIO_FRAME_DECODE_FAILED` in `surface/src/links/stdio-codec.ts`):
+
+```ts
+export function terminalKillFailed(id: string): ORPCError<"TERMINAL_KILL_FAILED", undefined> {
+  return new ORPCError("TERMINAL_KILL_FAILED", {
+    message: `Terminal ${id}: the terminal host is unreachable, so the kill could not be confirmed`,
+  });
+}
+```
+
+**2 · Stop swallowing at the endpoint** — `packages/padi/src/terminalEndpoint/local.ts:956-960`.
+Replace the catch-and-unregister with a throw that keeps the entry (do **not**
+call `cleanupTerminalScratch` / `finalizeRemoval` on this path):
+
+```ts
+try {
+  await ptyHostClient.surface.terminal.kill({ id });
+} catch (err) {
+  tlog.error({ err }, "pty-host kill failed; keeping the entry so the PTY isn't orphaned");
+  throw terminalKillFailed(id);
+}
+cleanupTerminalScratch(id);
+this.finalizeRemoval(id);
+return entry.info;
+```
+
+The `!info` → `terminalNotFound` translation in the surface handler
+(`servePadi.ts:290`) is unchanged: `killTerminal` still *returns* `undefined`
+for a not-active id (the benign `NOT_FOUND`), and now *throws* the distinct
+`TERMINAL_KILL_FAILED` for a genuine failure. Rewrite the `TerminalEndpoint`
+interface doc (`endpoint.ts:128-134`) to describe the new contract (keep-and-throw
+on a genuine failure; `undefined` still means "was not an active terminal").
+
+**3 · Distinguish and abort in the client** — `packages/client/src/terminal/`.
+Add `import { ORPCError } from "@orpc/client";` to `useTerminalCrud.ts` (the
+repo's sole idiom for reading a code — `useTerminals.ts:80`). Make `handleKill`
+return a boolean, evicting on success **or** the benign `NOT_FOUND`, and
+surfacing-without-evicting on a genuine failure (mirrors `handleDiscard`,
+`useTerminalCrud.ts:320`):
+
+```ts
+async function handleKill(id: TerminalId): Promise<boolean> {
+  try {
+    await padiRpc(padi).surface.lifecycle.kill({ id });
+  } catch (err) {
+    // NOT_FOUND = already exited → benign; fall through and evict.
+    if (!(err instanceof ORPCError && err.code === "NOT_FOUND")) {
+      toast.error(`Failed to close terminal: ${(err as Error).message}`);
+      return false; // the PTY may still be alive — do NOT evict
+    }
+  }
+  removeAndAutoSwitch(id);
+  return true;
+}
+```
+
+Then gate the worktree removal in `useWorktreeOps.ts:88-92` (the active
+`else`-branch), mirroring the sleeping arm's `if (!discarded) return;`:
+
+```ts
+} else {
+  const subs = store.getSubTerminalIds(id);
+  let allKilled = true;
+  for (const subId of subs) allKilled = (await deps.handleKill(subId)) && allKilled;
+  allKilled = (await deps.handleKill(id)) && allKilled;
+  if (!allKilled) return; // don't strand a live shell at a deleted cwd
+}
+```
+
+`handleKill`'s other callers (`App.tsx`, `handleKillWithSubs`, `handleSleep`'s
+sub-kills) ignore the return via `void`/`await` — unaffected, and they inherit
+the honest new behavior (a failed close now surfaces instead of silently
+evicting).
+
+### Tests — two red repros, one per swallow point
+
+Both run under vitest's default **node** env (no DOM); neither package sets an
+`environment`. Run one file with `pnpm --filter @kolu/padi exec vitest run <file>`
+/ `pnpm --filter kolu-client exec vitest run <file>` (wrapped in the nix shell,
+as `just test-unit` does).
+
+- **Server** — new `packages/padi/src/terminalEndpoint/killTerminal.test.ts`.
+  Template: `ptyHost/restartLocal.test.ts` (its `fakeEndpoint` + `__setEndpointForTest`,
+  `ptyHost/index.ts:183`) plus `sleepWake.test.ts`'s registry seeding
+  (`registerTerminal` + `setPadiSurfaceCtx` + `setDaemonProcessId`). The kill's
+  real seam is the module-level `ptyHostClient`, **not** the `endpoint` arg of
+  `buildPadiSurfaceDeps` (that backs only fs/git). *Red fact:* with an active
+  terminal and a fake whose `surface.terminal.kill` **rejects**,
+  `killTerminal(id)` currently *resolves* and *unregisters* — the test asserts it
+  **rejects with a code ≠ `NOT_FOUND`** and `getTerminal(id)` is **still defined**.
+  Control: an absent id → returns `undefined` (→ `NOT_FOUND`).
+- **Client** — new `packages/client/src/terminal/useWorktreeOps.test.ts`.
+  Template: `useSessionRestore.test.ts` (mock `../wire` → `{ padi: {} }`,
+  `@kolu/padi/surface` → **both** `padiRpc` *and* `sleepingArm`, and `solid-sonner`;
+  hoisted spies; a stub `store`). Deps are injected, so pass a stub
+  `handleKill`. *Red fact:* with an active-worktree meta and `handleKill`
+  resolving **false**, `handleKillWorktree(id)` currently still calls
+  `worktreeRemove` — the test asserts it is **never called**. Controls:
+  `handleKill` → `true` removes it; the sleeping arm (`handleDiscard` → `false`)
+  still aborts (regression guard).
+
+### Docs & changelog
+
+- **`endpoint.ts:128-134`** interface doc — rewrite to the new contract (above).
+- **`website/src/content/changelog/unreleased.mdx`** — one line under `### Fixed`
+  (a user-facing correctness fix). PR link backfilled after the PR exists.
+- Grep of `README.md` / `packages/*/README.md` / `website/` / `docs/atlas/` for
+  the touched terms surfaced **no** user-facing prose describing the old
+  swallow behavior (only changelog #1633, an unrelated already-shipped fix), so
+  no marketing/README edits are needed — this note is the doc home.
+
+<Callout kind="note" title="Evidence angle">
+This is a fault-injection fix — the failure only fires when the terminal host is
+unreachable, which no e2e scenario reaches organically. The primary proof is the
+two red→green repros; the visible artifact is the error toast plus the surviving
+worktree directory. Evidence is captured at ship time per the run's PR-evidence
+procedure.
+</Callout>

@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 566" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The worktree-close kill path as five layers, drawn before and after the fix. The kill request flows down: handleKillWorktree, then handleKill in the client, then padi's surface kill handler, then padi's endpoint killTerminal, then kaval's pty-host kill. At the bottom kaval's kill fails on a transport error. On the left, TODAY: the endpoint catches the failure and unregisters the terminal anyway, reporting success; the surface reports success; the client's handleKill swallows the error and evicts the tile; so handleKillWorktree removes the worktree — stranding a still-running shell at a deleted cwd. On the right, THIS FIX: the endpoint throws a typed terminalKillFailed error and keeps the registry entry; the surface propagates it; handleKill returns false without evicting; so handleKillWorktree aborts the worktree removal — the tile stays and the user can retry, exactly like the sleeping-terminal discard path already does.">
+  <defs>
+    <marker id="wks-down" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#64748b"/></marker>
+    <marker id="wks-red" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/></marker>
+    <marker id="wks-green" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#16a34a"/></marker>
+  </defs>
+
+  <text x="440" y="26" text-anchor="middle" font-size="15" font-weight="700" fill="#0f172a">One failed kill, swallowed at every layer — vs surfaced and aborted</text>
+
+  <!-- ===================== BEFORE column ===================== -->
+  <text x="215" y="56" text-anchor="middle" font-size="12.5" font-weight="700" fill="#b91c1c">TODAY — the failure is swallowed</text>
+
+  <!-- down arrow: kill request -->
+  <line x1="72" y1="80" x2="72" y2="392" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#wks-down)"/>
+  <text x="66" y="238" text-anchor="middle" font-size="10.5" fill="#64748b" transform="rotate(-90 66 238)">kill request ↓</text>
+
+  <!-- nodes -->
+  <g font-size="12">
+    <rect x="92" y="76" width="246" height="44" rx="9" fill="#eef2ff" stroke="#c7d2fe"/>
+    <text x="215" y="94" text-anchor="middle" font-weight="700" fill="#3730a3">handleKillWorktree</text>
+    <text x="215" y="110" text-anchor="middle" font-size="10.5" fill="#dc2626" font-weight="600">removes the worktree ✗ (strand)</text>
+
+    <rect x="92" y="140" width="246" height="44" rx="9" fill="#eef2ff" stroke="#c7d2fe"/>
+    <text x="215" y="158" text-anchor="middle" font-weight="700" fill="#3730a3">handleKill (client)</text>
+    <text x="215" y="174" text-anchor="middle" font-size="10.5" fill="#dc2626" font-weight="600">catch {} → evicts anyway ✗</text>
+
+    <rect x="92" y="204" width="246" height="40" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="215" y="220" text-anchor="middle" font-weight="700" fill="#334155">surface.lifecycle.kill</text>
+    <text x="215" y="235" text-anchor="middle" font-size="10.5" fill="#64748b">reports success</text>
+
+    <rect x="92" y="264" width="246" height="44" rx="9" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+    <text x="215" y="282" text-anchor="middle" font-weight="700" fill="#b91c1c">endpoint.killTerminal</text>
+    <text x="215" y="298" text-anchor="middle" font-size="10.5" fill="#dc2626" font-weight="600">catch → unregister anyway ✗</text>
+
+    <rect x="92" y="328" width="246" height="44" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="215" y="346" text-anchor="middle" font-weight="700" fill="#334155">kaval pty-host.kill</text>
+    <text x="215" y="362" text-anchor="middle" font-size="10.5" fill="#dc2626" font-weight="600">transport fails ✗</text>
+  </g>
+
+  <!-- return signal (dies at the endpoint) -->
+  <line x1="352" y1="350" x2="352" y2="288" stroke="#dc2626" stroke-width="2" marker-end="url(#wks-red)"/>
+  <text x="372" y="322" font-size="10.5" fill="#b91c1c" font-weight="600" transform="rotate(-90 372 322)">failure ↑</text>
+  <text x="352" y="258" text-anchor="middle" font-size="16" font-weight="800" fill="#dc2626">✕</text>
+  <text x="352" y="246" text-anchor="middle" font-size="9" fill="#b91c1c">dropped</text>
+
+  <!-- outcome -->
+  <rect x="92" y="410" width="246" height="46" rx="9" fill="#fef2f2" stroke="#fca5a5"/>
+  <text x="215" y="430" text-anchor="middle" font-size="11.5" font-weight="700" fill="#b91c1c">worktree removed · tile gone</text>
+  <text x="215" y="447" text-anchor="middle" font-size="10.5" fill="#b91c1c">a live shell stranded at a deleted cwd</text>
+
+  <!-- ===================== divider ===================== -->
+  <line x1="440" y1="72" x2="440" y2="470" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <!-- ===================== AFTER column ===================== -->
+  <text x="665" y="56" text-anchor="middle" font-size="12.5" font-weight="700" fill="#15803d">THIS FIX — surfaced &amp; aborted</text>
+
+  <line x1="522" y1="80" x2="522" y2="392" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#wks-down)"/>
+  <text x="516" y="238" text-anchor="middle" font-size="10.5" fill="#64748b" transform="rotate(-90 516 238)">kill request ↓</text>
+
+  <g font-size="12">
+    <rect x="542" y="76" width="246" height="44" rx="9" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+    <text x="665" y="94" text-anchor="middle" font-weight="700" fill="#166534">handleKillWorktree</text>
+    <text x="665" y="110" text-anchor="middle" font-size="10.5" fill="#15803d" font-weight="600">aborts removal ✓ (worktree kept)</text>
+
+    <rect x="542" y="140" width="246" height="44" rx="9" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+    <text x="665" y="158" text-anchor="middle" font-weight="700" fill="#166534">handleKill (client)</text>
+    <text x="665" y="174" text-anchor="middle" font-size="10.5" fill="#15803d" font-weight="600">returns false, no evict ✓</text>
+
+    <rect x="542" y="204" width="246" height="40" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="665" y="220" text-anchor="middle" font-weight="700" fill="#334155">surface.lifecycle.kill</text>
+    <text x="665" y="235" text-anchor="middle" font-size="10.5" fill="#64748b">propagates the typed error</text>
+
+    <rect x="542" y="264" width="246" height="44" rx="9" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+    <text x="665" y="282" text-anchor="middle" font-weight="700" fill="#166534">endpoint.killTerminal</text>
+    <text x="665" y="298" text-anchor="middle" font-size="10.5" fill="#15803d" font-weight="600">throw terminalKillFailed · keep entry</text>
+
+    <rect x="542" y="328" width="246" height="44" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="665" y="346" text-anchor="middle" font-weight="700" fill="#334155">kaval pty-host.kill</text>
+    <text x="665" y="362" text-anchor="middle" font-size="10.5" fill="#dc2626" font-weight="600">transport fails ✗</text>
+  </g>
+
+  <!-- return signal (propagates all the way up) -->
+  <line x1="802" y1="350" x2="802" y2="90" stroke="#16a34a" stroke-width="2" marker-end="url(#wks-green)"/>
+  <text x="820" y="230" font-size="10.5" fill="#15803d" font-weight="600" transform="rotate(-90 820 230)">failure ↑ propagates</text>
+
+  <!-- outcome -->
+  <rect x="542" y="410" width="246" height="46" rx="9" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="665" y="430" text-anchor="middle" font-size="11.5" font-weight="700" fill="#166534">worktree kept · tile stays</text>
+  <text x="665" y="447" text-anchor="middle" font-size="10.5" fill="#15803d">toast shown · retry once kaval is back</text>
+
+  <!-- footer note -->
+  <text x="440" y="500" text-anchor="middle" font-size="11" fill="#475569">The fix mirrors the sleeping-terminal <tspan font-style="italic">discard</tspan> path, which already aborts the removal when its close fails.</text>
+  <text x="440" y="520" text-anchor="middle" font-size="10.5" fill="#94a3b8">Two swallow points removed: the padi endpoint (keeps the entry, throws) and the client handleKill (returns false).</text>
+</svg>
