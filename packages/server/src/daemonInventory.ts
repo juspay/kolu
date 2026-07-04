@@ -255,15 +255,21 @@ export async function enumerateDaemonInventoryOnce(
         deps.legacyKavalSocket,
       )
     : null;
+  // The BOUND padi's honest identity (both arms) — read ONCE off the session's hello
+  // readouts (reused for boundPadi + the active-row annotation below).
+  const padiSurfaceVersion = deps.activePadiSurfaceVersion();
+  const padiBuildCommit = deps.activePadiBuildCommit();
   deps.publish({
     boundHost: deps.boundHost,
-    // The BOUND padi's honest identity (both arms) — read fresh off the session's hello
-    // readouts, so the Padi dialog's version + build-commit rows work over ssh even
-    // though no LOCAL padi is `active` under a remote binding.
-    boundPadi: {
-      surfaceVersion: deps.activePadiSurfaceVersion(),
-      buildCommit: deps.activePadiBuildCommit(),
-    },
+    // The Padi dialog's version + build-commit rows read THIS, so they work over ssh even
+    // though no LOCAL padi is `active` under a remote binding. `null` when BOTH are unknown
+    // (padi unbound / a survivor predating the fields) — matching the schema + the
+    // pre-enumeration default, so a consumer reads one "no identity" signal, not a
+    // {null,null} object that looks bound.
+    boundPadi:
+      padiSurfaceVersion === null && padiBuildCommit === null
+        ? null
+        : { surfaceVersion: padiSurfaceVersion, buildCommit: padiBuildCommit },
     kavals: assembleKavalInventory(
       kavalDaemons,
       probes,
@@ -276,8 +282,8 @@ export async function enumerateDaemonInventoryOnce(
       // socket — `assemblePadiInventory` then marks none active AND attributes the
       // remote padi's version/commit to nothing (they only annotate the active row).
       boundLocally ? deps.activePadiSocket : null,
-      deps.activePadiSurfaceVersion(),
-      deps.activePadiBuildCommit(),
+      padiSurfaceVersion,
+      padiBuildCommit,
     ),
   });
 }
