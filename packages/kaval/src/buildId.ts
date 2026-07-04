@@ -20,23 +20,30 @@
  * are absent and both return `""` — the readout shows nothing rather than
  * inventing an identity. Staleness is never computed here; it is a read-site
  * derivation (`staleKey !== currentBuildId()`) that phase B adds.
+ *
+ * The env-read RECIPE (which `<PREFIX>_*` vars, the `{ staleKey, navigableCommit }`
+ * shape, the off-nix `""` floor) is shared with padi via `readBakedIdentity` in
+ * `@kolu/surface-daemon` — these are the thin, kaval-prefixed façade over it, so the
+ * public `currentBuildId` / `currentCommitHash` / `currentPtyHostIdentity` names its
+ * callers use are unchanged.
  */
 
+import { readBakedIdentity } from "@kolu/surface-daemon";
 import type { PtyHostIdentity } from "./ptyHostSurface.ts";
+
+/** kaval's full identity — `{ staleKey, navigableCommit }` — read from the `KAVAL_*`
+ *  env namespace via the shared recipe. Phase B's separate daemon reuses this instead
+ *  of re-deriving the shape. */
+export function currentPtyHostIdentity(): PtyHostIdentity {
+  return readBakedIdentity("KAVAL");
+}
 
 /** The staleKey — the nix-baked hash of kaval's daemon source closure. */
 export function currentBuildId(): string {
-  return process.env.KAVAL_BUILD_ID ?? "";
+  return currentPtyHostIdentity().staleKey;
 }
 
 /** The navigable git commit this kaval was built from. */
 export function currentCommitHash(): string {
-  return process.env.KAVAL_COMMIT_HASH ?? "";
-}
-
-/** kaval's full identity — `{ staleKey, navigableCommit }` — assembled at the
- *  source that owns the reads, so the field mapping lives in one place. Phase
- *  B's separate daemon reuses this instead of re-deriving the shape. */
-export function currentPtyHostIdentity(): PtyHostIdentity {
-  return { staleKey: currentBuildId(), navigableCommit: currentCommitHash() };
+  return currentPtyHostIdentity().navigableCommit;
 }

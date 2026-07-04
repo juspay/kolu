@@ -36,6 +36,10 @@
  */
 
 export {
+  type DaemonBuildIdentity,
+  readBakedIdentity,
+} from "./buildIdentity.ts";
+export {
   type DaemonExit,
   daemonExitCode,
   type DaemonLifetime,
