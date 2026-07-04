@@ -114,15 +114,18 @@ with the daemon logging to a **deterministic file under its own identity**, in t
 
 | file | what | bound |
 | --- | --- | --- |
-| `<state-root>/padi.log` | padi's **pino** stream (the primary structured log — the WAL-watcher lines, domain events) via `pino-roll` | size-capped: **10 MB × 3** kept generations |
-| `<state-root>/padi.stderr.log` | padi's **raw stderr** crash-catcher — what pino can't see: native errors, an uncaught-exception / unhandled-rejection stack | **truncate-on-boot**: each boot rotates the previous to `.stderr.log.old` (one generation) |
+| `<state-root>/padi.log` | padi's **pino** stream (the primary structured log — the WAL-watcher lines, domain events) via `pino-roll`; the daemon logs it **AND** stderr together (a multistream), so a foreground dev run stays visible and journald / a crash file still work | size-capped: **10 MB × 3** kept generations |
+| `<state-root>/padi.stderr.log` | padi's **raw stderr** crash-catcher — what pino can't see: native errors, an uncaught-exception / unhandled-rejection stack. Wired **only when the spawn is DETACHING** (nobody holds the child's stderr); an attached/systemd spawn keeps its stderr in journald instead | **truncate-on-boot**: each boot rotates the previous to `.stderr.log.old` (one generation) |
 | `<kaval digest home>/kaval.log` | kaval has no pino — its stderr (the surface-daemon `stderrLogger`) **is** its log | truncate-on-boot (`.log.old`) |
 
 `<state-root>` is padi's persistent state root (`$KOLU_PADI_STATE_DIR`, else
 `~/.local/state/padi`); the kaval home is its digest-keyed runtime dir (beside its socket).
-The pino file is opt-in per daemon via `KOLU_PADI_DAEMON_LOG=1` (set by every real spawner),
-so tests / the front / in-process assembly keep plain stdout. To debug a remote box:
-`ssh <host> tail -f ~/.local/state/padi/padi.log` (or `.stderr.log` for a crash).
+**No env knob** — the two modes are structural: the **daemon entrypoint** (`runPadiDaemon`,
+which every spawn path runs) unconditionally logs to the multistream (and crashes loudly if
+the state root is unwritable), while the `--stdio` front, kolu-server's transitive import of
+padi domain modules, and any test that doesn't boot the daemon never run it and keep stdout.
+To debug a remote box: `ssh <host> tail -f ~/.local/state/padi/padi.log` (or `.stderr.log`
+for a detached crash).
 
 ## The export map (the `@kolu/terminal-workspace` split)
 

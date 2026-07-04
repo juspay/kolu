@@ -65,10 +65,10 @@ export interface DaemonSpawnConfig {
    *  unit would strip the build environment the source launcher needs.
    *  Defaults to `false`. */
   fromSource?: boolean;
-  /** Append the daemon's STDERR to this file so a daemon that OUTLIVES its supervisor still
-   *  leaves a readable log (P0). On the detached branch the child's stderr fd is the file; on
-   *  the systemd branch the transient unit gets `StandardError=append:<file>`. Absent → the
-   *  pre-P0 behavior (detached: ignored; systemd: journald only). The caller derives the path
+  /** A crash-catcher file for the daemon's raw STDERR, wired ONLY when this spawn is DETACHING
+   *  — detaching means nobody holds the child's stderr, so a file is mandatory (P0):
+   *  truncate-on-boot (one `.old` generation) keeps it bounded. An ATTACHED (systemd) spawn
+   *  keeps parent-owned stderr (journald) and IGNORES this. The caller derives the path
    *  deterministically from the daemon's identity. */
   stderrLog?: string;
 }
@@ -177,19 +177,12 @@ export function survivableSpawnDriver(
         env.INVOCATION_ID !== undefined &&
         env.INVOCATION_ID !== "";
 
-      // P0: give the daemon a deterministic stderr LOG FILE so it stays diagnosable after it
-      // outlives this supervisor. Under systemd the transient unit appends StandardError to
-      // it; on the detached branch the child's stderr fd IS it. Ensure the dir exists, and
-      // truncate-on-boot (keep ONE `.old` generation) so it never grows unbounded.
-      if (cfg.stderrLog) {
-        mkdirSync(dirname(cfg.stderrLog), { recursive: true });
-        if (existsSync(cfg.stderrLog))
-          renameSync(cfg.stderrLog, `${cfg.stderrLog}.old`);
-      }
-
       if (underSystemd) {
-        // systemd-run --user --collect --unit <prefix>-<uniq> \
-        //   [--property=StandardError=append:<log>] --setenv K=V ... <binPath> <args...>
+        // ATTACHED to journald: the transient unit's parent (systemd) holds the daemon's
+        // stderr, so NO crash-catcher file here — `journalctl --user -u <unit>` reads it
+        // (P0: the crash-catcher file is wired only when DETACHING, where nobody holds it).
+        // The daemon's own pino stream still lands in its rolled file via its entrypoint.
+        // systemd-run --user --collect --unit <prefix>-<uniq> --setenv K=V ... <bin> <args>
         const setenv = Object.entries(cfg.env).flatMap(([k, v]) => [
           "--setenv",
           `${k}=${v}`,
@@ -199,9 +192,6 @@ export function survivableSpawnDriver(
           "--collect",
           "--unit",
           `${cfg.unitPrefix}-${unitSuffix()}`,
-          ...(cfg.stderrLog
-            ? [`--property=StandardError=append:${cfg.stderrLog}`]
-            : []),
           ...setenv,
           cfg.binPath,
           ...cfg.args,
@@ -213,10 +203,16 @@ export function survivableSpawnDriver(
           }),
         );
       }
-      // Detached + unref: survives the parent on macOS/launchd and on a
-      // cgroup-less host. The forwarded env is layered onto ours. When a log path is given,
-      // the child's stderr fd is the append-mode file (else ignored).
-      const stderrFd = cfg.stderrLog ? openSync(cfg.stderrLog, "a") : "ignore";
+      // DETACHED + unref: survives the parent on macOS/launchd and on a cgroup-less host, and
+      // nobody holds the child's stderr — so wire the crash-catcher file (P0), truncate-on-boot
+      // (keep ONE `.old` generation) so it stays bounded. The forwarded env is layered on ours.
+      let stderrFd: "ignore" | number = "ignore";
+      if (cfg.stderrLog) {
+        mkdirSync(dirname(cfg.stderrLog), { recursive: true });
+        if (existsSync(cfg.stderrLog))
+          renameSync(cfg.stderrLog, `${cfg.stderrLog}.old`);
+        stderrFd = openSync(cfg.stderrLog, "a");
+      }
       const child = spawnProcess(cfg.binPath, cfg.args, {
         detached: true,
         stdio:

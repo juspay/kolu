@@ -5,10 +5,17 @@
  *  in dev, JSON in production) but is deliberately IDENTITY-FREE: it does NOT
  *  import kolu-server's `hostname.ts` for a `serverHostname`/`serverId` base, so
  *  the dependency arrow points `@kolu/padi → pino`, never back into
- *  `packages/server`. In W1 padi is assembled in-process by kolu-server, so this
- *  logs to the same stdout beside the server's own logger; W2.2 gives padi its
- *  own process and this becomes its sole logger (`package = process = staleKey`).
- *  The `pid` base is the process id — identical to the server's while in-process. */
+ *  `packages/server`.
+ *
+ *  Two log modes, encoded STRUCTURALLY (no env knob): every importer defaults to
+ *  the stdout logger, and ONLY the daemon entrypoint ({@link configureDaemonLog},
+ *  called by `runPadiDaemon`) reconfigures to the daemon multistream — the rolled
+ *  file AND stderr together. The `--stdio` front, kolu-server's transitive import
+ *  of padi domain modules, and any test that doesn't boot the daemon never run
+ *  that entrypoint, so they never spawn a file worker; a test that DOES boot the
+ *  daemon writes into its own private per-worker state root (harmless). */
+import { closeSync, mkdirSync, openSync } from "node:fs";
+import { dirname } from "node:path";
 import pino, { type Logger } from "pino";
 import { padiLogPath } from "./stateRoot.ts";
 
@@ -16,55 +23,69 @@ const level = process.env.LOG_LEVEL ?? "info";
 const base = { pid: process.pid };
 const prod = process.env.NODE_ENV === "production";
 
-const prettyTarget = {
-  target: "pino-pretty",
-  level,
-  options: { colorize: true, singleLine: true },
-};
-
-/** The DEFAULT logger: pretty in dev, JSON→stdout in prod. Used by every importer that is
- *  NOT the durable daemon — the `--stdio` front, kolu-server's in-process assembly, and the
- *  tests — so importing this module never spawns a file-writing worker against a real
- *  state-root path. */
 function buildDefaultLogger(): Logger {
   return pino(
-    prod ? { level, base } : { level, base, transport: prettyTarget },
+    prod
+      ? { level, base }
+      : {
+          level,
+          base,
+          transport: {
+            target: "pino-pretty",
+            options: { colorize: true, singleLine: true },
+          },
+        },
   );
 }
 
-/** The DURABLE-DAEMON logger: routes the pino stream through `pino-roll` (P0) to a
- *  DETERMINISTIC, SIZE-CAPPED file under padi's state root ({@link padiLogPath}) — 10MB × 3
- *  kept generations, the pino-family rolling transport (never a hand-rolled rotation). The
- *  PRIMARY bounded log, so a padi that OUTLIVES the parent that spawned it (an ssh front, a
- *  kolu-server) still leaves a readable, bounded log instead of a stdout that went to
- *  /dev/null. Dev also keeps pretty stdout. The raw-stderr crash-catcher (native errors /
- *  unhandled-rejection stacks pino can't see) is the SEPARATE `padi.stderr.log` the spawn
- *  spine captures, bounded by truncate-on-boot. */
+/** The DAEMON logger: a pino MULTISTREAM — the size-capped rolled FILE (`pino-roll`, 10MB × 3
+ *  kept generations, the pino-family rolling transport) AND stderr, together (P0). So a
+ *  foreground dev run stays visible, a parent that captures stderr (journald under systemd, or
+ *  a detached daemon's crash-catcher file wired by the spawn spine) still works, and every
+ *  daemon leaves a bounded, readable file instead of `/dev/null`. Fails LOUD at boot if the
+ *  state root is unwritable — never a silently log-less daemon. */
 function buildDaemonLogger(): Logger {
+  const file = padiLogPath();
+  // Fail-fast writability probe (synchronous, so an unwritable state root crashes the boot
+  // loudly rather than the pino-roll worker failing async and the daemon logging nowhere).
+  mkdirSync(dirname(file), { recursive: true });
+  closeSync(openSync(file, "a"));
   const roll = {
     target: "pino-roll",
     level,
-    options: {
-      file: padiLogPath(),
-      size: "10m",
-      limit: { count: 3 },
-      mkdir: true,
-    },
+    options: { file, size: "10m", limit: { count: 3 }, mkdir: true },
   };
-  return pino({
-    level,
-    base,
-    transport: { targets: prod ? [roll] : [roll, prettyTarget] },
-  });
+  const stderrTarget = prod
+    ? { target: "pino/file", level, options: { destination: 2 } }
+    : {
+        target: "pino-pretty",
+        level,
+        options: { colorize: true, singleLine: true, destination: 2 },
+      };
+  return pino({ level, base, transport: { targets: [roll, stderrTarget] } });
 }
 
-// The durable daemon (and ONLY it) sets `KOLU_PADI_DAEMON_LOG=1` when it spawns — the
-// `--stdio` front sets it in the detached child's env, `daemonEnv` sets it on the local
-// systemd/detached spawn. Gating on it (not merely on "am I a padi process") keeps the file
-// worker OUT of tests, the front, and in-process assembly, which get the default logger.
-export const log =
-  process.env.KOLU_PADI_DAEMON_LOG === "1"
-    ? buildDaemonLogger()
-    : buildDefaultLogger();
+let active: Logger = buildDefaultLogger();
+
+/** Reconfigure padi's logs for a DAEMON boot — the rolled file + stderr multistream. Called
+ *  UNCONDITIONALLY by the daemon entrypoint (`runPadiDaemon`); because EVERY spawn path runs
+ *  that same entrypoint, no spawn path can forget it and silently discard logs. Idempotent. */
+export function configureDaemonLog(): void {
+  active = buildDaemonLogger();
+}
+
+/** A stable handle forwarding to the ACTIVE logger, so {@link configureDaemonLog} can swap the
+ *  destination at daemon boot without every `log.*` call site re-importing. */
+export const log: Logger = new Proxy({} as Logger, {
+  get(_t, prop) {
+    const v = Reflect.get(active as object, prop);
+    return typeof v === "function"
+      ? (v as (...a: unknown[]) => unknown).bind(active)
+      : v;
+  },
+  set(_t, prop, value) {
+    return Reflect.set(active as object, prop, value);
+  },
+}) as Logger;
 
 export type { Logger };

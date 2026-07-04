@@ -94,7 +94,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     expect(units).toEqual(["kaval-s1", "kaval-s2"]);
   });
 
-  it("with stderrLog under systemd: appends the daemon's StandardError to the file (P0)", async () => {
+  it("with stderrLog under systemd: does NOT wire a crash-catcher file — journald holds stderr (P0)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "drv-log-"));
     const logFile = join(dir, "d.stderr.log");
     const { calls, spawnProcess } = capture();
@@ -103,9 +103,11 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       { env: { INVOCATION_ID: "x" }, spawnProcess, unitSuffix: () => "U" },
     );
     await driver.spawn();
-    expect(only(calls).args).toContain(
-      `--property=StandardError=append:${logFile}`,
-    );
+    // Attached spawns keep parent-owned stderr (journald), so no file arg + no `.old` rotation.
+    const c = only(calls);
+    expect(c.command).toBe("systemd-run");
+    expect(c.args.some((a) => a.includes("StandardError"))).toBe(false);
+    expect(existsSync(`${logFile}.old`)).toBe(false);
   });
 
   it("with stderrLog off systemd: hands a real stderr fd (stdout/stdin ignored) and rotates the prior capture to .old (P0)", async () => {
