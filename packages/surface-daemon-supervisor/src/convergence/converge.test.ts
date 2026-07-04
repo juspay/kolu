@@ -113,7 +113,7 @@ describe("converge — enactment + outcomes", () => {
     expect(probe.disposed).toBe(true);
   });
 
-  it("kaval build mismatch → mismatch-reported (no drain, adopts the compatible survivor)", async () => {
+  it("kaval build mismatch → mismatch-reported (no drain; adopts the compatible survivor via adoptOrEnsure)", async () => {
     const { endpoint, calls } = fakeEndpoint(true);
     const probe = plainProbe(id("1.1", "A"));
     const out = await converge({
@@ -128,7 +128,10 @@ describe("converge — enactment + outcomes", () => {
       kind: "mismatch-reported",
       running: id("1.1", "A"),
     });
-    expect(calls).toEqual(["adoptOrSpawnOrRefuse"]);
+    // kaval is recycle-on-skew, so its bind is `adoptOrEnsure` on EVERY path — it adopts
+    // the compatible survivor here regardless of the build difference (the nudge is the
+    // caller's to surface, not a supervisor action).
+    expect(calls).toEqual(["adoptOrEnsure"]);
   });
 
   it("padi build mismatch → drains, spends the fence, then spawns own; outcome drained-replacing(build)", async () => {

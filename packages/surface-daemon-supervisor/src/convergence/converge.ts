@@ -109,9 +109,21 @@ export async function converge<Cap extends DrainCapability>(args: {
 }): Promise<ConvergenceOutcome> {
   const probe: AnyConvergenceProbe | null = await args.probe();
 
-  // No live survivor → decide → spawn; the never-recycle bind spawns fresh.
+  // The bind method is chosen by the POLICY, not the decision: a recycle-on-skew daemon
+  // (kaval) binds through `adoptOrEnsure` on EVERY path — so a skew recycles wherever the
+  // endpoint finds it, INCLUDING the adopt-hint the single probe never saw (the W2.2
+  // legacy-port migration); a refuse/drain daemon (padi) binds through the never-recycle
+  // `adoptOrSpawnOrRefuse`. This keeps both daemons byte-identical to their pre-kit boot
+  // method — the kit lifts only the DECISION, never the endpoint mechanism.
+  const bind =
+    args.policy.onContractSkew.kind === "recycle"
+      ? args.endpoint.adoptOrEnsure
+      : args.endpoint.adoptOrSpawnOrRefuse;
+
+  // No live survivor at the primary → bind (spawn fresh, or — for a recycle-on-skew
+  // daemon — adopt/recycle the endpoint's hint).
   if (probe === null) {
-    const adopted = await args.endpoint.adoptOrSpawnOrRefuse();
+    const adopted = await bind();
     return adopted ? { kind: "adopted" } : { kind: "spawned" };
   }
 
@@ -125,7 +137,7 @@ export async function converge<Cap extends DrainCapability>(args: {
     switch (decision.kind) {
       case "spawn":
       case "adopt": {
-        const adopted = await args.endpoint.adoptOrSpawnOrRefuse();
+        const adopted = await bind();
         return adopted ? { kind: "adopted" } : { kind: "spawned" };
       }
       case "recycle": {
@@ -133,7 +145,7 @@ export async function converge<Cap extends DrainCapability>(args: {
           { reason: decision.reason },
           "convergence: recycling a contract-skewed survivor (kill + respawn)",
         );
-        await args.endpoint.adoptOrEnsure();
+        await bind(); // recycle-on-skew policy → bind is `adoptOrEnsure`.
         return { kind: "recycled", reason: decision.reason };
       }
       case "refuse": {
@@ -141,7 +153,7 @@ export async function converge<Cap extends DrainCapability>(args: {
           { reason: decision.reason },
           "convergence: REFUSING a skewed survivor — left standing + degraded, never touched",
         );
-        await args.endpoint.adoptOrSpawnOrRefuse();
+        await bind(); // refuse/drain policy → bind is `adoptOrSpawnOrRefuse` (refuses the skew).
         return { kind: "refused", reason: decision.reason };
       }
       case "drain-and-replace": {
@@ -168,7 +180,7 @@ export async function converge<Cap extends DrainCapability>(args: {
             "convergence: drain FAILED (daemon did not exit) — NOT killing it; the follow-on bind adopts/refuses the still-standing survivor (degraded, logged), and the fence stays spent so no reconnect re-drains",
           );
         }
-        const adopted = await args.endpoint.adoptOrSpawnOrRefuse();
+        const adopted = await bind(); // drain policy → bind is `adoptOrSpawnOrRefuse`.
         return {
           kind: "drained-replacing",
           axis: decision.axis,
@@ -177,9 +189,11 @@ export async function converge<Cap extends DrainCapability>(args: {
         };
       }
       case "report-mismatch": {
-        // No supervisor action — adopt the compatible survivor; the caller surfaces the
-        // build mismatch (the currency nudge). The kit detects; the caller enacts.
-        const adopted = await args.endpoint.adoptOrSpawnOrRefuse();
+        // No supervisor action on the BUILD — the caller surfaces the mismatch (the
+        // currency nudge). The bind still runs to ADOPT the compatible survivor (its
+        // children preserved): for kaval that is `adoptOrEnsure`, which adopts a
+        // compatible daemon regardless of build, exactly as before the kit.
+        const adopted = await bind();
         return {
           kind: "mismatch-reported",
           running: decision.running,
