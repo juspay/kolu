@@ -535,18 +535,26 @@ async function cmdSend(
     await conn.client.surface.terminal.write({ id, data });
   });
 
+  // Carry the plan's coupled submit shape ({ graceMs } | null) on the internal
+  // result — one field, so a grace can't exist without the submit. formatSend
+  // reads it directly; the flat --json contract is projected only at the edge.
   const result = {
     id,
     bytes: plan.bytes,
     paste: plan.paste,
     keys: flags.key,
-    ...(plan.submit
-      ? { submitted: true as const, graceMs: plan.submit.graceMs }
-      : {}),
+    submit: plan.submit,
   };
   if (flags.json) {
-    // Full id (for scripts), 2-space indented like `create --json`.
-    await writeOut(`${JSON.stringify(result, null, 2)}\n`);
+    // Full id (for scripts), 2-space indented like `create --json`. The wire
+    // contract stays the documented flat pair — flatten the coupled `submit`
+    // ONLY here, at the serialization edge, never on the internal shape.
+    const { submit, ...rest } = result;
+    const json = {
+      ...rest,
+      ...(submit ? { submitted: true as const, graceMs: submit.graceMs } : {}),
+    };
+    await writeOut(`${JSON.stringify(json, null, 2)}\n`);
     return;
   }
   // Quiet stdout, status on stderr — there's no scriptable payload, so a non-json

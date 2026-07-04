@@ -144,15 +144,14 @@ export function formatSend(result: {
   bytes: number;
   paste: boolean;
   keys: readonly string[];
-  submitted?: boolean;
-  graceMs?: number;
+  submit: { graceMs: number } | null;
 }): string {
   const base = `sent ${result.bytes} byte${result.bytes === 1 ? "" : "s"} to ${shortId(result.id)}`;
   const pasteMark = result.paste ? " · pasted" : "";
   const keysMark =
     result.keys.length > 0 ? ` · keys: ${result.keys.join(", ")}` : "";
-  const submitMark = result.submitted
-    ? ` · submitted (grace ${result.graceMs}ms)`
+  const submitMark = result.submit
+    ? ` · submitted (grace ${result.submit.graceMs}ms)`
     : "";
   return `${base}${pasteMark}${keysMark}${submitMark}`;
 }
