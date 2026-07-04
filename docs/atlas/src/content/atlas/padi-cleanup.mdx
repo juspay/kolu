@@ -105,7 +105,9 @@ W3.1's `RemotePadiSession` (`packages/server/src/remotePadiBinding.ts`) hand-mir
 
 **Where:** `packages/server/src/remotePadiBinding.ts` (`handshakeAndScope`, the fence field) · `@kolu/surface-daemon-supervisor`'s `convergence/*`.
 
-**Done when:** the remote arm's skew/mismatch decisions come from `decide()` (no second policy table in `packages/server`); the W3.1 pu-box drain scenario's e2e still green; no behavior change.
+**A real policy fork to settle first (found by the W3.1 deep review, 2026-07-04):** the two arms hold OPPOSITE end-states on the fence-exhausted build-mismatch row — the local kit's `decide()` ADOPTS the stale-build survivor (canvas keeps working, degraded), the remote arm goes `unconverged` and REJECTS every client (canvas dead until kolu-server restarts). The remote arm's comments brand the local policy "silent-permanent-wrong"; the local policy calls its own row the anti-livelock guarantee. W3.1 ships with the fork made explicit and documented at both sites; **this entry owns the reconciliation** — pick ONE philosophy (loud-degraded-but-working vs loud-dead), encode it as the kit's policy row, and migrate whichever arm loses.
+
+**Done when:** the fork above is settled and both arms' skew/mismatch decisions come from `decide()` (no second policy table in `packages/server`); the W3.1 pu-box drain scenario's e2e still green.
 
 ### L14 — the memory readout should ride the mirror it already has
 
