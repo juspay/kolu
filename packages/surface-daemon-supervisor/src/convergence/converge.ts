@@ -1,0 +1,191 @@
+/**
+ * `converge()` — the impure orchestrator over the pure {@link decide} table. It probes
+ * the running daemon's identity over a VERSION-AGNOSTIC channel (Pin 3: identity is read
+ * BEFORE any versioned-surface handshake, so it keeps working when the versioned
+ * handshake would refuse), asks `decide` what to do, ENACTS the daemon-affecting decision
+ * via the endpoint's existing boot methods (never any endpoint surgery — the mechanism is
+ * unchanged, only the DECISION is lifted here), and RETURNS a typed
+ * {@link ConvergenceOutcome}. It performs NO nudge / surface side effect: a `nudge-human`
+ * build mismatch comes back as `mismatch-reported` and the CALLER surfaces it (the kit
+ * detects + decides; the caller enacts what it owns).
+ *
+ * Enactment maps each decision to an EXISTING endpoint boot method, so both daemons stay
+ * byte-identical to their pre-kit mechanism:
+ *   - spawn / adopt / report-mismatch / refuse → `adoptOrSpawnOrRefuse` (adopt a compatible
+ *     survivor, refuse a skew → degraded, or spawn fresh — never recycles).
+ *   - recycle                                  → `adoptOrEnsure` (recycle-on-skew: kill +
+ *     respawn a skewed survivor, kaval's arm).
+ *   - drain-and-replace                        → drain the survivor over its handshake (Pin
+ *     1 guarantees a drain verb), then `adoptOrSpawnOrRefuse` spawns our own build; the
+ *     build fence is spent even on drain failure (degraded-loudly, never a livelock).
+ */
+
+import type { ConvergenceIdentity } from "@kolu/surface-daemon";
+import { decide } from "./decide.ts";
+import type { BuildDrainFence } from "./fence.ts";
+import type { ConvergencePolicy, DrainCapability } from "./policy.ts";
+
+/** The minimal structured logger the kit writes to — the `(obj, msg)` shape a pino
+ *  logger already satisfies, and a silent stub can supply for tests. */
+export interface ConvergeLogger {
+  info: (obj: Record<string, unknown>, msg: string) => void;
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+  error: (obj: Record<string, unknown>, msg: string) => void;
+}
+
+/** The endpoint boot methods `converge` enacts through — a `Pick` of the real `Endpoint`,
+ *  so both the live endpoint and a test spy satisfy it. Both resolve to whether a survivor
+ *  was adopted. */
+export interface ConvergenceEndpoint {
+  /** Adopt a compatible survivor, refuse a skew (→ degraded), or spawn fresh — NEVER
+   *  recycles. The never-recycle bind (padi's boot policy). */
+  adoptOrSpawnOrRefuse: () => Promise<boolean>;
+  /** Recycle a skewed survivor (kill + respawn) then bind — the recycle-on-skew bind
+   *  (kaval's boot policy). */
+  adoptOrEnsure: () => Promise<boolean>;
+}
+
+/** A live probe of a running daemon over its version-agnostic identity channel. `identity`
+ *  is read regardless of contract compatibility (Pin 3); `dispose` drops the probe socket. */
+export interface ConvergenceProbeBase {
+  readonly identity: ConvergenceIdentity;
+  dispose(): void;
+}
+
+/** A drain-capable probe — its handshake exposes a `drain` verb, so a `drain-and-replace`
+ *  policy is spellable for it (Pin 1). */
+export interface DrainableProbe extends ConvergenceProbeBase {
+  readonly capability: "drainable";
+  /** Persist + exit the running daemon (its children survive), the caller observing the
+   *  socket close. */
+  drain(): Promise<void>;
+}
+
+/** A non-drainable probe — no `drain` verb, so no drain policy can be declared for it. */
+export interface PlainProbe extends ConvergenceProbeBase {
+  readonly capability: "not-drainable";
+}
+
+/** The probe shape for a given capability — `converge` ties the policy's `Cap` to this, so
+ *  a drain policy requires a drainable probe (Pin 1). */
+export type ConvergenceProbe<Cap extends DrainCapability> =
+  Cap extends "drainable" ? DrainableProbe : PlainProbe;
+
+type AnyConvergenceProbe = DrainableProbe | PlainProbe;
+
+/** The typed outcome `converge` returns; the CALLER wires it to its own surfaces/logs.
+ *  `drained-replacing`/`mismatch-reported` carry `adopted` — whether the follow-on bind
+ *  adopted a survivor (true only on the degraded fallback where the drain didn't land, or
+ *  the compatible survivor a mismatch is reported over). */
+export type ConvergenceOutcome =
+  | { readonly kind: "adopted" }
+  | { readonly kind: "spawned" }
+  | { readonly kind: "recycled"; readonly reason: string }
+  | { readonly kind: "refused"; readonly reason: string }
+  | {
+      readonly kind: "drained-replacing";
+      readonly axis: "contract" | "build";
+      readonly adopted: boolean;
+    }
+  | {
+      readonly kind: "mismatch-reported";
+      readonly running: ConvergenceIdentity;
+      readonly adopted: boolean;
+    };
+
+export async function converge<Cap extends DrainCapability>(args: {
+  endpoint: ConvergenceEndpoint;
+  /** The supervisor's OWN baked identity — the daemon it would spawn. */
+  baked: ConvergenceIdentity;
+  /** Read the running daemon's identity over its version-agnostic channel, or `null` if
+   *  none answers (a fresh boot / mid-teardown). */
+  probe: () => Promise<ConvergenceProbe<Cap> | null>;
+  policy: ConvergencePolicy<Cap>;
+  buildFence: BuildDrainFence;
+  log: ConvergeLogger;
+}): Promise<ConvergenceOutcome> {
+  const probe: AnyConvergenceProbe | null = await args.probe();
+
+  // No live survivor → decide → spawn; the never-recycle bind spawns fresh.
+  if (probe === null) {
+    const adopted = await args.endpoint.adoptOrSpawnOrRefuse();
+    return adopted ? { kind: "adopted" } : { kind: "spawned" };
+  }
+
+  try {
+    const decision = decide(
+      args.baked,
+      probe.identity,
+      args.policy,
+      args.buildFence.hasFired(),
+    );
+    switch (decision.kind) {
+      case "spawn":
+      case "adopt": {
+        const adopted = await args.endpoint.adoptOrSpawnOrRefuse();
+        return adopted ? { kind: "adopted" } : { kind: "spawned" };
+      }
+      case "recycle": {
+        args.log.warn(
+          { reason: decision.reason },
+          "convergence: recycling a contract-skewed survivor (kill + respawn)",
+        );
+        await args.endpoint.adoptOrEnsure();
+        return { kind: "recycled", reason: decision.reason };
+      }
+      case "refuse": {
+        args.log.warn(
+          { reason: decision.reason },
+          "convergence: REFUSING a skewed survivor — left standing + degraded, never touched",
+        );
+        await args.endpoint.adoptOrSpawnOrRefuse();
+        return { kind: "refused", reason: decision.reason };
+      }
+      case "drain-and-replace": {
+        // Spend the fence for a BUILD drain BEFORE the await, so even a drain failure
+        // spends it (degraded-loudly, never a retry that could livelock two supervisors).
+        if (decision.axis === "build") args.buildFence.markFired();
+        args.log.info(
+          { reason: decision.reason, axis: decision.axis },
+          "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
+        );
+        // Pin 1 at runtime: `decide` only returns drain-and-replace for a drainable policy,
+        // which `converge` only accepts with a drainable probe — so `drain` exists. Fail
+        // loudly (never silently) if that invariant is ever violated.
+        if (probe.capability !== "drainable") {
+          throw new Error(
+            "convergence: drain-and-replace decided for a non-drainable probe — unreachable by Pin 1",
+          );
+        }
+        try {
+          await probe.drain();
+        } catch (err) {
+          args.log.error(
+            { err, reason: decision.reason, axis: decision.axis },
+            "convergence: drain FAILED (daemon did not exit) — NOT killing it; the follow-on bind adopts/refuses the still-standing survivor (degraded, logged), and the fence stays spent so no reconnect re-drains",
+          );
+        }
+        const adopted = await args.endpoint.adoptOrSpawnOrRefuse();
+        return { kind: "drained-replacing", axis: decision.axis, adopted };
+      }
+      case "report-mismatch": {
+        // No supervisor action — adopt the compatible survivor; the caller surfaces the
+        // build mismatch (the currency nudge). The kit detects; the caller enacts.
+        const adopted = await args.endpoint.adoptOrSpawnOrRefuse();
+        return {
+          kind: "mismatch-reported",
+          running: decision.running,
+          adopted,
+        };
+      }
+      default: {
+        const _exhaustive: never = decision;
+        throw new Error(
+          `unreachable convergence decision: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
+    }
+  } finally {
+    probe.dispose();
+  }
+}

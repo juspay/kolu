@@ -40,6 +40,12 @@ export {
   readBakedIdentity,
 } from "./buildIdentity.ts";
 export {
+  buildIdMatches,
+  type ConvergenceIdentity,
+  contractIsCompatible,
+  contractIsNewer,
+} from "./convergenceIdentity.ts";
+export {
   type DaemonExit,
   daemonExitCode,
   type DaemonLifetime,
