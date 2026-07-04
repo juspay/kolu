@@ -174,6 +174,13 @@ export function createLiveActivitySource(log: Logger): ActivityStreamDeps {
                 log.debug({ err, terminal: id }, "activity byte-tap ended");
               }
             } finally {
+              // Drop this tap's map entry so a later `reconcile()` can REOPEN it —
+              // the attach stream can end (a transient kaval drop) while the
+              // terminal stays active, and a stale `taps.has(id)` would then wedge
+              // its activity dead for the whole subscription. Guard on identity so a
+              // `closeTap` that already replaced/removed this controller (or a
+              // reconcile that opened a fresh one for a re-tapped id) is untouched.
+              if (taps.get(id) === tapAbort) taps.delete(id);
               tracker.forget(id);
             }
           })();
@@ -207,8 +214,15 @@ export function createLiveActivitySource(log: Logger): ActivityStreamDeps {
             for await (const _ of terminalsDirtyChannel.subscribe(sig)) {
               reconcile();
             }
-          } catch {
-            // The subscription aborted — the `finally` below tears the taps down.
+          } catch (err) {
+            // Teardown (`sig` aborted) is the expected end — the `finally` below
+            // tears the taps down, so swallow it. A NON-abort failure (a publisher
+            // fault, or a throw out of `reconcile`) would otherwise silently freeze
+            // tap reconciliation while the stream keeps publishing stale frames — so
+            // surface it loudly rather than letting it vanish in this detached task.
+            if (!sig.aborted) {
+              log.error({ err }, "activity tap reconcile loop failed");
+            }
           }
         })();
 

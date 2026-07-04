@@ -739,6 +739,9 @@ importers:
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface

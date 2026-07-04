@@ -95,11 +95,20 @@ export async function settledSnapshot(
   const acc = new Map<TerminalId, PadiTerminal>();
   const abort = new AbortController();
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
+  // Did WE end the read (sensors settled / grace / hard cap / empty fleet)? The
+  // mirror's `.done` settling while this is still false means the LINK dropped
+  // mid-read — a failure to surface, not a partial snapshot to return silently
+  // (caught-error-must-not-collapse-to-empty). Latched at the instant `.done`
+  // fires, so a grace timer racing just behind it can't retroactively mask it.
+  let stopped = false;
+  let linkFailed = false;
+  let upstreamError: string | undefined;
   let settle!: () => void;
   const done = new Promise<void>((resolve) => {
     settle = resolve;
   });
   const stop = (): void => {
+    stopped = true;
     abort.abort();
     settle();
   };
@@ -142,8 +151,30 @@ export async function settledSnapshot(
       // stream keeps the mirror live until we abort it, exactly as `watch` does.
       streams: { activity: { input: {}, onFrame: () => {} } },
     },
-    { signal: abort.signal },
-  ).done.then(settle, settle); // a closed link settles us too (nothing more coming)
+    // Capture non-abort upstream blips so a failure carries a diagnostic rather
+    // than surfacing as a bare "link closed".
+    {
+      signal: abort.signal,
+      log: (line) => {
+        upstreamError ??= line;
+      },
+    },
+  ).done.then(
+    // The mirror ended. If WE didn't stop it, the link dropped mid-read — flag it
+    // (latched now, before any trailing grace timer can flip `stopped`) so the
+    // caller fails loud instead of returning a partial/empty snapshot.
+    () => {
+      if (!stopped) linkFailed = true;
+      settle();
+    },
+    (err) => {
+      if (!stopped) {
+        linkFailed = true;
+        upstreamError ??= (err as Error).message;
+      }
+      settle();
+    },
+  );
 
   try {
     await done;
@@ -151,6 +182,12 @@ export async function settledSnapshot(
     clearTimeout(hardCap);
     if (graceTimer !== undefined) clearTimeout(graceTimer);
     abort.abort();
+  }
+  if (linkFailed) {
+    throw new Error(
+      upstreamError ??
+        "the padi link closed before the terminal snapshot settled — the daemon stopped or the connection dropped. Is `padi` still running?",
+    );
   }
   return [...acc.entries()];
 }
@@ -180,12 +217,19 @@ export interface WatchHandlers {
  *
  *  `log` is the diagnostic sink for NON-abort upstream failures (a dropped link, a
  *  protocol error). Without it a real connection loss would look like a clean stop
- *  — so `watch` passes a stderr sink and treats an un-aborted settle as a failure. */
+ *  — so `watch` passes a stderr sink and treats an un-aborted settle as a failure.
+ *
+ *  `initialKeys` seeds the mirror's cross-connect reconciliation: any key it lists
+ *  that is ABSENT from the collection's first snapshot fires `onRemove` at once
+ *  (the mirror's own departed-while-away sweep). `wait` passes the id it is
+ *  watching, so a terminal that exited in the gap between id-resolution and this
+ *  subscription is reported `gone` on the first frame rather than hanging forever. */
 export async function watchTerminals(
   client: PadiTuiClient,
   handlers: WatchHandlers,
   signal?: AbortSignal,
   log?: (line: string) => void,
+  initialKeys?: () => Iterable<TerminalId>,
 ): Promise<void> {
   // The `activity` stream's current membership — the set of terminals moving bytes
   // right now. Seed it from the stream's CURRENT snapshot before the mirror opens,
@@ -230,6 +274,9 @@ export async function watchTerminals(
               );
             }
           },
+          // A key here that the first snapshot doesn't re-assert departed before we
+          // subscribed — the mirror fires `onRemove` for it once (see `wait`).
+          ...(initialKeys !== undefined ? { initialKeys } : {}),
         },
       },
       streams: {
@@ -287,8 +334,13 @@ export type WaitOutcome =
  *  two-phase `--until working` THEN `--until awaiting,waiting` loop robust against
  *  the stale-state race. If the watched terminal is REMOVED before it reaches a
  *  target bucket (its PTY exited), the bucket can never land, so we resolve `gone`
- *  at once rather than blocking until `timeoutMs` (or, with none, forever). An
- *  external `signal` (the CLI's Ctrl+C) is chained into the internal abort. */
+ *  at once rather than blocking until `timeoutMs` (or, with none, forever). This
+ *  covers the exit that happens in the gap between the caller resolving the id and
+ *  this subscription too: we SEED the mirror with `opts.id`, so if the first
+ *  snapshot no longer carries it, the mirror fires `onRemove` and we resolve `gone`
+ *  rather than hanging (the mirror never opens — hence never removes — a key it
+ *  didn't see arrive). An external `signal` (the CLI's Ctrl+C) is chained into the
+ *  internal abort. */
 export async function awaitAgentState(
   client: PadiTuiClient,
   opts: {
@@ -340,6 +392,10 @@ export async function awaitAgentState(
       (line) => {
         upstreamError ??= line;
       },
+      // Seed the watched id so a terminal that exited BEFORE this subscription
+      // (in the gap after the caller resolved the id) is reconciled to `gone` on
+      // the first snapshot instead of hanging.
+      () => [opts.id],
     );
   } finally {
     if (timer !== undefined) clearTimeout(timer);

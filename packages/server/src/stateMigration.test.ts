@@ -89,4 +89,40 @@ describe("stripLegacyStateKeys_1_31_0", () => {
     expect(existsSync(bakPath)).toBe(false);
     expect(readJson(conf.path).preferences).toBeDefined();
   });
+
+  it("preserves the FULL first backup across a partial-strip rerun (write-once)", () => {
+    // Simulate a crash mid-strip: the first run backs up the whole file, then the
+    // process dies after deleting only `session` (conf persists each delete
+    // synchronously but records the migration as done only when the handler
+    // returns, so the ladder reruns). The second run must NOT re-copy the now
+    // session-less live file over the full first backup.
+    const conf = makeStore({
+      session: { active: null, terminals: [{ id: "t1" }] },
+      activityFeed: { recentRepos: ["/repo"], recentAgents: [] },
+      sleepingTerminals: [{ id: "s1" }],
+      lastPairedDaemon: { stateRoot: "/root" },
+    });
+    const bakPath = `${conf.path}.pre-1.31-strip.bak`;
+
+    // First (partial) run: back up, then lose `session` from the live file only.
+    stripLegacyStateKeys_1_31_0(conf as never);
+    expect(existsSync(bakPath)).toBe(true);
+    // The live file is now stripped; re-seed the residual legacy keys the crash
+    // left behind so the rerun still sees legacy state (hence `hasLegacy`).
+    conf.set("activityFeed", { recentRepos: ["/repo"], recentAgents: [] });
+    conf.set("sleepingTerminals", [{ id: "s1" }]);
+    conf.set("lastPairedDaemon", { stateRoot: "/root" });
+
+    // Second (rerun) run: sees legacy keys but MUST keep the full first backup.
+    stripLegacyStateKeys_1_31_0(conf as never);
+
+    const bak = readJson(bakPath);
+    // The zero-loss guarantee: `session` — deleted from the live file on the first
+    // run — still survives verbatim in the backup padi imports from.
+    expect(bak.session).toEqual({ active: null, terminals: [{ id: "t1" }] });
+    expect(bak.activityFeed).toEqual({
+      recentRepos: ["/repo"],
+      recentAgents: [],
+    });
+  });
 });

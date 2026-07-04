@@ -4,11 +4,12 @@
 library for a terminal's _workspace_: it derives that terminal's **awareness**
 (which git repo and branch, the branch's PR + CI checks, which AI agent is
 running and whether it's _working_ or _waiting on you_, the foreground process)
-**and** serves the **fs/git reads** the Code tab needs (the file tree, a file's
-contents, git status + diffs, and live change notifications). It runs in two
-homes off one codebase: **in-process** in `kolu-server` (local terminals) and
-**hosted by `pulam`** over ssh (remote ones) — the same two homes the sensors
-already proved.
+**and** exposes the **fs/git reads** the Code tab needs (the file tree, a file's
+contents, git status + diffs, and live change notifications). Its one home is
+**[`@kolu/padi`](../padi)** — the per-host terminal daemon that composes each
+terminal's record server-side and serves it on `padiSurface` — lifted out of
+`kolu-server` so the daemon and the server share **one** copy of this
+freshness-critical code rather than a fork each.
 
 ## What it does
 
@@ -31,38 +32,25 @@ title · command-run · foreground taps); the producer derives each field and
 five snapshot fields are last-write-wins, and kolu's two _remembered_ facts —
 `lastActivityAt` (recency, on kolu's clock) and `lastAgentCommand` — are derived
 by the fold **alone**, never by the producer (a `TerminalSnapshot` has no field to
-spell them, so the write-fence _is_ the emit type). `pulam`, a dashboard that
-remembers nothing, folds only the snapshot half with `foldSnapshot`.
+spell them, so the write-fence _is_ the emit type). The snapshot-only half is
+factored out as `foldSnapshot` — the last-write-wins core `fold` builds the two
+remembered facts on top of.
 
 **fs/git.** `createTerminalWorkspaceEndpoint(log)` returns the thin wrapper over
 [`kolu-git`](../integrations/git) the Code tab reads — `listAll` · `readFile` ·
 `statFileMtimeMs` · `getStatus` · `getDiff`, plus the refcounted
 `subscribeRepoChange` / `subscribeFileChange` watchers — each unwrapping a
 `GitResult` into a value or a thrown `ORPCError` (a git error surfaces, never
-collapses to an empty result). It was lifted out of `kolu-server` so there is
-**one** impl, not one per home.
+collapses to an empty result). It ships as the single impl (`./endpoint`);
+**`@kolu/padi`** owns how that impl reaches a browser.
 
-**One fs/git impl, two homes.** R6 ships **one** fs/git impl
-(`createTerminalWorkspaceEndpoint`), not one surface both homes already serve.
-The two homes re-expose that one impl through two **deliberately different**
-contract shapes:
-
-- **kolu-server** (in-process) binds the impl to its local `TerminalEndpoint`
-  and re-exposes the reads on `koluSurface`'s **value-bearing streams** — each
-  stream yields the actual `GitStatusOutput` / `GitDiffOutput` /
-  `FsListAllOutput` / `FsReadFileOutput` and re-yields on change.
-- **pulam** (remote) serves them on `terminalWorkspaceSurface` (`./surface`,
-  browser-safe): the `fs.*` / `git.*` read **procedures** plus the
-  `subscribeRepoChange` / `subscribeFileChange` payload-free `{seq}` **pulse
-  watcher streams** a consumer requeries on. `fsGitSurfaceDeps`
-  (`./serveFsGit`) wires the endpoint onto it. The surface also carries the
-  `awareness` collection + `version` cell + `activity` stream (the live "green
-  dot" liveness).
-
-The two shapes can drift, and that's accepted for R6: the procedures+pulse
-split keeps R8's remote kolu re-querying rather than streaming full diffs over
-the wire. The single shared **surface** contract both homes serve arrives in
-**R8**, when kolu mirrors the workspace surface whole (via R7's total mirror).
+**padi serves the reads.** This package no longer serves a contract of its own.
+`@kolu/padi` binds `createTerminalWorkspaceEndpoint` and exposes the fs/git reads
+on **`padiSurface`**: the `subscribeRepoChange` / `subscribeFileChange` payload-free
+`{seq}` **pulse watcher streams** are wired by padi's `fsGitDeps.ts`, and the
+`fs.*` / `git.*` read **procedures** live in padi's `servePadi.ts` (with the
+`ENOENT → NOT_FOUND` + worktree semantics the old assemblers never had). A consumer
+requeries a read on each pulse rather than streaming full diffs over the wire.
 
 ## What it knows nothing about
 
@@ -77,18 +65,16 @@ than imported, so the package names no host package and reaches only for the
 vendor-neutral source libraries it builds on (`anyforge` for PRs, `kolu-git` for
 git/fs, the per-agent packages for agent state).
 
-`kolu-server` still serves `terminalWorkspaceSurface`'s generic awareness half
-in-process — kolu **folds** each terminal's observation stream and publishes the
-snapshot half (a `TerminalSnapshot`) onto its `snapshots` collection, the SAME
-surface `pulam` serves remotely. But W1 (the padi plan) relocated the kolu-side
-consumer — the producer host, the `fold`, the `authored ⋈ snapshot` compose
-(`composeTerminalMetadata`), the local `TerminalEndpoint`, and the Code tab's
-fs/git — into **`@kolu/padi`**, which now composes each terminal's record
-**server-side** and serves it on `padiSurface`'s `terminals` collection (the
-browser reads that one composed record; there is no client-side join). The
-**awareness** half of
-"one surface, both homes" is closed in R8; the Code tab's value-bearing fs/git
-streams move onto this surface's procedure+pulse in R9.
+**`@kolu/padi`** is where this library's output lives now. The padi plan relocated
+the whole kolu-side consumer — the producer host, the `fold`, the
+`authored ⋈ snapshot` compose (`composeTerminalMetadata`), the local
+`TerminalEndpoint`, and the Code tab's fs/git — into padi, which **folds** each
+terminal's observation stream and composes its record **server-side**, then serves
+it on `padiSurface`'s `terminals` collection (the browser reads that one composed
+record; there is no client-side join). The frozen `terminalWorkspaceSurface` and
+its `serveFsGit` / `serveTerminalWorkspace` assemblers (plus the pulam rendezvous
+`socket`) were **buried with pulam / pulam-tui at W2.3** — the per-host terminal
+surface is `padiSurface`, and padi absorbed the fs/git watcher-stream backings.
 
 ## Entry points
 
@@ -98,8 +84,6 @@ consumer:
 | Entry | Runtime | What |
 | --- | --- | --- |
 | `.` | Node | the producer (`startSensors`) + the pure `fold` + `TerminalSnapshot` |
-| `./schema` | browser-safe | the `TerminalSnapshot` / `AgentMemory` zod schemas alone |
-| `./surface` | browser-safe | `terminalWorkspaceSurface` — served by `pulam` (remote) and, since R8, by `kolu-server` in-process; kolu mirrors a remote host's in R9 |
+| `./schema` | browser-safe | the `TerminalSnapshot` / `AgentMemory` / `TerminalId` schemas plus the `RepoChangePulse` / `FsFileInput` / `FsReadFileTextOutput` fs/git wire schemas `@kolu/padi/surface` composes |
+| `./agentProjection` | browser-safe | the pure agent-status projection |
 | `./endpoint` | Node | `createTerminalWorkspaceEndpoint` (the fs/git wrapper) + its interfaces |
-| `./serveFsGit` | Node | `fsGitSurfaceDeps` — wires the endpoint onto the surface |
-| `./socket` | Node | the well-known socket path the daemon serves and the viewer dials |

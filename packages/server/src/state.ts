@@ -17,7 +17,7 @@
  * can safely reset to defaults.
  */
 
-import { copyFileSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import Conf from "conf";
 import {
   DEFAULT_PREFERENCES,
@@ -122,15 +122,27 @@ const LEGACY_KEYS_STRIPPED_1_31_0 = [
  *  THEN delete the keys. The copy is skipped when no legacy key is present, so a
  *  clean ≥W2.2 file grows no stray `.bak`.
  *
+ *  The backup is WRITE-ONCE. `conf` persists each `delete` synchronously but only
+ *  records the migration as done AFTER this handler returns, so a crash mid-strip
+ *  (backup taken, some keys already deleted) leaves the migration to RERUN on the
+ *  next boot — where the now-partially-stripped live file still trips `hasLegacy`.
+ *  Re-copying there would clobber the full first backup with a lossy one, breaking
+ *  the zero-loss import. So we keep the existing `.bak`: the first copy — taken
+ *  before ANY delete — is always the complete pre-strip file, and every later copy
+ *  could only be lossier.
+ *
  *  Exported so a test can drive it against a real `Conf` under an ephemeral
  *  `KOLU_STATE_DIR` without walking the whole ladder. */
 export function stripLegacyStateKeys_1_31_0(store: Conf<PersistedState>): void {
   const raw = store.store as unknown as Record<string, unknown>;
   const hasLegacy = LEGACY_KEYS_STRIPPED_1_31_0.some((key) => key in raw);
-  if (hasLegacy) {
+  const bakPath = `${store.path}.pre-1.31-strip.bak`;
+  if (hasLegacy && !existsSync(bakPath)) {
     // Back up the whole config file BEFORE any delete, so a fresh padi's legacy
-    // import (or a human) can still recover the pre-strip session.
-    copyFileSync(store.path, `${store.path}.pre-1.31-strip.bak`);
+    // import (or a human) can still recover the pre-strip session. Write-once (see
+    // the doc comment): a rerun after a partial strip must NOT overwrite the full
+    // first backup with a lossy one.
+    copyFileSync(store.path, bakPath);
   }
   for (const key of LEGACY_KEYS_STRIPPED_1_31_0) deleteLegacyKey(store, key);
 }

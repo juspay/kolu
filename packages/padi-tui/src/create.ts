@@ -8,6 +8,7 @@
  * byte-identical to one created from the browser (both land as canvas tiles).
  */
 
+import { shellJoin } from "@kolu/shell-quote";
 import type { PadiTuiClient } from "./connect.ts";
 
 /** What `create` did — the new terminal's id, the worktree it materialized (if
@@ -56,11 +57,17 @@ export async function runCreate(
 
   let ran: string | undefined;
   if (opts.argv.length > 0) {
-    // PTY input is buffered — the shell reads `<argv>\r` at its first prompt once
+    // The shell RE-PARSES this line, so rebuild it with `shellJoin` (the repo's
+    // POSIX-quote source of truth), not a bare `argv.join(" ")`: a `join` would let
+    // the shell re-split a single argv token that carries spaces / quotes / `$` /
+    // `*` / `;` (e.g. one `claude "review this PR"` prompt argument would shatter
+    // into three words). `shellJoin` re-quotes each token so `shellSplit` — and a
+    // POSIX shell — reproduce the exact argv the user passed.
+    ran = shellJoin(opts.argv);
+    // PTY input is buffered — the shell reads `<ran>\r` at its first prompt once
     // rc init completes (the same latent slow-rc race the canvas flow accepts;
     // promote to a shell-ready-gated create parameter only if it bites, a contract
     // change deliberately out of scope here).
-    ran = opts.argv.join(" ");
     await client.surface.lifecycle.sendInput({ id, data: `${ran}\r` });
   }
 
