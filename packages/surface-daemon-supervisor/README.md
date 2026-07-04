@@ -4,6 +4,8 @@ The **supervisor half** of the surface-daemon spine: the mechanism a process use
 
 It exists because the same two programs that share the daemon half also share its mirror: [kaval](../../docs/atlas/src/content/atlas/pty-daemon.mdx) (kolu-server spawns and watches the PTY daemon, B2/B3) and `odu serve` ([odu-runner](../../docs/atlas/src/content/atlas/odu-runner.mdx), the odu CLI spawns and watches the CI coordinator) both need an endpoint state machine, a reap-wait, a survivable spawn, and a composed restart. The design and the mechanism/soul line live in the Atlas note [`surface-daemon`](../../docs/atlas/src/content/atlas/surface-daemon.mdx).
 
+Beside the endpoint it carries the **convergence kit** (`convergence/`, #L3): the shared answer to *"the running daemon is not the one I shipped — detect it, decide, converge it"*, with **policy as the parameter**. kaval and padi each hand-rolled this; the kit lifts only the **decision** (the endpoint mechanism is untouched, byte-identical per daemon) into a pure `decide()` table each daemon declares a `ConvergencePolicy` into (kaval: `recycle-on-skew` + `nudge-human`; padi: `drain-newer-else-refuse` + `drain-and-replace`). See [The convergence kit](#the-convergence-kit) below.
+
 ## What's in scope — the incantation, not the values
 
 ```
@@ -40,6 +42,10 @@ Everything program-specific arrives as a parameter:
 | `survivableSpawnDriver(cfg, deps?)` | The default `DaemonDriver`: the `INVOCATION_ID` gate (systemd-run `--user` under a service, detached `+unref` otherwise), per-spawn unique unit names, absolute-path discipline. `cfg` is `{ binPath, args, env, unitPrefix }`; `deps` injects the env/spawn/unit-suffix seams for tests. |
 | `restart(endpoint, steps)` | The composed `capture → drain → recycle → reattach` sequence. All steps are required by the type even when degenerate — B2's boot recycle passes no-ops; B3 fills them with the real session capture + adoption. |
 | `waitForPidGone(pid, opts?)` | Poll `isHolderLive` until a pid is reaped (`ESRCH`) or the load-aware ceiling (default 120s) passes. The reap-wait the recycle blocks on so a respawn never races a still-live gate holder. |
+| `converge(args)` | The convergence-kit orchestrator: probe the running daemon's identity, ask `decide`, enact via the endpoint's **existing** boot methods, return a typed `ConvergenceOutcome`. Bind method is **policy-driven** — a `recycle`-on-skew daemon binds via `adoptOrEnsure` on every path (so a skew recycles wherever the endpoint finds it, incl. the adopt-hint the probe never saw); a `refuse`/`drain` daemon via `adoptOrSpawnOrRefuse`. |
+| `decide(baked, running\|null, policy, fenceSpent)` | The **pure** decision fold (zero I/O) — the policy TABLE, unit-tested directly. Absent / off-nix / fence cases are table rows, not special branches. |
+| `ConvergencePolicy<Cap>` / `createBuildDrainFence()` / `outcomeAdopted(outcome)` | The declared policy (per trigger: contract-skew / build-mismatch), the once-per-boot build-drain fence, and the uniform "was a survivor adopted?" reader across every outcome kind. |
+| `ConvergenceIdentity` · `contractIsNewer` / `contractIsCompatible` / `buildIdMatches` | (Re-exported from `@kolu/surface-daemon`, where they live to keep this package `@kolu/surface`-free.) The two convergence axes: contract versions are **ordered**; build ids are **match-only**, no ordering. |
 
 ```ts
 import {
@@ -68,6 +74,26 @@ await restart(endpoint, NO_SURVIVAL_STEPS); // B2 boot = recycle with degenerate
 // `odu serve` (S2) substitutes a per-repo gate, its own connect/handshake,
 // and `{ binPath: oduBin, unitPrefix: "odu-serve", ... }` — same endpoint.
 ```
+
+## The convergence kit — policy as the parameter
+
+`converge()` sits *over* the endpoint. The endpoint already parameterizes the **contract** axis by boot-method choice (`adoptOrEnsure` = recycle-on-skew, `adoptOrSpawnOrRefuse` = refuse-on-skew); the kit adds the **build** axis (a same-contract closure change) and a shared, exhaustively-tested **decision table** both daemons declare into — so a new daemon gets convergence by *declaring a policy*, not re-deriving one.
+
+```
+       converge({ endpoint, baked, probe, policy, buildFence })
+                 │
+       probe() ── read running identity over a VERSION-AGNOSTIC channel   ← Pin 3
+                 │
+       decide(baked, running, policy, fenceSpent) ── PURE, zero I/O       ← the policy TABLE
+                 │
+       enact via the endpoint's EXISTING boot methods (bind = policy-driven)
+                 │
+       ConvergenceOutcome  ── the CALLER wires it to its own surfaces/logs (the kit
+                              detects + decides; the caller enacts what it owns —
+                              padi's #1670 breadcrumb, kaval's currency nudge)
+```
+
+Three make-illegal-unrepresentable pins: **(1)** the `drain-and-replace` policy arms exist only for a **drain-capable** handshake — a drainless daemon (kaval) declaring one is a *compile error*; **(2)** contract versions are ordered, build ids are **match-only** with no ordering exported (store hashes don't order); **(3)** identity is read before the versioned handshake, so it stays reachable at a skew. The design lives in the Atlas note `padi-cleanup` (L3).
 
 ## What deliberately does *not* live here
 
