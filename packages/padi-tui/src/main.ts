@@ -29,7 +29,11 @@
 import { resolveRunningPadiSocket } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import type { TerminalId } from "@kolu/terminal-workspace/schema";
-import { connectPadiTui, type Connection } from "./connect.ts";
+import {
+  connectPadiTui,
+  type Connection,
+  type PadiTuiClient,
+} from "./connect.ts";
 import { cli, command } from "cleye";
 import { runCreate } from "./create.ts";
 import {
@@ -236,6 +240,21 @@ function resolveOne(query: string, ids: TerminalId[]): TerminalId {
   );
 }
 
+/** Snapshot the live terminals and resolve a user-typed id-or-prefix to a full id
+ *  — the snapshot+map+resolveOne dance `watch`, `wait`, and `create --parent`
+ *  share. `resolveOne` (and `fail`) stay in this CLI layer, so `read.ts` remains
+ *  `process.exit`-free. */
+async function resolveArg(
+  client: PadiTuiClient,
+  query: string,
+): Promise<TerminalId> {
+  const entries = await snapshotTerminals(client);
+  return resolveOne(
+    query,
+    entries.map(([id]) => id),
+  );
+}
+
 /** An `AbortController` that fires on the process's stop signals — the shared
  *  "Ctrl+C / external kill unwinds the live mirror" wiring `watch` and `wait`
  *  hold open a link with. */
@@ -292,11 +311,7 @@ async function cmdWatch(
   let only: TerminalId | undefined;
   try {
     if (query !== undefined) {
-      const entries = await snapshotTerminals(conn.client);
-      only = resolveOne(
-        query,
-        entries.map(([id]) => id),
-      );
+      only = await resolveArg(conn.client, query);
     }
     await watchTerminals(
       conn.client,
@@ -356,11 +371,7 @@ async function cmdWait(
   let resolvedId: TerminalId;
   let outcome: Awaited<ReturnType<typeof awaitAgentState>>;
   try {
-    const entries = await snapshotTerminals(conn.client);
-    resolvedId = resolveOne(
-      query,
-      entries.map(([id]) => id),
-    );
+    resolvedId = await resolveArg(conn.client, query);
     outcome = await awaitAgentState(conn.client, {
       id: resolvedId,
       targets,
@@ -423,11 +434,7 @@ async function cmdCreate(
   // Resolve --parent prefix against the live terminals (a short id or prefix).
   let parentId: TerminalId | undefined;
   if (flags.parent !== undefined) {
-    const entries = await snapshotTerminals(conn.client);
-    parentId = resolveOne(
-      flags.parent,
-      entries.map(([id]) => id),
-    );
+    parentId = await resolveArg(conn.client, flags.parent);
   }
   const worktree =
     flags.worktree !== undefined

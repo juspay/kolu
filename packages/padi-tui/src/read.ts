@@ -21,6 +21,22 @@ import type { AgentInfo, TerminalId } from "@kolu/terminal-workspace/schema";
 import type { PadiTuiClient } from "./connect.ts";
 import { activeAgent } from "./render.ts";
 
+/** The current terminal key set — the FIRST frame of the `keys` snapshot-then-delta
+ *  stream. The `keys` collection ALWAYS opens with a snapshot frame (zero terminals
+ *  is a defined empty array, not an empty stream), so an empty stream means the
+ *  link/protocol failed — this surfaces it loudly rather than collapsing to "no
+ *  terminals" (which `resolveOne` would then misreport as `no terminal matching
+ *  <id>`, and `status` would render as a blank table —
+ *  caught-error-must-not-collapse-to-empty). The ONE home for the snapshot-frame
+ *  contract and its failure string, shared by {@link snapshotTerminals} and
+ *  {@link settledSnapshot}. */
+async function readTerminalKeys(client: PadiTuiClient): Promise<TerminalId[]> {
+  return firstFrameOrThrow(
+    await client.surface.terminals.keys({}),
+    "padi terminals keys yielded no snapshot frame — link or protocol failure.",
+  );
+}
+
 /** A one-shot snapshot of the whole `terminals` collection: the current key set
  *  (the first frame of the `keys` snapshot-then-delta stream), then each key's
  *  current value. Per-key reads run concurrently; their streams are aborted once
@@ -30,14 +46,7 @@ export async function snapshotTerminals(
 ): Promise<Array<[TerminalId, PadiTerminal]>> {
   const abort = new AbortController();
   try {
-    // The `keys` collection ALWAYS opens with a snapshot frame (zero terminals is
-    // a defined empty array, not an empty stream), so an empty stream means the
-    // link/protocol failed — surface it, don't collapse to "no terminals" (which
-    // `resolveOne` would then misreport as `no terminal matching <id>`).
-    const keys = await firstFrameOrThrow(
-      await client.surface.terminals.keys({}),
-      "padi terminals keys yielded no snapshot frame — link or protocol failure.",
-    );
+    const keys = await readTerminalKeys(client);
     const pairs = await Promise.all(
       keys.map(async (key): Promise<[TerminalId, PadiTerminal] | null> => {
         const value = await firstFrameOrUndefined(
@@ -80,14 +89,8 @@ export async function settledSnapshot(
 ): Promise<Array<[TerminalId, PadiTerminal]>> {
   const maxMs = opts.maxMs ?? 3000;
   const graceMs = opts.graceMs ?? 1500;
-  // The key set padi first reports — the terminals we wait to resolve. An empty
-  // stream (vs a defined empty array) is a link/protocol failure, not an empty
-  // fleet — fail loud rather than render a blank table as success
-  // (caught-error-must-not-collapse-to-empty).
-  const expected = await firstFrameOrThrow(
-    await client.surface.terminals.keys({}),
-    "padi terminals keys yielded no snapshot frame — link or protocol failure.",
-  );
+  // The key set padi first reports — the terminals we wait to resolve.
+  const expected = await readTerminalKeys(client);
 
   const acc = new Map<TerminalId, PadiTerminal>();
   const abort = new AbortController();
