@@ -18,7 +18,6 @@ import type {
 } from "@kolu/surface-nix-host";
 import type { AnyContractRouter } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
-import { createBuildDrainFence } from "@kolu/surface-daemon-supervisor";
 import { RemotePadiSession, remotePadiHost } from "./remotePadiBinding.ts";
 
 // ── Fakes ────────────────────────────────────────────────────────────────────
@@ -234,11 +233,15 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
 
   it("drains the bound padi and WAITS for its exit (the restart verb) — resolves only once the link dies", async () => {
     const host = new FakeHost();
-    const rp = new RemotePadiSession(host as RemoteMirrorSession<never>, "rmt", {
-      binderBuildId: "", // off-nix → adopt on bind, no build drain
-      drainTeardownCeilingMs: 200,
-      drainPollMs: 10,
-    });
+    const rp = new RemotePadiSession(
+      host as RemoteMirrorSession<never>,
+      "rmt",
+      {
+        binderBuildId: "", // off-nix → adopt on bind, no build drain
+        drainTeardownCeilingMs: 200,
+        drainPollMs: 10,
+      },
+    );
     const d = makeDrainable(helloOk()); // dies on drain (graceHellos 0)
     host.setClient(d.client);
     await rp.currentClient(); // adopt → bound
@@ -248,18 +251,24 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
 
   it("drainBoundPadi THROWS when the padi does not exit in the window (never a phantom success)", async () => {
     const host = new FakeHost();
-    const rp = new RemotePadiSession(host as RemoteMirrorSession<never>, "rmt", {
-      binderBuildId: "",
-      drainTeardownCeilingMs: 40,
-      drainPollMs: 10,
-    });
+    const rp = new RemotePadiSession(
+      host as RemoteMirrorSession<never>,
+      "rmt",
+      {
+        binderBuildId: "",
+        drainTeardownCeilingMs: 40,
+        drainPollMs: 10,
+      },
+    );
     // The daemon keeps answering after drain (the drain did not take) — the fail-fast
     // window elapses and the restart verb THROWS rather than reporting a success that
     // did not happen. Never a kill.
     const stubborn = makeDrainable(helloOk(), { diesOnDrain: false });
     host.setClient(stubborn.client);
     await rp.currentClient();
-    await expect(rp.drainBoundPadi()).rejects.toThrow(/did not (complete|exit)/i);
+    await expect(rp.drainBoundPadi()).rejects.toThrow(
+      /did not (complete|exit)/i,
+    );
     expect(stubborn.drainCount()).toBe(1); // attempted once, no kill
   });
 
@@ -326,13 +335,15 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
 });
 
 describe("RemotePadiSession — build/contract convergence at the remote bind (mirrors drainSupersededSurvivor, over ssh)", () => {
-  // Inject a specific binder build id + a shared fence so the drain path runs without
-  // two real nix builds — the same shape the local arm's bindPadiOnce is unit-tested at.
+  // Inject a specific binder build id so the drain path runs without two real nix
+  // builds — the same shape the local arm's bindPadiOnce is unit-tested at. The build
+  // fence is now keyed by daemon INSTANCE (startedAt), not a global boolean, so tests
+  // drive convergence with the survivor's startedAt + a small per-instance budget.
   const make = (
     deps: {
       binderBuildId?: string;
       binderVersion?: string;
-      fence?: ReturnType<typeof createBuildDrainFence>;
+      maxBuildDrains?: number;
     } = {},
   ) => {
     const host = new FakeHost();
@@ -342,7 +353,7 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
       {
         binderBuildId: deps.binderBuildId,
         binderVersion: deps.binderVersion,
-        buildDrainFence: deps.fence,
+        maxBuildDrainsPerInstance: deps.maxBuildDrains,
         // Fast fail-fast window so a drain-that-doesn't-take test isn't slow.
         drainTeardownCeilingMs: 60,
         drainPollMs: 10,
@@ -360,25 +371,104 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(c.drainCount()).toBe(0);
   });
 
-  it("build MISMATCH → drains ONCE (fence fires), then adopts the respawned build", async () => {
-    const fence = createBuildDrainFence();
-    const { host, rp } = make({ binderBuildId: "build-NEW", fence });
+  it("build MISMATCH → drains the survivor, then adopts the respawned build (fresh instance, matched build)", async () => {
+    const { host, rp } = make({ binderBuildId: "build-NEW" });
 
-    // Spawn 1 — the survivor is an OLD build. The mismatch drains + rejects (the pump
-    // cursor waits), fence fires. This is the flagship #1670 redeploy, over ssh.
-    const old = makeDrainable(helloOk({ buildId: "build-OLD" }));
+    // Spawn 1 — the survivor is an OLD build (instance startedAt 1000). The mismatch
+    // drains + rejects (the pump cursor waits) to reconnect. This is the flagship #1670
+    // redeploy, over ssh.
+    const old = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 1000 }),
+    );
     host.setClient(old.client);
     await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
     expect(old.drainCount()).toBe(1);
-    expect(fence.hasFired()).toBe(true);
 
-    // Spawn 2 — the HostSession reconnect respawned THIS binder's build. Now it matches
-    // → ADOPT, no second drain.
-    const fresh = makeDrainable(helloOk({ buildId: "build-NEW" }));
+    // Spawn 2 — the drain TOOK: the HostSession reconnect respawned a FRESH instance
+    // (startedAt 2000) running THIS binder's build. It matches → ADOPT, no second drain.
+    const fresh = makeDrainable(
+      helloOk({ buildId: "build-NEW", startedAt: 2000 }),
+    );
     host.setClient(fresh.client);
     const scoped = (await rp.currentClient()) as { surface: unknown };
     expect(scoped.surface).toEqual({ marker: "padi-scoped" });
     expect(fresh.drainCount()).toBe(0);
+  });
+
+  it("a link BLIP misread as an exit → the SAME instance RE-DRAINS (never a silent stale adopt), then degrades LOUDLY on budget exhaustion", async () => {
+    // Over ssh a `hello()` rejection during the post-drain poll can be a transient LINK
+    // BLIP, not a daemon exit — the daemon survives and the reconnect re-adopts the SAME
+    // instance (same startedAt). A global once-per-boot fence would have "spent" on the
+    // first blip and then SILENTLY ADOPTED THE STALE BUILD FOREVER (the bug this guards).
+    // The instance-keyed fence must instead re-drain the same never-exited instance, and
+    // on budget exhaustion degrade LOUDLY — never adopt the stale build.
+    const { host, rp } = make({
+      binderBuildId: "build-NEW",
+      maxBuildDrains: 2,
+    });
+
+    // Blip 1: survivor is build-OLD, instance startedAt 5000. drain → hello rejects (the
+    // blip reads as "took") → the binder throws to reconnect. Drained once, NOT adopted.
+    const blip1 = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 5000 }),
+    );
+    host.setClient(blip1.client);
+    await expect(rp.currentClient()).rejects.toThrow(
+      /build mismatch|link death/i,
+    );
+    expect(blip1.drainCount()).toBe(1);
+
+    // The daemon SURVIVED the blip: the reconnect re-adopts the SAME instance (startedAt
+    // 5000), still build-OLD. It must RE-DRAIN (never adopt the stale build).
+    const blip2 = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 5000 }),
+    );
+    host.setClient(blip2.client);
+    await expect(rp.currentClient()).rejects.toThrow(
+      /build mismatch|link death/i,
+    );
+    expect(blip2.drainCount()).toBe(1); // re-drained the SAME instance, not adopted
+
+    // Budget (2) exhausted for instance 5000: the SAME instance again → LOUD degraded
+    // (unconverged), REJECTS, never a silent stale adopt, never a pointless re-drain.
+    const blip3 = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 5000 }),
+    );
+    host.setClient(blip3.client);
+    await expect(rp.currentClient()).rejects.toThrow(
+      /flapping|will not converge/i,
+    );
+    expect(blip3.drainCount()).toBe(0);
+    let last: HostSessionState | undefined;
+    rp.onState((s) => {
+      last = s;
+    });
+    expect(last?.connection).toBe("disconnected");
+    expect(last?.failureCause).toBe("remote");
+    expect(rp.padiSurfaceVersion()).toBeNull();
+  });
+
+  it("a DIFFERENT instance still build-mismatched after a drain → degrades LOUDLY (anti-livelock), never treadmills", async () => {
+    const { host, rp } = make({ binderBuildId: "build-NEW" });
+    // Drain instance 1000 (build-OLD) → throw to reconnect.
+    const first = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 1000 }),
+    );
+    host.setClient(first.client);
+    await expect(rp.currentClient()).rejects.toThrow(
+      /build mismatch|link death/i,
+    );
+    expect(first.drainCount()).toBe(1);
+    // The reconnect brings up a DIFFERENT instance (startedAt 2000) STILL build-OLD — two
+    // supervisors, or the absent-id dev loop. Do NOT treadmill: degrade LOUDLY, no drain.
+    const different = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 2000 }),
+    );
+    host.setClient(different.client);
+    await expect(rp.currentClient()).rejects.toThrow(
+      /anti-livelock|treadmill/i,
+    );
+    expect(different.drainCount()).toBe(0); // never drained the fresh mismatched instance
   });
 
   it("ABSENT buildId (a pre-field survivor) → drains as an older build", async () => {
@@ -397,17 +487,6 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(preField.drainCount()).toBe(1);
   });
 
-  it("fence already fired → ADOPTS a mismatch (no re-drain — anti-livelock)", async () => {
-    const fence = createBuildDrainFence();
-    fence.markFired();
-    const { host, rp } = make({ binderBuildId: "build-NEW", fence });
-    const old = makeDrainable(helloOk({ buildId: "build-OLD" }));
-    host.setClient(old.client);
-    const scoped = (await rp.currentClient()) as { surface: unknown };
-    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
-    expect(old.drainCount()).toBe(0);
-  });
-
   it("off-nix binder (binderBuildId='') → never drains on build grounds", async () => {
     const { host, rp } = make({ binderBuildId: "" });
     const old = makeDrainable(helloOk({ buildId: "build-OLD" }));
@@ -416,19 +495,25 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(old.drainCount()).toBe(0);
   });
 
-  it("build-mismatch drain that does NOT take → ADOPTS the old build (degraded), fence spent, never a kill", async () => {
-    const fence = createBuildDrainFence();
-    const { host, rp } = make({ binderBuildId: "build-NEW", fence });
+  it("build-mismatch drain that does NOT take (daemon keeps answering) → degrades LOUDLY (unconverged), never a silent stale adopt, never a kill", async () => {
+    const { host, rp } = make({ binderBuildId: "build-NEW" });
     // `diesOnDrain: false` — the daemon keeps answering after drain (the drain didn't
-    // take). The fail-fast window elapses → ADOPT the old build, never a kill.
+    // take). The fail-fast window elapses → LOUD degraded (unconverged, REJECTS), NOT a
+    // silent adopt of the stale build, never a kill.
     const stubborn = makeDrainable(helloOk({ buildId: "build-OLD" }), {
       diesOnDrain: false,
     });
     host.setClient(stubborn.client);
-    const scoped = (await rp.currentClient()) as { surface: unknown };
-    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
-    expect(stubborn.drainCount()).toBe(1); // attempted once
-    expect(fence.hasFired()).toBe(true); // fence spent even on failure — no re-drain
+    await expect(rp.currentClient()).rejects.toThrow(
+      /did not take|kept answering/i,
+    );
+    expect(stubborn.drainCount()).toBe(1); // attempted once, no kill
+    let last: HostSessionState | undefined;
+    rp.onState((s) => {
+      last = s;
+    });
+    expect(last?.connection).toBe("disconnected");
+    expect(last?.failureCause).toBe("remote");
   });
 
   it("contract skew, binder NEWER → drains (newest-wins), never a fence", async () => {
@@ -470,11 +555,15 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
 
   it("stays BOUNDED when the post-drain liveness probe HANGS (a wedged link never blocks past the ceiling)", async () => {
     const host = new FakeHost();
-    const rp = new RemotePadiSession(host as RemoteMirrorSession<never>, "rmt", {
-      binderBuildId: "build-NEW",
-      drainTeardownCeilingMs: 40,
-      drainPollMs: 10,
-    });
+    const rp = new RemotePadiSession(
+      host as RemoteMirrorSession<never>,
+      "rmt",
+      {
+        binderBuildId: "build-NEW",
+        drainTeardownCeilingMs: 40,
+        drainPollMs: 10,
+      },
+    );
     // After the drain the daemon's `hello` NEVER settles — a wedged ssh link that
     // neither answers nor rejects. A bare `await hello()` would hang the whole handshake
     // forever; the per-probe ceiling race must instead give up within the window and
@@ -498,34 +587,35 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     };
     host.setClient(wedged);
     // Build mismatch → drain → the probe hangs → the ceiling elapses → did-not-take →
-    // ADOPT the old build. The `await` below RESOLVING at all is the bound-ceiling proof
-    // (an unbounded probe would time out the test).
-    const scoped = (await rp.currentClient()) as { surface: unknown };
-    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
+    // degrade LOUDLY (unconverged, REJECTS), never a silent adopt. The `rejects`
+    // RESOLVING at all is the bound-ceiling proof (an unbounded probe would time out the
+    // test).
+    await expect(rp.currentClient()).rejects.toThrow(
+      /did not take|kept answering/i,
+    );
   });
 
   it("build-mismatch drain converges when the link takes SEVERAL polls to die (multi-poll success loop, not just synchronous death)", async () => {
-    const fence = createBuildDrainFence();
     const host = new FakeHost();
     const rp = new RemotePadiSession(
       host as RemoteMirrorSession<never>,
       "rmt",
       {
         binderBuildId: "build-NEW",
-        buildDrainFence: fence,
         drainTeardownCeilingMs: 500,
         drainPollMs: 10,
       },
     );
     // The daemon answers 4 more hellos after the drain, then dies — drainAndAwaitClose
-    // must still return true (the drain took) rather than adopt the old build.
+    // must still detect the exit ("took" → throw to reconnect) rather than time out.
     const slow = makeDrainable(helloOk({ buildId: "build-OLD" }), {
       graceHellos: 4,
     });
     host.setClient(slow.client);
-    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
+    await expect(rp.currentClient()).rejects.toThrow(
+      /build mismatch|link death/i,
+    );
     expect(slow.drainCount()).toBe(1);
-    expect(fence.hasFired()).toBe(true);
   });
 });
 
