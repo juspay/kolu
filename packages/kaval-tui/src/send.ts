@@ -45,9 +45,11 @@ import { MAX_TIMER_MS } from "./wait.ts";
 export const SUBMIT_ENTER = NAMED_KEY_BYTES.enter;
 
 /** Grace (ms) between the text write and the submit Enter for a bare `--submit`.
- *  Long enough to clear Claude Code's bracketed-paste debounce so the Enter isn't
- *  swallowed, short enough that `send --submit` still returns in well under a
- *  second. Tune per-agent with `--submit=<ms>`. */
+ *  Chosen to sit comfortably above the bracketed-paste debounce a TUI applies
+ *  after a paste — 250ms cleared Claude Code's in a real end-to-end check (the
+ *  prompt submitted, not staged) and still returns the command in well under a
+ *  second. It is NOT a measured floor for every agent, so it's a *default*, not a
+ *  guarantee: an agent with a slower debounce takes a larger `--submit=<ms>`. */
 export const DEFAULT_SUBMIT_GRACE_MS = 250;
 
 /** Turn the value `--submit` carries into a grace delay in ms. type-flag hands a
@@ -75,6 +77,23 @@ export function parseSubmitGrace(raw: string): number {
     );
   }
   return ms;
+}
+
+/** Did a BARE `--submit` (no `=`) swallow the following positional as its grace?
+ *  `send` takes `[text...]`, and type-flag resolves a value-typed flag given
+ *  space-separated (`--submit 250`) by consuming the next argv token — so
+ *  `send <id> --submit <prompt>` eats the prompt as the grace, silently dropping
+ *  it (and an all-digit prompt even parses as a valid grace, so nothing errors).
+ *  A bare `--submit` only ever means "default grace"; its value must arrive via
+ *  `=`. So a bare `--submit` token in the raw argv that nonetheless carries a
+ *  non-empty parsed value is a swallow — the caller rejects it loud. `--submit=<ms>`
+ *  puts the value in the `--submit=…` token (no bare `--submit` in argv), and a
+ *  bare `--submit` at the end parses to "" (nothing swallowed), so both pass. */
+export function submitSwallowedPositional(
+  rawArgv: readonly string[],
+  submitValue: string,
+): boolean {
+  return submitValue !== "" && rawArgv.includes("--submit");
 }
 
 /** The named keys `send` accepts, as one human string for the command help, the

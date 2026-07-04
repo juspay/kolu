@@ -6,6 +6,7 @@ import {
   encodeKey,
   parseSubmitGrace,
   planSend,
+  submitSwallowedPositional,
   SUBMIT_ENTER,
 } from "./send.ts";
 import { MAX_TIMER_MS } from "./wait.ts";
@@ -259,6 +260,52 @@ describe("SUBMIT_ENTER — the submit byte is the shared Enter", () => {
   it("is the same carriage return `--key Enter` sends", () => {
     expect(SUBMIT_ENTER).toBe(NAMED_KEY_BYTES.enter);
     expect(SUBMIT_ENTER).toBe(encodeKey("Enter"));
+  });
+});
+
+describe("submitSwallowedPositional — a bare `--submit <word>` ate the prompt", () => {
+  it("false for a bare --submit at the end (value '' — nothing swallowed)", () => {
+    // `send a1b2 "text" --submit` → type-flag gives submit "" and text intact.
+    expect(
+      submitSwallowedPositional(
+        ["node", "main.ts", "send", "a1b2", "text", "--submit"],
+        "",
+      ),
+    ).toBe(false);
+  });
+
+  it("false for --submit=<ms> (the value rides the `--submit=…` token, no bare `--submit`)", () => {
+    expect(
+      submitSwallowedPositional(
+        ["node", "main.ts", "send", "a1b2", "text", "--submit=250"],
+        "250",
+      ),
+    ).toBe(false);
+    // an explicit empty `--submit=` is still the `=` form, not a bare swallow
+    expect(
+      submitSwallowedPositional(
+        ["node", "main.ts", "send", "a1b2", "--submit="],
+        "",
+      ),
+    ).toBe(false);
+  });
+
+  it("true when a bare --submit swallowed the next word as its grace", () => {
+    // The dangerous silent case: an all-digit prompt parses as a valid grace.
+    expect(
+      submitSwallowedPositional(
+        ["node", "main.ts", "send", "a1b2", "--submit", "12345"],
+        "12345",
+      ),
+    ).toBe(true);
+    // and a non-digit swallow too (it fails later in parseSubmitGrace, but the
+    // guard catches the dropped-text case first, with a message about the text).
+    expect(
+      submitSwallowedPositional(
+        ["node", "main.ts", "send", "a1b2", "--submit", "fix"],
+        "fix",
+      ),
+    ).toBe(true);
   });
 });
 

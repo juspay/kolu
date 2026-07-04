@@ -13,6 +13,10 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+} from "@kolu/terminal-protocol";
+import {
   createInProcessPtyHost,
   type InProcessPtyHostDeps,
   type PtyHostSocketListener,
@@ -439,6 +443,10 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
         env: {
           ...process.env,
           FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS),
+          // The fixture recognizes the SAME bracketed-paste markers `planSend`
+          // wraps text with — pass the protocol constants so it can't drift.
+          FIXTURE_PASTE_START: BRACKETED_PASTE_START,
+          FIXTURE_PASTE_END: BRACKETED_PASTE_END,
           ...extraEnv,
         },
         command: ["node", FIXTURE],

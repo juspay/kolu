@@ -23,8 +23,18 @@ const DEBOUNCE_MS = Number(process.env.FIXTURE_DEBOUNCE_MS ?? 120);
 // prompt must land while the first turn is still streaming) can hold the burst
 // open long past its own submit, instead of racing the default ~500ms window.
 const BUSY_TICKS = Number(process.env.FIXTURE_BUSY_TICKS ?? 20);
-const PASTE_START = "\x1b[200~";
-const PASTE_END = "\x1b[201~";
+// The bracketed-paste markers are passed in by the test from the SAME
+// `@kolu/terminal-protocol` constants `planSend` wraps text with — so the
+// fixture can't drift from what the shipped code emits (it recognizes exactly
+// what `send` sends). This runs as plain `node`, so it takes them as env rather
+// than importing the TS package; fail loud if the test forgot to pass them.
+const PASTE_START = process.env.FIXTURE_PASTE_START;
+const PASTE_END = process.env.FIXTURE_PASTE_END;
+if (!PASTE_START || !PASTE_END) {
+  throw new Error(
+    "fixture requires FIXTURE_PASTE_START / FIXTURE_PASTE_END (the bracketed-paste markers from @kolu/terminal-protocol)",
+  );
+}
 
 let buf = ""; // unconsumed raw input, latin1 (byte-faithful)
 let staged = ""; // the prompt buffered from the most recent paste

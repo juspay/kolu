@@ -58,6 +58,7 @@ import {
   encodeKey,
   parseSubmitGrace,
   planSend,
+  submitSwallowedPositional,
 } from "./send.ts";
 import { executeSendPlan } from "./sendExec.ts";
 import {
@@ -889,6 +890,17 @@ async function main(): Promise<void> {
     if (argv.flags.submit !== undefined && argv.flags.key.length > 0)
       fail(
         "--submit and --key are mutually exclusive — --submit owns the Enter. Drop --key, or use raw `send … --key Enter` (no --submit) for manual control.",
+      );
+    // type-flag resolves a bare `--submit <word>` (space, no `=`) by swallowing
+    // the next positional as the grace — silently dropping the prompt text. Catch
+    // that here so it fails loud instead of submitting an empty line: the grace
+    // must come via `=`, or a bare `--submit` must sit after the text.
+    if (
+      argv.flags.submit !== undefined &&
+      submitSwallowedPositional(process.argv, argv.flags.submit)
+    )
+      fail(
+        "`--submit <value>` is ambiguous — a bare `--submit` swallows the next word as its grace, dropping your prompt text. Pass the grace with an equals (`--submit=<ms>`), or put a bare `--submit` after the text.",
       );
     sendCall = {
       text: argv._.text,
