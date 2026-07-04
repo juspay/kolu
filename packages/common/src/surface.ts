@@ -386,6 +386,18 @@ export const DaemonInventorySchema = z.object({
    *  unlabeled (W3.1: a remote bind must never present this-machine daemons as the
    *  bound host's). */
   boundHost: z.string().nullable(),
+  /** The BOUND padi's honest identity off its control-core `hello` — `surfaceVersion` +
+   *  `buildCommit` — for BOTH arms (local socket OR remote ssh). The Padi dialog's
+   *  version chip + build-commit row read THIS, not the local-scan `active` row: under a
+   *  remote binding no locally-discovered padi is kolu's active one, so that row is null
+   *  and the identity must instead ride the bound session's readouts (which work over
+   *  ssh). `null` before the first sample / while padi is unbound. */
+  boundPadi: z
+    .object({
+      surfaceVersion: z.string().nullable(),
+      buildCommit: z.string().nullable(),
+    })
+    .nullable(),
 });
 export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
 
@@ -396,6 +408,7 @@ export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
   kavals: [],
   padis: [],
   boundHost: null,
+  boundPadi: null,
 };
 
 /** Bytes in one megabyte. The single source of truth both the server-side dedup

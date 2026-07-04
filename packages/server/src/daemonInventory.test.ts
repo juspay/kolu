@@ -324,6 +324,14 @@ describe("enumerateDaemonInventoryOnce — remote binding (boundLocally)", () =>
     // Bound remotely → the host rides the inventory so the dialog can fence off + label
     // this local scan as "this machine, not the bound host".
     expect(remote?.boundHost).toBe("nix@prod.example");
+    // …and the BOUND padi's identity rides `boundPadi` (off the session readouts), so
+    // the Padi dialog's version + build-commit work over ssh even though NO local padi is
+    // `active` — the field-by-field side-channel the two-box repro surfaced.
+    expect(remote?.boundPadi).toEqual({
+      surfaceVersion: "1.1",
+      buildCommit: "localcommit",
+    });
+    expect(remote?.padis[0]?.active).toBe(false); // still no local active row
 
     let local: DaemonInventory | undefined;
     await enumerateDaemonInventoryOnce(

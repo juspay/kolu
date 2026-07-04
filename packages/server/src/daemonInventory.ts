@@ -261,6 +261,13 @@ export async function enumerateDaemonInventoryOnce(
     : null;
   deps.publish({
     boundHost: deps.boundHost ?? null,
+    // The BOUND padi's honest identity (both arms) — read fresh off the session's hello
+    // readouts, so the Padi dialog's version + build-commit rows work over ssh even
+    // though no LOCAL padi is `active` under a remote binding.
+    boundPadi: {
+      surfaceVersion: deps.activePadiSurfaceVersion(),
+      buildCommit: deps.activePadiBuildCommit(),
+    },
     kavals: assembleKavalInventory(
       kavalDaemons,
       probes,

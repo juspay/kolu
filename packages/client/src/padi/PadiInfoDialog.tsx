@@ -20,6 +20,7 @@ import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import {
   activePadi,
   activePadiSurfaceVersion,
+  boundPadiBuildCommit,
   daemonScanBoundHost,
   runningPadis,
 } from "../ui/useDaemonInventory";
@@ -140,12 +141,24 @@ const PadiInfoDialog: Component<{
           dialog uses, or an honest "—" when unknown (#1034). */}
       <div class="space-y-1">
         <DetailRow label="build commit">
-          <Commit sha={activePadi()?.buildCommit ?? undefined} />
+          {/* The BOUND padi's `hello.commit` (works over ssh — no local active row under
+              a remote binding), the padi twin of kaval's `system.version`. */}
+          <Commit sha={boundPadiBuildCommit() ?? undefined} />
         </DetailRow>
         <DetailRow label="socket">
-          <span title={activePadi()?.socket}>
-            {activePadi()?.socket ?? "unavailable"}
-          </span>
+          {/* Local bind → the padi's unix socket. Remote bind → the padi lives on the ssh
+              host, so its socket is a path THERE (not locally meaningful); name the host
+              instead of a misleading local "unavailable". */}
+          <Show
+            when={daemonScanBoundHost()}
+            fallback={
+              <span title={activePadi()?.socket}>
+                {activePadi()?.socket ?? "unavailable"}
+              </span>
+            }
+          >
+            {(host) => <span>ssh · {host()}</span>}
+          </Show>
         </DetailRow>
         <DetailRow label="memory">
           {/* Same {@link padiMemoryDisplay} source the identity-rail chip reads (the

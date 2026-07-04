@@ -46,10 +46,19 @@ export function activePadi(): RunningPadi | undefined {
   return runningPadis().find((p) => p.active);
 }
 
-/** The `padiSurface` version the RUNNING active padi serves — the bound padi's honest
- *  `hello.surfaceVersion`, or `null` when padi is unbound / before the first sample (an
- *  honest "—", never the binder's build constant). Read by the Padi dialog + rail chip's
- *  "contract v<x.y>" readout, mirroring how Kaval sources its own contract version. */
+/** The `padiSurface` version the BOUND padi serves — its honest `hello.surfaceVersion`,
+ *  or `null` while unbound / before the first sample (an honest "—", never the binder's
+ *  build constant). Reads the bound-session readout (`boundPadi`), NOT the local-scan
+ *  `active` row, so it's correct over ssh too (a remote binding has no local active padi).
+ *  Read by the Padi dialog + rail chip's "contract v<x.y>" readout. */
 export function activePadiSurfaceVersion(): string | null {
-  return activePadi()?.surfaceVersion ?? null;
+  return sub.value()?.boundPadi?.surfaceVersion ?? null;
+}
+
+/** The BOUND padi's honest navigable git build commit off its `hello`, or `null` while
+ *  unbound / a survivor predating the field. Like {@link activePadiSurfaceVersion}, reads
+ *  the bound-session readout so the Padi dialog's build-commit row works over ssh (no
+ *  local active padi under a remote binding). */
+export function boundPadiBuildCommit(): string | null {
+  return sub.value()?.boundPadi?.buildCommit ?? null;
 }
