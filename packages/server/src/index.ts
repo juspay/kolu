@@ -61,7 +61,11 @@ import {
   startDaemonInventorySampler,
 } from "./daemonInventory.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { ensurePadiBinding } from "./padiBinding.ts";
+import { type BoundPadi, ensurePadiBinding } from "./padiBinding.ts";
+import {
+  ensureRemotePadiBinding,
+  remotePadiHost,
+} from "./remotePadiBinding.ts";
 import { mapConnectionToPadiLink } from "./padiLink.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { buildAppRouter } from "./router.ts";
@@ -211,33 +215,45 @@ const rpcPlugins = [
 // races an unready binding; a boot failure reports the down state through the
 // re-serve's `connection` cell rather than crashing (fail-open).
 // ─────────────────────────────────────────────────────────────────────────────
-const padiSession = await ensurePadiBinding({
-  // The nix-shell env whitelist rides padi's CLI flag (kolu-server no longer
-  // spawns PTYs — padi's kaval does — so `configureNixShellEnv` is FORWARDED to
-  // padi, not called here).
-  nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
-  // The W2.2 upgrade bridge: hand padi THIS binder's OWN listen-port legacy kaval
-  // socket, so a first W2.2 boot ADOPTS a running pre-W2.2 kaval (`kaval-<port>/`)
-  // instead of spawning a fresh digest kaval and leaking it. The binder is the ONLY
-  // hinter — and only of its OWN port — so a dev instance at another port is never
-  // adopted; padi ignores the hint once its digest kaval is live, so it converges.
-  legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
-  // Forward the kolu app version so spawned PTYs' `TERM_PROGRAM_VERSION` stays the
-  // kolu app version (byte-identical to the pre-cutover in-process spawn), not
-  // padi's own commit hash. padi stamps this via its `--spawn-version` flag.
-  spawnVersion: serverVersion,
-  // Forward `--verbose` to padi's process (as `LOG_LEVEL=debug`) so its OWN pino
-  // domain logger emits debug — the split-process twin of the pre-cutover
-  // `padiLog.level = "debug"`.
-  verbose: argv.flags.verbose,
-});
+// The host-selection knob (W3.1): `KOLU_PADI_HOST=<ssh host>` binds a REMOTE padi
+// over ssh — the whole canvas becomes that host — while UNSET keeps today's LOCAL
+// binding byte-identical. OFF by default, no UI (the picker + per-view bindings are
+// W3.2). Both arms return a `BoundPadi`, so `reServeSurface` and the router below
+// are identical; only the session's front (local Endpoint vs ssh HostSession)
+// differs. The remote arm does NOT await first-connect — provisioning a closure
+// over ssh can take seconds, and the binding is fail-open (the connection cell
+// reports copying/connecting/degraded while it warms).
+const remoteHost = remotePadiHost();
+const padiSession: BoundPadi = remoteHost
+  ? ensureRemotePadiBinding({ host: remoteHost })
+  : await ensurePadiBinding({
+      // The nix-shell env whitelist rides padi's CLI flag (kolu-server no longer
+      // spawns PTYs — padi's kaval does — so `configureNixShellEnv` is FORWARDED to
+      // padi, not called here).
+      nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
+      // The W2.2 upgrade bridge: hand padi THIS binder's OWN listen-port legacy
+      // kaval socket, so a first W2.2 boot ADOPTS a running pre-W2.2 kaval
+      // (`kaval-<port>/`) instead of spawning a fresh digest kaval and leaking it.
+      // The binder is the ONLY hinter — and only of its OWN port — so a dev instance
+      // at another port is never adopted; padi ignores the hint once its digest
+      // kaval is live, so it converges.
+      legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
+      // Forward the kolu app version so spawned PTYs' `TERM_PROGRAM_VERSION` stays
+      // the kolu app version (byte-identical to the pre-cutover in-process spawn),
+      // not padi's own commit hash. padi stamps this via its `--spawn-version` flag.
+      spawnVersion: serverVersion,
+      // Forward `--verbose` to padi's process (as `LOG_LEVEL=debug`) so its OWN pino
+      // domain logger emits debug — the split-process twin of the pre-cutover
+      // `padiLog.level = "debug"`.
+      verbose: argv.flags.verbose,
+    });
 
-// Pin the contract type param explicitly: `padiSession` is a concrete
-// `PadiBindingSession` (a class implementing `RemoteMirrorSession<padi contract>`),
-// and the pump's `session: RemoteMirrorSession<C>` param can't reverse-infer `C`
-// from a class value (it hides inside the mapped `AgentClient<C>`). Naming the
-// contract here plugs `padiSession` in checked — the old `as unknown as
-// HostSession<…>` double-cast is gone.
+// Pin the contract type param explicitly: `padiSession` is a `BoundPadi` (the
+// local `PadiBindingSession` or the remote `RemotePadiSession`, both implementing
+// `RemoteMirrorSession<padi contract>`), and the pump's `session:
+// RemoteMirrorSession<C>` param can't reverse-infer `C` from that value (it hides
+// inside the mapped `AgentClient<C>`). Naming the contract here plugs `padiSession`
+// in checked — the old `as unknown as HostSession<…>` double-cast is gone.
 const reServedPadi = reServeSurface<
   typeof padiSurface.spec,
   typeof padiSurface.contract

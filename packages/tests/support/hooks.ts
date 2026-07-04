@@ -777,6 +777,18 @@ async function startServerChild(koluServer: string): Promise<void> {
           // their sessions + login from the real home. See `serverModeEnv`.
           ...serverModeEnv,
           KOLU_OPENCODE_DB: opencodeDbPath,
+          // W3.1 — the ssh leg: when KOLU_E2E_PADI_HOST is set, the server binds a
+          // REMOTE padi over ssh (the whole canvas becomes that host) instead of
+          // spawning a local one, so the SAME suite runs unchanged against a remote
+          // padi — the parity proof. Unset (the default) → today's local binding,
+          // byte-identical, and none of the per-worker padi-state isolation above
+          // changes. Run single-worker over ssh: the remote padi uses ITS OWN default
+          // state-root (the binder passes nothing), so parallel workers would collide
+          // on one remote daemon. The remote host needs the padi drv map baked
+          // (a nix-built koluBin — `just test`, not `just test-quick`).
+          ...(process.env.KOLU_E2E_PADI_HOST
+            ? { KOLU_PADI_HOST: process.env.KOLU_E2E_PADI_HOST }
+            : {}),
         },
       },
     );

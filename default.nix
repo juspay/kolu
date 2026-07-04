@@ -43,6 +43,14 @@
   # threaded in here. Defaults to "{}" for a bare `nix-build default.nix` (no
   # --host map; --host then fails with a clear "run from the Nix wrapper" error).
 , kavalAgentDrvsJson ? "{}"
+  # Per-system `{ system → padi .drv }` map, baked onto kolu-server's wrapper
+  # (koluBin) as PADI_AGENT_DRVS_JSON so a `KOLU_PADI_HOST=<ssh>` remote binding
+  # (W3.1) can ship the target-arch padi derivation (provisionAgent copies+realises
+  # it on the remote). kaval rides INSIDE padi's closure (padi's wrapper bakes
+  # KOLU_KAVAL_BIN), so this ONE drv provisions BOTH daemons. Same shape as
+  # kavalAgentDrvsJson; defaults to "{}" (KOLU_PADI_HOST then fails with a clear
+  # "run from the Nix wrapper" error).
+, padiAgentDrvsJson ? "{}"
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -209,7 +217,11 @@ let
       # `dial.ts` (`@kolu/padi/dial`, W2.3): the CLIENT dial kit runs in a padi
       # CLIENT (padi-tui, the kolu-server binder), NEVER in padi's daemon process,
       # so it belongs to those consumers' code — not padi's staleKey (a dial-only
-      # change must not flip what a padi restart would load).
+      # change must not flip what a padi restart would load). NOTE `stdioBridge.ts`
+      # (`padi --stdio`, W3.1) is NOT excluded: `bin.ts` imports it at top level, so
+      # the daemon process loads the module even when it dispatches to `runPadiDaemon`
+      # — it is genuinely part of what a restart loads (the padi closure test walks
+      # `bin.ts` and reaches it, so `reached` == `hashed` requires it INSIDE the set).
       (pkgs.lib.fileset.unions [
         (pkgs.lib.fileset.difference
           (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/padi/src)
@@ -443,7 +455,8 @@ let
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
       --set PADI_BUILD_ID "${padiBuildId}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
+      --set PADI_AGENT_DRVS_JSON '${padiAgentDrvsJson}' \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
 
@@ -594,13 +607,15 @@ let
   # `create` (a terminal / split tile / worktree'd agent). kaval-tui's sibling and
   # `pulam-tui`'s replacement (see `packages/padi-tui/README.md`). Runs from the
   # SAME built workspace closure as `kolu` under tsx, via `mkAgentTuiWrapper`.
-  # `PADI_AGENT_DRVS_JSON` is set-but-unused today (padi-tui is local-only); the
-  # remote `--host` leg that would consume it is W3, which wires the real drv map.
+  # `PADI_AGENT_DRVS_JSON` carries the per-system `{ system → padi .drv }` map
+  # (W3.1) — the SAME map baked onto koluBin, whose remote binding is W3.1's real
+  # consumer; padi-tui's own `--host` leg is a later, thin wrapper over the same
+  # dial, but the map is baked here now so it is ready the moment that lands.
   padi-tui = mkAgentTuiWrapper {
     name = "padi-tui";
     entry = "packages/padi-tui/src/main.ts";
     envVar = "PADI_AGENT_DRVS_JSON";
-    agentDrvsJson = "{}";
+    agentDrvsJson = padiAgentDrvsJson;
   };
 
   # @kolu/surface example demos — derivations live next to each demo's

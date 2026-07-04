@@ -63,6 +63,46 @@ round-trips a terminal through its own kaval — and two padis at distinct
 state-roots stay isolated. *(kolu-server binds this process in stage 2 — the
 cutover.)*
 
+## W3.1 — the remote binding: padiSurface over ssh
+
+kolu-server can bind a padi **one ssh hop away** — the whole canvas becomes a
+remote host — reusing the local arm's seam, not a parallel one:
+
+- **`padi --stdio`** (`./stdioBridge`) — the durable-daemon FRONT. It resolves
+  padi's digest-keyed socket exactly as `runPadiDaemon` does, then relays this
+  process's stdio onto it via the shared `frontDaemonOverStdio` primitive
+  (adopt-or-spawn; the spawn re-execs `padi` minus `--stdio`, so the daemon that
+  comes up runs `runPadiDaemon` and owns its kaval). The twin of
+  `kaval/src/stdioBridge.ts`: `ssh <host> padi --stdio` fronts the durable padi, so
+  its kaval + PTYs outlive the ssh link (detach → reattach). `./dial.test.ts` gains
+  a stdio-front block proving the control-core handshake + terminal round-trip over
+  the byte relay, minus ssh.
+- **The binding** (`packages/server/src/remotePadiBinding.ts`). The knob
+  **`KOLU_PADI_HOST=<ssh host>`** — OFF by default, no UI (the picker is W3.2) —
+  branches kolu-server onto `getHostSession({ binary: "padi", extraArgs:
+  ["--stdio"] })` (`@kolu/surface-nix-host`, the exact stack `kaval-tui --host`
+  rides). It re-runs `@kolu/padi/dial`'s control-core `hello` + skew refusal over
+  the ssh-bridged link, scopes to `.surface.padi`, and re-serves through the SAME
+  `RemoteMirrorSession` seam the local `PadiBindingSession` plugs into. Unset →
+  today's local binding, byte-identical.
+- **One drv provisions both daemons.** kolu-server's Nix wrapper bakes
+  **`PADI_AGENT_DRVS_JSON`**, an arch-keyed `{ system → padi .drv }` map (built in
+  `flake.nix`, the retired `pulamAgentDrvsJson` pattern). Because padi's wrapper
+  bakes `KOLU_KAVAL_BIN` (kaval rides INSIDE padi's closure), provisioning that ONE
+  drv ships both — `resolveSystem` probes the remote arch, `provisionAgent`
+  `nix copy`s + realises it, and `ssh <host> padi --stdio` runs it.
+- **Convergence needs nothing new.** adopt-or-spawn + re-adopt fall out of
+  `getHostSession` + `frontDaemonOverStdio` (kill the remote padi → the reconnect
+  respawns it; restart kolu-server → it re-adopts the still-running daemon, PTYs
+  intact). The remote padi spells its OWN default state-root on ITS host; the binder
+  passes nothing, and a fresh host's legacy import correctly no-ops.
+- **The ssh-user 0700 caveat.** The remote padi runs AS THE SSH USER, and (like
+  kaval) serves its socket in a `0700` owner-only runtime dir — so the SSH identity
+  **is** the daemon owner. Two ssh users get two isolated padis by construction; a
+  user who cannot reach the owner's `0700` dir cannot reach the daemon. Enforced on
+  the remote (padi/kaval refuse a non-private dir), not from the binder. Pick your
+  ssh user deliberately — it decides who owns the host's terminals.
+
 ## The export map (the `@kolu/terminal-workspace` split)
 
 - **`@kolu/padi/surface`** — BROWSER-SAFE. The `padiSurface` 1.0 zod contract,

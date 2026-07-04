@@ -665,6 +665,38 @@ function projectEndpointStatus(s: PadiEndpointStatus): HostSessionState {
   };
 }
 
+/**
+ * What kolu-server needs from a bound padi, LOCAL or REMOTE: the
+ * `RemoteMirrorSession` role `reServeSurface` consumes (pin · currentClient ·
+ * onState · markConnected · isDestroyed · destroy) PLUS the four kolu-server-facing
+ * readouts/verbs — the bound padi's honest identity (uptime · contract version ·
+ * build commit, off the control-core `hello`) and the "restart" drain. index.ts
+ * types `padiSession` as this, so the {@link PadiBindingSession} (local Endpoint)
+ * and W3.1's `RemotePadiSession` (ssh HostSession) are interchangeable at the
+ * composition root — the knob picks one, the re-serve and the router are identical.
+ */
+export interface BoundPadi
+  extends RemoteMirrorSession<typeof padiSurface.contract> {
+  /** Narrowed from the role's `Promise<unknown>` to the padi-scoped client: both
+   *  arms yield exactly this, and kolu-server's iframe-preview + memory-sampler
+   *  routes call `.surface.padi.*` on it (a return-type narrowing is legal — the
+   *  role stays satisfied). */
+  pin(): Promise<PadiSurfaceClient>;
+  currentClient(): Promise<PadiSurfaceClient> | null;
+  /** DRAIN the bound padi (the "restart" verb): persist + exit; its kaval + PTYs
+   *  survive; the reconnect loop re-adopts/re-spawns. Never a kill-9. */
+  drainBoundPadi(): Promise<void>;
+  /** The bound padi's boot time (ms epoch), or `null` while unbound — the rail's
+   *  padi uptime. */
+  padiStartedAt(): number | null;
+  /** The bound padi's `padiSurface` version off its control-core `hello`, or `null`
+   *  while unbound — the daemonInventory "contract v<x.y>" readout. */
+  padiSurfaceVersion(): string | null;
+  /** The bound padi's navigable git build commit off its control-core `hello`, or
+   *  `null` while unbound / when a survivor padi predates the field. */
+  padiBuildCommit(): string | null;
+}
+
 export interface PadiBindingSessionDeps {
   endpoint: PadiEndpoint;
   /** Kick the boot/reconnect: `adoptOrSpawnOrRefuse` on boot, and again after a
@@ -685,9 +717,7 @@ export interface PadiBindingSessionDeps {
  * pump's client cursor advances on identity. `currentClient()`/`pin()` return the
  * padi-SIBLING-scoped client (the dial kit's `scopePadiSurface(combined)`).
  */
-export class PadiBindingSession
-  implements RemoteMirrorSession<typeof padiSurface.contract>
-{
+export class PadiBindingSession implements BoundPadi {
   private clientPromise: Promise<PadiSurfaceClient> | null = null;
   private destroyed = false;
   /** The bound padi's HONEST boot time (ms epoch) off its control-core `hello`
