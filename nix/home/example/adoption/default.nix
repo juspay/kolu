@@ -48,6 +48,7 @@ in
   adoption-adopt = import ./adopt.nix args;
   adoption-skew = import ./skew.nix args;
   adoption-currency = import ./currency.nix args;
+  adoption-padi-upgrade = import ./padi-upgrade.nix args;
 }
   # The W2.2 UPGRADE-migration path (TWO checks — `adoption-upgrade` for adopt+converge,
   # `adoption-upgrade-reboot` for the reboot bound): a pre-W2.2 port-keyed kaval

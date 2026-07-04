@@ -31,8 +31,10 @@
 , kavalBuildIdOverride ? null
   # TEST-ONLY hook (padi's twin of `kavalBuildIdOverride`, default null): when
   # set, FORCE this build's PADI_BUILD_ID to the given value instead of padi's
-  # source-closure hash. Reserved for a future padi build-skew test; the real
-  # build always takes the source hash.
+  # source-closure hash — baked onto BOTH the padi wrapper AND the koluBin wrapper
+  # (the binder's expected == what it would spawn), so a second build reads as a
+  # padi-build skew to the drain-on-build-mismatch convergence (#1670). Consumed by
+  # the `adoption-padi-upgrade` VM arm; the real build always takes the source hash.
 , padiBuildIdOverride ? null
   # Per-system `{ system → kaval .drv }` map, baked onto the kaval-tui wrapper as
   # KAVAL_AGENT_DRVS_JSON so `kaval-tui --host <ssh>` can ship the target-arch
@@ -41,12 +43,6 @@
   # threaded in here. Defaults to "{}" for a bare `nix-build default.nix` (no
   # --host map; --host then fails with a clear "run from the Nix wrapper" error).
 , kavalAgentDrvsJson ? "{}"
-  # Per-system `{ system → pulam .drv }` map, baked onto the pulam-tui wrapper as
-  # PULAM_AGENT_DRVS_JSON so `pulam-tui --host <ssh>` can ship the target-arch
-  # pulam DAEMON derivation (provisionAgent copies+realises it on the remote).
-  # Built across all systems in flake.nix and threaded in here, exactly like
-  # kavalAgentDrvsJson. Defaults to "{}" for a bare `nix-build default.nix`.
-, pulamAgentDrvsJson ? "{}"
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -93,9 +89,8 @@ let
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
-      ./packages/pulam
-      ./packages/pulam-tui
       ./packages/padi
+      ./packages/padi-tui
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -210,8 +205,17 @@ let
   padiSrc = pkgs.lib.fileset.toSource {
     root = ./packages;
     fileset = pkgs.lib.fileset.unions [
-      # padi itself — both entry roots (bin.ts · assembly.ts) live here.
-      (padiPkgRoot ./packages/padi)
+      # padi itself — both entry roots (bin.ts · assembly.ts) live here. MINUS
+      # `dial.ts` (`@kolu/padi/dial`, W2.3): the CLIENT dial kit runs in a padi
+      # CLIENT (padi-tui, the kolu-server binder), NEVER in padi's daemon process,
+      # so it belongs to those consumers' code — not padi's staleKey (a dial-only
+      # change must not flip what a padi restart would load).
+      (pkgs.lib.fileset.unions [
+        (pkgs.lib.fileset.difference
+          (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/padi/src)
+          ./packages/padi/src/dial.ts)
+        ./packages/padi/package.json
+      ])
       # kaval — but ONLY its LIBRARY surface (what padi embeds in-process from
       # `index.ts`), NOT its daemon EXECUTABLE (bin.ts · daemonMain.ts ·
       # stdioBridge.ts). padi spawns that executable as a SEPARATE process via
@@ -232,15 +236,10 @@ let
       (padiPkgRoot ./packages/terminal-protocol)
       (padiPkgRoot ./packages/surface-daemon)
       (padiPkgRoot ./packages/surface-daemon-supervisor)
-      # terminal-workspace — MINUS `socket.ts`, which is pulam's well-known
-      # rendezvous path (imported by pulam/pulam-tui, not re-exported by the
-      # barrel, and never loaded by padi).
-      (pkgs.lib.fileset.unions [
-        (pkgs.lib.fileset.difference
-          (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/terminal-workspace/src)
-          ./packages/terminal-workspace/src/socket.ts)
-        ./packages/terminal-workspace/package.json
-      ])
+      # terminal-workspace — the sensors + fold + fs/git endpoint padi's closure
+      # reaches (its dead `surface` / `serveFsGit` / `socket` were buried with
+      # pulam at W2.3, so the whole src hashes clean now).
+      (padiPkgRoot ./packages/terminal-workspace)
       # The domain leaves padi's closure reaches: serving, the agent/forge/git
       # integrations, transcripts, and the shared utilities. (`@kolu/surface` and
       # the npm deps are NOT here — surface is the framework "electricity" (a
@@ -268,9 +267,13 @@ let
   };
 
   # A content digest of padi's daemon source closure, baked into PADI_BUILD_ID —
-  # computed PURELY in Nix (no IFD) exactly like `kavalBuildId`.
-  # `padiBuildIdOverride` (TEST-ONLY, default null) forces the value for a future
-  # build-skew test; the real build always takes the source hash.
+  # computed PURELY in Nix (no IFD) exactly like `kavalBuildId`. Baked onto the padi
+  # wrapper (what the RUNNING padi reports in its control-core hello) AND the koluBin
+  # wrapper (what the BINDER expects, since it spawns exactly this padi) — the two
+  # agree by construction, so the drain-on-build-mismatch convergence (#1670) fires
+  # only across an actual redeploy, never within one build. `padiBuildIdOverride`
+  # (TEST-ONLY, default null) forces the value for the build-skew VM arm; the real
+  # build always takes the source hash.
   padiBuildId =
     if padiBuildIdOverride != null
     then padiBuildIdOverride
@@ -439,6 +442,7 @@ let
       --set KAVAL_COMMIT_HASH "${commitHash}" \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
+      --set PADI_BUILD_ID "${padiBuildId}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
@@ -518,7 +522,7 @@ let
   #
   # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
   # single-process loader form delivers SIGTERM to the daemon so its socket + gate
-  # teardown runs (the same reason kaval's and pulam's bins use it). padi's boot
+  # teardown runs (the same reason kaval's bin uses it). padi's boot
   # reconcile shells out to `git` (repo/worktree context) and the pinned `gh`
   # (KOLU_GH_BIN — PR resolution), so both are on PATH / in the env, exactly as
   # kolu's own wrapper carries them. `--run (diagRunHook "padi-")` arms the same
@@ -544,7 +548,7 @@ let
 
   # A surface-agent TUI wrapper: a `tsx` entrypoint from the built workspace
   # closure whose `--host <ssh>` path ships a TARGET-arch agent derivation to a
-  # remote. kaval-tui and pulam-tui both consume it (the two thin, single-daemon
+  # remote. kaval-tui and padi-tui both consume it (the two thin, single-daemon
   # `--host` CLIs): name, entrypoint, and the per-system `{ system → agent .drv }`
   # map env var are the only volatile axes. The map is
   # baked with `--set` (NOT `--set-default`): it is a baked build
@@ -584,48 +588,19 @@ let
     agentDrvsJson = kavalAgentDrvsJson;
   };
 
-  # pulam (plan P1c): the standalone terminal-workspace daemon. Dials a
-  # running kaval as a plain ptyHostSurface client, runs the awareness sensors
-  # (git · PR · agent · foreground) for every PTY kaval owns, and serves the
-  # result as one `awareness` collection that pulam-tui reads — zero kolu-server
-  # involvement. Ephemeral: owns no PTYs, holds no gate, recomputes from now on
-  # every start. Runs from the SAME built workspace closure as `kolu` (so kaval
-  # + @kolu/surface + @kolu/terminal-workspace resolve identically).
-  #
-  # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
-  # single-process loader form delivers SIGTERM to the daemon so its socket
-  # teardown runs (the same reason kaval's bin uses it). The sensors shell out
-  # to `git` (git context) and the pinned `gh` (KOLU_GH_BIN — PR resolution),
-  # so both are on PATH / in the env, exactly as kolu's own wrapper carries them.
-  pulam = pkgs.runCommand "pulam"
-    {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta.mainProgram = "pulam";
-    } ''
-    mkdir -p $out/bin
-    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/pulam \
-      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
-      --add-flags "${kolu}/packages/pulam/src/bin.ts" \
-      --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
-  '';
-
-  # pulam-tui: the terminal-side CLI that dials a running pulam's awareness
-  # socket and shows what each terminal IS IN (repo·branch · PR · agent ·
-  # foreground) — `status` (a one-shot snapshot) + `watch` (a live follow) + the
-  # `wait` done-signal. A pure surface CLIENT (kaval-tui's sibling), so it needs
-  # no git/gh and no state dir.
-  #
-  # Runs from the SAME built workspace closure as `kolu` under **tsx**, via
-  # `mkAgentTuiWrapper` above — exactly like kaval-tui.
-  # `--host <ssh>` rides the wrapper's PULAM_AGENT_DRVS_JSON: the per-system
-  # `{ system → pulam .drv }` map so the CLI can ship the target-arch pulam
-  # DAEMON derivation to a remote (the remote runs `pulam --stdio`).
-  pulam-tui = mkAgentTuiWrapper {
-    name = "pulam-tui";
-    entry = "packages/pulam-tui/src/main.ts";
-    envVar = "PULAM_AGENT_DRVS_JSON";
-    agentDrvsJson = pulamAgentDrvsJson;
+  # padi-tui (W2.3): the terminal-side CLI that dials a running padi's digest-keyed
+  # socket and reads its `padiSurface` — `status`/`watch` (record state · agent ·
+  # live byte activity) and the precise agent-state `wait` done-signal, plus
+  # `create` (a terminal / split tile / worktree'd agent). kaval-tui's sibling and
+  # `pulam-tui`'s replacement (see `packages/padi-tui/README.md`). Runs from the
+  # SAME built workspace closure as `kolu` under tsx, via `mkAgentTuiWrapper`.
+  # `PADI_AGENT_DRVS_JSON` is set-but-unused today (padi-tui is local-only); the
+  # remote `--host` leg that would consume it is W3, which wires the real drv map.
+  padi-tui = mkAgentTuiWrapper {
+    name = "padi-tui";
+    entry = "packages/padi-tui/src/main.ts";
+    envVar = "PADI_AGENT_DRVS_JSON";
+    agentDrvsJson = "{}";
   };
 
   # @kolu/surface example demos — derivations live next to each demo's
@@ -673,5 +648,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui pulam pulam-tui padi koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample // oduPackages

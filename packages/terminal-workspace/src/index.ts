@@ -1,21 +1,26 @@
 /**
- * `@kolu/terminal-workspace` — the host-side terminal WORKSPACE library, run in
- * two homes off one codebase: in-process in kolu-server (local terminals) and
- * hosted by `pulam` over ssh (remote ones). Lifted out of kolu-server so both
- * homes share ONE copy of the freshness-critical code. Its entry points
- * (the export map is the boundary — node-only code never reaches a browser
- * consumer):
+ * `@kolu/terminal-workspace` — the host-side terminal WORKSPACE library: the
+ * memoryless per-terminal awareness sensors, the pure fold kolu folds their
+ * observation stream with, and the host-side fs/git wrapper the Code tab reads.
+ * Lifted out of kolu-server so its one home — padi (which owns the per-host
+ * terminal domain) — and kolu-server share ONE copy of the freshness-critical
+ * code. Its entry points (the export map is the boundary — node-only code never
+ * reaches a browser consumer):
  *  - `.` — the memoryless per-terminal awareness PRODUCER (git · PR · agent ·
  *    foreground) + the generic `TerminalSnapshot` schema it emits, and the pure `fold`
  *    kolu folds the observation stream with.
- *  - `./schema` — the browser-safe `TerminalSnapshot` / `AgentMemory` zod schemas alone.
+ *  - `./schema` — the browser-safe terminal vocabulary alone: the
+ *    `TerminalSnapshot` / `AgentMemory` / `TerminalId` zod schemas plus the
+ *    `RepoChangePulse` / `FsFileInput` / `FsReadFileTextOutput` fs/git wire
+ *    schemas `@kolu/padi/surface` composes.
+ *  - `./agentProjection` — the pure agent-status projection.
  *  - `./endpoint` — `createTerminalWorkspaceEndpoint`, the host-side fs/git
  *    wrapper over `kolu-git` the Code tab reads.
- *  - `./surface` — `terminalWorkspaceSurface`, the browser-safe served surface
- *    (awareness + fs/git) pulam serves and a remote kolu mirrors in R8.
- *  - `./serveFsGit` — `fsGitSurfaceDeps`, the deps wiring the endpoint onto the
- *    surface.
- *  - `./socket` — the well-known pulam rendezvous socket path.
+ *
+ * The frozen `terminalWorkspaceSurface` (and its `serveFsGit` /
+ * `serveTerminalWorkspace` assemblers + the pulam rendezvous `socket`) were
+ * BURIED with pulam / pulam-tui (W2.3): the per-host terminal surface is
+ * `padiSurface` now, and padi absorbed the fs/git watcher-stream backings.
  *
  * The package names no kolu-app package: its lone host coupling — a logger —
  * is injected as a `startSensors` parameter. Consumers that only need the

@@ -248,11 +248,15 @@ function koluSurfaceBindings(file: string): string[] {
 
 // ── (b) The @kolu/padi import-boundary walk ───────────────────────────────
 
-/** The ONLY `@kolu/padi` specifiers kolu-server may import — its three published
- *  entry points. A deep `@kolu/padi/src/...` import (bypassing the barrel) or any
- *  other subpath fails the boundary. */
+/** The ONLY `@kolu/padi` specifiers kolu-server may import — its published entry
+ *  points. A deep `@kolu/padi/src/...` import (bypassing the barrel) or any other
+ *  subpath fails the boundary. `/dial` joined the list in W2.3: `connectPadi` (the
+ *  state-root→socket resolve + control-core handshake) was carved out of the
+ *  binder into `@kolu/padi/dial` so `padi-tui` and the binder share ONE dial kit
+ *  (the kaval precedent — a daemon's package owns its client-side dial kit). */
 const ALLOWED_PADI = [
   "@kolu/padi/assembly",
+  "@kolu/padi/dial",
   "@kolu/padi/surface",
   "@kolu/padi/log",
 ];

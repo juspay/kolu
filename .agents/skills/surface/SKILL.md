@@ -24,7 +24,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 | **pulam-web** | browser ⇄ Node ⇄ ssh fleet mirror | one ws per host (`/rpc/ws?host=`); `connectSurface`; re-serves `terminalWorkspaceSurface` |
 | **drishti** (`srid/drishti`) | browser ⇄ Node ⇄ ssh agent mirror | the canonical twin; 3 workspaces (common/agent/app) |
 | **odu** (`juspay/odu`) | CI runner: stdio lanes → unix-socket fan-in → CLI/MCP | serve+consume+mirror over every transport at once; `surface-mcp` projection |
-| **pulam-tui / kaval-tui** | one-shot CLI/TUI, no browser | transport-blind `{client,dispose}`; unix-socket local, ssh remote; **no `.use()` hooks** |
+| **padi-tui / kaval-tui** | one-shot CLI/TUI, no browser | transport-blind `{client,dispose}`; unix-socket local, ssh remote; **no `.use()` hooks** |
 
 ## The spine (real import paths)
 
@@ -49,7 +49,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 - **Raw streaming** — `unenrolledStreamCall(client.X, input, {signal, onRetry})` (`@kolu/surface/client`) carries the reconnect (`STREAM_RETRY`) context; a bare `client.X(…)` silently loses it. There is **no `stream` namespace** (`.claude/rules/streaming.md` is stale on that point).
 - **Consume streams fine-grained** — value-bearing → `.streams.use()` (replace-each-frame); delta-accumulate → `mirrorRemoteSurface` / `createSubscription`+`reduce`. Never coarse-read-and-copy: same-shape frames coalesce and the view freezes.
 - **Snapshot-then-deltas + fail-fast** — a cell always opens with a snapshot; `firstFrameOrThrow` (`@kolu/surface/first-frame`) treats an empty stream as a link failure, never a silent empty.
-- **Liveness is on by construction** — framework-reserved `surface.system.live`; `connectSurface` / `HostSession` / `createServerLifecycle` default their watchdog to it (`probeSurfaceLive`). Don't nominate your own probe unless you mean to (pulam-tui's version-cell probe is the rare, deliberate exception).
+- **Liveness is on by construction** — framework-reserved `surface.system.live`; `connectSurface` / `HostSession` / `createServerLifecycle` default their watchdog to it (`probeSurfaceLive`). Don't nominate your own probe unless you mean to.
 - **Version skew** — gate on `isContractVersionCompatible` (major.minor), never a string `==`.
 - **Nix-baked deps** — odu declares no `@kolu/*` in `package.json`; they're symlinked at Nix build (the bake-in-via-Nix convention). A bare `pnpm install` won't resolve them.
 

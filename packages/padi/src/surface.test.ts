@@ -213,25 +213,33 @@ describe("padiSurface 1.0 contract", () => {
     expect(Object.keys(padiDaemonSurfaces).sort()).toEqual(["control", "padi"]);
     expect(padiDaemonContract.surface.control).toBeTruthy();
     expect(padiDaemonContract.surface.padi).toBeTruthy();
-    // The hello handshake validates a well-formed identity — including the
-    // additive `startedAt` boot time the binder reads for honest uptime, and the
-    // additive `commit` (the RUNNING padi's build the Padi dialog surfaces).
+    // The hello handshake validates a well-formed identity — including the additive
+    // `startedAt` boot time the binder reads for honest uptime, the additive `commit`
+    // (the RUNNING padi's build the Padi dialog surfaces), and the additive `buildId`
+    // (padi's staleKey — the binder's build-convergence key, #1670). All additive to
+    // the never-served frozen core, so CONTROL_CORE_VERSION stays "1.0".
     const hello = {
       stateRoot: "/home/u/.local/state/padi",
       surfaceVersion: PADI_SURFACE_VERSION,
       controlCoreVersion: CONTROL_CORE_VERSION,
       startedAt: 1_700_000_000_000,
       commit: "abc1234",
+      buildId: "cafef00d",
     };
     expect(PadiHelloSchema.parse(hello)).toEqual(hello);
-    // `commit` is OPTIONAL — a survivor padi predating the field omits it and STILL
-    // handshakes (its hello validates), so the bind never breaks; it reads "—".
-    const helloNoCommit = {
+    // `commit` AND `buildId` are OPTIONAL — a survivor padi predating either field
+    // omits it and STILL handshakes (its hello validates), so the bind never breaks.
+    // (An absent `buildId` is read by a nix-built binder as an older build → drained;
+    // that policy lives in padiBinding, not the schema — the schema only proves the
+    // handshake never fails on the missing field.)
+    const helloNoBuildFields = {
       stateRoot: "/home/u/.local/state/padi",
       surfaceVersion: PADI_SURFACE_VERSION,
       controlCoreVersion: CONTROL_CORE_VERSION,
       startedAt: 1_700_000_000_000,
     };
-    expect(PadiHelloSchema.parse(helloNoCommit)).toEqual(helloNoCommit);
+    expect(PadiHelloSchema.parse(helloNoBuildFields)).toEqual(
+      helloNoBuildFields,
+    );
   });
 });

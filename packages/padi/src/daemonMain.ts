@@ -28,7 +28,7 @@ const PADI_STARTED_AT = Date.now();
 import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
 import { implement, type Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
-import { currentPadiCommitHash } from "./buildId.ts";
+import { currentPadiBuildId, currentPadiCommitHash } from "./buildId.ts";
 import {
   setPadiActivityFeedStore,
   setPadiLastPairedDaemonStore,
@@ -48,6 +48,7 @@ import { publisher } from "./publisher.ts";
 import {
   getLocalSocketPath,
   publishDaemonStatus,
+  setPadiServeSocketPath,
 } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint, setSpawnServerVersion } from "./ptyHost/index.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
@@ -154,6 +155,11 @@ export async function runPadiDaemon(
   // The per-process identity padi's koluRoot + PTY spawns need — padi's OWN pid
   // (a standalone daemon owns its disk) and the version stamped on spawned PTYs.
   setDaemonProcessId(String(process.pid));
+  // Record padi's OWN serving socket so every terminal it spawns carries it as
+  // `PADI_SOCKET` (the $KAVAL_SOCKET twin) — a `padi-tui` inside a kolu terminal
+  // then reaches the padi that owns it flag-free. Set before anything can spawn a
+  // terminal (well before `ensureLocalEndpoint`).
+  setPadiServeSocketPath(socketPath);
   // `||` not `??`: currentPadiCommitHash() is "" off-nix (no baked env), and the
   // spawn-version setter refuses an empty value — fall through to "dev".
   setSpawnServerVersion(opts.spawnVersion || currentPadiCommitHash() || "dev");
@@ -219,6 +225,10 @@ export async function runPadiDaemon(
         // padi's navigable git commit (`PADI_COMMIT_HASH`), echoed by `hello` so the
         // binder surfaces the RUNNING padi's build. Empty "" off-nix → honest "—".
         commit: currentPadiCommitHash(),
+        // padi's staleKey (`PADI_BUILD_ID`) — the binder's build-convergence key: a
+        // same-contract build mismatch drains this padi once at binder boot (#1670).
+        // Empty "" off-nix (the binder never build-drains a "" survivor of a "" binder).
+        buildId: currentPadiBuildId(),
         onDrain,
       }),
     },

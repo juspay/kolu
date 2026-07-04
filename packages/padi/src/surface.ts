@@ -43,9 +43,9 @@
  * W2.2. It lives HERE (not `@kolu/surface-daemon`) and graduates only if a
  * second daemon ever adopts it (electricity test ③: proof before extraction).
  *
- * BROWSER-SAFE face: like `koluSurface`/`terminalWorkspaceSurface` this imports
+ * BROWSER-SAFE face: like `koluSurface` this imports
  * only `@kolu/surface/define`, zod-only schema modules (its own `./vocab.ts` +
- * `./transcriptSchema.ts`, `kolu-git/schemas`, `@kolu/terminal-workspace/surface`),
+ * `./transcriptSchema.ts`, `kolu-git/schemas`, `@kolu/terminal-workspace/schema`),
  * and `zod` — no `node:`/kaval runtime (that lives beside this, in the node-only
  * side the motion stage adds). The terminal VOCABULARY now lives HERE (`./vocab.ts`,
  * re-exported below): the arrow points `kolu-common → @kolu/padi`, never back. The
@@ -58,12 +58,12 @@ import {
   defineSurface,
   type SurfaceTypes,
 } from "@kolu/surface/define";
-import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
-} from "@kolu/terminal-workspace/surface";
+  TerminalIdSchema,
+} from "@kolu/terminal-workspace/schema";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import {
@@ -704,6 +704,21 @@ export const PadiHelloSchema = z.object({
    *  padi predating the field omits it and STILL handshakes (its hello validates),
    *  reading as the honest "—" rather than breaking the bind. Empty `""` off-nix. */
   commit: z.string().optional(),
+  /** padi's staleKey (`PADI_BUILD_ID`) — the content hash of padi's daemon source
+   *  closure, which flips iff a restart would load DIFFERENT daemon code. This is the
+   *  binder's build-convergence key (#1670): a binder compares it against its OWN baked
+   *  `PADI_BUILD_ID` and, on a same-contract mismatch, drains the survivor once at boot
+   *  and respawns its own build. Distinct from `commit` — the git ref is navigable but
+   *  does NOT capture the closure (two builds off one commit can differ; one commit can
+   *  change nothing padi runs). Additive like `commit` (the frozen core has never
+   *  shipped served → `CONTROL_CORE_VERSION` stays "1.0"), and OPTIONAL so a survivor
+   *  padi predating the field STILL handshakes. But an ABSENT id is NOT "adopt anyway":
+   *  a nix-built binder (which always bakes its own `PADI_BUILD_ID`) reads a missing id
+   *  as "this padi predates the field, so it is by definition an OLDER build" and DRAINS
+   *  it — otherwise the fix would fail to fire on the very first upgrade past a pre-field
+   *  padi (exactly the deploy it exists for). Only an OFF-NIX binder (its own id `""`)
+   *  never drains on build grounds — it cannot judge builds. Empty `""` off-nix. */
+  buildId: z.string().optional(),
 });
 export type PadiHello = z.infer<typeof PadiHelloSchema>;
 

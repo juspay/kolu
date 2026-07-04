@@ -1,7 +1,6 @@
 /**
- * `@kolu/padi/servePadi` — the ONE assembler of the `padiSurface` server deps,
- * the padi twin of `@kolu/terminal-workspace/serveTerminalWorkspace`. Built
- * ENTIRELY from padi's own domain modules (relative imports within `@kolu/padi`);
+ * `@kolu/padi/servePadi` — the ONE assembler of the `padiSurface` server deps.
+ * Built ENTIRELY from padi's own domain modules (relative imports within `@kolu/padi`);
  * it NEVER imports from `packages/server` — the dependency arrow points OUT (a
  * helper that lives only in the server, `previewRealpathGuard`, is REPRODUCED
  * here in `./preview.ts`).
@@ -20,8 +19,6 @@
 
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
-import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
-import { quietActivity } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
@@ -31,6 +28,8 @@ import {
   requirePadiSessionStore,
 } from "./confStores.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
+import { padiFsGitDeps } from "./fsGitDeps.ts";
+import { createLiveActivitySource } from "./liveActivity.ts";
 import { readPreview } from "./preview.ts";
 import {
   readDaemonStatus,
@@ -110,7 +109,7 @@ export function buildPadiSurfaceDeps(deps: {
   log: Logger;
 }): Omit<PadiDeps, "channel"> {
   const { endpoint, log } = deps;
-  const fsGit = fsGitSurfaceDeps(endpoint, log);
+  const fsGit = padiFsGitDeps(endpoint, log);
 
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
   // read from kaval's `currentPtyHostIdentity`). Mirrors the guard the server's
@@ -212,17 +211,15 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     streams: {
-      // QUIET — deliberately, still. `activity` (the set of terminals producing
-      // output right now) has NO consumer: the client derives its per-tile live
-      // dot LOCALLY from `terminalAttach` bytes and has never read this surface
-      // member. Lighting it now — even though padi owns the byte-taps that could
-      // feed it — would be a producer with zero consumers, the exact
-      // self-sufficiency smell this plan exists to kill. So it stays served-quiet
-      // (the honest "nothing known to be moving", no contract change); its live
-      // backing lands with its FIRST real consumer — `padi-tui wait`/`status`
-      // (W2.3) or `kolu-tui` (W4). The fs/git change-pulses are pure reuse of
-      // `fsGitSurfaceDeps(...).streams`.
-      activity: quietActivity,
+      // LIVE (W2.3) — the set of terminals producing output right now, tapped from
+      // kaval's per-terminal byte deltas. Deferred out of W2.2 as a producer with
+      // no consumer; lit here with its FIRST consumer, `padi-tui watch`/`status`,
+      // per the self-sufficiency rule. LAZY: byte taps open only while this stream
+      // has a subscriber (see `createLiveActivitySource`), so an unwatched padi
+      // pays nothing. The client's per-tile green dot is unchanged — it derives
+      // from its OWN `terminalAttach` bytes, never this member. The fs/git
+      // change-pulses are pure reuse of `padiFsGitDeps(...).streams`.
+      activity: createLiveActivitySource(log),
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on

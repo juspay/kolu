@@ -3,93 +3,29 @@
  *
  * Stores recoverable state at ~/.config/kolu/state.json (or wherever
  * KOLU_STATE_DIR points). The on-disk shape (`PersistedStateSchema`) lives
- * here as an implementation detail; consumers go through the domain modules
- * (`preferences.ts`, `activity.ts`, `session.ts`) instead of reaching for
- * `store` directly.
+ * here as an implementation detail; `preferences.ts` reads/writes its key
+ * against the shared `store` rather than reaching for it directly.
  *
- * Domain modules still need `store` to read/write their own keys — see the
- * file comment in each. Splitting Conf instances per domain was considered
- * and rejected in #577: the on-disk shape is one schema, one migration ladder,
- * one source of truth.
+ * `session` and `activityFeed` USED to live here too; W2.2 moved them onto the
+ * padi PROCESS's own state-root store (`@kolu/padi`'s `stateStore.ts`), so this
+ * store holds only `preferences` now. The 1.31.0 migration below strips the
+ * legacy `session` / `activityFeed` residue (and the older orphan
+ * `sleepingTerminals` / `lastPairedDaemon` keys) off any pre-W2.2 file — backing
+ * it up first so a fresh padi's one-shot legacy import stays recoverable.
  *
  * All data here is reconstructible (not user data), so corrupt/missing files
  * can safely reset to defaults.
  */
 
-import {
-  type ActivityFeed,
-  ActivityFeedSchema,
-  backfillLocation,
-  backfillRemoteUrl,
-  backfillSnapshotCutover,
-  backfillTerminalState,
-  SavedSessionSchema,
-} from "@kolu/padi/surface";
+import { copyFileSync, existsSync } from "node:fs";
 import Conf from "conf";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
   PreferencesSchema,
 } from "kolu-common/surface";
-import type { GitInfo } from "kolu-git/schemas";
 import { z } from "zod";
 import { log } from "./log.ts";
-
-/** Best-effort `GitInfo` from the legacy flat `repoName`/`branch` fields
- *  shipped before #702. Path fields are seeded from `cwd` — a defensible
- *  default for the common case (terminal at the repo root) that the live
- *  git provider overwrites with the real values on first restore via
- *  `subscribeGitInfo`. No empty-string sentinels: every `string` field
- *  carries an honest path, just possibly the wrong one until re-resolution.
- *
- *  Exported so `state.test.ts` can exercise the synthesis directly without
- *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
-export function migrateLegacyTerminal_1_18_0(
-  t: Record<string, unknown>,
-): Record<string, unknown> {
-  const {
-    sortOrder: _sortOrder,
-    repoName,
-    branch,
-    git: existingGit,
-    ...kept
-  } = t;
-  // Already-present `git` key wins — idempotent on migrated data, and a
-  // populated record beats a synthesized one if a corrupt entry has both.
-  if ("git" in t) {
-    return {
-      ...kept,
-      git: (existingGit as GitInfo | null | undefined) ?? null,
-    };
-  }
-  // Pre-#702 entry: synthesize from the flat fields, using cwd as the
-  // best-guess for paths. Skip synthesis (and stamp `git: null`) if cwd
-  // is missing — falling back to "" would silently reintroduce the
-  // empty-string sentinel this rewrite is trying to remove. Live git
-  // provider re-resolves on first restore via subscribeGitInfo, so the
-  // worktree case (cwd ≠ mainRepoRoot) self-corrects.
-  if (
-    typeof repoName === "string" &&
-    typeof branch === "string" &&
-    typeof kept.cwd === "string"
-  ) {
-    return {
-      ...kept,
-      git: {
-        repoName,
-        branch,
-        repoRoot: kept.cwd,
-        worktreePath: kept.cwd,
-        isWorktree: false,
-        mainRepoRoot: kept.cwd,
-        // A restored session carries no remote URL — the live git watcher
-        // re-resolves it on the next resolve.
-        remoteUrl: null,
-      },
-    };
-  }
-  return { ...kept, git: null };
-}
 
 /** Convert a pre-1.30 `preferences` record — where the on/off `shuffleTheme`
  *  boolean chose whether new terminals auto-picked a distinct theme — to the
@@ -122,21 +58,12 @@ export function migratePreferences_1_30_0(
   };
 }
 
-// The per-field backfills the migration ladder runs (`backfillRemoteUrl` /
-// `backfillLocation` / `backfillTerminalState`) live in `kolu-common/surface`,
-// beside the `SavedTerminalSchema` they restore, because the client's
-// diagnostic "Import session" hatch composes the SAME functions on an exported
-// blob (see `backfillSavedSession` / `sessionTransfer.ts`). Keeping them in one
-// place avoids a parallel hand-rolled backfill on the import side. `migrateLegacyTerminal_1_18_0`
-// stays here — it is the 1.18-only flat-fields→`GitInfo` synthesis, not a
-// presence-keyed field backfill, and has no second caller.
-
-/** What conf stores to disk — survives server restart. Internal: clients see
- *  the per-domain shapes (Preferences / ActivityFeed / SavedSession), not
- *  this aggregate. Adding a new domain key requires a migration entry below. */
+/** What conf stores to disk — survives server restart. Internal: `preferences.ts`
+ *  reads the per-domain `Preferences` shape, not this aggregate. `session` /
+ *  `activityFeed` left this store at W2.2 (they are padi's now); the 1.31.0
+ *  migration strips their legacy residue. Adding a new domain key requires a
+ *  migration entry below. */
 const PersistedStateSchema = z.object({
-  activityFeed: ActivityFeedSchema,
-  session: SavedSessionSchema.nullable(),
   preferences: PreferencesSchema,
 });
 
@@ -147,7 +74,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.30.0";
+const SCHEMA_VERSION = "1.31.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -166,31 +93,64 @@ if (!stateDir) {
 
 log.info({ path: stateDir }, "state directory");
 
-/** Apply a per-terminal record transform across the saved session's terminals —
- *  the shape every terminal-touching migration step shares. No-op when no
- *  session is saved. The `as unknown as` casts are the conf-ladder idiom for
- *  walking a raw on-disk blob whose shape predates the current schema. */
-function mapSessionTerminals(
-  store: Conf<PersistedState>,
-  fn: (t: Record<string, unknown>) => Record<string, unknown>,
-): void {
-  const session = store.get("session");
-  if (!session) return;
-  const terminals = (
-    session.terminals as unknown as Record<string, unknown>[]
-  ).map(fn);
-  store.set("session", {
-    ...session,
-    terminals: terminals as typeof session.terminals,
-  });
+/** Delete a key that is no longer in `PersistedStateSchema` off the raw store —
+ *  the conf-ladder idiom for stripping a legacy/orphan key (Conf's typed
+ *  `delete` rejects keys outside the current schema, hence the double-cast).
+ *  Harmless when the key is absent. */
+function deleteLegacyKey(store: Conf<PersistedState>, key: string): void {
+  (store as unknown as { delete: (key: string) => void }).delete(key);
+}
+
+/** The keys the 1.31.0 BURIAL strips off this store — `session`/`activityFeed`
+ *  (moved to padi's state-root at W2.2) plus the older orphan
+ *  `sleepingTerminals`/`lastPairedDaemon` present on real disks from earlier
+ *  eras. */
+const LEGACY_KEYS_STRIPPED_1_31_0 = [
+  "session",
+  "activityFeed",
+  "sleepingTerminals",
+  "lastPairedDaemon",
+] as const;
+
+/** The 1.31.0 BURIAL migration body — BACKUP-FIRST, then strip.
+ *
+ *  A direct pre-W2.2 → W2.3 upgrade runs this ladder BEFORE a fresh padi's
+ *  one-shot legacy import reads `$KOLU_STATE_DIR`, so an UNCONDITIONAL strip
+ *  would destroy the legacy `session` before padi ever reads it. When ANY legacy
+ *  key is present, byte-copy the whole config aside to a sibling
+ *  `config.json.pre-1.31-strip.bak` FIRST (a wrong strip stays recoverable),
+ *  THEN delete the keys. The copy is skipped when no legacy key is present, so a
+ *  clean ≥W2.2 file grows no stray `.bak`.
+ *
+ *  The backup is WRITE-ONCE. `conf` persists each `delete` synchronously but only
+ *  records the migration as done AFTER this handler returns, so a crash mid-strip
+ *  (backup taken, some keys already deleted) leaves the migration to RERUN on the
+ *  next boot — where the now-partially-stripped live file still trips `hasLegacy`.
+ *  Re-copying there would clobber the full first backup with a lossy one, breaking
+ *  the zero-loss import. So we keep the existing `.bak`: the first copy — taken
+ *  before ANY delete — is always the complete pre-strip file, and every later copy
+ *  could only be lossier.
+ *
+ *  Exported so a test can drive it against a real `Conf` under an ephemeral
+ *  `KOLU_STATE_DIR` without walking the whole ladder. */
+export function stripLegacyStateKeys_1_31_0(store: Conf<PersistedState>): void {
+  const raw = store.store as unknown as Record<string, unknown>;
+  const hasLegacy = LEGACY_KEYS_STRIPPED_1_31_0.some((key) => key in raw);
+  const bakPath = `${store.path}.pre-1.31-strip.bak`;
+  if (hasLegacy && !existsSync(bakPath)) {
+    // Back up the whole config file BEFORE any delete, so a fresh padi's legacy
+    // import (or a human) can still recover the pre-strip session. Write-once (see
+    // the doc comment): a rerun after a partial strip must NOT overwrite the full
+    // first backup with a lossy one.
+    copyFileSync(store.path, bakPath);
+  }
+  for (const key of LEGACY_KEYS_STRIPPED_1_31_0) deleteLegacyKey(store, key);
 }
 
 export const store = new Conf<PersistedState>({
   cwd: stateDir,
   projectVersion: SCHEMA_VERSION,
   defaults: {
-    activityFeed: { recentRepos: [], recentAgents: [] } satisfies ActivityFeed,
-    session: null,
     preferences: DEFAULT_PREFERENCES,
   },
   migrations: {
@@ -406,37 +366,19 @@ export const store = new Conf<PersistedState>({
         });
       }
     },
-    // SavedTerminal unified with TerminalMetadata — the flattened
-    // `repoName`/`branch` (now read from `git`) and the `sortOrder`
-    // index (replaced by Map insertion order) are gone. The legacy
-    // `repoName`/`branch` are converted into a synthesized `GitInfo`
-    // (see `migrateLegacyTerminal_1_18_0`) so the restore card keeps
-    // showing repo names instead of full cwd paths — the original
-    // 1.18.0 release stamped `git: null` and lost that context (#714).
-    "1.18.0": (store: Conf<PersistedState>) =>
-      mapSessionTerminals(store, migrateLegacyTerminal_1_18_0),
-    // recentRepos + recentAgents — two top-level keys carrying one logical
-    // ActivityFeed cell — collapse into a single `activityFeed` key. The
-    // framework's `cellHandlers` treats activityFeed as one atomic value;
-    // the legacy two-key split was a leak of disk-shape into the cell
-    // adapter. Strip the old keys after writing the new one so the
-    // PersistedStateSchema's `.strict()` (or future-stricter) reads don't
-    // see the orphans.
+    // 1.18.0 transformed the saved SESSION's terminals (flat
+    // `repoName`/`branch` → synthesized `GitInfo`). `session` left this store
+    // at W2.2 (it is padi's now), so this is a no-op — the 1.31.0 strip removes
+    // any legacy `session` residue rather than reshaping it here.
+    "1.18.0": () => {},
+    // 1.19.0 collapsed the top-level `recentRepos` + `recentAgents` keys into a
+    // single `activityFeed` cell. `activityFeed` itself left this store at W2.2
+    // (it is padi's now, stripped by 1.31.0 below), so the WRITE is gone — but
+    // keep deleting the two pre-1.19 orphan keys, which 1.31.0's strip list does
+    // not cover, so a jump from pre-1.19 straight to W2.3 still cleans them.
     "1.19.0": (store: Conf<PersistedState>) => {
-      const raw = store.store as unknown as Record<string, unknown>;
-      const recentRepos = (raw.recentRepos ??
-        []) as ActivityFeed["recentRepos"];
-      const recentAgents = (raw.recentAgents ??
-        []) as ActivityFeed["recentAgents"];
-      store.set("activityFeed", { recentRepos, recentAgents });
-      // Strip the legacy keys (no longer in PersistedStateSchema) — the
-      // double-cast is needed because Conf's typed `delete` rejects keys
-      // outside the current schema.
-      const untyped = store as unknown as {
-        delete: (key: string) => void;
-      };
-      untyped.delete("recentRepos");
-      untyped.delete("recentAgents");
+      deleteLegacyKey(store, "recentRepos");
+      deleteLegacyKey(store, "recentAgents");
     },
     // rightPanel.tab DU → flat `activeTab` + `codeMode`. Storage stays
     // mergeable by Solid's setStore (no DU subtree to leak variant
@@ -461,11 +403,10 @@ export const store = new Conf<PersistedState>({
         rightPanel: { ...rest, activeTab, codeMode },
       } as unknown as Preferences);
     },
-    // SavedTerminal.lastActivityAt added (#830). Seed legacy terminals to 0
-    // so they fall back to canvas-position ordering until an agent
-    // semantic-key transition stamps a real timestamp.
-    "1.21.0": (store: Conf<PersistedState>) =>
-      mapSessionTerminals(store, (t) => ({ lastActivityAt: 0, ...t })),
+    // 1.21.0 seeded `SavedTerminal.lastActivityAt: 0` on legacy session
+    // terminals (#830). `session` left this store at W2.2 (padi's now), so this
+    // is a no-op — the 1.31.0 strip removes any legacy `session` residue.
+    "1.21.0": () => {},
     // SavedTerminal.intent added — optional multiline-markdown annotation.
     // No backfill: the field is optional, so absent values continue to
     // read as "unset" through the tightened Zod schema (`.min(1).optional()`).
@@ -509,30 +450,14 @@ export const store = new Conf<PersistedState>({
         },
       } as Preferences);
     },
-    // `GitInfo.remoteUrl` added (#1244) and made required on the schema. The
-    // 1.18.0 pass only stamps it on the legacy-flat synthesis path; sessions
-    // saved by any version in between carry a populated `git` with no
-    // `remoteUrl`, which the now-required field rejects. Backfill null on every
-    // restored terminal's `git` (see `backfillRemoteUrl`); the live git
-    // watcher re-resolves the real value on first restore.
-    "1.25.0": (store: Conf<PersistedState>) =>
-      mapSessionTerminals(store, backfillRemoteUrl),
-    // `SavedTerminal.location` added and made required — a terminal's host is
-    // now a first-class, non-optional `HostLocation` sum (`{ kind: "local" }`
-    // for an in-process PTY), not the absence of a host id, so a restore can
-    // never silently respawn a remote terminal locally. Every pre-1.26 session
-    // predates remote terminals, so backfill the local variant on each restored
-    // terminal (see `backfillLocation`); without it the now-required
-    // field rejects the whole session at startup.
-    "1.26.0": (store: Conf<PersistedState>) =>
-      mapSessionTerminals(store, backfillLocation),
-    // `SavedTerminal` became a `discriminatedUnion` on a new `state` field
-    // (`Terminal = active | sleeping`, sleeping-terminals Phase 1). Every
-    // pre-1.27 terminal was an attached live PTY, so backfill the active arm on
-    // each restored terminal (see `backfillTerminalState`); without it the
-    // now-required discriminant rejects the whole session at startup.
-    "1.27.0": (store: Conf<PersistedState>) =>
-      mapSessionTerminals(store, backfillTerminalState),
+    // 1.25.0 backfilled `git.remoteUrl: null` (#1244), 1.26.0 backfilled
+    // `location: local` (#1288), 1.27.0 backfilled the `state: active` arm
+    // (sleeping-terminals Phase 1) — all on legacy SESSION terminals. `session`
+    // left this store at W2.2 (padi's now), so these are no-ops; the 1.31.0
+    // strip removes any legacy `session` residue rather than reshaping it here.
+    "1.25.0": () => {},
+    "1.26.0": () => {},
+    "1.27.0": () => {},
     // `SavedTerminal.agentSession` added (the exact agent conversation ref —
     // `{ kind, id }` — captured for resume-by-id on wake/restore, juspay/kolu#1495).
     // The field is OPTIONAL, so a pre-1.28 record that lacks it parses cleanly and
@@ -540,17 +465,11 @@ export const store = new Conf<PersistedState>({
     // backfill, no validation failure. The bump + this entry exist only to honor
     // the "persisted-shape change ⇒ migration ladder step" rule (.claude/rules/state.md).
     "1.28.0": () => {},
-    // The awareness-derive-store cutover (PR #1621): `pr` became a PERSISTED
-    // (restore-relevant) field, and the sticky `agentSession` ref + the implicit
-    // "lastAgentCommand ⇒ resume most-recent" rule collapsed into one discriminated
-    // `restoreTarget`. A pre-1.29 record lacks the now-required `pr` (it was a
-    // never-persisted live field) and may carry the old `agentSession`, so
-    // `backfillSnapshotCutover` backfills `pr: { kind: "absent" }` (the live PR
-    // sensor re-resolves on restore) and synthesizes `restoreTarget` from what the
-    // record remembered: `agentSession` + a command → `exact`, a command alone →
-    // `legacyMostRecent`, neither → absent (a bare shell). `agentSession` is dropped.
-    "1.29.0": (store: Conf<PersistedState>) =>
-      mapSessionTerminals(store, backfillSnapshotCutover),
+    // 1.29.0 ran the awareness-derive-store cutover (#1621) on legacy SESSION
+    // terminals (backfilling `pr` + synthesizing `restoreTarget`). `session`
+    // left this store at W2.2 (padi's now), so this is a no-op — the 1.31.0
+    // strip removes any legacy `session` residue rather than reshaping it here.
+    "1.29.0": () => {},
     // `shuffleTheme` (boolean) split into `newTerminalTheme` (inherit|shuffle)
     // + `shuffleBehavior` (random|dark|light|auto) — see
     // `migratePreferences_1_30_0` for the conversion (on→{shuffle,auto},
@@ -564,16 +483,20 @@ export const store = new Conf<PersistedState>({
         migratePreferences_1_30_0(current) as unknown as Preferences,
       );
     },
+    // The BURIAL (W2.3): strip the legacy `session` / `activityFeed` keys — and
+    // the older orphan `sleepingTerminals` / `lastPairedDaemon` keys present on
+    // real disks from earlier eras — off this store. `session`/`activityFeed`
+    // moved to the padi PROCESS's own state-root at W2.2; this store keeps only
+    // `preferences` now. BACKUP-FIRST (see `stripLegacyStateKeys_1_31_0`).
+    "1.31.0": (store: Conf<PersistedState>) =>
+      stripLegacyStateKeys_1_31_0(store),
   },
 });
 
 // Early validation so corrupt state shows up in journalctl immediately at
-// startup, not only when the first client connects. Validates the aggregate
-// on-disk shape — the per-domain getters in activity.ts / session.ts trust
-// the validated store thereafter.
+// startup, not only when the first client connects. Validates the on-disk
+// shape — `preferences.ts` trusts the validated store thereafter.
 const result = PersistedStateSchema.safeParse({
-  activityFeed: store.get("activityFeed"),
-  session: store.get("session"),
   preferences: store.get("preferences"),
 });
 if (!result.success) {
