@@ -48,7 +48,11 @@ import {
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import { isContractVersionCompatible } from "@kolu/surface/define";
-import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
+import {
+  type BuildDrainFence,
+  createBuildDrainFence,
+  DaemonContractSkewError,
+} from "@kolu/surface-daemon-supervisor";
 import {
   getHostSession,
   type HostSessionState,
@@ -56,13 +60,37 @@ import {
   ResolveDrvError,
   resolveSystem,
 } from "@kolu/surface-nix-host";
-import {
-  type BoundPadi,
-  type BuildDrainFence,
-  createBuildDrainFence,
-  isBinderNewer,
-} from "./padiBinding.ts";
+import type { BoundPadi } from "./padiBinding.ts";
 import { log } from "./log.ts";
+
+// The newest-wins version ordering for the CONTRACT axis. Inlined here (not shared)
+// on purpose: L3's daemon-convergence kit is deliberately MATCH-ONLY — it exports
+// `createBuildDrainFence` (the build-axis primitive, imported above) but NO version
+// ordering to spell. The remote arm keeps its own hand-mirrored newest-wins policy
+// (skew + binder-newer → drain; skew + binder-older → refuse), the exact twin of the
+// local arm's pre-kit `isBinderNewer`. Unifying the two arms onto one convergence
+// declaration is a future ledger item, not this PR's scope.
+function parseMajorMinor(v: string): [number, number] {
+  const m = /^(\d+)\.(\d+)(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?$/.exec(v);
+  if (!m) {
+    throw new Error(
+      `padi version is not a major.minor string: ${JSON.stringify(v)}`,
+    );
+  }
+  return [Number(m[1]), Number(m[2])];
+}
+
+/** True when the binder's padiSurface version is strictly newer than the running
+ *  padi's (major, then minor). The asymmetry is load-bearing: only the strictly-
+ *  newer binder ever drains, so two binders at different versions contending over
+ *  one remote padi converge to the NEWEST and never oscillate (anti-livelock
+ *  monotonicity — the older binder never drains the newer's padi back). */
+function isBinderNewer(binderVer: string, runningVer: string): boolean {
+  const [bMajor, bMinor] = parseMajorMinor(binderVer);
+  const [rMajor, rMinor] = parseMajorMinor(runningVer);
+  if (bMajor !== rMajor) return bMajor > rMajor;
+  return bMinor > rMinor;
+}
 
 /** How long the build/contract-mismatch drain waits for the ssh-bridged link to
  *  die (the daemon to exit) before treating the drain as not-taken — the

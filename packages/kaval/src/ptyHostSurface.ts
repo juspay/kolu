@@ -227,7 +227,11 @@ export const PtyHostIdentitySchema = z.object({
 });
 export type PtyHostIdentity = z.infer<typeof PtyHostIdentitySchema>;
 
-const SystemVersionOutputSchema = z.object({
+// Exported so `systemVersionShape.test.ts` can pin its exact key-set: `system.version`
+// is the supervisor's VERSION-AGNOSTIC identity read (the convergence kit reads
+// `{ contractVersion, identity.staleKey }` off it BEFORE the compat check — Pin 3), so a
+// silent field rename/removal here must fail loudly rather than break that frozen read.
+export const SystemVersionOutputSchema = z.object({
   contractVersion: z.string(),
   pid: z.number().int(),
   startedAt: z.number(),

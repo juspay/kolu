@@ -18,7 +18,7 @@ import type {
 } from "@kolu/surface-nix-host";
 import type { AnyContractRouter } from "@orpc/contract";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createBuildDrainFence } from "./padiBinding.ts";
+import { createBuildDrainFence } from "@kolu/surface-daemon-supervisor";
 import { RemotePadiSession, remotePadiHost } from "./remotePadiBinding.ts";
 
 // ── Fakes ────────────────────────────────────────────────────────────────────

@@ -16,28 +16,34 @@
  *
  * Off-nix (raw `vitest`, or a padi built without the env) the vars are absent and
  * both return `""` — the readout shows nothing rather than inventing an identity.
+ *
+ * The env-read RECIPE is shared with kaval via `readBakedIdentity` in
+ * `@kolu/surface-daemon` (padi passes prefix `PADI`, kaval `KAVAL`); these are the thin
+ * padi-prefixed façade over it, so the public `currentPadiBuildId` /
+ * `currentPadiCommitHash` / `currentPadiIdentity` names its callers use are unchanged.
  */
+
+import {
+  type DaemonBuildIdentity,
+  readBakedIdentity,
+} from "@kolu/surface-daemon";
+
+/** padi's full build identity — `{ staleKey, navigableCommit }` — read from the
+ *  `PADI_*` env namespace via the shared `readBakedIdentity` recipe (the same one
+ *  kaval's `currentPtyHostIdentity` uses, prefixed `KAVAL`), so the env-read pattern
+ *  and the `{ staleKey, navigableCommit }` shape live once, in `@kolu/surface-daemon`. */
+export type PadiIdentity = DaemonBuildIdentity;
+
+export function currentPadiIdentity(): PadiIdentity {
+  return readBakedIdentity("PADI");
+}
 
 /** padi's staleKey — the nix-baked hash of padi's daemon source closure. */
 export function currentPadiBuildId(): string {
-  return process.env.PADI_BUILD_ID ?? "";
+  return currentPadiIdentity().staleKey;
 }
 
 /** The navigable git commit this padi was built from. */
 export function currentPadiCommitHash(): string {
-  return process.env.PADI_COMMIT_HASH ?? "";
-}
-
-/** padi's full build identity — `{ staleKey, navigableCommit }` — assembled at
- *  the source that owns the reads, so the field mapping lives in one place. */
-export interface PadiIdentity {
-  staleKey: string;
-  navigableCommit: string;
-}
-
-export function currentPadiIdentity(): PadiIdentity {
-  return {
-    staleKey: currentPadiBuildId(),
-    navigableCommit: currentPadiCommitHash(),
-  };
+  return currentPadiIdentity().navigableCommit;
 }

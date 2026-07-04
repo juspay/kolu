@@ -16,31 +16,34 @@
  * handshake + typed skew refusal) is imported from `@kolu/padi/dial`: W2.3 carved
  * it into padi's package as the client-side dial kit `padi-tui` shares. What stays
  * here is SUPERVISION over that dial — the parts that mutate padi's lifecycle:
- *   1. the version ORDERING + `bindPadiOnce` — the drain-vs-refuse convergence.
+ *   1. the convergence POLICY + probe adapter — padi's declaration into the shared kit.
  *   2. `localPadiDriver`      — the twin of `localKavalDriver`: how to launch padi.
  *   3. `PadiBindingSession`   — Endpoint → reconnect-mirror `HostSession` (the crux).
  *   4. `ensurePadiBinding`    — the twin of `ensureLocalEndpoint`: boot the binding.
  *
- * padi is NEVER kill-9'd. The boot/reconnect policy is `bindPadiOnce` — the
- * convergence pre-flight the frozen control core was designed for
- * (`controlCore.ts`: "upgrade-me (binder older → refuse) vs drain-you (binder
- * newer → control.drain)"), layered over the endpoint's generic
- * `adoptOrSpawnOrRefuse`. It converges on TWO independent axes:
+ * padi is NEVER kill-9'd. The boot/reconnect convergence now DELEGATES to the shared
+ * daemon-convergence kit (`@kolu/surface-daemon-supervisor`'s `converge`): padi declares
+ * its {@link PADI_CONVERGENCE_POLICY} and supplies a probe adapter
+ * ({@link probePadiForConvergence}) that reads the running padi's identity over the FROZEN
+ * control core, and the kit owns the mechanism, the two-axis ordering, and the build fence.
+ * The behaviour is UNCHANGED — just relocated. It still converges on TWO independent axes:
  *   - CONTRACT (`padiSurface` version): a skew where THIS binder is NEWER →
  *     DRAIN it over the frozen control core (persist + exit; its kaval + PTYs
  *     survive), so the spawn path brings up this binder's OWN newer closure —
  *     the padi gate pid changes, the surviving kaval is re-adopted, the session
- *     is intact; a skew where the binder is OLDER / major-behind → the endpoint's
+ *     is intact; a skew where the binder is OLDER / major-behind → the kit's
  *     loud REFUSE, UNCHANGED (leave padi standing + degraded, never touch it).
- *     Older NEVER drains — that asymmetry is the monotonicity that stops two
- *     mixed-version binders from livelocking (only the strictly-newer one acts).
+ *     Older NEVER drains — the monotonicity that stops two mixed-version binders
+ *     from livelocking (only the strictly-newer one acts). Declared as
+ *     `onContractSkew: drain-newer-else-refuse`.
  *   - BUILD (same contract, different closure; #1670): when the handshake would
  *     otherwise ADOPT, a survivor whose baked `PADI_BUILD_ID` differs from this
  *     binder's expected one (or is ABSENT — a pre-field survivor, an older build)
  *     is DRAINED ONCE at boot so the spawn brings up this binder's build. Store
  *     hashes don't order, so the anti-livelock guarantee here is a once-per-binder-
- *     boot fence ({@link BuildDrainFence}) rather than a version comparison — a
- *     reconnect never re-drains, so sequential deploys converge to last-deployed.
+ *     boot fence (the kit's `createBuildDrainFence`) rather than a version comparison —
+ *     a reconnect never re-drains, so sequential deploys converge to last-deployed.
+ *     Declared as `onBuildMismatch: drain-and-replace`.
  * And the "restart" verb DRAINS the running padi (persist + exit; the PTYs
  * survive in kaval) via the frozen control core, then the reconnect loop
  * re-spawns it.
@@ -56,8 +59,9 @@ import {
 } from "@kolu/padi/assembly";
 // The client-side dial kit — carved out of THIS module in W2.3 so `padi-tui` and
 // the binder share it (`@kolu/padi/dial`). What stays here is SUPERVISION: the
-// drivers, the newer-binder drain convergence, the reconnect-mirror session, and
-// the re-serve — everything that mutates padi's lifecycle, never a mere dial.
+// drivers, padi's convergence policy + probe adapter (the shared kit owns the
+// mechanism), the reconnect-mirror session, and the re-serve — everything that
+// mutates padi's lifecycle, never a mere dial.
 import {
   connectPadi,
   dialPadiHello,
@@ -65,20 +69,20 @@ import {
   type PadiDaemonClient,
   type PadiDial,
   type PadiIdentity,
-  scopePadiSurface,
   type PadiSurfaceClient,
+  scopePadiSurface,
 } from "@kolu/padi/dial";
+import { PADI_SURFACE_VERSION, type padiSurface } from "@kolu/padi/surface";
 import {
-  PADI_SURFACE_VERSION,
-  type PadiHello,
-  type padiSurface,
-} from "@kolu/padi/surface";
-import { isContractVersionCompatible } from "@kolu/surface/define";
-import {
+  type ConvergencePolicy,
+  type ConvergenceProbe,
+  converge,
+  createBuildDrainFence,
   createEndpoint,
   type DaemonDriver,
   type Endpoint,
   type EndpointStatus,
+  outcomeAdopted,
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
@@ -88,17 +92,6 @@ import type {
 } from "@kolu/surface-nix-host";
 import { match, P } from "ts-pattern";
 import { log } from "./log.ts";
-
-/** The minimal structured logger the convergence arm writes to — the same
- *  `(obj, msg)` shape `@kolu/surface-daemon`'s `Logger` (what the endpoint takes)
- *  declares, so the server's pino `log` passes through unchanged AND a unit test
- *  can supply a silent stub. Narrower than pino's `Logger` on purpose: these
- *  functions log only, so they should not demand pino's full surface. */
-type ConvergeLogger = {
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-  error: (obj: Record<string, unknown>, msg: string) => void;
-};
 
 /** How long `drainBoundPadi` waits for the socket to CLOSE after the drain RPC
  *  rejects, before treating the rejection as a real failure. A drain that reached
@@ -124,62 +117,29 @@ type PadiEndpoint = Endpoint<
 type PadiEndpointStatus = EndpointStatus<PadiIdentity, PadiConnectionMetadata>;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. The version ORDERING (drain-vs-refuse) — the SUPERVISION half of the
-//    newest-wins convergence the dial kit (`@kolu/padi/dial`) deliberately omits.
-//    A plain dial only judges COMPATIBILITY (`connectPadi` refuses a skew it can't
-//    speak to); ORDERING two proven-skewed versions to decide which side drains is
-//    a supervisor's call, so it stays here beside `probePadiSkew`/`bindPadiOnce`.
+// 1. The convergence POLICY + probe adapter — padi's declaration into the shared
+//    daemon-convergence kit (`@kolu/surface-daemon-supervisor`'s `converge`). The kit
+//    owns the mechanism, the two-axis ordering, and the build fence; padi declares its
+//    policy and adapts its FROZEN control-core hello into the kit's identity probe. The
+//    two-axis behaviour (contract drain-newer/refuse-older; build-mismatch drain-once,
+//    #1670) is UNCHANGED — just relocated out of a hand-rolled arm into the kit.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Parse a `major.minor` version into its two numbers, FAIL-FAST: an
- *  unparseable version is a bug (padi always sends a valid `major.minor`, and
- *  `PADI_SURFACE_VERSION` is a build constant), so crash loudly rather than
- *  silently comparing garbage. Distinct from `isContractVersionCompatible`'s
- *  own tolerant parse (which returns `false` on garbage to fail-closed on a
- *  handshake) — here we are ORDERING two versions already proven to be a skew,
- *  and a silent mis-parse would pick the wrong convergence arm. */
-function parseMajorMinor(v: string): [number, number] {
-  const m = /^(\d+)\.(\d+)(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?$/.exec(v);
-  if (!m) {
-    throw new Error(
-      `padi version is not a major.minor string: ${JSON.stringify(v)}`,
-    );
-  }
-  return [Number(m[1]), Number(m[2])];
-}
-
-/**
- * Is the binder's expected `padiSurface` version STRICTLY NEWER than a running
- * padi's — the drain-you side of the newest-wins convergence? Both `major.minor`.
- * Newer = a higher major, or an equal major with a higher minor.
- *
- * Only meaningful on a proven SKEW: the compatible case (same major, running
- * minor >= binder minor) already ADOPTS and never reaches here, so on a skew the
- * two versions are never equal and this is a strict ordering. Equal inputs return
- * `false` (not strictly newer) as a defensive floor, so a caller can never
- * mistake "same version" for "drain it".
- *
- * The asymmetry is load-bearing: only the strictly-newer binder ever drains, so
- * two binders at different versions contending over one padi converge to the
- * NEWEST (it drains the older's padi once) and never oscillate — the older binder
- * never drains the newer's padi back (the anti-livelock monotonicity).
- */
-export function isBinderNewer(binderVer: string, runningVer: string): boolean {
-  const [bMajor, bMinor] = parseMajorMinor(binderVer);
-  const [rMajor, rMinor] = parseMajorMinor(runningVer);
-  if (bMajor !== rMajor) return bMajor > rMajor;
-  return bMinor > rMinor;
-}
-
-// `connectPadi` + `dialPadiHello` (dial + control-core handshake + typed skew
-// refusal) live in `@kolu/padi/dial` now (imported above) — the shared dial kit.
-// `probePadiSkew` below reuses `dialPadiHello` and layers the SUPERVISION judgement
-// (`isBinderNewer` ordering → drain-vs-refuse) the dial kit deliberately excludes.
+// padi declares its policy into the shared kit; the kit owns the mechanism + ordering +
+// fence. padi is drain-capable (its control core has a `drain` verb), so it can spell the
+// drain arms: a contract skew drains-if-newer / refuses-if-older, and a build mismatch
+// drains-and-replaces once per binder boot.
+export const PADI_CONVERGENCE_POLICY: ConvergencePolicy<"drainable"> = {
+  capability: "drainable",
+  onContractSkew: { kind: "drain-newer-else-refuse" },
+  onBuildMismatch: { kind: "drain-and-replace" },
+};
 
 /** The minimal connection shape the drain plumbing needs: the COMBINED dialed
  *  client (to reach `surface.control.core.drain`) and an `onClose` (the socket
  *  close that is the drain's ground truth). Both a held endpoint connection
- *  (`endpoint.current()`) and a fresh skew probe (`probePadiSkew`) satisfy it. */
+ *  (`endpoint.current()`) and a fresh convergence probe (`probePadiForConvergence`)
+ *  satisfy it. */
 type DrainableConn = {
   client: PadiDaemonClient;
   onClose: (cb: () => void) => void;
@@ -189,7 +149,8 @@ type DrainableConn = {
  * DRAIN a padi over the FROZEN control core, then confirm it actually exited by
  * the SOCKET CLOSING within the teardown window. The one drain mechanism, shared
  * by BOTH the user-facing "restart" (`PadiBindingSession.drainBoundPadi`) and the
- * newer-binder convergence drain (`drainSkewedSurvivorIfNewer`) — never re-rolled.
+ * shared kit's convergence drain (through {@link probePadiForConvergence}'s `drain`)
+ * — never re-rolled.
  *
  * GROUND TRUTH is the SOCKET CLOSE (padi actually exited), NOT the drain call's
  * resolve/reject. padi's `onDrain` persists, REPLIES, then triggers the exit that
@@ -241,37 +202,22 @@ async function drainViaControlCore(conn: DrainableConn): Promise<void> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 1b. The newer-binder DRAIN arm (newest-wins convergence) — pre-flight to the
-//     endpoint's generic adopt-or-spawn-or-refuse. Reaches padi's FROZEN control
-//     core (always live at a skew), decides upgrade-me vs drain-you, and — only
-//     when strictly NEWER — drains the running padi so the spawn path below brings
-//     up this binder's own newer closure. Older/behind is a no-op here (the
-//     endpoint's refuse arm handles it, UNCHANGED).
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** A live probe of a running padi's identity + a way to drain it. Its `drain`
- *  reuses {@link drainViaControlCore} (RPC + socket-close window); `dispose` drops
- *  the probe socket. */
-export type PadiSkewProbe = {
-  hello: PadiHello;
-  drain: () => Promise<void>;
-  dispose: () => void;
-};
-
-/** Dial a possibly-running padi and return a {@link PadiSkewProbe}, or `null` if
- *  none answers (a fresh boot, or padi mid-teardown) — in which case the caller's
- *  `adoptOrSpawnOrRefuse` simply spawns fresh. This is the intended first use of
- *  the frozen control core: "a binder dials the socket, reads control.hello FIRST"
- *  (controlCore.ts), then decides. */
-export async function probePadiSkew(
+/**
+ * The kit's identity probe for padi: dial the running padi's FROZEN control core and
+ * expose its identity + a `drain`, or `null` if none answers (a fresh boot, or padi
+ * mid-teardown) — in which case the kit's `converge` simply spawns fresh. This is the
+ * intended first use of the frozen control core: "a binder dials the socket, reads
+ * control.hello FIRST" (controlCore.ts), then the kit decides. padi is drain-capable, so
+ * this returns a `ConvergenceProbe<"drainable">`.
+ */
+export async function probePadiForConvergence(
   socketPath: string,
-): Promise<PadiSkewProbe | null> {
+): Promise<ConvergenceProbe<"drainable"> | null> {
   let dialed: PadiDial;
   try {
     dialed = await dialPadiHello(socketPath);
   } catch {
-    return null; // no live padi answering — nothing to drain; spawn will handle it.
+    return null; // no live padi answering — spawn will handle it.
   }
   const { socket, client, hello } = dialed;
   let closed = false;
@@ -279,7 +225,13 @@ export async function probePadiSkew(
     closed = true;
   });
   return {
-    hello,
+    capability: "drainable",
+    // Identity read over the FROZEN control-core hello (reachable at any skew, Pin 3):
+    // the padiSurface contract version + padi's staleKey (absent → "" = honest unknown).
+    identity: {
+      contractVersion: hello.surfaceVersion,
+      buildId: hello.buildId ?? "",
+    },
     drain: () =>
       drainViaControlCore({
         client,
@@ -290,202 +242,6 @@ export async function probePadiSkew(
       }),
     dispose: () => socket.destroy(),
   };
-}
-
-/**
- * The once-per-binder-boot fence for the BUILD-mismatch drain arm (#1670).
- *
- * A binder drains a same-contract, DIFFERENT-BUILD survivor at most ONCE across its
- * whole process lifetime — a reconnect within the same binder process NEVER re-drains.
- * This is the anti-livelock guarantee for the build axis: store hashes DON'T order, so
- * a repeated mismatch-drain between two persistent binders at different builds would
- * livelock; the fence makes each binder drain at most once at ITS boot, so sequential
- * deploys converge to last-deployed and can never flap. It lives with the BINDER
- * PROCESS (created once in `ensurePadiBinding`), NOT the connection — so every
- * reconnect shares the one fence.
- *
- * Deliberately distinct from the CONTRACT newest-wins arm, which needs NO fence: its
- * monotone version ordering IS the anti-livelock guarantee (only the strictly-newer
- * binder ever drains, so an older binder never drains the newer's padi back).
- */
-export type BuildDrainFence = {
-  /** Has this binder already performed (or committed to) its ONE build-mismatch drain? */
-  hasFired: () => boolean;
-  /** Mark the one build-mismatch drain as done — no reconnect re-drains after this. */
-  markFired: () => void;
-};
-
-/** A fresh, un-fired {@link BuildDrainFence}. Exactly one per binder boot. */
-export function createBuildDrainFence(): BuildDrainFence {
-  let fired = false;
-  return {
-    hasFired: () => fired,
-    markFired: () => {
-      fired = true;
-    },
-  };
-}
-
-/**
- * The SUPERSEDED-survivor DRAIN decision + action — the pre-flight to the endpoint's
- * generic adopt-or-spawn-or-refuse. Two independent axes, evaluated in order:
- *
- *   Axis 1 — the CONTRACT (`padiSurface` version). W2.2 newest-wins, UNCHANGED:
- *     - no live survivor            → no-op (spawn path brings a fresh padi up);
- *     - contract SKEW, binder NEWER → DRAIN (persist + exit; kaval + PTYs survive) so
- *                                     the spawn brings up this binder's newer closure;
- *     - contract SKEW, binder OLDER → no-op REFUSE (degraded, UNCHANGED). Older NEVER
- *                                     drains (the #1313 inversion + the monotonicity).
- *
- *   Axis 2 — the BUILD (same contract, different closure; #1670). Reached ONLY when
- *   the contract handshake would ADOPT (compatible). A same-contract but DIFFERENT-
- *   BUILD survivor is a padi-churn deploy: adopting it silently keeps the OLD padi
- *   code running (and there is no manual padi-restart to fall back on). So DRAIN it
- *   ONCE per binder boot so the spawn brings up THIS binder's build. Store hashes
- *   don't order → no "newer" build → the fence, not a version compare, is the
- *   anti-livelock guarantee.
- *
- *   The ABSENT case is load-bearing: a survivor whose hello carries NO `buildId`
- *   predates the field, so it is by definition an OLDER build than this (nix-built)
- *   binder — treat it as a MISMATCH and DRAIN, or the fix would fail to fire on the
- *   very first upgrade past a pre-field padi (the zest class it exists for). Only an
- *   OFF-NIX binder (its own `binderBuildId` is `""`) never drains on build grounds —
- *   it cannot judge builds.
- *
- * FAIL-FAST, NEVER KILL, on EITHER axis: if the drain RPC never reaches padi, or padi
- * does not exit within the teardown window, this does NOT SIGKILL — it logs the honest
- * error and returns. The `adoptOrSpawnOrRefuse` that follows re-probes the still-
- * standing survivor (a contract skew → REFUSE/degraded; a build mismatch → ADOPT the
- * old build, degraded and logged loudly), so the loop keeps converging without ever
- * nuking a running padi. On the build axis the fence is spent even on failure, so no
- * reconnect re-drains (#1034: drain-only, degraded-loudly, no livelock).
- */
-async function drainSupersededSurvivor(deps: {
-  probe: () => Promise<PadiSkewProbe | null>;
-  binderVersion: string;
-  binderBuildId: string;
-  buildDrainFence: BuildDrainFence;
-  log: ConvergeLogger;
-}): Promise<void> {
-  const probe = await deps.probe();
-  if (!probe) return;
-  try {
-    const running = probe.hello.surfaceVersion;
-
-    // ── Axis 1 — the CONTRACT. On a skew the contract decides; the build id is
-    // irrelevant (a contract change always drains-if-newer / refuses-if-older). ──
-    if (!isContractVersionCompatible(running, deps.binderVersion)) {
-      if (!isBinderNewer(deps.binderVersion, running)) {
-        // Skew, but the binder is OLDER / major-behind — REFUSE, never drain. Left
-        // to the endpoint's refuse arm (the #1313 inversion + the monotonicity).
-        deps.log.warn(
-          { binderVersion: deps.binderVersion, running },
-          "padi survivor is a padiSurface skew and this binder is OLDER/behind — " +
-            "REFUSING (never draining a running padi); adoptOrSpawnOrRefuse leaves " +
-            "it standing + degraded. Upgrade this binder to converge.",
-        );
-        return;
-      }
-      deps.log.info(
-        { binderVersion: deps.binderVersion, running },
-        "padi survivor is a padiSurface skew and this binder is NEWER — draining it " +
-          "(persist + exit; its kaval + PTYs survive) so the spawn path brings up " +
-          "this binder's own newer closure (newest-wins convergence)",
-      );
-      try {
-        await probe.drain();
-      } catch (err) {
-        deps.log.error(
-          { err, binderVersion: deps.binderVersion, running },
-          "newer-binder drain of a skewed padi FAILED (padi did not exit in the " +
-            "teardown window) — NOT killing it; adoptOrSpawnOrRefuse will refuse " +
-            "(degraded) and the reconnect loop will retry, so no livelock, no SIGKILL",
-        );
-      }
-      return;
-    }
-
-    // ── Axis 2 — the BUILD (same contract; #1670). ADOPT (no build drain) only when
-    // we cannot or need not converge: an off-nix binder can't judge builds, a
-    // provably-equal build is already ours, or the fence already fired this boot.
-    // Everything else — a different id, OR an ABSENT id (a pre-field survivor, which
-    // is by definition an older build than this nix-built binder) — is a MISMATCH we
-    // drain once. `?? ""` folds absent → "", which never equals a nix binder's own
-    // non-empty id, so absent correctly falls through to the drain. ──
-    const runningBuild = probe.hello.buildId ?? "";
-    if (
-      deps.binderBuildId === "" || // off-nix binder: cannot judge builds → never drains
-      runningBuild === deps.binderBuildId || // provably the same build → adopt
-      deps.buildDrainFence.hasFired() // already drained once this binder boot → adopt
-    ) {
-      return; // adopt the compatible survivor
-    }
-
-    // Commit the ONE build-mismatch drain this binder will ever do — marked BEFORE the
-    // await, so even a drain failure spends the fence (degraded-loudly, never a retry
-    // that could livelock two binders). The message text is a stable breadcrumb the
-    // adoption VM arm greps: `padi build change on boot: running=<X> expected=<Y>`.
-    deps.buildDrainFence.markFired();
-    deps.log.info(
-      { binderBuildId: deps.binderBuildId, runningBuild, running },
-      `padi build change on boot: running=${runningBuild} expected=${deps.binderBuildId}` +
-        " — draining the survivor once (persist + exit; its kaval + PTYs survive) and " +
-        "respawning this binder's own build (drain-on-build-mismatch, #1670; store " +
-        "hashes don't order, so this fires at most once per binder boot)",
-    );
-    try {
-      await probe.drain();
-    } catch (err) {
-      deps.log.error(
-        { err, binderBuildId: deps.binderBuildId, runningBuild },
-        "build-mismatch drain FAILED (padi did not exit in the teardown window) — " +
-          "NOT killing it; adoptOrSpawnOrRefuse will ADOPT the compatible (old-build) " +
-          "survivor, degraded to the old build and logged loudly, and the fence stays " +
-          "spent so no reconnect re-drains (#1034: drain-only, degraded-loudly, no livelock)",
-      );
-    }
-  } finally {
-    probe.dispose();
-  }
-}
-
-/**
- * ONE bind attempt under the convergence policy: pre-flight the superseded-survivor
- * drain (contract axis + build axis), then run the endpoint's generic
- * adopt-or-spawn-or-refuse.
- *
- * The two-step is the whole arm. The pre-flight ({@link drainSupersededSurvivor}) is
- * the ONLY place the padi-specific version ORDERING and build-identity comparison live
- * (the endpoint stays soul-agnostic — it only knows the typed `DaemonContractSkewError`);
- * it drains a strictly-newer binder's contract-skewed survivor, OR a same-contract but
- * different-BUILD survivor (once per binder boot, guarded by `buildDrainFence`), so
- * that the `adoptOrSpawnOrRefuse` that follows finds NO survivor and spawns this
- * binder's own closure. In every other case the pre-flight is a no-op and
- * `adoptOrSpawnOrRefuse` does exactly what it does today: adopt a compatible
- * same-build survivor, refuse an older/behind contract skew (degraded), or spawn fresh
- * when none is running.
- *
- * Exposed (over injectable deps) so the drain-vs-refuse DECISION, the build fence, the
- * drain→spawn wiring, and the no-flap convergence are unit-testable without a real
- * padi. Resolves whatever `adoptOrSpawnOrRefuse` resolves (whether a survivor was
- * adopted).
- */
-export async function bindPadiOnce(deps: {
-  endpoint: Pick<PadiEndpoint, "adoptOrSpawnOrRefuse">;
-  probe: () => Promise<PadiSkewProbe | null>;
-  binderVersion: string;
-  binderBuildId: string;
-  buildDrainFence: BuildDrainFence;
-  log: ConvergeLogger;
-}): Promise<boolean> {
-  await drainSupersededSurvivor({
-    probe: deps.probe,
-    binderVersion: deps.binderVersion,
-    binderBuildId: deps.binderBuildId,
-    buildDrainFence: deps.buildDrainFence,
-    log: deps.log,
-  });
-  return deps.endpoint.adoptOrSpawnOrRefuse();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1014,22 +770,40 @@ export async function ensurePadiBinding(
   const buildDrainFence = createBuildDrainFence();
   const binderBuildId = currentPadiBuildId();
 
-  // One bind attempt under the convergence policy: pre-flight the superseded-survivor
-  // drain (contract axis — this binder's `PADI_SURFACE_VERSION` vs the running padi's
-  // `hello.surfaceVersion`; AND build axis — `binderBuildId` vs `hello.buildId`), then
-  // the endpoint's generic adopt-or-spawn-or-refuse. Used for BOTH boot and reconnect
-  // — a fresh deploy dialing a running padi is the primary case (a contract skew drains
-  // if newer / refuses if older; a same-contract build change drains once → spawn our
-  // own build); an unchanged redeploy adopts, UNCHANGED.
-  const connectOnce = (): Promise<boolean> =>
-    bindPadiOnce({
+  // One bind attempt under the shared convergence kit: `converge` probes the running
+  // padi's control-core identity (contract version — this binder's `PADI_SURFACE_VERSION`
+  // vs the running padi's; AND build — `binderBuildId` vs its `buildId`), decides per
+  // `PADI_CONVERGENCE_POLICY`, and enacts through the endpoint. Used for BOTH boot and
+  // reconnect — a fresh deploy dialing a running padi is the primary case (a contract skew
+  // drains if newer / refuses if older; a same-contract build change drains once → spawn
+  // our own build); an unchanged redeploy adopts, UNCHANGED.
+  const connectOnce = async (): Promise<boolean> => {
+    const outcome = await converge({
       endpoint: ep,
-      probe: () => probePadiSkew(socketPath),
-      binderVersion: PADI_SURFACE_VERSION,
-      binderBuildId,
-      buildDrainFence,
+      baked: { contractVersion: PADI_SURFACE_VERSION, buildId: binderBuildId },
+      probe: () => probePadiForConvergence(socketPath),
+      policy: PADI_CONVERGENCE_POLICY,
+      buildFence: buildDrainFence,
       log,
     });
+    // Preserve the #1670 build-change breadcrumb — the binder's OWN domain line, logged
+    // from the build-axis drain outcome. The adoption-padi-upgrade VM arm greps exactly
+    // `padi build change on boot: running=<hex> expected=<hex>`.
+    if (outcome.kind === "drained-replacing" && outcome.axis === "build") {
+      log.info(
+        {
+          binderBuildId,
+          runningBuild: outcome.running.buildId,
+          running: outcome.running,
+        },
+        `padi build change on boot: running=${outcome.running.buildId} expected=${binderBuildId}` +
+          " — draining the survivor once (persist + exit; its kaval + PTYs survive) and " +
+          "respawning this binder's own build (drain-on-build-mismatch, #1670; store " +
+          "hashes don't order, so this fires at most once per binder boot)",
+      );
+    }
+    return outcomeAdopted(outcome);
+  };
 
   session = new PadiBindingSession({
     endpoint: ep,

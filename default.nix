@@ -131,58 +131,64 @@ let
   # cache; koluStamped sed-replaces it with the real hash afterwards.
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
-  # The staleKey (R-4 A2, re-rooted in B1): a content hash of kaval's daemon
-  # source closure — the survivor's wire + behaviour. Baked into KAVAL_BUILD_ID
-  # below so the server (and, in phase B, a surviving daemon) can tell whether a
-  # restart would load different daemon code. Scoped to the three roots that run
-  # IN the daemon — kaval, terminal-protocol, and the surface-daemon spine — so
-  # server-/client-only deploys leave it unchanged (no over-prompting). The .ts
-  # filter drops `.test.ts` AND `.testlib.ts` (shared test-only helpers); the id
-  # (below) is taken over this fileset's content-addressed store path, whose NAR
-  # hash is byte-identical across Darwin/Linux. The set hashed here is asserted
-  # to equal the daemon's reachable closure by
-  # packages/kaval/src/buildId.closure.test.ts — keep the fileFilter and that
-  # test in lockstep.
+  # The ONE recipe for a daemon's baked build identity (hashString over a behavioral
+  # fileset + the `<PREFIX>_*` env bake), the Nix half of @kolu/surface-daemon's
+  # `readBakedIdentity`. It lives INSIDE the surface-daemon package (location is
+  # structure — it travels with the code that reads it). Each daemon below instantiates
+  # it with its OWN behavioralFileset (the policy — what counts as its behavior); the
+  # rationale for "currency key = behavioral closure" (and the zest incident) lives once
+  # at the recipe's doorstep there.
+  mkDaemonIdentity = import ./packages/surface-daemon/nix/daemon-identity.nix {
+    inherit (pkgs) lib;
+  };
+
+  # The `.ts` filter for a hashed daemon fileset: real source only (drops `.test.ts`
+  # AND `.testlib.ts` shared test-only helpers). The id is a content hash of the
+  # fileset's store path, byte-identical across Darwin/Linux; the recipe + rationale
+  # live in `mkDaemonIdentity`.
   isHashedSource =
     f: f.hasExt "ts"
       && !pkgs.lib.hasSuffix ".test.ts" f.name
       && !pkgs.lib.hasSuffix ".testlib.ts" f.name;
-  kavalSrc = pkgs.lib.fileset.toSource {
+
+  # kaval's baked identity. Its behavioralFileset — kaval's OWN decision of what a restart
+  # would load that MATTERS to the currency nudge — is the two BEHAVIORAL roots: kaval
+  # itself and `@kolu/terminal-protocol` (the wire/behaviour it serves). The
+  # `@kolu/surface-daemon` spine also runs in the kaval *binary* but is DELIBERATELY EXCLUDED
+  # (#L3, see the inline note below) — it is a stable leaf for kaval's currency key, not a
+  # hashed root. The set hashed here is asserted to equal kaval's behavioral slice by
+  # `packages/kaval/src/buildId.closure.test.ts` — keep this fileset and that test in
+  # lockstep. `kavalBuildIdOverride` (TEST-ONLY) forces the id for the build-skew VM arms.
+  kavalIdentity = mkDaemonIdentity {
+    name = "kaval";
+    prefix = "KAVAL";
     root = ./packages;
-    fileset = pkgs.lib.fileset.unions [
+    inherit commitHash;
+    override = kavalBuildIdOverride;
+    behavioralFileset = pkgs.lib.fileset.unions [
       (pkgs.lib.fileset.fileFilter isHashedSource ./packages/kaval/src)
       ./packages/kaval/package.json
-      # @kolu/terminal-protocol is wire/behaviour the daemon serves (the
-      # device-query forward/drop policy + the suppression grammars), reached
-      # from the runtime closure — so it is hashed too, or a protocol change
-      # would escape the staleKey.
+      # @kolu/terminal-protocol — the device-query forward/drop policy + suppression
+      # grammars the daemon serves; a protocol change must not escape the staleKey.
       (pkgs.lib.fileset.fileFilter isHashedSource ./packages/terminal-protocol/src)
       ./packages/terminal-protocol/package.json
-      # @kolu/surface-daemon is the daemon spine — both halves of the kaval
-      # *binary* a restart loads. The serve half (pid-gate + the `daemonMain`
-      # skeleton) runs inside the daemon process; the front half
-      # (`frontDaemonOverStdio`, P2.5) runs in the per-link proxy reached from
-      # `bin.ts`'s `--stdio` dispatch — so a change to either is a change to what
-      # that binary loads. Hashed WHOLE (its standing invariant, broadened in
-      # P2.5: only daemon-BINARY code — serve + front — lives there; the
-      # supervisor half is its own un-hashed package from B2).
-      (pkgs.lib.fileset.fileFilter isHashedSource ./packages/surface-daemon/src)
-      ./packages/surface-daemon/package.json
+      # `@kolu/surface-daemon` (the transport SPINE) is DELIBERATELY NOT in kaval's
+      # currency slice (#L3). kaval's staleKey drives ONLY the human "update available"
+      # nudge, and acting on it RECYCLES kaval — killing live PTYs. The spine's behavioral
+      # surface to a consumer IS the wire contract (`PTY_HOST_CONTRACT_VERSION`, in
+      # kaval/src above): a contract-COMPATIBLE spine change is behaviorally interchangeable
+      # BY THE CONTRACT'S DEFINITION, so keying currency on the spine double-counts what the
+      # contract already covers and over-fires the nudge on every compatible spine refactor.
+      # This was paid for in production (zest, 2026-07-03): a spine-only change with no kaval
+      # behavior delta flipped kaval's staleKey and fired a spurious nudge. A spine change
+      # that DOES matter to the wire bumps the contract (hashed here) → recycle-on-skew
+      # converges it, a separate sanctioned signal. So kaval's currency = its BEHAVIORAL
+      # closure (kaval + terminal-protocol), spine excluded. (padi keeps the full closure —
+      # its staleness response is a cheap auto-drain, so over-firing is harmless.) The
+      # closure guard in packages/kaval/src/buildId.closure.test.ts pins this restated
+      # invariant — keep the two in lockstep.
     ];
   };
-
-  # A content digest of kaval's daemon source closure, baked into KAVAL_BUILD_ID.
-  # kavalSrc is content-addressed (fileset.toSource adds it to the store at eval
-  # time), so its store path already changes iff any hashed file changes — hash
-  # that path to a stable, platform-independent 64-char id. Computed PURELY in
-  # Nix: no import-from-derivation, so `nix flake check` can evaluate every
-  # output without realising a build mid-eval (juspay/kolu#1317).
-  # `kavalBuildIdOverride` (TEST-ONLY, default null) forces this value for the
-  # build-skew VM test (B3.4); the real build always takes the source hash.
-  kavalBuildId =
-    if kavalBuildIdOverride != null
-    then kavalBuildIdOverride
-    else builtins.hashString "sha256" "${kavalSrc}";
 
   # padi's staleKey (W2.2) — the twin of kaval's, one layer up. padi is the
   # per-host terminal-workspace daemon; `PADI_BUILD_ID` (baked below) hashes the
@@ -210,9 +216,20 @@ let
     (pkgs.lib.fileset.fileFilter isHashedSourcePadi (pkgDir + "/src"))
     (pkgDir + "/package.json")
   ];
-  padiSrc = pkgs.lib.fileset.toSource {
+  # padi's baked identity — the twin of kaval's, one layer up. Its behavioralFileset is
+  # padi's reachable closure from its two entry roots (`bin.ts` · `assembly.ts`),
+  # enumerated + asserted equal by `packages/padi/src/buildId.closure.test.ts` (keep the
+  # two in lockstep). Unlike kaval, padi's key STAYS full-closure (incl. the surface-daemon
+  # spine + supervisor): padi's staleness response is a CHEAP auto-drain, so over-firing is
+  # harmless — only kaval's human-nudge currency needs a behavioral slice (see
+  # mkDaemonIdentity's doorstep). `padiBuildIdOverride` (TEST-ONLY) forces the id.
+  padiIdentity = mkDaemonIdentity {
+    name = "padi";
+    prefix = "PADI";
     root = ./packages;
-    fileset = pkgs.lib.fileset.unions [
+    inherit commitHash;
+    override = padiBuildIdOverride;
+    behavioralFileset = pkgs.lib.fileset.unions [
       # padi itself — both entry roots (bin.ts · assembly.ts) live here. MINUS
       # `dial.ts` (`@kolu/padi/dial`, W2.3): the CLIENT dial kit runs in a padi
       # CLIENT (padi-tui, the kolu-server binder), NEVER in padi's daemon process,
@@ -277,19 +294,6 @@ let
       (padiPkgRoot ./packages/integrations/anyforge)
     ];
   };
-
-  # A content digest of padi's daemon source closure, baked into PADI_BUILD_ID —
-  # computed PURELY in Nix (no IFD) exactly like `kavalBuildId`. Baked onto the padi
-  # wrapper (what the RUNNING padi reports in its control-core hello) AND the koluBin
-  # wrapper (what the BINDER expects, since it spawns exactly this padi) — the two
-  # agree by construction, so the drain-on-build-mismatch convergence (#1670) fires
-  # only across an actual redeploy, never within one build. `padiBuildIdOverride`
-  # (TEST-ONLY, default null) forces the value for the build-skew VM arm; the real
-  # build always takes the source hash.
-  padiBuildId =
-    if padiBuildIdOverride != null
-    then padiBuildIdOverride
-    else builtins.hashString "sha256" "${padiSrc}";
 
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
@@ -439,6 +443,12 @@ let
   # callers must provide it (state.ts crashes with a clear error if missing).
   # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
   # instead of silently falling back to the production ~/.config/kolu path.
+  #
+  # Two identity bakes here: `${kavalIdentity.bakeArgs}` is the shared kaval-identity pair
+  # (the from-source kaval-currency nudge reads it); `PADI_BUILD_ID` is a LEAF — the padi
+  # build id the BINDER expects (#1670 drain-on-build-mismatch), BUILD_ID only (no
+  # COMMIT_HASH), binder-specific, so it stays an explicit `--set` rather than the
+  # `padiIdentity.bakeArgs` pair. It equals what this build's KOLU_PADI_BIN spawns.
   koluBin = pkgs.runCommand "kolu-bin"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -450,11 +460,10 @@ let
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --set KOLU_COMMIT_HASH "${commitHash}" \
-      --set KAVAL_BUILD_ID "${kavalBuildId}" \
-      --set KAVAL_COMMIT_HASH "${commitHash}" \
+      ${kavalIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
-      --set PADI_BUILD_ID "${padiBuildId}" \
+      --set PADI_BUILD_ID "${padiIdentity.buildId}" \
       --set PADI_AGENT_DRVS_JSON '${padiAgentDrvsJson}' \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
@@ -512,8 +521,7 @@ let
     makeWrapper ${pkgs.nodejs}/bin/node $out/bin/kaval \
       --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
-      --set KAVAL_BUILD_ID "${kavalBuildId}" \
-      --set KAVAL_COMMIT_HASH "${commitHash}" \
+      ${kavalIdentity.bakeArgs} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
@@ -549,11 +557,9 @@ let
     makeWrapper ${pkgs.nodejs}/bin/node $out/bin/padi \
       --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
       --add-flags "${kolu}/packages/padi/src/bin.ts" \
-      --set PADI_BUILD_ID "${padiBuildId}" \
-      --set PADI_COMMIT_HASH "${commitHash}" \
+      ${padiIdentity.bakeArgs} \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
-      --set KAVAL_BUILD_ID "${kavalBuildId}" \
-      --set KAVAL_COMMIT_HASH "${commitHash}" \
+      ${kavalIdentity.bakeArgs} \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}

@@ -36,11 +36,21 @@
  */
 
 export {
+  type DaemonBuildIdentity,
+  readBakedIdentity,
+} from "./buildIdentity.ts";
+export {
+  buildIdMatches,
+  type ConvergenceIdentity,
+  contractIsCompatible,
+  contractIsNewer,
+} from "./convergenceIdentity.ts";
+export {
   type DaemonExit,
-  daemonExitCode,
   type DaemonLifetime,
-  daemonMain,
   type DaemonSpec,
+  daemonExitCode,
+  daemonMain,
 } from "./daemonMain.ts";
 export {
   type FrontDaemonOverStdioOptions,
