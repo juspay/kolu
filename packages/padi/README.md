@@ -103,6 +103,27 @@ remote host — reusing the local arm's seam, not a parallel one:
   the remote (padi/kaval refuse a non-private dir), not from the binder. Pick your
   ssh user deliberately — it decides who owns the host's terminals.
 
+## Logs — debugging a detached daemon (P0)
+
+A padi (and its kaval) is a **detached daemon**: it outlives the parent that spawned it —
+an ssh `--stdio` front that closed, or a kolu-server that exited. Historically its whole
+log stream went to `/dev/null` (`stdio: "ignore"`), so a live production freeze was
+undiagnosable from the logs the code correctly writes. Now **every** daemon spawn path
+(the remote detached front, the local kolu-server→padi spawn, the padi→kaval spawn) ends
+with the daemon logging to a **deterministic file under its own identity**, in two layers:
+
+| file | what | bound |
+| --- | --- | --- |
+| `<state-root>/padi.log` | padi's **pino** stream (the primary structured log — the WAL-watcher lines, domain events) via `pino-roll` | size-capped: **10 MB × 3** kept generations |
+| `<state-root>/padi.stderr.log` | padi's **raw stderr** crash-catcher — what pino can't see: native errors, an uncaught-exception / unhandled-rejection stack | **truncate-on-boot**: each boot rotates the previous to `.stderr.log.old` (one generation) |
+| `<kaval digest home>/kaval.log` | kaval has no pino — its stderr (the surface-daemon `stderrLogger`) **is** its log | truncate-on-boot (`.log.old`) |
+
+`<state-root>` is padi's persistent state root (`$KOLU_PADI_STATE_DIR`, else
+`~/.local/state/padi`); the kaval home is its digest-keyed runtime dir (beside its socket).
+The pino file is opt-in per daemon via `KOLU_PADI_DAEMON_LOG=1` (set by every real spawner),
+so tests / the front / in-process assembly keep plain stdout. To debug a remote box:
+`ssh <host> tail -f ~/.local/state/padi/padi.log` (or `.stderr.log` for a crash).
+
 ## The export map (the `@kolu/terminal-workspace` split)
 
 - **`@kolu/padi/surface`** — BROWSER-SAFE. The `padiSurface` 1.0 zod contract,

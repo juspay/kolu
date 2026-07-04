@@ -55,6 +55,7 @@ import {
   currentPadiBuildId,
   padiGatePath,
   padiSocketPath,
+  padiStderrLogPath,
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 // The client-side dial kit — carved out of THIS module in W2.3 so `padi-tui` and
@@ -290,6 +291,9 @@ function daemonEnv(
   // Pin padi's state-root explicitly so the digest (socket + kaval) is stable and
   // matches what the binder dials.
   env.KOLU_PADI_STATE_DIR = resolvedStateRoot;
+  // P0: opt the local padi DAEMON's pino stream into the size-capped `padi.log` (pino-roll);
+  // this daemon outlives kolu-server, so its logs must not vanish with the parent.
+  env.KOLU_PADI_DAEMON_LOG = "1";
   if (process.env.KOLU_KAVAL_SPAWN)
     env.KOLU_KAVAL_SPAWN = process.env.KOLU_KAVAL_SPAWN;
   // Carry the effective log level to padi's pino domain logger across the unit's env
@@ -388,6 +392,9 @@ export function localPadiDriver(
     env: daemonEnv(stateRoot, verbose),
     unitPrefix: "padi",
     fromSource,
+    // P0: the local padi daemon's RAW stderr (native errors / crash stacks pino can't see)
+    // → its crash-catcher; its pino stream rides `padi.log` via KOLU_PADI_DAEMON_LOG above.
+    stderrLog: padiStderrLogPath(stateRoot),
   });
 }
 

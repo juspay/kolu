@@ -34,7 +34,7 @@ import {
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import { KAVAL_GATE_FILE } from "kaval";
+import { KAVAL_GATE_FILE, kavalLogPath } from "kaval";
 
 /** The single-instance gate kaval claims, beside its socket — the same path
  *  kaval's own `daemonMain` derives (`<socket-dir>/kaval.pid`), so the
@@ -114,5 +114,9 @@ export function localKavalDriver(socketPath: string): DaemonDriver {
     env: daemonEnv(),
     unitPrefix: "kaval",
     fromSource,
+    // P0: kaval has no pino — its stderr (the surface-daemon stderrLogger) IS its log, so
+    // capture it to the deterministic `kaval.log` beside its socket, bounded by
+    // truncate-on-boot, so a kaval that outlives padi/kolu-server stays diagnosable.
+    stderrLog: kavalLogPath(socketPath),
   });
 }

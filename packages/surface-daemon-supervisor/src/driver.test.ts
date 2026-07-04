@@ -1,10 +1,17 @@
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type DaemonSpawnConfig, survivableSpawnDriver } from "./driver.ts";
 
 interface Captured {
   command: string;
   args: string[];
-  options: { detached: boolean; stdio: "ignore"; env?: Record<string, string> };
+  options: {
+    detached: boolean;
+    stdio: "ignore" | Array<"ignore" | number>;
+    env?: Record<string, string>;
+  };
   unrefd: boolean;
 }
 
@@ -85,6 +92,38 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     await driver.spawn();
     const units = calls.map((c) => c.args[c.args.indexOf("--unit") + 1]);
     expect(units).toEqual(["kaval-s1", "kaval-s2"]);
+  });
+
+  it("with stderrLog under systemd: appends the daemon's StandardError to the file (P0)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "drv-log-"));
+    const logFile = join(dir, "d.stderr.log");
+    const { calls, spawnProcess } = capture();
+    const driver = survivableSpawnDriver(
+      { ...cfg, stderrLog: logFile },
+      { env: { INVOCATION_ID: "x" }, spawnProcess, unitSuffix: () => "U" },
+    );
+    await driver.spawn();
+    expect(only(calls).args).toContain(
+      `--property=StandardError=append:${logFile}`,
+    );
+  });
+
+  it("with stderrLog off systemd: hands a real stderr fd (stdout/stdin ignored) and rotates the prior capture to .old (P0)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "drv-log-"));
+    const logFile = join(dir, "d.stderr.log");
+    writeFileSync(logFile, "prior\n"); // seed a prior boot to exercise rotate-on-boot
+    const { calls, spawnProcess } = capture();
+    const driver = survivableSpawnDriver(
+      { ...cfg, stderrLog: logFile },
+      { env: { PATH: "/usr/bin" }, spawnProcess },
+    );
+    await driver.spawn();
+    const stdio = only(calls).options.stdio as unknown[];
+    expect(stdio[0]).toBe("ignore");
+    expect(stdio[1]).toBe("ignore");
+    expect(typeof stdio[2]).toBe("number");
+    expect(existsSync(`${logFile}.old`)).toBe(true);
+    expect(readFileSync(`${logFile}.old`, "utf8")).toBe("prior\n");
   });
 
   it("off systemd, spawns the bin directly, detached+unref, with the forwarded env layered on", async () => {

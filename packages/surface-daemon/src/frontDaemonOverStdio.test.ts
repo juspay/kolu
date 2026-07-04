@@ -7,7 +7,7 @@
  * lifecycle. A separate block pins `reExecAsDetachedDaemon`'s spawn shape with an
  * injected `spawn` — the load-bearing single-process re-exec invariant.
  */
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -238,5 +238,39 @@ describe("reExecAsDetachedDaemon", () => {
     expect(opts.stdio).toBe("ignore");
     expect(opts.env).toEqual({ FOO: "bar" });
     expect(unrefed).toBe(1);
+  });
+
+  it("with stderrLog: hands the child a real stderr fd (stdout/stdin ignored) and rotates the previous capture to .old on boot", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reexec-log-"));
+    const logFile = join(dir, "daemon.stderr.log");
+    // Seed a previous boot's capture so we exercise the truncate-on-boot rotation.
+    writeFileSync(logFile, "prior boot\n");
+    const calls: Array<{ opts: { stdio?: unknown } }> = [];
+    // biome-ignore lint/suspicious/noExplicitAny: minimal ChildProcess stub.
+    const fakeSpawn = ((_c: string, _a: readonly string[], opts: any) => {
+      calls.push({ opts });
+      return { unref: () => {} };
+      // biome-ignore lint/suspicious/noExplicitAny: matching spawn's type.
+    }) as any;
+    const savedArgv = process.argv;
+    process.argv = [process.execPath, "/path/bin.ts", "--stdio"];
+    try {
+      reExecAsDetachedDaemon({
+        stripArgs: ["--stdio"],
+        spawn: fakeSpawn,
+        stderrLog: logFile,
+      });
+    } finally {
+      process.argv = savedArgv;
+    }
+    // stdio = ["ignore", "ignore", <fd>] — a real stderr fd, stdout + stdin still ignored.
+    const stdio = calls[0]?.opts.stdio as unknown[];
+    expect(stdio[0]).toBe("ignore");
+    expect(stdio[1]).toBe("ignore");
+    expect(typeof stdio[2]).toBe("number");
+    // Rotate-on-boot: the prior generation moved to `.old`, a fresh file opened.
+    expect(existsSync(`${logFile}.old`)).toBe(true);
+    expect(readFileSync(`${logFile}.old`, "utf8")).toBe("prior boot\n");
+    expect(existsSync(logFile)).toBe(true);
   });
 });

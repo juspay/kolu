@@ -34,6 +34,14 @@
  */
 
 import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+} from "node:fs";
+import { dirname } from "node:path";
 
 export interface DaemonSpawnConfig {
   /** Absolute path to the daemon executable. Absolute because a systemd
@@ -57,6 +65,12 @@ export interface DaemonSpawnConfig {
    *  unit would strip the build environment the source launcher needs.
    *  Defaults to `false`. */
   fromSource?: boolean;
+  /** Append the daemon's STDERR to this file so a daemon that OUTLIVES its supervisor still
+   *  leaves a readable log (P0). On the detached branch the child's stderr fd is the file; on
+   *  the systemd branch the transient unit gets `StandardError=append:<file>`. Absent → the
+   *  pre-P0 behavior (detached: ignored; systemd: journald only). The caller derives the path
+   *  deterministically from the daemon's identity. */
+  stderrLog?: string;
 }
 
 /** Spawn the daemon process so it outlives this one. Resolves once the child
@@ -90,7 +104,7 @@ export interface SpawnDriverDeps {
     args: string[],
     options: {
       detached: boolean;
-      stdio: "ignore";
+      stdio: "ignore" | Array<"ignore" | number>;
       env?: Record<string, string>;
     },
   ) => SpawnedChild;
@@ -163,9 +177,19 @@ export function survivableSpawnDriver(
         env.INVOCATION_ID !== undefined &&
         env.INVOCATION_ID !== "";
 
+      // P0: give the daemon a deterministic stderr LOG FILE so it stays diagnosable after it
+      // outlives this supervisor. Under systemd the transient unit appends StandardError to
+      // it; on the detached branch the child's stderr fd IS it. Ensure the dir exists, and
+      // truncate-on-boot (keep ONE `.old` generation) so it never grows unbounded.
+      if (cfg.stderrLog) {
+        mkdirSync(dirname(cfg.stderrLog), { recursive: true });
+        if (existsSync(cfg.stderrLog))
+          renameSync(cfg.stderrLog, `${cfg.stderrLog}.old`);
+      }
+
       if (underSystemd) {
         // systemd-run --user --collect --unit <prefix>-<uniq> \
-        //   --setenv K=V ... <binPath> <args...>
+        //   [--property=StandardError=append:<log>] --setenv K=V ... <binPath> <args...>
         const setenv = Object.entries(cfg.env).flatMap(([k, v]) => [
           "--setenv",
           `${k}=${v}`,
@@ -175,6 +199,9 @@ export function survivableSpawnDriver(
           "--collect",
           "--unit",
           `${cfg.unitPrefix}-${unitSuffix()}`,
+          ...(cfg.stderrLog
+            ? [`--property=StandardError=append:${cfg.stderrLog}`]
+            : []),
           ...setenv,
           cfg.binPath,
           ...cfg.args,
@@ -187,14 +214,20 @@ export function survivableSpawnDriver(
         );
       }
       // Detached + unref: survives the parent on macOS/launchd and on a
-      // cgroup-less host. The forwarded env is layered onto ours.
-      return settle(
-        spawnProcess(cfg.binPath, cfg.args, {
-          detached: true,
-          stdio: "ignore",
-          env: { ...(env as Record<string, string>), ...cfg.env },
-        }),
-      );
+      // cgroup-less host. The forwarded env is layered onto ours. When a log path is given,
+      // the child's stderr fd is the append-mode file (else ignored).
+      const stderrFd = cfg.stderrLog ? openSync(cfg.stderrLog, "a") : "ignore";
+      const child = spawnProcess(cfg.binPath, cfg.args, {
+        detached: true,
+        stdio:
+          typeof stderrFd === "number"
+            ? ["ignore", "ignore", stderrFd]
+            : "ignore",
+        env: { ...(env as Record<string, string>), ...cfg.env },
+      });
+      // The child inherited the fd; drop the parent's copy so we don't leak it.
+      if (typeof stderrFd === "number") closeSync(stderrFd);
+      return settle(child);
     },
   };
 }

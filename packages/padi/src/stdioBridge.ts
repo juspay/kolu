@@ -30,7 +30,11 @@ import {
   frontDaemonOverStdio,
   reExecAsDetachedDaemon,
 } from "@kolu/surface-daemon";
-import { padiSocketPath, resolvePadiStateRoot } from "./stateRoot.ts";
+import {
+  padiSocketPath,
+  padiStderrLogPath,
+  resolvePadiStateRoot,
+} from "./stateRoot.ts";
 
 export interface RunPadiStdioBridgeOptions {
   /** The value of `--state-root`, threaded straight from `bin.ts`'s argv parse,
@@ -65,8 +69,16 @@ export function runPadiStdioBridge(
     // Start padi's own durable daemon: re-exec this binary minus `--stdio`. Any
     // `--state-root`/`--socket` ride through in `process.argv`, so the daemon
     // resolves the SAME path the front just did — load-bearing, and why this shim
-    // is CLI-only (see the docstring).
-    spawnDaemon: () => reExecAsDetachedDaemon({ stripArgs: ["--stdio"] }),
+    // is CLI-only (see the docstring). P0: `KOLU_PADI_DAEMON_LOG=1` opts the DETACHED
+    // daemon's pino stream into the size-capped `padi.log` (pino-roll); `stderrLog` gives
+    // its RAW stderr a crash-catcher (`padi.stderr.log`). Without these a remote padi's whole
+    // log stream — incl. the WAL-watcher lines — went to /dev/null, undiagnosable.
+    spawnDaemon: () =>
+      reExecAsDetachedDaemon({
+        stripArgs: ["--stdio"],
+        stderrLog: padiStderrLogPath(opts.stateRoot),
+        env: { ...process.env, KOLU_PADI_DAEMON_LOG: "1" },
+      }),
     log: (msg) => process.stderr.write(`padi --stdio: ${msg}\n`),
   });
 }
