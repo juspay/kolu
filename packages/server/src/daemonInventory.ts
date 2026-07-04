@@ -318,11 +318,23 @@ export function startDaemonInventorySampler(
   subscribeResample?: (resample: () => void) => void,
 ): void {
   let inFlight = false;
+  let pending = false;
   const tick = (): void => {
-    if (inFlight) return;
+    // A resample that lands while a prior enumeration is in flight (a bind-state transition
+    // firing `padiSession.onState` mid-tick — e.g. an adopt-stale / skew / link-failure) must
+    // NOT be dropped, else the fresh `boundPadi.convergence` banner waits for the next COARSE
+    // interval. Coalesce it: mark pending, and re-run ONCE when the in-flight tick settles.
+    if (inFlight) {
+      pending = true;
+      return;
+    }
     inFlight = true;
     void enumerateDaemonInventoryOnce(deps).finally(() => {
       inFlight = false;
+      if (pending) {
+        pending = false;
+        tick();
+      }
     });
   };
   tick();

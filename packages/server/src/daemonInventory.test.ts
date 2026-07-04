@@ -365,4 +365,40 @@ describe("enumerateDaemonInventoryOnce — remote binding (boundHost)", () => {
       buildCommit: "localcommit",
     });
   });
+
+  it("a degraded bind with NO adopted identity (skew/link-failed) still publishes boundPadi carrying the convergence reason", async () => {
+    let published: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        boundHost: "nix@prod.example",
+        // A REFUSED / FAILED bind: no adopted identity (liveIdentity() is null), but a
+        // standing convergence reason to surface.
+        activePadiSurfaceVersion: () => null,
+        activePadiBuildCommit: () => null,
+        activePadiConvergence: () => ({
+          state: "skew-refused",
+          runningBuild: null,
+          expectedBuild: null,
+          detail:
+            "padi contract skew: remote serves 99.0, kolu-server needs 5.0 — refusing",
+        }),
+        publish: (inv) => {
+          published = inv;
+        },
+      }),
+    );
+    // boundPadi must be NON-null even with null identity — else the Padi dialog's degraded
+    // banner would vanish for a refused/failed bind (the exact null-vs-nonnull case).
+    expect(published?.boundPadi).toEqual({
+      surfaceVersion: null,
+      buildCommit: null,
+      convergence: {
+        state: "skew-refused",
+        runningBuild: null,
+        expectedBuild: null,
+        detail:
+          "padi contract skew: remote serves 99.0, kolu-server needs 5.0 — refusing",
+      },
+    });
+  });
 });

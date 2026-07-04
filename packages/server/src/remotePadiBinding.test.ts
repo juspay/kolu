@@ -318,7 +318,9 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
 
   it("throws on drain when unbound (no crash, an honest error)", async () => {
     const { rp } = newSession();
-    await expect(rp.drainBoundPadi()).rejects.toThrow(/not bound/i);
+    await expect(rp.drainBoundPadi()).rejects.toThrow(
+      /no adopted daemon to drain/i,
+    );
   });
 
   it("refuses to drain a padi it only REFUSED for a skew — honors the bind verdict, never downgrades it", async () => {
@@ -327,7 +329,9 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
     await expect(rp.currentClient()).rejects.toThrow(/skew/i);
     // The restart verb must NOT reach the raw host client for a padi we never adopted:
     // an older binder draining a refused newer padi would DOWNGRADE it (anti-monotonic).
-    await expect(rp.drainBoundPadi()).rejects.toThrow(/not bound/i);
+    await expect(rp.drainBoundPadi()).rejects.toThrow(
+      /no adopted daemon to drain/i,
+    );
   });
 
   it("re-handshakes a NEW spawn on reconnect, refreshing identity", async () => {
@@ -566,6 +570,29 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     const conv = rp.padiConvergence();
     expect(conv?.state).toBe("adopted-stale");
     expect(conv?.detail).toMatch(/anti-livelock|respawning/i);
+  });
+
+  it("drainBoundPadi restarts an ADOPTED-STALE resident (a live adopted daemon), not a false 'not bound' error", async () => {
+    const { host, rp } = make({ binderBuildId: "build-NEW" });
+    // Reach adopted-stale via anti-livelock: drain instance 1000, then a DIFFERENT instance
+    // 2000 is still mismatched → adopt-stale the resident (no fresh drain).
+    const first = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 1000 }),
+    );
+    host.setClient(first.client);
+    await expect(rp.currentClient()).rejects.toThrow(
+      /build mismatch|link death/i,
+    );
+    const resident = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 2000 }),
+    );
+    host.setClient(resident.client);
+    await rp.currentClient(); // adopts-stale the resident (a LIVE daemon)
+    expect(rp.padiConvergence()?.state).toBe("adopted-stale");
+    // Restart the resident: drainBoundPadi must DRAIN it (it exits), not reject with the
+    // old "not bound (skew/refused)" error — adopted-stale is a live adopted daemon.
+    await rp.drainBoundPadi();
+    expect(resident.drainCount()).toBe(1);
   });
 
   it("ABSENT buildId (a pre-field survivor) → drains as an older build", async () => {

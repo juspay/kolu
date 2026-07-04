@@ -110,8 +110,10 @@ const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (props) => {
       <div class="font-medium">{p().title}</div>
       <Show when={props.conv.state === "adopted-stale"}>
         <div class="mt-0.5 font-mono text-[10px] text-fg-3">
-          running {props.conv.runningBuild ?? "—"} · expected{" "}
-          {props.conv.expectedBuild ?? "—"}
+          {/* `|| "—"`, not `??`: a pre-field survivor's build folds to "" (not null), and an
+              honest "—" beats a blank per #1034. */}
+          running {props.conv.runningBuild || "—"} · expected{" "}
+          {props.conv.expectedBuild || "—"}
         </div>
       </Show>
       <div class="mt-0.5 text-fg-3">{props.conv.detail}</div>
