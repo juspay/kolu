@@ -30,6 +30,7 @@ import { buildCreateInput, newPtyId } from "./create.ts";
 import { runKill } from "./kill.ts";
 import { resolveTerminalId, shortId } from "./render.ts";
 import { planSend, type SendPlan, SUBMIT_ENTER } from "./send.ts";
+import { executeSendPlan } from "./sendExec.ts";
 
 const silentLog = {
   debug: () => {},
@@ -466,17 +467,13 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
     return screen;
   }
 
-  /** Execute a send byte-plan against the PTY EXACTLY as `cmdSend` does: the
-   *  immediate writes, then (under --submit) the grace delay, then the Enter. */
-  async function execPlan(id: string, plan: SendPlan): Promise<void> {
-    for (const data of plan.writes) {
+  /** Drive a send byte-plan against the PTY through the SHIPPED executor —
+   *  `executeSendPlan` (the same function `cmdSend` runs), over this suite's
+   *  socket write — so the acceptance test validates the real sequencing. */
+  const runPlan = (id: string, plan: SendPlan): Promise<void> =>
+    executeSendPlan(plan, async (data) => {
       await conn.client.surface.terminal.write({ id, data });
-    }
-    if (plan.submit) {
-      await new Promise((r) => setTimeout(r, plan.submit?.graceMs));
-      await conn.client.surface.terminal.write({ id, data: SUBMIT_ENTER });
-    }
-  }
+    });
 
   it("CONTROL: a same-breath Enter (paste + --key Enter) is DROPPED — proves the fixture reproduces the bug", {
     timeout: 30_000,
@@ -492,7 +489,7 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
       submitGraceMs: undefined,
     });
     expect(plan.submit).toBeNull();
-    await execPlan(id, plan);
+    await runPlan(id, plan);
     const screen = await untilScreen(
       id,
       (s) => s.includes("DROPPED"),
@@ -515,7 +512,7 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
       submitGraceMs: 250,
     });
     expect(plan.submit).toEqual({ graceMs: 250 });
-    await execPlan(id, plan);
+    await runPlan(id, plan);
     await untilScreen(
       id,
       (s) => s.includes("SUBMITTED#1"),
@@ -534,7 +531,7 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
       keyData: "",
       submitGraceMs: 250,
     });
-    await execPlan(id, first);
+    await runPlan(id, first);
     // Wait until the first turn is UNDERWAY (the fixture is streaming busy output).
     await untilScreen(
       id,
@@ -550,7 +547,7 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
       keyData: "",
       submitGraceMs: 250,
     });
-    await execPlan(id, second);
+    await runPlan(id, second);
     await untilScreen(
       id,
       (s) => s.includes("SUBMITTED#2"),
@@ -573,7 +570,7 @@ describe("send --submit — acceptance against a real paste-debounce TUI", () =>
       submitGraceMs: 250,
     });
     expect(plan.paste).toBe(true);
-    await execPlan(id, plan);
+    await runPlan(id, plan);
     await untilScreen(
       id,
       (s) => s.includes(`SUBMITTED#1 len=${big.length} tail=${big.slice(-8)}`),

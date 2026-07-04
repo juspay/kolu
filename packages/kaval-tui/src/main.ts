@@ -58,8 +58,8 @@ import {
   encodeKey,
   parseSubmitGrace,
   planSend,
-  SUBMIT_ENTER,
 } from "./send.ts";
+import { executeSendPlan } from "./sendExec.ts";
 import {
   awaitOutputCondition,
   isValidTimerMs,
@@ -471,12 +471,6 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-/** A promise that resolves after `ms` — the `--submit` grace between the text
- *  write and the Enter. A blind timer, not a screen read: the point is only to
- *  land the Enter after the paste debounce. */
-const delay = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
 /** Write input to a terminal — the *raw* write half of driving a program (a
  *  prompt to an agent). One-shot: it issues each planned `terminal.write` in
  *  order and exits, with no `enqueue` serialization (that guards `attach`'s
@@ -533,20 +527,13 @@ async function cmdSend(
     keyData,
     submitGraceMs: flags.submitGraceMs,
   });
-  // Issue each write in order; awaiting in turn preserves order and applies
-  // natural backpressure. Text is one write, the keys another — so a `--key
-  // Enter` submit lands after the (possibly pasted) text, not inside its write.
-  for (const data of plan.writes) {
+  // Drive the plan through the shared executor: it issues each write in order
+  // (backpressure preserved), then — under `--submit` — waits the grace and
+  // sends Enter past the TUI's paste debounce. The acceptance test runs this
+  // SAME function, so it validates the shipped sequencing, not a replica.
+  await executeSendPlan(plan, async (data) => {
     await conn.client.surface.terminal.write({ id, data });
-  }
-  // `--submit`: after the text has settled, wait the grace, THEN send Enter — so
-  // the submit lands past the TUI's paste debounce instead of racing it. A blind
-  // delay by design (no read of the screen); the command still returns in well
-  // under a second regardless of what the agent is doing.
-  if (plan.submit) {
-    await delay(plan.submit.graceMs);
-    await conn.client.surface.terminal.write({ id, data: SUBMIT_ENTER });
-  }
+  });
 
   const result = {
     id,
