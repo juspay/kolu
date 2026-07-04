@@ -62,6 +62,8 @@ kaval and padi each hand-roll the same lifecycle area: **"the running daemon is 
 
 **Done when:** one identity/handshake/policy module, two daemons consuming it with their own declared policies; the two build-id bakes share one recipe; a new daemon gets convergence by declaration, not re-derivation; paired drishti PR green.
 
+*Open question to settle during the extraction (surfaced dogfooding #1671 on zest, 2026-07-03): kaval's `nudge-human` currency keys on its whole hashed closure, which includes `surface-daemon/src` — so a daemon-spine change with no effect on kaval's PTY-survival behavior still nudges "update available", and acting on it costs live PTYs. Decide whether kaval's currency should key on a behavioral slice rather than the full closure. Do NOT change padi here (padi's drain is cheap, over-firing is harmless); this is a kaval-policy question the kit makes visible by putting both daemons' currency side by side.*
+
 ## The boundary re-cuts (lowy)
 
 Places where a phase's landing changes what the right boundary *is* — each needs a fresh look at real code before cutting, which is why they're gated on their phase.
