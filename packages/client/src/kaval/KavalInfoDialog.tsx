@@ -122,7 +122,19 @@ const KavalInfoDialog: Component<{
       }
       description="PTY daemon that owns the live terminals."
     >
-      <div class="rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
+      <div class="space-y-2 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
+        {/* Bound-host identity: name the REMOTE host prominently (remote bind only) — the
+            bound kaval lives on that machine. Local bind → no line (unchanged). */}
+        <Show when={daemonScanBoundHost()}>
+          {(host) => (
+            <div class="flex min-w-0 items-center gap-1.5 text-[11px]">
+              <span class="text-fg-3">bound to</span>
+              <span class="truncate rounded bg-surface-1 px-1.5 py-0.5 font-mono font-medium text-fg">
+                ssh · {host()}
+              </span>
+            </div>
+          )}
+        </Show>
         <Show
           when={props.status}
           fallback={<span class="text-xs text-fg-3">status unavailable</span>}

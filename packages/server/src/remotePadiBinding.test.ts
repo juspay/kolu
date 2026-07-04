@@ -150,6 +150,19 @@ class FakeHost implements RemoteMirrorSession<AnyContractRouter> {
     this.fire();
   }
 
+  /** The link gave up TERMINALLY (unreachable host / provisioning-resolve failure) — the
+   *  HostSession `failed` frame with a reason. */
+  fail(error: string): void {
+    this.clientPromise = null;
+    this.state = {
+      ...this.state,
+      connection: "failed",
+      lastError: error,
+      failureCause: "network",
+    };
+    this.fire();
+  }
+
   pin(): Promise<unknown> {
     this.pinCount += 1;
     return this.clientPromise ?? Promise.reject(new Error("no client yet"));
@@ -236,6 +249,30 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
     // would spam 'poll failed' + log.error, where the LOCAL arm (which nulls its client)
     // reports honest 'absent'. currentClient() must match that: null, not a rejected promise.
     expect(rp.currentClient()).toBeNull();
+
+    // …and the reason is a STANDING, surfaced convergence state so the Padi dialog shows WHY
+    // (an incompatible contract, refused), not a swallowed log line.
+    expect(rp.padiConvergence()?.state).toBe("skew-refused");
+    expect(rp.padiConvergence()?.detail).toMatch(/contract skew|refusing/i);
+  });
+
+  it("a TERMINAL link failure (host unreachable / provisioning failed) surfaces as a standing link-failed state, canvas dead", async () => {
+    const { host, rp } = newSession();
+    // The HostSession gave up terminally — an unreachable host / a `nix copy` that failed.
+    host.fail("testhost: 'nix copy --derivation' exited with code 1");
+    // No live client (canvas dead) — currentClient is null (honest absent), nothing to poll.
+    expect(rp.currentClient()).toBeNull();
+    // …but the REASON is a standing, surfaced convergence state — not a swallowed log or a
+    // bare disconnected dot with no "why".
+    const conv = rp.padiConvergence();
+    expect(conv?.state).toBe("link-failed");
+    expect(conv?.detail).toMatch(/nix copy|exited with code/i);
+    // The connection cell reads the terminal failed frame.
+    let last: HostSessionState | undefined;
+    rp.onState((s) => {
+      last = s;
+    });
+    expect(last?.connection).toBe("failed");
   });
 
   it("drains the bound padi and WAITS for its exit (the restart verb) — resolves only once the link dies", async () => {
@@ -444,13 +481,14 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(laterOld.drainCount()).toBe(1);
   });
 
-  it("a link BLIP misread as an exit → the SAME instance RE-DRAINS (never a silent stale adopt), then degrades LOUDLY on budget exhaustion", async () => {
+  it("a link BLIP misread as an exit → the SAME instance RE-DRAINS, then ADOPTS LOUDLY the resident on budget exhaustion (M4)", async () => {
     // Over ssh a `hello()` rejection during the post-drain poll can be a transient LINK
     // BLIP, not a daemon exit — the daemon survives and the reconnect re-adopts the SAME
     // instance (same startedAt). A global once-per-boot fence would have "spent" on the
-    // first blip and then SILENTLY ADOPTED THE STALE BUILD FOREVER (the bug this guards).
-    // The instance-keyed fence must instead re-drain the same never-exited instance, and
-    // on budget exhaustion degrade LOUDLY — never adopt the stale build.
+    // first blip and then SILENTLY adopted the stale build. The instance-keyed fence
+    // instead re-drains the same never-exited instance up to the budget; on exhaustion
+    // (a contested host we can't win by draining) it ADOPTS LOUDLY — canvas works, mismatch
+    // surfaced — never a silent adopt, never a pointless re-drain.
     const { host, rp } = make({
       binderBuildId: "build-NEW",
       maxBuildDrains: 2,
@@ -478,26 +516,33 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     );
     expect(blip2.drainCount()).toBe(1); // re-drained the SAME instance, not adopted
 
-    // Budget (2) exhausted for instance 5000: the SAME instance again → LOUD degraded
-    // (unconverged), REJECTS, never a silent stale adopt, never a pointless re-drain.
+    // Budget (2) exhausted for instance 5000: the SAME instance again → ADOPT-LOUDLY the
+    // resident build (canvas WORKS), never a pointless re-drain.
     const blip3 = makeDrainable(
       helloOk({ buildId: "build-OLD", startedAt: 5000 }),
     );
     host.setClient(blip3.client);
-    await expect(rp.currentClient()).rejects.toThrow(
-      /flapping|will not converge/i,
+    const client = await rp.currentClient(); // RESOLVES — a live resident client
+    expect(client).toBeTruthy();
+    expect(blip3.drainCount()).toBe(0); // budget spent, did not re-drain
+    // The mismatch is a STANDING, surfaced convergence state (running vs expected build).
+    const conv = rp.padiConvergence();
+    expect(conv?.state).toBe("adopted-stale");
+    expect(conv?.runningBuild).toBe("build-OLD");
+    expect(conv?.expectedBuild).toBe("build-NEW");
+    expect(conv?.detail).toMatch(
+      /flapping|will not converge|riding the resident/i,
     );
-    expect(blip3.drainCount()).toBe(0);
+    // Connection stays CONNECTED (canvas alive), and the resident identity is readable.
     let last: HostSessionState | undefined;
     rp.onState((s) => {
       last = s;
     });
-    expect(last?.connection).toBe("disconnected");
-    expect(last?.failureCause).toBe("remote");
-    expect(rp.padiSurfaceVersion()).toBeNull();
+    expect(last?.connection).toBe("connected");
+    expect(rp.padiSurfaceVersion()).toBe(PADI_SURFACE_VERSION);
   });
 
-  it("a DIFFERENT instance still build-mismatched after a drain → degrades LOUDLY (anti-livelock), never treadmills", async () => {
+  it("a DIFFERENT instance still build-mismatched after a drain → ADOPTS LOUDLY the resident (anti-livelock, never treadmills)", async () => {
     const { host, rp } = make({ binderBuildId: "build-NEW" });
     // Drain instance 1000 (build-OLD) → throw to reconnect.
     const first = makeDrainable(
@@ -509,15 +554,18 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     );
     expect(first.drainCount()).toBe(1);
     // The reconnect brings up a DIFFERENT instance (startedAt 2000) STILL build-OLD — two
-    // supervisors, or the absent-id dev loop. Do NOT treadmill: degrade LOUDLY, no drain.
+    // supervisors, or the absent-id dev loop respawning the old build. Do NOT treadmill:
+    // ADOPT LOUDLY the resident (canvas works) and surface the mismatch, no fresh drain.
     const different = makeDrainable(
       helloOk({ buildId: "build-OLD", startedAt: 2000 }),
     );
     host.setClient(different.client);
-    await expect(rp.currentClient()).rejects.toThrow(
-      /anti-livelock|treadmill/i,
-    );
+    const client = await rp.currentClient(); // ADOPTS the resident (canvas alive)
+    expect(client).toBeTruthy();
     expect(different.drainCount()).toBe(0); // never drained the fresh mismatched instance
+    const conv = rp.padiConvergence();
+    expect(conv?.state).toBe("adopted-stale");
+    expect(conv?.detail).toMatch(/anti-livelock|respawning/i);
   });
 
   it("ABSENT buildId (a pre-field survivor) → drains as an older build", async () => {
@@ -544,25 +592,26 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(old.drainCount()).toBe(0);
   });
 
-  it("build-mismatch drain that does NOT take (daemon keeps answering) → degrades LOUDLY (unconverged), never a silent stale adopt, never a kill", async () => {
+  it("build-mismatch drain that does NOT take (daemon keeps answering) → ADOPTS LOUDLY the resident, never a kill (M4)", async () => {
     const { host, rp } = make({ binderBuildId: "build-NEW" });
-    // `diesOnDrain: false` — the daemon keeps answering after drain (the drain didn't
-    // take). The fail-fast window elapses → LOUD degraded (unconverged, REJECTS), NOT a
-    // silent adopt of the stale build, never a kill.
+    // `diesOnDrain: false` — the daemon keeps answering after drain (the drain didn't take,
+    // a wedged link). The fail-fast window elapses → we could not drain-replace it, so
+    // ADOPT LOUDLY the resident build (canvas works, mismatch surfaced), never a kill.
     const stubborn = makeDrainable(helloOk({ buildId: "build-OLD" }), {
       diesOnDrain: false,
     });
     host.setClient(stubborn.client);
-    await expect(rp.currentClient()).rejects.toThrow(
-      /did not take|kept answering/i,
-    );
+    const client = await rp.currentClient(); // ADOPTS the resident (canvas alive)
+    expect(client).toBeTruthy();
     expect(stubborn.drainCount()).toBe(1); // attempted once, no kill
+    const conv = rp.padiConvergence();
+    expect(conv?.state).toBe("adopted-stale");
+    expect(conv?.detail).toMatch(/did not take|kept answering/i);
     let last: HostSessionState | undefined;
     rp.onState((s) => {
       last = s;
     });
-    expect(last?.connection).toBe("disconnected");
-    expect(last?.failureCause).toBe("remote");
+    expect(last?.connection).toBe("connected"); // canvas stays live
   });
 
   it("contract skew, binder NEWER → drains (newest-wins), instance-keyed bounded", async () => {
@@ -628,6 +677,9 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(last?.connection).toBe("disconnected");
     expect(last?.failureCause).toBe("remote");
     expect(rp.padiSurfaceVersion()).toBeNull();
+    // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
+    // can't be ridden, unlike a build mismatch).
+    expect(rp.padiConvergence()?.state).toBe("unconverged");
   });
 
   it("stays BOUNDED when the post-drain liveness probe HANGS (a wedged link never blocks past the ceiling)", async () => {
@@ -664,10 +716,13 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     };
     host.setClient(wedged);
     // Build mismatch → drain → the probe hangs → the ceiling elapses → did-not-take →
-    // degrade LOUDLY (unconverged, REJECTS), never a silent adopt. The `rejects`
-    // RESOLVING at all is the bound-ceiling proof (an unbounded probe would time out the
-    // test).
-    await expect(rp.currentClient()).rejects.toThrow(
+    // ADOPT LOUDLY the resident old build (M4), never a hang. `currentClient()` RESOLVING at
+    // all (within the ceiling, to a live client) is the bound-ceiling proof — an unbounded
+    // probe would time out the test.
+    const client = await rp.currentClient();
+    expect(client).toBeTruthy();
+    expect(rp.padiConvergence()?.state).toBe("adopted-stale");
+    expect(rp.padiConvergence()?.detail).toMatch(
       /did not take|kept answering/i,
     );
   });

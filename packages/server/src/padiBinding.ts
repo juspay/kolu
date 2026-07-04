@@ -73,6 +73,7 @@ import {
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION, type padiSurface } from "@kolu/padi/surface";
+import type { PadiConvergence } from "kolu-common/surface";
 import {
   type ConvergencePolicy,
   type ConvergenceProbe,
@@ -451,6 +452,14 @@ export interface BoundPadi
   /** The bound padi's navigable git build commit off its control-core `hello`, or
    *  `null` while unbound / when a survivor padi predates the field. */
   padiBuildCommit(): string | null;
+  /** A STANDING convergence anomaly to surface in the Padi dialog (adopted-stale build,
+   *  contract skew, drain-failure, link-failure), or `null` when converged/healthy — so a
+   *  degraded bind is a visible state, not a swallowed log line. The REMOTE arm returns the
+   *  real descriptor; the LOCAL arm returns `null` for now — the shared convergence kit
+   *  collapses a fence-spent adopt to a bare `{kind:"adopted"}` that drops the stale-vs-fresh
+   *  distinction, so local adopt-stale can't be surfaced without a kit change (L23 follow-up;
+   *  the local arm silently adopts today, pre-existing). */
+  padiConvergence(): PadiConvergence | null;
 }
 
 export interface PadiBindingSessionDeps {
@@ -613,6 +622,17 @@ export class PadiBindingSession implements BoundPadi {
    *  `buildCommit`; `null` renders as the honest "—". */
   padiBuildCommit(): string | null {
     return this.destroyed ? null : this.padiBuildCommitStr;
+  }
+
+  /** The LOCAL arm surfaces no convergence anomaly today: the shared kit collapses a
+   *  fence-spent build-mismatch adopt to a bare `{kind:"adopted"}` (converge.ts) that drops
+   *  the stale-vs-fresh distinction, so an adopted-old-build here is indistinguishable from a
+   *  clean adopt without a kit change. `null` = "nothing to surface" (pre-existing silent
+   *  adopt). Surfacing local convergence is the L23 both-arms-unification follow-up; W3.1's
+   *  adopt-loudly + degraded surfacing lands on the remote arm (its bindState knows the
+   *  distinction firsthand). */
+  padiConvergence(): PadiConvergence | null {
+    return null;
   }
 
   onState(cb: (s: HostSessionState) => void): () => void {

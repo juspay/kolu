@@ -375,6 +375,33 @@ export type RunningPadi = z.infer<typeof RunningPadiSchema>;
  *  Kaval/Padi dialogs render it); read-only on the client. Presentation/diagnostic
  *  data, so it rides koluSurface like the memory/uptime readouts — NOT a padiSurface
  *  member (no `PADI_SURFACE_VERSION` bump). */
+/** A STANDING, user-visible convergence anomaly the (remote) binder entered — the dialog
+ *  shows it so nothing is "magically swallowed" into server logs. `null`/absent = the
+ *  healthy converged case (no banner). Rides {@link DaemonInventorySchema.boundPadi}
+ *  because that is the ONE binder→dialog channel orthogonal to the liveness gate: an
+ *  `adopted-stale` keeps the connection `connected` (canvas alive) yet must still say WHY,
+ *  which the connection cell (gated to `state === "connected"`) structurally cannot. */
+export const PadiConvergenceSchema = z.object({
+  /** `adopted-stale`: a build-mismatched survivor we could not drain-replace within the
+   *  M1 budget (a contested host respawning the old build) — we RIDE it, canvas works.
+   *  `skew-refused`: an incompatible padiSurface contract (binder older) we won't adopt.
+   *  `unconverged`: a newer-contract drain that never provably took (canvas dead).
+   *  `link-failed`: the ssh link gave up (host unreachable / provisioning failed). */
+  state: z.enum([
+    "adopted-stale",
+    "skew-refused",
+    "unconverged",
+    "link-failed",
+  ]),
+  /** The bound padi's ACTUAL build (`hello.buildId`) for the build-mismatch state, else null. */
+  runningBuild: z.string().nullable(),
+  /** The build kolu-server EXPECTED (its baked `PADI_BUILD_ID`), else null. */
+  expectedBuild: z.string().nullable(),
+  /** A human-readable reason for the dialog banner. */
+  detail: z.string(),
+});
+export type PadiConvergence = z.infer<typeof PadiConvergenceSchema>;
+
 export const DaemonInventorySchema = z.object({
   kavals: z.array(RunningKavalSchema),
   padis: z.array(RunningPadiSchema),
@@ -391,11 +418,17 @@ export const DaemonInventorySchema = z.object({
    *  version chip + build-commit row read THIS, not the local-scan `active` row: under a
    *  remote binding no locally-discovered padi is kolu's active one, so that row is null
    *  and the identity must instead ride the bound session's readouts (which work over
-   *  ssh). `null` before the first sample / while padi is unbound. */
+   *  ssh). `null` before the first sample / while padi is unbound with nothing to report. */
   boundPadi: z
     .object({
       surfaceVersion: z.string().nullable(),
       buildCommit: z.string().nullable(),
+      /** A STANDING convergence anomaly (adopted-stale / skew-refused / unconverged /
+       *  link-failed), or null when converged/healthy. So the dialog surfaces a degraded
+       *  bind — build mismatch, contract skew, drain-failure, provisioning failure — as a
+       *  visible state, not just server logs. Non-null even when the identity above is null
+       *  (a refused/failed bind has a reason but no adopted identity). */
+      convergence: PadiConvergenceSchema.nullable(),
     })
     .nullable(),
 });

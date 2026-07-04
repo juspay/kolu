@@ -590,6 +590,7 @@ startDaemonInventorySampler(
     activePadiSocket: padiSocketPath(inventoryStateRoot),
     activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
     activePadiBuildCommit: () => padiSession.padiBuildCommit(),
+    activePadiConvergence: () => padiSession.padiConvergence(),
     // The SINGLE bind knob: the remote host (`KOLU_PADI_HOST`), or null for a local bind
     // (`|| null` folds an empty KOLU_PADI_HOST to null, matching the `remoteHost ?` bind
     // decision above). daemonInventory derives `boundLocally = boundHost === null` — a

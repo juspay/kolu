@@ -280,6 +280,7 @@ describe("enumerateDaemonInventoryOnce — remote binding (boundHost)", () => {
     activePadiSocket: PADI_ACTIVE,
     activePadiSurfaceVersion: () => "1.1",
     activePadiBuildCommit: () => "localcommit",
+    activePadiConvergence: () => null,
     // Default LOCAL bind; a remote case overrides with a host (boundLocally is DERIVED
     // = boundHost === null, so a non-null host is the sole remote signal).
     boundHost: null,
@@ -332,6 +333,7 @@ describe("enumerateDaemonInventoryOnce — remote binding (boundHost)", () => {
     expect(remote?.boundPadi).toEqual({
       surfaceVersion: "1.1",
       buildCommit: "localcommit",
+      convergence: null,
     });
     expect(remote?.padis[0]?.active).toBe(false); // still no local active row
 

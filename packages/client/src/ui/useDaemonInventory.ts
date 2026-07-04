@@ -10,7 +10,11 @@
  * rendered "—" by the dialogs — never a fabricated value.
  */
 
-import type { RunningKaval, RunningPadi } from "kolu-common/surface";
+import type {
+  PadiConvergence,
+  RunningKaval,
+  RunningPadi,
+} from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { app } from "../wire";
 
@@ -61,4 +65,13 @@ export function activePadiSurfaceVersion(): string | null {
  *  local active padi under a remote binding). */
 export function boundPadiBuildCommit(): string | null {
   return sub.value()?.boundPadi?.buildCommit ?? null;
+}
+
+/** The BOUND padi's STANDING convergence anomaly (adopted-stale build / contract skew /
+ *  drain-failure / link-failure), or `null` when converged/healthy. The Padi dialog reads
+ *  it to show a degraded bind as a visible banner (running vs expected build, the reason) —
+ *  the whole point of the dialog: nothing swallowed behind the scenes. Remote arm only; the
+ *  local arm reports `null` today (see `BoundPadi.padiConvergence`). */
+export function boundPadiConvergence(): PadiConvergence | null {
+  return sub.value()?.boundPadi?.convergence ?? null;
 }

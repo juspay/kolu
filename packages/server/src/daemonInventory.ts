@@ -28,6 +28,7 @@ import type { PadiDaemon } from "@kolu/padi/assembly";
 import type { KavalDaemon, ptyHostSurface } from "kaval";
 import type {
   DaemonInventory,
+  PadiConvergence,
   RunningKaval,
   RunningPadi,
 } from "kolu-common/surface";
@@ -224,6 +225,11 @@ export interface DaemonInventoryDeps {
    *  `null` while unbound / a survivor padi predating the field — read fresh each tick.
    *  Mirrors how the kaval probe carries kaval's build commit. */
   activePadiBuildCommit: () => string | null;
+  /** The bound padi's STANDING convergence anomaly (adopted-stale build / contract skew /
+   *  drain-failure / link-failure), or `null` when converged/healthy — read fresh each tick
+   *  off the bound session's `padiConvergence()`. Published onto `boundPadi.convergence` so
+   *  the Padi dialog surfaces a degraded bind as a visible state, not a swallowed log. */
+  activePadiConvergence: () => PadiConvergence | null;
   /** Publish the assembled inventory — `koluSurfaceCtx.cells.daemonInventory.set`. */
   publish: (inv: DaemonInventory) => void;
 }
@@ -259,17 +265,25 @@ export async function enumerateDaemonInventoryOnce(
   // readouts (reused for boundPadi + the active-row annotation below).
   const padiSurfaceVersion = deps.activePadiSurfaceVersion();
   const padiBuildCommit = deps.activePadiBuildCommit();
+  const padiConvergence = deps.activePadiConvergence();
   deps.publish({
     boundHost: deps.boundHost,
     // The Padi dialog's version + build-commit rows read THIS, so they work over ssh even
-    // though no LOCAL padi is `active` under a remote binding. `null` when BOTH are unknown
-    // (padi unbound / a survivor predating the fields) — matching the schema + the
-    // pre-enumeration default, so a consumer reads one "no identity" signal, not a
-    // {null,null} object that looks bound.
+    // though no LOCAL padi is `active` under a remote binding. Plus a STANDING convergence
+    // anomaly (adopted-stale / skew / drain-fail / link-fail) so a degraded bind is a
+    // visible dialog state, not a swallowed log. `null` only when there is NOTHING to say —
+    // no identity AND no convergence reason (converged-unbound / pre-enumeration); a
+    // refused/failed bind has a reason but no adopted identity, so it stays non-null.
     boundPadi:
-      padiSurfaceVersion === null && padiBuildCommit === null
+      padiSurfaceVersion === null &&
+      padiBuildCommit === null &&
+      padiConvergence === null
         ? null
-        : { surfaceVersion: padiSurfaceVersion, buildCommit: padiBuildCommit },
+        : {
+            surfaceVersion: padiSurfaceVersion,
+            buildCommit: padiBuildCommit,
+            convergence: padiConvergence,
+          },
     kavals: assembleKavalInventory(
       kavalDaemons,
       probes,

@@ -59,6 +59,7 @@ import {
   ResolveDrvError,
   resolveSystem,
 } from "@kolu/surface-nix-host";
+import type { PadiConvergence } from "kolu-common/surface";
 import type { BoundPadi } from "./padiBinding.ts";
 import { log } from "./log.ts";
 
@@ -178,21 +179,43 @@ interface RemotePadiIdentity {
   startedAt: number | null;
 }
 
-/** The padi's bind outcome as ONE named state — unbound, adopted (with the honest
- *  identity off its `hello`), or refused for a version skew (with the loud error).
- *  A single discriminated field makes the illegal "both an identity AND a skew"
- *  combination unrepresentable, replacing the old parallel-nullable `identity` +
- *  `skewError` pair and its scattered "at most one is ever set" invariant. */
+/** The padi's bind outcome as ONE named state. A single discriminated field makes the
+ *  illegal "both an identity AND a skew" combination unrepresentable. Two of the states
+ *  hold a LIVE client (canvas works) — `bound` (converged) and `adoptedStale` (rode a
+ *  build-mismatched survivor); the rest hold no live client (canvas dead / warming). The
+ *  degraded ones (adoptedStale / skew / unconverged / linkFailed) each surface a
+ *  {@link PadiConvergence} descriptor so the Padi dialog shows WHY, never a silent swallow. */
 type BindState =
   | { kind: "unbound" }
   | { kind: "bound"; identity: RemotePadiIdentity }
+  // ADOPT-LOUDLY: a build-mismatched survivor we could NOT drain-replace within M1's
+  // bounded budget (a contested host respawning the old build). We RIDE the resident
+  // daemon — canvas WORKS, connection stays `connected` — and surface the mismatch as a
+  // standing state. This is the parity twin of the LOCAL kit's fence-spent→adopt row.
+  | {
+      kind: "adoptedStale";
+      identity: RemotePadiIdentity;
+      runningBuild: string;
+      expectedBuild: string;
+      detail: string;
+    }
+  // An INCOMPATIBLE padiSurface contract (binder OLDER) we won't adopt — REFUSED, canvas
+  // dead. The client is rejected; the connection cell reads a loud degraded/skew frame.
   | { kind: "skew"; error: string }
-  // A COMPATIBLE padi we could not converge to this binder's build over a
-  // flapping/wedged ssh link (the drain never provably took). Loud degraded — the
-  // connection cell reads it exactly like `skew`, and the client is REJECTED, never a
-  // silent stale adopt. Distinct from `skew` (an INCOMPATIBLE contract): here the
-  // contract is fine, only the build could not be replaced.
-  | { kind: "unconverged"; error: string };
+  // A newer-contract drain that never provably took (a flapping/wedged ssh link) — we
+  // cannot speak the incompatible surface AND could not drain it away. Canvas dead.
+  | { kind: "unconverged"; error: string }
+  // The ssh link gave up (host unreachable / provisioning/resolve failed) — the terminal
+  // HostSession `failed` frame, captured so the dialog shows the REASON, not a bare dot.
+  | { kind: "linkFailed"; error: string };
+
+/** {@link RemotePadiSession.admitDrain}'s verdict: drain this instance (with the attempt
+ *  number), or GIVE UP draining it (with the reason). The caller decides what give-up
+ *  MEANS per axis — the build axis ADOPTS the resident stale build (canvas works), the
+ *  contract axis goes `unconverged` (an incompatible surface can't be adopted). */
+type DrainAdmission =
+  | { kind: "drain"; attempt: number }
+  | { kind: "giveUp"; reason: string };
 
 /** The convergence deps — the binder's side of the two-axis drain decision, and the
  *  instance-keyed drain budget. All default to the production values; injected in tests
@@ -236,10 +259,10 @@ export interface RemotePadiSessionDeps {
 export class RemotePadiSession implements BoundPadi {
   private destroyed = false;
   /** The binder's contract version + expected build id + the instance-keyed drain
-   *  tracker — the "us" side of a HAND-MIRRORED two-axis convergence keyed on the SAME
-   *  facts as the LOCAL arm's `PADI_CONVERGENCE_POLICY`, with a DELIBERATE policy fork on
-   *  the drain-did-not-take row (see {@link handshakeAndScope}); both-arms unification
-   *  onto the shared kit is the future ledger item L23. */
+   *  tracker — the "us" side of a HAND-MIRRORED two-axis convergence holding the SAME POLICY
+   *  as the LOCAL arm's `PADI_CONVERGENCE_POLICY` (see {@link handshakeAndScope}); the sole
+   *  difference is this arm ADOPTS LOUDLY (surfaces the degraded state) where local adopts
+   *  silently. Both-arms unification onto the shared kit is the future ledger item L23. */
   private readonly binderVersion: string;
   private readonly binderBuildId: string;
   private readonly maxDrainsPerInstance: number;
@@ -302,11 +325,23 @@ export class RemotePadiSession implements BoundPadi {
     // synchronously and seeds `hostState`, then every transition tracks it.
     this.hostUnsub = host.onState((s) => {
       this.hostState = s;
-      // A dropped link invalidates identity + any skew verdict (the next spawn may
-      // differ) and the memoized client (its promise is dead). Transient warming
-      // (copying/connecting) leaves a just-read identity in place, matching the
-      // local arm's "clear on degraded/dead only".
-      if (s.connection === "disconnected" || s.connection === "failed") {
+      // A dropped link invalidates identity + any bind verdict (the next spawn may differ)
+      // and the memoized client (its promise is dead). Transient warming (copying/connecting)
+      // leaves a just-read identity in place, matching the local arm's "clear on
+      // degraded/dead only". A TERMINAL `failed` (the HostSession gave up — unreachable
+      // host / provisioning-resolve failure; rare once markConnected resets the budget) is
+      // captured as a STANDING `linkFailed` carrying the reason, so the dialog shows WHY the
+      // canvas is dark instead of a bare disconnected dot.
+      if (s.connection === "failed") {
+        this.bindState = {
+          kind: "linkFailed",
+          error:
+            s.lastError ??
+            "the remote ssh link failed and gave up (host unreachable / provisioning failed)",
+        };
+        this.memoKey = null;
+        this.memoScoped = null;
+      } else if (s.connection === "disconnected") {
         this.bindState = { kind: "unbound" };
         this.memoKey = null;
         this.memoScoped = null;
@@ -337,16 +372,18 @@ export class RemotePadiSession implements BoundPadi {
       this.memoKey = combinedP;
       this.memoScoped = this.handshakeAndScope(combinedP);
     }
-    // A standing skew / unconverged REFUSED this spawn — `handshakeAndScope` set the
-    // degraded bindState and REJECTED `memoScoped`. Return null (honest "no live client")
-    // so a consumer that polls off a LIVE client — `readPadiMemoryOnce` (index.ts) — reads
-    // the SAME three-way `absent` the local arm does (it nulls its own client), instead of
-    // awaiting a rejected promise into a 'poll failed' + `log.error` EVERY 5s forever while
-    // the transport stays up. The re-serve pump handles a null currentClient (waits) just
-    // as it swallowed the rejection, so the mirror still recovers on the next fresh spawn.
+    // A standing skew / unconverged / linkFailed REFUSED this spawn (canvas dead) —
+    // `handshakeAndScope` set the degraded bindState and REJECTED `memoScoped`. Return null
+    // (honest "no live client") so a consumer that polls off a LIVE client —
+    // `readPadiMemoryOnce` (index.ts) — reads the SAME three-way `absent` the local arm does
+    // (it nulls its own client), instead of awaiting a rejected promise into a 'poll failed'
+    // + `log.error` EVERY 5s forever while the transport stays up. `adoptedStale` is
+    // DELIBERATELY absent here — it holds a LIVE resident client (canvas works), so it falls
+    // through and returns the scoped client; its degradation rides `boundPadi.convergence`.
     if (
       this.bindState.kind === "skew" ||
-      this.bindState.kind === "unconverged"
+      this.bindState.kind === "unconverged" ||
+      this.bindState.kind === "linkFailed"
     ) {
       return null;
     }
@@ -355,31 +392,33 @@ export class RemotePadiSession implements BoundPadi {
 
   /**
    * The control-core `hello` handshake over a fresh spawn's combined client, plus a
-   * two-axis convergence keyed on the SAME facts the LOCAL arm's `PADI_CONVERGENCE_POLICY`
-   * uses (`hello.buildId` = running, the baked arch-independent `PADI_BUILD_ID` = this
-   * binder) — but HAND-MIRRORED, not run through the shared `decide()`/`converge()` kit,
-   * and with a DELIBERATE policy FORK on one row (see (b)). Unifying both arms onto the
-   * kit is the future ledger item (L23).
+   * two-axis convergence that HOLDS THE SAME POLICY as the LOCAL arm's
+   * `PADI_CONVERGENCE_POLICY` (keyed on `hello.buildId` = running, the baked
+   * arch-independent `PADI_BUILD_ID` = this binder) — HAND-MIRRORED rather than run through
+   * the shared `decide()`/`converge()` kit. Unifying both arms onto the kit (mechanical) is
+   * the future ledger item L23.
    *
    *   Axis 1 — CONTRACT (`padiSurface` version): skew + binder NEWER → DRAIN
    *   (newest-wins, instance-keyed bounded); skew + binder OLDER → REFUSE (never drain).
    *   Axis 2 — BUILD (same contract; #1670): a different OR absent `buildId` is a
    *   MISMATCH → DRAIN (instance-keyed, bounded per {@link admitDrain}); a matched /
-   *   off-nix build ADOPTS.
+   *   off-nix build ADOPTS; a drain we could not win (budget spent / wedged link) →
+   *   ADOPT-LOUDLY the resident build (see {@link adoptStale}).
    *
    * Two transport-adaptations from the local arm, both because a DRAIN here tears down the
    * SAME link this handshake rode:
    *   (a) on a successful drain we REJECT (the cursor waits) and the HostSession's own
    *       reconnect respawns this binder's closure (the exact drain→respawn the pu-box run
    *       proves) — where the local arm's separate `adoptOrSpawnOrRefuse` spawns.
-   *   (b) THE POLICY FORK — when a drain does NOT provably take (a flapping/wedged link, or
-   *       a respawn treadmill): the LOCAL arm ADOPTS the stale survivor, because its socket
-   *       CLOSE event authoritatively proved the old daemon exited, so adopting keeps a
-   *       WORKING canvas. Over ssh a `hello()` rejection is NOT such a proof (it can be a
-   *       blip), so adopting a stale build here would be silent-permanent-wrong — this arm
-   *       instead goes {@link unconverged} (LOUD degraded, canvas dead until restart) on
-   *       BOTH axes. So the two arms hold OPPOSITE policies on this one row BY DESIGN; L23
-   *       owns the reconciliation. A drain that does not take is NEVER a kill.
+   *   (b) when a build drain does NOT provably take within M1's bounded budget (a flapping
+   *       link, or a contested host respawning the old build), BOTH arms ADOPT the resident
+   *       stale build (the local kit's fence-spent→adopt row; here {@link adoptStale}) — the
+   *       canvas WORKS. The only difference is this arm ADOPTS LOUDLY: it surfaces the
+   *       mismatch as a standing `boundPadi.convergence` state, where the local arm still
+   *       adopts silently (surfacing local convergence is the L23 follow-up — the kit
+   *       collapses the stale-vs-fresh distinction its adopt would need). An INCOMPATIBLE
+   *       CONTRACT is the one thing neither arm can ride, so a contract drain that does not
+   *       take goes {@link unconverged}, not adopt. A drain that does not take is NEVER a kill.
    */
   private handshakeAndScope(
     combinedP: Promise<unknown>,
@@ -438,20 +477,27 @@ export class RemotePadiSession implements BoundPadi {
         // `admitDrain` (shared with the build axis) bounds it: a DIFFERENT still-skewed
         // instance after a drain → anti-livelock, the SAME one surviving its budget →
         // exhaustion, both a LOUD terminal `unconverged`.
-        const attempt = this.admitDrain(
+        const admission = this.admitDrain(
           instance,
           `contract skew (binder ${this.binderVersion} newer than running ${running})`,
         );
+        if (admission.kind === "giveUp") {
+          // An INCOMPATIBLE contract can never be adopted (unlike a build mismatch), so a
+          // treadmill/exhaustion here stays LOUD terminal `unconverged` (canvas dead until a
+          // compatible padi wins) — the ONE row where the contract axis diverges from the
+          // build axis's adopt-loudly: there is no working canvas to ride.
+          return this.unconverged(admission.reason);
+        }
         log.info(
           {
             host: this.hostName,
             binderVersion: this.binderVersion,
             running,
             instance,
-            attempt,
+            attempt: admission.attempt,
           },
           `remote padi is a padiSurface skew and this binder is NEWER — draining it (instance ` +
-            `startedAt ${instance}, attempt ${attempt}/${this.maxDrainsPerInstance}; persist + exit, its ` +
+            `startedAt ${instance}, attempt ${admission.attempt}/${this.maxDrainsPerInstance}; persist + exit, its ` +
             `kaval + PTYs survive) so the reconnect respawns this binder's own newer closure`,
         );
         const contractDrain = await this.drainAndAwaitClose(combined);
@@ -482,11 +528,11 @@ export class RemotePadiSession implements BoundPadi {
       // daemon INSTANCE (`startedAt`), not a global boolean — re-draining the SAME
       // never-exited instance after a blip is convergence, and only a DIFFERENT instance
       // still mismatched (two supervisors / the absent-id dev loop) is the livelock the
-      // fence guards. Bounded so a flapping link converges to a LOUD degraded state,
-      // never a silent stale adopt — and THIS is the deliberate policy fork: the local arm
-      // ADOPTS the stale survivor on this exhausted row (its socket CLOSE proved the exit),
-      // this arm goes `unconverged` (see handshakeAndScope (b)). Ledger L23: the both-arms
-      // unification's ssh probe MUST inherit this guard AND reconcile the fork. ──
+      // fence guards. Bounded so a flapping link converges — and on exhaustion BOTH arms
+      // ADOPT the resident stale build (the local kit's fence-spent→adopt row; here
+      // {@link adoptStale}) so the canvas WORKS, this arm doing it LOUDLY (a standing
+      // `boundPadi.convergence` state) where local adopts silently. Ledger L23: the both-arms
+      // unification's ssh probe MUST inherit this bound. ──
       const runningBuild = hello.buildId ?? "";
       if (this.binderBuildId === "" || runningBuild === this.binderBuildId) {
         // off-nix binder (cannot judge builds) or provably-equal build → CONVERGED (or
@@ -504,10 +550,18 @@ export class RemotePadiSession implements BoundPadi {
       // {@link admitDrain}: a blip-induced re-drain of the SAME never-exited instance is
       // admitted; a DIFFERENT still-mismatched instance — two supervisors / the absent-id
       // dev loop — or the same one past its budget is the treadmill → loud unconverged).
-      const attempt = this.admitDrain(
+      const admission = this.admitDrain(
         instance,
         `build mismatch (running=${runningBuild} expected=${this.binderBuildId})`,
       );
+      if (admission.kind === "giveUp") {
+        // The M1 drain budget is spent — a CONTESTED host (another supervisor keeps
+        // respawning the old build) we can't win by draining. ADOPT-LOUDLY: ride the
+        // resident daemon so the canvas WORKS, surfacing the mismatch as a standing state.
+        // Emergent owner/guest: on a solo host the first drain converges us as owner; here
+        // we yield and ride what's there. Parity with the local kit's fence-spent→adopt row.
+        return this.adoptStale(combined, hello, runningBuild, admission.reason);
+      }
       log.info(
         {
           host: this.hostName,
@@ -515,10 +569,10 @@ export class RemotePadiSession implements BoundPadi {
           runningBuild,
           running,
           instance,
-          attempt,
+          attempt: admission.attempt,
         },
         `padi build change on boot: running=${runningBuild} expected=${this.binderBuildId}` +
-          ` — draining the survivor (instance startedAt ${instance}, attempt ${attempt}/${this.maxDrainsPerInstance}; persist + exit, its kaval + PTYs survive) and respawning this binder's own build (drain-on-build-mismatch, #1670)`,
+          ` — draining the survivor (instance startedAt ${instance}, attempt ${admission.attempt}/${this.maxDrainsPerInstance}; persist + exit, its kaval + PTYs survive) and respawning this binder's own build (drain-on-build-mismatch, #1670)`,
       );
       const buildDrain = await this.drainAndAwaitClose(combined);
       if (buildDrain.took) {
@@ -531,10 +585,13 @@ export class RemotePadiSession implements BoundPadi {
           "remote padi drain / link death (build mismatch) — reconnecting to re-handshake the survivor",
         );
       }
-      // The daemon kept ANSWERING past the teardown window — alive, did not exit
-      // (ignoring the drain or a wedged link). Do NOT silently adopt the stale build:
-      // LOUD degraded.
-      return this.unconverged(
+      // The daemon kept ANSWERING past the teardown window — alive, did not exit (a wedged
+      // link). We could not drain-replace it → ADOPT-LOUDLY the resident build (same as the
+      // give-up row above): canvas works, mismatch surfaced. Never a silent stale adopt.
+      return this.adoptStale(
+        combined,
+        hello,
+        runningBuild,
         `remote padi drain did not take within ${this.drainCeilingMs}ms — the daemon kept answering (running=${runningBuild} expected=${this.binderBuildId})` +
           (buildDrain.drainRejection
             ? `; drain call rejected: ${buildDrain.drainRejection}`
@@ -561,6 +618,41 @@ export class RemotePadiSession implements BoundPadi {
     return scopePadiSurface(combined);
   }
 
+  /** ADOPT-LOUDLY a build-mismatched survivor we could NOT drain-replace within M1's
+   *  bounded budget (a wedged link, or a contested host respawning the old build). Ride the
+   *  RESIDENT daemon — the canvas WORKS (a LIVE client; connection stays `connected`, so the
+   *  re-served surface's `liveWhen` gate stays open) — and record a STANDING `adoptedStale`
+   *  state carrying running-vs-expected build + a reason, surfaced via
+   *  {@link padiConvergence} → `boundPadi.convergence` so the Padi dialog shows it (never a
+   *  silent swallow). Loud: `log.warn` + the surfaced descriptor. This is the parity twin of
+   *  the LOCAL kit's fence-spent→adopt row; the contract axis still refuses (an incompatible
+   *  surface can't be ridden). */
+  private adoptStale(
+    combined: PadiDaemonClient,
+    hello: PadiHello,
+    runningBuild: string,
+    reason: string,
+  ): PadiSurfaceClient {
+    const detail = `${reason} — riding the resident daemon; upgrade the winner or stop the respawner to converge`;
+    log.warn(
+      { host: this.hostName, runningBuild, expectedBuild: this.binderBuildId },
+      `remote padi ADOPTED STALE (build mismatch, could not converge) — ${detail}`,
+    );
+    this.bindState = {
+      kind: "adoptedStale",
+      identity: {
+        surfaceVersion: hello.surfaceVersion,
+        commit: hello.commit || null,
+        startedAt: hello.startedAt ?? null,
+      },
+      runningBuild,
+      expectedBuild: this.binderBuildId,
+      detail,
+    };
+    this.fire();
+    return scopePadiSurface(combined);
+  }
+
   /** REFUSE the survivor: flag the loud degraded/skew frame the connection cell
    *  reads, and REJECT so the pump's cursor keeps waiting (`waitForNextClient`
    *  swallows it — no crash, no spin), never a kill. */
@@ -570,16 +662,14 @@ export class RemotePadiSession implements BoundPadi {
     throw new DaemonContractSkewError(msg);
   }
 
-  /** LOUD DEGRADED — a padi we could NOT converge (a drain that never provably took over
-   *  a flapping/wedged ssh link, or a treadmill of respawned wrong instances), on EITHER
-   *  axis (build mismatch, or a newer-contract skew we can't drain away). Surfaces the
-   *  reason in the connection cell (exactly like {@link refuse}) AND at `log.error`, and
-   *  REJECTS the client so the pump keeps waiting — never a silent stale adopt, which OVER
-   *  SSH would be silent + permanent + wrong (a `hello()` rejection isn't a proven exit).
-   *  This is the fork from the LOCAL arm, which DOES adopt this row — NOT a philosophy
-   *  violation there: its socket CLOSE proves the exit, so its adopt keeps a working canvas
-   *  honestly (see {@link handshakeAndScope} (b) + ledger L23). Distinct from `refuse` (a
-   *  monotonicity refusal of an OLDER binder): a plain Error, not a skew error. */
+  /** LOUD DEGRADED for the CONTRACT axis only — a NEWER-contract skew we could not drain
+   *  away (the drain never provably took, or a treadmill of respawned wrong instances). An
+   *  incompatible padiSurface can never be ADOPTED (unlike a build mismatch, which
+   *  {@link adoptStale} rides), so there is no working canvas to keep: surface the reason in
+   *  the connection cell (like {@link refuse}) AND at `log.error`, and REJECT the client so
+   *  the pump keeps waiting. The local arm reaches the same verdict for an incompatible
+   *  contract it can't drain — no fork. Distinct from `refuse` (a monotonicity refusal of an
+   *  OLDER binder): a plain Error, not a skew error. */
   private unconverged(msg: string): never {
     log.error({ host: this.hostName }, `remote padi UNCONVERGED — ${msg}`);
     this.bindState = { kind: "unconverged", error: msg };
@@ -594,26 +684,29 @@ export class RemotePadiSession implements BoundPadi {
    *  resets the give-up budget every cycle. So: re-draining the SAME never-exited instance
    *  (a blip) is admitted up to a per-instance budget; a DIFFERENT instance still wrong
    *  after a drain this boot (two supervisors fighting, or the absent-id dev loop) is the
-   *  treadmill. Both terminal cases throw {@link unconverged} (loud, never returns);
-   *  otherwise it records this attempt and returns the attempt number. Ledger L23 — the
-   *  both-arms unification's ssh probe must inherit this. */
-  private admitDrain(instance: number | null, why: string): number {
+   *  treadmill. Returns a {@link DrainAdmission} — the CALLER decides what "give up" means
+   *  per axis (build ADOPTS the resident stale build; contract goes `unconverged`), so the
+   *  M1 bound is shared but the after-budget OUTCOME is axis-specific. Ledger L23 — the
+   *  both-arms unification's ssh probe must inherit this bound. */
+  private admitDrain(instance: number | null, why: string): DrainAdmission {
     if (this.drainedInstance !== null && instance !== this.drainedInstance) {
-      this.unconverged(
-        `${why}: a DIFFERENT padi instance (startedAt ${instance}) is still wrong after draining ${this.drainedInstance} this boot — refusing to treadmill (anti-livelock)`,
-      );
+      return {
+        kind: "giveUp",
+        reason: `${why}: a DIFFERENT padi instance (startedAt ${instance}) is still wrong after draining ${this.drainedInstance} this boot — another supervisor is respawning it (anti-livelock)`,
+      };
     }
     if (
       instance === this.drainedInstance &&
       this.drainAttempts >= this.maxDrainsPerInstance
     ) {
-      this.unconverged(
-        `${why}: instance startedAt ${instance} survived ${this.drainAttempts} drain attempts without exiting — a flapping link / respawn loop that will not converge`,
-      );
+      return {
+        kind: "giveUp",
+        reason: `${why}: instance startedAt ${instance} survived ${this.drainAttempts} drain attempts without exiting — a flapping link / respawn loop that will not converge`,
+      };
     }
     this.drainedInstance = instance;
     this.drainAttempts += 1;
-    return this.drainAttempts;
+    return { kind: "drain", attempt: this.drainAttempts };
   }
 
   /** Drain the combined client over the frozen control core, then wait (fail-fast)
@@ -748,19 +841,67 @@ export class RemotePadiSession implements BoundPadi {
     }
   }
 
+  /** The LIVE padi's identity — present for both a converged `bound` AND an `adoptedStale`
+   *  (the resident daemon we rode: canvas works, so the dialog reads the identity that is
+   *  actually running); null for every no-live-client state. */
+  private liveIdentity(): RemotePadiIdentity | null {
+    if (this.destroyed) return null;
+    return this.bindState.kind === "bound" ||
+      this.bindState.kind === "adoptedStale"
+      ? this.bindState.identity
+      : null;
+  }
+
   padiStartedAt(): number | null {
-    if (this.destroyed || this.bindState.kind !== "bound") return null;
-    return this.bindState.identity.startedAt;
+    return this.liveIdentity()?.startedAt ?? null;
   }
 
   padiSurfaceVersion(): string | null {
-    if (this.destroyed || this.bindState.kind !== "bound") return null;
-    return this.bindState.identity.surfaceVersion;
+    return this.liveIdentity()?.surfaceVersion ?? null;
   }
 
   padiBuildCommit(): string | null {
-    if (this.destroyed || this.bindState.kind !== "bound") return null;
-    return this.bindState.identity.commit;
+    return this.liveIdentity()?.commit ?? null;
+  }
+
+  /** The STANDING convergence anomaly for `boundPadi.convergence` — so the Padi dialog
+   *  shows WHY a bind is degraded (adopted-stale build / contract skew / drain-failure /
+   *  link-failure) instead of it being swallowed into server logs. `null` for the healthy
+   *  `bound`/`unbound` states (no banner). */
+  padiConvergence(): PadiConvergence | null {
+    if (this.destroyed) return null;
+    switch (this.bindState.kind) {
+      case "adoptedStale":
+        return {
+          state: "adopted-stale",
+          runningBuild: this.bindState.runningBuild,
+          expectedBuild: this.bindState.expectedBuild,
+          detail: this.bindState.detail,
+        };
+      case "skew":
+        return {
+          state: "skew-refused",
+          runningBuild: null,
+          expectedBuild: null,
+          detail: this.bindState.error,
+        };
+      case "unconverged":
+        return {
+          state: "unconverged",
+          runningBuild: null,
+          expectedBuild: null,
+          detail: this.bindState.error,
+        };
+      case "linkFailed":
+        return {
+          state: "link-failed",
+          runningBuild: null,
+          expectedBuild: null,
+          detail: this.bindState.error,
+        };
+      default:
+        return null;
+    }
   }
 
   /** The state the connection cell reads: the HostSession's link phase, overlaid
