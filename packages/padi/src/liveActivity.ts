@@ -18,7 +18,10 @@
  */
 
 import { pollOnEvent } from "@kolu/surface/server";
-import type { TerminalId } from "@kolu/terminal-workspace/schema";
+import {
+  TERMINAL_IDLE_AFTER_MS,
+  type TerminalId,
+} from "@kolu/terminal-workspace/schema";
 import type { Logger } from "pino";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { registryMap } from "./terminal-registry.ts";
@@ -36,11 +39,6 @@ type ActivityStreamDeps = {
   ) => AsyncIterable<TerminalId[]>;
 };
 
-/** Output quiet-period before a terminal reads as static again — matches the
- *  client's `useTerminalActivity` IDLE_AFTER_MS, so the padi-tui `●` and the
- *  browser green dot breathe at the same cadence. */
-const IDLE_AFTER_MS = 1000;
-
 interface ActivityTracker {
   /** Record a chunk of output for `id`: light its live flag (publishing a change
    *  if it was static) and arm/refresh the quiet-period timer. */
@@ -57,7 +55,9 @@ interface ActivityTracker {
   dispose(): void;
 }
 
-function createActivityTracker(idleAfterMs = IDLE_AFTER_MS): ActivityTracker {
+function createActivityTracker(
+  idleAfterMs = TERMINAL_IDLE_AFTER_MS,
+): ActivityTracker {
   const live = new Set<TerminalId>();
   const timers = new Map<TerminalId, ReturnType<typeof setTimeout>>();
   const listeners = new Set<() => void>();

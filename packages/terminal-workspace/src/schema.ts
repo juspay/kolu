@@ -262,6 +262,22 @@ export const ProcessRssSchema = z.discriminatedUnion("status", [
 ]);
 export type ProcessRss = z.infer<typeof ProcessRssSchema>;
 
+// ── Live-output cadence ────────────────────────────────────────────────────
+
+/** Output quiet-period before a terminal reads as static again — the ONE cadence
+ *  the "is this terminal moving bytes right now" signal breathes at on BOTH sides:
+ *  padi's `activity` stream (the padi-tui `●`) and the client's
+ *  `useTerminalActivity` (the browser green dot). It is a RAW byte-motion signal
+ *  with a ~1s trailing window — a stream with sub-second gaps (compiles, `tail -f`)
+ *  stays lit, one that pauses longer blinks off then back on when it resumes (so an
+ *  agent that pauses >1s between thinking and emitting tokens flickers, by design).
+ *
+ *  Lives on this browser-safe shared-vocab leaf (beside {@link ProcessRssSchema})
+ *  because BOTH `@kolu/padi` and the client (via `kolu-common/surface`) read it, and
+ *  the package-boundary seal forbids either importing the other. One declaration, so
+ *  the two dots can't drift out of lockstep behind a comment. */
+export const TERMINAL_IDLE_AFTER_MS = 1000;
+
 // ── Schema-derived sub-types ──────────────────────────────────────────
 
 export type AgentKind = z.infer<typeof AgentKindSchema>;

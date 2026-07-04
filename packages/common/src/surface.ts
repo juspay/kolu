@@ -97,6 +97,7 @@ export {
   RestoreTargetSchema,
   reasonForSource,
   resumableCommand,
+  TERMINAL_IDLE_AFTER_MS,
   TerminalIdSchema,
   TerminalSnapshotSchema,
 } from "@kolu/terminal-workspace/schema";
