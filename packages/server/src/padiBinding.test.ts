@@ -52,6 +52,7 @@ import {
 import {
   bindPadiOnce,
   connectPadi,
+  createBuildDrainFence,
   ensurePadiBinding,
   localPadiDriver,
   PADI_HOST_ID,
@@ -532,6 +533,10 @@ describe("kolu-server padi binder — cutover acceptance", () => {
       endpoint: ep,
       probe: () => probePadiSkew(socketPath),
       binderVersion: newerBinderVersion, // strictly NEWER than the running padi
+      // From-source padi has no baked PADI_BUILD_ID, and this exercises the CONTRACT
+      // drain — so the binder is off-nix ("") too, keeping the build axis dormant.
+      binderBuildId: "",
+      buildDrainFence: createBuildDrainFence(),
       log: silentLog,
     });
 
