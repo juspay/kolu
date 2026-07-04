@@ -5,13 +5,13 @@
  * and the kit's half of Pin 3 (identity is consumed regardless of contract compatibility).
  */
 
+import type { ConvergenceIdentity } from "@kolu/surface-daemon";
 import { describe, expect, it } from "vitest";
 import {
   type ConvergeLogger,
-  converge,
   type ConvergenceEndpoint,
+  converge,
 } from "./converge.ts";
-import type { ConvergenceIdentity } from "@kolu/surface-daemon";
 import { createBuildDrainFence } from "./fence.ts";
 import type { ConvergencePolicy } from "./policy.ts";
 

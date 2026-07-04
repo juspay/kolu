@@ -14,18 +14,6 @@
  *     version-agnostic channel, before any versioned handshake.
  */
 
-export {
-  type ConvergeLogger,
-  converge,
-  type ConvergenceEndpoint,
-  type ConvergenceOutcome,
-  type ConvergenceProbe,
-  type ConvergenceProbeBase,
-  type DrainableProbe,
-  type PlainProbe,
-} from "./converge.ts";
-export { type Decision, decide } from "./decide.ts";
-export { type BuildDrainFence, createBuildDrainFence } from "./fence.ts";
 // The convergence comparators + identity shape live in @kolu/surface-daemon (the
 // supervisor's zero-@kolu/surface boundary; see convergenceIdentity.ts) — re-exported
 // here so a consumer gets the whole kit from @kolu/surface-daemon-supervisor.
@@ -36,9 +24,21 @@ export {
   contractIsNewer,
 } from "@kolu/surface-daemon";
 export {
-  type AnyConvergencePolicy,
-  type BuildMismatchPolicy,
-  type ContractSkewPolicy,
-  type ConvergencePolicy,
-  type DrainCapability,
+  type ConvergeLogger,
+  type ConvergenceEndpoint,
+  type ConvergenceOutcome,
+  type ConvergenceProbe,
+  type ConvergenceProbeBase,
+  converge,
+  type DrainableProbe,
+  type PlainProbe,
+} from "./converge.ts";
+export { type Decision, decide } from "./decide.ts";
+export { type BuildDrainFence, createBuildDrainFence } from "./fence.ts";
+export type {
+  AnyConvergencePolicy,
+  BuildMismatchPolicy,
+  ContractSkewPolicy,
+  ConvergencePolicy,
+  DrainCapability,
 } from "./policy.ts";

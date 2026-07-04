@@ -169,7 +169,12 @@ export async function converge<Cap extends DrainCapability>(args: {
           );
         }
         const adopted = await args.endpoint.adoptOrSpawnOrRefuse();
-        return { kind: "drained-replacing", axis: decision.axis, adopted };
+        return {
+          kind: "drained-replacing",
+          axis: decision.axis,
+          running: probe.identity,
+          adopted,
+        };
       }
       case "report-mismatch": {
         // No supervisor action — adopt the compatible survivor; the caller surfaces the
