@@ -402,6 +402,48 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(fresh.drainCount()).toBe(0);
   });
 
+  it("reset-on-adopt: adopting a matched build CLEARS the instance tracker, so a LATER mismatch drains AFRESH (the drain budget resets across a genuine converge)", async () => {
+    // Pins `this.drainedInstance = null; this.drainAttempts = 0` on the ADOPT path
+    // (the matched-build branch of handshakeAndScope). Without that reset, the tracker
+    // would still hold the FIRST drained instance after a genuine converge, and a later,
+    // unrelated build change would be misread as a two-supervisor treadmill (a DIFFERENT
+    // instance still wrong "this boot") and degrade LOUDLY instead of draining — turning
+    // a normal redeploy into a wedged canvas.
+    const { host, rp } = make({ binderBuildId: "build-NEW" });
+
+    // 1. A build-MISMATCH survivor (instance startedAt 1000, build-OLD) → drain took →
+    //    reject to reconnect. Tracker now: drainedInstance=1000, drainAttempts=1.
+    const old = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 1000 }),
+    );
+    host.setClient(old.client);
+    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
+    expect(old.drainCount()).toBe(1);
+
+    // 2. The reconnect brings up a MATCHED build (build-NEW, a fresh instance) → ADOPT.
+    //    Reaching the matched build proves the earlier drain genuinely took, so the adopt
+    //    path CLEARS the tracker (drainedInstance=null, drainAttempts=0) — the reset.
+    const matched = makeDrainable(
+      helloOk({ buildId: "build-NEW", startedAt: 2000 }),
+    );
+    host.setClient(matched.client);
+    const scoped = (await rp.currentClient()) as { surface: unknown };
+    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
+    expect(matched.drainCount()).toBe(0);
+
+    // 3. LATER a NEW mismatched instance appears (startedAt 3000, build-OLD again) — e.g. a
+    //    subsequent redeploy or a transient old survivor. BECAUSE the tracker was cleared on
+    //    adopt, this is a FRESH convergence: it must DRAIN AFRESH (drainCount 1, /build
+    //    mismatch/), NOT trip anti-livelock as a "different instance still wrong this boot".
+    //    A missing reset would instead throw /anti-livelock/ with drainCount 0 here.
+    const laterOld = makeDrainable(
+      helloOk({ buildId: "build-OLD", startedAt: 3000 }),
+    );
+    host.setClient(laterOld.client);
+    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
+    expect(laterOld.drainCount()).toBe(1);
+  });
+
   it("a link BLIP misread as an exit → the SAME instance RE-DRAINS (never a silent stale adopt), then degrades LOUDLY on budget exhaustion", async () => {
     // Over ssh a `hello()` rejection during the post-drain poll can be a transient LINK
     // BLIP, not a daemon exit — the daemon survives and the reconnect re-adopts the SAME

@@ -54,6 +54,7 @@ import {
 import {
   previewTailFromRawUrl,
   rawTargetFromContext,
+  remotePreviewBlock,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import {
@@ -366,11 +367,9 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   // preview STREAM yet (that rides a later slice with the picker), so fail CLOSED with a
   // loud 501 rather than read the wrong machine's disk — fail-fast per conventions.md,
   // never a silent local read of a remote path.
-  if (remoteHost) {
-    return c.text(
-      "file preview is unavailable while bound to a remote padi (KOLU_PADI_HOST) — the remote preview stream is a later slice",
-      501,
-    );
+  const remoteBlock = remotePreviewBlock(remoteHost);
+  if (remoteBlock) {
+    return c.text(remoteBlock.body, remoteBlock.status);
   }
   // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
   // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two

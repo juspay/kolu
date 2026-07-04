@@ -63,3 +63,30 @@ export function previewTailFromRawUrl(
   const pathname = rawPathname(rawUrl);
   return pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "";
 }
+
+/** The remote-bind preview policy, as ONE pure decision the route and its test share.
+ *
+ *  Under a REMOTE padi binding (`KOLU_PADI_HOST` set, so `remoteHost` is truthy) the
+ *  terminal registry — and the repo roots it resolves — live on the ssh HOST, while
+ *  `previewFile` in `index.ts` reads THIS machine's LOCAL disk. Handing a remote path
+ *  to a local read would serve unrelated local bytes (or 404) — a wrong-data path that
+ *  violates the remote-host contract. There is no remote preview STREAM yet (a later
+ *  slice with the picker), so the route fails CLOSED with a loud 501 rather than read
+ *  the wrong machine's disk — fail-fast per conventions.md, never a silent local read
+ *  of a remote path.
+ *
+ *  Returns the 501 payload the route must return when bound REMOTE, or `null` when the
+ *  binding is LOCAL (`remoteHost` unset/blank → `remotePadiHost()` yields `undefined`)
+ *  and the preview may proceed. Extracted from the `index.ts` route so the decision is
+ *  unit-testable without standing up the whole server. */
+export const PREVIEW_UNAVAILABLE_REMOTE_STATUS = 501 as const;
+
+export function remotePreviewBlock(
+  remoteHost: string | undefined,
+): { status: typeof PREVIEW_UNAVAILABLE_REMOTE_STATUS; body: string } | null {
+  if (!remoteHost) return null;
+  return {
+    status: PREVIEW_UNAVAILABLE_REMOTE_STATUS,
+    body: "file preview is unavailable while bound to a remote padi (KOLU_PADI_HOST) — the remote preview stream is a later slice",
+  };
+}
