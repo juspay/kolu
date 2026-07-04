@@ -163,6 +163,38 @@ describe("HostSession liveness watchdog", () => {
     session.destroy();
   });
 
+  it("markConnected is idempotent — a second call (a consumer that marks on the hello AND on the first folded frame) is a no-op", async () => {
+    // W3.1's remote padi arm marks connected on the successful control-core hello (to
+    // reset the give-up budget so a deliberate drain-exit isn't counted as a connect
+    // failure), and reServeSurface ALSO marks on the first folded frame — so
+    // markConnected fires from two sites per spawn. Pin that the second call is a
+    // no-op: exactly ONE `connected` transition (so the consecutiveFailures reset +
+    // the liveness-watchdog birth happen once, never twice).
+    vi.mocked(spawn).mockImplementation(() => healthyChild().child as never);
+    const session = makeSession();
+    session.pin().catch(() => {});
+    await vi.advanceTimersByTimeAsync(1);
+    expect(session.current().connection).toBe("connecting");
+
+    let connectedTransitions = 0;
+    const unsub = session.onState((s) => {
+      if (s.connection === "connected") connectedTransitions += 1;
+    });
+
+    session.markConnected(); // site 1 — the hello path: connecting → connected
+    await vi.advanceTimersByTimeAsync(0); // flush the state-cell delivery
+    expect(session.current().connection).toBe("connected");
+    session.markConnected(); // site 2 — the first-frame call: guard makes it a no-op
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.current().connection).toBe("connected");
+
+    expect(connectedTransitions).toBe(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
+
+    unsub();
+    session.destroy();
+  });
+
   it("liveness: false disables the watchdog entirely", async () => {
     const kills: Array<ReturnType<typeof vi.fn>> = [];
     vi.mocked(spawn).mockImplementation(() => {
