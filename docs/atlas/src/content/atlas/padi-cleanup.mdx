@@ -105,9 +105,9 @@ W3.1's `RemotePadiSession` (`packages/server/src/remotePadiBinding.ts`) hand-mir
 
 **Where:** `packages/server/src/remotePadiBinding.ts` (`handshakeAndScope`, the fence field) · `@kolu/surface-daemon-supervisor`'s `convergence/*`.
 
-**A real policy fork to settle first (found by the W3.1 deep review, 2026-07-04):** the two arms hold OPPOSITE end-states on the fence-exhausted build-mismatch row — the local kit's `decide()` ADOPTS the stale-build survivor (canvas keeps working, degraded), the remote arm goes `unconverged` and REJECTS every client (canvas dead until kolu-server restarts). The remote arm's comments brand the local policy "silent-permanent-wrong"; the local policy calls its own row the anti-livelock guarantee. W3.1 ships with the fork made explicit and documented at both sites; **this entry owns the reconciliation** — pick ONE philosophy (loud-degraded-but-working vs loud-dead), encode it as the kit's policy row, and migrate whichever arm loses.
+**The policy fork found by the W3.1 deep review (2026-07-04) was RESOLVED in-PR, srid's ruling:** both arms now share the same end-state on the fence/budget-exhausted build-mismatch row — **adopt-loudly** (ride the resident old-build daemon, canvas works, the mismatch surfaced as a standing state in the Padi dialog naming the remote host). Rationale: on a solo host the first drain succeeds and the binder converges as owner; on a contested host (something keeps respawning the old build) it yields after the bounded budget and rides what's there — **emergent owner/guest**, no ownership machinery in `surface-daemon*`. An explicit owner/guest policy row (declared identity, takeover semantics) is deliberately NOT built — it becomes a real design item only if multi-kolu-per-host ever becomes a requirement.
 
-**Done when:** the fork above is settled and both arms' skew/mismatch decisions come from `decide()` (no second policy table in `packages/server`); the W3.1 pu-box drain scenario's e2e still green.
+**Done when:** the remote arm's skew/mismatch decisions come from `decide()` (no second policy table in `packages/server`); the W3.1 pu-box drain scenario's e2e still green; no behavior change (the arms already agree).
 
 ### L14 — the memory readout should ride the mirror it already has
 
