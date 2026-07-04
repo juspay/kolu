@@ -96,6 +96,30 @@ client:
 test-unit: install
     {{ nix_shell }} pnpm test:unit
 
+# W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
+# bench typing-echo latency, and prove drain->converge. TURNKEY on a `pu` box: with no
+# arg it auto-picks the box's own non-loopback 10.x IPv4 (a real ssh hop to its OWN
+# sshd — NOT loopback, which the test refuses as a false green); pass an explicit host
+# to override. This is the ONLY enforced run of `remotePadiSsh.test.ts` — CI has NO ssh
+# lane (no sshd in the build sandbox), so the ssh leg is exercised HERE, on a box, and
+# its transcript is W3.1's recorded evidence. See the test header for the full contract.
+#   just e2e-ssh                 # auto-detect this box's non-loopback IP
+#   just e2e-ssh 10.47.48.150    # explicit ssh host/alias
+e2e-ssh host='': install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host="{{ host }}"
+    if [ -z "$host" ]; then
+        host=$(ip -4 -o addr show scope global 2>/dev/null | grep -oE 'inet 10\.[0-9.]+' | awk '{print $2}' | head -1)
+        [ -n "$host" ] || { echo "e2e-ssh: no non-loopback 10.x IPv4 found — pass one explicitly: just e2e-ssh <host>" >&2; exit 1; }
+    fi
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    drv=$(nix eval --raw --accept-flake-config ".#packages.$system.padi.drvPath")
+    echo "e2e-ssh: host=$host system=$system padi-drv=$drv"
+    cd packages/server && KOLU_E2E_SSH_HOST="$host" KOLU_E2E_PADI_DRV="$drv" \
+        KOLU_STATE_DIR="${TMPDIR:-/tmp}/kolu-e2e-ssh-$$/state" \
+        {{ nix_shell }} pnpm exec vitest run --fileParallelism=false src/remotePadiSsh.test.ts
+
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test: install
     #!/usr/bin/env bash

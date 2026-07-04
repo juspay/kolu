@@ -20,6 +20,11 @@
  *
  * Run on a `pu` box (or any host with a self-alias to its own sshd), never in the
  * from-source unit lane. Its transcript is W3.1's recorded pu-box evidence.
+ *
+ * TURNKEY: `just e2e-ssh` on a pu box builds the padi `.drv`, auto-picks the box's own
+ * non-loopback 10.x IPv4, sets both env vars, and runs this suite. CI has NO ssh lane
+ * (no sshd in the build sandbox), so THIS recipe is the only enforced run of the ssh
+ * leg — deliberately, and noted as such in the PR (no silent coverage cap).
  */
 
 import { isContractVersionCompatible } from "@kolu/surface/define";
