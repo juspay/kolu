@@ -119,9 +119,15 @@ function makeResolvePadiDrv(host: string): () => Promise<string> {
       if (
         typeof parsed !== "object" ||
         parsed === null ||
-        Array.isArray(parsed)
+        Array.isArray(parsed) ||
+        // A truthy NON-string value (e.g. {"x86_64-linux": 42}) is an `object`
+        // that slips the shape guard and would be handed back as a bogus `.drv`
+        // by the `map[system]` lookup below (its `!drv` check passes for a
+        // number). Reject it here, eagerly, mirroring parseDrvBySystem's
+        // per-value guard (@kolu/surface-nix-host/dialAgentOnce.ts).
+        Object.values(parsed).some((v) => typeof v !== "string")
       )
-        throw new Error("not a JSON object");
+        throw new Error("not a { system → drv string } JSON object");
       map = parsed as Record<string, string>;
     } catch (err) {
       throw new ResolveDrvError(
