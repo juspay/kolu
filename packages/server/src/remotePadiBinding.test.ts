@@ -80,14 +80,15 @@ const helloOk = (
  *  `alive: false` at the drain does NOT die (models a drain that did not take). */
 function makeDrainable(
   hello: ReturnType<typeof helloOk>,
-  opts: { diesOnDrain?: boolean } = {},
+  opts: { diesOnDrain?: boolean; graceHellos?: number } = {},
 ): {
   client: unknown;
   drainCount: () => number;
 } {
-  let dead = false;
-  let drains = 0;
   const dies = opts.diesOnDrain ?? true;
+  let grace = opts.graceHellos ?? 0;
+  let drained = false;
+  let drains = 0;
   return {
     drainCount: () => drains,
     client: {
@@ -95,12 +96,19 @@ function makeDrainable(
         control: {
           core: {
             hello: async () => {
-              if (dead) throw new Error("link dead (padi exited)");
+              // After the drain, a daemon that "dies" answers `graceHellos` MORE
+              // times (modelling the ssh link taking several polls to tear down),
+              // then rejects — so drainAndAwaitClose's multi-poll success loop and
+              // its post-sleep boundary are exercised, not just synchronous death.
+              if (drained && dies) {
+                if (grace <= 0) throw new Error("link dead (padi exited)");
+                grace -= 1;
+              }
               return hello;
             },
             drain: async () => {
               drains += 1;
-              if (dies) dead = true;
+              drained = true;
             },
           },
         },
@@ -403,6 +411,59 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     host.setClient(oldContract.client);
     await expect(rp.currentClient()).rejects.toThrow(/newer contract/i);
     expect(oldContract.drainCount()).toBe(1);
+  });
+
+  it("marks the HostSession connected on a drain — resets its give-up budget so an INTENDED drain always respawns (never terminal 'failed')", async () => {
+    // Regression: an intended drain REJECTS the mirrored client, so the pump never
+    // folds a frame and never calls markConnected — leaving the drain-induced clean
+    // child-exit classified as a bounded "remote" fault that, after prior failures,
+    // tripped the HostSession's give-up gate to terminal 'failed' with no respawn. The
+    // fix marks connected on the successful hello, BEFORE the drain.
+    const { host, rp } = make({ binderBuildId: "build-NEW" });
+    host.setClient(makeDrainable(helloOk({ buildId: "build-OLD" })).client);
+    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
+    expect(host.markConnectedCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("contract skew, binder NEWER, drain does NOT take → REFUSES (degraded), never adopts an incompatible contract", async () => {
+    const { host, rp } = make({ binderVersion: "9.0", binderBuildId: "b" });
+    const stubborn = makeDrainable(helloOk({ surfaceVersion: "1.1" }), {
+      diesOnDrain: false,
+    });
+    host.setClient(stubborn.client);
+    await expect(rp.currentClient()).rejects.toThrow(/skew|refus/i);
+    expect(stubborn.drainCount()).toBe(1); // attempted once, no kill
+    let last: HostSessionState | undefined;
+    rp.onState((s) => {
+      last = s;
+    });
+    expect(last?.connection).toBe("disconnected");
+    expect(last?.failureCause).toBe("remote");
+    expect(rp.padiSurfaceVersion()).toBeNull();
+  });
+
+  it("build-mismatch drain converges when the link takes SEVERAL polls to die (multi-poll success loop, not just synchronous death)", async () => {
+    const fence = createBuildDrainFence();
+    const host = new FakeHost();
+    const rp = new RemotePadiSession(
+      host as RemoteMirrorSession<never>,
+      "rmt",
+      {
+        binderBuildId: "build-NEW",
+        buildDrainFence: fence,
+        drainTeardownCeilingMs: 500,
+        drainPollMs: 10,
+      },
+    );
+    // The daemon answers 4 more hellos after the drain, then dies — drainAndAwaitClose
+    // must still return true (the drain took) rather than adopt the old build.
+    const slow = makeDrainable(helloOk({ buildId: "build-OLD" }), {
+      graceHellos: 4,
+    });
+    host.setClient(slow.client);
+    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
+    expect(slow.drainCount()).toBe(1);
+    expect(fence.hasFired()).toBe(true);
   });
 });
 

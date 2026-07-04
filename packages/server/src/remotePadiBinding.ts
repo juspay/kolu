@@ -311,6 +311,22 @@ export class RemotePadiSession implements BoundPadi {
       const hello = await combined.surface.control.core.hello();
       const running = hello.surfaceVersion;
 
+      // The hello roundtripped — the FIRST RPC on this spawn — so signal the
+      // HostSession that the link is live NOW, before we decide adopt/drain/refuse.
+      // This is load-bearing for convergence, NOT just the adopt path: markConnected
+      // resets the HostSession's bounded give-up budget AND makes a subsequent child
+      // exit classify as a retry-forever "network" fault (it exits `wasConnected`)
+      // rather than a bounded "remote" one. Without it, an INTENDED convergence drain
+      // — which REJECTS the mirrored client, so the pump never folds a frame and never
+      // calls markConnected itself — would count its own clean child-exit against the
+      // give-up budget and, after a few prior failures (e.g. the host was briefly
+      // unreachable at boot), trip the session to terminal `failed` with the OLD padi
+      // drained and NO new build ever respawned. The LOCAL arm drives its own gateless
+      // reconnect, so a local drain always respawns; this restores that guarantee here.
+      // markConnected self-guards on `connecting`, so the pump's later onFirst call is
+      // a harmless no-op.
+      this.host.markConnected();
+
       // ── Axis 1 — the CONTRACT. On a skew the contract decides; the build id is
       // irrelevant. Mirrors `drainSupersededSurvivor` Axis 1. ──
       if (!isContractVersionCompatible(running, this.binderVersion)) {
@@ -447,15 +463,19 @@ export class RemotePadiSession implements BoundPadi {
       // exited) — its outcome does not decide completion; the link death (below) does.
     });
     const deadline = Date.now() + this.drainCeilingMs;
-    while (Date.now() < deadline) {
+    // Poll liveness, deciding on the HELLO, never on the trailing sleep: a daemon that
+    // exits DURING a sleep must still be caught by the next hello, and the window is
+    // only exhausted after a hello that STILL answered — so a real exit is never
+    // misread as "did not take".
+    while (true) {
       try {
         await combined.surface.control.core.hello();
       } catch {
         return true; // the daemon stopped answering → it exited → the drain took.
       }
+      if (Date.now() >= deadline) return false; // still answering past the window.
       await sleep(this.drainPollMs);
     }
-    return false; // still answering past the window → the drain did not take.
   }
 
   isDestroyed(): boolean {

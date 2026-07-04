@@ -882,6 +882,46 @@ BeforeAll(async () => {
     await startServerChild(koluServer);
   }
 
+  // W3.1 — the ssh leg: a REMOTE padi binding warms ASYNC (fail-open by design;
+  // provisioning + fronting over ssh takes seconds), so unlike the LOCAL arm — which
+  // awaits its first connect before the server listens — the server is up before the
+  // remote padi is live. Wait for it here, ONCE, so scenarios don't race the warm-up
+  // (a `killAll` against a not-yet-connected binding is the "no live upstream link"
+  // 500). Local runs (knob unset) skip this entirely — byte-identical to today.
+  if (process.env.KOLU_E2E_PADI_HOST) {
+    const deadline = Date.now() + 120_000;
+    let ready = false;
+    let lastStatus = 0;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(
+          `${baseUrl}/rpc/surface/padi/lifecycle/killAll`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          },
+        );
+        lastStatus = res.status;
+        if (res.ok) {
+          ready = true;
+          break;
+        }
+      } catch {
+        // server not answering yet — keep polling
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    if (!ready) {
+      throw new Error(
+        `[worker:${workerId}] remote padi (KOLU_E2E_PADI_HOST=${process.env.KOLU_E2E_PADI_HOST}) never became live within 120s (last killAll status ${lastStatus})`,
+      );
+    }
+    console.log(
+      `[worker:${workerId}] remote padi is live — running the suite over ssh`,
+    );
+  }
+
   // Launch browser — always use CI args for consistency and performance.
   // KOLU_X11CAP: go HEADFUL at 2× inside Xvfb so x11grab captures real physical
   // pixels. This global browser backs *browser-chrome* recordings (newContext);
