@@ -79,8 +79,8 @@ type AnyConvergenceProbe = DrainableProbe | PlainProbe;
 export type ConvergenceOutcome =
   | { readonly kind: "adopted" }
   | { readonly kind: "not-adopted" }
-  | { readonly kind: "recycled" }
-  | { readonly kind: "refused" }
+  | { readonly kind: "recycled"; readonly adopted: boolean }
+  | { readonly kind: "refused"; readonly adopted: boolean }
   | {
       readonly kind: "drained-replacing";
       readonly axis: "contract" | "build";
@@ -94,6 +94,17 @@ export type ConvergenceOutcome =
       readonly running: ConvergenceIdentity;
       readonly adopted: boolean;
     };
+
+/** Whether a survivor was ADOPTED (its children preserved), across every outcome kind —
+ *  the one fact a caller's reconcile step keys on. The `recycle`/`refuse` decisions are
+ *  chosen from the primary probe, but the endpoint's bind re-checks the primary AND the
+ *  W2.2 adopt-hint the single probe never saw, so either can still ADOPT a compatible
+ *  survivor; this reads the bind's REAL result rather than the decision's intent. */
+export function outcomeAdopted(outcome: ConvergenceOutcome): boolean {
+  if (outcome.kind === "adopted") return true;
+  if (outcome.kind === "not-adopted") return false;
+  return outcome.adopted;
+}
 
 export async function converge<Cap extends DrainCapability>(args: {
   endpoint: ConvergenceEndpoint;
@@ -152,16 +163,22 @@ export async function converge<Cap extends DrainCapability>(args: {
           skewCtx,
           "convergence: recycling a contract-skewed survivor (kill + respawn)",
         );
-        await bind(); // recycle-on-skew policy → bind is `adoptOrEnsure`.
-        return { kind: "recycled" };
+        // recycle-on-skew policy → bind is `adoptOrEnsure`. Thread its REAL result: the
+        // endpoint re-checks the primary AND the W2.2 adopt-hint (either can ADOPT a
+        // compatible survivor the single probe never saw), so the caller's reconcile must
+        // see what the bind actually did, not the decision's recycle intent.
+        const adopted = await bind();
+        return { kind: "recycled", adopted };
       }
       case "refuse": {
         args.log.warn(
           skewCtx,
           "convergence: REFUSING a skewed survivor — left standing + degraded, never touched",
         );
-        await bind(); // refuse/drain policy → bind is `adoptOrSpawnOrRefuse` (refuses the skew).
-        return { kind: "refused" };
+        // refuse/drain policy → bind is `adoptOrSpawnOrRefuse`. Thread its REAL result: a
+        // race between the probe and the bind's own connect can ADOPT rather than refuse.
+        const adopted = await bind();
+        return { kind: "refused", adopted };
       }
       case "drain-and-replace": {
         // Spend the fence for a BUILD drain BEFORE the await, so even a drain failure

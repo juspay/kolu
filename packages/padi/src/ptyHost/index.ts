@@ -23,6 +23,7 @@ import {
   createEndpoint,
   type Endpoint,
   type EndpointStatus,
+  outcomeAdopted,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
@@ -293,9 +294,7 @@ export async function ensureLocalEndpoint(opts: {
       buildFence: createBuildDrainFence(),
       log,
     });
-    const adopted =
-      outcome.kind === "adopted" ||
-      (outcome.kind === "mismatch-reported" && outcome.adopted);
+    const adopted = outcomeAdopted(outcome);
     if (adopted && opts.onAdopted) {
       try {
         await opts.onAdopted();

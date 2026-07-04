@@ -7,7 +7,11 @@
 
 import type { ConvergenceIdentity, Logger } from "@kolu/surface-daemon";
 import { describe, expect, it } from "vitest";
-import { type ConvergenceEndpoint, converge } from "./converge.ts";
+import {
+  type ConvergenceEndpoint,
+  converge,
+  outcomeAdopted,
+} from "./converge.ts";
 import { createBuildDrainFence } from "./fence.ts";
 import type { ConvergencePolicy } from "./policy.ts";
 
@@ -93,7 +97,7 @@ describe("converge — enactment + outcomes", () => {
     expect(calls).toEqual(["adoptOrSpawnOrRefuse"]);
   });
 
-  it("kaval contract skew → adoptOrEnsure (recycle); outcome recycled; probe disposed", async () => {
+  it("kaval contract skew → adoptOrEnsure (recycle); outcome recycled (adopted=false); probe disposed", async () => {
     const { endpoint, calls } = fakeEndpoint(false);
     const probe = plainProbe(id("1.0", "A"));
     const out = await converge({
@@ -104,9 +108,45 @@ describe("converge — enactment + outcomes", () => {
       buildFence: createBuildDrainFence(),
       log: silent,
     });
-    expect(out.kind).toBe("recycled");
+    expect(out).toMatchObject({ kind: "recycled", adopted: false });
+    expect(outcomeAdopted(out)).toBe(false);
     expect(calls).toEqual(["adoptOrEnsure"]);
     expect(probe.disposed).toBe(true);
+  });
+
+  it("recycle where the endpoint ADOPTS (the adopt-hint the probe never saw, or a race) → recycled(adopted=true)", async () => {
+    // The primary probe decided `recycle` (skew), but the endpoint's adoptOrEnsure
+    // re-checks the primary AND the W2.2 legacy adopt-hint — either can adopt a compatible
+    // survivor. converge must thread the bind's REAL result, so the caller's reconcile sees
+    // the adopted daemon rather than parking the session (byte-identical to the pre-kit
+    // `const adopted = await ep.adoptOrEnsure()`).
+    const { endpoint } = fakeEndpoint(true);
+    const out = await converge({
+      endpoint,
+      baked: id("2.0", "B"),
+      probe: async () => plainProbe(id("1.0", "A")),
+      policy: KAVAL,
+      buildFence: createBuildDrainFence(),
+      log: silent,
+    });
+    expect(out).toMatchObject({ kind: "recycled", adopted: true });
+    expect(outcomeAdopted(out)).toBe(true);
+  });
+
+  it("refuse where the endpoint ADOPTS (probe↔bind race) → refused(adopted=true)", async () => {
+    // padi's OLDER-contract refuse decision, but the endpoint's adoptOrSpawnOrRefuse
+    // connect raced the probe and adopted a now-compatible survivor. Thread the real result.
+    const { endpoint } = fakeEndpoint(true);
+    const out = await converge({
+      endpoint,
+      baked: id("1.0", "B"),
+      probe: async () => drainableProbe(id("2.0", "A")),
+      policy: PADI,
+      buildFence: createBuildDrainFence(),
+      log: silent,
+    });
+    expect(out).toMatchObject({ kind: "refused", adopted: true });
+    expect(outcomeAdopted(out)).toBe(true);
   });
 
   it("kaval build mismatch → mismatch-reported (no drain; adopts the compatible survivor via adoptOrEnsure)", async () => {

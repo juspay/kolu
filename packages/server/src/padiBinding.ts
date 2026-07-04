@@ -69,8 +69,8 @@ import {
   type PadiDaemonClient,
   type PadiDial,
   type PadiIdentity,
-  scopePadiSurface,
   type PadiSurfaceClient,
+  scopePadiSurface,
 } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION, type padiSurface } from "@kolu/padi/surface";
 import {
@@ -82,6 +82,7 @@ import {
   type DaemonDriver,
   type Endpoint,
   type EndpointStatus,
+  outcomeAdopted,
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
@@ -771,7 +772,7 @@ export async function ensurePadiBinding(
           "hashes don't order, so this fires at most once per binder boot)",
       );
     }
-    return outcome.kind === "adopted";
+    return outcomeAdopted(outcome);
   };
 
   session = new PadiBindingSession({

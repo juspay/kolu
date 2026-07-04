@@ -30,6 +30,7 @@ export {
   type ConvergenceProbeBase,
   converge,
   type DrainableProbe,
+  outcomeAdopted,
   type PlainProbe,
 } from "./converge.ts";
 export { type Decision, decide } from "./decide.ts";
