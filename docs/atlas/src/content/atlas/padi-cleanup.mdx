@@ -19,7 +19,7 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 **Status index** — updated as entries ripen or ship:
 
 - **Ready now:** L1 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) — and L4 at a named version; L5's remaining half (video-ext table)
-- **Gated:** L6, L7 on W2.3 · L11 on W3.2 · L2 on kolu-tui (W5) · L3 on a second daemon · L9, L22 on evidence
+- **Gated:** L6, L7 on W2.3 · L11 on W3.2 · L2 on kolu-tui (W5) · L3 on #1670 landing (then ready — upgraded scope, prioritized) · L9, L22 on evidence
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
@@ -50,15 +50,17 @@ W2.3 hand-rolls "block until this collection satisfies a predicate, with timeout
 
 **Done when:** one implementation, two consumers (padi-tui + kolu-tui), framework home, drishti green. *If kolu-tui never ships, delete this entry with that reason — do not upstream on one consumer.*
 
-### L3 — the control core into `@kolu/surface-daemon`
+### L3 — the daemon-lifecycle convergence kit into `@kolu/surface-daemon*` *(upgraded 2026-07-03 — srid's call, and #1670 is the evidence)*
 
-*Status: gated on a second daemon adopting it · Lens: lowy · Gate: drishti (surface-daemon is stack-adjacent; check `.claude/rules/surface.md` scope at execution time)*
+*Status: ready once #1670 lands (extract from two complete instances, never one) · Lens: lowy (one volatility axis, two hand-rolled instances) · Gate: drishti*
 
-padi's frozen side-channel (hello · version · drain · `clock.now` — the never-versioning surface that makes upgrades converge) is generic daemon machinery with one daemon using it. The axis doesn't vary yet; there is nothing to encapsulate. If a second daemon (a future kaval rev wanting drain semantics, or any new `@kolu/*` daemon) adopts the pattern, move the types + serve helper to `@kolu/surface-daemon` — the adoption *is* the proof.
+kaval and padi each hand-roll the same lifecycle area: **"the running daemon is not the daemon I shipped — detect it, converge it."** The duplication is at least six-fold: baked build ids (`KAVAL_BUILD_ID` / `PADI_BUILD_ID` + staleKey), version handshakes (`system.version` vs `control.hello`), typed skew errors, convergence policies (kaval: supervisor recycle-on-skew; padi: adopt-or-spawn-or-refuse + newest-wins drain + #1670's build-mismatch drain), staleness responses (kaval: the human currency nudge, because recycling kills PTYs; padi: auto-drain, because restarts are cheap), and identity/hello shapes. **#1670 is what duplication cost**: kaval's currency lesson existed, nothing shared it, padi's re-derivation shipped with the hole.
 
-**Where:** `packages/padi/src/controlCore.ts`; the dial-side handshake in `@kolu/padi/dial` (post-W2.3).
+**Target shape:** one convergence kit in the `surface-daemon` stack — daemon identity (baked build id + contract version + the hello/identity handshake, incl. the frozen-core pattern), the skew/refusal types, the once-per-boot fence, and **policy as the parameter**: `recycle-on-skew` (kaval's arm) · `refuse` · `drain-and-replace` (padi's arms) · `nudge-human` (currency). Each daemon declares its policy per trigger (contract-skew / build-mismatch); the machinery is shared. kaval + padi are the two proving consumers from day one — electricity test ② is satisfied by the axis genuinely varying, and ③'s proof is built into the extraction itself.
 
-**Done when:** two daemons serve the same control-core contract from one shared module; padi's copy deleted.
+**Where:** `packages/padi/src/controlCore.ts` + `@kolu/padi/dial`'s handshake + `packages/server/src/padiBinding.ts`'s policy arms (incl. #1670's build-mismatch drain once it lands); `packages/surface-daemon-supervisor/src/endpoint.ts` (kaval's recycle arm + `DaemonContractSkewError`); the two `buildId.ts` twins.
+
+**Done when:** one identity/handshake/policy module, two daemons consuming it with their own declared policies; the two build-id bakes share one recipe; a new daemon gets convergence by declaration, not re-derivation; paired drishti PR green.
 
 ## The boundary re-cuts (lowy)
 
