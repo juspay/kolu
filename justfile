@@ -137,7 +137,7 @@ e2e-ssh-2box boxB port='7099': install
     #!/usr/bin/env bash
     set -euo pipefail
     boxB="{{ boxB }}"; port="{{ port }}"
-    [ "${KOLU_E2E_SSH_DESTRUCTIVE_ACK:-}" = "1" ] || { echo "e2e-ssh-2box: DESTRUCTIVE against '$boxB' — set KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 (only if '$boxB' is disposable)" >&2; exit 1; }
+    [ "${KOLU_E2E_SSH_DESTRUCTIVE_ACK:-}" = "1" ] || { echo "e2e-ssh-2box: REFUSING — DESTRUCTIVE against '$boxB': it will killAll + DRAIN (persist+exit, build-swap) that host's padi, KILLING its live terminals. Set KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 ONLY if '$boxB' is a disposable test host, never a workstation." >&2; exit 1; }
     # 1) the ssh-transport lane (round-trip · latency · drain-converge) against the
     #    genuinely-different host — self-ssh confound removed. KOLU_E2E_SSH_TWO_BOX=1 skips
     #    the self-ssh-ONLY agent-state test (its local /proc + $HOME fixtures can't match a
@@ -152,19 +152,19 @@ e2e-ssh-2box boxB port='7099': install
     # frame), NON-destructive, polled until the ssh binding has warmed enough to publish
     # the bound padi's identity. (A killAll probe would be destructive AND its input schema
     # is `void` — an object payload 400s, so it never gates.)
+    # Parse the frame with python (robust — no JSON-key-order assumption, no unescaped-$boxB
+    # regex brittleness): boundPadi.surfaceVersion populated = the ssh binding warmed.
     frame=""
     for i in $(seq 1 120); do
         frame=$(timeout 12 curl -s -N --max-time 10 -X POST "http://127.0.0.1:$port/rpc/surface/kolu/daemonInventory/get" \
             -H 'content-type: application/json' -d '{"json":{}}' 2>/dev/null | grep -m1 '^data:' | sed 's/^data: //' || true)
-        echo "$frame" | grep -qE "\"boundPadi\":\{\"surfaceVersion\":\"[^\"]+\"" && break
+        python3 -c "import json,sys; p=(json.loads(sys.argv[1] or '{}').get('json',{}).get('boundPadi') or {}); sys.exit(0 if p.get('surfaceVersion') else 1)" "$frame" && break
         sleep 1
     done
     echo "daemonInventory (bound to $boxB): $frame"
-    echo "$frame" | grep -qE "\"boundHost\":\"$boxB\"" \
-        || { echo "FAIL: boundHost != $boxB (the dialog can't label the local scan)" >&2; exit 1; }
-    echo "$frame" | grep -qE "\"boundPadi\":\{\"surfaceVersion\":\"[^\"]+\"" \
-        || { echo "FAIL: boundPadi.surfaceVersion not populated (Padi dialog identity would be blank)" >&2; exit 1; }
-    echo "e2e-ssh-2box: PASS — boundHost=$boxB, boundPadi populated over the genuinely-remote binding"
+    # Single-line python (avoids heredoc-dedent issues in a just recipe): assert boundHost and
+    # boundPadi.surfaceVersion off the PARSED JSON, not a key-order-fragile / unescaped-regex grep.
+    python3 -c 'import json,sys; d=json.loads(sys.argv[2] or "{}").get("json",{}); p=d.get("boundPadi") or {}; (print("e2e-ssh-2box: PASS — boundHost="+str(d.get("boundHost"))+", boundPadi.surfaceVersion="+str(p.get("surfaceVersion"))+" over the genuinely-remote binding") if d.get("boundHost")==sys.argv[1] and p.get("surfaceVersion") else sys.exit("FAIL: boundHost="+repr(d.get("boundHost"))+" (expected "+repr(sys.argv[1])+"), boundPadi.surfaceVersion="+repr(p.get("surfaceVersion"))))' "$boxB" "$frame"
 
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test: install

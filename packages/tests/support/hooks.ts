@@ -708,7 +708,27 @@ async function waitForOwnedServer(
  *  kaval-daemon scenario's After hook drives — that scenario SIGKILLs the
  *  worker's kaval, leaving the server degraded, so the worker must be re-booted
  *  before any later scenario tries to create a terminal. */
+/** DESTRUCTIVE-ACK guard for the ssh leg — checked BEFORE any server child spawns. Binding a
+ *  kolu-server to KOLU_E2E_PADI_HOST is itself destructive (it drains/converges + killAll's
+ *  that host's padi, killing its live terminals), so a mistyped host must be refused BEFORE the
+ *  spawn — not after, where the child races ahead and murders a workstation's terminals first. */
+function assertRemoteDestructiveAck(): void {
+  const remotePadiHost = process.env.KOLU_E2E_PADI_HOST;
+  if (!remotePadiHost) return;
+  if (process.env.KOLU_E2E_SSH_DESTRUCTIVE_ACK !== "1") {
+    throw new Error(
+      `REFUSING: the cucumber ssh leg (KOLU_E2E_PADI_HOST=${remotePadiHost}) is DESTRUCTIVE — ` +
+        `binding kolu-server to it drains + killAll's that host's padi (its live terminals) on ` +
+        `every server start. Set KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 ONLY if '${remotePadiHost}' is a ` +
+        `disposable test host, never a workstation.`,
+    );
+  }
+}
+
 async function startServerChild(koluServer: string): Promise<void> {
+  // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
+  // destructive, so the ack cannot wait until after (P2/F1).
+  assertRemoteDestructiveAck();
   // Extend NIX_ENV_WHITELIST with GIT_AUTHOR_*/GIT_COMMITTER_* so PTY
   // shells in fixtures like `code-tab.feature` (which run `git init &&
   // git commit` inside the terminal under test) inherit the same
@@ -869,16 +889,10 @@ async function startServerChild(koluServer: string): Promise<void> {
 async function waitForRemotePadiLive(): Promise<void> {
   const remotePadiHost = process.env.KOLU_E2E_PADI_HOST;
   if (!remotePadiHost) return;
-  // DESTRUCTIVE-ACK guard: this ssh leg killAll's the padi on KOLU_E2E_PADI_HOST on every
-  // server start AND per scenario — it kills that host's live terminals. Refuse LOUDLY
-  // without an explicit ack so a mistyped host can't murder a workstation's terminals.
-  if (process.env.KOLU_E2E_SSH_DESTRUCTIVE_ACK !== "1") {
-    throw new Error(
-      `REFUSING: the cucumber ssh leg (KOLU_E2E_PADI_HOST=${remotePadiHost}) is DESTRUCTIVE — ` +
-        `it killAll's that host's padi (its live terminals) every server start. Set ` +
-        `KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 ONLY if '${remotePadiHost}' is a disposable test host.`,
-    );
-  }
+  // Belt-and-suspenders: the ack was already enforced before the spawn (assertRemoteDestructiveAck
+  // in startServerChild); re-assert here so this destructive killAll poll can't run without it
+  // even if a future caller reaches it another way.
+  assertRemoteDestructiveAck();
   const deadline = Date.now() + 120_000;
   let lastStatus = 0;
   while (Date.now() < deadline) {
