@@ -305,7 +305,7 @@ Binding pool in kolu-server; **per-connection binding declared in the wire scope
 
 **The correctness clause to make unrepresentable** (from the done-criterion): *no cross-binding call survives a switch* — a stale in-flight call carrying host A's terminal ids must be **rejected, not misrouted** to host B. Prefer structure over checks: binding-scoped clients whose ids cannot cross, not id-validation sprinkled at call sites.
 
-**Open decision at dispatch (srid rules):** the fate of `KOLU_PADI_HOST` once the picker exists — dies entirely, or survives as the default-host seed.
+**Open decision at dispatch (srid rules), constrained by W3.4:** the fate of `KOLU_PADI_HOST` once the picker exists. "Dies entirely" is off the table — W3.4's remote CI lane boots kolu-server with the knob (a headless run can't click a picker), so it survives as the deterministic boot-time binding. What's actually open: its semantics under the picker — a default-host **seed** views may switch away from, or a **pinned** binding the picker can't override.
 
 - **Done:** an e2e switches local → remote → local with tiles live on both ends — no cross-binding call survives a switch (a stale in-flight id-keyed call is rejected, not misrouted); two browser views parked on different hosts stay independent; the switch never disturbs another device; **file preview serves real bytes on a remote binding (the 501 is gone, e2e-pinned) and the inventory lists the bound host's daemons** — the last two holes in the "full peer, nothing silently wrong-host" promise.
 
