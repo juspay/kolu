@@ -20,6 +20,15 @@
  * It is auto — on for multiline / stdin, off for a single-line argument — and
  * `--paste` / `--no-paste` force it; the `paste` field of the result makes it
  * visible, never silent.
+ *
+ * `--submit` is the ONE sanctioned exception to "no implicit Enter". It doesn't
+ * relax the rule that raced above — it SCHEDULES around it: write the text (paste
+ * rules unchanged), wait a fixed grace, THEN write the Enter, so the submit lands
+ * after the paste debounce instead of inside it. The grace is the whole trick — a
+ * blind delay, not a read of the screen — collapsing the two-command type-then-
+ * Enter ritual into one call. It carries the submit Enter itself, so it is
+ * mutually exclusive with `--key` (the caller enforces that); a plain `send`
+ * without it stays byte-for-byte the raw, no-Enter behavior above.
  */
 import {
   BRACKETED_PASTE_END,
@@ -28,6 +37,32 @@ import {
   metaByte,
   NAMED_KEY_BYTES,
 } from "@kolu/terminal-protocol";
+
+/** The Enter byte `--submit` writes after the grace delay — the SAME carriage
+ *  return `--key Enter` sends (`NAMED_KEY_BYTES.enter`), so the auto-submit and
+ *  the manual key channel agree on the byte; only the timing differs. */
+export const SUBMIT_ENTER = NAMED_KEY_BYTES.enter;
+
+/** Grace (ms) between the text write and the submit Enter for a bare `--submit`.
+ *  Long enough to clear Claude Code's bracketed-paste debounce so the Enter isn't
+ *  swallowed, short enough that `send --submit` still returns in well under a
+ *  second. Tune per-agent with `--submit=<ms>`. */
+export const DEFAULT_SUBMIT_GRACE_MS = 250;
+
+/** Turn the value `--submit` carries into a grace delay in ms. type-flag hands a
+ *  bare `--submit` as "" (→ the default) and `--submit=<ms>` as the digits.
+ *  Integer milliseconds only: a non-integer or negative value fails LOUD rather
+ *  than NaN-degrading silently back to the default (no fallback). The caller runs
+ *  this inside the command's try, so the throw surfaces as `kaval-tui: <msg>`. */
+export function parseSubmitGrace(raw: string): number {
+  if (raw === "") return DEFAULT_SUBMIT_GRACE_MS;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(
+      `--submit expects a non-negative integer of milliseconds — pass it bare (--submit) for the ${DEFAULT_SUBMIT_GRACE_MS}ms default, or --submit=<ms>; got ${JSON.stringify(raw)}`,
+    );
+  }
+  return Number(raw);
+}
 
 /** The named keys `send` accepts, as one human string for the command help, the
  *  `--key` flag help, and the unknown-key error — so the vocabulary is written
@@ -61,11 +96,19 @@ export function encodeKey(name: string): string | undefined {
  *  human/JSON line). `paste` is the EFFECTIVE value — text-gated and
  *  paste-auto-resolved — not the raw flag. */
 export interface SendPlan {
-  /** Each element is one `terminal.write` payload, issued in order. */
+  /** Each element is one `terminal.write` payload, issued back-to-back in order
+   *  (the text, then any `--key`s). */
   writes: string[];
-  /** Total UTF-8 bytes across every write (paste markers + keys included). */
+  /** Total UTF-8 bytes across every byte this send writes — the `writes` above
+   *  PLUS the deferred submit Enter when `submit` is set (paste markers included). */
   bytes: number;
   paste: boolean;
+  /** `--submit`: after the `writes` land, wait `graceMs` then write
+   *  {@link SUBMIT_ENTER} — the scheduled Enter that clears the paste debounce.
+   *  `null` for a plain send (today's raw behavior — no implicit Enter). When
+   *  set, `writes` carries no `--key` bytes: `--submit` owns the Enter and the
+   *  caller rejects `--submit` + `--key`. */
+  submit: { graceMs: number } | null;
 }
 
 /** Plan the writes for a send. Pure: the text, the paste flag, whether the text
@@ -78,6 +121,9 @@ export function planSend(opts: {
   paste: boolean | undefined;
   fromStdin: boolean;
   keyData: string;
+  /** `--submit`'s grace in ms, or `undefined` for a plain send. When set, the
+   *  caller has already rejected `--submit` + `--key`, so `keyData` is empty. */
+  submitGraceMs: number | undefined;
 }): SendPlan {
   const hasText = opts.text.length > 0;
   // Auto-paste: a single-line argument types literally, but multiline OR piped
@@ -97,6 +143,13 @@ export function planSend(opts: {
   // after the (possibly pasted) text rather than riding inside its write.
   if (opts.keyData.length > 0) writes.push(opts.keyData);
 
-  const bytes = writes.reduce((n, s) => n + Buffer.byteLength(s, "utf8"), 0);
-  return { writes, bytes, paste };
+  const submit =
+    opts.submitGraceMs === undefined ? null : { graceMs: opts.submitGraceMs };
+
+  // `bytes` counts every byte the send emits — the immediate `writes` plus the
+  // deferred submit Enter, so `--json`'s byte total stays honest about the CR.
+  const bytes =
+    writes.reduce((n, s) => n + Buffer.byteLength(s, "utf8"), 0) +
+    (submit ? Buffer.byteLength(SUBMIT_ENTER, "utf8") : 0);
+  return { writes, bytes, paste, submit };
 }

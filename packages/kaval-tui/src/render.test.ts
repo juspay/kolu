@@ -159,6 +159,19 @@ describe("formatSend — the human trailer", () => {
       }),
     ).toBe("sent 1 byte to a1b2c3d4");
   });
+
+  it("shows the submit grace under --submit (and no keys, since they can't co-occur)", () => {
+    expect(
+      formatSend({
+        id: "a1b2c3d4-1111-2222-3333-444455556666",
+        bytes: 15,
+        paste: true,
+        keys: [],
+        submitted: true,
+        graceMs: 250,
+      }),
+    ).toBe("sent 15 bytes to a1b2c3d4 · pasted · submitted (grace 250ms)");
+  });
 });
 
 describe("shortId", () => {

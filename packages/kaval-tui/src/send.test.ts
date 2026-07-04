@@ -1,6 +1,13 @@
 import { NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { describe, expect, it } from "vitest";
-import { ACCEPTED_KEY_NAMES, encodeKey, planSend } from "./send.ts";
+import {
+  ACCEPTED_KEY_NAMES,
+  DEFAULT_SUBMIT_GRACE_MS,
+  encodeKey,
+  parseSubmitGrace,
+  planSend,
+  SUBMIT_ENTER,
+} from "./send.ts";
 
 const START = "\x1b[200~";
 const END = "\x1b[201~";
@@ -82,9 +89,11 @@ describe("planSend — building the ordered writes", () => {
       paste: undefined,
       fromStdin: false,
       keyData: "",
+      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual(["fix the parser"]);
     expect(plan.paste).toBe(false);
+    expect(plan.submit).toBeNull();
     expect(plan.bytes).toBe(Buffer.byteLength("fix the parser"));
   });
 
@@ -95,9 +104,11 @@ describe("planSend — building the ordered writes", () => {
       paste: undefined,
       fromStdin: false,
       keyData: "",
+      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual([`${START}${text}${END}`]);
     expect(plan.paste).toBe(true);
+    expect(plan.submit).toBeNull();
   });
 
   it("piped stdin auto-pastes even when single-line", () => {
@@ -106,6 +117,7 @@ describe("planSend — building the ordered writes", () => {
       paste: undefined,
       fromStdin: true,
       keyData: "",
+      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual([`${START}do the thing${END}`]);
     expect(plan.paste).toBe(true);
@@ -118,6 +130,7 @@ describe("planSend — building the ordered writes", () => {
       paste: false,
       fromStdin: false,
       keyData: "",
+      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual([text]);
     expect(plan.paste).toBe(false);
@@ -129,6 +142,7 @@ describe("planSend — building the ordered writes", () => {
       paste: true,
       fromStdin: false,
       keyData: "",
+      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual([`${START}hi${END}`]);
     expect(plan.paste).toBe(true);
@@ -140,6 +154,7 @@ describe("planSend — building the ordered writes", () => {
       paste: undefined,
       fromStdin: false,
       keyData: "\r", // `--key Enter`
+      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual(["yes", "\r"]);
   });
@@ -150,6 +165,7 @@ describe("planSend — building the ordered writes", () => {
       paste: undefined,
       fromStdin: false,
       keyData: "\x03",
+      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual(["\x03"]);
     expect(plan.paste).toBe(false);
@@ -163,9 +179,103 @@ describe("planSend — building the ordered writes", () => {
       paste: undefined,
       fromStdin: false,
       keyData: "\r",
+      submitGraceMs: undefined,
     });
     const expected =
       Buffer.byteLength(`${START}${text}${END}`) + Buffer.byteLength("\r");
     expect(plan.bytes).toBe(expected);
+  });
+});
+
+describe("planSend — --submit schedules a deferred Enter", () => {
+  it("text is the immediate write; the Enter is deferred, not appended", () => {
+    const plan = planSend({
+      text: "fix the parser",
+      paste: undefined,
+      fromStdin: false,
+      keyData: "",
+      submitGraceMs: 250,
+    });
+    // The Enter is NOT in `writes` — it rides the scheduled `submit`, written
+    // only after the grace, so it clears the paste debounce.
+    expect(plan.writes).toEqual(["fix the parser"]);
+    expect(plan.submit).toEqual({ graceMs: 250 });
+  });
+
+  it("counts the deferred submit Enter in the byte total", () => {
+    const plan = planSend({
+      text: "hi",
+      paste: undefined,
+      fromStdin: false,
+      keyData: "",
+      submitGraceMs: 100,
+    });
+    expect(plan.bytes).toBe(
+      Buffer.byteLength("hi") + Buffer.byteLength(SUBMIT_ENTER),
+    );
+  });
+
+  it("composes with a bracketed multi-line paste — paste wrap AND submit", () => {
+    const text = "line one\nline two";
+    const plan = planSend({
+      text,
+      paste: undefined,
+      fromStdin: false,
+      keyData: "",
+      submitGraceMs: 250,
+    });
+    expect(plan.writes).toEqual([`${START}${text}${END}`]);
+    expect(plan.paste).toBe(true);
+    expect(plan.submit).toEqual({ graceMs: 250 });
+  });
+
+  it("a grace of 0 is a real (falsy) request, not 'no submit'", () => {
+    const plan = planSend({
+      text: "go",
+      paste: undefined,
+      fromStdin: false,
+      keyData: "",
+      submitGraceMs: 0,
+    });
+    expect(plan.submit).toEqual({ graceMs: 0 });
+  });
+
+  it("--submit with no text submits an Enter after the grace", () => {
+    const plan = planSend({
+      text: "",
+      paste: undefined,
+      fromStdin: false,
+      keyData: "",
+      submitGraceMs: 250,
+    });
+    expect(plan.writes).toEqual([]);
+    expect(plan.submit).toEqual({ graceMs: 250 });
+    expect(plan.bytes).toBe(Buffer.byteLength(SUBMIT_ENTER));
+  });
+});
+
+describe("SUBMIT_ENTER — the submit byte is the shared Enter", () => {
+  it("is the same carriage return `--key Enter` sends", () => {
+    expect(SUBMIT_ENTER).toBe(NAMED_KEY_BYTES.enter);
+    expect(SUBMIT_ENTER).toBe(encodeKey("Enter"));
+  });
+});
+
+describe("parseSubmitGrace — bare vs =<ms>", () => {
+  it("a bare --submit ('') is the default grace", () => {
+    expect(parseSubmitGrace("")).toBe(DEFAULT_SUBMIT_GRACE_MS);
+  });
+
+  it("--submit=<ms> parses the digits, including 0", () => {
+    expect(parseSubmitGrace("250")).toBe(250);
+    expect(parseSubmitGrace("0")).toBe(0);
+    expect(parseSubmitGrace("1000")).toBe(1000);
+  });
+
+  it("fails loud on junk rather than NaN-degrading to the default", () => {
+    expect(() => parseSubmitGrace("abc")).toThrow(/non-negative integer/);
+    expect(() => parseSubmitGrace("-5")).toThrow(/non-negative integer/);
+    expect(() => parseSubmitGrace("12.5")).toThrow(/non-negative integer/);
+    expect(() => parseSubmitGrace("250ms")).toThrow(/non-negative integer/);
   });
 });
