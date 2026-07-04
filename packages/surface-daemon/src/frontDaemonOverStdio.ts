@@ -129,7 +129,10 @@ export function reExecAsDetachedDaemon(
   // logs to stderr.
   let stderr: "ignore" | number = "ignore";
   if (opts.stderrLog) {
-    mkdirSync(dirname(opts.stderrLog), { recursive: true });
+    // `mode: 0o700` is LOAD-BEARING: the crash-catcher dir can be the daemon's OWN runtime home
+    // (kaval's `kaval-<digest>/`), and kaval REFUSES a non-private dir (#1313 owner-only). A
+    // bare `mkdir` under umask 022 makes it 0755 → kaval refuses → the daemon never comes up.
+    mkdirSync(dirname(opts.stderrLog), { recursive: true, mode: 0o700 });
     // Truncate-on-boot bound: keep ONE prior generation as `.old`, start this boot fresh, so
     // the crash-catcher never grows unbounded (no size rotation to hand-roll).
     if (existsSync(opts.stderrLog))

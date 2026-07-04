@@ -7,7 +7,13 @@
  * lifecycle. A separate block pins `reExecAsDetachedDaemon`'s spawn shape with an
  * injected `spawn` — the load-bearing single-process re-exec invariant.
  */
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -272,5 +278,30 @@ describe("reExecAsDetachedDaemon", () => {
     expect(existsSync(`${logFile}.old`)).toBe(true);
     expect(readFileSync(`${logFile}.old`, "utf8")).toBe("prior boot\n");
     expect(existsSync(logFile)).toBe(true);
+  });
+
+  it("with stderrLog: creates the crash-catcher dir OWNER-ONLY (0700) — a detached daemon's runtime home must stay private (P0 regression)", () => {
+    const parent = mkdtempSync(join(tmpdir(), "reexec-perm-"));
+    // A fresh subdir the spine must create (kaval's `kaval-<digest>/` home is such a dir, and
+    // kaval REFUSES a non-private one; a bare mkdir under umask 022 → 0755 → the daemon never
+    // comes up).
+    const logFile = join(parent, "kaval-digest", "daemon.stderr.log");
+    // biome-ignore lint/suspicious/noExplicitAny: minimal ChildProcess stub.
+    const fakeSpawn = ((_c: string, _a: readonly string[], _o: any) => ({
+      unref: () => {},
+      // biome-ignore lint/suspicious/noExplicitAny: matching spawn's type.
+    })) as any;
+    const savedArgv = process.argv;
+    process.argv = [process.execPath, "/path/bin.ts", "--stdio"];
+    try {
+      reExecAsDetachedDaemon({
+        stripArgs: ["--stdio"],
+        spawn: fakeSpawn,
+        stderrLog: logFile,
+      });
+    } finally {
+      process.argv = savedArgv;
+    }
+    expect(statSync(join(parent, "kaval-digest")).mode & 0o777).toBe(0o700);
   });
 });

@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -126,6 +132,23 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     expect(typeof stdio[2]).toBe("number");
     expect(existsSync(`${logFile}.old`)).toBe(true);
     expect(readFileSync(`${logFile}.old`, "utf8")).toBe("prior\n");
+  });
+
+  it("with stderrLog off systemd: creates the crash-catcher dir OWNER-ONLY (0700) — kaval's private-dir guard refuses 0755 (P0 regression)", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "drv-perm-"));
+    // The crash-catcher dir can be the daemon's OWN runtime home (kaval-<digest>/), which
+    // kaval refuses unless owner-only. A bare `mkdir` under umask 022 → 0755 → kaval refuses →
+    // padi never boots. The dir must not exist yet, so the spine creates it.
+    const crashDir = join(parent, "kaval-digest");
+    const logFile = join(crashDir, "kaval.log");
+    const { spawnProcess } = capture();
+    const driver = survivableSpawnDriver(
+      { ...cfg, stderrLog: logFile },
+      { env: { PATH: "/usr/bin" }, spawnProcess },
+    );
+    await driver.spawn();
+    // umask never masks owner bits, so 0700 stays 0700; a bare mkdir's 0755 would FAIL this.
+    expect(statSync(crashDir).mode & 0o777).toBe(0o700);
   });
 
   it("off systemd, spawns the bin directly, detached+unref, with the forwarded env layered on", async () => {

@@ -48,7 +48,9 @@ function buildDaemonLogger(): Logger {
   const file = padiLogPath();
   // Fail-fast writability probe (synchronous, so an unwritable state root crashes the boot
   // loudly rather than the pino-roll worker failing async and the daemon logging nowhere).
-  mkdirSync(dirname(file), { recursive: true });
+  // `mode: 0o700` keeps a freshly-created state root owner-only (consistent with the daemon's
+  // other private dirs; a bare mkdir under umask 022 would be 0755).
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   closeSync(openSync(file, "a"));
   const roll = {
     target: "pino-roll",

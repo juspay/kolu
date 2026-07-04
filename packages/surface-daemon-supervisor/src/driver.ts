@@ -208,7 +208,11 @@ export function survivableSpawnDriver(
       // (keep ONE `.old` generation) so it stays bounded. The forwarded env is layered on ours.
       let stderrFd: "ignore" | number = "ignore";
       if (cfg.stderrLog) {
-        mkdirSync(dirname(cfg.stderrLog), { recursive: true });
+        // `mode: 0o700` is LOAD-BEARING: the crash-catcher dir can be the daemon's OWN runtime
+        // home (kaval's `kaval-<digest>/`), and kaval REFUSES to serve on a non-private dir
+        // (#1313 owner-only). Creating it 0755 (the umask-022 default of a bare `mkdir`) makes
+        // kaval refuse → padi's ensureLocalEndpoint times out → the whole remote bind flaps.
+        mkdirSync(dirname(cfg.stderrLog), { recursive: true, mode: 0o700 });
         if (existsSync(cfg.stderrLog))
           renameSync(cfg.stderrLog, `${cfg.stderrLog}.old`);
         stderrFd = openSync(cfg.stderrLog, "a");
