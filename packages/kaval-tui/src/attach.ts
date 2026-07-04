@@ -17,6 +17,7 @@ import { SURFACE_STDIO_TRANSPORT_CLOSED } from "@kolu/surface/client";
 import { createTerminalResponseStripper } from "@kolu/terminal-protocol";
 import type { PtyTuiClient } from "./connect.ts";
 import { createEscapeScanner } from "./escape.ts";
+import { delay } from "./wait.ts";
 
 /** The local terminal, abstracted: `main.ts` binds the real process streams;
  *  tests bind PassThroughs and a fixed size. */
@@ -84,9 +85,6 @@ async function readExitCode(client: PtyTuiClient, id: string): Promise<number> {
   }
   return 0;
 }
-
-const delay = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface AttachOptions {
   escape?: string;
