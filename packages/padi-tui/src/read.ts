@@ -1,8 +1,8 @@
 /**
  * The data side of the CLI — reading padi's `terminals` collection from a
  * connected client, factored out of `main.ts` so it is testable against a real
- * padi over a real socket with no tty. Two reads: a one-shot `snapshotTerminals`
- * (prefix resolution) / `settledSnapshot` (`status`), and a live `watchTerminals`
+ * padi over a real socket with no tty. Two reads: a one-shot key set
+ * (`readTerminalKeys`, prefix resolution) / `settledSnapshot` (`status`), and a live `watchTerminals`
  * for `watch`/`wait` — the composed `terminals` collection joined with the
  * `activity` live-byte stream, driven by `mirrorRemoteSurface`.
  *
@@ -11,15 +11,11 @@
  */
 
 import { padiSurface, type PadiTerminal } from "@kolu/padi/surface";
-import {
-  firstFrameOrThrow,
-  firstFrameOrUndefined,
-} from "@kolu/surface/first-frame";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
-import { agentBucket } from "@kolu/terminal-workspace/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-workspace/schema";
 import type { PadiTuiClient } from "./connect.ts";
-import { activeAgent } from "./render.ts";
+import { activeAgent, agentMatchesUntil } from "./render.ts";
 
 /** The current terminal key set — the FIRST frame of the `keys` snapshot-then-delta
  *  stream. The `keys` collection ALWAYS opens with a snapshot frame (zero terminals
@@ -28,37 +24,16 @@ import { activeAgent } from "./render.ts";
  *  terminals" (which `resolveOne` would then misreport as `no terminal matching
  *  <id>`, and `status` would render as a blank table —
  *  caught-error-must-not-collapse-to-empty). The ONE home for the snapshot-frame
- *  contract and its failure string, shared by {@link snapshotTerminals} and
- *  {@link settledSnapshot}. */
-async function readTerminalKeys(client: PadiTuiClient): Promise<TerminalId[]> {
+ *  contract and its failure string, shared by {@link settledSnapshot} and the
+ *  CLI's id-prefix resolution (`wait` / `create --parent`, which need only the ids,
+ *  never each terminal's value — so they read the key set, not the whole snapshot). */
+export async function readTerminalKeys(
+  client: PadiTuiClient,
+): Promise<TerminalId[]> {
   return firstFrameOrThrow(
     await client.surface.terminals.keys({}),
     "padi terminals keys yielded no snapshot frame — link or protocol failure.",
   );
-}
-
-/** A one-shot snapshot of the whole `terminals` collection: the current key set
- *  (the first frame of the `keys` snapshot-then-delta stream), then each key's
- *  current value. Per-key reads run concurrently; their streams are aborted once
- *  read. Used for id-prefix resolution (`wait`/`create --parent`). */
-export async function snapshotTerminals(
-  client: PadiTuiClient,
-): Promise<Array<[TerminalId, PadiTerminal]>> {
-  const abort = new AbortController();
-  try {
-    const keys = await readTerminalKeys(client);
-    const pairs = await Promise.all(
-      keys.map(async (key): Promise<[TerminalId, PadiTerminal] | null> => {
-        const value = await firstFrameOrUndefined(
-          await client.surface.terminals.get({ key }, { signal: abort.signal }),
-        );
-        return value === undefined ? null : [key, value];
-      }),
-    );
-    return pairs.filter((p): p is [TerminalId, PadiTerminal] => p !== null);
-  } finally {
-    abort.abort();
-  }
 }
 
 /** A composed record is "resolved enough to show" once its live sensors have
@@ -232,21 +207,14 @@ export async function watchTerminals(
   initialKeys?: () => Iterable<TerminalId>,
 ): Promise<void> {
   // The `activity` stream's current membership — the set of terminals moving bytes
-  // right now. Seed it from the stream's CURRENT snapshot before the mirror opens,
-  // so the initial rows already know which terminals are live (the mirror starts
-  // the collection and the stream concurrently with no ordering guarantee, so a
-  // keys-snapshot upsert can otherwise race ahead of the first activity frame and
-  // paint an already-active terminal as idle until some later change re-emits it).
+  // right now — built up from the mirror's own `activity` frames below. It starts
+  // EMPTY and stays that way until the first frame: padi builds a FRESH
+  // per-subscription activity tracker whose first frame is always the empty set (a
+  // new subscriber can't learn which terminals were ALREADY busy — bytes are only
+  // counted from the deltas that arrive AFTER it subscribes), so there is nothing a
+  // pre-seed subscription could recover. An already-busy terminal simply lights on
+  // its next output chunk.
   const live = new Set<TerminalId>();
-  const seedAbort = new AbortController();
-  try {
-    const seed = await firstFrameOrUndefined(
-      await client.surface.activity.get({}, { signal: seedAbort.signal }),
-    );
-    for (const id of seed ?? []) live.add(id);
-  } finally {
-    seedAbort.abort();
-  }
   await mirrorRemoteSurface(
     padiSurface,
     client,
@@ -286,9 +254,8 @@ export async function watchTerminals(
             const next = new Set(ids);
             // Emit a transition for each terminal that STARTED or STOPPED moving
             // bytes since the last frame, so byte-activity shows on its own line.
-            // (The startup seed pre-fills `live`, so already-busy terminals don't
-            // spuriously fire a `true` at connect.) Guard the callback so a
-            // throwing consumer can't wedge the mirror loop.
+            // `live` starts empty and fills from these frames. Guard the callback so
+            // a throwing consumer can't wedge the mirror loop.
             const fire = (id: TerminalId, isLive: boolean): void => {
               try {
                 handlers.onActivity?.(id, isLive);
@@ -372,9 +339,10 @@ export async function awaitAgentState(
       client,
       {
         onUpsert: (id, value) => {
-          if (id !== opts.id) return;
+          if (id !== opts.id || !agentMatchesUntil(value, opts.targets)) return;
+          // The match guarantees a live agent; re-read it for the `met` outcome.
           const agent = activeAgent(value);
-          if (agent !== null && opts.targets.has(agentBucket(agent.state))) {
+          if (agent !== null) {
             outcome ??= { kind: "met", agent };
             abort.abort();
           }

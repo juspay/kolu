@@ -216,11 +216,7 @@ export function discoverPadiDaemons(): PadiDaemon[] {
  *  arm carries the socket to dial; `many` carries the labeled candidates instead
  *  so the CLI prints a pick-one list. Mirrors kaval's `KavalSocketResolution`. */
 export type PadiSocketResolution =
-  | { kind: "explicit"; socket: string }
-  | { kind: "stateRoot"; socket: string }
-  | { kind: "env"; socket: string }
-  | { kind: "one"; socket: string; stateRoot: string | null }
-  | { kind: "none"; socket: string }
+  | { kind: "explicit" | "stateRoot" | "env" | "one" | "none"; socket: string }
   | { kind: "many"; candidates: PadiDaemon[] };
 
 /**
@@ -255,7 +251,7 @@ export function resolveRunningPadiSocket(opts?: {
   const found = discoverPadiDaemons();
   const [first, ...rest] = found;
   if (first !== undefined && rest.length === 0) {
-    return { kind: "one", socket: first.socket, stateRoot: first.stateRoot };
+    return { kind: "one", socket: first.socket };
   }
   if (rest.length > 0) return { kind: "many", candidates: found };
   return { kind: "none", socket: padiSocketPath(resolvePadiStateRoot()) };

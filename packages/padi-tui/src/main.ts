@@ -38,8 +38,8 @@ import { cli, command } from "cleye";
 import { runCreate } from "./create.ts";
 import {
   awaitAgentState,
+  readTerminalKeys,
   settledSnapshot,
-  snapshotTerminals,
   watchTerminals,
 } from "./read.ts";
 import {
@@ -248,11 +248,7 @@ async function resolveArg(
   client: PadiTuiClient,
   query: string,
 ): Promise<TerminalId> {
-  const entries = await snapshotTerminals(client);
-  return resolveOne(
-    query,
-    entries.map(([id]) => id),
-  );
+  return resolveOne(query, await readTerminalKeys(client));
 }
 
 /** An `AbortController` that fires on the process's stop signals — the shared
