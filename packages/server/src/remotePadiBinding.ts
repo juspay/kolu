@@ -50,6 +50,7 @@ import {
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import {
   type BuildDrainFence,
+  contractIsNewer,
   createBuildDrainFence,
   DaemonContractSkewError,
 } from "@kolu/surface-daemon-supervisor";
@@ -62,35 +63,6 @@ import {
 } from "@kolu/surface-nix-host";
 import type { BoundPadi } from "./padiBinding.ts";
 import { log } from "./log.ts";
-
-// The newest-wins version ordering for the CONTRACT axis. Inlined here (not shared)
-// on purpose: L3's daemon-convergence kit is deliberately MATCH-ONLY — it exports
-// `createBuildDrainFence` (the build-axis primitive, imported above) but NO version
-// ordering to spell. The remote arm keeps its own hand-mirrored newest-wins policy
-// (skew + binder-newer → drain; skew + binder-older → refuse), the exact twin of the
-// local arm's pre-kit `isBinderNewer`. Unifying the two arms onto one convergence
-// declaration is a future ledger item, not this PR's scope.
-function parseMajorMinor(v: string): [number, number] {
-  const m = /^(\d+)\.(\d+)(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?$/.exec(v);
-  if (!m) {
-    throw new Error(
-      `padi version is not a major.minor string: ${JSON.stringify(v)}`,
-    );
-  }
-  return [Number(m[1]), Number(m[2])];
-}
-
-/** True when the binder's padiSurface version is strictly newer than the running
- *  padi's (major, then minor). The asymmetry is load-bearing: only the strictly-
- *  newer binder ever drains, so two binders at different versions contending over
- *  one remote padi converge to the NEWEST and never oscillate (anti-livelock
- *  monotonicity — the older binder never drains the newer's padi back). */
-function isBinderNewer(binderVer: string, runningVer: string): boolean {
-  const [bMajor, bMinor] = parseMajorMinor(binderVer);
-  const [rMajor, rMinor] = parseMajorMinor(runningVer);
-  if (bMajor !== rMajor) return bMajor > rMajor;
-  return bMinor > rMinor;
-}
 
 /** How long the build/contract-mismatch drain waits for the ssh-bridged link to
  *  die (the daemon to exit) before treating the drain as not-taken — the
@@ -212,24 +184,6 @@ type BindState =
   | { kind: "bound"; identity: RemotePadiIdentity }
   | { kind: "skew"; error: string };
 
-/**
- * The ssh arm of {@link BoundPadi}: adapts a `@kolu/surface-nix-host` `HostSession`
- * (already a `RemoteMirrorSession`, so the transport/reconnect are its problem)
- * into the padi-shaped session `reServeSurface` + kolu-server consume. It does the
- * two padi-specific things the generic HostSession does not:
- *
- *   1. **control-core handshake + skew refusal** — on each fresh spawn it reads the
- *      combined client's `control.core.hello()` (identity + versions) and refuses a
- *      padi it cannot speak to (`isContractVersionCompatible`), exactly as
- *      `connectPadi` does over a local socket. A refusal REJECTS the mirrored client
- *      so the pump's cursor keeps waiting (`waitForNextClient` swallows it — no
- *      crash, no spin) and the connection cell reads a loud degraded/skew state,
- *      never a silent "connected but empty". This is the local arm's REFUSE, over
- *      ssh — never a kill (#1313).
- *   2. **scope + drain** — `reServeSurface` mirrors `.surface.padi.<member>`, so
- *      `pin`/`currentClient` yield `scopePadiSurface(combined)` (the padi sibling),
- *      while `drainBoundPadi` keeps the COMBINED client to reach `control.core.drain`.
- */
 /** The convergence deps — the binder's side of the two-axis drain decision, and the
  *  once-per-boot fence. All default to the production values; injected in tests to
  *  drive the drain path without two real builds. */
@@ -250,6 +204,24 @@ export interface RemotePadiSessionDeps {
   drainPollMs?: number;
 }
 
+/**
+ * The ssh arm of {@link BoundPadi}: adapts a `@kolu/surface-nix-host` `HostSession`
+ * (already a `RemoteMirrorSession`, so the transport/reconnect are its problem)
+ * into the padi-shaped session `reServeSurface` + kolu-server consume. It does the
+ * two padi-specific things the generic HostSession does not:
+ *
+ *   1. **control-core handshake + skew refusal** — on each fresh spawn it reads the
+ *      combined client's `control.core.hello()` (identity + versions) and refuses a
+ *      padi it cannot speak to (`isContractVersionCompatible`), exactly as
+ *      `connectPadi` does over a local socket. A refusal REJECTS the mirrored client
+ *      so the pump's cursor keeps waiting (`waitForNextClient` swallows it — no
+ *      crash, no spin) and the connection cell reads a loud degraded/skew state,
+ *      never a silent "connected but empty". This is the local arm's REFUSE, over
+ *      ssh — never a kill (#1313).
+ *   2. **scope + drain** — `reServeSurface` mirrors `.surface.padi.<member>`, so
+ *      `pin`/`currentClient` yield `scopePadiSurface(combined)` (the padi sibling),
+ *      while `drainBoundPadi` keeps the COMBINED client to reach `control.core.drain`.
+ */
 export class RemotePadiSession implements BoundPadi {
   private destroyed = false;
   /** The binder's contract version + expected build id + the once-per-boot fence —
@@ -388,9 +360,14 @@ export class RemotePadiSession implements BoundPadi {
       this.host.markConnected();
 
       // ── Axis 1 — the CONTRACT. On a skew the contract decides; the build id is
-      // irrelevant. Mirrors `drainSupersededSurvivor` Axis 1. ──
+      // irrelevant. Mirrors `drainSupersededSurvivor` Axis 1. The newest-wins
+      // comparator is the kit's exported `contractIsNewer` (contract versions are
+      // ORDERED — the kit's Pin 2; only build ids are match-only), the same leaf the
+      // local arm's `decide()` uses. Reusing the leaf, NOT the decision FLOW: the
+      // two-axis cascade below stays hand-mirrored (the future both-arms-unification
+      // ledger item). ──
       if (!isContractVersionCompatible(running, this.binderVersion)) {
-        if (!isBinderNewer(this.binderVersion, running)) {
+        if (!contractIsNewer(this.binderVersion, running)) {
           // Skew, binder OLDER/behind → REFUSE, never drain (#1313 + monotonicity).
           const msg = `padi contract skew: remote padi serves padiSurface ${running}, kolu-server needs ${this.binderVersion} — this binder is OLDER/behind, refusing`;
           log.warn(
