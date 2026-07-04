@@ -18,7 +18,11 @@ import type {
 } from "@kolu/surface-nix-host";
 import type { AnyContractRouter } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
-import { RemotePadiSession, remotePadiHost } from "./remotePadiBinding.ts";
+import {
+  composePadiExtraArgs,
+  RemotePadiSession,
+  remotePadiHost,
+} from "./remotePadiBinding.ts";
 
 // ── Fakes ────────────────────────────────────────────────────────────────────
 
@@ -676,6 +680,26 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(oldContract.drainCount()).toBe(1);
   });
 
+  it("P4: contract drain → respawn on a COMPATIBLE contract → ADOPTS (the newest-wins convergence completes)", async () => {
+    // off-nix binder (never drains on build) so this isolates the CONTRACT axis end-to-end.
+    const { host, rp } = make({ binderVersion: "5.0", binderBuildId: "" });
+    // An OLD-contract survivor → binder is newer → DRAIN (took) → throw to reconnect.
+    const old = makeDrainable(
+      helloOk({ surfaceVersion: "1.1", startedAt: 1000 }),
+    );
+    host.setClient(old.client);
+    await expect(rp.currentClient()).rejects.toThrow(/newer contract/i);
+    expect(old.drainCount()).toBe(1);
+    // The reconnect brings up this binder's OWN (compatible) contract → ADOPT, converged.
+    host.setClient(
+      makeCombined(helloOk({ surfaceVersion: "5.0", startedAt: 2000 })),
+    );
+    const client = await rp.currentClient(); // adopts the respawned compatible padi
+    expect(client).toBeTruthy();
+    expect(rp.padiSurfaceVersion()).toBe("5.0");
+    expect(rp.padiConvergence()).toBeNull(); // healthy — no degraded banner
+  });
+
   it("contract-skew TREADMILL: a DIFFERENT skewed instance after a drain → degrades LOUDLY (anti-livelock), never drains forever (M1)", async () => {
     // The remote host's OWN older kolu-server respawns its old-contract padi after each
     // of our drains — a two-supervisor treadmill. Before M1 the contract axis had no
@@ -734,6 +758,10 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
     // can't be ridden, unlike a build mismatch).
     expect(rp.padiConvergence()?.state).toBe("unconverged");
+    // P4: a STANDING unconverged yields a NULL client on subsequent live-client reads (like
+    // skew) — so `readPadiMemoryOnce` reports honest 'absent', not a rejected-through-live
+    // 'poll failed' every 5s.
+    expect(rp.currentClient()).toBeNull();
   });
 
   it("stays BOUNDED when the post-drain liveness probe HANGS (a wedged link never blocks past the ceiling)", async () => {
@@ -822,5 +850,19 @@ describe("remotePadiHost — the KOLU_PADI_HOST knob", () => {
     expect(remotePadiHost()).toBe("nix@prod");
     if (prior === undefined) delete process.env.KOLU_PADI_HOST;
     else process.env.KOLU_PADI_HOST = prior;
+  });
+});
+
+describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", () => {
+  it("passes --spawn-version through, and NEVER includes --stdio (host.ts already runs `padi --stdio`)", () => {
+    const args = composePadiExtraArgs("1.2.3");
+    expect(args).toEqual(["--spawn-version", "1.2.3"]);
+    // The F2 pin: a duplicate --stdio here wedges the re-exec front. host.ts owns the flag.
+    expect(args).not.toContain("--stdio");
+  });
+
+  it("is EMPTY when no spawn version is set — and still carries no --stdio", () => {
+    expect(composePadiExtraArgs(null)).toEqual([]);
+    expect(composePadiExtraArgs(undefined)).toEqual([]);
   });
 });

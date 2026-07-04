@@ -986,6 +986,20 @@ export interface EnsureRemotePadiBindingOptions {
 }
 
 /**
+ * The remote padi front's `extraArgs`, which `getHostSession`/`buildAgentCommand` appends
+ * AFTER the `--stdio` it already runs the binary with (host.ts). F2: this must NEVER re-add
+ * `--stdio` — a duplicate flag makes the `--stdio` front strip only one and re-exec the daemon
+ * STILL in front mode, wedging the boot. Only `--spawn-version` (the kolu app version, so a
+ * remote terminal's `TERM_PROGRAM_VERSION` is the app version, not the remote padi's commit)
+ * rides through to `runPadiDaemon`.
+ */
+export function composePadiExtraArgs(
+  spawnVersion: string | null | undefined,
+): string[] {
+  return spawnVersion != null ? ["--spawn-version", spawnVersion] : [];
+}
+
+/**
  * Bind a REMOTE padi over ssh and return the reconnect-mirror session `reServeSurface`
  * consumes — the twin of {@link ensurePadiBinding}, but one ssh hop away. Unlike the
  * local arm it does NOT await the first connection: provisioning a closure over ssh
@@ -1014,8 +1028,7 @@ export function ensureRemotePadiBinding(
   // through to `runPadiDaemon` — the remote twin of the local arm forwarding `serverVersion`
   // into padi's `--spawn-version`, so a remote terminal's `TERM_PROGRAM_VERSION` is the
   // kolu app version, not the remote padi's own commit.
-  const extraArgs =
-    opts.spawnVersion != null ? ["--spawn-version", opts.spawnVersion] : [];
+  const extraArgs = composePadiExtraArgs(opts.spawnVersion);
   const session = getHostSession<PadiDaemonContract>({
     host,
     // `${agentPath}/bin/padi`, run as `padi --stdio` — the durable-daemon front.
