@@ -24,7 +24,6 @@ export {
   contractIsNewer,
 } from "@kolu/surface-daemon";
 export {
-  type ConvergeLogger,
   type ConvergenceEndpoint,
   type ConvergenceOutcome,
   type ConvergenceProbe,

@@ -20,18 +20,10 @@
  *     build fence is spent even on drain failure (degraded-loudly, never a livelock).
  */
 
-import type { ConvergenceIdentity } from "@kolu/surface-daemon";
+import type { ConvergenceIdentity, Logger } from "@kolu/surface-daemon";
 import { decide } from "./decide.ts";
 import type { BuildDrainFence } from "./fence.ts";
 import type { ConvergencePolicy, DrainCapability } from "./policy.ts";
-
-/** The minimal structured logger the kit writes to — the `(obj, msg)` shape a pino
- *  logger already satisfies, and a silent stub can supply for tests. */
-export interface ConvergeLogger {
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-  error: (obj: Record<string, unknown>, msg: string) => void;
-}
 
 /** The endpoint boot methods `converge` enacts through — a `Pick` of the real `Endpoint`,
  *  so both the live endpoint and a test spy satisfy it. Both resolve to whether a survivor
@@ -105,7 +97,7 @@ export async function converge<Cap extends DrainCapability>(args: {
   probe: () => Promise<ConvergenceProbe<Cap> | null>;
   policy: ConvergencePolicy<Cap>;
   buildFence: BuildDrainFence;
-  log: ConvergeLogger;
+  log: Logger;
 }): Promise<ConvergenceOutcome> {
   const probe: AnyConvergenceProbe | null = await args.probe();
 
