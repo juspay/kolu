@@ -24,18 +24,32 @@ import { type Accessor, createEffect, on } from "solid-js";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 
 /** Pick the tile that inherits focus when the active tile is removed: the
- *  survivor now occupying the removed tile's slot (its old index, clamped to the
- *  new last), or `null` when none remain. `survivors` is the top-level list of
- *  TRUE survivors — every id departing this frame removed, not just the one being
- *  processed — and `removedIndex` is where the removed id sat before it went. The
- *  ONE home for "which sibling does focus fall to" — both callers of
- *  `evictTerminal` reach it through here, so they can never diverge. A
- *  `removedIndex` of `-1` (the removed id was never top-level) yields `null`. */
+ *  survivor now occupying the removed tile's slot (its old index in the FULL
+ *  pre-removal order, clamped to the new last), or `null` when none remain. Owns
+ *  the WHOLE focus-fallback policy from raw facts — `topLevelBefore` is the
+ *  pre-removal top-level order (still containing `removedId`), `departing` is
+ *  every id leaving this frame, and `removedId` is the tile being processed. It
+ *  derives the survivor set itself (`topLevelBefore` minus `removedId` and
+ *  everyone else departing), so no caller can drift the filter predicate or the
+ *  filtered-list/unfiltered-index cross-argument invariant that carried the #1667
+ *  bug. The removed tile is provably never its own successor regardless of what
+ *  `departing` contains; a `removedId` that was never top-level (`indexOf` of
+ *  `-1`) yields `null`. The ONE home for "which sibling does focus fall to" —
+ *  both callers of `evictTerminal` reach it through here, so they can never
+ *  diverge. */
 export function pickAutoSwitchTarget(
-  survivors: readonly TerminalId[],
-  removedIndex: number,
+  topLevelBefore: readonly TerminalId[],
+  departing: ReadonlySet<TerminalId>,
+  removedId: TerminalId,
 ): TerminalId | null {
-  return survivors[Math.min(removedIndex, survivors.length - 1)] ?? null;
+  const survivors = topLevelBefore.filter(
+    (x) => x !== removedId && !departing.has(x),
+  );
+  return (
+    survivors[
+      Math.min(topLevelBefore.indexOf(removedId), survivors.length - 1)
+    ] ?? null
+  );
 }
 
 /** The side-effecting seams `evictTerminal` drives — the store, the sub-panel,
@@ -115,12 +129,7 @@ export function evictTerminal(
   if (ports.activeId() === id) {
     // `activate` pans the canvas to the survivor — without it the viewport would
     // stay centered on the just-removed tile.
-    ports.activate(
-      pickAutoSwitchTarget(
-        topLevelBefore.filter((x) => !departing.has(x)),
-        topLevelBefore.indexOf(id),
-      ),
-    );
+    ports.activate(pickAutoSwitchTarget(topLevelBefore, departing, id));
   }
 }
 

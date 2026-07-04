@@ -17,12 +17,18 @@ const T = (s: string) => s as TerminalId;
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("pickAutoSwitchTarget", () => {
-  it("picks the survivor now in the removed tile's slot, clamped to the last", () => {
-    expect(pickAutoSwitchTarget([T("a"), T("c")], 1)).toBe(T("c")); // removed middle
-    expect(pickAutoSwitchTarget([T("b"), T("c")], 0)).toBe(T("b")); // removed first
-    expect(pickAutoSwitchTarget([T("a"), T("b")], 2)).toBe(T("b")); // removed last → clamp
-    expect(pickAutoSwitchTarget([], 0)).toBeNull(); // nothing left
-    expect(pickAutoSwitchTarget([T("a")], -1)).toBeNull(); // never top-level → null
+  it("picks the survivor in the removed tile's slot from raw facts, clamped to the last", () => {
+    const [a, b, c, d] = [T("a"), T("b"), T("c"), T("d")];
+    // Single departure — removedId is the only leaving id:
+    expect(pickAutoSwitchTarget([a, b, c], new Set([b]), b)).toBe(c); // removed middle
+    expect(pickAutoSwitchTarget([a, b, c], new Set([a]), a)).toBe(b); // removed first
+    expect(pickAutoSwitchTarget([a, b], new Set([b]), b)).toBe(a); // removed last → clamp
+    // Batch departure — survivors are the FULL order minus the WHOLE departing
+    // set, so focus never lands on a still-departing sibling (the #1667 bug):
+    expect(pickAutoSwitchTarget([a, b, c, d], new Set([a, b]), a)).toBe(c); // a,b leave → slot 0 is c
+    expect(pickAutoSwitchTarget([a, b, c], new Set([a, b, c]), a)).toBeNull(); // all leave → null
+    // A removedId that was never top-level (indexOf -1) → null:
+    expect(pickAutoSwitchTarget([a, b], new Set([c]), c)).toBeNull();
   });
 });
 
