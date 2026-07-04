@@ -157,9 +157,14 @@ export function createEvictionDedup(
       willDrop: boolean,
     ) {
       if (willDrop) claimed.add(id);
-      // The imperative close path departs exactly this one id, so it is the whole
-      // departing set — the batch case only ever arrives via `evictDeparted`.
-      runEvict(id, parentId, topLevelBefore, new Set([id]));
+      // The departing set is this id PLUS every id already claimed but not yet
+      // dropped. The imperative caller reads the LIVE top-level order, which only
+      // shrinks when the server's list-drop lands — so a rapid second close still
+      // sees the first (already-killed) tile in `topLevelBefore`; without excluding
+      // it too, the auto-switch could re-focus that dead sibling (#1667 via the
+      // imperative path), and the later list-drops can't self-heal (they
+      // short-circuit on `claimed`). `claimed` is exactly that in-flight set.
+      runEvict(id, parentId, topLevelBefore, new Set([id, ...claimed]));
     },
     evictDeparted(
       id: TerminalId,

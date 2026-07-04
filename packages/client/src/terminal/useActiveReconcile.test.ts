@@ -410,6 +410,33 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.dispose();
   });
 
+  it("(h) two rapid imperative closes don't re-focus the first (still-claimed) tile", async () => {
+    // The imperative close path reads the LIVE top-level list, which only shrinks
+    // when the server's list-drop lands — NOT synchronously on kill. So closing A
+    // then B before A's drop arrives feeds B's eviction a `topLevelBefore` that
+    // STILL contains the already-killed A. Focus must clamp past every id closed
+    // this frame (both A and B are in the dedup's `claimed` set), never back onto
+    // the dead A — otherwise it's #1667 via the imperative path, with no self-heal
+    // (the later list-drops short-circuit on `claimed`).
+    const h = setupReconcile({
+      rawIds: [T("A"), T("B")],
+      parents: { A: null, B: null },
+      activeId: T("A"),
+    });
+    await tick();
+
+    // Close A imperatively (claims A) → focus falls to the live survivor B.
+    h.evictImperatively(T("A"), null, [T("A"), T("B")], true);
+    expect(h.calls.activate).toHaveBeenLastCalledWith(T("B"));
+
+    // Close B before A's list-drop lands — the live list still holds A, but A is
+    // claimed, so focus clamps to null, not back onto the dead A.
+    h.evictImperatively(T("B"), null, [T("A"), T("B")], true);
+    expect(h.calls.activate).toHaveBeenLastCalledWith(null);
+    expect(h.calls.activate).not.toHaveBeenCalledWith(T("A"));
+    h.dispose();
+  });
+
   it("does nothing when a terminal is ADDED (create) or on mount", async () => {
     const h = setupReconcile({
       rawIds: [T("P")],
