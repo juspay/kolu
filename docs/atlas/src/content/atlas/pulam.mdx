@@ -13,6 +13,10 @@ import PrLink from "../../components/PrLink.astro";
 import Terminal from "../../components/Terminal.astro";
 import Pill from "../../components/Pill.astro";
 
+<Callout kind="warn" title="Retired at padi W2.3 — the done-signal re-homed to padi-tui">
+The standalone `pulam` daemon and its `pulam-tui` viewer are **buried**: the terminal-workspace surface is now the per-host `padi` daemon's `padiSurface`, and the agent-state done-signal is `padi-tui wait`. This note stays as historical record.
+</Callout>
+
 **kaval decoupled the PTY out of kolu into a standalone, minimal, durable daemon.** This note makes the *same move one level up* for the part kolu kept tangling: **terminal awareness** (git branch/dirty, PR status, agent detection, foreground). A new daemon — **`pulam`** (Tamil *புலம்*, "field · domain" — and from the same root *pulan* = a sense; sibling to `kaval` = *guard* and `odu` = *run*) — sits *on top of* kaval, runs the sensors, and exposes the result as one typed `@kolu/surface` collection. **One sensor library, two homes:** locally kolu runs the sensors in-process; remotely the `pulam` daemon serves the same awareness over ssh. Either way the result is one typed **observation surface** that kolu **reads** — it never folds a copy into its own record. (That convergence is [remote-terminals](remote-terminals.html) **R8**; until it lands, kolu's local path still routes awareness into `terminalMetadata`.)
 
 <Callout kind="warn" title="Refined by the awareness-derive-store cutover — the producer is memoryless, both homes fold">

@@ -6,8 +6,8 @@ description: >-
   reply, read it, and prompt again — a create→send→snapshot loop run with the
   `kaval-tui` CLI directly (no MCP). `kaval-tui` writes input, reads scrollback,
   and provides a hook-free done-signal (`wait --until idle:<ms>` on raw PTY
-  output); `pulam-tui` adds a precise agent-state done-signal when you drive
-  hooked terminals. Triggers on "drive another agent", "send a prompt to a
+  output); `padi-tui` adds a precise agent-state done-signal when you drive
+  terminals a kolu owns. Triggers on "drive another agent", "send a prompt to a
   terminal agent", "have one agent prompt another", "agent drives agent",
   "orchestrate agents in terminals", "make Claude drive Codex", "prompt the
   agent running in that terminal", or wiring a loop where one coding agent
@@ -24,9 +24,9 @@ directly; there's no server to stand up and no MCP layer.
 
 For a raw `kaval-tui`-spawned terminal, the done-signal is **`kaval-tui wait
 --until idle:<ms>`** — it blocks in the daemon on the raw PTY output and returns
-the moment the agent stops streaming, with no shell hooks (below). `pulam-tui`
-adds a *precise agent-state* done-signal (`wait --until <state>`), but only for
-**hooked** terminals (the last section); for raw terminals, reach for
+the moment the agent stops streaming, with no shell hooks (below). `padi-tui`
+adds a *precise agent-state* done-signal (`wait --until <buckets>`), but only for
+terminals a **kolu owns** (the last section); for raw terminals, reach for
 `kaval-tui wait`.
 
 ## The loop
@@ -146,7 +146,7 @@ returns, **`snapshot --viewport` and read** what's on screen before responding.
 > }
 > ```
 
-## `pulam-tui wait` vs `kaval-tui wait` — two done-signals
+## `padi-tui wait` vs `kaval-tui wait` — two done-signals
 
 They are not rivals; they read different things:
 
@@ -154,14 +154,14 @@ They are not rivals; they read different things:
   terminal, **no hooks**. This is the one to reach for when driving a raw
   `kaval-tui create` agent (above). It can't tell "finished" from "blocked asking
   you" — both are quiescence — so read the snapshot after.
-- **`pulam-tui wait`** keys on **agent-state buckets** (working/awaiting/waiting)
-  — more precise (it *distinguishes* awaiting-you from finished), but only on
-  **hooked** terminals. Use it when you're driving terminals a kolu-server
-  spawned (below).
+- **`padi-tui wait`** keys on **agent-state buckets** (working/awaiting/waiting)
+  — more precise (it *distinguishes* awaiting-you from finished), but only for
+  terminals a **kolu owns** (padi runs the agent sensors over them). Use it when
+  you're driving terminals a kolu-server spawned (below).
 
-### `pulam-tui wait` — the precise done-signal (hooked terminals only)
+### `padi-tui wait` — the precise done-signal (kolu-owned terminals only)
 
-When you *do* have agent-state detection, `pulam-tui wait <id> --until <buckets>`
+When you *do* have agent-state detection, `padi-tui wait <id> --until <buckets>`
 is the exact done-signal — it blocks until the agent reaches a coarse state, then
 exits 0:
 
@@ -185,18 +185,25 @@ fails loud too (exit 3 — the agent you were driving died); `--json` →
 >
 > ```sh
 > kaval-tui send "$id" "fix the parser"; kaval-tui send "$id" --key Enter
-> pulam-tui wait "$id" --until working           # 1. it picked up the prompt
-> pulam-tui wait "$id" --until awaiting,waiting   # 2. its turn ended
+> padi-tui wait "$id" --until working           # 1. it picked up the prompt
+> padi-tui wait "$id" --until awaiting,waiting   # 2. its turn ended
 > ```
 
-> **Caveat — agent state needs HOOKED terminals.** Detection keys on kolu's shell
-> rc-hooks (the OSC marks a terminal emits as commands run). `kaval-tui create`
-> is the **raw** multiplexer — a plain `$SHELL`, no hooks by design — so an agent
-> you spawn that way often isn't detected, and `wait` will just time out. `wait`
-> is reliable when you drive **already-hooked** terminals: the ones a running
-> **kolu-server** spawned (find them with `kaval-tui list` autodiscovery — see
-> *Reach* below), or a future `kolu-tui`. For a raw `kaval-tui create` loop, use
-> **`kaval-tui wait --until idle:<ms>`** above — it needs no hooks.
+> **Reach — `padi-tui` dials padi, not kaval.** `padi-tui` reads a running
+> **padi** (the per-host workspace daemon a kolu-server owns), so **inside a kolu
+> terminal `$PADI_SOCKET` makes it flag-less** (`padi-tui wait "$id" --until …`
+> just works — the padi-side twin of `$KAVAL_SOCKET` below). Outside a kolu
+> terminal it autodiscovers the running padi; `--socket <path>` / `--state-root
+> <dir>` point it elsewhere. Flags go **after** the subcommand.
+>
+> **Caveat — agent state needs a terminal padi TRACKS.** padi derives agent state
+> from the sensors it runs over the terminals it owns. `kaval-tui create` is the
+> **raw** multiplexer — a plain `$SHELL` padi never sees — so an agent you spawn
+> that way isn't in padi's registry, and `padi-tui wait` will just time out.
+> `padi-tui wait` is reliable when you drive terminals a running **kolu-server**
+> spawned (find them with `kaval-tui list` autodiscovery — see *Reach* below). For
+> a raw `kaval-tui create` loop, use **`kaval-tui wait --until idle:<ms>`** above
+> — it needs no daemon-side agent state.
 
 ## Reach — which daemon you're driving
 
@@ -224,8 +231,8 @@ fall back to `kaval-tui list`.
 Two ways to point at a specific daemon instead of autodiscovering:
 
 - **`--socket <path>`** targets one local daemon — e.g. a running **kolu-server's**
-  kaval, to drive the terminals you have open in kolu (these ARE hooked, so
-  `pulam-tui wait` works against them once a `pulam` reads that kaval). Prefer
+  kaval, to drive the terminals you have open in kolu (these are tracked by that
+  kolu's **padi**, so `padi-tui wait` works against them). Prefer
   `kaval-tui list` to find the path; kolu-server namespaces its kaval **by listen
   port** (`kaval-<port>/`), so there's no single fixed path — which is exactly why
   `list` is the way in. The layout, per platform:

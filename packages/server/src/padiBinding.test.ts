@@ -49,9 +49,11 @@ import {
   it,
   vi,
 } from "vitest";
+// `connectPadi` moved into the shared dial kit in W2.3; the supervision it feeds
+// (bind/drain convergence, drivers, the reconnect session) stays in the binder.
+import { connectPadi } from "@kolu/padi/dial";
 import {
   bindPadiOnce,
-  connectPadi,
   createBuildDrainFence,
   ensurePadiBinding,
   localPadiDriver,

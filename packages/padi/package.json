@@ -13,6 +13,7 @@
   "exports": {
     "./surface": "./src/surface.ts",
     "./assembly": "./src/assembly.ts",
+    "./dial": "./src/dial.ts",
     "./daemonMain": "./src/daemonMain.ts",
     "./stateRoot": "./src/stateRoot.ts",
     "./buildId": "./src/buildId.ts",

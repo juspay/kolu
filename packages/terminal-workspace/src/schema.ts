@@ -262,6 +262,22 @@ export const ProcessRssSchema = z.discriminatedUnion("status", [
 ]);
 export type ProcessRss = z.infer<typeof ProcessRssSchema>;
 
+// ── Live-output cadence ────────────────────────────────────────────────────
+
+/** Output quiet-period before a terminal reads as static again — the ONE cadence
+ *  the "is this terminal moving bytes right now" signal breathes at on BOTH sides:
+ *  padi's `activity` stream (the padi-tui `●`) and the client's
+ *  `useTerminalActivity` (the browser green dot). It is a RAW byte-motion signal
+ *  with a ~1s trailing window — a stream with sub-second gaps (compiles, `tail -f`)
+ *  stays lit, one that pauses longer blinks off then back on when it resumes (so an
+ *  agent that pauses >1s between thinking and emitting tokens flickers, by design).
+ *
+ *  Lives on this browser-safe shared-vocab leaf (beside {@link ProcessRssSchema})
+ *  because BOTH `@kolu/padi` and the client (via `kolu-common/surface`) read it, and
+ *  the package-boundary seal forbids either importing the other. One declaration, so
+ *  the two dots can't drift out of lockstep behind a comment. */
+export const TERMINAL_IDLE_AFTER_MS = 1000;
+
 // ── Schema-derived sub-types ──────────────────────────────────────────
 
 export type AgentKind = z.infer<typeof AgentKindSchema>;
@@ -270,3 +286,42 @@ export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type CodexInfo = z.infer<typeof CodexInfoSchema>;
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;
+
+// ── fs/git wire schemas (the Code tab's raw reads + change-pulses) ─────────
+//
+// These three shapes back the host-side fs/git reads and their live watcher
+// streams. They live on this browser-safe zod-only leaf (beside the terminal
+// vocabulary) because `@kolu/padi/surface` composes them — the Code tab's
+// `fs.readFile` / `subscribeRepoChange` / `subscribeFileChange` members — and the
+// package-boundary seal forbids padi importing them from a node-coupled module.
+
+/** A repo/file change PULSE, not data. kolu-git's `subscribeRepoChange` /
+ *  `subscribeFileChange` collapse a burst of fs events into a payload-free
+ *  `onChange()`, so a watcher stream's frame must DIFFER each tick or the
+ *  stream's `isEqual` dedup would collapse two consecutive changes into one.
+ *  The monotonic `seq` (per subscription, starting at 0 for the snapshot frame)
+ *  is that distinguisher. A consumer reacts to a new pulse by re-querying the
+ *  `fs.*` / `git.*` procedures — the pulse carries no fs/git data itself. */
+export const RepoChangePulseSchema = z.object({
+  seq: z.number().int().nonnegative(),
+});
+export type RepoChangePulse = z.infer<typeof RepoChangePulseSchema>;
+
+/** Input for the per-file fs procedures (`readFile`, `statFileMtimeMs`) and the
+ *  `subscribeFileChange` watcher. Deliberately NOT kolu-git's
+ *  `FsReadFileInputSchema` (which carries a `terminalId`) — the library reads a
+ *  file in a repo; the terminal/iframe-preview orchestration that needs the id
+ *  stays kolu-server's. */
+export const FsFileInputSchema = z.object({
+  repoPath: z.string(),
+  filePath: z.string(),
+});
+
+/** Output of `fs.readFile` — the raw text read. Deliberately NOT kolu-git's
+ *  `FsReadFileOutputSchema` (the text|binary discriminated union): the
+ *  binary-preview/iframe-URL branch is kolu-server orchestration layered on top
+ *  of this raw read, never library code. */
+export const FsReadFileTextOutputSchema = z.object({
+  content: z.string(),
+  truncated: z.boolean(),
+});

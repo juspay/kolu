@@ -45,14 +45,14 @@ export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 // ── The contract ──────────────────────────────────────────────────────
 
 export const contract = oc.router({
-  // Three sibling surfaces multiplexed over one transport (kolu#1197): kolu's
-  // OWN primitives under `kolu`, surface-app's complete surface (buildInfo cell
-  // + identity probe) under `surfaceApp`, and the generic `@kolu/terminal-workspace`
-  // surface (awareness collection + version cell + activity flow + fs/git) under
-  // `terminalWorkspace`. `composeSurfaceContracts` keys each inner contract,
-  // producing `{ surface: { kolu: …, surfaceApp: …, terminalWorkspace: … } }` —
-  // wire paths are `surface.<key>.<prim>.<verb>`.
-  // `surfaces` is the single source shared with the server + client.
+  // Two sibling surfaces multiplexed over one transport (kolu#1197): kolu's OWN
+  // primitives under `kolu`, and surface-app's complete surface (buildInfo cell
+  // + identity probe) under `surfaceApp`. `composeSurfaceContracts` keys each
+  // inner contract, producing `{ surface: { kolu: …, surfaceApp: … } }` — wire
+  // paths are `surface.<key>.<prim>.<verb>`. `surfaces` is the single source
+  // shared with the server + client. (The generic `terminalWorkspace` sibling
+  // was retired at W1.R7 — it had zero consumers once the client moved onto
+  // padi's `terminals` collection; the terminal domain is `padiSurface` now.)
   //
   // `padiSurface` (the padi plan of record, PR #1649) is NOT here — it lives in
   // `@kolu/padi`, which OWNS the terminal vocabulary (its `./vocab.ts` schemas);
