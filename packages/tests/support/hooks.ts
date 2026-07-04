@@ -876,6 +876,11 @@ async function waitForRemotePadiLive(): Promise<void> {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",
+        // Bound each attempt so a wedged request (TCP accepted, handler hung
+        // mid-boot) can't outlive the 120s deadline this function promises — a bare
+        // `await fetch` re-checks the deadline only BETWEEN attempts, so one hung
+        // request would stall the whole e2e startup indefinitely.
+        signal: AbortSignal.timeout(5_000),
       });
       lastStatus = res.status;
       if (res.ok) {

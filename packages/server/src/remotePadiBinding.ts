@@ -225,8 +225,10 @@ export interface RemotePadiSessionDeps {
 export class RemotePadiSession implements BoundPadi {
   private destroyed = false;
   /** The binder's contract version + expected build id + the once-per-boot fence —
-   *  the "us" side of the same two-axis convergence the LOCAL arm runs in
-   *  `drainSupersededSurvivor`, applied here at the remote bind. */
+   *  the "us" side of the same two-axis convergence the LOCAL arm now declares as
+   *  `PADI_CONVERGENCE_POLICY` and runs through the shared `converge()`/`decide()` kit,
+   *  hand-mirrored here at the remote bind (the future both-arms-unification ledger
+   *  item). */
   private readonly binderVersion: string;
   private readonly binderBuildId: string;
   private readonly buildDrainFence: BuildDrainFence;
@@ -316,8 +318,9 @@ export class RemotePadiSession implements BoundPadi {
 
   /**
    * The control-core `hello` handshake over a fresh spawn's combined client, plus
-   * the SAME two-axis convergence the LOCAL arm runs in `drainSupersededSurvivor` —
-   * applied here at the remote bind because `hello.buildId` (running) and the baked
+   * the SAME two-axis convergence the LOCAL arm declares as `PADI_CONVERGENCE_POLICY`
+   * (run through the shared `decide()`/`converge()` kit) — hand-mirrored here at the
+   * remote bind because `hello.buildId` (running) and the baked
    * arch-independent `PADI_BUILD_ID` (this binder) put BOTH sides of the #1670
    * comparison in hand over the ssh dial:
    *
@@ -360,7 +363,8 @@ export class RemotePadiSession implements BoundPadi {
       this.host.markConnected();
 
       // ── Axis 1 — the CONTRACT. On a skew the contract decides; the build id is
-      // irrelevant. Mirrors `drainSupersededSurvivor` Axis 1. The newest-wins
+      // irrelevant. Mirrors the local policy `onContractSkew: drain-newer-else-refuse`
+      // (`PADI_CONVERGENCE_POLICY` → the kit's `decide()`). The newest-wins
       // comparator is the kit's exported `contractIsNewer` (contract versions are
       // ORDERED — the kit's Pin 2; only build ids are match-only), the same leaf the
       // local arm's `decide()` uses. Reusing the leaf, NOT the decision FLOW: the
@@ -385,7 +389,8 @@ export class RemotePadiSession implements BoundPadi {
             "(persist + exit; its kaval + PTYs survive) so the reconnect respawns this binder's " +
             "own newer closure (newest-wins convergence)",
         );
-        if (await this.drainAndAwaitClose(combined)) {
+        const contractDrain = await this.drainAndAwaitClose(combined);
+        if (contractDrain.took) {
           // The reconnect brings up the newer closure; the cursor waits for it.
           throw new Error(
             "remote padi drained (newer contract) — reconnecting to the respawned newer build",
@@ -393,7 +398,12 @@ export class RemotePadiSession implements BoundPadi {
         }
         // Drain did not take → cannot adopt an incompatible contract → REFUSE (degraded).
         log.error(
-          { host: this.hostName, binderVersion: this.binderVersion, running },
+          {
+            host: this.hostName,
+            binderVersion: this.binderVersion,
+            running,
+            drainRejection: contractDrain.drainRejection,
+          },
           "newer-binder drain of a skewed remote padi FAILED (it did not exit in the teardown " +
             "window) — NOT killing it; refusing (degraded), the reconnect loop retries, so no " +
             "livelock, no kill",
@@ -407,8 +417,9 @@ export class RemotePadiSession implements BoundPadi {
       // cannot/need not converge: off-nix binder, provably-equal build, or the fence
       // already fired. Everything else — a different OR ABSENT id (`?? ""` folds absent
       // → "", which never equals a nix binder's non-empty id, so a pre-field survivor
-      // correctly drains as an older build) — is a MISMATCH we drain once. Mirrors
-      // `drainSupersededSurvivor` Axis 2 EXACTLY. ──
+      // correctly drains as an older build) — is a MISMATCH we drain once. Mirrors the
+      // local policy `onBuildMismatch: drain-and-replace` (`PADI_CONVERGENCE_POLICY` →
+      // the kit's `decide()`). ──
       const runningBuild = hello.buildId ?? "";
       if (
         this.binderBuildId === "" || // off-nix binder: cannot judge builds → never drains
@@ -436,7 +447,8 @@ export class RemotePadiSession implements BoundPadi {
           "respawning this binder's own build (drain-on-build-mismatch, #1670; store hashes " +
           "don't order, so this fires at most once per binder boot)",
       );
-      if (await this.drainAndAwaitClose(combined)) {
+      const buildDrain = await this.drainAndAwaitClose(combined);
+      if (buildDrain.took) {
         throw new Error(
           "remote padi drained (build mismatch) — reconnecting to the respawned build",
         );
@@ -449,6 +461,7 @@ export class RemotePadiSession implements BoundPadi {
           host: this.hostName,
           binderBuildId: this.binderBuildId,
           runningBuild,
+          drainRejection: buildDrain.drainRejection,
         },
         "build-mismatch drain of the remote padi FAILED (it did not exit in the teardown " +
           "window) — NOT killing it; ADOPTING the compatible (old-build) survivor, degraded " +
@@ -495,10 +508,17 @@ export class RemotePadiSession implements BoundPadi {
    *  a kill). */
   private async drainAndAwaitClose(
     combined: PadiDaemonClient,
-  ): Promise<boolean> {
-    void combined.surface.control.core.drain().catch(() => {
+  ): Promise<{ took: boolean; drainRejection: string | null }> {
+    // Capture the drain RPC's rejection reason — it does NOT decide completion (the
+    // link death below does), but the "did not take" paths surface it so a failed
+    // drain is diagnosable (a wedged link vs. an `onDrain` throw inside padi),
+    // mirroring the local arm's `drainViaControlCore` (which appends `drainErr` to its
+    // timeout error rather than swallowing it — `caught-error-must-not-collapse`).
+    let drainRejection: string | null = null;
+    void combined.surface.control.core.drain().catch((e) => {
       // The call may resolve OR reject as the link tears down mid-response (padi
       // exited) — its outcome does not decide completion; the link death (below) does.
+      drainRejection = String(e);
     });
     const deadline = Date.now() + this.drainCeilingMs;
     // Poll liveness, deciding on the HELLO, never on the trailing sleep: a daemon that
@@ -507,7 +527,7 @@ export class RemotePadiSession implements BoundPadi {
     // misread as "did not take".
     while (true) {
       const remaining = deadline - Date.now();
-      if (remaining <= 0) return false; // window exhausted → did not take.
+      if (remaining <= 0) return { took: false, drainRejection }; // window exhausted → did not take.
       // RACE the liveness probe against the REMAINING window. Over ssh a wedged link
       // can leave `hello()` hanging — neither answering nor rejecting — and a bare
       // `await` on it would defeat the ceiling entirely (the deadline check after it
@@ -526,8 +546,10 @@ export class RemotePadiSession implements BoundPadi {
       });
       const outcome = await Promise.race([probe, ceiling]);
       clearTimeout(timer);
-      if (outcome === "dead") return true; // stopped answering → it exited → took.
-      if (outcome === "ceiling") return false; // probe outlived the window → not taken.
+      // stopped answering → it exited → took.
+      if (outcome === "dead") return { took: true, drainRejection };
+      // probe outlived the window → not taken.
+      if (outcome === "ceiling") return { took: false, drainRejection };
       await sleep(this.drainPollMs); // still answering — poll again until the deadline.
     }
   }
@@ -538,7 +560,10 @@ export class RemotePadiSession implements BoundPadi {
 
   onState(cb: (s: HostSessionState) => void): () => void {
     this.stateListeners.add(cb);
-    cb(this.derivedState()); // snapshot-then-delta, like an inMemoryCell onState.
+    // snapshot-then-delta, like an inMemoryCell onState — GUARDED like every later
+    // transition (a subscriber that throws on the initial snapshot must not escape
+    // uncaught any more than one that throws on a `fire()`).
+    this.safeEmit(cb, this.derivedState());
     return () => {
       this.stateListeners.delete(cb);
     };
@@ -596,9 +621,11 @@ export class RemotePadiSession implements BoundPadi {
       );
     }
     const combined = (await combinedP) as PadiDaemonClient;
-    if (!(await this.drainAndAwaitClose(combined))) {
+    const { took, drainRejection } = await this.drainAndAwaitClose(combined);
+    if (!took) {
       throw new Error(
-        `remote padi drain did not complete — it did not exit within ${this.drainCeilingMs}ms (padi did not exit)`,
+        `remote padi drain did not complete — it did not exit within ${this.drainCeilingMs}ms (padi did not exit)` +
+          (drainRejection ? `; drain call rejected: ${drainRejection}` : ""),
       );
     }
   }
@@ -638,12 +665,19 @@ export class RemotePadiSession implements BoundPadi {
     const s = this.derivedState();
     // Guard each listener at the funnel: a throwing subscriber must not abort the
     // fan-out and drop this transition for the listeners after it.
-    for (const cb of [...this.stateListeners]) {
-      try {
-        cb(s);
-      } catch (err) {
-        log.error({ err }, "remote padi binding state listener threw");
-      }
+    for (const cb of [...this.stateListeners]) this.safeEmit(cb, s);
+  }
+
+  /** The single guarded fan-out site — used by both the initial `onState` snapshot
+   *  and every `fire()` transition, so neither path can leak a subscriber throw. */
+  private safeEmit(
+    cb: (s: HostSessionState) => void,
+    s: HostSessionState,
+  ): void {
+    try {
+      cb(s);
+    } catch (err) {
+      log.error({ err }, "remote padi binding state listener threw");
     }
   }
 }
