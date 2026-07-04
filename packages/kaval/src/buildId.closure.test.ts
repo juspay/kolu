@@ -1,33 +1,36 @@
 /**
- * The closure guard for the staleKey (R-4 A2, re-rooted in B1).
+ * The closure guard for kaval's CURRENCY key (`currentBuildId()` / `KAVAL_BUILD_ID`).
  *
- * `currentBuildId()` keys staleness on a nix hash of kaval's daemon source
- * closure (see `default.nix`'s `kavalSrc`). For that key to mean "a restart
- * would load different daemon wire/behaviour code", every module that runs in
- * the daemon must live INSIDE the hashed set — otherwise a wire change in an
- * out-of-package module escapes the key (the #1034 mis-scope).
+ * kaval's staleKey drives ONE thing: the human "update available" nudge (its build-
+ * mismatch policy is `nudge-human`, because recycling kaval to pick up a new build KILLS
+ * live PTYs). So the key must hash exactly kaval's BEHAVIORAL closure — the code whose
+ * change actually changes what a restart *does for the user's terminals* — and nothing
+ * else, or the nudge over-fires and a person pays for it in lost PTYs.
  *
- * B1 changes two things from A2's single-root, `index.ts`-rooted walk:
- *   - **Three hashed roots.** kaval itself, `@kolu/terminal-protocol` (the
- *     wire/behaviour it serves), and `@kolu/surface-daemon` (the daemon
- *     spine — pid-gate + the `daemonMain` skeleton run in the daemon process).
- *     nix hashes all three; the walk follows their edges rather than allowing
- *     them as stable externals.
- *   - **Two entry roots.** In B1 kaval code runs along two paths that both
- *     count toward "what a restart would load": the **library surface**
- *     (`index.ts`, embedded in-process by kolu-server today) and the **daemon
- *     entry** (`bin.ts` → `daemonMain.ts`, the standalone executable). The
- *     union of their closures must equal the hashed set — so a hashed file that
- *     neither path reaches (dead code) fails the test, and a daemon module
- *     pulled in through an unhashed edge fails it too.
+ * ── The restated invariant (#L3): currency key = the BEHAVIORAL slice, spine EXCLUDED ──
+ * Two hashed roots: **kaval itself** and **`@kolu/terminal-protocol`** (the wire/behaviour
+ * it serves — the device-query forward/drop policy, the suppression grammars). The
+ * durable-daemon SPINE `@kolu/surface-daemon` (pid-gate, `daemonMain`, `frontDaemonOverStdio`)
+ * DOES run inside the kaval binary, but it is DELIBERATELY OUT of the currency slice: the
+ * spine's behavioral surface to a consumer IS the wire contract (`PTY_HOST_CONTRACT_VERSION`,
+ * in kaval), and a contract-COMPATIBLE spine change is behaviorally interchangeable BY THE
+ * CONTRACT'S DEFINITION — so keying currency on it double-counts the contract and fires a
+ * spurious nudge on every compatible spine refactor. This was paid for in production (zest,
+ * 2026-07-03): a spine-only change with no kaval-behavior delta flipped the staleKey and
+ * fired a false "update available"; acting on it would have recycled kaval and killed PTYs.
+ * A spine change that DOES matter to the wire bumps the contract (hashed here) → recycle-on-
+ * skew converges it, a separate sanctioned signal. So the spine is a stable LEAF here, not a
+ * hashed root. (padi's staleKey keeps the full closure incl. the spine — its staleness
+ * response is a cheap auto-drain, so over-firing is harmless; only kaval's human nudge needs
+ * the slice.)
  *
  * It asserts:
- *   (a) every bare (cross-package/external) edge is a known stable dep — a NEW
- *       edge (e.g. importing `kolu-common/contract` or a provider-DAG
- *       entrypoint) fails and forces a conscious decision: bring it in-package,
- *       or add it as a deliberate stable leaf;
- *   (b) the in-package modules reached exactly equal the nix-hashed file set,
- *       so nix and this test can never drift on what "the closure" is.
+ *   (a) every bare (cross-package/external) edge is a known stable dep — a NEW edge fails
+ *       and forces a conscious decision: bring it in-package, or add it as a deliberate
+ *       stable leaf (the spine `@kolu/surface-daemon` is now such a leaf);
+ *   (b) the in-BEHAVIORAL-SLICE modules reached (kaval + terminal-protocol, NOT the spine
+ *       the walk stops at) exactly equal the nix-hashed file set, so nix (default.nix's
+ *       `kavalIdentity.behavioralFileset`) and this test can never drift on the slice.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -37,38 +40,23 @@ import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-// The two entry roots — see the header. `index.ts` is the embedded library
-// surface; `bin.ts` is the standalone daemon executable. Their union is "all
-// the code a kaval restart would load".
+// The two entry roots — `index.ts` is the embedded library surface; `bin.ts` is the
+// standalone daemon executable. Their union is "all the code a kaval restart would load";
+// the behavioral slice is that union MINUS the spine (see header).
 const ENTRIES = [resolve(SRC, "index.ts"), resolve(SRC, "bin.ts")];
 
-// The second hashed root: @kolu/terminal-protocol carries wire/behaviour the
-// daemon serves (the device-query forward/drop policy, the suppression
-// grammars), so default.nix hashes it into the staleKey alongside kaval — and
-// the walk follows the edge instead of allowing it as a stable external.
+// The second hashed root: @kolu/terminal-protocol carries wire/behaviour the daemon
+// serves, so default.nix hashes it into the staleKey alongside kaval — and the walk
+// follows the edge instead of allowing it as a stable external.
 const PROTOCOL_SRC = resolve(SRC, "../../terminal-protocol/src");
 const PROTOCOL_ENTRY = resolve(PROTOCOL_SRC, "index.ts");
 
-// The third hashed root: @kolu/surface-daemon is the durable-daemon spine —
-// the pid-gate and the `daemonMain` skeleton run INSIDE the daemon process, and
-// (P2.5) `frontDaemonOverStdio` runs in the per-link front proxy reached from
-// `bin.ts`'s `--stdio` dispatch. Both halves are part of the kaval *binary* a
-// restart loads, so a change to either changes the staleKey. default.nix hashes
-// the package whole (its standing invariant: only daemon-binary code — serve +
-// front — lives there, never the supervisor), and the walk follows the edge.
-const DAEMON_SRC = resolve(SRC, "../../surface-daemon/src");
-const DAEMON_ENTRY = resolve(DAEMON_SRC, "index.ts");
-
-// Bare specifiers the closure is allowed to reach. The staleKey hashes only the
-// three roots above, so wire/behaviour code reached through an UNLISTED edge
-// would escape the key. These are the stable framework/leaf deps kaval and the
-// spine legitimately rest on — and, since B0, they are ALSO exactly the
-// graduation set: zero `kolu-*` workspace edges (the `@kolu/*` entries here are
-// the framework, `@kolu/surface`, not kolu the app), so this same test is the
-// guard that no spawn policy or app coupling leaks back daemon-side.
-// Re-introducing `kolu-pty`, `kolu-common`, or `kolu-shared` here (or any
-// provider-DAG edge) fails the test and forces a conscious decision: it does
-// not belong in the daemon.
+// Bare specifiers the closure is allowed to reach. The staleKey hashes only the two
+// behavioral roots (kaval + terminal-protocol), so wire/behaviour code reached through an
+// UNLISTED edge would escape the key. These are the stable framework/leaf deps kaval
+// legitimately rests on — and, since B0, ALSO the graduation set: zero `kolu-*` workspace
+// edges (the `@kolu/*` entries are the framework, not kolu the app). Re-introducing
+// `kolu-pty`/`kolu-common`/`kolu-shared` (or any provider-DAG edge) fails the test.
 const ALLOWED_EXTERNAL = [
   "node:",
   "zod",
@@ -76,12 +64,15 @@ const ALLOWED_EXTERNAL = [
   "@xterm/",
   "@orpc/",
   "@kolu/surface",
-  // @kolu/heap-diag is the shared opt-in heap-instrumentation receptacle (the
-  // interim kaval-OOM instrument), carrying ONLY stable sampling/snapshot
-  // machinery — no wire/behaviour — so it is a stable leaf, not a hashed root: a
-  // change to it does not change what a restart *serves*. Listed here so its
-  // edge from `daemonMain.ts` does not register as an unknown external.
+  // @kolu/heap-diag is the shared opt-in heap-instrumentation receptacle (no wire/
+  // behaviour) — a stable leaf, not a hashed root.
   "@kolu/heap-diag",
+  // @kolu/surface-daemon is the durable-daemon SPINE — it runs in the kaval binary, but
+  // it is DELIBERATELY a stable leaf here, NOT a hashed root: it is OUT of kaval's currency
+  // slice (its behavioral surface to kaval is the wire contract, which lives in kaval and
+  // IS hashed; a contract-compatible spine change must not fire kaval's PTY-costing nudge —
+  // the zest incident, see header). So the walk STOPS at it rather than following its edge.
+  "@kolu/surface-daemon",
 ];
 
 const isAllowed = (spec: string): boolean =>
@@ -97,8 +88,8 @@ function resolveRelative(from: string, spec: string): string {
   return p.endsWith(".ts") ? p : `${p}.ts`;
 }
 
-describe("kaval daemon closure (the staleKey's hashed set)", () => {
-  it("reaches only known external deps, and its in-package set equals the nix-hashed files", () => {
+describe("kaval currency key (the staleKey's behavioral slice)", () => {
+  it("reaches only known external deps, and its in-slice set equals the nix-hashed files", () => {
     const reached = new Set<string>();
     const externals = new Set<string>();
     const stack = [...ENTRIES];
@@ -109,24 +100,25 @@ describe("kaval daemon closure (the staleKey's hashed set)", () => {
       for (const spec of importsOf(file)) {
         if (spec.startsWith(".")) stack.push(resolveRelative(file, spec));
         else if (spec === "@kolu/terminal-protocol") stack.push(PROTOCOL_ENTRY);
-        else if (spec === "@kolu/surface-daemon") stack.push(DAEMON_ENTRY);
+        // @kolu/surface-daemon is a LEAF here (the excluded spine) — do NOT follow it.
         else externals.add(spec);
       }
     }
 
-    // (a) No daemon code escapes the key via an unlisted external edge.
+    // (a) No behavioral code escapes the key via an unlisted external edge.
     const unexpected = [...externals].filter((s) => !isAllowed(s)).sort();
     expect(
       unexpected,
-      `Unlisted external import(s) reached from the kaval daemon closure: ${unexpected.join(
+      `Unlisted external import(s) reached from the kaval behavioral closure: ${unexpected.join(
         ", ",
-      )}. If one carries wire/behaviour shape it must live inside one of the hashed roots (kaval / terminal-protocol / surface-daemon); if it is a stable leaf dep, add it to ALLOWED_EXTERNAL.`,
+      )}. If one carries wire/behaviour shape it must live inside a hashed root (kaval / terminal-protocol); if it is a stable leaf dep (like the spine @kolu/surface-daemon), add it to ALLOWED_EXTERNAL.`,
     ).toEqual([]);
 
-    // (b) The reached set == what nix hashes (each root's src/*.ts minus tests
-    // and shared test-only helpers). This mirrors default.nix's kavalSrc
-    // fileFilter so the hashed set can never silently drift from the closure
-    // this test asserts.
+    // (b) The reached BEHAVIORAL slice == what nix hashes (kaval + terminal-protocol
+    // src/*.ts minus tests). This mirrors default.nix's `kavalIdentity.behavioralFileset`
+    // so the slice can never silently drift from the closure this test asserts. The spine
+    // (@kolu/surface-daemon) is neither reached (leaf, above) nor hashed — its exclusion is
+    // the invariant, not an accident.
     const nonTest = (dir: string): string[] =>
       readdirSync(dir)
         .filter(
@@ -136,11 +128,7 @@ describe("kaval daemon closure (the staleKey's hashed set)", () => {
             !f.endsWith(".testlib.ts"),
         )
         .map((f) => resolve(dir, f));
-    const hashed = [
-      ...nonTest(SRC),
-      ...nonTest(PROTOCOL_SRC),
-      ...nonTest(DAEMON_SRC),
-    ];
+    const hashed = [...nonTest(SRC), ...nonTest(PROTOCOL_SRC)];
     const rel = (xs: Iterable<string>): string[] =>
       [...xs].map((f) => relative(SRC, f)).sort();
     expect(rel(reached)).toEqual(rel(hashed));

@@ -14,9 +14,10 @@
  *   - `padi-tui`, which dials, runs one verb, and disposes.
  *
  * Supervision is NOT here, on purpose. The version ORDERING that decides
- * drain-vs-refuse (`isBinderNewer`), the drivers, `bindPadiOnce`/`probePadiSkew`,
- * and the session all stay binder-only: a running padi is never killed or drained
- * by a mere dial — only by the supervisor that owns it (#1313). The dial kit does
+ * drain-vs-refuse (padi's `ConvergencePolicy`, enacted by the shared convergence
+ * kit's `converge()` over a version-agnostic identity probe), the drivers, and the
+ * reconnect-mirror session all stay binder-only: a running padi is never killed or
+ * drained by a mere dial — only by the supervisor that owns it (#1313). The dial kit does
  * exactly one version judgement — the COMPATIBILITY gate (`connectPadi` refuses a
  * padi it cannot speak to, loudly) — and nothing that mutates padi's lifecycle.
  */
@@ -105,11 +106,12 @@ export type PadiConnection = DaemonConnection<
 >;
 
 /** The dialed-but-unjudged result of reaching padi's frozen control core: the
- *  live client, its socket, and the `hello` it answered. The skew judgement
- *  (`isContractVersionCompatible`, or the binder's own `isBinderNewer` ordering)
- *  is the CALLER's — this only opens the link and reads identity. Shared by
- *  {@link connectPadi} (which judges then holds or refuses) and the binder's skew
- *  probe (which judges then drains or leaves be). */
+ *  live client, its socket, and the `hello` it answered. The version judgement is
+ *  the CALLER's — this only opens the link and reads identity. Shared by
+ *  {@link connectPadi} (which applies the `isContractVersionCompatible` gate, then
+ *  holds or refuses) and the binder's convergence probe
+ *  (`probePadiForConvergence`, which reads identity for padi's `ConvergencePolicy`
+ *  to drain or leave be). */
 export type PadiDial = {
   socket: Awaited<ReturnType<typeof dialSocket>>;
   client: PadiDaemonClient;

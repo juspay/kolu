@@ -19,6 +19,7 @@
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import {
+  type ConvergenceProbe,
   type DaemonConnection,
   DaemonContractSkewError,
   dialSocket,
@@ -101,5 +102,55 @@ export async function connectKaval(
       if (closed) queueMicrotask(cb);
       else socket.once("close", cb);
     },
+  };
+}
+
+/**
+ * The convergence PROBE for kaval — reads the running kaval's identity over
+ * `system.version` and returns it to the shared convergence kit (`converge`), which
+ * DECIDES the policy (kaval: recycle-on-skew + nudge-human). Distinct from
+ * {@link connectKaval} in two load-bearing ways:
+ *   - it does NOT judge — it reads `{ contractVersion, identity.staleKey }` and returns
+ *     them WITHOUT the compatibility check (Pin 3: identity is read before, and
+ *     independent of, the versioned handshake, so a contract skew still yields the
+ *     running identity for `decide` to route to `recycle`); the endpoint's own
+ *     `connectKaval` still raises `DaemonContractSkewError` at the recycle ENACTMENT.
+ *   - it is NON-DRAINABLE (`capability: "not-drainable"`) — kaval has no `drain` verb
+ *     (recycling it kills PTYs, so its build-mismatch policy is a human nudge, never an
+ *     auto-drain), which the kit enforces at the type level (Pin 1).
+ *
+ * Returns `null` if no kaval answers (a fresh boot / mid-teardown) — the kit then spawns.
+ * `buildId` folds an absent/off-nix `staleKey` to `""` (an honest "unknown", never a
+ * fabricated match), exactly as the client-side currency nudge reads it.
+ */
+export async function probeKavalForConvergence(
+  socketPath: string,
+): Promise<ConvergenceProbe<"not-drainable"> | null> {
+  let socket: Awaited<ReturnType<typeof dialSocket>>;
+  try {
+    socket = await dialSocket(socketPath);
+  } catch {
+    return null; // no kaval answering — nothing to converge; the spawn path handles it.
+  }
+  const client = stdioLink<typeof ptyHostSurface.contract>({
+    read: socket,
+    write: socket,
+  }) as PtyHostClient;
+  let version: Awaited<
+    ReturnType<PtyHostClient["surface"]["system"]["version"]>
+  >;
+  try {
+    version = await client.surface.system.version({});
+  } catch {
+    socket.destroy();
+    return null; // the daemon is there but did not answer the probe — treat as none.
+  }
+  return {
+    capability: "not-drainable",
+    identity: {
+      contractVersion: version.contractVersion,
+      buildId: version.identity?.staleKey ?? "",
+    },
+    dispose: () => socket.destroy(),
   };
 }

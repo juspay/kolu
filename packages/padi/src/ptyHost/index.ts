@@ -17,14 +17,20 @@
  */
 
 import {
+  type ConvergencePolicy,
+  converge,
+  createBuildDrainFence,
   createEndpoint,
   type Endpoint,
   type EndpointStatus,
+  outcomeAdopted,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import {
+  currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
+  PTY_HOST_CONTRACT_VERSION,
   type PtyHostClient,
   type PtyHostIdentity,
   type PtyHostSpawnInput,
@@ -32,7 +38,11 @@ import {
 } from "kaval";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import { log } from "../log.ts";
-import { connectKaval, type KavalConnectionMetadata } from "./connect.ts";
+import {
+  connectKaval,
+  type KavalConnectionMetadata,
+  probeKavalForConvergence,
+} from "./connect.ts";
 import {
   getLocalSocketPath,
   getPadiServeSocketPath,
@@ -49,6 +59,26 @@ type Identity = PtyHostIdentity | undefined;
  *  `location` (a `HostLocation` DU in kolu-common); a terminal placed on the
  *  local endpoint carries `{ kind: "local" }`, not this string. */
 export const LOCAL_HOST_ID = "local";
+
+/**
+ * kaval's declaration into the shared daemon-convergence kit (`converge`). kaval is
+ * NON-DRAINABLE — recycling it kills its PTYs (no graceful drain verb), so:
+ *   - `onContractSkew: recycle` — a wire-incompatible survivor can't serve the new
+ *     supervisor, so kill + respawn (its PTYs die, unavoidable at a wire break). This is
+ *     the recycle-on-skew arm, byte-identical to the pre-kit `adoptOrEnsure`: the kit
+ *     routes a `recycle` decision straight back to `adoptOrEnsure`.
+ *   - `onBuildMismatch: nudge-human` — a same-contract build change is NOT auto-acted on
+ *     (draining/recycling would cost live PTYs); the kit reports the mismatch as an
+ *     outcome and takes no supervisor action. kaval's "update available" nudge stays a
+ *     human decision, surfaced by padi serving `expectedKaval` + the running identity for
+ *     the client's `kavalStale` to compare — unchanged.
+ * Being non-drainable, kaval CANNOT spell a drain policy (Pin 1 — a compile error).
+ */
+const KAVAL_CONVERGENCE_POLICY: ConvergencePolicy<"not-drainable"> = {
+  capability: "not-drainable",
+  onContractSkew: { kind: "recycle" },
+  onBuildMismatch: { kind: "nudge-human" },
+};
 
 /** The kolu app version stamped as `TERM_PROGRAM_VERSION` on every spawned PTY.
  *  INJECTED at boot by {@link setSpawnServerVersion} rather than read from a
@@ -241,12 +271,30 @@ export async function ensureLocalEndpoint(opts: {
   endpoint = ep;
   triggerRestart = serializeRestart(ep);
   try {
-    // The boot, B3.3: adopt-or-recycle. A surviving daemon (a redeploy that did
-    // not change kaval's source) is ADOPTED — its PTYs preserved — and the
-    // caller reconciles its live PTYs against the saved session via `onAdopted`.
-    // A fresh / recycled boot has no survivors, so the saved session is left for
-    // the existing restore-card path (B2-unchanged) and `onAdopted` is skipped.
-    const adopted = await ep.adoptOrEnsure();
+    // The boot, B3.3: adopt-or-recycle, now DELEGATED to the shared convergence kit
+    // under kaval's declared {@link KAVAL_CONVERGENCE_POLICY} (recycle-on-skew +
+    // nudge-human). The kit probes the running kaval's identity over `system.version`
+    // (Pin 3), decides, and enacts through the endpoint's EXISTING boot methods — a
+    // `recycle` decision routes straight to `adoptOrEnsure`, so a contract skew still
+    // kills + respawns exactly as before, and a compatible survivor (same OR different
+    // build) is ADOPTED (its PTYs preserved). A same-contract build change comes back as
+    // `mismatch-reported` and takes NO supervisor action — kaval's currency nudge stays
+    // the human's call, served for the client to compare (unchanged). We map the outcome
+    // back to the `adopted` boolean the reconcile below already consumes.
+    const outcome = await converge({
+      endpoint: ep,
+      baked: {
+        contractVersion: PTY_HOST_CONTRACT_VERSION,
+        buildId: currentPtyHostIdentity().staleKey,
+      },
+      probe: () => probeKavalForConvergence(socketPath),
+      policy: KAVAL_CONVERGENCE_POLICY,
+      // kaval never build-drains (nudge-human), so the fence is unused here — but the kit
+      // requires one; a fresh per-boot fence is the honest, inert value.
+      buildFence: createBuildDrainFence(),
+      log,
+    });
+    const adopted = outcomeAdopted(outcome);
     if (adopted && opts.onAdopted) {
       try {
         await opts.onAdopted();

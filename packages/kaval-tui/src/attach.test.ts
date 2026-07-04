@@ -11,6 +11,11 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { fileURLToPath } from "node:url";
+import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+} from "@kolu/terminal-protocol";
 import {
   createInProcessPtyHost,
   type InProcessPtyHostDeps,
@@ -28,7 +33,8 @@ import {
 import { buildCreateInput, newPtyId } from "./create.ts";
 import { runKill } from "./kill.ts";
 import { resolveTerminalId, shortId } from "./render.ts";
-import { planSend } from "./send.ts";
+import { planSend, type SendPlan, SUBMIT_ENTER } from "./send.ts";
+import { executeSendPlan } from "./sendExec.ts";
 
 const silentLog = {
   debug: () => {},
@@ -393,6 +399,7 @@ describe("send — over the same real unix socket", () => {
       paste: undefined,
       fromStdin: false,
       keyData: "\r", // an explicit `--key Enter`
+      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual(["echo SENDMARK-$((6 * 7))", "\r"]);
     for (const data of plan.writes) {
@@ -407,6 +414,190 @@ describe("send — over the same real unix socket", () => {
         screen = (await conn.client.surface.terminal.getScreenText({ id }))
           .text;
       },
+    );
+  });
+});
+
+describe("send --submit — acceptance against a real paste-debounce TUI", () => {
+  // A real PTY running the scripted TUI that reproduces Claude Code's #1 failure
+  // mode: an Enter within FIXTURE_DEBOUNCE_MS of a bracketed paste is DROPPED,
+  // a later one submits. `--submit` schedules the Enter past that window. The
+  // fixture's debounce is deliberately short; every `--submit` grace below clears
+  // it with a wide margin, while a same-breath Enter falls inside it.
+  const FIXTURE = fileURLToPath(
+    new URL("./paste-debounce-tui.fixture.mjs", import.meta.url),
+  );
+  const DEBOUNCE_MS = 120;
+
+  /** Spawn the fixture in a real PTY and wait until it's listening. `extraEnv`
+   *  lets a test tune the fixture — e.g. hold the busy burst open (FIXTURE_BUSY_TICKS)
+   *  so the "mid-turn" case is deterministic rather than racing a ~500ms window. */
+  async function spawnFixture(
+    extraEnv: Record<string, string> = {},
+  ): Promise<string> {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-submit-"));
+    const { id } = await conn.client.surface.terminal.spawn(
+      buildCreateInput({
+        id: newPtyId(),
+        cwd: dir,
+        env: {
+          ...process.env,
+          FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS),
+          // The fixture recognizes the SAME bracketed-paste markers `planSend`
+          // wraps text with — pass the protocol constants so it can't drift.
+          FIXTURE_PASTE_START: BRACKETED_PASTE_START,
+          FIXTURE_PASTE_END: BRACKETED_PASTE_END,
+          ...extraEnv,
+        },
+        command: ["node", FIXTURE],
+        kavalSocket: KAVAL_SOCK,
+      }),
+    );
+    await untilScreen(id, (s) => s.includes("READY"), "fixture READY");
+    return id;
+  }
+
+  /** The FULL scrollback (not the viewport) so a marker can't scroll away behind
+   *  the fixture's busy-stream output. */
+  async function screenOf(id: string): Promise<string> {
+    const { text } = await conn.client.surface.terminal.getScreenText({
+      id,
+      extent: { kind: "full" },
+    });
+    return text;
+  }
+
+  async function untilScreen(
+    id: string,
+    ok: (screen: string) => boolean,
+    what: string,
+  ): Promise<string> {
+    let screen = "";
+    await until(
+      () => ok(screen),
+      what,
+      async () => {
+        screen = await screenOf(id);
+      },
+    );
+    return screen;
+  }
+
+  /** Drive a send byte-plan against the PTY through the SHIPPED executor —
+   *  `executeSendPlan` (the same function `cmdSend` runs), over this suite's
+   *  socket write — so the acceptance test validates the real sequencing. */
+  const runPlan = (id: string, plan: SendPlan): Promise<void> =>
+    executeSendPlan(plan, async (data) => {
+      await conn.client.surface.terminal.write({ id, data });
+    });
+
+  it("CONTROL: a same-breath Enter (paste + --key Enter) is DROPPED — proves the fixture reproduces the bug", {
+    timeout: 30_000,
+  }, async () => {
+    const id = await spawnFixture();
+    // Today's one-call form: paste then Enter written back-to-back, no grace —
+    // the Enter races into the debounce and is dropped, leaving the prompt staged.
+    const plan = planSend({
+      text: "start the turn",
+      paste: true,
+      fromStdin: false,
+      keyData: SUBMIT_ENTER, // an explicit `--key Enter`, same breath as the text
+      submitGraceMs: undefined,
+    });
+    expect(plan.submit).toBeNull();
+    await runPlan(id, plan);
+    const screen = await untilScreen(
+      id,
+      (s) => s.includes("DROPPED"),
+      "the same-breath Enter to be dropped",
+    );
+    // The whole point: the turn did NOT start — no submit, the prompt sat staged.
+    expect(screen).not.toContain("SUBMITTED");
+  });
+
+  it("(a) idle agent + --submit → the turn actually STARTS (prompt not left staged)", {
+    timeout: 30_000,
+  }, async () => {
+    const id = await spawnFixture();
+    // Bare `--submit` (the default grace) against an idle agent.
+    const plan = planSend({
+      text: "explain the architecture of this repo",
+      paste: true,
+      fromStdin: false,
+      keyData: "",
+      submitGraceMs: 250,
+    });
+    expect(plan.submit).toEqual({ graceMs: 250 });
+    await runPlan(id, plan);
+    await untilScreen(
+      id,
+      (s) => s.includes("SUBMITTED#1"),
+      "the prompt to submit (turn started)",
+    );
+  });
+
+  it("(b) BUSY agent (mid-turn, streaming) + --submit → the message is accepted, never lost", {
+    timeout: 30_000,
+  }, async () => {
+    // Hold the first turn's busy burst open (200 × 25ms ≈ 5s) so it is STILL
+    // streaming when the second prompt lands — otherwise a slow CI loop could let
+    // the first turn print DONE T1 first, and the test would no longer prove the
+    // mid-turn case it claims. The assertion below pins that determinism.
+    const id = await spawnFixture({ FIXTURE_BUSY_TICKS: "200" });
+    const first = planSend({
+      text: "first prompt",
+      paste: true,
+      fromStdin: false,
+      keyData: "",
+      submitGraceMs: 250,
+    });
+    await runPlan(id, first);
+    // Wait until the first turn is UNDERWAY (the fixture is streaming busy output).
+    const midTurn = await untilScreen(
+      id,
+      (s) => s.includes("SUBMITTED#1"),
+      "first turn to start",
+    );
+    // The first turn must still be mid-stream — DONE T1 not yet printed — so the
+    // second submit genuinely lands at a BUSY agent, not a quiesced one.
+    expect(midTurn).not.toContain("DONE T1");
+    // Fire the second --submit while it's mid-stream; the paste lands amid the
+    // streaming output, and the scheduled Enter still submits it — not lost.
+    const second = planSend({
+      text: "second prompt while busy",
+      paste: true,
+      fromStdin: false,
+      keyData: "",
+      submitGraceMs: 250,
+    });
+    await runPlan(id, second);
+    await untilScreen(
+      id,
+      (s) => s.includes("SUBMITTED#2"),
+      "the second (busy) prompt to submit",
+    );
+  });
+
+  it("(c) a multi-KB piped paste + --submit submits INTACT", {
+    timeout: 30_000,
+  }, async () => {
+    const id = await spawnFixture();
+    // ~4KB, arriving in several socket chunks — the fixture reassembles the paste
+    // across chunk boundaries; a unique tail proves nothing was truncated.
+    const big = `${"X".repeat(4000)}ENDMARK-c0ffee`;
+    const plan = planSend({
+      text: big,
+      paste: undefined, // multi-KB piped text auto-pastes
+      fromStdin: true,
+      keyData: "",
+      submitGraceMs: 250,
+    });
+    expect(plan.paste).toBe(true);
+    await runPlan(id, plan);
+    await untilScreen(
+      id,
+      (s) => s.includes(`SUBMITTED#1 len=${big.length} tail=${big.slice(-8)}`),
+      "the full multi-KB paste to submit intact",
     );
   });
 });
