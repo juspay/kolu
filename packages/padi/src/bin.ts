@@ -23,11 +23,13 @@
 import { parseArgs } from "node:util";
 import { daemonExitCode, stderrLogger } from "@kolu/surface-daemon";
 import { runPadiDaemon } from "./daemonMain.ts";
+import { runPadiStdioBridge } from "./stdioBridge.ts";
 
 const USAGE = `padi — the per-host terminal-workspace daemon
 
 Usage:
   padi [--state-root PATH] [--socket PATH]
+  padi --stdio [--state-root PATH] [--socket PATH]
 
 Options:
   --state-root PATH   the persistent folder padi anchors to (session · memory ·
@@ -38,6 +40,12 @@ Options:
                       distinct, isolated padi.
   --socket PATH       unix socket to serve on (default: keyed by the state-root
                       digest). The single-instance gate sits beside it.
+  --stdio             serve over stdin/stdout instead of binding the socket: FRONT
+                      the durable padi daemon (adopt-or-spawn) and relay this
+                      process's stdio to its socket. This is how kolu-server's
+                      remote binding (\`getHostSession\`, binary "padi") and a future
+                      \`padi-tui --host\` reach a padi over ssh — the daemon it fronts
+                      (with its kaval + PTYs) outlives the link.
   --allow-nix-shell-with-env-whitelist LIST
                       forward a Nix-devshell env whitelist to PTY spawns (matches
                       kolu-server's flag), comma-separated.
@@ -59,6 +67,7 @@ const { values } = parseArgs({
   options: {
     "state-root": { type: "string" },
     socket: { type: "string" },
+    stdio: { type: "boolean" },
     "allow-nix-shell-with-env-whitelist": { type: "string" },
     "spawn-version": { type: "string" },
     "legacy-kaval-socket": { type: "string" },
@@ -71,21 +80,36 @@ if (values.help) {
   process.exit(0);
 }
 
-runPadiDaemon({
-  stateRoot: values["state-root"],
-  socketOverride: values.socket,
-  nixShellWhitelist: values["allow-nix-shell-with-env-whitelist"],
-  spawnVersion: values["spawn-version"],
-  legacyKavalSocket: values["legacy-kaval-socket"],
-  log: stderrLogger(),
-})
-  .then((exit) => {
-    // The success/failure classification lives with `DaemonExit` in the spine
-    // (`already-running`/`shutdown` → 0, `serve-failed` → 1), reclassified once at
-    // the type's home rather than re-decided in every bin.
-    process.exit(daemonExitCode(exit));
+if (values.stdio) {
+  // Front the durable daemon over stdin/stdout (the ssh transport). NEVER log to
+  // stdout here — it is the wire. Resolves when the link ends; the daemon it
+  // fronts (padi + its kaval + PTYs) keeps running.
+  runPadiStdioBridge({
+    stateRoot: values["state-root"],
+    socketOverride: values.socket,
   })
-  .catch((err: unknown) => {
-    process.stderr.write(`padi: ${(err as Error).message}\n`);
-    process.exit(1);
-  });
+    .then(() => process.exit(0))
+    .catch((err: unknown) => {
+      process.stderr.write(`padi --stdio: ${(err as Error).message}\n`);
+      process.exit(1);
+    });
+} else {
+  runPadiDaemon({
+    stateRoot: values["state-root"],
+    socketOverride: values.socket,
+    nixShellWhitelist: values["allow-nix-shell-with-env-whitelist"],
+    spawnVersion: values["spawn-version"],
+    legacyKavalSocket: values["legacy-kaval-socket"],
+    log: stderrLogger(),
+  })
+    .then((exit) => {
+      // The success/failure classification lives with `DaemonExit` in the spine
+      // (`already-running`/`shutdown` → 0, `serve-failed` → 1), reclassified once
+      // at the type's home rather than re-decided in every bin.
+      process.exit(daemonExitCode(exit));
+    })
+    .catch((err: unknown) => {
+      process.stderr.write(`padi: ${(err as Error).message}\n`);
+      process.exit(1);
+    });
+}

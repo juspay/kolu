@@ -25,12 +25,17 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isContractVersionCompatible } from "@kolu/surface/define";
+import { stdioLink } from "@kolu/surface/links/stdio";
 import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { padiKavalSocketPath, padiSocketPath } from "./stateRoot.ts";
+import {
+  padiGatePath,
+  padiKavalSocketPath,
+  padiSocketPath,
+} from "./stateRoot.ts";
 import type { PadiDaemonContract } from "./surface.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -171,6 +176,100 @@ afterEach(async () => {
 const makeStateRoot = (): string =>
   mkdtempSync(join(tmpdir(), "padi-dial-sr-"));
 
+/** A `padi --stdio` FRONT child: its piped stdio IS the wire (the ssh transport,
+ *  minus ssh), fronting a durable padi daemon it spawned at `stateRoot`. Distinct
+ *  from a {@link Padi} whose `child` is the daemon itself. */
+interface PadiStdioFront {
+  child: ChildProcess;
+  exited: Promise<number | null>;
+  stateRoot: string;
+  socketPath: string;
+  kavalSocket: string;
+}
+
+const stdioFronts: PadiStdioFront[] = [];
+
+/** Spawn `padi --stdio --state-root <sr>`: the FRONT process, whose stdin/stdout
+ *  are piped so a `stdioLink` speaks the combined contract straight through the
+ *  byte relay to the durable padi the front adopt-or-spawns. Mirrors `spawnPadi`'s
+ *  env scrubbing; stderr is inherited so a fatal `padi --stdio:` line is visible. */
+function spawnPadiStdioFront(stateRoot: string): PadiStdioFront {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    XDG_RUNTIME_DIR: RUNTIME_ROOT,
+    KOLU_KAVAL_SPAWN: "detached",
+  };
+  delete env.INVOCATION_ID;
+  delete env.KOLU_KAVAL_BIN;
+  delete env.KOLU_KAVAL_SOCKET;
+  delete env.KOLU_STATE_DIR;
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      TSX_LOADER,
+      PADI_BIN,
+      "--stdio",
+      "--state-root",
+      stateRoot,
+      "--allow-nix-shell-with-env-whitelist",
+      "default",
+    ],
+    { stdio: ["pipe", "pipe", "inherit"], env },
+  );
+  const exited = new Promise<number | null>((res) =>
+    child.on("exit", (code) => res(code)),
+  );
+  const front: PadiStdioFront = {
+    child,
+    exited,
+    stateRoot,
+    socketPath: padiSocketPath(stateRoot),
+    kavalSocket: padiKavalSocketPath(stateRoot),
+  };
+  stdioFronts.push(front);
+  return front;
+}
+
+/** The combined-contract client speaking straight through a front's byte relay. */
+function stdioClient(front: PadiStdioFront) {
+  if (!front.child.stdout || !front.child.stdin)
+    throw new Error("stdio front child has no piped stdio");
+  return stdioLink<PadiDaemonContract>({
+    read: front.child.stdout,
+    write: front.child.stdin,
+  });
+}
+
+/** Reap a stdio front AND the durable padi it fronted AND that padi's kaval — the
+ *  front is a mere proxy, so killing it leaves the detached daemon standing. */
+async function reapStdioFront(front: PadiStdioFront): Promise<void> {
+  front.child.kill("SIGTERM");
+  await front.exited;
+  const padiPid = gatePid(padiGatePath(front.socketPath));
+  if (padiPid !== undefined) {
+    try {
+      process.kill(padiPid, "SIGTERM");
+    } catch {
+      // Already gone.
+    }
+  }
+  const kavalPid = gatePid(join(dirname(front.kavalSocket), "kaval.pid"));
+  if (kavalPid !== undefined) {
+    try {
+      process.kill(kavalPid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+afterEach(async () => {
+  for (const f of stdioFronts.splice(0)) {
+    if (f.child.exitCode === null) await reapStdioFront(f);
+  }
+});
+
 describe("padi the process — dial acceptance", () => {
   it("handshakes the frozen control core over its socket", async () => {
     const stateRoot = makeStateRoot();
@@ -296,4 +395,100 @@ describe("padi the process — dial acceptance", () => {
     // SIGKILL the detached kaval it left behind.
     await reap(p);
   }, 40000);
+});
+
+describe("padi the process — dialed over a stdio front (the ssh transport, minus ssh)", () => {
+  // These prove the SAME control-core handshake + terminal round-trip the socket
+  // tests above prove, but through `padi --stdio` + `frontDaemonOverStdio` +
+  // `stdioLink` — the exact byte path kolu-server's remote binding rides over ssh
+  // (`getHostSession({ binary: "padi", extraArgs: ["--stdio"] })`). No ssh here:
+  // the front's own piped stdio is the wire, so the relay is exercised on its own.
+
+  it("handshakes the frozen control core through the byte relay", async () => {
+    const stateRoot = makeStateRoot();
+    const front = spawnPadiStdioFront(stateRoot);
+    // The durable padi comes up behind the front (which adopt-or-spawns it); wait
+    // on its digest socket directly, then drive the front's relayed client.
+    await waitForPadi(front.socketPath);
+    const client = stdioClient(front);
+
+    const hello = await client.surface.control.core.hello();
+    expect(hello.stateRoot).toBe(resolve(stateRoot));
+    expect(hello.surfaceVersion).toBe("1.1");
+    expect(hello.controlCoreVersion).toBe("1.0");
+    expect(hello.startedAt).toBeGreaterThan(0);
+
+    const clock = await client.surface.control.core.clockNow();
+    expect(clock.epochMs).toBeGreaterThan(0);
+
+    await reapStdioFront(front);
+  }, 40000);
+
+  it("round-trips a terminal through padiSurface over the byte relay", async () => {
+    const stateRoot = makeStateRoot();
+    const front = spawnPadiStdioFront(stateRoot);
+    await waitForPadi(front.socketPath);
+    const client = stdioClient(front);
+
+    const { id } = await client.surface.padi.lifecycle.create({
+      cwd: makeStateRoot(),
+    });
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+
+    // terminalAttach is the per-subscriber byte stream (delta/fail-through) — its
+    // first frame is the snapshot, relayed straight through the front.
+    const attach = (await client.surface.padi.terminalAttach.get({ id }))[
+      Symbol.asyncIterator
+    ]();
+    const first = await attach.next();
+    expect(typeof first.value).toBe("string");
+
+    await client.surface.padi.lifecycle.sendInput({
+      id,
+      data: "echo FRONTMARK\r",
+    });
+    let screen = "";
+    for (let i = 0; i < 120 && !screen.includes("FRONTMARK"); i++) {
+      screen = await client.surface.padi.screen.state({ id });
+      if (!screen.includes("FRONTMARK")) await sleep(50);
+    }
+    expect(screen).toContain("FRONTMARK");
+
+    await reapStdioFront(front);
+  }, 40000);
+
+  it("the durable daemon SURVIVES the front dropping (detach → reattach)", async () => {
+    // The mosh/dtach property the remote binding leans on: a front is a proxy, so
+    // killing it must leave the padi + its kaval + a live PTY standing, and a
+    // FRESH front must adopt the same daemon and find the terminal still there.
+    const stateRoot = makeStateRoot();
+    const front1 = spawnPadiStdioFront(stateRoot);
+    await waitForPadi(front1.socketPath);
+    const client1 = stdioClient(front1);
+    const { id } = await client1.surface.padi.lifecycle.create({
+      cwd: makeStateRoot(),
+    });
+    await client1.surface.padi.lifecycle.sendInput({
+      id,
+      data: "echo SURVIVOR\r",
+    });
+
+    // Drop the first front (SIGTERM the proxy only) — the detached daemon lives.
+    front1.child.kill("SIGTERM");
+    await front1.exited;
+
+    // A second front adopts the SAME durable daemon (its socket is still bound),
+    // and the terminal created through the first front is still there.
+    const front2 = spawnPadiStdioFront(stateRoot);
+    await waitForPadi(front2.socketPath);
+    const client2 = stdioClient(front2);
+    let screen = "";
+    for (let i = 0; i < 120 && !screen.includes("SURVIVOR"); i++) {
+      screen = await client2.surface.padi.screen.state({ id });
+      if (!screen.includes("SURVIVOR")) await sleep(50);
+    }
+    expect(screen).toContain("SURVIVOR");
+
+    await reapStdioFront(front2);
+  }, 60000);
 });

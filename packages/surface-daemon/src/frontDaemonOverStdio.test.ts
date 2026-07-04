@@ -7,7 +7,13 @@
  * lifecycle. A separate block pins `reExecAsDetachedDaemon`'s spawn shape with an
  * injected `spawn` — the load-bearing single-process re-exec invariant.
  */
-import { mkdtempSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -238,5 +244,66 @@ describe("reExecAsDetachedDaemon", () => {
     expect(opts.stdio).toBe("ignore");
     expect(opts.env).toEqual({ FOO: "bar" });
     expect(unrefed).toBe(1);
+  });
+
+  it("with stderrLog: hands the child a real stderr fd (stdout/stdin ignored) and rotates the previous capture to .old on boot", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reexec-log-"));
+    const logFile = join(dir, "daemon.stderr.log");
+    // Seed a previous boot's capture so we exercise the truncate-on-boot rotation.
+    writeFileSync(logFile, "prior boot\n");
+    const calls: Array<{ opts: { stdio?: unknown } }> = [];
+    // biome-ignore lint/suspicious/noExplicitAny: minimal ChildProcess stub.
+    const fakeSpawn = ((_c: string, _a: readonly string[], opts: any) => {
+      calls.push({ opts });
+      return { unref: () => {} };
+      // biome-ignore lint/suspicious/noExplicitAny: matching spawn's type.
+    }) as any;
+    const savedArgv = process.argv;
+    process.argv = [process.execPath, "/path/bin.ts", "--stdio"];
+    try {
+      reExecAsDetachedDaemon({
+        stripArgs: ["--stdio"],
+        spawn: fakeSpawn,
+        stderrLog: logFile,
+      });
+    } finally {
+      process.argv = savedArgv;
+    }
+    // stdio = ["ignore", "ignore", <fd>] — a real stderr fd, stdout + stdin still ignored.
+    const stdio = calls[0]?.opts.stdio as unknown[];
+    expect(stdio[0]).toBe("ignore");
+    expect(stdio[1]).toBe("ignore");
+    expect(typeof stdio[2]).toBe("number");
+    // Rotate-on-boot: the prior generation moved to `.old`, a fresh file opened.
+    expect(existsSync(`${logFile}.old`)).toBe(true);
+    expect(readFileSync(`${logFile}.old`, "utf8")).toBe("prior boot\n");
+    expect(existsSync(logFile)).toBe(true);
+    // Owner-only (0600) — the crash-catcher can hold sensitive stderr, never world-readable.
+    expect(statSync(logFile).mode & 0o777).toBe(0o600);
+  });
+
+  it("with stderrLog: creates the crash-catcher dir OWNER-ONLY (0700) — a detached daemon's runtime home must stay private (P0 regression)", () => {
+    const parent = mkdtempSync(join(tmpdir(), "reexec-perm-"));
+    // A fresh subdir the spine must create (kaval's `kaval-<digest>/` home is such a dir, and
+    // kaval REFUSES a non-private one; a bare mkdir under umask 022 → 0755 → the daemon never
+    // comes up).
+    const logFile = join(parent, "kaval-digest", "daemon.stderr.log");
+    // biome-ignore lint/suspicious/noExplicitAny: minimal ChildProcess stub.
+    const fakeSpawn = ((_c: string, _a: readonly string[], _o: any) => ({
+      unref: () => {},
+      // biome-ignore lint/suspicious/noExplicitAny: matching spawn's type.
+    })) as any;
+    const savedArgv = process.argv;
+    process.argv = [process.execPath, "/path/bin.ts", "--stdio"];
+    try {
+      reExecAsDetachedDaemon({
+        stripArgs: ["--stdio"],
+        spawn: fakeSpawn,
+        stderrLog: logFile,
+      });
+    } finally {
+      process.argv = savedArgv;
+    }
+    expect(statSync(join(parent, "kaval-digest")).mode & 0o777).toBe(0o700);
   });
 });

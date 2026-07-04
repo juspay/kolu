@@ -34,6 +34,8 @@
  */
 
 import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
+import { closeSync, mkdirSync, openSync, renameSync } from "node:fs";
+import { dirname } from "node:path";
 
 export interface DaemonSpawnConfig {
   /** Absolute path to the daemon executable. Absolute because a systemd
@@ -57,6 +59,12 @@ export interface DaemonSpawnConfig {
    *  unit would strip the build environment the source launcher needs.
    *  Defaults to `false`. */
   fromSource?: boolean;
+  /** A crash-catcher file for the daemon's raw STDERR, wired ONLY when this spawn is DETACHING
+   *  — detaching means nobody holds the child's stderr, so a file is mandatory (P0):
+   *  truncate-on-boot (one `.old` generation) keeps it bounded. An ATTACHED (systemd) spawn
+   *  keeps parent-owned stderr (journald) and IGNORES this. The caller derives the path
+   *  deterministically from the daemon's identity. */
+  stderrLog?: string;
 }
 
 /** Spawn the daemon process so it outlives this one. Resolves once the child
@@ -90,7 +98,7 @@ export interface SpawnDriverDeps {
     args: string[],
     options: {
       detached: boolean;
-      stdio: "ignore";
+      stdio: "ignore" | Array<"ignore" | number>;
       env?: Record<string, string>;
     },
   ) => SpawnedChild;
@@ -164,8 +172,11 @@ export function survivableSpawnDriver(
         env.INVOCATION_ID !== "";
 
       if (underSystemd) {
-        // systemd-run --user --collect --unit <prefix>-<uniq> \
-        //   --setenv K=V ... <binPath> <args...>
+        // ATTACHED to journald: the transient unit's parent (systemd) holds the daemon's
+        // stderr, so NO crash-catcher file here — `journalctl --user -u <unit>` reads it
+        // (P0: the crash-catcher file is wired only when DETACHING, where nobody holds it).
+        // The daemon's own pino stream still lands in its rolled file via its entrypoint.
+        // systemd-run --user --collect --unit <prefix>-<uniq> --setenv K=V ... <bin> <args>
         const setenv = Object.entries(cfg.env).flatMap(([k, v]) => [
           "--setenv",
           `${k}=${v}`,
@@ -186,15 +197,38 @@ export function survivableSpawnDriver(
           }),
         );
       }
-      // Detached + unref: survives the parent on macOS/launchd and on a
-      // cgroup-less host. The forwarded env is layered onto ours.
-      return settle(
-        spawnProcess(cfg.binPath, cfg.args, {
-          detached: true,
-          stdio: "ignore",
-          env: { ...(env as Record<string, string>), ...cfg.env },
-        }),
-      );
+      // DETACHED + unref: survives the parent on macOS/launchd and on a cgroup-less host, and
+      // nobody holds the child's stderr — so wire the crash-catcher file (P0), truncate-on-boot
+      // (keep ONE `.old` generation) so it stays bounded. The forwarded env is layered on ours.
+      let stderrFd: "ignore" | number = "ignore";
+      if (cfg.stderrLog) {
+        // `mode: 0o700` is LOAD-BEARING: the crash-catcher dir can be the daemon's OWN runtime
+        // home (kaval's `kaval-<digest>/`), and kaval REFUSES to serve on a non-private dir
+        // (#1313 owner-only). Creating it 0755 (the umask-022 default of a bare `mkdir`) makes
+        // kaval refuse → padi's ensureLocalEndpoint times out → the whole remote bind flaps.
+        mkdirSync(dirname(cfg.stderrLog), { recursive: true, mode: 0o700 });
+        // Rotate the prior capture WITHOUT a check-then-use race: attempt the rename and
+        // swallow only ENOENT (no prior boot), never existsSync-then-rename (a TOCTOU).
+        try {
+          renameSync(cfg.stderrLog, `${cfg.stderrLog}.old`);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        }
+        // Mode 0o600: the crash-catcher can hold sensitive stderr — owner-only, never the
+        // world-readable 0644 a bare openSync would create under umask 022.
+        stderrFd = openSync(cfg.stderrLog, "a", 0o600);
+      }
+      const child = spawnProcess(cfg.binPath, cfg.args, {
+        detached: true,
+        stdio:
+          typeof stderrFd === "number"
+            ? ["ignore", "ignore", stderrFd]
+            : "ignore",
+        env: { ...(env as Record<string, string>), ...cfg.env },
+      });
+      // The child inherited the fd; drop the parent's copy so we don't leak it.
+      if (typeof stderrFd === "number") closeSync(stderrFd);
+      return settle(child);
     },
   };
 }

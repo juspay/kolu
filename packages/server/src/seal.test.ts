@@ -54,6 +54,11 @@ const WEB_SHELL_FILES = [
   // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives
   // beside the shell, not in @kolu/padi.
   "padiBinding",
+  // The W3.1 REMOTE padi binder — the ssh twin of `padiBinding`: it fronts a padi on
+  // another host over `getHostSession`/`padi --stdio` and re-serves its surface through
+  // the SAME `reServeSurface` seam. Web-shell code (it runs no terminal domain — it
+  // re-serves a remote padi's), so it lives beside the shell, not in @kolu/padi.
+  "remotePadiBinding",
   // The pure `HostSessionState.connection` → koluSurface `padiLink` mapping — the web
   // shell's own honest view of its binding to padi (#1034), driven off the binding
   // session. Shell code (a projection of the binder's state onto kolu-server's OWN

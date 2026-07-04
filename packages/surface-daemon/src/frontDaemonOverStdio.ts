@@ -39,7 +39,9 @@
  */
 
 import { spawn as nodeSpawn } from "node:child_process";
+import { closeSync, mkdirSync, openSync, renameSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
+import { dirname } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
 /** How long to wait for a freshly-spawned daemon's socket to start listening
@@ -85,6 +87,13 @@ export interface ReExecAsDetachedDaemonOptions {
   /** Environment for the detached daemon. Default `process.env` — carries the
    *  Nix wrapper's build-id / `PATH` the daemon needs. */
   env?: NodeJS.ProcessEnv;
+  /** Append the detached daemon's STDERR — its WHOLE diagnostic stream (the pino log, any
+   *  raw `stderr` writes, an uncaught-exception stack) — to this file, so a daemon that
+   *  OUTLIVES the parent that could have relayed its stderr (the ssh front that closed, a
+   *  kolu-server that exited) still leaves a readable trail instead of `/dev/null`. Opened
+   *  APPEND-mode (no rotation — keep it simple); the caller derives the path deterministically
+   *  from the daemon's identity. Absent → stderr ignored (the pre-P0 behavior). */
+  stderrLog?: string;
   /** Injected in tests; default `node:child_process`'s `spawn`. */
   spawn?: typeof nodeSpawn;
 }
@@ -107,11 +116,35 @@ export function reExecAsDetachedDaemon(
     ...process.execArgv,
     ...process.argv.slice(1).filter((a) => !strip.has(a)),
   ];
+  // Hand the detached daemon a real STDERR sink when a log path is given (P0). Without it,
+  // `stdio:"ignore"` sent the daemon's whole log stream to /dev/null — a live prod freeze was
+  // undiagnosable because the logs the code correctly writes went nowhere. stdout stays
+  // ignored: this re-exec drops `--stdio`, so stdout is no longer the wire, and the daemon
+  // logs to stderr.
+  let stderr: "ignore" | number = "ignore";
+  if (opts.stderrLog) {
+    // `mode: 0o700` is LOAD-BEARING: the crash-catcher dir can be the daemon's OWN runtime home
+    // (kaval's `kaval-<digest>/`), and kaval REFUSES a non-private dir (#1313 owner-only). A
+    // bare `mkdir` under umask 022 makes it 0755 → kaval refuses → the daemon never comes up.
+    mkdirSync(dirname(opts.stderrLog), { recursive: true, mode: 0o700 });
+    // Truncate-on-boot bound: keep ONE prior generation as `.old`, start this boot fresh, so
+    // the crash-catcher never grows unbounded (no size rotation to hand-roll). Attempt the
+    // rename and swallow only ENOENT (no prior boot) — never existsSync-then-rename (a TOCTOU).
+    try {
+      renameSync(opts.stderrLog, `${opts.stderrLog}.old`);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    // Mode 0o600: the crash-catcher can hold sensitive stderr — owner-only, never world-readable.
+    stderr = openSync(opts.stderrLog, "a", 0o600);
+  }
   const child = spawn(process.execPath, args, {
     detached: true,
-    stdio: "ignore",
+    stdio: typeof stderr === "number" ? ["ignore", "ignore", stderr] : "ignore",
     env: opts.env ?? process.env,
   });
+  // The child inherited the fd; drop the parent's copy so we don't leak it.
+  if (typeof stderr === "number") closeSync(stderr);
   child.unref();
 }
 

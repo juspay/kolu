@@ -38,11 +38,23 @@
         builtins.unsafeDiscardStringContext
           (import ./default.nix { inherit pkgs commitHash; }).kaval.drvPath);
       kavalAgentDrvsJson = builtins.toJSON kavalDrvBySystem;
+      # Per-system { system → padi .drv } map, baked onto kolu-server's wrapper
+      # (PADI_AGENT_DRVS_JSON) so a `KOLU_PADI_HOST=<ssh>` remote binding ships the
+      # TARGET-arch padi derivation (provisionAgent copies+realises it remotely).
+      # kaval rides INSIDE padi's closure (padi's wrapper bakes KOLU_KAVAL_BIN), so
+      # this ONE drv provisions BOTH daemons. Same JSON-less-import + no-IFD
+      # discipline as kavalDrvBySystem above: the padi daemon drv doesn't depend on
+      # the map (only kolu-server's wrapper does), so building it this way can't
+      # cycle back through the koluBySystem that consumes it.
+      padiDrvBySystem = eachSystem (pkgs:
+        builtins.unsafeDiscardStringContext
+          (import ./default.nix { inherit pkgs commitHash; }).padi.drvPath);
+      padiAgentDrvsJson = builtins.toJSON padiDrvBySystem;
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
       koluBySystem = eachSystem (pkgs:
         import ./default.nix {
-          inherit pkgs commitHash kavalAgentDrvsJson;
+          inherit pkgs commitHash kavalAgentDrvsJson padiAgentDrvsJson;
         });
       # website/default.nix is self-contained — it resolves its own public/
       # asset symlinks (favicon, kaval logo), so the flake just imports it.

@@ -22,7 +22,11 @@ import {
   frontDaemonOverStdio,
   reExecAsDetachedDaemon,
 } from "@kolu/surface-daemon";
-import { getPtyHostSocketPath, KAVAL_NS_PREFIX } from "./socketPath.ts";
+import {
+  getPtyHostSocketPath,
+  KAVAL_NS_PREFIX,
+  kavalLogPath,
+} from "./socketPath.ts";
 
 export interface RunStdioBridgeOptions {
   /** The value of `--socket`, threaded straight from `bin.ts`'s argv parse, so
@@ -52,7 +56,13 @@ export function runStdioBridge(
     // `--socket PATH` (if any) rides through in `process.argv`, so the daemon
     // resolves the SAME path the front just did — load-bearing, and why this
     // shim is CLI-only (see `socketOverride`).
-    spawnDaemon: () => reExecAsDetachedDaemon({ stripArgs: ["--stdio"] }),
+    // `stderrLog` gives the DETACHED daemon a real log sink beside its socket (P0) — else
+    // a detached kaval's whole log stream went to /dev/null.
+    spawnDaemon: () =>
+      reExecAsDetachedDaemon({
+        stripArgs: ["--stdio"],
+        stderrLog: kavalLogPath(socketPath),
+      }),
     log: (msg) => process.stderr.write(`kaval --stdio: ${msg}\n`),
   });
 }

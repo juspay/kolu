@@ -47,6 +47,17 @@ export const KAVAL_GATE_FILE = "kaval.pid";
  *  `kaval-<port>` dir has NO manifest — its port is meaning enough. */
 export const STATE_ROOT_MANIFEST_FILE = "state-root";
 
+export const KAVAL_LOG_FILE = "kaval.log";
+
+/** kaval's deterministic diagnostic log — `<digest-keyed home>/kaval.log`, beside its socket.
+ *  Every kaval spawn path appends the daemon's stderr here (P0) so a kaval that OUTLIVES the
+ *  padi/kolu-server that spawned it still leaves a readable log instead of /dev/null. Ephemeral
+ *  (the runtime home), but so is the daemon — deterministic while it lives, keyed by the same
+ *  digest the socket is. */
+export function kavalLogPath(socketPath: string): string {
+  return join(dirname(socketPath), KAVAL_LOG_FILE);
+}
+
 /** Write the `state-root` manifest into a rendezvous dir, owner-only. Ensures the
  *  `0700` dir exists first (padi writes its kaval's manifest BEFORE kaval binds
  *  the socket, so the dir may not exist yet). Idempotent. Owned HERE, beside the

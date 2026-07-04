@@ -6,12 +6,15 @@
 
 import type { PadiDaemon } from "@kolu/padi/assembly";
 import type { KavalDaemon } from "kaval";
+import type { DaemonInventory } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
   assembleKavalInventory,
   assemblePadiInventory,
+  enumerateDaemonInventoryOnce,
   type KavalProbe,
   resolveActiveKavalSocket,
+  startDaemonInventorySampler,
 } from "./daemonInventory.ts";
 
 const DIGEST = "/run/user/1000/kaval-abc123/pty-host.sock";
@@ -263,5 +266,182 @@ describe("assemblePadiInventory", () => {
       surfaceVersion: "1.1",
       buildCommit: null,
     });
+  });
+});
+
+describe("enumerateDaemonInventoryOnce — remote binding (boundHost)", () => {
+  const remoteDeps = (
+    over: Partial<Parameters<typeof enumerateDaemonInventoryOnce>[0]>,
+  ): Parameters<typeof enumerateDaemonInventoryOnce>[0] => ({
+    discoverKavals: () => [kaval({ socket: DIGEST })],
+    discoverPadis: () => [padi({ socket: PADI_ACTIVE })],
+    probe: async () => probe(),
+    digestKavalSocket: DIGEST,
+    legacyKavalSocket: LEGACY,
+    activePadiSocket: PADI_ACTIVE,
+    activePadiSurfaceVersion: () => "1.1",
+    activePadiBuildCommit: () => "localcommit",
+    activePadiConvergence: () => null,
+    // Default LOCAL bind; a remote case overrides with a host (boundLocally is DERIVED
+    // = boundHost === null, so a non-null host is the sole remote signal).
+    boundHost: null,
+    publish: () => {},
+    ...over,
+  });
+
+  it("a remote boundHost marks NO local daemon active and never pins the remote padi's identity onto a local socket", async () => {
+    let published: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        // The bound padi is REMOTE — its honest identity must NOT land on any local row.
+        activePadiSurfaceVersion: () => "9.9",
+        activePadiBuildCommit: () => "remotecommit",
+        publish: (inv) => {
+          published = inv;
+        },
+        boundHost: "nix@remote.example",
+      }),
+    );
+    // Local daemons are still LISTED (a leak stays visible) …
+    expect(published?.kavals).toHaveLength(1);
+    expect(published?.padis).toHaveLength(1);
+    // … but NONE is kolu's active one, and the remote padi's version/commit attach to
+    // nothing local (no "in use by kolu" lie, no remote identity on a local socket).
+    expect(published?.kavals[0]?.active).toBe(false);
+    expect(published?.padis[0]).toMatchObject({
+      active: false,
+      surfaceVersion: null,
+      buildCommit: null,
+    });
+  });
+
+  it("publishes boundHost = the remote host when bound remotely, null when local — so the dialog labels this LOCAL scan 'not the bound host'", async () => {
+    let remote: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        publish: (inv) => {
+          remote = inv;
+        },
+        boundHost: "nix@prod.example",
+      }),
+    );
+    // Bound remotely → the host rides the inventory so the dialog can fence off + label
+    // this local scan as "this machine, not the bound host".
+    expect(remote?.boundHost).toBe("nix@prod.example");
+    // …and the BOUND padi's identity rides `boundPadi` (off the session readouts), so
+    // the Padi dialog's version + build-commit work over ssh even though NO local padi is
+    // `active` — the field-by-field side-channel the two-box repro surfaced.
+    expect(remote?.boundPadi).toEqual({
+      surfaceVersion: "1.1",
+      buildCommit: "localcommit",
+      convergence: null,
+    });
+    expect(remote?.padis[0]?.active).toBe(false); // still no local active row
+
+    let local: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        publish: (inv) => {
+          local = inv;
+        },
+      }),
+    );
+    // Local bind (no boundHost dep) → null, so the dialog keeps "Running kaval daemons".
+    expect(local?.boundHost).toBeNull();
+  });
+
+  it("boundHost null (local bind) marks the local bound daemon active — unchanged", async () => {
+    let published: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        publish: (inv) => {
+          published = inv;
+        },
+      }),
+    );
+    expect(published?.kavals[0]?.active).toBe(true);
+    expect(published?.padis[0]).toMatchObject({
+      active: true,
+      surfaceVersion: "1.1",
+      buildCommit: "localcommit",
+    });
+  });
+
+  it("a degraded bind with NO adopted identity (skew/link-failed) still publishes boundPadi carrying the convergence reason", async () => {
+    let published: DaemonInventory | undefined;
+    await enumerateDaemonInventoryOnce(
+      remoteDeps({
+        boundHost: "nix@prod.example",
+        // A REFUSED / FAILED bind: no adopted identity (liveIdentity() is null), but a
+        // standing convergence reason to surface.
+        activePadiSurfaceVersion: () => null,
+        activePadiBuildCommit: () => null,
+        activePadiConvergence: () => ({
+          state: "skew-refused",
+          runningBuild: null,
+          expectedBuild: null,
+          detail:
+            "padi contract skew: remote serves 99.0, kolu-server needs 5.0 — refusing",
+        }),
+        publish: (inv) => {
+          published = inv;
+        },
+      }),
+    );
+    // boundPadi must be NON-null even with null identity — else the Padi dialog's degraded
+    // banner would vanish for a refused/failed bind (the exact null-vs-nonnull case).
+    expect(published?.boundPadi).toEqual({
+      surfaceVersion: null,
+      buildCommit: null,
+      convergence: {
+        state: "skew-refused",
+        runningBuild: null,
+        expectedBuild: null,
+        detail:
+          "padi contract skew: remote serves 99.0, kolu-server needs 5.0 — refusing",
+      },
+    });
+  });
+
+  it("P4: the sampler COALESCES a resample landing mid-tick — one re-run, never dropped, never doubled", async () => {
+    const until = async (cond: () => boolean): Promise<void> => {
+      const deadline = Date.now() + 2000;
+      while (!cond()) {
+        if (Date.now() > deadline) throw new Error("timed out");
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    };
+    let publishCount = 0;
+    let gates: Array<() => void> = [];
+    // Drain whatever probes the current tick issued (a tick issues all its probes synchronously).
+    const releaseTick = (): void => {
+      const g = gates;
+      gates = [];
+      for (const fn of g) fn();
+    };
+    const deps = remoteDeps({
+      // Each probe blocks until released, so a tick stays IN-FLIGHT while we fire resamples.
+      probe: () => new Promise((resolve) => gates.push(() => resolve(probe()))),
+      publish: () => {
+        publishCount += 1;
+      },
+    });
+    let resample: (() => void) | undefined;
+    startDaemonInventorySampler(deps, (fn) => {
+      resample = fn;
+    });
+    // The boot tick is in-flight (its probes gated). Fire TWO resamples mid-tick → coalesced.
+    await until(() => gates.length > 0);
+    resample?.();
+    resample?.();
+    // Release the boot tick → it publishes (1), then the ONE coalesced re-run issues its probes.
+    releaseTick();
+    await until(() => publishCount === 1 && gates.length > 0);
+    // Release the re-run → publishes (2). No further pending → no third tick.
+    releaseTick();
+    await until(() => publishCount === 2);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(publishCount).toBe(2); // boot + ONE coalesced re-run (not 1 dropped, not 3 doubled)
+    expect(gates.length).toBe(0);
   });
 });

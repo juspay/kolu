@@ -61,7 +61,9 @@ export {
   padiDigest,
   padiGatePath,
   padiKavalSocketPath,
+  padiLogPath,
   padiSocketPath,
+  padiStderrLogPath,
   resolvePadiStateRoot,
 } from "./stateRoot.ts";
 // ── publisher / surface ctx holder ──────────────────────────────────────

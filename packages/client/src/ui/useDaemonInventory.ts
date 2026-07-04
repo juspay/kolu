@@ -10,7 +10,11 @@
  * rendered "—" by the dialogs — never a fabricated value.
  */
 
-import type { RunningKaval, RunningPadi } from "kolu-common/surface";
+import type {
+  PadiConvergence,
+  RunningKaval,
+  RunningPadi,
+} from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { app } from "../wire";
 
@@ -30,6 +34,14 @@ export function runningPadis(): RunningPadi[] {
   return sub.value()?.padis ?? [];
 }
 
+/** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
+ *  LOCAL binding / before the first enumeration. When non-null, this inventory is a scan
+ *  of THIS machine — NOT the bound host — so the dialogs label + separate it from the
+ *  bound-kaval identity (which rides padiSurface and reflects the REMOTE host). */
+export function daemonScanBoundHost(): string | null {
+  return sub.value()?.boundHost ?? null;
+}
+
 /** The padi kolu-server is bound to (`active`), or `undefined` before the first
  *  enumeration / while unbound. The Padi dialog reads its `surfaceVersion` /
  *  `buildCommit` / `socket` for the header + detail rows, mirroring how the Kaval
@@ -38,10 +50,28 @@ export function activePadi(): RunningPadi | undefined {
   return runningPadis().find((p) => p.active);
 }
 
-/** The `padiSurface` version the RUNNING active padi serves — the bound padi's honest
- *  `hello.surfaceVersion`, or `null` when padi is unbound / before the first sample (an
- *  honest "—", never the binder's build constant). Read by the Padi dialog + rail chip's
- *  "contract v<x.y>" readout, mirroring how Kaval sources its own contract version. */
+/** The `padiSurface` version the BOUND padi serves — its honest `hello.surfaceVersion`,
+ *  or `null` while unbound / before the first sample (an honest "—", never the binder's
+ *  build constant). Reads the bound-session readout (`boundPadi`), NOT the local-scan
+ *  `active` row, so it's correct over ssh too (a remote binding has no local active padi).
+ *  Read by the Padi dialog + rail chip's "contract v<x.y>" readout. */
 export function activePadiSurfaceVersion(): string | null {
-  return activePadi()?.surfaceVersion ?? null;
+  return sub.value()?.boundPadi?.surfaceVersion ?? null;
+}
+
+/** The BOUND padi's honest navigable git build commit off its `hello`, or `null` while
+ *  unbound / a survivor predating the field. Like {@link activePadiSurfaceVersion}, reads
+ *  the bound-session readout so the Padi dialog's build-commit row works over ssh (no
+ *  local active padi under a remote binding). */
+export function boundPadiBuildCommit(): string | null {
+  return sub.value()?.boundPadi?.buildCommit ?? null;
+}
+
+/** The BOUND padi's STANDING convergence anomaly (adopted-stale build / contract skew /
+ *  drain-failure / link-failure), or `null` when converged/healthy. The Padi dialog reads
+ *  it to show a degraded bind as a visible banner (running vs expected build, the reason) —
+ *  the whole point of the dialog: nothing swallowed behind the scenes. Remote arm only; the
+ *  local arm reports `null` today (see `BoundPadi.padiConvergence`). */
+export function boundPadiConvergence(): PadiConvergence | null {
+  return sub.value()?.boundPadi?.convergence ?? null;
 }

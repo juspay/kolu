@@ -55,6 +55,7 @@ import {
   currentPadiBuildId,
   padiGatePath,
   padiSocketPath,
+  padiStderrLogPath,
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 // The client-side dial kit — carved out of THIS module in W2.3 so `padi-tui` and
@@ -73,6 +74,7 @@ import {
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION, type padiSurface } from "@kolu/padi/surface";
+import type { PadiConvergence } from "kolu-common/surface";
 import {
   type ConvergencePolicy,
   type ConvergenceProbe,
@@ -387,6 +389,10 @@ export function localPadiDriver(
     env: daemonEnv(stateRoot, verbose),
     unitPrefix: "padi",
     fromSource,
+    // P0: the local padi daemon's RAW stderr (native errors / crash stacks pino can't see) →
+    // its crash-catcher on the DETACHED (non-systemd) branch; its pino stream rides `padi.log`
+    // via the daemon entrypoint's multistream (no flag). Under systemd, stderr → journald.
+    stderrLog: padiStderrLogPath(stateRoot),
   });
 }
 
@@ -421,6 +427,46 @@ function projectEndpointStatus(s: PadiEndpointStatus): HostSessionState {
   };
 }
 
+/**
+ * What kolu-server needs from a bound padi, LOCAL or REMOTE: the
+ * `RemoteMirrorSession` role `reServeSurface` consumes (pin · currentClient ·
+ * onState · markConnected · isDestroyed · destroy) PLUS the four kolu-server-facing
+ * readouts/verbs — the bound padi's honest identity (uptime · contract version ·
+ * build commit, off the control-core `hello`) and the "restart" drain. index.ts
+ * types `padiSession` as this, so the {@link PadiBindingSession} (local Endpoint)
+ * and W3.1's `RemotePadiSession` (ssh HostSession) are interchangeable at the
+ * composition root — the knob picks one, the re-serve and the router are identical.
+ */
+export interface BoundPadi
+  extends RemoteMirrorSession<typeof padiSurface.contract> {
+  /** Narrowed from the role's `Promise<unknown>` to the padi-scoped client: both
+   *  arms yield exactly this, and kolu-server's iframe-preview + memory-sampler
+   *  routes call `.surface.padi.*` on it (a return-type narrowing is legal — the
+   *  role stays satisfied). */
+  pin(): Promise<PadiSurfaceClient>;
+  currentClient(): Promise<PadiSurfaceClient> | null;
+  /** DRAIN the bound padi (the "restart" verb): persist + exit; its kaval + PTYs
+   *  survive; the reconnect loop re-adopts/re-spawns. Never a kill-9. */
+  drainBoundPadi(): Promise<void>;
+  /** The bound padi's boot time (ms epoch), or `null` while unbound — the rail's
+   *  padi uptime. */
+  padiStartedAt(): number | null;
+  /** The bound padi's `padiSurface` version off its control-core `hello`, or `null`
+   *  while unbound — the daemonInventory "contract v<x.y>" readout. */
+  padiSurfaceVersion(): string | null;
+  /** The bound padi's navigable git build commit off its control-core `hello`, or
+   *  `null` while unbound / when a survivor padi predates the field. */
+  padiBuildCommit(): string | null;
+  /** A STANDING convergence anomaly to surface in the Padi dialog (adopted-stale build,
+   *  contract skew, drain-failure, link-failure), or `null` when converged/healthy — so a
+   *  degraded bind is a visible state, not a swallowed log line. The REMOTE arm returns the
+   *  real descriptor; the LOCAL arm returns `null` for now — the shared convergence kit
+   *  collapses a fence-spent adopt to a bare `{kind:"adopted"}` that drops the stale-vs-fresh
+   *  distinction, so local adopt-stale can't be surfaced without a kit change (L23 follow-up;
+   *  the local arm silently adopts today, pre-existing). */
+  padiConvergence(): PadiConvergence | null;
+}
+
 export interface PadiBindingSessionDeps {
   endpoint: PadiEndpoint;
   /** Kick the boot/reconnect: `adoptOrSpawnOrRefuse` on boot, and again after a
@@ -441,9 +487,7 @@ export interface PadiBindingSessionDeps {
  * pump's client cursor advances on identity. `currentClient()`/`pin()` return the
  * padi-SIBLING-scoped client (the dial kit's `scopePadiSurface(combined)`).
  */
-export class PadiBindingSession
-  implements RemoteMirrorSession<typeof padiSurface.contract>
-{
+export class PadiBindingSession implements BoundPadi {
   private clientPromise: Promise<PadiSurfaceClient> | null = null;
   private destroyed = false;
   /** The bound padi's HONEST boot time (ms epoch) off its control-core `hello`
@@ -583,6 +627,17 @@ export class PadiBindingSession
    *  `buildCommit`; `null` renders as the honest "—". */
   padiBuildCommit(): string | null {
     return this.destroyed ? null : this.padiBuildCommitStr;
+  }
+
+  /** The LOCAL arm surfaces no convergence anomaly today: the shared kit collapses a
+   *  fence-spent build-mismatch adopt to a bare `{kind:"adopted"}` (converge.ts) that drops
+   *  the stale-vs-fresh distinction, so an adopted-old-build here is indistinguishable from a
+   *  clean adopt without a kit change. `null` = "nothing to surface" (pre-existing silent
+   *  adopt). Surfacing local convergence is the L23 both-arms-unification follow-up; W3.1's
+   *  adopt-loudly + degraded surfacing lands on the remote arm (its bindState knows the
+   *  distinction firsthand). */
+  padiConvergence(): PadiConvergence | null {
+    return null;
   }
 
   onState(cb: (s: HostSessionState) => void): () => void {

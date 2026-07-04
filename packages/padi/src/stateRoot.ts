@@ -136,6 +136,29 @@ export function padiGatePath(socketPath: string): string {
   return join(dirname(socketPath), PADI_GATE_FILE);
 }
 
+export const PADI_LOG_FILE = "padi.log";
+
+/** padi's deterministic diagnostic log — `<state-root>/padi.log`. Every padi spawn path
+ *  appends the daemon's stderr here (P0), so a padi that OUTLIVES the parent that spawned it
+ *  (an ssh front, a kolu-server) still leaves a readable log instead of /dev/null. Homed on
+ *  the PERSISTENT state root (not the ephemeral runtime socket dir) so it survives reboots
+ *  and is trivial to find: same dir the daemon already owns, keyed by state-root identity. */
+export function padiLogPath(stateRoot?: string): string {
+  return join(resolvePadiStateRoot(stateRoot), PADI_LOG_FILE);
+}
+
+export const PADI_STDERR_LOG_FILE = "padi.stderr.log";
+
+/** padi's raw-STDERR crash-catcher — `<state-root>/padi.stderr.log`. SEPARATE from
+ *  {@link padiLogPath} (pino's structured, size-capped stream): this file captures what pino
+ *  can't see — native `stderr` writes, an uncaught-exception / unhandled-rejection stack —
+ *  the spawn spine hands it as the detached daemon's stderr fd (P0). Bounded by
+ *  TRUNCATE-ON-BOOT (the spine rotates the previous to `.old` and starts fresh — one
+ *  generation, never unbounded), so it needs no size rotation. */
+export function padiStderrLogPath(stateRoot?: string): string {
+  return join(resolvePadiStateRoot(stateRoot), PADI_STDERR_LOG_FILE);
+}
+
 /** The socket padi's kaval serves on: `$XDG_RUNTIME_DIR/kaval-<digest>/
  *  pty-host.sock`, keyed by the SAME digest as padi (retires the legacy
  *  `kaval-<port>`). Reuses kaval's own path builder with the digest namespace, so

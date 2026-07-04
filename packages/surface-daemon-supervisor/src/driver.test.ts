@@ -1,10 +1,23 @@
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type DaemonSpawnConfig, survivableSpawnDriver } from "./driver.ts";
 
 interface Captured {
   command: string;
   args: string[];
-  options: { detached: boolean; stdio: "ignore"; env?: Record<string, string> };
+  options: {
+    detached: boolean;
+    stdio: "ignore" | Array<"ignore" | number>;
+    env?: Record<string, string>;
+  };
   unrefd: boolean;
 }
 
@@ -85,6 +98,59 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     await driver.spawn();
     const units = calls.map((c) => c.args[c.args.indexOf("--unit") + 1]);
     expect(units).toEqual(["kaval-s1", "kaval-s2"]);
+  });
+
+  it("with stderrLog under systemd: does NOT wire a crash-catcher file — journald holds stderr (P0)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "drv-log-"));
+    const logFile = join(dir, "d.stderr.log");
+    const { calls, spawnProcess } = capture();
+    const driver = survivableSpawnDriver(
+      { ...cfg, stderrLog: logFile },
+      { env: { INVOCATION_ID: "x" }, spawnProcess, unitSuffix: () => "U" },
+    );
+    await driver.spawn();
+    // Attached spawns keep parent-owned stderr (journald), so no file arg + no `.old` rotation.
+    const c = only(calls);
+    expect(c.command).toBe("systemd-run");
+    expect(c.args.some((a) => a.includes("StandardError"))).toBe(false);
+    expect(existsSync(`${logFile}.old`)).toBe(false);
+  });
+
+  it("with stderrLog off systemd: hands a real stderr fd (stdout/stdin ignored) and rotates the prior capture to .old (P0)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "drv-log-"));
+    const logFile = join(dir, "d.stderr.log");
+    writeFileSync(logFile, "prior\n"); // seed a prior boot to exercise rotate-on-boot
+    const { calls, spawnProcess } = capture();
+    const driver = survivableSpawnDriver(
+      { ...cfg, stderrLog: logFile },
+      { env: { PATH: "/usr/bin" }, spawnProcess },
+    );
+    await driver.spawn();
+    const stdio = only(calls).options.stdio as unknown[];
+    expect(stdio[0]).toBe("ignore");
+    expect(stdio[1]).toBe("ignore");
+    expect(typeof stdio[2]).toBe("number");
+    expect(existsSync(`${logFile}.old`)).toBe(true);
+    expect(readFileSync(`${logFile}.old`, "utf8")).toBe("prior\n");
+    // Owner-only (0600) — the crash-catcher can hold sensitive stderr, never world-readable.
+    expect(statSync(logFile).mode & 0o777).toBe(0o600);
+  });
+
+  it("with stderrLog off systemd: creates the crash-catcher dir OWNER-ONLY (0700) — kaval's private-dir guard refuses 0755 (P0 regression)", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "drv-perm-"));
+    // The crash-catcher dir can be the daemon's OWN runtime home (kaval-<digest>/), which
+    // kaval refuses unless owner-only. A bare `mkdir` under umask 022 → 0755 → kaval refuses →
+    // padi never boots. The dir must not exist yet, so the spine creates it.
+    const crashDir = join(parent, "kaval-digest");
+    const logFile = join(crashDir, "kaval.log");
+    const { spawnProcess } = capture();
+    const driver = survivableSpawnDriver(
+      { ...cfg, stderrLog: logFile },
+      { env: { PATH: "/usr/bin" }, spawnProcess },
+    );
+    await driver.spawn();
+    // umask never masks owner bits, so 0700 stays 0700; a bare mkdir's 0755 would FAIL this.
+    expect(statSync(crashDir).mode & 0o777).toBe(0o700);
   });
 
   it("off systemd, spawns the bin directly, detached+unref, with the forwarded env layered on", async () => {

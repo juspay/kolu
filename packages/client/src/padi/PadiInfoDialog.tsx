@@ -9,7 +9,11 @@
  *  `daemonInventory` cell (the bound padi's honest `hello.surfaceVersion` / `.commit`),
  *  the padi twin of kaval's `system.version`. */
 
-import type { PadiLink, RunningPadi } from "kolu-common/surface";
+import type {
+  PadiConvergence,
+  PadiLink,
+  RunningPadi,
+} from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { For, Show } from "solid-js";
 import { match, P } from "ts-pattern";
@@ -20,6 +24,9 @@ import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import {
   activePadi,
   activePadiSurfaceVersion,
+  boundPadiBuildCommit,
+  boundPadiConvergence,
+  daemonScanBoundHost,
   runningPadis,
 } from "../ui/useDaemonInventory";
 import { formatMBCompact } from "../ui/memory";
@@ -69,6 +76,51 @@ const RunningPadiRow: Component<{ padi: RunningPadi }> = (props) => (
 export const PADI_LOGO_URL = new URL("../../../padi/logo.svg", import.meta.url)
   .href;
 
+/** How each standing convergence anomaly reads in the dialog banner. `adopted-stale` is
+ *  degraded-but-WORKING (a warning tone — the canvas is live on the resident build); the
+ *  rest are canvas-dead (a danger tone). */
+const CONVERGENCE_PRESENTATION: Record<
+  PadiConvergence["state"],
+  { title: string; tone: "warn" | "down" }
+> = {
+  "adopted-stale": {
+    title: "Build mismatch — riding the resident daemon",
+    tone: "warn",
+  },
+  "skew-refused": { title: "Contract skew — refused", tone: "down" },
+  unconverged: { title: "Could not converge the remote padi", tone: "down" },
+  "link-failed": { title: "Remote link failed", tone: "down" },
+};
+
+/** A STANDING degraded-bind banner — so a convergence anomaly the (remote) binder hit is a
+ *  VISIBLE state in the dialog, never swallowed into server logs (the whole point of the
+ *  dialog). Shows running-vs-expected build for the build-mismatch case, and the reason. */
+const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (props) => {
+  const p = (): { title: string; tone: "warn" | "down" } =>
+    CONVERGENCE_PRESENTATION[props.conv.state];
+  return (
+    <div
+      classList={{
+        "rounded-md border px-2.5 py-1.5 text-[11px] leading-relaxed": true,
+        "border-warning/40 bg-warning/10 text-warning": p().tone === "warn",
+        "border-danger/40 bg-danger/15 text-danger": p().tone === "down",
+      }}
+      role="status"
+    >
+      <div class="font-medium">{p().title}</div>
+      <Show when={props.conv.state === "adopted-stale"}>
+        <div class="mt-0.5 font-mono text-[10px] text-fg-3">
+          {/* `|| "—"`, not `??`: a pre-field survivor's build folds to "" (not null), and an
+              honest "—" beats a blank per #1034. */}
+          running {props.conv.runningBuild || "—"} · expected{" "}
+          {props.conv.expectedBuild || "—"}
+        </div>
+      </Show>
+      <div class="mt-0.5 text-fg-3">{props.conv.detail}</div>
+    </div>
+  );
+};
+
 const PadiInfoDialog: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -93,7 +145,19 @@ const PadiInfoDialog: Component<{
       }
       description="Per-host daemon that owns your terminals and supervises kaval."
     >
-      <div class="rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
+      <div class="space-y-2 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
+        {/* Bound-host identity: name the REMOTE host prominently (remote bind only) so the
+            whole panel reads "this is that machine". Local bind → no line (unchanged). */}
+        <Show when={daemonScanBoundHost()}>
+          {(host) => (
+            <div class="flex min-w-0 items-center gap-1.5 text-[11px]">
+              <span class="text-fg-3">bound to</span>
+              <span class="truncate rounded bg-surface-1 px-1.5 py-0.5 font-mono font-medium text-fg">
+                ssh · {host()}
+              </span>
+            </div>
+          )}
+        </Show>
         <div class="flex min-w-0 items-center gap-2">
           <span
             class={`inline-block h-2 w-2 rounded-full ${padiDot(props.link, daemonTransportLive())}`}
@@ -130,6 +194,12 @@ const PadiInfoDialog: Component<{
             )}
           </Show>
         </div>
+        {/* A STANDING convergence anomaly (adopted-stale build / contract skew / drain- or
+            link-failure) — surfaced as a visible banner so the user SEES a degraded bind,
+            not just server logs. `adopted-stale` sits atop a live (connected) canvas. */}
+        <Show when={boundPadiConvergence()}>
+          {(conv) => <ConvergenceBanner conv={conv()} />}
+        </Show>
       </div>
 
       {/* Detail rows mirror the Kaval dialog's set + order: build commit, socket,
@@ -139,12 +209,24 @@ const PadiInfoDialog: Component<{
           dialog uses, or an honest "—" when unknown (#1034). */}
       <div class="space-y-1">
         <DetailRow label="build commit">
-          <Commit sha={activePadi()?.buildCommit ?? undefined} />
+          {/* The BOUND padi's `hello.commit` (works over ssh — no local active row under
+              a remote binding), the padi twin of kaval's `system.version`. */}
+          <Commit sha={boundPadiBuildCommit() ?? undefined} />
         </DetailRow>
         <DetailRow label="socket">
-          <span title={activePadi()?.socket}>
-            {activePadi()?.socket ?? "unavailable"}
-          </span>
+          {/* Local bind → the padi's unix socket. Remote bind → the padi lives on the ssh
+              host, so its socket is a path THERE (not locally meaningful); name the host
+              instead of a misleading local "unavailable". */}
+          <Show
+            when={daemonScanBoundHost()}
+            fallback={
+              <span title={activePadi()?.socket}>
+                {activePadi()?.socket ?? "unavailable"}
+              </span>
+            }
+          >
+            {(host) => <span>ssh · {host()}</span>}
+          </Show>
         </DetailRow>
         <DetailRow label="memory">
           {/* Same {@link padiMemoryDisplay} source the identity-rail chip reads (the
@@ -165,8 +247,31 @@ const PadiInfoDialog: Component<{
           at another state-root (the padi twin of the orphaned-kaval leak) is
           diagnosable at a glance. Honesty (#1034): an honest empty line when none is
           discovered, never a fake. */}
-      <div class="space-y-2">
-        <h3 class="text-xs font-medium text-fg">Running padi daemons</h3>
+      <div
+        class="space-y-2"
+        classList={{
+          // Bound remotely: this scan is THIS machine's daemons, NOT the bound host's —
+          // fence it off so two hosts' truths can't read as one (the identity above
+          // rides padiSurface = the REMOTE host).
+          "rounded-lg border border-edge bg-surface-2/50 p-2.5":
+            daemonScanBoundHost() !== null,
+        }}
+      >
+        <h3 class="text-xs font-medium text-fg">
+          <Show when={daemonScanBoundHost()} fallback="Running padi daemons">
+            Local daemons — this machine, not the bound host
+          </Show>
+        </h3>
+        <Show when={daemonScanBoundHost()}>
+          {(host) => (
+            <p class="text-[11px] leading-relaxed text-fg-3">
+              kolu-server is bound to padi on{" "}
+              <span class="text-fg-2">{host()}</span> over ssh — the padi
+              identity above is that host's. These are daemons discovered on
+              THIS machine (a leak diagnostic), not the bound host's.
+            </p>
+          )}
+        </Show>
         <Show
           when={runningPadis().length > 0}
           fallback={
