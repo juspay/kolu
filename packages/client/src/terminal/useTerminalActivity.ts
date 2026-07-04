@@ -10,7 +10,8 @@
  *  in xterm.
  *
  *  A terminal reads as "live" from the moment a chunk arrives until
- *  `IDLE_AFTER_MS` pass with no further output — each chunk resets that timer.
+ *  `TERMINAL_IDLE_AFTER_MS` pass with no further output — each chunk resets that
+ *  timer.
  *  The flag is an explicit boolean rather than a `now - lastOutputAt`
  *  comparison so reactivity needs no global ticking clock: the per-terminal
  *  debounce timer is what flips it back to static.
@@ -28,18 +29,9 @@
  *  render-stall watchdog), action (flip live=false vs force a repaint), and
  *  lifecycle (an app singleton vs a per-terminal owner-scoped instance). */
 
-import type { TerminalId } from "kolu-common/surface";
+import { TERMINAL_IDLE_AFTER_MS, type TerminalId } from "kolu-common/surface";
 import { createStore, produce } from "solid-js/store";
 import { createSharedRoot } from "../createSharedRoot";
-
-/** Output quiet-period before a terminal reads as static again. This is a raw
- *  byte-motion signal with a ~1s trailing window: a stream with sub-second gaps
- *  (compiles, `tail -f`) stays lit, while one that pauses longer than ~1s blinks
- *  off then back on when it resumes — by design, since this tracks bytes moving,
- *  not whether a session is conceptually working (that distinction from the
- *  agent border is drawn in `LiveActivityDot.tsx`). So an agent that pauses
- *  >1s between thinking and emitting tokens will flicker, and that's correct. */
-const IDLE_AFTER_MS = 1000;
 
 export const useTerminalActivity = createSharedRoot(() => {
   // createStore for per-terminal fine-grained reactivity: setting one
@@ -72,7 +64,7 @@ export const useTerminalActivity = createSharedRoot(() => {
         // residual `false`.
         timers.delete(id);
         setLive(produce((s) => void delete s[id]));
-      }, IDLE_AFTER_MS),
+      }, TERMINAL_IDLE_AFTER_MS),
     );
   }
 

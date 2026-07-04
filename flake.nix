@@ -38,46 +38,27 @@
         builtins.unsafeDiscardStringContext
           (import ./default.nix { inherit pkgs commitHash; }).kaval.drvPath);
       kavalAgentDrvsJson = builtins.toJSON kavalDrvBySystem;
-      # Per-system { system → pulam .drv } map, baked onto pulam-tui's wrapper
-      # (PULAM_AGENT_DRVS_JSON) so `pulam-tui --host <ssh>` ships the TARGET-arch
-      # pulam DAEMON derivation — the `pulam` daemon (it carries the sensors +
-      # git/gh + node:sqlite), NOT the pulam-tui viewer: the remote box runs
-      # `pulam --stdio`. Same context-free, IFD-free discipline as kavalDrvBySystem
-      # above (the pulam daemon drv doesn't depend on the map, so building it this
-      # way can't cycle back through the koluBySystem that consumes it).
-      pulamDrvBySystem = eachSystem (pkgs:
-        builtins.unsafeDiscardStringContext
-          (import ./default.nix { inherit pkgs commitHash; }).pulam.drvPath);
-      pulamAgentDrvsJson = builtins.toJSON pulamDrvBySystem;
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
       koluBySystem = eachSystem (pkgs:
         import ./default.nix {
-          inherit pkgs commitHash kavalAgentDrvsJson pulamAgentDrvsJson;
+          inherit pkgs commitHash kavalAgentDrvsJson;
         });
       # website/default.nix is self-contained — it resolves its own public/
       # asset symlinks (favicon, kaval logo), so the flake just imports it.
       websiteBySystem = eachSystem (pkgs: import ./website { inherit pkgs; });
     in
     {
-      # The per-system `{ system → pulam .drv }` map, exposed as a plain string
-      # output so it's readable without building a wrapper: the `pulam-tui`
-      # wrapper bakes the SAME value with `--set` (see PULAM_AGENT_DRVS_JSON on
-      # `pulam-tui` in default.nix), so `pulam-tui --host <ssh>` ships the
-      # target-arch pulam DAEMON derivation. Pure eval (the daemon drv's context
-      # is discarded above), so listing it here adds no build.
-      pulamAgentDrvsJson = pulamAgentDrvsJson;
-
       # The module proper is platform-agnostic; the flake closes over it to
-      # default `tuiPackage` / `pulamTuiPackage` to this flake's matching
-      # `kaval-tui` / `pulam-tui` builds, so both CLIs ship automatically with
+      # default `tuiPackage` / `padiTuiPackage` to this flake's matching
+      # `kaval-tui` / `padi-tui` builds, so both CLIs ship automatically with
       # the server (override or set null to opt out of either).
       homeManagerModules.default = { pkgs, lib, ... }: {
         imports = [ ./nix/home/module.nix ];
         config.services.kolu.tuiPackage =
           lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.kaval-tui;
-        config.services.kolu.pulamTuiPackage =
-          lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.pulam-tui;
+        config.services.kolu.padiTuiPackage =
+          lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.padi-tui;
       };
       packages = eachSystem (pkgs:
         let

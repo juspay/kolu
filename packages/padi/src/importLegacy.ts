@@ -13,10 +13,16 @@
  *     marker in padi's own store.
  *   - **a failed import CRASHES loudly** (fail-fast) rather than silently starting
  *     empty — a corrupt/half-written old file must surface, not vanish the session.
- *   - **the backup runs BEFORE the first read** — a byte copy to
+ *   - **the backup runs BEFORE padi seeds from the file** — a byte copy to
  *     `config.json.pre-padi-import.bak`, once — so a wrong whose-config-wins pick
  *     (or a bad migration in the old file) stays recoverable. (This is the inline
  *     safeguard that replaced the standalone #1658 backup: a few lines, here.)
+ *   - **a DIRECT pre-W2.2 → W2.3 upgrade imports from the strip-backup** — W2.3's
+ *     kolu-server `1.31.0` migration strips session/activityFeed off `config.json`
+ *     on its OWN boot (backup-first, leaving `config.json.pre-1.31-strip.bak`),
+ *     which runs BEFORE padi's first boot. So when padi finds the live file
+ *     already stripped, it reads the byte-exact pre-strip backup instead — the
+ *     intended source, at zero loss, not a fallback knob (see below).
  *
  * `preferences` is NOT imported — it stays kolu-server's (a koluSurface cell).
  */
@@ -29,6 +35,13 @@ import type { PadiStateStores } from "./stateStore.ts";
 /** The three keys padi owns and imports from the legacy file. `preferences` is
  *  deliberately absent — it never leaves kolu-server. */
 const IMPORTED_KEYS = ["session", "activityFeed", "lastPairedDaemon"] as const;
+
+/** Parse a legacy `config.json` (or its backup) to a raw object. A malformed file
+ *  THROWS (fail-fast) — padi crashes rather than serving an empty session; the
+ *  byte backups are the recovery path. */
+function readConfigJson(path: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+}
 
 /** Seed padi's state-root store from kolu-server's legacy `config.json` — ONCE.
  *  A no-op after the first successful run (the marker), when there is no
@@ -73,20 +86,36 @@ export function importLegacyConfigOnce(
     return;
   }
 
-  // The backup safeguard: a byte copy taken ONCE, BEFORE the first read, so a
-  // wrong pick or a bad old blob is always recoverable.
-  const backupPath = `${oldPath}.pre-padi-import.bak`;
-  if (!existsSync(backupPath)) copyFileSync(oldPath, backupPath);
+  // Read the live file first (a malformed old file THROWS — fail-fast). Choose the
+  // import SOURCE: normally the live `config.json`, but on a DIRECT pre-W2.2 → W2.3
+  // upgrade kolu-server's `1.31.0` strip-migration (backup-first) has ALREADY run
+  // on its own boot — BEFORE padi's — so the live file has lost session/
+  // activityFeed/lastPairedDaemon and the byte-exact pre-strip file sits beside it
+  // as `config.json.pre-1.31-strip.bak`. That backup IS the intended source (the
+  // last state kolu-server owned before shedding it), so a stripped live file
+  // means we seed FROM the backup — migration logic picking its input at zero
+  // loss, NOT a fallback: if the live file is stripped for any OTHER reason (no
+  // strip-backup beside it) we take it as-is and the parse/empty path stays as it
+  // was. The strip-backup is already durable, so it needs no `pre-padi-import` copy.
+  const live = readConfigJson(oldPath);
+  const stripBackupPath = `${oldPath}.pre-1.31-strip.bak`;
+  const liveHasLegacy = IMPORTED_KEYS.some((key) => key in live);
 
-  // Take the file as-is, once. A parse failure THROWS (fail-fast) — padi crashes
-  // rather than serving an empty session; the backup above is the recovery path.
-  const raw = JSON.parse(readFileSync(oldPath, "utf8")) as Record<
-    string,
-    unknown
-  >;
+  let raw = live;
+  let sourcePath = oldPath;
+  if (!liveHasLegacy && existsSync(stripBackupPath)) {
+    raw = readConfigJson(stripBackupPath);
+    sourcePath = stripBackupPath;
+  } else {
+    // The live file is the source — back it up ONCE, before seeding, so a wrong
+    // whose-config-wins pick or a bad old blob is always recoverable.
+    const backupPath = `${oldPath}.pre-padi-import.bak`;
+    if (!existsSync(backupPath)) copyFileSync(oldPath, backupPath);
+  }
+
   for (const key of IMPORTED_KEYS) {
     if (key in raw) {
-      // The old file was already migrated by kolu-server at its own boot, so the
+      // The source was already migrated by kolu-server at its own boot, so the
       // blob arrives current-schema; seed padi's key verbatim.
       // biome-ignore lint/suspicious/noExplicitAny: seeding a raw current-schema blob key verbatim into the typed Conf; the old file's shape is validated by kolu-server's ladder, not re-parsed here.
       conf.set(key, raw[key] as any);
@@ -94,7 +123,7 @@ export function importLegacyConfigOnce(
   }
   conf.set("importedLegacyConfig", true);
   log.info(
-    { oldPath, backupPath, keys: IMPORTED_KEYS },
+    { sourcePath, keys: IMPORTED_KEYS },
     "imported legacy kolu config into padi's state-root (one-shot)",
   );
 }

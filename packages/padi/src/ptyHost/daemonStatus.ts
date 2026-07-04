@@ -50,6 +50,27 @@ export function getLocalSocketPath(): string | undefined {
   return localSocketPath;
 }
 
+/** padi's OWN serving socket path — the digest-keyed `padi-<digest>/padi.sock`
+ *  padi's `daemonMain` computes and serves on, recorded at boot. */
+let padiServeSocketPath: string | undefined;
+
+/** Record padi's own serving socket at boot (in `daemonMain`, before it accepts a
+ *  `create`), so every terminal spawned after can carry it. */
+export function setPadiServeSocketPath(path: string): void {
+  padiServeSocketPath = path;
+}
+
+/** padi's own serving socket — the `$KAVAL_SOCKET` twin, stamped as `PADI_SOCKET`
+ *  into every terminal this daemon spawns so a `padi-tui` running INSIDE a kolu
+ *  terminal reaches the padi that owns it with no `--socket`/`--state-root` flag.
+ *  `undefined` until boot records it (or off a spawn path that never booted a
+ *  daemon, e.g. a unit test); an absent `PADI_SOCKET` just makes padi-tui fall
+ *  back to autodiscovery, so — unlike the kaval locator — the spawn path stamps it
+ *  only when present rather than crashing. */
+export function getPadiServeSocketPath(): string | undefined {
+  return padiServeSocketPath;
+}
+
 function publishFullDaemonStatus(hostId: string, status: DaemonStatus): void {
   store.set(hostId, status);
   padiSurfaceCtx.collections.daemonStatus.upsert(hostId, status);

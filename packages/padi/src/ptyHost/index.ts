@@ -33,7 +33,11 @@ import {
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import { log } from "../log.ts";
 import { connectKaval, type KavalConnectionMetadata } from "./connect.ts";
-import { getLocalSocketPath, setLocalSocketPath } from "./daemonStatus.ts";
+import {
+  getLocalSocketPath,
+  getPadiServeSocketPath,
+  setLocalSocketPath,
+} from "./daemonStatus.ts";
 import { kavalGatePath, localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity | undefined;
@@ -334,6 +338,7 @@ export function composeSpawnInput(
   args: { id: string; cwd?: string },
   info: PtyHostSystemInfo,
   kavalSocket: string,
+  padiSocket?: string,
 ): PtyHostSpawnInput {
   const env = cleanEnv();
   const shell = env.SHELL ?? info.shell;
@@ -348,6 +353,12 @@ export function composeSpawnInput(
   });
   Object.assign(env, plan.env);
   env.KAVAL_SOCKET = kavalSocket;
+  // The $KAVAL_SOCKET twin for padi: a `padi-tui` INSIDE this terminal reaches the
+  // padi that OWNS it (the daemon that spawned it) with no --socket/--state-root —
+  // so the /kolu agent-drives-agent loop runs `padi-tui wait` flagless. Stamped
+  // only when known (padi's own serving socket, recorded at boot); an absent value
+  // just makes padi-tui autodiscover, so this never blocks a spawn.
+  if (padiSocket !== undefined) env.PADI_SOCKET = padiSocket;
   return {
     id: args.id,
     argv: [shell, ...plan.args],
@@ -381,5 +392,14 @@ export async function buildTerminalSpawnInput(args: {
       "local kaval socket path read before the endpoint recorded it at boot",
     );
   }
-  return composeSpawnInput(args, await hostInfo(), kavalSocket);
+  // padi's own serving socket, recorded at boot by `daemonMain`
+  // (`setPadiServeSocketPath`), stamped as `PADI_SOCKET`. Optional (see
+  // `getPadiServeSocketPath`) — an unset value just omits the locator and padi-tui
+  // autodiscovers, so no boot-order guard here (unlike the required KAVAL socket).
+  return composeSpawnInput(
+    args,
+    await hostInfo(),
+    kavalSocket,
+    getPadiServeSocketPath(),
+  );
 }

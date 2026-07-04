@@ -85,6 +85,9 @@ export type ConvergenceOutcome =
   | {
       readonly kind: "drained-replacing";
       readonly axis: "contract" | "build";
+      /** The drained survivor's identity — so the caller can log its own domain
+       *  breadcrumb (e.g. padi's `#1670` build-change line) from the returned outcome. */
+      readonly running: ConvergenceIdentity;
       readonly adopted: boolean;
     }
   | {

@@ -209,3 +209,50 @@ export function discoverPadiDaemons(): PadiDaemon[] {
   }
   return found;
 }
+
+/** The outcome of resolving which running padi to dial — the whole selection
+ *  policy lives here (beside the namespace construction it inverts), so a client
+ *  (`padi-tui`) only renders the `many` ambiguity in its own error surface. Each
+ *  arm carries the socket to dial; `many` carries the labeled candidates instead
+ *  so the CLI prints a pick-one list. Mirrors kaval's `KavalSocketResolution`. */
+export type PadiSocketResolution =
+  | { kind: "explicit" | "stateRoot" | "env" | "one" | "none"; socket: string }
+  | { kind: "many"; candidates: PadiDaemon[] };
+
+/**
+ * Resolve which running padi a client should dial — the client-side companion to
+ * {@link discoverPadiDaemons}, in precedence order:
+ *   1. an explicit `--socket` path wins verbatim (a user-supplied override);
+ *   2. an explicit `--state-root` resolves through the SAME digest→socket path a
+ *      padi computes for itself, so a dev/e2e client and its private padi agree;
+ *   3. `$PADI_SOCKET` — stamped into every PTY a padi spawns (the `$TMUX` /
+ *      `$KAVAL_SOCKET` convention) — points at the daemon that OWNS this terminal,
+ *      so a flag-less `padi-tui` inside a kolu terminal "just works" and an agent
+ *      driving its siblings never scans or guesses a digest-keyed path;
+ *   4. else discover the running padi: exactly one → `one`; several → `many` (the
+ *      CLI renders a labeled pick-one); none → `none` with the default state-root's
+ *      socket, so a connect error names a sensible path.
+ */
+export function resolveRunningPadiSocket(opts?: {
+  socket?: string;
+  stateRoot?: string;
+}): PadiSocketResolution {
+  if (opts?.socket !== undefined && opts.socket !== "") {
+    return { kind: "explicit", socket: opts.socket };
+  }
+  if (opts?.stateRoot !== undefined && opts.stateRoot !== "") {
+    return {
+      kind: "stateRoot",
+      socket: padiSocketPath(resolvePadiStateRoot(opts.stateRoot)),
+    };
+  }
+  const env = process.env.PADI_SOCKET;
+  if (env) return { kind: "env", socket: env };
+  const found = discoverPadiDaemons();
+  const [first, ...rest] = found;
+  if (first !== undefined && rest.length === 0) {
+    return { kind: "one", socket: first.socket };
+  }
+  if (rest.length > 0) return { kind: "many", candidates: found };
+  return { kind: "none", socket: padiSocketPath(resolvePadiStateRoot()) };
+}
