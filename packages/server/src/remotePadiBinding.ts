@@ -372,6 +372,15 @@ export class RemotePadiSession implements BoundPadi {
     if (combinedP !== this.memoKey) {
       this.memoKey = combinedP;
       this.memoScoped = this.handshakeAndScope(combinedP);
+      // P1: when a FRESH spawn arrives while a prior degraded verdict still stands (a
+      // `linkFailed` that a `failed → re-arm` recovery hasn't cleared, say), the guard below
+      // returns null and the pump never awaits THIS `memoScoped` — so a rejecting handshake
+      // (e.g. the fresh spawn is a skew) would be an UNHANDLED rejection, which index.ts's
+      // handler turns into a fatal `process.exit(1)`. Attach a swallow so the promise always
+      // has a handler; the pump, when it DOES consume `memoScoped`, awaits its own copy
+      // independently (a promise can carry many handlers), so this never hides a rejection the
+      // pump needs — it only defuses the floated one.
+      void this.memoScoped.catch(() => {});
     }
     // A standing skew / unconverged / linkFailed REFUSED this spawn (canvas dead) —
     // `handshakeAndScope` set the degraded bindState and REJECTED `memoScoped`. Return null

@@ -275,6 +275,33 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
     expect(last?.connection).toBe("failed");
   });
 
+  it("P1: a fresh spawn under a STANDING linkFailed does not float an unhandled handshake rejection (no fatal process.exit)", async () => {
+    const { host, rp } = newSession();
+    // Enter linkFailed (a terminal transport failure). A `failed → re-arm` recovery does NOT
+    // reset it, so the next fresh spawn arrives while bindState still reads linkFailed.
+    host.fail("provisioning failed");
+    expect(rp.padiConvergence()?.state).toBe("link-failed");
+
+    const rejections: unknown[] = [];
+    const onUnhandled = (r: unknown): void => {
+      rejections.push(r);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      // The host RE-ARMS with a NEW spawn that will be REFUSED (an incompatible skew) — its
+      // handshake REJECTS. currentClient memoizes that handshake, but the guard returns null
+      // (still linkFailed) and the pump never awaits it — the memo must NOT float its rejection
+      // (else index.ts's unhandledRejection handler process.exit(1)s the whole server).
+      host.setClient(makeCombined({ ...helloOk(), surfaceVersion: "99.0" }));
+      expect(rp.currentClient()).toBeNull();
+      // Let the refused handshake reject + settle; a floated rejection would surface here.
+      await new Promise((r) => setTimeout(r, 20));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    expect(rejections).toEqual([]);
+  });
+
   it("drains the bound padi and WAITS for its exit (the restart verb) — resolves only once the link dies", async () => {
     const host = new FakeHost();
     const rp = new RemotePadiSession(
