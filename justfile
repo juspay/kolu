@@ -96,6 +96,76 @@ client:
 test-unit: install
     {{ nix_shell }} pnpm test:unit
 
+# W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
+# bench typing-echo latency, and prove drain->converge. TURNKEY on a `pu` box: with no
+# arg it auto-picks the box's own non-loopback 10.x IPv4 (a real ssh hop to its OWN
+# sshd — NOT loopback, which the test refuses as a false green); pass an explicit host
+# to override. This is the ONLY enforced run of `remotePadiSsh.test.ts` — CI has NO ssh
+# lane (no sshd in the build sandbox), so the ssh leg is exercised HERE, on a box, and
+# its transcript is W3.1's recorded evidence. See the test header for the full contract.
+# DESTRUCTIVE: it killAll's + drains the padi on the target host — its terminals die. The
+# test REFUSES without KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 (a conscious "this host is disposable"
+# so a mistyped host can't murder a workstation).
+#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh                 # auto-detect this box's IP
+#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh 10.47.48.150    # explicit ssh host/alias
+e2e-ssh host='': install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host="{{ host }}"
+    if [ -z "$host" ]; then
+        host=$(ip -4 -o addr show scope global 2>/dev/null | grep -oE 'inet 10\.[0-9.]+' | awk '{print $2}' | head -1)
+        [ -n "$host" ] || { echo "e2e-ssh: no non-loopback 10.x IPv4 found — pass one explicitly: just e2e-ssh <host>" >&2; exit 1; }
+    fi
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    drv=$(nix eval --raw --accept-flake-config ".#packages.$system.padi.drvPath")
+    echo "e2e-ssh: host=$host system=$system padi-drv=$drv"
+    cd packages/server && KOLU_E2E_SSH_HOST="$host" KOLU_E2E_PADI_DRV="$drv" \
+        KOLU_STATE_DIR="${TMPDIR:-/tmp}/kolu-e2e-ssh-$$/state" \
+        {{ nix_shell }} pnpm exec vitest run --fileParallelism=false src/remotePadiSsh.test.ts
+
+# W3.1 ssh-leg e2e — TWO-BOX arm. `e2e-ssh` self-ssh's to the box's OWN padi (a real hop,
+# but the "remote" host == this machine). This second recipe binds to a GENUINELY-DIFFERENT
+# host (removing the self-ssh confound), and adds the FINDING-1 coverage the padi-only ssh
+# lane can't reach: it stands up a FULL kolu-server bound to <boxB> and asserts the
+# koluSurface `daemonInventory` publishes `boundHost=<boxB>` + a populated `boundPadi`
+# (the bound padi's honest hello identity) — the enforced twin of the manual two-box repro
+# (the dialog labels this-machine's scan "not the bound host" and reads the padi identity
+# from `boundPadi`, not the local `active` row). Run on a `pu` box that can ssh to <boxB>.
+# DESTRUCTIVE (killAll's + drains <boxB>'s padi) — requires KOLU_E2E_SSH_DESTRUCTIVE_ACK=1.
+#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh-2box nix@boxB   # <boxB> = a different ssh host
+e2e-ssh-2box boxB port='7099': install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    boxB="{{ boxB }}"; port="{{ port }}"
+    [ "${KOLU_E2E_SSH_DESTRUCTIVE_ACK:-}" = "1" ] || { echo "e2e-ssh-2box: REFUSING — DESTRUCTIVE against '$boxB': it will killAll + DRAIN (persist+exit, build-swap) that host's padi, KILLING its live terminals. Set KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 ONLY if '$boxB' is a disposable test host, never a workstation." >&2; exit 1; }
+    # 1) the ssh-transport lane (round-trip · latency · drain-converge) against the
+    #    genuinely-different host — self-ssh confound removed. KOLU_E2E_SSH_TWO_BOX=1 skips
+    #    the self-ssh-ONLY agent-state test (its local /proc + $HOME fixtures can't match a
+    #    padi on the OTHER host; that test runs under `just e2e-ssh` self-ssh).
+    KOLU_E2E_SSH_TWO_BOX=1 just e2e-ssh "$boxB"
+    # 2) FINDING 1 over ssh: a full kolu-server bound to <boxB> must publish boundHost + boundPadi.
+    sr="${TMPDIR:-/tmp}/kolu-2box-$$/state"; log="${TMPDIR:-/tmp}/kolu-2box-$$.log"
+    echo "e2e-ssh-2box: standing up kolu-server (KOLU_PADI_HOST=$boxB) on :$port"
+    KOLU_STATE_DIR="$sr" KOLU_PADI_HOST="$boxB" {{ nix_shell }} nix run .#koluBin -- --port "$port" >"$log" 2>&1 &
+    srv=$!; trap 'kill $srv 2>/dev/null || true' EXIT
+    # Readiness gate = the daemonInventory read itself (a subscription; grep -m1 = first
+    # frame), NON-destructive, polled until the ssh binding has warmed enough to publish
+    # the bound padi's identity. (A killAll probe would be destructive AND its input schema
+    # is `void` — an object payload 400s, so it never gates.)
+    # Parse the frame with python (robust — no JSON-key-order assumption, no unescaped-$boxB
+    # regex brittleness): boundPadi.surfaceVersion populated = the ssh binding warmed.
+    frame=""
+    for i in $(seq 1 120); do
+        frame=$(timeout 12 curl -s -N --max-time 10 -X POST "http://127.0.0.1:$port/rpc/surface/kolu/daemonInventory/get" \
+            -H 'content-type: application/json' -d '{"json":{}}' 2>/dev/null | grep -m1 '^data:' | sed 's/^data: //' || true)
+        python3 -c "import json,sys; p=(json.loads(sys.argv[1] or '{}').get('json',{}).get('boundPadi') or {}); sys.exit(0 if p.get('surfaceVersion') else 1)" "$frame" && break
+        sleep 1
+    done
+    echo "daemonInventory (bound to $boxB): $frame"
+    # Single-line python (avoids heredoc-dedent issues in a just recipe): assert boundHost and
+    # boundPadi.surfaceVersion off the PARSED JSON, not a key-order-fragile / unescaped-regex grep.
+    python3 -c 'import json,sys; d=json.loads(sys.argv[2] or "{}").get("json",{}); p=d.get("boundPadi") or {}; (print("e2e-ssh-2box: PASS — boundHost="+str(d.get("boundHost"))+", boundPadi.surfaceVersion="+str(p.get("surfaceVersion"))+" over the genuinely-remote binding") if d.get("boundHost")==sys.argv[1] and p.get("surfaceVersion") else sys.exit("FAIL: boundHost="+repr(d.get("boundHost"))+" (expected "+repr(sys.argv[1])+"), boundPadi.surfaceVersion="+repr(p.get("surfaceVersion"))))' "$boxB" "$frame"
+
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test: install
     #!/usr/bin/env bash

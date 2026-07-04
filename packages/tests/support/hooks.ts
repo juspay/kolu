@@ -708,7 +708,27 @@ async function waitForOwnedServer(
  *  kaval-daemon scenario's After hook drives — that scenario SIGKILLs the
  *  worker's kaval, leaving the server degraded, so the worker must be re-booted
  *  before any later scenario tries to create a terminal. */
+/** DESTRUCTIVE-ACK guard for the ssh leg — checked BEFORE any server child spawns. Binding a
+ *  kolu-server to KOLU_E2E_PADI_HOST is itself destructive (it drains/converges + killAll's
+ *  that host's padi, killing its live terminals), so a mistyped host must be refused BEFORE the
+ *  spawn — not after, where the child races ahead and murders a workstation's terminals first. */
+function assertRemoteDestructiveAck(): void {
+  const remotePadiHost = process.env.KOLU_E2E_PADI_HOST;
+  if (!remotePadiHost) return;
+  if (process.env.KOLU_E2E_SSH_DESTRUCTIVE_ACK !== "1") {
+    throw new Error(
+      `REFUSING: the cucumber ssh leg (KOLU_E2E_PADI_HOST=${remotePadiHost}) is DESTRUCTIVE — ` +
+        `binding kolu-server to it drains + killAll's that host's padi (its live terminals) on ` +
+        `every server start. Set KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 ONLY if '${remotePadiHost}' is a ` +
+        `disposable test host, never a workstation.`,
+    );
+  }
+}
+
 async function startServerChild(koluServer: string): Promise<void> {
+  // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
+  // destructive, so the ack cannot wait until after (P2/F1).
+  assertRemoteDestructiveAck();
   // Extend NIX_ENV_WHITELIST with GIT_AUTHOR_*/GIT_COMMITTER_* so PTY
   // shells in fixtures like `code-tab.feature` (which run `git init &&
   // git commit` inside the terminal under test) inherit the same
@@ -777,6 +797,18 @@ async function startServerChild(koluServer: string): Promise<void> {
           // their sessions + login from the real home. See `serverModeEnv`.
           ...serverModeEnv,
           KOLU_OPENCODE_DB: opencodeDbPath,
+          // W3.1 — the ssh leg: when KOLU_E2E_PADI_HOST is set, the server binds a
+          // REMOTE padi over ssh (the whole canvas becomes that host) instead of
+          // spawning a local one, so the SAME suite runs unchanged against a remote
+          // padi — the parity proof. Unset (the default) → today's local binding,
+          // byte-identical, and none of the per-worker padi-state isolation above
+          // changes. Run single-worker over ssh: the remote padi uses ITS OWN default
+          // state-root (the binder passes nothing), so parallel workers would collide
+          // on one remote daemon. The remote host needs the padi drv map baked
+          // (a nix-built koluBin — `just test`, not `just test-quick`).
+          ...(process.env.KOLU_E2E_PADI_HOST
+            ? { KOLU_PADI_HOST: process.env.KOLU_E2E_PADI_HOST }
+            : {}),
         },
       },
     );
@@ -842,6 +874,54 @@ async function startServerChild(koluServer: string): Promise<void> {
       `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempts`,
     );
   }
+  // W3.1 — the ssh leg: a REMOTE padi binding warms ASYNC (fail-open by design;
+  // provisioning + fronting over ssh takes seconds), so — unlike the LOCAL arm, which
+  // awaits its first connect before the server listens — the server is up before the
+  // remote padi is live. Wait for it here, on EVERY server start (boot AND the mid-run
+  // restarts reconnect/session-restore/@kaval-restart trigger), so scenarios never
+  // race the warm-up (a `killAll` against a not-yet-connected binding is the "no live
+  // upstream link" 500). Local runs (knob unset) skip this entirely — byte-identical.
+  await waitForRemotePadiLive();
+}
+
+/** Poll a padi procedure until the (async-warming) remote binding is live, or throw
+ *  after 120s. No-op unless `KOLU_E2E_PADI_HOST` is set (the ssh-leg e2e). */
+async function waitForRemotePadiLive(): Promise<void> {
+  const remotePadiHost = process.env.KOLU_E2E_PADI_HOST;
+  if (!remotePadiHost) return;
+  // Belt-and-suspenders: the ack was already enforced before the spawn (assertRemoteDestructiveAck
+  // in startServerChild); re-assert here so this destructive killAll poll can't run without it
+  // even if a future caller reaches it another way.
+  assertRemoteDestructiveAck();
+  const deadline = Date.now() + 120_000;
+  let lastStatus = 0;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+        // Bound each attempt so a wedged request (TCP accepted, handler hung
+        // mid-boot) can't outlive the 120s deadline this function promises — a bare
+        // `await fetch` re-checks the deadline only BETWEEN attempts, so one hung
+        // request would stall the whole e2e startup indefinitely.
+        signal: AbortSignal.timeout(5_000),
+      });
+      lastStatus = res.status;
+      if (res.ok) {
+        console.log(
+          `[worker:${workerId}] remote padi is live — running against the ssh host`,
+        );
+        return;
+      }
+    } catch {
+      // server not answering yet — keep polling
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(
+    `[worker:${workerId}] remote padi (KOLU_E2E_PADI_HOST=${process.env.KOLU_E2E_PADI_HOST}) never became live within 120s (last killAll status ${lastStatus})`,
+  );
 }
 
 BeforeAll(async () => {
@@ -866,8 +946,9 @@ BeforeAll(async () => {
   if (koluServer.startsWith("http")) {
     // Reuse an already-running server
     baseUrl = koluServer;
+    await waitForRemotePadiLive();
   } else {
-    await startServerChild(koluServer);
+    await startServerChild(koluServer); // waits for a live remote padi internally
   }
 
   // Launch browser — always use CI args for consistency and performance.

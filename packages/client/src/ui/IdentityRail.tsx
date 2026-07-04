@@ -42,9 +42,16 @@ import {
   serverDot,
 } from "../kaval/useDaemonStatus";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
-import { PADI_LINK_PRESENTATION, padiDot } from "../padi/padiPresentation";
+import {
+  PADI_LINK_PRESENTATION,
+  padiBoundHostSegment,
+  padiDot,
+} from "../padi/padiPresentation";
 import type { WsStatus } from "../rpc/rpc";
-import { activePadiSurfaceVersion } from "./useDaemonInventory";
+import {
+  activePadiSurfaceVersion,
+  daemonScanBoundHost,
+} from "./useDaemonInventory";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { formatMBCompact, mbText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
@@ -173,9 +180,16 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const padiVersion = (): string | undefined =>
     activePadiSurfaceVersion() ?? undefined;
 
+  // WHERE padi is: the `ssh · <host>` segment for a REMOTE binding, or null when
+  // local (no host noise). Read from the same `daemonScanBoundHost()` the Padi
+  // dialog uses, rendered through the pure `padiBoundHostSegment` source of truth.
+  const padiHostSegment = (): string | null =>
+    padiBoundHostSegment(daemonScanBoundHost());
+
   const padiTip = createMemo((): string =>
     joinTip(
       `padi ${padiStateText()}`,
+      padiHostSegment() ?? undefined,
       padiVersion() ? `contract v${padiVersion()}` : undefined,
       padiMemoryText(),
       "click for details",
@@ -258,6 +272,13 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           />
         </IdentityMark>
         <span class="text-fg">Padi</span>
+        <Show when={padiHostSegment()}>
+          {(seg) => (
+            <span data-testid="padi-bound-host" class="text-fg-3">
+              {seg()}
+            </span>
+          )}
+        </Show>
         <Show when={padiVersion()}>
           {(v) => <span class="tabular-nums text-fg-3">contract v{v()}</span>}
         </Show>

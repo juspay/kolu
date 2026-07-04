@@ -63,6 +63,70 @@ round-trips a terminal through its own kaval — and two padis at distinct
 state-roots stay isolated. *(kolu-server binds this process in stage 2 — the
 cutover.)*
 
+## W3.1 — the remote binding: padiSurface over ssh
+
+kolu-server can bind a padi **one ssh hop away** — the whole canvas becomes a
+remote host — reusing the local arm's seam, not a parallel one:
+
+- **`padi --stdio`** (`./stdioBridge`) — the durable-daemon FRONT. It resolves
+  padi's digest-keyed socket exactly as `runPadiDaemon` does, then relays this
+  process's stdio onto it via the shared `frontDaemonOverStdio` primitive
+  (adopt-or-spawn; the spawn re-execs `padi` minus `--stdio`, so the daemon that
+  comes up runs `runPadiDaemon` and owns its kaval). The twin of
+  `kaval/src/stdioBridge.ts`: `ssh <host> padi --stdio` fronts the durable padi, so
+  its kaval + PTYs outlive the ssh link (detach → reattach). `./dial.test.ts` gains
+  a stdio-front block proving the control-core handshake + terminal round-trip over
+  the byte relay, minus ssh.
+- **The binding** (`packages/server/src/remotePadiBinding.ts`). The knob
+  **`KOLU_PADI_HOST=<ssh host>`** — OFF by default, no UI (the picker is W3.2) —
+  branches kolu-server onto `getHostSession({ binary: "padi", extraArgs:
+  ["--stdio"] })` (`@kolu/surface-nix-host`, the exact stack `kaval-tui --host`
+  rides). It re-runs `@kolu/padi/dial`'s control-core `hello` + skew refusal over
+  the ssh-bridged link, scopes to `.surface.padi`, and re-serves through the SAME
+  `RemoteMirrorSession` seam the local `PadiBindingSession` plugs into. Unset →
+  today's local binding, byte-identical.
+- **One drv provisions both daemons.** kolu-server's Nix wrapper bakes
+  **`PADI_AGENT_DRVS_JSON`**, an arch-keyed `{ system → padi .drv }` map (built in
+  `flake.nix`, the retired `pulamAgentDrvsJson` pattern). Because padi's wrapper
+  bakes `KOLU_KAVAL_BIN` (kaval rides INSIDE padi's closure), provisioning that ONE
+  drv ships both — `resolveSystem` probes the remote arch, `provisionAgent`
+  `nix copy`s + realises it, and `ssh <host> padi --stdio` runs it.
+- **Convergence needs nothing new.** adopt-or-spawn + re-adopt fall out of
+  `getHostSession` + `frontDaemonOverStdio` (kill the remote padi → the reconnect
+  respawns it; restart kolu-server → it re-adopts the still-running daemon, PTYs
+  intact). The remote padi spells its OWN default state-root on ITS host; the binder
+  passes nothing, and a fresh host's legacy import correctly no-ops.
+- **The ssh-user 0700 caveat.** The remote padi runs AS THE SSH USER, and (like
+  kaval) serves its socket in a `0700` owner-only runtime dir — so the SSH identity
+  **is** the daemon owner. Two ssh users get two isolated padis by construction; a
+  user who cannot reach the owner's `0700` dir cannot reach the daemon. Enforced on
+  the remote (padi/kaval refuse a non-private dir), not from the binder. Pick your
+  ssh user deliberately — it decides who owns the host's terminals.
+
+## Logs — debugging a detached daemon (P0)
+
+A padi (and its kaval) is a **detached daemon**: it outlives the parent that spawned it —
+an ssh `--stdio` front that closed, or a kolu-server that exited. Historically its whole
+log stream went to `/dev/null` (`stdio: "ignore"`), so a live production freeze was
+undiagnosable from the logs the code correctly writes. Now **every** daemon spawn path
+(the remote detached front, the local kolu-server→padi spawn, the padi→kaval spawn) ends
+with the daemon logging to a **deterministic file under its own identity**, in two layers:
+
+| file | what | bound |
+| --- | --- | --- |
+| `<state-root>/padi.log.N` | padi's **pino** stream (the primary structured log — the WAL-watcher lines, domain events) via `pino-roll`; the daemon logs it **AND** stderr together (a multistream), so a foreground dev run stays visible and journald / a crash file still work. `pino-roll` appends a generation index, so the live file is `padi.log.1` (then `.2`, `.3`) | size-capped: **10 MB × 3** kept generations |
+| `<state-root>/padi.stderr.log` | padi's **raw stderr** crash-catcher — what pino can't see: native errors, an uncaught-exception / unhandled-rejection stack. Wired **only when the spawn is DETACHING** (nobody holds the child's stderr); an attached/systemd spawn keeps its stderr in journald instead | **truncate-on-boot**: each boot rotates the previous to `.stderr.log.old` (one generation) |
+| `<kaval digest home>/kaval.log` | kaval has no pino — its stderr (the surface-daemon `stderrLogger`) **is** its log | truncate-on-boot (`.log.old`) |
+
+`<state-root>` is padi's persistent state root (`$KOLU_PADI_STATE_DIR`, else
+`~/.local/state/padi`); the kaval home is its digest-keyed runtime dir (beside its socket).
+**No env knob** — the two modes are structural: the **daemon entrypoint** (`runPadiDaemon`,
+which every spawn path runs) unconditionally logs to the multistream (and crashes loudly if
+the state root is unwritable), while the `--stdio` front, kolu-server's transitive import of
+padi domain modules, and any test that doesn't boot the daemon never run it and keep stdout.
+To debug a remote box: `ssh <host> tail -f ~/.local/state/padi/padi.log.*` (the pino-roll
+generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detached crash.
+
 ## The export map (the `@kolu/terminal-workspace` split)
 
 - **`@kolu/padi/surface`** — BROWSER-SAFE. The `padiSurface` 1.0 zod contract,

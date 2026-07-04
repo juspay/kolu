@@ -32,8 +32,10 @@ import {
 } from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  PREVIEW_UNAVAILABLE_REMOTE_STATUS,
   previewTailFromRawUrl,
   rawTargetFromContext,
+  remotePreviewBlock,
 } from "./iframePreviewRoute.ts";
 
 describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifier", () => {
@@ -68,6 +70,37 @@ describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifi
     expect(contentTypeForPath(`file${ext}`)).not.toBe(
       "application/octet-stream",
     );
+  });
+});
+
+describe("remotePreviewBlock — the remote-bind preview 501 policy", () => {
+  // The tiny decision the `index.ts` preview route makes at its top: under a REMOTE
+  // padi binding the local-disk preview is unavailable, so fail CLOSED with a loud
+  // 501 rather than serve the wrong machine's bytes. The route itself lives in an
+  // un-importable server bootstrap (top-level `await`, `serve`, `process.exit`), so
+  // this policy was lifted here to be unit-testable — the route now returns exactly
+  // this helper's verdict, so testing the helper tests the branch.
+
+  it("blocks under a REMOTE binding (remoteHost truthy) with a loud 501 + honest message", () => {
+    const blocked = remotePreviewBlock("nix@prod");
+    expect(blocked).not.toBeNull();
+    expect(blocked?.status).toBe(501);
+    expect(blocked?.status).toBe(PREVIEW_UNAVAILABLE_REMOTE_STATUS);
+    expect(blocked?.body).toMatch(
+      /file preview is unavailable while bound to a remote padi/i,
+    );
+  });
+
+  it("allows the LOCAL binding (remoteHost undefined) — preview proceeds, no 501", () => {
+    // `remotePadiHost()` yields `undefined` for the local arm; the route must NOT
+    // short-circuit, so the helper returns null and the disk read runs as today.
+    expect(remotePreviewBlock(undefined)).toBeNull();
+  });
+
+  it("treats a blank host as LOCAL (never a half-blocked preview)", () => {
+    // Belt-and-suspenders: `remotePadiHost()` already trims blanks to `undefined`,
+    // but the `!remoteHost` guard must also fold an empty string to the local path.
+    expect(remotePreviewBlock("")).toBeNull();
   });
 });
 

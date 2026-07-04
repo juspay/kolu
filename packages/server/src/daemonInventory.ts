@@ -28,6 +28,7 @@ import type { PadiDaemon } from "@kolu/padi/assembly";
 import type { KavalDaemon, ptyHostSurface } from "kaval";
 import type {
   DaemonInventory,
+  PadiConvergence,
   RunningKaval,
   RunningPadi,
 } from "kolu-common/surface";
@@ -204,8 +205,19 @@ export interface DaemonInventoryDeps {
    *  hint (`legacyKavalSocketPath(this binder's listen port)`, constant). The address
    *  an upgrade-adopted kaval sits at until it converges onto the digest one. */
   legacyKavalSocket: string;
-  /** The socket of the padi kolu-server is bound to (constant). */
+  /** The socket of the LOCAL padi kolu-server is bound to (constant). Only consulted for
+   *  a LOCAL binding (`boundHost === null`) — a remote binding owns no local socket. */
   activePadiSocket: string;
+  /** The ssh host the bound padi lives on (`KOLU_PADI_HOST`), or `null` for a LOCAL
+   *  binding — the SINGLE source for both "is this a remote bind?" and the dialog label.
+   *  When non-null the bound padi lives on ANOTHER host, so NO locally-discovered daemon
+   *  is kolu's active one: `boundLocally` (DERIVED = `boundHost === null`) suppresses the
+   *  local active-marking (kaval + padi) AND the remote-identity attribution, so the
+   *  diagnostic never falsely labels a local daemon "in use by kolu" or pins the remote
+   *  padi's version onto a local socket; and the dialog labels this LOCAL scan "this
+   *  machine, not the bound host <boundHost>". The remote padi's own inventory is a later
+   *  slice; here the local list stays honest (leaks visible, none marked active). */
+  boundHost: string | null;
   /** The bound padi's honest `surfaceVersion` off its control-core `hello`, or `null`
    *  while padi is unbound — read fresh each tick so a (re)bind updates it. */
   activePadiSurfaceVersion: () => string | null;
@@ -213,6 +225,11 @@ export interface DaemonInventoryDeps {
    *  `null` while unbound / a survivor padi predating the field — read fresh each tick.
    *  Mirrors how the kaval probe carries kaval's build commit. */
   activePadiBuildCommit: () => string | null;
+  /** The bound padi's STANDING convergence anomaly (adopted-stale build / contract skew /
+   *  drain-failure / link-failure), or `null` when converged/healthy — read fresh each tick
+   *  off the bound session's `padiConvergence()`. Published onto `boundPadi.convergence` so
+   *  the Padi dialog surfaces a degraded bind as a visible state, not a swallowed log. */
+  activePadiConvergence: () => PadiConvergence | null;
   /** Publish the assembled inventory — `koluSurfaceCtx.cells.daemonInventory.set`. */
   publish: (inv: DaemonInventory) => void;
 }
@@ -232,14 +249,41 @@ export async function enumerateDaemonInventoryOnce(
     ),
   );
   const probes = new Map(probeEntries);
+  const boundLocally = deps.boundHost === null;
   // Which kaval padi actually holds — the digest address normally, the adopted legacy
   // address after a W2.2 upgrade (mirroring padi's adopt precedence off the live set).
-  const activeKavalSocket = resolveActiveKavalSocket(
-    kavalDaemons,
-    deps.digestKavalSocket,
-    deps.legacyKavalSocket,
-  );
+  // A REMOTE binding owns no local kaval, so mark NONE active (a stray local kaval is
+  // still listed — just never labelled "in use by kolu").
+  const activeKavalSocket = boundLocally
+    ? resolveActiveKavalSocket(
+        kavalDaemons,
+        deps.digestKavalSocket,
+        deps.legacyKavalSocket,
+      )
+    : null;
+  // The BOUND padi's honest identity (both arms) — read ONCE off the session's hello
+  // readouts (reused for boundPadi + the active-row annotation below).
+  const padiSurfaceVersion = deps.activePadiSurfaceVersion();
+  const padiBuildCommit = deps.activePadiBuildCommit();
+  const padiConvergence = deps.activePadiConvergence();
   deps.publish({
+    boundHost: deps.boundHost,
+    // The Padi dialog's version + build-commit rows read THIS, so they work over ssh even
+    // though no LOCAL padi is `active` under a remote binding. Plus a STANDING convergence
+    // anomaly (adopted-stale / skew / drain-fail / link-fail) so a degraded bind is a
+    // visible dialog state, not a swallowed log. `null` only when there is NOTHING to say —
+    // no identity AND no convergence reason (converged-unbound / pre-enumeration); a
+    // refused/failed bind has a reason but no adopted identity, so it stays non-null.
+    boundPadi:
+      padiSurfaceVersion === null &&
+      padiBuildCommit === null &&
+      padiConvergence === null
+        ? null
+        : {
+            surfaceVersion: padiSurfaceVersion,
+            buildCommit: padiBuildCommit,
+            convergence: padiConvergence,
+          },
     kavals: assembleKavalInventory(
       kavalDaemons,
       probes,
@@ -248,9 +292,12 @@ export async function enumerateDaemonInventoryOnce(
     ),
     padis: assemblePadiInventory(
       padiDaemons,
-      deps.activePadiSocket,
-      deps.activePadiSurfaceVersion(),
-      deps.activePadiBuildCommit(),
+      // Remote binding: no local padi is kolu's active one, so pass a null active
+      // socket — `assemblePadiInventory` then marks none active AND attributes the
+      // remote padi's version/commit to nothing (they only annotate the active row).
+      boundLocally ? deps.activePadiSocket : null,
+      padiSurfaceVersion,
+      padiBuildCommit,
     ),
   });
 }
@@ -271,11 +318,23 @@ export function startDaemonInventorySampler(
   subscribeResample?: (resample: () => void) => void,
 ): void {
   let inFlight = false;
+  let pending = false;
   const tick = (): void => {
-    if (inFlight) return;
+    // A resample that lands while a prior enumeration is in flight (a bind-state transition
+    // firing `padiSession.onState` mid-tick — e.g. an adopt-stale / skew / link-failure) must
+    // NOT be dropped, else the fresh `boundPadi.convergence` banner waits for the next COARSE
+    // interval. Coalesce it: mark pending, and re-run ONCE when the in-flight tick settles.
+    if (inFlight) {
+      pending = true;
+      return;
+    }
     inFlight = true;
     void enumerateDaemonInventoryOnce(deps).finally(() => {
       inFlight = false;
+      if (pending) {
+        pending = false;
+        tick();
+      }
     });
   };
   tick();

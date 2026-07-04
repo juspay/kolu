@@ -42,3 +42,13 @@ export function padiDot(link: PadiLink | undefined, live: boolean): string {
   if (!live || !link) return DAEMON_UNKNOWN_DOT;
   return toneDot[PADI_LINK_PRESENTATION[link].tone];
 }
+
+/** The Padi rail chip's REMOTE-HOST segment — names WHERE padi is and reads as
+ *  remote. `boundHost` is `daemonScanBoundHost()`: the ssh host kolu-server's padi
+ *  is bound to (`KOLU_PADI_HOST`), or `null` for a LOCAL binding. Returns the
+ *  `ssh · <host>` label ONLY when bound remotely, and `null` when local — so the
+ *  local chip stays byte-identical (no host noise). One source of truth for the
+ *  chip render AND its tooltip fragment, tested pure. */
+export function padiBoundHostSegment(boundHost: string | null): string | null {
+  return boundHost ? `ssh · ${boundHost}` : null;
+}

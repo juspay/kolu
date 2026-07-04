@@ -41,7 +41,7 @@ import {
   setDaemonProcessId,
   shutdownCleanup,
 } from "./koluRoot.ts";
-import { log as padiLog } from "./log.ts";
+import { configureDaemonLog, log as padiLog } from "./log.ts";
 import { startPadiMemorySampler } from "./memorySampler.ts";
 import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { publisher } from "./publisher.ts";
@@ -108,6 +108,11 @@ export async function runPadiDaemon(
   opts: PadiDaemonOptions,
 ): Promise<DaemonExit> {
   const { log } = opts;
+  // A DAEMON boot: route padi's domain pino stream (the `@kolu/padi` `log` this module and its
+  // domain code share) to the rolled-file + stderr multistream (P0). Unconditional at the ONE
+  // entrypoint every spawn path runs, so no spawn path can forget it; fails loud here if the
+  // state root is unwritable. The `--stdio` front never reaches this, so it keeps stdout.
+  configureDaemonLog();
   const stateRoot = resolvePadiStateRoot(opts.stateRoot);
   const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
   const gatePath = padiGatePath(socketPath);
