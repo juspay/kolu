@@ -124,45 +124,63 @@ export function remotePadiHost(): string | undefined {
   return host ? host : undefined;
 }
 
-/** Build the `resolveDrvPath` thunk `getHostSession` runs at the top of EVERY
- *  spawn: probe the remote arch (`resolveSystem`, an ssh round-trip) and pick the
- *  baked padi `.drv` for it. kaval rides INSIDE padi's closure (`KOLU_KAVAL_BIN` is
- *  baked in padi's wrapper), so this ONE drv provisions both daemons. A bad/absent
- *  map is a TERMINAL config fault (`ResolveDrvError` with `"remote"` → the session
- *  gives up loudly rather than retrying an unwinnable spawn forever); an unreachable
- *  host makes `resolveSystem` reject plainly → the session reads that as `"network"`
- *  and retries until the host is back. */
-function makeResolvePadiDrv(host: string): () => Promise<string> {
+/** Parse + validate the baked `{ system → padi .drv }` map EAGERLY — the STATIC-
+ *  config axis, decided ONCE at bind time and never re-run on reconnect. A missing
+ *  (`"{}"` / unset) or malformed map is a BUILD defect (kolu-server was not run from
+ *  its Nix wrapper, which bakes the map), so it throws a PLAIN loud Error that crashes
+ *  boot — NOT a deferred `ResolveDrvError` the `HostSession` would retry
+ *  MAX_CONSECUTIVE_FAILURES times before tripping to terminal `failed`, silently
+ *  degrading the whole canvas. Fail-fast per conventions.md, matching mini-ci's eager
+ *  `connect()` env check and `dialAgentOnce`'s eager `parseDrvBySystem`. */
+function parsePadiDrvMap(): Record<string, string> {
+  const raw = process.env[PADI_AGENT_DRVS_ENV]?.trim();
+  if (!raw || raw === "{}") {
+    throw new Error(
+      `${PADI_AGENT_DRVS_ENV} is not baked — a remote padi binding (${KOLU_PADI_HOST_ENV}) needs kolu-server run from its Nix wrapper, which bakes the arch-keyed padi drv map. Unset ${KOLU_PADI_HOST_ENV} to bind the local padi.`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `${PADI_AGENT_DRVS_ENV} is not a valid { system → drv } JSON map: ${(err as Error).message}`,
+    );
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    // A truthy NON-string value (e.g. {"x86_64-linux": 42}) is an `object` that
+    // slips the shape guard and would be handed back as a bogus `.drv` by the
+    // `map[system]` lookup (its `!drv` check passes for a number). Reject it here,
+    // eagerly, mirroring parseDrvBySystem's per-value guard
+    // (@kolu/surface-nix-host/dialAgentOnce.ts).
+    Object.values(parsed).some((v) => typeof v !== "string")
+  ) {
+    throw new Error(
+      `${PADI_AGENT_DRVS_ENV} is not a { system → drv string } JSON object`,
+    );
+  }
+  return parsed as Record<string, string>;
+}
+
+/** Build the `resolveDrvPath` thunk `getHostSession` runs at the top of EVERY spawn:
+ *  probe the remote arch (`resolveSystem`, an ssh round-trip) and pick the baked padi
+ *  `.drv` for it from the ALREADY-VALIDATED map. kaval rides INSIDE padi's closure
+ *  (`KOLU_KAVAL_BIN` is baked in padi's wrapper), so this ONE drv provisions both
+ *  daemons. Only the genuinely PER-HOST axis lives here — the static-config axis (map
+ *  present / valid JSON / right shape) is decided eagerly by {@link parsePadiDrvMap}.
+ *  A host whose arch has no baked drv is a TERMINAL config fault (`ResolveDrvError`
+ *  with `"remote"` → the session gives up loudly rather than retrying an unwinnable
+ *  spawn forever); it stays deferred because it genuinely needs the arch probe. An
+ *  unreachable host makes `resolveSystem` reject plainly → the session reads that as
+ *  `"network"` and retries until the host is back. */
+function makeResolvePadiDrv(
+  host: string,
+  map: Record<string, string>,
+): () => Promise<string> {
   return async () => {
-    const raw = process.env[PADI_AGENT_DRVS_ENV]?.trim();
-    if (!raw || raw === "{}") {
-      throw new ResolveDrvError(
-        `${PADI_AGENT_DRVS_ENV} is not baked — a remote padi binding (${KOLU_PADI_HOST_ENV}) needs kolu-server run from its Nix wrapper, which bakes the arch-keyed padi drv map. Unset ${KOLU_PADI_HOST_ENV} to bind the local padi.`,
-        "remote",
-      );
-    }
-    let map: Record<string, string>;
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        Array.isArray(parsed) ||
-        // A truthy NON-string value (e.g. {"x86_64-linux": 42}) is an `object`
-        // that slips the shape guard and would be handed back as a bogus `.drv`
-        // by the `map[system]` lookup below (its `!drv` check passes for a
-        // number). Reject it here, eagerly, mirroring parseDrvBySystem's
-        // per-value guard (@kolu/surface-nix-host/dialAgentOnce.ts).
-        Object.values(parsed).some((v) => typeof v !== "string")
-      )
-        throw new Error("not a { system → drv string } JSON object");
-      map = parsed as Record<string, string>;
-    } catch (err) {
-      throw new ResolveDrvError(
-        `${PADI_AGENT_DRVS_ENV} is not a valid { system → drv } JSON map: ${(err as Error).message}`,
-        "remote",
-      );
-    }
     const system = await resolveSystem(host);
     const drv = map[system];
     if (!drv) {
@@ -628,12 +646,17 @@ export function ensureRemotePadiBinding(
     { host },
     `binding a REMOTE padi over ssh (${KOLU_PADI_HOST_ENV} set) — the whole canvas is this host`,
   );
+  // The STATIC-config axis, decided ONCE here: parse + validate the baked drv map
+  // EAGERLY so a missing/malformed BAKED map crashes boot loudly (index.ts calls this
+  // synchronously with no try/catch — fail-fast) instead of degrading the canvas
+  // through the deferred resolver's retry-then-terminal path.
+  const drvMap = parsePadiDrvMap();
   const session = getHostSession<PadiDaemonContract>({
     host,
     // `${agentPath}/bin/padi`, run as `padi --stdio` — the durable-daemon front.
     binary: "padi",
     extraArgs: ["--stdio"],
-    resolveDrvPath: makeResolvePadiDrv(host),
+    resolveDrvPath: makeResolvePadiDrv(host, drvMap),
     onLog: (line) => log.info({ host, line }, "remote padi session"),
     reconnectDelayMs: opts.reconnectDelayMs,
   });
