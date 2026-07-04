@@ -55,6 +55,14 @@ export function isValidTimerMs(ms: number): boolean {
   return Number.isFinite(ms) && ms > 0 && ms <= MAX_TIMER_MS;
 }
 
+/** A promise that resolves after `ms` — the package's one `setTimeout` wrapper,
+ *  reused by `attach`'s reconnect backoff and `executeSendPlan`'s `--submit`
+ *  grace. Lives beside {@link MAX_TIMER_MS}/{@link isValidTimerMs}, the module
+ *  that already owns this package's timer vocabulary, so the sleep isn't
+ *  re-typed at each call site. */
+export const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 /** Parse the `--until` value into a {@link WaitCondition}. Two forms only —
  *  `idle:<ms>` (a positive whole number of milliseconds) and `match:<regex>` (a
  *  non-empty, valid JS regex). Anything else is a loud error, never a silent

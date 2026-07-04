@@ -9,12 +9,7 @@
  * test in lockstep.
  */
 import { type SendPlan, SUBMIT_ENTER } from "./send.ts";
-
-/** A promise that resolves after `ms` — the `--submit` grace between the text
- *  write and the Enter. A blind timer, not a screen read: the point is only to
- *  land the Enter after the paste debounce. */
-const delay = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+import { delay } from "./wait.ts";
 
 /** Drive a {@link SendPlan} to a terminal via the injected `write` sink: issue
  *  each planned write in order (awaiting in turn preserves order and applies
