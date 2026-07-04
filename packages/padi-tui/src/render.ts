@@ -135,7 +135,6 @@ export function agentMatchesUntil(
  *  them verbatim could break the column layout or inject control effects. JSON
  *  output stays raw (`JSON.stringify` escapes controls); this is human-only. */
 export function sanitize(value: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control bytes is the point.
   return value.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
 }
 
