@@ -120,6 +120,42 @@ e2e-ssh host='': install
         KOLU_STATE_DIR="${TMPDIR:-/tmp}/kolu-e2e-ssh-$$/state" \
         {{ nix_shell }} pnpm exec vitest run --fileParallelism=false src/remotePadiSsh.test.ts
 
+# W3.1 ssh-leg e2e — TWO-BOX arm. `e2e-ssh` self-ssh's to the box's OWN padi (a real hop,
+# but the "remote" host == this machine). This second recipe binds to a GENUINELY-DIFFERENT
+# host (removing the self-ssh confound), and adds the FINDING-1 coverage the padi-only ssh
+# lane can't reach: it stands up a FULL kolu-server bound to <boxB> and asserts the
+# koluSurface `daemonInventory` publishes `boundHost=<boxB>` + a populated `boundPadi`
+# (the bound padi's honest hello identity) — the enforced twin of the manual two-box repro
+# (the dialog labels this-machine's scan "not the bound host" and reads the padi identity
+# from `boundPadi`, not the local `active` row). Run on a `pu` box that can ssh to <boxB>.
+#   just e2e-ssh-2box nix@boxB          # <boxB> = a genuinely-different ssh host/alias
+e2e-ssh-2box boxB port='7099': install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    boxB="{{ boxB }}"; port="{{ port }}"
+    # 1) the ssh-transport lane (round-trip · latency · drain-converge · agent-state) against
+    #    the genuinely-different host — self-ssh confound removed.
+    just e2e-ssh "$boxB"
+    # 2) FINDING 1 over ssh: a full kolu-server bound to <boxB> must publish boundHost + boundPadi.
+    sr="${TMPDIR:-/tmp}/kolu-2box-$$/state"; log="${TMPDIR:-/tmp}/kolu-2box-$$.log"
+    echo "e2e-ssh-2box: standing up kolu-server (KOLU_PADI_HOST=$boxB) on :$port"
+    KOLU_STATE_DIR="$sr" KOLU_PADI_HOST="$boxB" {{ nix_shell }} nix run .#koluBin -- --port "$port" >"$log" 2>&1 &
+    srv=$!; trap 'kill $srv 2>/dev/null || true' EXIT
+    for i in $(seq 1 120); do
+        curl -sf -o /dev/null -X POST "http://127.0.0.1:$port/rpc/surface/padi/lifecycle/killAll" \
+            -H 'content-type: application/json' -d '{"json":{}}' && break
+        sleep 1
+    done
+    # daemonInventory is a subscription (SSE) — bound the read; grep -m1 takes the first frame.
+    frame=$(timeout 12 curl -s -N --max-time 10 -X POST "http://127.0.0.1:$port/rpc/surface/kolu/daemonInventory/get" \
+        -H 'content-type: application/json' -d '{"json":{}}' 2>/dev/null | grep -m1 '^data:' | sed 's/^data: //' || true)
+    echo "daemonInventory (bound to $boxB): $frame"
+    echo "$frame" | grep -qE "\"boundHost\":\"$boxB\"" \
+        || { echo "FAIL: boundHost != $boxB (the dialog can't label the local scan)" >&2; exit 1; }
+    echo "$frame" | grep -qE "\"boundPadi\":\{\"surfaceVersion\":\"[^\"]+\"" \
+        || { echo "FAIL: boundPadi.surfaceVersion not populated (Padi dialog identity would be blank)" >&2; exit 1; }
+    echo "e2e-ssh-2box: PASS — boundHost=$boxB, boundPadi populated over the genuinely-remote binding"
+
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test: install
     #!/usr/bin/env bash
