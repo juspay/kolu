@@ -229,6 +229,13 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
     expect(last?.connection).toBe("disconnected");
     expect(last?.failureCause).toBe("remote");
     expect(rp.padiSurfaceVersion()).toBeNull();
+
+    // M2: a STANDING skew must yield a NULL client on subsequent live-client reads — NOT
+    // the rejected memo hammered forever. `readPadiMemoryOnce` (index.ts) polls off
+    // `currentClient()` every 5s; over a still-up transport a rejected-through-live client
+    // would spam 'poll failed' + log.error, where the LOCAL arm (which nulls its client)
+    // reports honest 'absent'. currentClient() must match that: null, not a rejected promise.
+    expect(rp.currentClient()).toBeNull();
   });
 
   it("drains the bound padi and WAITS for its exit (the restart verb) — resolves only once the link dies", async () => {
@@ -516,12 +523,38 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(last?.failureCause).toBe("remote");
   });
 
-  it("contract skew, binder NEWER → drains (newest-wins), never a fence", async () => {
+  it("contract skew, binder NEWER → drains (newest-wins), instance-keyed bounded", async () => {
     const { host, rp } = make({ binderVersion: "9.0", binderBuildId: "b" });
     const oldContract = makeDrainable(helloOk({ surfaceVersion: "1.1" }));
     host.setClient(oldContract.client);
     await expect(rp.currentClient()).rejects.toThrow(/newer contract/i);
     expect(oldContract.drainCount()).toBe(1);
+  });
+
+  it("contract-skew TREADMILL: a DIFFERENT skewed instance after a drain → degrades LOUDLY (anti-livelock), never drains forever (M1)", async () => {
+    // The remote host's OWN older kolu-server respawns its old-contract padi after each
+    // of our drains — a two-supervisor treadmill. Before M1 the contract axis had no
+    // bound, and markConnected-on-hello resets the give-up budget every cycle, so it would
+    // drain forever. The shared admitDrain must catch the FRESH skewed instance and go
+    // loud-terminal unconverged, never a kill, never an endless treadmill.
+    const { host, rp } = make({ binderVersion: "9.0", binderBuildId: "b" });
+    // Drain instance 1000 (old contract 1.1) → took → reconnect.
+    const first = makeDrainable(
+      helloOk({ surfaceVersion: "1.1", startedAt: 1000 }),
+    );
+    host.setClient(first.client);
+    await expect(rp.currentClient()).rejects.toThrow(/newer contract/i);
+    expect(first.drainCount()).toBe(1);
+    // Reconnect brings up a DIFFERENT instance (startedAt 2000), STILL old contract — the
+    // remote supervisor respawned it. Do NOT re-drain: LOUD terminal unconverged.
+    const different = makeDrainable(
+      helloOk({ surfaceVersion: "1.1", startedAt: 2000 }),
+    );
+    host.setClient(different.client);
+    await expect(rp.currentClient()).rejects.toThrow(
+      /anti-livelock|treadmill/i,
+    );
+    expect(different.drainCount()).toBe(0); // never drained the fresh skewed instance
   });
 
   it("marks the HostSession connected on a drain — resets its give-up budget so an INTENDED drain always respawns (never terminal 'failed')", async () => {
@@ -536,13 +569,15 @@ describe("RemotePadiSession — build/contract convergence at the remote bind (m
     expect(host.markConnectedCount).toBeGreaterThanOrEqual(1);
   });
 
-  it("contract skew, binder NEWER, drain does NOT take → REFUSES (degraded), never adopts an incompatible contract", async () => {
+  it("contract skew, binder NEWER, drain does NOT take → degrades LOUDLY (unconverged), never adopts an incompatible contract", async () => {
     const { host, rp } = make({ binderVersion: "9.0", binderBuildId: "b" });
     const stubborn = makeDrainable(helloOk({ surfaceVersion: "1.1" }), {
       diesOnDrain: false,
     });
     host.setClient(stubborn.client);
-    await expect(rp.currentClient()).rejects.toThrow(/skew|refus/i);
+    await expect(rp.currentClient()).rejects.toThrow(
+      /did not take|kept answering|skew/i,
+    );
     expect(stubborn.drainCount()).toBe(1); // attempted once, no kill
     let last: HostSessionState | undefined;
     rp.onState((s) => {

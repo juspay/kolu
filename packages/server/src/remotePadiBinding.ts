@@ -242,7 +242,7 @@ export class RemotePadiSession implements BoundPadi {
    *  item). */
   private readonly binderVersion: string;
   private readonly binderBuildId: string;
-  private readonly maxBuildDrains: number;
+  private readonly maxDrainsPerInstance: number;
   private readonly drainCeilingMs: number;
   private readonly drainPollMs: number;
   /** Instance-keyed build-drain state (NOT a global boolean fence). `drainedInstance`
@@ -293,7 +293,7 @@ export class RemotePadiSession implements BoundPadi {
   ) {
     this.binderVersion = deps.binderVersion ?? PADI_SURFACE_VERSION;
     this.binderBuildId = deps.binderBuildId ?? currentPadiBuildId();
-    this.maxBuildDrains =
+    this.maxDrainsPerInstance =
       deps.maxBuildDrainsPerInstance ?? MAX_BUILD_DRAINS_PER_INSTANCE;
     this.drainCeilingMs =
       deps.drainTeardownCeilingMs ?? REMOTE_DRAIN_TEARDOWN_CEILING_MS;
@@ -336,6 +336,19 @@ export class RemotePadiSession implements BoundPadi {
     if (combinedP !== this.memoKey) {
       this.memoKey = combinedP;
       this.memoScoped = this.handshakeAndScope(combinedP);
+    }
+    // A standing skew / unconverged REFUSED this spawn — `handshakeAndScope` set the
+    // degraded bindState and REJECTED `memoScoped`. Return null (honest "no live client")
+    // so a consumer that polls off a LIVE client — `readPadiMemoryOnce` (index.ts) — reads
+    // the SAME three-way `absent` the local arm does (it nulls its own client), instead of
+    // awaiting a rejected promise into a 'poll failed' + `log.error` EVERY 5s forever while
+    // the transport stays up. The re-serve pump handles a null currentClient (waits) just
+    // as it swallowed the rejection, so the mirror still recovers on the next fresh spawn.
+    if (
+      this.bindState.kind === "skew" ||
+      this.bindState.kind === "unconverged"
+    ) {
+      return null;
     }
     return this.memoScoped;
   }
@@ -386,6 +399,12 @@ export class RemotePadiSession implements BoundPadi {
       // a harmless no-op.
       this.host.markConnected();
 
+      // The bound padi's INSTANCE identity (its boot time) — the key BOTH convergence
+      // axes track their drain by (see {@link admitDrain}), so a blip-induced re-drain of
+      // the same never-exited instance is told apart from a two-supervisor treadmill
+      // spawning fresh wrong instances.
+      const instance = hello.startedAt ?? null;
+
       // ── Axis 1 — the CONTRACT. On a skew the contract decides; the build id is
       // irrelevant. Mirrors the local policy `onContractSkew: drain-newer-else-refuse`
       // (`PADI_CONVERGENCE_POLICY` → the kit's `decide()`). The newest-wins
@@ -406,12 +425,28 @@ export class RemotePadiSession implements BoundPadi {
           );
           return this.refuse(msg);
         }
-        // Skew, binder NEWER → DRAIN (no fence; monotone version ordering is the guarantee).
+        // Skew, binder NEWER → DRAIN, instance-keyed + BOUNDED. The contract axis had no
+        // fence, and because `markConnected` on the hello resets the give-up budget every
+        // cycle, a two-supervisor treadmill — the remote host's OWN older kolu-server
+        // respawning its old-contract padi after each of our drains — would drain forever.
+        // `admitDrain` (shared with the build axis) bounds it: a DIFFERENT still-skewed
+        // instance after a drain → anti-livelock, the SAME one surviving its budget →
+        // exhaustion, both a LOUD terminal `unconverged`.
+        const attempt = this.admitDrain(
+          instance,
+          `contract skew (binder ${this.binderVersion} newer than running ${running})`,
+        );
         log.info(
-          { host: this.hostName, binderVersion: this.binderVersion, running },
-          "remote padi survivor is a padiSurface skew and this binder is NEWER — draining it " +
-            "(persist + exit; its kaval + PTYs survive) so the reconnect respawns this binder's " +
-            "own newer closure (newest-wins convergence)",
+          {
+            host: this.hostName,
+            binderVersion: this.binderVersion,
+            running,
+            instance,
+            attempt,
+          },
+          `remote padi is a padiSurface skew and this binder is NEWER — draining it (instance ` +
+            `startedAt ${instance}, attempt ${attempt}/${this.maxDrainsPerInstance}; persist + exit, its ` +
+            `kaval + PTYs survive) so the reconnect respawns this binder's own newer closure`,
         );
         const contractDrain = await this.drainAndAwaitClose(combined);
         if (contractDrain.took) {
@@ -420,20 +455,14 @@ export class RemotePadiSession implements BoundPadi {
             "remote padi drained (newer contract) — reconnecting to the respawned newer build",
           );
         }
-        // Drain did not take → cannot adopt an incompatible contract → REFUSE (degraded).
-        log.error(
-          {
-            host: this.hostName,
-            binderVersion: this.binderVersion,
-            running,
-            drainRejection: contractDrain.drainRejection,
-          },
-          "newer-binder drain of a skewed remote padi FAILED (it did not exit in the teardown " +
-            "window) — NOT killing it; refusing (degraded), the reconnect loop retries, so no " +
-            "livelock, no kill",
-        );
-        return this.refuse(
-          `padi contract skew: remote padi serves padiSurface ${running}, kolu-server needs ${this.binderVersion} — newer-binder drain did not take, refusing`,
+        // Ceiling: the skewed padi kept answering — it will not exit, and an INCOMPATIBLE
+        // contract can never be adopted → LOUD terminal unconverged (no kill).
+        return this.unconverged(
+          `newer-binder drain did not take within ${this.drainCeilingMs}ms — the skewed padi kept ` +
+            `answering (serves ${running}, kolu-server needs ${this.binderVersion})` +
+            (contractDrain.drainRejection
+              ? `; drain call rejected: ${contractDrain.drainRejection}`
+              : ""),
         );
       }
 
@@ -451,7 +480,6 @@ export class RemotePadiSession implements BoundPadi {
       // never a silent stale adopt. Ledger L23: the both-arms unification's ssh probe
       // MUST inherit this guard. ──
       const runningBuild = hello.buildId ?? "";
-      const instance = hello.startedAt ?? null;
       if (this.binderBuildId === "" || runningBuild === this.binderBuildId) {
         // off-nix binder (cannot judge builds) or provably-equal build → CONVERGED (or
         // never our job). Reaching the matched build means any prior drain genuinely
@@ -464,34 +492,14 @@ export class RemotePadiSession implements BoundPadi {
 
       // A build MISMATCH — a different OR ABSENT id (`?? ""` folds absent → "", which
       // never equals a nix binder's non-empty id, so a pre-field survivor drains as an
-      // older build). Converge by draining, instance-keyed.
-      if (this.drainedInstance !== null && instance !== this.drainedInstance) {
-        // We already drained an instance this boot, yet a DIFFERENT instance is STILL
-        // build-mismatched → the livelock the fence guards (two supervisors, or the
-        // absent-id dev loop respawning old builds). Refuse to treadmill: LOUD degraded,
-        // NEVER a silent stale adopt.
-        return this.unconverged(
-          `remote padi still build-mismatched on a FRESH instance (startedAt ${instance}) after draining ${this.drainedInstance} this boot (running=${runningBuild} expected=${this.binderBuildId}) — refusing to treadmill (anti-livelock)`,
-        );
-      }
-      if (
-        instance === this.drainedInstance &&
-        this.drainAttempts >= this.maxBuildDrains
-      ) {
-        // The SAME instance survived every drain attempt — a flapping ssh link whose
-        // blips keep reading as "exited" while the daemon lives. LOUD degraded, NEVER a
-        // silent stale adopt (this is the exact silent-permanent-wrong failure the
-        // design philosophy exists to kill).
-        return this.unconverged(
-          `remote padi survived ${this.drainAttempts} drain attempts without exiting (instance startedAt ${instance}, running=${runningBuild} expected=${this.binderBuildId}) — a flapping link that will not converge`,
-        );
-      }
-
-      // Drain this instance — the first time, or AGAIN because a prior attempt's "exit"
-      // was really a link blip and the SAME instance came back. Track by instance BEFORE
-      // the await so a blip-then-reconnect re-enters this decision, not a global latch.
-      this.drainedInstance = instance;
-      this.drainAttempts += 1;
+      // older build). Converge by draining, instance-keyed + BOUNDED (the shared
+      // {@link admitDrain}: a blip-induced re-drain of the SAME never-exited instance is
+      // admitted; a DIFFERENT still-mismatched instance — two supervisors / the absent-id
+      // dev loop — or the same one past its budget is the treadmill → loud unconverged).
+      const attempt = this.admitDrain(
+        instance,
+        `build mismatch (running=${runningBuild} expected=${this.binderBuildId})`,
+      );
       log.info(
         {
           host: this.hostName,
@@ -499,10 +507,10 @@ export class RemotePadiSession implements BoundPadi {
           runningBuild,
           running,
           instance,
-          attempt: this.drainAttempts,
+          attempt,
         },
         `padi build change on boot: running=${runningBuild} expected=${this.binderBuildId}` +
-          ` — draining the survivor (instance startedAt ${instance}, attempt ${this.drainAttempts}/${this.maxBuildDrains}; persist + exit, its kaval + PTYs survive) and respawning this binder's own build (drain-on-build-mismatch, #1670)`,
+          ` — draining the survivor (instance startedAt ${instance}, attempt ${attempt}/${this.maxDrainsPerInstance}; persist + exit, its kaval + PTYs survive) and respawning this binder's own build (drain-on-build-mismatch, #1670)`,
       );
       const buildDrain = await this.drainAndAwaitClose(combined);
       if (buildDrain.took) {
@@ -554,21 +562,47 @@ export class RemotePadiSession implements BoundPadi {
     throw new DaemonContractSkewError(msg);
   }
 
-  /** LOUD DEGRADED — a COMPATIBLE padi we could NOT converge to this binder's build
-   *  (a flapping/wedged ssh link over which the drain never provably took). Surfaces
-   *  the mismatch in the connection cell (exactly like {@link refuse}) AND at
-   *  `log.error`, and REJECTS the client so the pump keeps waiting — NEVER a silent
-   *  stale adopt (the design-philosophy failure class: silent + permanent + wrong).
-   *  Distinct from `refuse`: the contract is fine here, only the build could not be
-   *  replaced, so it throws a plain Error, not a `DaemonContractSkewError`. */
+  /** LOUD DEGRADED — a padi we could NOT converge (a drain that never provably took over
+   *  a flapping/wedged ssh link, or a treadmill of respawned wrong instances), on EITHER
+   *  axis (build mismatch, or a newer-contract skew we can't drain away). Surfaces the
+   *  reason in the connection cell (exactly like {@link refuse}) AND at `log.error`, and
+   *  REJECTS the client so the pump keeps waiting — NEVER a silent stale adopt (the
+   *  design-philosophy failure class: silent + permanent + wrong). Distinct from `refuse`
+   *  (a monotonicity refusal of an OLDER binder): a plain Error, not a skew error. */
   private unconverged(msg: string): never {
-    log.error(
-      { host: this.hostName },
-      `remote padi UNCONVERGED (build) — ${msg}`,
-    );
+    log.error({ host: this.hostName }, `remote padi UNCONVERGED — ${msg}`);
     this.bindState = { kind: "unconverged", error: msg };
     this.fire();
     throw new Error(msg);
+  }
+
+  /** Instance-keyed drain ADMISSION — shared by BOTH convergence axes (contract + build),
+   *  the ssh-transport-correct twin of the local arm's once-per-boot fence. Over ssh a
+   *  `hello()` rejection can be a link BLIP, not an exit, so a global fence would falsely
+   *  spend; and neither axis can self-terminate, because `markConnected` on the hello
+   *  resets the give-up budget every cycle. So: re-draining the SAME never-exited instance
+   *  (a blip) is admitted up to a per-instance budget; a DIFFERENT instance still wrong
+   *  after a drain this boot (two supervisors fighting, or the absent-id dev loop) is the
+   *  treadmill. Both terminal cases throw {@link unconverged} (loud, never returns);
+   *  otherwise it records this attempt and returns the attempt number. Ledger L23 — the
+   *  both-arms unification's ssh probe must inherit this. */
+  private admitDrain(instance: number | null, why: string): number {
+    if (this.drainedInstance !== null && instance !== this.drainedInstance) {
+      this.unconverged(
+        `${why}: a DIFFERENT padi instance (startedAt ${instance}) is still wrong after draining ${this.drainedInstance} this boot — refusing to treadmill (anti-livelock)`,
+      );
+    }
+    if (
+      instance === this.drainedInstance &&
+      this.drainAttempts >= this.maxDrainsPerInstance
+    ) {
+      this.unconverged(
+        `${why}: instance startedAt ${instance} survived ${this.drainAttempts} drain attempts without exiting — a flapping link / respawn loop that will not converge`,
+      );
+    }
+    this.drainedInstance = instance;
+    this.drainAttempts += 1;
+    return this.drainAttempts;
   }
 
   /** Drain the combined client over the frozen control core, then wait (fail-fast)
@@ -767,7 +801,8 @@ export interface EnsureRemotePadiBindingOptions {
   host: string;
   /** The kolu app version to stamp as the remote-spawned PTYs' `TERM_PROGRAM_VERSION`
    *  — the SAME value the LOCAL arm forwards through padi's `--spawn-version`
-   *  (`serverVersion`). Passed to the remote `padi --stdio` in `extraArgs`; the
+   *  (`serverVersion`). Passed via `extraArgs` — appended AFTER the `--stdio` that
+   *  `getHostSession`/`buildAgentCommand` already adds (we never re-pass `--stdio`); the
    *  `--stdio` front's `reExecAsDetachedDaemon` re-execs argv MINUS `--stdio`, so the
    *  flag rides through to the durable daemon `runPadiDaemon` spawns — without it a
    *  remote terminal reports the remote padi's OWN commit/dev version, not the kolu
@@ -801,16 +836,15 @@ export function ensureRemotePadiBinding(
   // synchronously with no try/catch — fail-fast) instead of degrading the canvas
   // through the deferred resolver's retry-then-terminal path.
   const drvMap = parsePadiDrvMap();
-  // `padi --stdio [--spawn-version <ver>]`. The `--stdio` front re-execs argv minus
-  // `--stdio` to bring up the durable daemon (`reExecAsDetachedDaemon`), so the
-  // `--spawn-version` flag rides straight through to `runPadiDaemon` — the remote twin
-  // of the local arm forwarding `serverVersion` into padi's `--spawn-version`, so a
-  // remote terminal's `TERM_PROGRAM_VERSION` is the kolu app version, not the remote
-  // padi's own commit.
+  // `getHostSession`/`buildAgentCommand` ALREADY runs the binary as `<padi> --stdio`
+  // (host.ts) — extraArgs are appended AFTER `--stdio`, so we pass ONLY `--spawn-version`,
+  // never `--stdio` again. The `--stdio` front re-execs argv minus `--stdio` to bring up
+  // the durable daemon (`reExecAsDetachedDaemon`), so `--spawn-version` rides straight
+  // through to `runPadiDaemon` — the remote twin of the local arm forwarding `serverVersion`
+  // into padi's `--spawn-version`, so a remote terminal's `TERM_PROGRAM_VERSION` is the
+  // kolu app version, not the remote padi's own commit.
   const extraArgs =
-    opts.spawnVersion != null
-      ? ["--stdio", "--spawn-version", opts.spawnVersion]
-      : ["--stdio"];
+    opts.spawnVersion != null ? ["--spawn-version", opts.spawnVersion] : [];
   const session = getHostSession<PadiDaemonContract>({
     host,
     // `${agentPath}/bin/padi`, run as `padi --stdio` — the durable-daemon front.

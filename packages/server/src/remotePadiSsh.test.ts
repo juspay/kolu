@@ -2,8 +2,9 @@
  * The ssh-leg e2e — `padiSurface` consumed over a REAL ssh hop (W3.1's named path).
  *
  * No local shortcut satisfies W3.1: this drives the exact stack a `KOLU_PADI_HOST`
- * binding rides — `getHostSession({ binary: "padi", extraArgs: ["--stdio"] })`
- * provisions padi's closure to the host with Nix, runs `ssh <host> padi --stdio`
+ * binding rides — `getHostSession({ binary: "padi" })` (which runs the binary as
+ * `padi --stdio` itself via `buildAgentCommand`) provisions padi's closure to the host
+ * with Nix, runs `ssh <host> padi --stdio`
  * (fronting padi's durable daemon via `frontDaemonOverStdio`), and speaks the
  * combined `padiDaemonContract` over the ssh byte channel. It then handshakes the
  * frozen control core and round-trips a terminal, measures typing-echo latency over
@@ -186,7 +187,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     const s = getHostSession<PadiDaemonContract>({
       host: SSH_HOST as string,
       binary: "padi",
-      extraArgs: ["--stdio"],
+      // `buildAgentCommand` already runs the binary as `padi --stdio` (host.ts) and
+      // appends extraArgs AFTER it — so extraArgs must NOT re-pass `--stdio`.
+      extraArgs: [],
       resolveDrvPath: async () => PADI_DRV as string,
       onLog: (line) => console.log(`[host] ${line}`),
     });
