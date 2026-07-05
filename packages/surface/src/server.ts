@@ -356,16 +356,37 @@ export function collectionHandlers<Name extends string, K, T>(
       subscribeBeforeSnapshot(deps.keysBus, signal, () =>
         Array.from(deps.readAll().keys()),
       ),
+    // A `get` for a key that DOESN'T EXIST YET is a legitimate HELD-OPEN
+    // subscription, NOT an error. A collection's membership is dynamic by design
+    // (the mirror's `initialKeys` reconcile already treats it so, W2.1), so a
+    // consumer watching a fixed key may subscribe BEFORE the key is born: the
+    // stream stays open, yields NOTHING until the key's first upsert, then
+    // delivers it and every later update. Subscribe-before-snapshot (like `keys`)
+    // so a value upserted in the snapshot→forward gap isn't lost; the ONLY
+    // difference from `keys` is the snapshot is CONDITIONAL — a present key yields
+    // its current value, an absent key yields nothing.
+    //
+    // This held-open-on-absent-key is a DELIBERATE, tested semantic, never an
+    // accidental hang. The alternative — throwing "key not found" on the first
+    // snapshot — surfaced to a consuming browser as a NON-RETRIABLE `ORPCError`
+    // (`STREAM_RETRY` never retries an `ORPCError`) that KILLED its standing
+    // subscription: a key born AFTER the subscription opened (kolu-server booting
+    // with an empty re-serve mirror; the gray Kaval chip, #1681) then never
+    // reached the client until a full page reload. Holding open turns "absent"
+    // into a RECOVERABLE waiting state the consumer renders honestly (`undefined`
+    // until the first value). A key that NEVER appears leaves the stream open
+    // yielding nothing — exactly as a `keys` subscription to an empty collection
+    // holds open — so the consumer shows its honest empty/absent state, not a
+    // corpse. Callers that need a bounded first read pass a `signal`.
     get: async function* ({ input, signal }) {
-      const initial = readOne(input.key);
-      if (initial === undefined) {
-        throw new Error(
-          `collection ${_coll.name}: key not found at first snapshot`,
-        );
-      }
-      yield initial;
-      for await (const v of deps.perKeyBus(input.key).subscribe(signal)) {
-        yield v;
+      const frames = deps.perKeyBus(input.key).subscribe(signal);
+      const iterator = frames[Symbol.asyncIterator]();
+      try {
+        const initial = readOne(input.key);
+        if (initial !== undefined) yield initial;
+        yield* { [Symbol.asyncIterator]: () => iterator };
+      } finally {
+        await iterator.return?.();
       }
     },
     upsert: ({ input }) => {
@@ -1181,13 +1202,17 @@ export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
  *  so imperative procedures publish through the same channel as the wire
  *  handlers. Bypassing this and writing directly to the consumer's store
  *  silently skips the publish; don't. */
+/** `set`'s optional `{ force }` bypasses the cell's `equals` dedup for that ONE
+ *  write (a re-serve's rebind epoch republishes an equal value — #1681); omitted,
+ *  the write dedups as before. */
+type CellCtxSet<T> = (v: T, opts?: { force?: boolean }) => void;
 type CellCtxFor<S> = S extends {
   schema: ZodType<infer T>;
   patchSchema: ZodType<infer P>;
 }
-  ? { get: () => T; set: (v: T) => void; patch: (p: P) => void }
+  ? { get: () => T; set: CellCtxSet<T>; patch: (p: P) => void }
   : S extends { schema: ZodType<infer T> }
-    ? { get: () => T; set: (v: T) => void }
+    ? { get: () => T; set: CellCtxSet<T> }
     : never;
 
 type CollectionCtxFor<S> = S extends {
@@ -1403,8 +1428,13 @@ function walkSurface<const S extends SurfaceSpec>(
     // (TypeScript errors / test failures) if anyone adds a step to
     // only one side.
     const store = cellDeps.store;
-    function ctxApply(next: unknown): void {
-      if (equalsFn?.(store.get(), next)) return;
+    // `force` bypasses the `equals` dedup for ONE write — a re-serve's rebind epoch
+    // uses it so a fresh spawn re-confirming a value EQUAL to the pre-drain one still
+    // republishes, letting a downstream holder tell "rebound and confirmed" from
+    // "stale" (#1681; `reServeSurface`'s cell fold). Steady-state dedup is unchanged:
+    // only the explicit `force` caller opts out, per write.
+    function ctxApply(next: unknown, opts?: { force?: boolean }): void {
+      if (!opts?.force && equalsFn?.(store.get(), next)) return;
       onWriteFn?.(next);
       store.set(next);
       bus.publish(next);
