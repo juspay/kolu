@@ -78,6 +78,20 @@ done-signal section), then submit as its own command. `send "$id" "text" --key
 Enter` in one call is a **hard error** for exactly this reason — the trap is
 unspellable, not merely discouraged.
 
+> **Step 2 fires cleanly only when the agent is AT THE PROMPT** (awaiting input —
+> the normal case for dispatching a new prompt: `idle:300` fires in a fraction of
+> a second even after a multi-KB paste). If you're messaging an agent that is
+> **mid-turn and busy** (streaming output continuously), `wait --until idle`
+> **never fires** — there's no idle gap — so **bound it** with `--timeout` and
+> treat a timeout as *"target busy"*: send the Enter anyway (it lands in the
+> agent's input buffer and submits when the turn ends), then `snapshot` to confirm.
+>
+> ```sh
+> kaval-tui send "$id" --file followup.md
+> kaval-tui wait "$id" --until idle:300 --timeout 3000 || true   # busy? time out and proceed
+> kaval-tui send "$id" --key Enter                               # submit anyway
+> ```
+
 > **`--file <path>` — pass a big prompt without shell mangling.** A large brief
 > passed as `"$(cat file)"` gets its backticks / `$(...)` executed by the shell
 > before `kaval-tui` ever sees them. `--file` reads the payload straight from the

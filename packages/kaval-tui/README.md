@@ -70,6 +70,14 @@ settle signal, and only then do you submit with a separate `send --key Enter`.
 `send "text" --key Enter` in **one** call is a **hard error** — the dropped-Enter
 trap is unspellable, not merely discouraged.
 
+Step 2's `wait --until idle` fires cleanly only when the agent is **at the
+prompt** (awaiting input — the normal case; `idle:300` returns in well under a
+second even after a multi-KB paste). Against an agent that's **mid-turn and busy**
+(streaming output continuously) there's no idle gap, so `wait --until idle` never
+fires — **bound it** with `--timeout` and treat a timeout as _"target busy"_:
+send the Enter anyway (it lands in the agent's input buffer and submits when the
+turn ends), then `snapshot` to confirm.
+
 `send` writes **exactly what you pass — the literal text OR the `--key`s, never
 both, with no implicit Enter.** A send carries text or keys, not a mix.
 

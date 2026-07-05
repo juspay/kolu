@@ -244,7 +244,7 @@ const argv = cli({
         until: {
           type: String,
           description:
-            "the condition to wait for: idle:<ms> (no output for <ms> — turn ended) or match:<regex> (new output matches)",
+            "the condition to wait for: idle:<ms> (no output for <ms> — turn ended / at the prompt) or match:<regex> (new output matches). Note: idle never fires against a target that streams output continuously (a busy, mid-turn agent) — pair it with --timeout there and treat a timeout as 'target busy'.",
         },
         timeout: {
           type: Number,
