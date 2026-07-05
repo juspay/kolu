@@ -48,12 +48,15 @@ export async function firstFrameOrThrow<T>(
 }
 
 /** The outcome of a bounded one-shot collection-item read: the item's current
- *  value, or `{ present: false }` when the key is not (or no longer) a member. A
- *  typed sum so "present with value `undefined`" and "absent" can never collapse
- *  to one nullable hole. */
+ *  value, or a typed absence carrying WHY it is absent — `"absent"` (membership
+ *  confirmed it is not/no-longer a member) or `"deadline"` (a keys-less collection
+ *  gave no membership signal, so the read was bounded by a hard deadline). A typed
+ *  sum so "present with value `undefined`" and "absent" can never collapse to one
+ *  nullable hole, and so a caller can LOG the uncertain `"deadline"` case distinctly
+ *  rather than silently degrade it. */
 export type CollectionItemFrame<T> =
   | { readonly present: true; readonly value: T }
-  | { readonly present: false };
+  | { readonly present: false; readonly reason: "absent" | "deadline" };
 
 /** One-shot read of a collection ITEM, BOUNDED against `collectionHandlers.get`'s
  *  held-open-on-absent semantic (#1681). The item `get` yields nothing until the
@@ -61,27 +64,45 @@ export type CollectionItemFrame<T> =
  *  not-yet-present key — THIS is the safe reader for that case, and it lives in
  *  the framework beside the footgun it guards so no consumer re-derives it.
  *
- *  Race the item `get`'s first frame against a LIVE `keys` subscription that
- *  reports absence: a `keys` frame that OMITS the key (absent at the snapshot, OR
- *  removed at any later instant — which also closes the DELETE-RACE a one-time
- *  check-then-`get` would leave open) resolves `{ present: false }`; a PRESENT key
- *  yields its `get` snapshot immediately and wins. Whichever settles first aborts
- *  the other via a local `AbortController` chained to `signal`, so the loser is
- *  always torn down (and its post-abort rejection is handled by `Promise.race`,
- *  never surfacing as an unhandled rejection).
+ *  Race the item `get`'s first frame against ONE of two absence bounds:
  *
- *  Throws `onEmptyItem` ONLY when a PRESENT item's `get` opens empty — a dropped
- *  bridge link, not an empty value (the same snapshot-first contract
- *  `firstFrameOrThrow` enforces), never collapsed to a silent absent. `openKeys`
- *  must yield the collection's membership arrays; membership is `Array.includes`
- *  (SameValueZero), matching the collection's primitive-key channel identity. */
+ *   - **`openKeys` given** (the collection exposes a `keys` verb): a LIVE `keys`
+ *     subscription that reports absence — a `keys` frame that OMITS the key (absent
+ *     at the snapshot, OR removed at any later instant, which also closes the
+ *     DELETE-RACE a one-time check-then-`get` would leave open) resolves
+ *     `{ present: false, reason: "absent" }`; a PRESENT key yields its `get`
+ *     snapshot immediately and wins.
+ *   - **`openKeys === null`** (a keys-LESS collection — no membership signal
+ *     exists): the `get` cannot be resolved against membership, so the read is
+ *     bounded by a hard `deadlineMs` timeout that resolves
+ *     `{ present: false, reason: "deadline" }`. This is the EXPLICIT, typed,
+ *     caller-loggable bound for that case — never a silent hang, never a silent
+ *     fall-back to the `firstFrameOrThrow(get)` footgun.
+ *
+ *  Whichever settles first aborts the other via a local `AbortController` chained
+ *  to `signal`, so the loser is always torn down (and its post-abort rejection is
+ *  handled by `Promise.race`, never surfacing as an unhandled rejection).
+ *
+ *  Throws `onNullSource` when the item `get` resolves no streaming source at all,
+ *  and `onEmptyItem` when a PRESENT item's `get` opens but yields no snapshot frame
+ *  — both a dropped bridge link, not an empty value (the same snapshot-first
+ *  contract `firstFrameOrThrow` enforces), never collapsed to a silent absent.
+ *
+ *  `openKeys` yields the collection's membership arrays; membership is decided by
+ *  `Array.includes` (SameValueZero) between the decoded `key` and the RAW keys in
+ *  each frame — sound for the primitive key types (`string`/`number`/`boolean`)
+ *  the `keys` stream carries, because `key` is decoded to that same raw type. (It
+ *  does NOT go through the channel's `String(k)` identity — the frame holds raw
+ *  keys, not their stringified channel names.) */
 export async function firstFrameOfCollectionItem<T>(
   openItem: (
     signal: AbortSignal,
   ) => Promise<AsyncIterable<T> | null | undefined>,
-  openKeys: (signal: AbortSignal) => Promise<AsyncIterable<unknown>>,
+  openKeys: ((signal: AbortSignal) => Promise<AsyncIterable<unknown>>) | null,
   key: unknown,
   onEmptyItem: string,
+  onNullSource: string,
+  deadlineMs: number,
   signal: AbortSignal | undefined,
 ): Promise<CollectionItemFrame<T>> {
   const ac = new AbortController();
@@ -90,32 +111,45 @@ export async function firstFrameOfCollectionItem<T>(
     if (signal.aborted) ac.abort();
     else signal.addEventListener("abort", onAbort, { once: true });
   }
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   try {
     const present = (async (): Promise<CollectionItemFrame<T>> => {
       const source = await openItem(ac.signal);
       if (source === null || source === undefined) {
-        throw new Error(onEmptyItem);
+        throw new Error(onNullSource);
       }
       return {
         present: true,
         value: await firstFrameOrThrow(source, onEmptyItem),
       };
     })();
-    const absent = (async (): Promise<CollectionItemFrame<T>> => {
-      const source = await openKeys(ac.signal);
-      for await (const frame of source) {
-        if (!(Array.isArray(frame) && frame.includes(key))) {
-          return { present: false };
-        }
-      }
-      // `keys` ended without ever reporting the key absent — for a live surface
-      // this only happens on teardown; treat as not-found so the read stays
-      // bounded rather than resolving a value the collection no longer holds.
-      return { present: false };
-    })();
+    // The absence bound: membership when a `keys` verb exists, else a hard deadline
+    // so a keys-less collection can NEVER hang on an absent key (never a silent
+    // fall-back to the hanging `firstFrameOrThrow(get)`).
+    const absent: Promise<CollectionItemFrame<T>> =
+      openKeys !== null
+        ? (async (): Promise<CollectionItemFrame<T>> => {
+            const source = await openKeys(ac.signal);
+            for await (const frame of source) {
+              if (!(Array.isArray(frame) && frame.includes(key))) {
+                return { present: false, reason: "absent" };
+              }
+            }
+            // `keys` ended without ever reporting the key absent — for a live
+            // surface this only happens on teardown; treat as not-found so the
+            // read stays bounded rather than resolving a stale value.
+            return { present: false, reason: "absent" };
+          })()
+        : new Promise<CollectionItemFrame<T>>((resolve) => {
+            deadlineTimer = setTimeout(
+              () => resolve({ present: false, reason: "deadline" }),
+              deadlineMs,
+            );
+          });
     return await Promise.race([present, absent]);
   } finally {
     ac.abort();
+    if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
     if (signal !== undefined) signal.removeEventListener("abort", onAbort);
   }
 }

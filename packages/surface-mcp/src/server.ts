@@ -674,15 +674,24 @@ async function readFirstFrameSnapshot(
   return { value, mimeType: call.mimeType };
 }
 
+/** Hard upper bound on a one-shot collection-item read of a **keys-LESS**
+ *  collection — one with no `keys` verb, so there is no membership signal to
+ *  resolve an absent key against. The read is bounded by this deadline so an
+ *  absent key on such a collection is a prompt, explicit not-present (logged),
+ *  never the indefinite hang the held-open `get` would otherwise cause. A
+ *  keys-bearing collection is bounded by its `keys`-absence watch and never
+ *  reaches this. */
+const KEYSLESS_ITEM_READ_DEADLINE_MS = 5_000;
+
 /** One-shot read of a collection-item URI. The item `get` HOLDS OPEN for a
  *  not-yet-born key (the #1681 fix), so a one-shot read can't await it blindly —
  *  it delegates to the framework's `firstFrameOfCollectionItem`, which races the
- *  item `get` against a live `keys`-absence watch (bounded by the request signal)
- *  so a present key reads its snapshot and an absent/deleted key resolves
- *  not-found instead of hanging. This wrapper only decodes the URI→key and maps
- *  the framework's typed `CollectionItemFrame` onto the MCP `Snapshot | ReadMiss`.
- *  Falls back to a plain first-frame read for the (shouldn't-happen) case of a
- *  collection item whose collection exposes no `keys` verb. */
+ *  item `get` against a live `keys`-absence watch (or, for a keys-less collection,
+ *  a hard deadline) so a present key reads its snapshot and an absent/deleted key
+ *  resolves not-found instead of hanging. This wrapper decodes the URI→key, maps
+ *  the framework's typed `CollectionItemFrame` onto the MCP `Snapshot | ReadMiss`,
+ *  and LOGS the keys-less `"deadline"` absence (an uncertain not-present) so it is
+ *  never a silent degrade. */
 async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
@@ -691,10 +700,18 @@ async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   signal: AbortSignal | undefined,
 ): Promise<Snapshot | ReadMiss> {
   const item = parseCollectionItem(uri);
-  const keysProc = item !== null ? client.surface[item.key]?.keys : undefined;
-  if (item === null || keysProc === undefined) {
-    return readFirstFrameSnapshot(call, uri, signal);
+  if (item === null) {
+    // Unreachable by construction: `readCollectionItemSnapshot` is called only for
+    // a `call.kind === "collection-item"`, which `resolveCall` sets ONLY after
+    // `parseCollectionItem(uri)` succeeded on this same URI. Fail LOUD if that
+    // invariant is ever broken — never a silent fall-through.
+    throw new Error(
+      `surface-mcp: ${uri} routed as a collection item but does not parse as one`,
+    );
   }
+  // `null` (not `undefined`) when the collection exposes no `keys` verb — the
+  // framework then bounds the read with the deadline instead of a membership watch.
+  const keysProc = client.surface[item.key]?.keys ?? null;
   const keySchema = keySchemaByCollection.get(item.key);
   const key = keySchema !== undefined ? decodeKey(keySchema, item.id) : item.id;
 
@@ -703,14 +720,30 @@ async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
       call.proc(call.input, { signal: sig }) as Promise<
         AsyncIterable<unknown> | null | undefined
       >,
-    (sig) =>
-      keysProc(undefined, { signal: sig }) as Promise<AsyncIterable<unknown>>,
+    keysProc === null
+      ? null
+      : (sig) =>
+          keysProc(undefined, { signal: sig }) as Promise<
+            AsyncIterable<unknown>
+          >,
     key,
     `surface-mcp: ${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
       `collection item opens with a current-value snapshot, so an empty open means ` +
       `the bridge link dropped, not that the value is null.`,
+    `surface-mcp: ${uri} (collection-item) resolved no streaming source — the ` +
+      `surface contract guarantees a snapshot-first open for a present item, so ` +
+      `this is a link/protocol failure, not an empty value.`,
+    KEYSLESS_ITEM_READ_DEADLINE_MS,
     signal,
   );
+  if (!frame.present && frame.reason === "deadline") {
+    // A keys-less collection gave no membership signal, so the read fell to its
+    // deadline: this not-present is UNCERTAIN (the item may exist but never opened
+    // a snapshot in time). Surface it loudly rather than degrading silently.
+    console.error(
+      `surface-mcp: ${uri} — collection "${item.key}" exposes no \`keys\` verb, so an absent item can't be confirmed; the read hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline and reports not-present`,
+    );
+  }
   return frame.present
     ? { value: frame.value, mimeType: call.mimeType }
     : { miss: "not-present" };
