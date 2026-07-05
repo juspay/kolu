@@ -37,7 +37,7 @@ interface Session<Client> {
   destroy(): void;
   reconnect(): void;                      // universal to sessions (roadblock 2)
   recheck(): void;
-  identity(): SurfaceIdentity | null;     // universal — null only transiently before first contact
+  identity(): SurfaceIdentity;            // universal, TOTAL — a null-free sum; "no link" is a kind, not null
 }
 
 interface DaemonSession<Client> extends Session<Client> {
