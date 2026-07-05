@@ -79,13 +79,27 @@ function previewTooLarge(): ORPCError<"PAYLOAD_TOO_LARGE", undefined> {
   });
 }
 
+/** Read one serve-dir header by CASE-INSENSITIVE name (serve-dir emits canonical
+ *  casing, but a remote transport may normalize it — never assume the exact key).
+ *  The single inverse of the `ServeResult` header shape, so the same lookup a
+ *  remote arm needs (`Content-Range`, `Content-Length`) isn't re-rolled per call
+ *  site. `undefined` when absent. */
+export function getHeaderCI(
+  headers: Record<string, string>,
+  name: string,
+): string | undefined {
+  const lower = name.toLowerCase();
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === lower) return v;
+  }
+  return undefined;
+}
+
 /** Read `Content-Length` case-insensitively (serve-dir sets it on a 206, but
  *  deliberately OMITS it on a full 200 — so its absence never means "small"). */
 function contentLengthOf(headers: Record<string, string>): number | undefined {
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() === "content-length") return Number(v);
-  }
-  return undefined;
+  const v = getHeaderCI(headers, "content-length");
+  return v === undefined ? undefined : Number(v);
 }
 
 /** Buffer a streamed body to base64, failing fast via {@link previewTooLarge}

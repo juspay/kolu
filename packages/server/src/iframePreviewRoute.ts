@@ -25,6 +25,7 @@
  *  guard's 403 coverage now lives against padi's `previewFile`. */
 
 import type { HttpBindings } from "@hono/node-server";
+import { getHeaderCI } from "@kolu/padi/assembly";
 import {
   parseByteRange,
   rangeResponseHead,
@@ -133,24 +134,13 @@ export type PreviewRangeReader = (
   range: string | undefined,
 ) => Promise<PreviewReadResult>;
 
-/** Case-insensitive header lookup (serve-dir emits canonical casing, but a remote
- *  transport may normalize it — never assume the exact key). */
-function headerValue(
-  headers: Record<string, string>,
-  name: string,
-): string | undefined {
-  const lower = name.toLowerCase();
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() === lower) return v;
-  }
-  return undefined;
-}
-
 /** The `/<total>` tail of a serve-dir `Content-Range` (`bytes a-b/<total>` on a
  *  206, `bytes *​/<total>` on a 416). Throws LOUDLY on a malformed/absent header —
- *  a 206 that can't state its size is a broken read, never a silent zero. */
+ *  a 206 that can't state its size is a broken read, never a silent zero. Reads
+ *  the header through padi's shared `getHeaderCI` (the one case-insensitive lookup
+ *  over serve-dir's header shape), not a hand-rolled scan. */
 function totalFromContentRange(headers: Record<string, string>): number {
-  const cr = headerValue(headers, "content-range");
+  const cr = getHeaderCI(headers, "content-range");
   if (cr === undefined)
     throw new Error(
       `remote preview: a ranged read returned no Content-Range (headers: ${JSON.stringify(headers)})`,

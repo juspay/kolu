@@ -36,7 +36,9 @@ export {
 // The range-capable serve-dir read kolu-server's re-backed Hono preview route
 // calls — the STREAMING form (`previewFile`, bounded heap), the same read
 // `preview.read` serves through its base64 wire-wrapper (`readPreview`).
-export { previewFile } from "./preview.ts";
+// `getHeaderCI` is the shared case-insensitive header lookup its remote arm reads
+// serve-dir's `Content-Range` through (one helper, not a per-call-site re-roll).
+export { getHeaderCI, previewFile } from "./preview.ts";
 export {
   publishDaemonStatus,
   readDaemonStatus,
