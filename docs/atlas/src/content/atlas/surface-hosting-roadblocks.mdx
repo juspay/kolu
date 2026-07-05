@@ -21,8 +21,8 @@ What it means concretely — one more reserved member in the `system` namespace,
 function defineSurface(members) {
   return implement({ ...members, system: { live, identity } }); // `identity` is the NEW reserved member; `live` already exists in the same `system` namespace
 }
-// implementSurface STAMPS system.identity from the server's own baked build info — zero per-server code.
-// Every server (daemon or not) now answers surface.system.identity.
+// The MEMBER is auto-served on every surface (zero code). The DATA source is supplied by the
+// server that has a reader — see roadblock 5 for the A/B on where the four fields come from.
 ```
 
 So `identity()` lives on the base role, and it is **never null-forever** — because every server truly answers:
@@ -102,6 +102,49 @@ Lives in **`@kolu/surface`** (the base package — it's a universal surface memb
 | **S1/S2: `buildHostRegistry` → `DestroyableSession` slot + typed `controls`** | |
 | S10: delete `getHostSession` + the global pool + evict/destroyAll | |
 | Migrate the three existing consumers: kolu single-padi arm · drishti fleet · odu lanes (odu owns its own teardown) | |
+
+## 5. `system.identity` — where does the DATA come from? (needs your call)
+
+The framework serves the *member* for free. The *four fields* don't all have a free source:
+
+```ts
+interface SurfaceIdentity {
+  startedAt: number;      // ✅ FREE — framework captures serve/process start
+  contractVersion: string;// ✗ a surface carries no version today (padi keeps PADI_SURFACE_VERSION separate)
+  buildId: string;        // ✗ baked, but PER-SERVER prefix (PADI_BUILD_ID / KAVAL_*) — no framework-standard var
+  commit: string | null;  // ✗ same
+}
+```
+
+**Load-bearing fact:** only kolu-server's padi arm ever *reads* `.identity()`. drishti + odu never do. So only **padi** needs real values.
+
+```ts
+// ── OPTION A (recommended) — implementSurface takes an optional identity; only padi wires it ──
+implementSurface(surface, deps, { identity?: SurfaceIdentity });
+
+// padi — the ONE server whose identity is read — supplies real values:
+implementSurface(padiSurface, deps, {
+  identity: { contractVersion: PADI_SURFACE_VERSION, ...readBakedIdentity("PADI"), startedAt: now },
+});
+
+// drishti-agent / odu-runner — omit it → honest-unknown, and NOBODY reads it:
+implementSurface(laneSurface, deps);
+//   → system.identity answers { contractVersion:"", buildId:"", commit:null, startedAt: serveTime }
+//   "" is already the codebase's honest-unknown for buildId (an off-nix server). Not a lie, not a silent default.
+```
+
+```ts
+// ── OPTION B — truly zero-code, but a 3-repo-wide ripple for ZERO readers today ──
+defineSurface(members, { contractVersion });   // every defineSurface call changes
+// + every server's nix wrapper bakes framework-standard SURFACE_BUILD_ID / SURFACE_COMMIT
+// + padi's existing PADI_* must ALSO bake the standard names
+```
+
+**Why A:** it delivers your ruling's intent — identity is a *universal capability* (on the base role, any session can ask any server, no daemon-gating) — while the *data source* is wired only where it's read (padi). B builds the full baked-var machinery for real identity on drishti/odu, which **has no reader** — a receptacle for a population of zero. A doesn't foreclose B when a second reader appears.
+
+**Corrects the note's earlier overclaim:** "zero per-server code" is true for the *member*, not the *data* — padi (the sole reader's source) wires its identity; every other server auto-answers honest-unknown.
+
+> **A or B?** — needs your call. Agent is building everything else meanwhile.
 
 ## Status of the four — all resolved
 
