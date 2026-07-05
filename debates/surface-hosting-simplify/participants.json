@@ -1,0 +1,5 @@
+{
+  "claude": { "terminal": "bb994d02-6164-4095-92d6-2e193e65321c", "label": "Claude (coordinator + doctrine judge — perfection-review & architecture-first-principles)" },
+  "codex":  { "terminal": "507e77b7-e2dc-4a1d-a021-1ea9fd140458", "label": "Codex (radical simplifier)" },
+  "grok":   { "terminal": "173a7f60-fdfd-415c-a8d1-50679e57dc81", "label": "Grok (radical simplifier)" }
+}

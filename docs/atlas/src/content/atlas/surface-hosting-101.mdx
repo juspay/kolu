@@ -106,7 +106,11 @@ And the road not taken, named honestly: a bespoke `Map<host, …>` in kolu-serve
 
 **The takeaway rule, beyond this case:** when your thing won't fit a framework slot, first ask what the slot's code actually *does* with it. If the behavior fits and only the annotation refuses — widen the slot to the role. If the behavior genuinely differs — that's when you're allowed to build your own.
 
-## Proposed solution *(tldr — refined with srid as we go)*
+## Proposed solution *(SUPERSEDED — the three-AI debate ratified a stronger ledger)*
+
+**This section's proposals were debated (claude ⇄ codex ⇄ grok, 2026-07-05, three rounds, unanimous) and superseded by the ratified ledger in [`debates/surface-hosting-simplify/conclusion.md`](https://github.com/juspay/kolu/tree/RT-fable/debates/surface-hosting-simplify)** — headline deltas vs the text below: the `PoolableSession` widen DIED (the registry's honest slot is just `DestroyableSession { destroy() }` — it never calls anything else); the rename `RemoteMirrorSession → MirrorSession` was upgraded from optional to ratified ("Remote" is false for the local arm); identity graduates NOW on a `DaemonMirrorSession` sub-role; BoundPadi becomes an alias + one typed `renew()` verb; W4-PR2's framework delta shrinks to an accessor prop. The original text stays below as the record of the pre-debate position.
+
+### The pre-debate version (kept for the record)
 
 **Now:** widen `buildHostRegistry`'s slot from the class to the role (`PoolableSession` = the plug + `destroy()`) — that deletes the diagram's red arrow; drishti compiles unchanged and its green CI proves the widening broke nobody. Then one cheap audit: grep `@kolu/surface*` for any other slot typed with the concrete `HostSession` and widen those the same way. The rule this leaves behind: **framework slots speak roles; classes are for `new`.**
 
