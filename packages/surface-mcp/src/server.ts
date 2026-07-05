@@ -17,7 +17,10 @@
  *   - `toInputSchema` (inside `resolveExpose`) → each tool's JSON Schema.
  */
 
-import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import {
+  firstFrameOfCollectionItem,
+  firstFrameOrThrow,
+} from "@kolu/surface/first-frame";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -671,28 +674,15 @@ async function readFirstFrameSnapshot(
   return { value, mimeType: call.mimeType };
 }
 
-/** One-shot read of a collection-item URI, BOUNDED against the item `get`'s
- *  held-open-on-absent-key semantic. The `get` yields nothing until the key is
- *  born (the #1681 fix), so a one-shot read can't await it blindly — an absent
- *  key would hang forever. Race the `get`'s first frame against a LIVE `keys`
- *  subscription that reports absence:
- *
- *    - `keys` is snapshot-first AND self-healing — every frame is the FULL
- *      membership set, re-emitted on every upsert/remove. So the key being absent
- *      at the snapshot, OR removed at ANY later instant, produces a `keys` frame
- *      that omits it. This is what closes the DELETE RACE a one-time
- *      check-THEN-`get` would leave open: if the key is deleted in the window
- *      between a membership check and the `get`'s subscribe, the still-open `get`
- *      would hang, but the live `keys` watch sees the removal frame and resolves
- *      the read not-found (`undefined`).
- *    - a PRESENT key yields its `get` snapshot immediately and wins the race.
- *
- *  Whichever settles first aborts the other via a local `AbortController` chained
- *  to the request `signal`, so the losing subscription is always torn down (and
- *  the loser's eventual rejection is already handled by `Promise.race`, so it
- *  can't surface as an unhandled rejection). Falls back to a plain first-frame
- *  read for the (shouldn't-happen) case of a collection item whose collection
- *  exposes no `keys` verb. */
+/** One-shot read of a collection-item URI. The item `get` HOLDS OPEN for a
+ *  not-yet-born key (the #1681 fix), so a one-shot read can't await it blindly —
+ *  it delegates to the framework's `firstFrameOfCollectionItem`, which races the
+ *  item `get` against a live `keys`-absence watch (bounded by the request signal)
+ *  so a present key reads its snapshot and an absent/deleted key resolves
+ *  not-found instead of hanging. This wrapper only decodes the URI→key and maps
+ *  the framework's typed `CollectionItemFrame` onto the MCP `Snapshot | ReadMiss`.
+ *  Falls back to a plain first-frame read for the (shouldn't-happen) case of a
+ *  collection item whose collection exposes no `keys` verb. */
 async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
@@ -708,30 +698,22 @@ async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   const keySchema = keySchemaByCollection.get(item.key);
   const key = keySchema !== undefined ? decodeKey(keySchema, item.id) : item.id;
 
-  const ac = new AbortController();
-  const onAbort = () => ac.abort();
-  if (signal !== undefined) {
-    if (signal.aborted) ac.abort();
-    else signal.addEventListener("abort", onAbort, { once: true });
-  }
-  try {
-    const present = readFirstFrameSnapshot(call, uri, ac.signal);
-    const absent = (async (): Promise<ReadMiss> => {
-      const source = await keysProc(undefined, { signal: ac.signal });
-      for await (const frame of source as AsyncIterable<unknown>) {
-        if (!(Array.isArray(frame) && frame.includes(key)))
-          return { miss: "not-present" };
-      }
-      // `keys` ended without ever reporting the key absent — for a live surface
-      // this only happens on teardown; treat as not-found so the read stays
-      // bounded rather than resolving a value the collection no longer holds.
-      return { miss: "not-present" };
-    })();
-    return await Promise.race([present, absent]);
-  } finally {
-    ac.abort();
-    if (signal !== undefined) signal.removeEventListener("abort", onAbort);
-  }
+  const frame = await firstFrameOfCollectionItem<unknown>(
+    (sig) =>
+      call.proc(call.input, { signal: sig }) as Promise<
+        AsyncIterable<unknown> | null | undefined
+      >,
+    (sig) =>
+      keysProc(undefined, { signal: sig }) as Promise<AsyncIterable<unknown>>,
+    key,
+    `surface-mcp: ${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
+      `collection item opens with a current-value snapshot, so an empty open means ` +
+      `the bridge link dropped, not that the value is null.`,
+    signal,
+  );
+  return frame.present
+    ? { value: frame.value, mimeType: call.mimeType }
+    : { miss: "not-present" };
 }
 
 /** Undo the `enforceObject` wrapping before handing args to a procedure/tool's
