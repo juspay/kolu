@@ -75,9 +75,6 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
  *  by {@link freezeAutosave} / {@link unfreezeAutosave}; orthogonal to the timer. */
 let frozenReason: string | undefined;
 
-/** The injected effects, set once by {@link initAutosaveGate}. */
-let deps: AutosaveGateDeps | undefined;
-
 /** Emit the shared `terminals:dirty` pulse — the SINGLE writer-facing arm every
  *  terminal/metadata writer calls when a restore-relevant change lands. Arms this
  *  gate (via its subscription) and reconciles the activity taps (`liveActivity.ts`),
@@ -125,11 +122,14 @@ export function unfreezeAutosave(): void {
 }
 
 /** Decide, at fire, whether to persist — freeze first (the drain→park window a plain
- *  parked query misses), then the live parked query, else persist. */
-function decideSave(): SaveDecision {
+ *  parked query misses), then the live parked query, else persist. Takes `deps` as a
+ *  parameter (the fire callback threads its own closure), so the restore-pending query
+ *  is a plain call — not an optional on a value that cannot be absent once the gate has
+ *  fired. */
+function decideSave(deps: AutosaveGateDeps): SaveDecision {
   if (frozenReason !== undefined)
     return { kind: "frozen", reason: frozenReason };
-  if (deps?.isRestorePending()) return { kind: "suppressed-parked" };
+  if (deps.isRestorePending()) return { kind: "suppressed-parked" };
   return { kind: "persist" };
 }
 
@@ -147,7 +147,6 @@ function decideSave(): SaveDecision {
  *  anyone makes it async, add an in-flight guard so a new schedule can't race an
  *  unfinished write. */
 export function initAutosaveGate(gateDeps: AutosaveGateDeps): void {
-  deps = gateDeps;
   void (async () => {
     try {
       for await (const _ of terminalsDirtyChannel.subscribe(undefined)) {
@@ -158,7 +157,7 @@ export function initAutosaveGate(gateDeps: AutosaveGateDeps): void {
           // ordering guard in `restartLocal.test.ts` observes the fire through this
           // call, so it must run even when the decision below skips the persist.
           const snap = gateDeps.snapshot();
-          const decision = decideSave();
+          const decision = decideSave(gateDeps);
           log.info(
             {
               decision: decision.kind,
