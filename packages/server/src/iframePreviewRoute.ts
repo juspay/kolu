@@ -25,7 +25,11 @@
  *  guard's 403 coverage now lives against padi's `previewFile`. */
 
 import type { HttpBindings } from "@hono/node-server";
-import { parseByteRange, rawPathname } from "@kolu/serve-dir";
+import {
+  parseByteRange,
+  rangeResponseHead,
+  rawPathname,
+} from "@kolu/serve-dir";
 import type { ServeResult } from "@kolu/serve-dir";
 import type { Context } from "hono";
 import {
@@ -292,17 +296,13 @@ export async function assembleRemotePreview(
 
   const [lo, hi] =
     resolved === null ? [0, total - 1] : [resolved.start, resolved.end];
-  const status = resolved === null ? 200 : 206;
-  // Full 200 carries NO Content-Length (serve-dir omits it; the runtime derives it
-  // from the streamed bytes) — parity with the local arm. A 206 adds the range pair.
-  const headers =
-    resolved === null
-      ? baseHeaders
-      : {
-          ...baseHeaders,
-          "Content-Range": `bytes ${lo}-${hi}/${total}`,
-          "Content-Length": String(hi - lo + 1),
-        };
+  // Shape status + range headers through serve-dir's OWN `rangeResponseHead` — the
+  // same response contract the local `serveFile` runs through — so the remote arm
+  // differs from the local one ONLY in where the body comes from (a chunked wire
+  // reader here, a local file stream there), never in status/header shape. A full
+  // 200 carries NO Content-Length (serve-dir omits it; the runtime derives it from
+  // the streamed bytes); a 206 adds the range pair.
+  const { status, headers } = rangeResponseHead(resolved, total, baseHeaders);
 
   return {
     status,

@@ -212,6 +212,36 @@ export function parseByteRange(
   return { start, end };
 }
 
+/** Shape a resolved byte range into its HTTP response HEAD — the status +
+ *  range headers a preview yields for a given (resolved range, total size).
+ *  This is the response-SHAPING half of serve-dir's range contract, the
+ *  consumer of `parseByteRange`'s output: a `null` range (whole file) is a full
+ *  `200` carrying serve-dir's base headers UNCHANGED — deliberately NO
+ *  `Content-Length` (the runtime derives it from the streamed bytes; see the
+ *  200 branch in `serveFile`) — while a satisfiable `{ start, end }` is a `206`
+ *  extending the base set with `Content-Range: bytes <start>-<end>/<size>` and
+ *  `Content-Length`.
+ *
+ *  Owning it here keeps the response shape ONE source of truth: `serveFile`
+ *  (local disk) and any remote arm that re-serves these bytes over the wire both
+ *  consume it, so they can differ ONLY in where the body comes from, never in the
+ *  status/header shape. */
+export function rangeResponseHead(
+  resolved: { start: number; end: number } | null,
+  size: number,
+  baseHeaders: Record<string, string>,
+): { status: number; headers: Record<string, string> } {
+  if (resolved === null) return { status: 200, headers: baseHeaders };
+  return {
+    status: 206,
+    headers: {
+      ...baseHeaders,
+      "Content-Range": `bytes ${resolved.start}-${resolved.end}/${size}`,
+      "Content-Length": String(resolved.end - resolved.start + 1),
+    },
+  };
+}
+
 /** Read the resolved file and assemble the HTTP response (the I/O half).
  *  Separated from `resolvePathUnder` so the guard is testable without fixtures
  *  and the I/O failure modes are testable without crafting URLs. */
@@ -306,33 +336,23 @@ export async function serveFile(
         body: "range not satisfiable",
       };
     }
-    if (range) {
-      // `createReadStream({ start, end })` reads only those bytes, so a
-      // `Range: bytes=0-1` against a multi-GB video moves two bytes, not the
-      // whole file, through the heap.
-      return {
-        status: 206,
-        headers: {
-          ...baseHeaders,
-          "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
-          "Content-Length": String(range.end - range.start + 1),
-        },
-        body: streamBody(range.start, range.end),
-      };
-    }
-
-    // Full 200: no Range header, or a header we collapse to the whole file
-    // (open `bytes=-`, multi-range, malformed). Stream it too — see the
-    // heap note above. Deliberately set NO `Content-Length`; the runtime
-    // derives it from the bytes actually written to the socket. Load-bearing:
-    // (1) a downstream HTML-transform middleware (kolu's artifact-sdk
-    // decorator) may splice bytes into a text/html response *after* this
-    // returns; a Content-Length pinned to the pre-splice size truncates the
-    // injected body. (2) deriving from the sent bytes is race-free on a
-    // live-reloading root, where a stat and a later read could disagree. The
-    // 206 branch above DOES set Content-Length: a partial response must, and
-    // it's never decorated (an HTML transform only touches status 200).
-    return { status: 200, headers: baseHeaders, body: streamBody() };
+    // Shape status + range headers in one place (`rangeResponseHead`, serve-dir's
+    // own response contract); this branch owns only the byte source. A 206 reads
+    // just `[start, end]` — `createReadStream({ start, end })` against a multi-GB
+    // video moves those bytes, not the whole file, through the heap. A full 200
+    // (no Range header, or one we collapse — open `bytes=-`, multi-range,
+    // malformed) streams the whole file and carries NO `Content-Length`
+    // (rangeResponseHead omits it): the runtime derives it from the bytes actually
+    // written to the socket. Load-bearing — (1) a downstream HTML-transform
+    // middleware (kolu's artifact-sdk decorator) may splice bytes into a text/html
+    // response *after* this returns; a Content-Length pinned to the pre-splice
+    // size truncates the injected body. (2) deriving from the sent bytes is
+    // race-free on a live-reloading root, where a stat and a later read could
+    // disagree. A 206 DOES carry Content-Length: a partial response must, and it's
+    // never decorated (an HTML transform only touches status 200).
+    const { status, headers } = rangeResponseHead(range, s.size, baseHeaders);
+    const body = range ? streamBody(range.start, range.end) : streamBody();
+    return { status, headers, body };
   } catch (e: unknown) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
