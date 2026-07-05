@@ -22,13 +22,13 @@ import { getClockNow } from "../time/clock";
 import Commit from "../ui/Commit";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import {
-  activePadi,
   activePadiSurfaceVersion,
   boundPadiBuildCommit,
   boundPadiConvergence,
   daemonScanBoundHost,
-  runningPadis,
+  localScanPadis,
 } from "../ui/useDaemonInventory";
+import { activePadi, boundHostPadis } from "../ui/useHostInventory";
 import { formatMBCompact } from "../ui/memory";
 import { padiMemoryDisplay } from "../ui/useMemoryUsage";
 import { padiStartedAt } from "../ui/useProcessUptime";
@@ -243,37 +243,19 @@ const PadiInfoDialog: Component<{
         </DetailRow>
       </div>
 
-      {/* Every running padi on this host, active one badged — so a LEAKED second padi
-          at another state-root (the padi twin of the orphaned-kaval leak) is
-          diagnosable at a glance. Honesty (#1034): an honest empty line when none is
-          discovered, never a fake. */}
-      <div
-        class="space-y-2"
-        classList={{
-          // Bound remotely: this scan is THIS machine's daemons, NOT the bound host's —
-          // fence it off so two hosts' truths can't read as one (the identity above
-          // rides padiSurface = the REMOTE host).
-          "rounded-lg border border-edge bg-surface-2/50 p-2.5":
-            daemonScanBoundHost() !== null,
-        }}
-      >
+      {/* The BOUND host's running padis — active one badged — so a LEAKED second padi
+          at another state-root (the padi twin of the orphaned-kaval leak) is diagnosable
+          at a glance, on the machine you're ACTUALLY using. Rides padiSurface's
+          `hostInventory` member (padi scans its own host), so it works identically local
+          and remote. Honesty (#1034): an honest empty line when none is discovered. */}
+      <div class="space-y-2" data-testid="padi-bound-host-daemons">
         <h3 class="text-xs font-medium text-fg">
           <Show when={daemonScanBoundHost()} fallback="Running padi daemons">
-            Local daemons — this machine, not the bound host
+            {(host) => <>Padi daemons on {host()}</>}
           </Show>
         </h3>
-        <Show when={daemonScanBoundHost()}>
-          {(host) => (
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              kolu-server is bound to padi on{" "}
-              <span class="text-fg-2">{host()}</span> over ssh — the padi
-              identity above is that host's. These are daemons discovered on
-              THIS machine (a leak diagnostic), not the bound host's.
-            </p>
-          )}
-        </Show>
         <Show
-          when={runningPadis().length > 0}
+          when={boundHostPadis().length > 0}
           fallback={
             <p class="text-[11px] leading-relaxed text-fg-3">
               No running padi daemons discovered.
@@ -281,12 +263,49 @@ const PadiInfoDialog: Component<{
           }
         >
           <ul class="space-y-1.5">
-            <For each={runningPadis()}>
+            <For each={boundHostPadis()}>
               {(padi) => <RunningPadiRow padi={padi} />}
             </For>
           </ul>
         </Show>
       </div>
+
+      {/* Bound remotely: a SEPARATE scan of THIS machine's padis — the machine
+          kolu-server runs on is NOT the bound host, so a leak here would otherwise be
+          invisible. Fenced off so the two hosts' truths can't read as one. Absent under
+          a local binding (the list above already IS this machine). */}
+      <Show when={daemonScanBoundHost()}>
+        {(host) => (
+          <div
+            class="space-y-2 rounded-lg border border-edge bg-surface-2/50 p-2.5"
+            data-testid="padi-local-scan-daemons"
+          >
+            <h3 class="text-xs font-medium text-fg">
+              Local daemons — this machine, not the bound host
+            </h3>
+            <p class="text-[11px] leading-relaxed text-fg-3">
+              kolu-server is bound to padi on{" "}
+              <span class="text-fg-2">{host()}</span> over ssh — the list above
+              is that host's. These are daemons discovered on THIS machine (a
+              leak diagnostic), not the bound host's.
+            </p>
+            <Show
+              when={localScanPadis().length > 0}
+              fallback={
+                <p class="text-[11px] leading-relaxed text-fg-3">
+                  No running padi daemons discovered on this machine.
+                </p>
+              }
+            >
+              <ul class="space-y-1.5">
+                <For each={localScanPadis()}>
+                  {(padi) => <RunningPadiRow padi={padi} />}
+                </For>
+              </ul>
+            </Show>
+          </div>
+        )}
+      </Show>
     </InfoDialogShell>
   );
 };

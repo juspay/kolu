@@ -62,6 +62,8 @@ import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
+  RunningKavalSchema,
+  RunningPadiSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-workspace/schema";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
@@ -112,13 +114,15 @@ export * from "./vocab.ts";
 /** The wire-shape `major.minor` this build of `padiSurface` serves and expects.
  *  1.0 is the initial contract (the padi plan of record, PR #1649); 1.1 ADDS the
  *  `lifecycle.recycleKaval` procedure (the "Restart kaval" button's session-
- *  preserving kaval recycle — a new member, so a MINOR bump). Additive growth (a
- *  new optional field / stream / procedure) is a minor bump; a shape-breaking
- *  change a major. A remote dial gates an incompatible padi via
- *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION},
+ *  preserving kaval recycle); 1.2 ADDS the `hostInventory` cell (padi serving the
+ *  running kaval + padi daemons on its OWN host — the "Running daemons" leak
+ *  diagnostic, which rides the re-served surface so it works identically local and
+ *  remote). Additive growth (a new optional field / stream / procedure / cell) is a
+ *  minor bump; a shape-breaking change a major. A remote dial gates an incompatible
+ *  padi via `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION},
  *  which is frozen forever so a contract-revving deploy can still reach the
  *  daemon's control core. */
-export const PADI_SURFACE_VERSION = "1.1";
+export const PADI_SURFACE_VERSION = "1.2";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -149,6 +153,31 @@ export type PadiStatus = z.infer<typeof PadiStatusSchema>;
 /** The value a fresh `status` subscriber sees before padi seeds it — no expected
  *  kaval known yet. */
 export const DEFAULT_PADI_STATUS: PadiStatus = {};
+
+// ── Host-daemon inventory (the "Running daemons" leak diagnostic) ──────────
+
+/** The `hostInventory` cell payload — every running kaval + padi on THIS padi's
+ *  host, each marked whether THIS padi owns it ("in use by kolu"). padi owns the
+ *  daemon domain (it discovers, adopts, and supervises the host's daemons), so it
+ *  is the authority on its host's inventory — and, crucially, it can see the host
+ *  the browser is actually using even when kolu-server is bound to it over ssh: the
+ *  member rides the re-served surface, so the dialog's bound-host list works
+ *  identically local and remote. The row shapes are the shared-leaf
+ *  {@link RunningKavalSchema}/{@link RunningPadiSchema}, so kolu-server's OWN
+ *  local-machine scan (koluSurface's `daemonInventory.localScan`, shown as a second
+ *  group under a remote binding) is the same wire shape from the same one scanner. */
+export const PadiHostInventorySchema = z.object({
+  kavals: z.array(RunningKavalSchema),
+  padis: z.array(RunningPadiSchema),
+});
+export type PadiHostInventory = z.infer<typeof PadiHostInventorySchema>;
+
+/** The honest pre-sample value — empty lists, so a fresh subscriber renders no
+ *  fabricated daemons until padi's first scan lands. */
+export const DEFAULT_PADI_HOST_INVENTORY: PadiHostInventory = {
+  kavals: [],
+  padis: [],
+};
 
 // ── The composed `terminals` value — active | sleeping | parked ───────────
 
@@ -391,6 +420,16 @@ export const padiSurface = defineSurface({
       default: DEFAULT_PADI_STATUS,
       verbs: ["get"],
     },
+    /** The running kaval + padi daemons on THIS padi's host — the "Running daemons"
+     *  leak diagnostic the Kaval + Padi dialogs list. Read-only on the client; padi's
+     *  periodic host-inventory sampler (`hostInventory.ts`, wired into daemon boot)
+     *  is the sole writer. Rides the re-served surface, so the dialog's bound-host
+     *  list works identically whether kolu-server is bound locally or over ssh. */
+    hostInventory: {
+      schema: PadiHostInventorySchema,
+      default: DEFAULT_PADI_HOST_INVENTORY,
+      verbs: ["get"],
+    },
     /** Live process-memory readout — padi's OWN RSS + its kaval daemon's, each the
      *  honest three-way {@link ProcessRssSchema}. padi owns kaval now, so padi is
      *  the source of this pair; its periodic sampler (wired into daemon boot) is the
@@ -628,6 +667,7 @@ export const PADI_FORWARDING_POLICY = {
   version: "value",
   urgency: "value",
   status: "value",
+  hostInventory: "value",
   processMemory: "value",
   activityFeed: "value",
   // collections

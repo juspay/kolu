@@ -262,6 +262,82 @@ export const ProcessRssSchema = z.discriminatedUnion("status", [
 ]);
 export type ProcessRss = z.infer<typeof ProcessRssSchema>;
 
+// ── Host-daemon inventory rows (the Kaval/Padi dialogs' leak diagnostic) ────
+//
+// One running kaval / padi the host-daemon scan enumerated — the read-only
+// diagnostic rows the Kaval + Padi info dialogs list so a LEAKED daemon (a
+// pre-upgrade kaval, a second padi at another state-root) is visible AT A GLANCE.
+// (srid hit this dogfooding W2.2: a leaked pre-W2.2 kaval was invisible in the UI
+// — only a `kaval-tui: more than one kaval daemon is running` CLI error surfaced
+// it.) Server-authored, read-only enumeration: scan the runtime dir, read each gate
+// pid, best-effort probe status — it NEVER kills/reaps/touches a daemon.
+//
+// These live on this browser-safe shared-vocab leaf (beside {@link ProcessRssSchema})
+// because BOTH sides of the padi seal compose them: `@kolu/padi/surface` serves the
+// bound host's own scan as its `hostInventory` member, and `kolu-common/surface`
+// carries kolu-server's local-machine scan on its `daemonInventory` cell. One scan
+// implementation (in `@kolu/padi`), one wire shape here — no lockstep copy held
+// together by a comment, and the seal forbids either surface package importing the
+// other.
+//
+// Honesty (#1034): every field the probe couldn't read is an honest `null` (rendered
+// "—"), never a fabricated zero/version.
+
+export const RunningKavalSchema = z.object({
+  /** The rendezvous socket path — the pasteable `--socket` value. */
+  socket: z.string(),
+  /** Discovery's human label ("standalone kaval" | "kolu @ <state-root>" |
+   *  "kolu-server on port <port>"), decided at discovery's matching branch. */
+  label: z.string(),
+  /** The structural kind: `stateRoot` (a padi's kaval — carries a state-root
+   *  manifest, incl. an ADOPTED legacy-address kaval), `port` (an UN-adopted legacy
+   *  `kaval-<port>/` with NO manifest — a genuine stray/leak), `standalone`, or
+   *  `unknown`. */
+  kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
+  /** True iff this is the ACTIVE kaval sitting at the pre-padi legacy `kaval-<port>/`
+   *  address — padi ADOPTED a live pre-W2.2 kaval on upgrade (keeping its PTYs) rather
+   *  than leaking it. A KNOWN, converging state (not a leak): it is the host's live
+   *  kaval, just still at its old socket until the next kaval restart/reboot spawns it
+   *  under the digest address. Only ever true together with `active`. */
+  atLegacyAddress: z.boolean(),
+  /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
+  gatePid: z.number().int().nullable(),
+  /** Live terminal count from a best-effort `terminal.list` probe, or null when the
+   *  probe failed / the daemon didn't answer (never a fake 0). */
+  terminalCount: z.number().int().nullable(),
+  /** The kaval's build commit (`navigableCommit`) from a best-effort `system.version`
+   *  probe, or null when unreadable. */
+  buildCommit: z.string().nullable(),
+  /** The pty-host contract version from the probe, or null when unreadable. */
+  contractVersion: z.string().nullable(),
+  /** True iff this is the kaval the scanning host's padi ACTIVELY owns ("in use by
+   *  kolu"). Only the host serving its OWN `hostInventory` marks this — a local-machine
+   *  scan under a remote binding marks NONE active (kolu is bound elsewhere). */
+  active: z.boolean(),
+});
+export type RunningKaval = z.infer<typeof RunningKavalSchema>;
+
+export const RunningPadiSchema = z.object({
+  /** padi's rendezvous socket path. */
+  socket: z.string(),
+  /** padi's state-root (from the digest→root manifest), or null if unreadable. */
+  stateRoot: z.string().nullable(),
+  /** The gate-holder pid (`padi.pid`), or null if unreadable. */
+  gatePid: z.number().int().nullable(),
+  /** The `padiSurface` version the RUNNING padi serves — the serving padi's own
+   *  `PADI_SURFACE_VERSION` for the active one; null for a discovered-but-not-owned
+   *  padi (not probed) or before the first sample. */
+  surfaceVersion: z.string().nullable(),
+  /** The RUNNING padi's navigable git commit — the serving padi's own `PADI_COMMIT_HASH`
+   *  for the active one (mirroring {@link RunningKavalSchema}'s `buildCommit`); null for a
+   *  discovered-but-not-owned padi, a survivor predating the field, or before the first
+   *  sample. */
+  buildCommit: z.string().nullable(),
+  /** True iff this is the padi the scanning host's kolu owns ("in use by kolu"). */
+  active: z.boolean(),
+});
+export type RunningPadi = z.infer<typeof RunningPadiSchema>;
+
 // ── Live-output cadence ────────────────────────────────────────────────────
 
 /** Output quiet-period before a terminal reads as static again — the ONE cadence

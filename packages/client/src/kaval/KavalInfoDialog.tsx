@@ -11,7 +11,8 @@ import Commit, { REPO_URL } from "../ui/Commit";
 import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import { formatMBCompact } from "../ui/memory";
-import { daemonScanBoundHost, runningKavals } from "../ui/useDaemonInventory";
+import { daemonScanBoundHost, localScanKavals } from "../ui/useDaemonInventory";
+import { boundHostKavals } from "../ui/useHostInventory";
 import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
 import { expectedKaval } from "./KavalUpdateBadge";
 import { kavalStale } from "./kavalCurrency";
@@ -101,12 +102,13 @@ const KavalInfoDialog: Component<{
       props.status?.state,
       daemonTransportLive(),
     );
-  // kolu's active kaval is still at the pre-padi legacy address (adopted on upgrade) —
-  // so the Restart-kaval button is the MANUAL way to converge it onto the padi address
-  // now (a reboot converges it automatically). The hint appears only while there's
-  // something to converge.
+  // The bound host's active kaval is still at the pre-padi legacy address (adopted on
+  // upgrade) — so the Restart-kaval button (which recycles the BOUND host's kaval via
+  // padiSurface) is the MANUAL way to converge it onto the padi address now (a reboot
+  // converges it automatically). The hint appears only while there's something to
+  // converge.
   const convergePending = (): boolean =>
-    runningKavals().some((k) => k.active && k.atLegacyAddress);
+    boundHostKavals().some((k) => k.active && k.atLegacyAddress);
 
   return (
     <InfoDialogShell
@@ -246,37 +248,20 @@ const KavalInfoDialog: Component<{
         </Show>
       </div>
 
-      {/* Every running kaval on this host, active one badged, legacy/orphaned ones
+      {/* The BOUND host's running kavals — active one badged, legacy/orphaned ones
           flagged — so a LEAKED post-upgrade kaval (once only surfaced by a `kaval-tui:
-          more than one kaval daemon is running` CLI error) is diagnosable at a glance.
+          more than one kaval daemon is running` CLI error) is diagnosable at a glance,
+          on the machine you're ACTUALLY using. This rides padiSurface's `hostInventory`
+          member (padi scans its own host), so it works identically local and remote.
           Honesty (#1034): an honest empty line when none is discovered, never a fake. */}
-      <div
-        class="space-y-2"
-        classList={{
-          // Bound remotely: this is a scan of THIS machine's daemons, NOT the bound
-          // host's — fence it off in a bordered, muted panel so two hosts' truths can't
-          // read as one (the kaval identity above rides padiSurface = the REMOTE host).
-          "rounded-lg border border-edge bg-surface-2/50 p-2.5":
-            daemonScanBoundHost() !== null,
-        }}
-      >
+      <div class="space-y-2" data-testid="kaval-bound-host-daemons">
         <h3 class="text-xs font-medium text-fg">
           <Show when={daemonScanBoundHost()} fallback="Running kaval daemons">
-            Local daemons — this machine, not the bound host
+            {(host) => <>Kaval daemons on {host()}</>}
           </Show>
         </h3>
-        <Show when={daemonScanBoundHost()}>
-          {(host) => (
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              kolu-server is bound to padi on{" "}
-              <span class="text-fg-2">{host()}</span> over ssh — the kaval
-              identity above is that host's. These are daemons discovered on
-              THIS machine (a leak diagnostic), not the bound host's.
-            </p>
-          )}
-        </Show>
         <Show
-          when={runningKavals().length > 0}
+          when={boundHostKavals().length > 0}
           fallback={
             <p class="text-[11px] leading-relaxed text-fg-3">
               No running kaval daemons discovered.
@@ -284,12 +269,50 @@ const KavalInfoDialog: Component<{
           }
         >
           <ul class="space-y-1.5">
-            <For each={runningKavals()}>
+            <For each={boundHostKavals()}>
               {(kaval) => <RunningKavalRow kaval={kaval} />}
             </For>
           </ul>
         </Show>
       </div>
+
+      {/* Bound remotely: a SEPARATE scan of THIS machine's daemons — the machine
+          kolu-server runs on is NOT the bound host, so a leak here would otherwise be
+          invisible. Fenced off in a bordered, muted panel so the two hosts' truths can't
+          read as one. Absent entirely under a local binding (the list above already IS
+          this machine, so a second copy would duplicate one truth). */}
+      <Show when={daemonScanBoundHost()}>
+        {(host) => (
+          <div
+            class="space-y-2 rounded-lg border border-edge bg-surface-2/50 p-2.5"
+            data-testid="kaval-local-scan-daemons"
+          >
+            <h3 class="text-xs font-medium text-fg">
+              Local daemons — this machine, not the bound host
+            </h3>
+            <p class="text-[11px] leading-relaxed text-fg-3">
+              kolu-server is bound to padi on{" "}
+              <span class="text-fg-2">{host()}</span> over ssh — the list above
+              is that host's. These are daemons discovered on THIS machine (a
+              leak diagnostic), not the bound host's.
+            </p>
+            <Show
+              when={localScanKavals().length > 0}
+              fallback={
+                <p class="text-[11px] leading-relaxed text-fg-3">
+                  No running kaval daemons discovered on this machine.
+                </p>
+              }
+            >
+              <ul class="space-y-1.5">
+                <For each={localScanKavals()}>
+                  {(kaval) => <RunningKavalRow kaval={kaval} />}
+                </For>
+              </ul>
+            </Show>
+          </div>
+        )}
+      </Show>
 
       <div class="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
         <div class="min-w-0">
