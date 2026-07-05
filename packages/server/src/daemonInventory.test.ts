@@ -136,7 +136,7 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
     expect(binding.localScan.padis).toHaveLength(1);
     // … but NONE is kolu's active one (no "in use by kolu" lie on a local socket). The
     // remote padi's version/commit ride boundPadi, never a local row.
-    expect(binding.localScan.kavals[0]?.active).toBe(false);
+    expect(binding.localScan.kavals[0]?.held.active).toBe(false);
     expect(binding.localScan.padis[0]?.active).toBe(false);
   });
 

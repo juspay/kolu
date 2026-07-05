@@ -48,14 +48,14 @@ const RunningKavalRow: Component<{ kaval: RunningKaval }> = (props) => (
       <span class="min-w-0 flex-1 truncate text-[11px] font-medium text-fg">
         {props.kaval.label}
       </span>
-      <Show when={props.kaval.active}>
+      <Show when={props.kaval.held.active}>
         <span class="shrink-0 rounded-full border border-accent/40 bg-accent/10 px-1.5 text-[9px] font-medium leading-4 text-accent">
           in use by kolu
         </span>
       </Show>
       {/* A legacy `kaval-<port>/` that is NOT the held one — a genuine un-adopted
           pre-W2.2 stray. The leak signal. */}
-      <Show when={!props.kaval.active && props.kaval.kind === "port"}>
+      <Show when={!props.kaval.held.active && props.kaval.kind === "port"}>
         <span class="shrink-0 rounded-full border border-warning/40 bg-warning/10 px-1.5 text-[9px] font-medium leading-4 text-warning">
           legacy · not owned by padi
         </span>
@@ -65,7 +65,7 @@ const RunningKavalRow: Component<{ kaval: RunningKaval }> = (props) => (
         upgrade (PTYs kept). A known, converging state, NOT a leak: it's kolu's live
         kaval, just at its old socket until it next recycles. Neutral tone (not the
         warning the stray gets). */}
-    <Show when={props.kaval.active && props.kaval.atLegacyAddress}>
+    <Show when={props.kaval.held.active && props.kaval.held.atLegacyAddress}>
       <p class="mt-1 text-[10px] leading-4 text-fg-3">
         pre-padi address · converges on next kaval restart or reboot
       </p>
@@ -112,7 +112,7 @@ const KavalInfoDialog: Component<{
   // converges it automatically). The hint appears only while there's something to
   // converge.
   const convergePending = (): boolean =>
-    boundHostKavals().some((k) => k.active && k.atLegacyAddress);
+    boundHostKavals().some((k) => k.held.active && k.held.atLegacyAddress);
 
   return (
     <InfoDialogShell

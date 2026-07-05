@@ -294,12 +294,6 @@ export const RunningKavalSchema = z.object({
    *  `kaval-<port>/` with NO manifest — a genuine stray/leak), `standalone`, or
    *  `unknown`. */
   kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
-  /** True iff this is the ACTIVE kaval sitting at the pre-padi legacy `kaval-<port>/`
-   *  address — padi ADOPTED a live pre-W2.2 kaval on upgrade (keeping its PTYs) rather
-   *  than leaking it. A KNOWN, converging state (not a leak): it is the host's live
-   *  kaval, just still at its old socket until the next kaval restart/reboot spawns it
-   *  under the digest address. Only ever true together with `active`. */
-  atLegacyAddress: z.boolean(),
   /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
   gatePid: z.number().int().nullable(),
   /** Live terminal count from a best-effort `terminal.list` probe, or null when the
@@ -310,10 +304,19 @@ export const RunningKavalSchema = z.object({
   buildCommit: z.string().nullable(),
   /** The pty-host contract version from the probe, or null when unreadable. */
   contractVersion: z.string().nullable(),
-  /** True iff this is the kaval the scanning host's padi ACTIVELY owns ("in use by
-   *  kolu"). Only the host serving its OWN `hostInventory` marks this — a local-machine
-   *  scan under a remote binding marks NONE active (kolu is bound elsewhere). */
-  active: z.boolean(),
+  /** Whether the scanning host's kolu ACTIVELY owns this kaval ("in use by kolu"), and —
+   *  when it does — whether it sits at the pre-padi LEGACY `kaval-<port>/` address (padi
+   *  ADOPTED a live pre-W2.2 kaval on upgrade rather than leaking it — a KNOWN converging
+   *  state, not a leak, until the next recycle spawns it at the digest address).
+   *
+   *  A discriminated pair, NOT two independent booleans: `atLegacyAddress` exists ONLY on
+   *  the `active` arm, so the nonsense "legacy-but-not-owned" state is UNREPRESENTABLE
+   *  (P4). Only the host serving its OWN `hostInventory` marks `active` — a local-machine
+   *  scan under a remote binding is always `{ active: false }` (kolu is bound elsewhere). */
+  held: z.discriminatedUnion("active", [
+    z.object({ active: z.literal(false) }),
+    z.object({ active: z.literal(true), atLegacyAddress: z.boolean() }),
+  ]),
 });
 export type RunningKaval = z.infer<typeof RunningKavalSchema>;
 

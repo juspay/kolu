@@ -287,7 +287,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     expect(activePadi).toBeDefined();
     // The kaval it holds is discovered + probed on the remote host (we just ran a
     // terminal there), and marked active — the "in use by kolu" row.
-    expect(inv.kavals.some((k) => k.active)).toBe(true);
+    expect(inv.kavals.some((k) => k.held.active)).toBe(true);
     console.log(
       `[ssh] hostInventory over the hop: ${inv.kavals.length} kaval(s), ${inv.padis.length} padi(s), active padi socket=${activePadi?.socket}`,
     );

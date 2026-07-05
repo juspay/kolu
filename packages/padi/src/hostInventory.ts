@@ -95,11 +95,13 @@ export function assembleKavalInventory(
       terminalCount: probe.terminalCount,
       buildCommit: probe.buildCommit,
       contractVersion: probe.contractVersion,
-      active,
-      // Only the HELD kaval sitting at the pre-padi legacy `kaval-<port>/` address — an
-      // adoption (padi holds a non-digest socket) that converges onto the digest address
-      // on the next restart/reboot. A NON-held daemon is never kolu's converging one.
-      atLegacyAddress: active && activeAtLegacy,
+      // The discriminated pair: `atLegacyAddress` is set ONLY on the active arm, so a
+      // non-held kaval can't carry it. `activeAtLegacy` marks the held kaval sitting at
+      // the pre-padi legacy `kaval-<port>/` address (padi holds a non-digest socket — an
+      // adoption converging onto the digest address on the next recycle).
+      held: active
+        ? { active: true as const, atLegacyAddress: activeAtLegacy }
+        : { active: false as const },
     };
   });
 }
@@ -268,10 +270,15 @@ function heldKaval(stateRoot: string): { socket: string; atLegacy: boolean } {
  * never doubled. ONLY padi's own sampler does this — kolu-server's local-machine scan
  * (`activePadiSocket: null`) passes bare `discoverPadiDaemons`, so it still lists only
  * truly-discovered padis and marks none active.
+ *
+ * PURE: the self identity — socket, state-root, AND pid — arrives entirely as `self`;
+ * the ambient `process.pid` is read once at the EDGE (the sampler), never in here, so
+ * the output is a total function of the arguments (the test constructs its expected row
+ * from its own input, not from a shared global).
  */
 export function withSelfPadi(
   discovered: readonly PadiDaemon[],
-  self: { padiSocket: string; stateRoot: string },
+  self: { padiSocket: string; stateRoot: string; pid: number },
 ): PadiDaemon[] {
   if (discovered.some((p) => p.socket === self.padiSocket)) {
     return [...discovered];
@@ -281,7 +288,7 @@ export function withSelfPadi(
     {
       socket: self.padiSocket,
       stateRoot: self.stateRoot,
-      gatePid: process.pid,
+      gatePid: self.pid,
     },
   ];
 }
@@ -301,17 +308,20 @@ export function startPadiHostInventorySampler(opts: {
   /** THIS padi's resolved state-root — resolves the held-kaval fallback address. */
   stateRoot: string;
 }): void {
+  // Read the ambient pid ONCE, here at the edge — the pure `withSelfPadi` core receives
+  // it as a value (P2: effects at the boundary, not smuggled from a global mid-fold).
+  const self = {
+    padiSocket: opts.padiSocket,
+    stateRoot: opts.stateRoot,
+    pid: process.pid,
+  };
   const sampleOnce = async (): Promise<void> => {
     const held = heldKaval(opts.stateRoot);
     const inv = await enumerateHostDaemons({
       discoverKavals: discoverKavalDaemons,
       // The serving padi reports itself by construction — never dependent on the socket
       // already listening (T+0) or on the digest-dir naming (a `--socket` override).
-      discoverPadis: () =>
-        withSelfPadi(discoverPadiDaemons(), {
-          padiSocket: opts.padiSocket,
-          stateRoot: opts.stateRoot,
-        }),
+      discoverPadis: () => withSelfPadi(discoverPadiDaemons(), self),
       probe: probeKavalStatus,
       activeKavalSocket: held.socket,
       activeKavalAtLegacy: held.atLegacy,
