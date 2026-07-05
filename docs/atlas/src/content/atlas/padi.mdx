@@ -213,6 +213,8 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 ## Implementation details
 
+**The law of every PR in this plan (srid, promoted note-wide 2026-07-04): a PR is self-sufficient and end-to-end — it ships NOTHING that isn't consumed within it.** No framework halves awaiting their consumer, no pools nobody switches, no contracts nobody serves: a capability with zero consumers is a *commit stage inside* the PR that consumes it, never a PR of its own (W2.2's "a daemon with zero consumers is a commit stage" ruling; the #1651 complete-but-unconsumed adapter is the canonical tell). The one sanctioned exception is a framework PR whose consumer-proof is a paired second consumer landing with it (the W2.1/drishti precedent).
+
 <Phase id="W0" name="decks cleared — freeze the old contract, retire pulam-web, land the overflow frame, close the PRs" status="done" />
 <Phase id="W1" name="the padi seam, in place — padiSurface served in-process, client migrated, root oRPC dispositioned" status="shipped" needs={["W0"]} links={[{ label: "#1652", href: "https://github.com/juspay/kolu/pull/1652" }]} />
 <Phase id="W2" name="padi the process — state-root identity, owns kaval, on-host persistence; kolu-server binds + re-serves" status="todo" needs={["W1"]} />
@@ -250,7 +252,7 @@ The shape that shipped and still governs: **one PR** (splitting kept forcing thr
 
 ### W2 — padi the process *(local; three PRs, phased below; UX byte-identical; restarts get warm)*
 
-W1.R's seal guarantees the domain lives behind the contract, complete as a library; W2 gives it a process. **Every PR here is self-sufficient — it ships nothing that isn't consumed within it** (the W1 lesson, generalized: #1651's complete-but-unconsumed artifact was the tell that a PR boundary sat in the wrong place). So: **W2.1** is framework work, separate *because* it is self-contained — its capability is exercised by its own tests **and its paired drishti run** (the R7 precedent: drishti is the consumer-proof), and landing it first freezes the surface API before the big PR churns through review. **W2.2** is ONE PR in which the padi binary is born **and** kolu-server binds it — a daemon with zero consumers is a *commit stage*, not a PR. **W2.3** buries the pulam era (separable by nature: pure deletion + a new CLI over already-shipped procedures).
+W1.R's seal guarantees the domain lives behind the contract, complete as a library; W2 gives it a process. The self-sufficiency law (now note-wide, above) was first articulated here. So: **W2.1** is framework work, separate *because* it is self-contained — its capability is exercised by its own tests **and its paired drishti run** (the R7 precedent: drishti is the consumer-proof), and landing it first freezes the surface API before the big PR churns through review. **W2.2** is ONE PR in which the padi binary is born **and** kolu-server binds it — a daemon with zero consumers is a *commit stage*, not a PR. **W2.3** buries the pulam era (separable by nature: pure deletion + a new CLI over already-shipped procedures).
 
 <a id="w21"></a>
 
