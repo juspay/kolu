@@ -16,7 +16,7 @@
  */
 
 import type { TerminalId } from "@kolu/terminal-workspace/schema";
-import { notifyDirty } from "./autosaveGate.ts";
+import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import {

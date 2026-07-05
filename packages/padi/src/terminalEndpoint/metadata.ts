@@ -48,7 +48,7 @@ import type {
   RestoreTarget,
   TerminalSnapshot,
 } from "@kolu/terminal-workspace/schema";
-import { notifyDirty } from "../autosaveGate.ts";
+import { notifyDirty } from "../publisher.ts";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { PadiParkedTerminalSchema, type PadiTerminal } from "../surface.ts";

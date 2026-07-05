@@ -56,7 +56,7 @@ import type {
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
-import { notifyDirty } from "../autosaveGate.ts";
+import { notifyDirty } from "../publisher.ts";
 import {
   type ActiveTerminalProcess,
   drainTerminals,

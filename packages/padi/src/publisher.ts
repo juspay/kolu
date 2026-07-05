@@ -25,6 +25,7 @@
 
 import { publisherChannel } from "@kolu/surface/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
+import { log } from "./log.ts";
 
 // `MemoryPublisher` constrains its generic to `Record<string, object>`,
 // which excludes the primitive payloads we publish (data strings, exit
@@ -45,3 +46,19 @@ export const terminalsDirtyChannel = publisherChannel<Record<string, never>>(
   publisher,
   "terminals:dirty",
 );
+
+/** Emit the shared `terminals:dirty` pulse — the SINGLE writer-facing arm every
+ *  terminal/metadata writer calls when a restore-relevant change lands. Arms the
+ *  autosave gate (via its subscription) and reconciles the activity taps
+ *  (`liveActivity.ts`), the pulse's other consumer. Lives HERE, beside the channel
+ *  it wraps, so producers depend on the neutral channel registry rather than on
+ *  either consumer. Guarded at the boundary: a throwing subscriber must not propagate
+ *  back into the producer's emit loop (which would freeze a sensor); logged, not
+ *  fatal — the next restore-relevant change re-arms. */
+export function notifyDirty(): void {
+  try {
+    terminalsDirtyChannel.publish({});
+  } catch (err) {
+    log.error({ err }, "terminals:dirty publish threw");
+  }
+}

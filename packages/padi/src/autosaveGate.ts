@@ -12,7 +12,7 @@
  *   5. four "must NOT arm autosave here" call-site conventions in
  *      `terminalEndpoint/metadata.ts`.
  * They all collapse here. The invariant is now explicit state + named transitions,
- * so a writer that should not arm the gate simply does not call {@link notifyDirty},
+ * so a writer that should not arm the gate simply does not call `notifyDirty`,
  * and one that should does — there is no prose left to get wrong.
  *
  * Explicit state:
@@ -38,8 +38,9 @@
  * `isRestorePending`): it imports nothing from the session/registry layers it drives,
  * so those layers PUSH their facts and effects into it rather than the gate reaching
  * back out. It consumes the shared `terminals:dirty` pulse (also read by the activity
- * taps in `liveActivity.ts`); {@link notifyDirty} is the single writer-facing entry
- * that emits it.
+ * taps in `liveActivity.ts`); the single writer-facing entry that emits it,
+ * `notifyDirty`, lives beside the channel in `./publisher.ts` — the gate is a pure
+ * subscriber here.
  */
 
 import { log } from "./log.ts";
@@ -74,20 +75,6 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
 /** The restart critical section's reason while **frozen**, else `undefined`. Pushed
  *  by {@link freezeAutosave} / {@link unfreezeAutosave}; orthogonal to the timer. */
 let frozenReason: string | undefined;
-
-/** Emit the shared `terminals:dirty` pulse — the SINGLE writer-facing arm every
- *  terminal/metadata writer calls when a restore-relevant change lands. Arms this
- *  gate (via its subscription) and reconciles the activity taps (`liveActivity.ts`),
- *  the pulse's other consumer. Guarded at the boundary: a throwing subscriber must
- *  not propagate back into the producer's emit loop (which would freeze a sensor);
- *  logged, not fatal — the next restore-relevant change re-arms. */
-export function notifyDirty(): void {
-  try {
-    terminalsDirtyChannel.publish({});
-  } catch (err) {
-    log.error({ err }, "terminals:dirty publish threw");
-  }
-}
 
 /** Cancel any pending (armed) autosave, returning the gate to **idle** without
  *  firing. Called by the gate's own fire callback (a no-op there — the timer already

@@ -68,6 +68,7 @@ export {
 } from "./stateRoot.ts";
 // ── publisher / surface ctx holder ──────────────────────────────────────
 export {
+  notifyDirty,
   publisher,
   publisherSize,
   terminalsDirtyChannel,
@@ -93,7 +94,6 @@ export {
   cancelPendingAutosave,
   freezeAutosave,
   initAutosaveGate,
-  notifyDirty,
   unfreezeAutosave,
 } from "./autosaveGate.ts";
 export {
