@@ -64,9 +64,8 @@ const escapes = [
   description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, send input to, and kill your terminals from the shell."
 >
   <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
-    {/* Warning orange (--color-brand-amber), NOT the site accent: the
-        `amber` token is the purple brand accent, and an alpha warning must
-        read as a warning. */}
+    {/* Warning orange uses the logo-gold token directly; this is a product
+        maturity warning, not a separate danger palette. */}
     <div
       class="mb-8 flex items-start gap-3 border border-brand-amber/50 bg-brand-amber/10 rounded-lg px-4 py-3 max-w-xl"
     >
@@ -206,8 +205,17 @@ const escapes = [
         {/* client boxes */}
         <rect x="24" y="70" width="150" height="56" rx="9" class="kv-d-box"
         ></rect>
-        <text x="99" y="97" text-anchor="middle" class="kv-d-label">padi</text>
-        <text x="99" y="114" text-anchor="middle" class="kv-d-sub"
+        <image
+          href="/padi-logo.svg"
+          x="42"
+          y="84"
+          width="28"
+          height="28"
+          preserveAspectRatio="xMidYMid meet"
+          class="kv-d-logo"
+        ></image>
+        <text x="118" y="97" text-anchor="middle" class="kv-d-label">padi</text>
+        <text x="118" y="114" text-anchor="middle" class="kv-d-sub"
           >kolu's host daemon</text
         >
 
@@ -223,10 +231,19 @@ const escapes = [
         {/* daemon box */}
         <rect x="372" y="104" width="156" height="64" rx="11" class="kv-d-daemon"
         ></rect>
-        <text x="450" y="133" text-anchor="middle" class="kv-d-daemon-label"
+        <image
+          href="/kaval-logo.svg"
+          x="394"
+          y="118"
+          width="36"
+          height="36"
+          preserveAspectRatio="xMidYMid meet"
+          class="kv-d-logo"
+        ></image>
+        <text x="468" y="133" text-anchor="middle" class="kv-d-daemon-label"
           >kaval</text
         >
-        <text x="450" y="151" text-anchor="middle" class="kv-d-sub"
+        <text x="468" y="151" text-anchor="middle" class="kv-d-sub"
           >the PTY daemon</text
         >
 
@@ -416,10 +433,17 @@ const escapes = [
       serves it all as one surface the thin{" "}
       <code class="mono text-ink">padi-tui</code> CLI reads. Where{" "}
       <code class="mono text-ink">kaval-tui</code> shows what's{" "}
-      <em>running</em> in each PTY, padi-tui shows what each terminal{" "}
-      <em>is in</em>.
+          <em>running</em> in each PTY, padi-tui shows what each terminal{" "}
+          <em>is in</em>.
         </p>
       </div>
+      <img
+        src="/padi-logo.svg"
+        width="96"
+        height="96"
+        alt="padi — the per-host workspace daemon"
+        class="kv-padi-logo hidden md:block w-24 shrink-0"
+      />
     </div>
     <div class="kv-term">
       <span class="cmd"
@@ -638,8 +662,8 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
 
 <style>
   /* Hero product mark — a glowing badge, not a stray icon floating in the
-     corner. The purple halo echoes the live-state glow used in the app dock,
-     and the larger size gives it presence opposite the headline. */
+     corner. The gold halo echoes the Kolu logo's top step, and the larger size
+     gives it presence opposite the headline. */
   .kv-logo {
     border-radius: 1.5rem;
     filter: drop-shadow(
@@ -647,10 +671,16 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     );
   }
 
+  .kv-padi-logo {
+    filter: drop-shadow(
+      0 14px 32px color-mix(in srgb, var(--color-live-lime) 35%, transparent)
+    );
+  }
+
   /* Section headings — real <h2>s. The page jumped from a ~67px display H1
      straight to 13px mono captions with no mid tier, so every section read
      flat. These are now a true display-scale heading (~half the H1) in the
-     same lowercase tech-sans as the hero, with a tall electric-purple bar as
+     same lowercase tech-sans as the hero, with a tall logo-gold bar as
      the section marker — the accent grounds the heading instead of *being* it. */
   .kv-head {
     position: relative;
@@ -771,6 +801,11 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
   }
   .kv-diagram text {
     font-family: var(--font-mono);
+  }
+  .kv-d-logo {
+    filter: drop-shadow(
+      0 5px 10px color-mix(in srgb, var(--color-void-sunk) 70%, transparent)
+    );
   }
   .kv-d-box {
     fill: var(--color-void-raised);
