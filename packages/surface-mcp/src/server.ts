@@ -593,26 +593,39 @@ async function readSnapshot<Client extends SurfaceClientCallable>(
   if (call === undefined) return undefined;
   if (call.kind === "event") return { value: null, mimeType: call.mimeType };
   // A collection-item read must not lean on the held-open `get` to signal
-  // absence — an absent key yields nothing forever. Resolve membership from the
-  // collection's `keys` snapshot (which always arrives immediately) and treat an
-  // absent key as not-found rather than blocking.
-  if (
-    call.kind === "collection-item" &&
-    !(await collectionItemExists(client, uri, keySchemaByCollection, signal))
-  ) {
-    return undefined;
+  // absence — an absent key yields nothing forever — so it gets a BOUNDED read
+  // that races the `get` first frame against a live `keys`-absence watch.
+  if (call.kind === "collection-item") {
+    return readCollectionItemSnapshot(
+      client,
+      uri,
+      call,
+      keySchemaByCollection,
+      signal,
+    );
   }
+  return readFirstFrameSnapshot(call, uri, signal);
+}
+
+/** Open a snapshot-first source (cell / collection / stream / a PRESENT
+ *  collection-item) and return its first frame.
+ *
+ *  cell / collection / collection-item / STREAM are ALL snapshot-first by the
+ *  surface contract: `@kolu/surface/server` opens a cell/collection with a
+ *  current-value frame, and `StreamHandlerDeps` REQUIRES "first yield is a fresh
+ *  full snapshot" — only `Event` carries no snapshot obligation (handled by the
+ *  caller as an immediate `null`). So an empty open for any of these is NOT an
+ *  empty value — it is a dead/dropped bridge link, and collapsing it to JSON
+ *  `null` would hand an MCP agent `surface://<kind>/<x> => null` as if it were
+ *  real (the green-dot lie in MCP form, the snapshot-then-delta class). Fail
+ *  loudly per caught-error-must-not-collapse-to-empty: a nullish source (the proc
+ *  returned nothing) and an empty stream (no snapshot frame) both throw. */
+async function readFirstFrameSnapshot(
+  call: ResolvedCall,
+  uri: string,
+  signal: AbortSignal | undefined,
+): Promise<Snapshot> {
   const source = await call.proc(call.input, { signal });
-  // cell / collection / collection-item / STREAM are ALL snapshot-first by the
-  // surface contract: `@kolu/surface/server` opens a cell/collection with a
-  // current-value frame, and `StreamHandlerDeps` REQUIRES "first yield is a fresh
-  // full snapshot" — only `Event` carries no snapshot obligation (handled above as
-  // an immediate `null`). So an empty open for any of these is NOT an empty value —
-  // it is a dead/dropped bridge link, and collapsing it to JSON `null` would hand an
-  // MCP agent `surface://<kind>/<x> => null` as if it were real (the green-dot lie in
-  // MCP form, the snapshot-then-delta class). Fail loudly per
-  // caught-error-must-not-collapse-to-empty: a nullish source (the proc returned
-  // nothing) and an empty stream (no snapshot frame) both throw.
   if (source === undefined || source === null) {
     throw new Error(
       `surface-mcp: ${uri} (${call.kind}) resolved no streaming source — the ` +
@@ -629,34 +642,66 @@ async function readSnapshot<Client extends SurfaceClientCallable>(
   return { value, mimeType: call.mimeType };
 }
 
-/** Whether a collection-item URI's key is CURRENTLY a member of its collection.
- *  Reads the collection's `keys` snapshot (first frame — always arrives at once
- *  by the snapshot-first contract) and tests membership of the decoded key. This
- *  is the one-shot read's existence boundary: the item `get` HOLDS OPEN for an
- *  absent key (yielding nothing until it's born), so a read can't use `get`'s
- *  first frame to detect absence without blocking forever. Returns `false` for a
- *  URI whose collection/keys proc can't be resolved (treated as not-found). */
-async function collectionItemExists<Client extends SurfaceClientCallable>(
+/** One-shot read of a collection-item URI, BOUNDED against the item `get`'s
+ *  held-open-on-absent-key semantic. The `get` yields nothing until the key is
+ *  born (the #1681 fix), so a one-shot read can't await it blindly — an absent
+ *  key would hang forever. Race the `get`'s first frame against a LIVE `keys`
+ *  subscription that reports absence:
+ *
+ *    - `keys` is snapshot-first AND self-healing — every frame is the FULL
+ *      membership set, re-emitted on every upsert/remove. So the key being absent
+ *      at the snapshot, OR removed at ANY later instant, produces a `keys` frame
+ *      that omits it. This is what closes the DELETE RACE a one-time
+ *      check-THEN-`get` would leave open: if the key is deleted in the window
+ *      between a membership check and the `get`'s subscribe, the still-open `get`
+ *      would hang, but the live `keys` watch sees the removal frame and resolves
+ *      the read not-found (`undefined`).
+ *    - a PRESENT key yields its `get` snapshot immediately and wins the race.
+ *
+ *  Whichever settles first aborts the other via a local `AbortController` chained
+ *  to the request `signal`, so the losing subscription is always torn down (and
+ *  the loser's eventual rejection is already handled by `Promise.race`, so it
+ *  can't surface as an unhandled rejection). Falls back to a plain first-frame
+ *  read for the (shouldn't-happen) case of a collection item whose collection
+ *  exposes no `keys` verb. */
+async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
+  call: ResolvedCall,
   keySchemaByCollection: Map<string, ZodType>,
   signal: AbortSignal | undefined,
-): Promise<boolean> {
+): Promise<Snapshot | undefined> {
   const item = parseCollectionItem(uri);
-  if (item === null) return false;
-  const keysProc = client.surface[item.key]?.keys;
-  if (keysProc === undefined) return false;
+  const keysProc = item !== null ? client.surface[item.key]?.keys : undefined;
+  if (item === null || keysProc === undefined) {
+    return readFirstFrameSnapshot(call, uri, signal);
+  }
   const keySchema = keySchemaByCollection.get(item.key);
   const key = keySchema !== undefined ? decodeKey(keySchema, item.id) : item.id;
-  if (key === undefined) return false;
-  const source = await keysProc(undefined, { signal });
-  const keys = await firstFrameOrThrow(
-    source as AsyncIterable<unknown>,
-    `surface-mcp: ${uri} — the collection's keys stream yielded no snapshot ` +
-      `frame; the surface contract opens keys with a current-membership ` +
-      `snapshot, so an empty open means the bridge link dropped.`,
-  );
-  return Array.isArray(keys) && keys.includes(key);
+
+  const ac = new AbortController();
+  const onAbort = () => ac.abort();
+  if (signal !== undefined) {
+    if (signal.aborted) ac.abort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
+  try {
+    const present = readFirstFrameSnapshot(call, uri, ac.signal);
+    const absent = (async (): Promise<undefined> => {
+      const source = await keysProc(undefined, { signal: ac.signal });
+      for await (const frame of source as AsyncIterable<unknown>) {
+        if (!(Array.isArray(frame) && frame.includes(key))) return undefined;
+      }
+      // `keys` ended without ever reporting the key absent — for a live surface
+      // this only happens on teardown; treat as not-found so the read stays
+      // bounded rather than resolving a value the collection no longer holds.
+      return undefined;
+    })();
+    return await Promise.race([present, absent]);
+  } finally {
+    ac.abort();
+    if (signal !== undefined) signal.removeEventListener("abort", onAbort);
+  }
 }
 
 /** Undo the `enforceObject` wrapping before handing args to a procedure/tool's

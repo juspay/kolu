@@ -577,6 +577,39 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
     ]);
     expect(outcome).toBe("rejected");
   });
+
+  it("a collection item DELETED before the read returns not-found promptly (delete race)", async () => {
+    const over = buildEdgeSurface();
+    const { mcp, served } = await connectEdge(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // 42 exists at boot; reading it returns its value.
+    const present = await mcp.readResource({
+      uri: "surface://collections/rows/42",
+    });
+    expect(JSON.parse((present.contents[0] as { text: string }).text)).toEqual({
+      v: "answer",
+    });
+
+    // Remove it, then read again. Because the item `get` HOLDS OPEN for an
+    // absent key, a read that relied on `get` alone would hang forever after the
+    // delete. The bounded read races `get` against a LIVE `keys` watch, so the
+    // removal frame makes the read not-found instead of hanging — this is the
+    // delete-race the two-step check-then-`get` sequence would have left open.
+    over.client.surface.rows.delete({ key: 42 });
+    const read = mcp.readResource({ uri: "surface://collections/rows/42" });
+    const outcome = await Promise.race([
+      read.then(
+        () => "resolved",
+        () => "rejected",
+      ),
+      new Promise<string>((r) => setTimeout(() => r("timeout"), 2000)),
+    ]);
+    expect(outcome).toBe("rejected");
+  });
 });
 
 describe("serveSurfaceAsMcp — boot-time guards", () => {
