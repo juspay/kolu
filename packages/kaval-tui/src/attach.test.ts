@@ -608,14 +608,17 @@ describe("send — canonical two-command submit against a real paste-debounce TU
     );
   });
 
-  it("(c) a multi-KB paste + two-command submit submits INTACT (Bug A shape)", {
+  it("(c) a multi-KB paste + two-command submit submits INTACT past the DEBOUNCE", {
     timeout: 30_000,
   }, async () => {
     const id = await spawnFixture();
     // ~4KB, arriving in several socket chunks — the fixture reassembles the paste
-    // across chunk boundaries; a unique tail proves nothing was truncated. This is
-    // the fixture-level shape of Bug A: a large paste, submitted by the two-command
-    // observe-then-Enter flow.
+    // across chunk boundaries; a unique tail proves nothing was truncated. NOTE:
+    // this fixture models the paste-DEBOUNCE (an Enter too soon is dropped), which
+    // the two-command flow beats. It does NOT model Claude Code's large-paste
+    // COLLAPSE (folding a big paste into a "[Pasted text +N lines]" placeholder
+    // that then won't submit on Enter) — that is Bug A, which survives the
+    // canonical flow against a real claude and is tracked open (issue #1702).
     const big = `${"X".repeat(4000)}ENDMARK-c0ffee`;
     await sendText(id, big, /* fromStream */ true); // a stream payload auto-pastes
     await delay(IDLE_MS);

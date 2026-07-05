@@ -52,13 +52,13 @@ driving a program in a PTY. Its headline use is handing a prompt to an agent
 (Claude Code, Codex, opencode) running in a terminal, so one agent can drive
 another: `create` it, `send` it a task, `snapshot` its reply, `send` the next.
 
-Submitting a prompt is **three commands**, because `send` writes exactly what you
-pass and bakes in no timing magic:
+Submitting a **normal-size** prompt is **three commands**, because `send` writes
+exactly what you pass and bakes in no timing magic:
 
 ```sh
-kaval-tui send a1b2 --file brief.md        # 1. the text (a bracketed paste, no Enter)
-kaval-tui wait a1b2 --until idle:300       # 2. OBSERVE the TUI settle (a signal, not a sleep)
-kaval-tui send a1b2 --key Enter            # 3. submit
+kaval-tui send a1b2 "fix the failing test"   # 1. the text (no Enter)
+kaval-tui wait a1b2 --until idle:300         # 2. OBSERVE the TUI settle (a signal, not a sleep)
+kaval-tui send a1b2 --key Enter              # 3. submit
 ```
 
 An Enter written in the same breath as the text _races Claude Code's
@@ -70,22 +70,34 @@ settle signal, and only then do you submit with a separate `send --key Enter`.
 `send "text" --key Enter` in **one** call is a **hard error** — the dropped-Enter
 trap is unspellable, not merely discouraged.
 
+> **⚠️ Large pastes don't reliably submit — a known-open limitation
+> ([#1702](https://github.com/juspay/kolu/issues/1702)).** The flow above is
+> verified for **normal-size** prompts. A **large** paste (multi-KB — enough that
+> Claude Code folds it into a `[Pasted text +N lines]` placeholder) does **not**
+> submit: `wait --until idle` fires (Claude finished *folding* the paste, not that
+> Enter submits it), yet the Enter leaves it **staged**, and the Enter write can
+> stall against the placeholder (the bounded write deadline turns that stall into a
+> loud failure, not a hang — but it still doesn't submit). For a big brief, write
+> it to a file and send a **short** prompt pointing the agent at it
+> (`send a1b2 "read /tmp/brief.md and do it"`), rather than pasting the whole thing.
+
 Step 2's `wait --until idle` fires cleanly only when the agent is **at the
 prompt** (awaiting input — the normal case; `idle:300` returns in well under a
-second even after a multi-KB paste). Against an agent that's **mid-turn and busy**
-(streaming output continuously) there's no idle gap, so `wait --until idle` never
-fires — **bound it** with `--timeout` and treat a timeout as _"target busy"_:
-send the Enter anyway (it lands in the agent's input buffer and submits when the
-turn ends), then `snapshot` to confirm.
+second). Against an agent that's **mid-turn and busy** (streaming output
+continuously) there's no idle gap, so `wait --until idle` never fires — **bound
+it** with `--timeout` and treat a timeout as _"target busy"_: send the Enter
+anyway (it lands in the agent's input buffer and submits when the turn ends), then
+`snapshot` to confirm.
 
 `send` writes **exactly what you pass — the literal text OR the `--key`s, never
 both, with no implicit Enter.** A send carries text or keys, not a mix.
 
 **`--file <path>`** reads the payload straight from a file — byte-exact, no shell
-in the loop, so backticks / `$(...)` in a big brief aren't mangled the way
+in the loop, so backticks / `$(...)` in a prompt aren't mangled the way
 `"$(cat file)"` mangles them. Mutually exclusive with positional text and piped
 stdin. It doesn't change the wire bytes (still a bracketed paste) — it fixes the
-**shell** hazard.
+**shell** hazard **only**, and a *large* `--file` payload still hits the
+large-paste limitation above.
 
 **Multiline text, `--file`, and piped stdin are sent as one bracketed paste**, so
 they land in the agent's input box as a block instead of submitting line-by-line

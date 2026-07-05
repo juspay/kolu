@@ -192,7 +192,7 @@ const argv = cli({
       parameters: ["<id>", "[text...]"],
       help: {
         description:
-          "Write input to a terminal — e.g. a prompt to a Claude Code / Codex / opencode agent running in it. Sends EXACTLY the text you pass, OR the `--key`s — NEVER both in one send, and never an implicit Enter. Submitting a prompt is its OWN command, because a same-breath Enter is raced by the TUI's paste debounce and dropped. The canonical three-step flow: `send <id> --file brief.md` (the text) · `wait <id> --until idle:300` (observe the TUI settle) · `send <id> --key Enter` (submit). Multiline, `--file`, or piped-stdin text is sent as one bracketed paste so it lands as a block, not line-by-line. Text comes from the positional words, `--file <path>`, or stdin; `--key` sends named/control keys (" +
+          'Write input to a terminal — e.g. a prompt to a Claude Code / Codex / opencode agent running in it. Sends EXACTLY the text you pass, OR the `--key`s — NEVER both in one send, and never an implicit Enter. Submitting a prompt is its OWN command, because a same-breath Enter is raced by the TUI\'s paste debounce and dropped. The canonical three-step flow for a NORMAL-size prompt: `send <id> "the prompt"` (the text) · `wait <id> --until idle:300` (observe the TUI settle) · `send <id> --key Enter` (submit). Known limitation: a LARGE paste that Claude Code folds into a placeholder does not reliably submit on Enter (issue #1702) — for a big brief, write it to a file and send a short `read <path>` prompt instead. Multiline, `--file`, or piped-stdin text is sent as one bracketed paste so it lands as a block, not line-by-line. Text comes from the positional words, `--file <path>`, or stdin; `--key` sends named/control keys (' +
           ACCEPTED_KEY_NAMES +
           "; chords: C-c, M-b). <id> is the short id from `list` or any unique prefix.",
       },
@@ -222,7 +222,7 @@ const argv = cli({
         file: {
           type: String,
           description:
-            'read the send text from a file instead of the positional words — avoids the `"$(cat file)"` shell mangling of payloads with backticks / $( ). Mutually exclusive with positional text and piped stdin. Sent as a bracketed paste, same as any block (it fixes the SHELL hazard, not the wire bytes).',
+            'read the send text from a file instead of the positional words — avoids the `"$(cat file)"` shell mangling of payloads with backticks / $( ). Mutually exclusive with positional text and piped stdin. Sent as a bracketed paste, same as any block: it fixes the SHELL hazard, NOT the wire bytes — a large --file payload still hits the large-paste-doesn\'t-submit limitation (issue #1702), so it is not a large-paste workaround.',
         },
         json: {
           type: Boolean,

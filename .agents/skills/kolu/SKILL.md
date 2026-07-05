@@ -57,13 +57,13 @@ the TUI's paste debounce and is silently dropped. See the next section.
 
 ## `kaval-tui send` — the canonical three-step submit
 
-Submitting a prompt to a TUI agent is **three commands**, because `send` bakes in
-no timing magic — it writes exactly what you pass and nothing more:
+Submitting a **normal-size** prompt to a TUI agent is **three commands**, because
+`send` bakes in no timing magic — it writes exactly what you pass and nothing more:
 
 ```sh
-kaval-tui send "$id" --file brief.md          # 1. the text (a bracketed paste, no Enter)
-kaval-tui wait "$id" --until idle:300         # 2. OBSERVE the TUI settle — a signal, not a sleep
-kaval-tui send "$id" --key Enter              # 3. submit
+kaval-tui send "$id" "fix the failing test in parser.ts"   # 1. the text (no Enter)
+kaval-tui wait "$id" --until idle:300                       # 2. OBSERVE the TUI settle — a signal, not a sleep
+kaval-tui send "$id" --key Enter                            # 3. submit
 ```
 
 Why not one command? An Enter sent in the *same breath* as the text races Claude
@@ -78,28 +78,41 @@ done-signal section), then submit as its own command. `send "$id" "text" --key
 Enter` in one call is a **hard error** for exactly this reason — the trap is
 unspellable, not merely discouraged.
 
+> **⚠️ LARGE pastes don't submit — a known-open limitation ([#1702](https://github.com/juspay/kolu/issues/1702)).**
+> The three-step flow above is verified for **normal-size** prompts. A **large**
+> paste (multi-KB — enough that Claude Code folds it into a `[Pasted text +N
+> lines]` / "paste again to expand" placeholder) does **NOT** reliably submit:
+> even after `wait --until idle` fires (idle proves Claude finished *folding* the
+> paste, not that a following Enter submits it), the Enter leaves the paste
+> **staged** — and the Enter *write itself* can stall against the placeholder
+> state (the bounded write deadline turns that stall into a loud failure instead
+> of a >30s hang, but it still doesn't submit). **Workaround for a big brief:**
+> write it to a file and send a **short** prompt that points the agent at it —
+> `kaval-tui send "$id" "read /tmp/brief.md and carry it out"` then the three-step
+> submit above. A short prompt submits cleanly; the agent reads the file itself.
+
 > **Step 2 fires cleanly only when the agent is AT THE PROMPT** (awaiting input —
 > the normal case for dispatching a new prompt: `idle:300` fires in a fraction of
-> a second even after a multi-KB paste). If you're messaging an agent that is
-> **mid-turn and busy** (streaming output continuously), `wait --until idle`
-> **never fires** — there's no idle gap — so **bound it** with `--timeout` and
-> treat a timeout as *"target busy"*: send the Enter anyway (it lands in the
-> agent's input buffer and submits when the turn ends), then `snapshot` to confirm.
+> a second). If you're messaging an agent that is **mid-turn and busy** (streaming
+> output continuously), `wait --until idle` **never fires** — there's no idle gap —
+> so **bound it** with `--timeout` and treat a timeout as *"target busy"*: send the
+> Enter anyway (it lands in the agent's input buffer and submits when the turn
+> ends), then `snapshot` to confirm.
 >
 > ```sh
-> kaval-tui send "$id" --file followup.md
+> kaval-tui send "$id" "the follow-up"
 > kaval-tui wait "$id" --until idle:300 --timeout 3000 || true   # busy? time out and proceed
 > kaval-tui send "$id" --key Enter                               # submit anyway
 > ```
 
-> **`--file <path>` — pass a big prompt without shell mangling.** A large brief
+> **`--file <path>` — read the text from a file, without shell mangling.** A prompt
 > passed as `"$(cat file)"` gets its backticks / `$(...)` executed by the shell
 > before `kaval-tui` ever sees them. `--file` reads the payload straight from the
 > file — byte-exact, no shell in the loop. It's mutually exclusive with positional
 > text and piped stdin. It does **not** change what goes down the wire (still a
-> bracketed paste); it fixes the SHELL hazard. A small inline prompt is fine as a
-> positional (`send "$id" "fix the failing test"`); reach for `--file` for
-> anything with shell metacharacters or more than a line or two.
+> bracketed paste); it fixes the SHELL hazard **only** — a *large* `--file` payload
+> still hits the large-paste limitation above, so it's not a way around it. Reach
+> for `--file` for a prompt with shell metacharacters, not as a large-paste path.
 
 Specifics:
 
