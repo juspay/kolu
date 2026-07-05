@@ -109,7 +109,7 @@ And the road not taken, named honestly: a bespoke `Map<host, …>` in kolu-serve
 
 ## The final API — what you'll write as a framework user
 
-*(Build-time refinements the implementing agent surfaced — four roadblocks resolved in code — live in [surface-hosting-roadblocks](surface-hosting-roadblocks.html); they refine a few specifics below — notably universal hello is BUNDLED into this PR, so `identity()` is on the base `Session` role (named `SurfaceIdentity`), and `DaemonSession` adds only supervision.)*
+*(Build-time refinements the implementing agent surfaced — four roadblocks resolved in code — live in [surface-hosting-roadblocks](surface-hosting-roadblocks.html); they refine a few specifics below — notably the reserved `system.identity` member is BUNDLED into this PR, so `identity()` is on the base `Session` role (named `SurfaceIdentity`), and `DaemonSession` adds only supervision.)*
 
 **Three consumers move together on this** — kolu, [drishti](https://github.com/srid/drishti), and [odu](https://github.com/juspay/odu) — so it lands as THREE paired PRs, all green before any merges (the paired-PR gate, extended to three). *(The shapes below are the ratified end-state — the debate record in `debates/surface-hosting-simplify/` holds the how-we-got-here; none of it is needed to use this.)*
 

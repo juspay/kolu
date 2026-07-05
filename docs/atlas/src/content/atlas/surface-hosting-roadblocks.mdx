@@ -9,20 +9,20 @@ updated: 2026-07-05
 
 import Callout from "../../components/Callout.astro";
 
-The agent inventoried all three consumers and raised four design questions before writing code. All four are now resolved (srid). The headline: **universal hello is bundled into this same PR** — so identity lands on the base `Session` role directly, no two-step.
+The agent inventoried all three consumers and raised four design questions before writing code. All four are now resolved (srid). The headline: **the reserved `system.identity` member is bundled into this same PR** — so identity lands on the base `Session` role directly, no two-step. (This is NOT "universal hello" — that name was borrowed from padi's *daemon* control-core `hello()`; the honest name is `system.identity`, the identity twin of the framework's existing reserved `system.live`.)
 
-## 1. Universal hello is IN this PR — identity on the base `Session` role
+## 1. `system.identity` is IN this PR — identity on the base `Session` role
 
-Originally scoped out as "behavior-preserving refactor can't add a contract member." srid's ruling: **bundle it.** This is a coordinated three-repo PR — every server and consumer moves together — so the usual cross-deploy-drift danger of a contract change doesn't apply, and the `system.live` reserved member already proves the pattern.
+The framework already auto-attaches a reserved **`system` namespace** to every surface (`packages/surface/src/liveness.ts`: `defineSurface` carries `surface.system.live`, which `implementSurface` auto-answers; `define.ts` even anticipates a `system.version`-style member). We add **`system.identity`** to that same reserved namespace — the identity twin of `system.live`. Originally scoped out as "a behavior-preserving refactor can't add a contract member." srid's ruling: **bundle it.** This is a coordinated three-repo PR — every server and consumer moves together — so the cross-deploy-drift danger doesn't apply, and `system.live` already proves the exact pattern.
 
-What it means concretely — the framework auto-serves an identity preamble on **every** surface:
+What it means concretely — one more reserved member in the `system` namespace, framework-served on **every** surface:
 
 ```ts
 function defineSurface(members) {
-  return implement({ ...members, system: { live, identity } }); // `identity` is NEW; `live` already exists
+  return implement({ ...members, system: { live, identity } }); // `identity` is the NEW reserved member; `live` already exists in the same `system` namespace
 }
-// The serve path STAMPS identity from the server's own baked build info — zero per-server code.
-// Every server (daemon or not) now answers "who are you".
+// implementSurface STAMPS system.identity from the server's own baked build info — zero per-server code.
+// Every server (daemon or not) now answers surface.system.identity.
 ```
 
 So `identity()` lives on the base role, and it is **never null-forever** — because every server truly answers:
@@ -57,7 +57,7 @@ test("laneSurface members", () => {
 ```
 A surface is a **contract between two processes** (one serves, one consumes, often on different machines). **The set of members IS the contract.** This test freezes that set so a member can never be added or dropped *by accident* — any change fails the test and forces a human to ratify it deliberately.
 
-Universal hello adds `system.identity` to every surface, so **every one of these tests updates to include it.** That is not a problem to route around — it is the test doing its job: each update is the deliberate, reviewed ratification of the (intended) contract change. Mechanical churn across three repos, all in this PR, all moving together.
+Adding `system.identity` to the reserved `system` namespace changes every surface's member set, so **every one of these tests updates to include it.** That is not a problem to route around — it is the test doing its job: each update is the deliberate, reviewed ratification of the (intended) contract change. Mechanical churn across three repos, all in this PR, all moving together.
 </Callout>
 
 ## 2. Fleet verbs go on `Session` (srid's call — cleaner)
@@ -78,7 +78,7 @@ buildHostRegistry({
 
 ## 3. The name: `SurfaceIdentity` (srid's call — the better one)
 
-You proposed `SurfaceIdentity`; it's better than `ServerIdentity`, and universal hello is exactly why: under it, identity is literally a **member of every surface** (`system.identity`), so the value is *"the identity a surface carries"* — named for the framework's core noun, and dodging the overloaded word "server" (kolu-*server* means something else).
+You proposed `SurfaceIdentity`; it's better than `ServerIdentity`, and `system.identity` is exactly why: identity is literally a **reserved member of every surface**, so the value is *"the identity a surface carries"* — named for the framework's core noun, and dodging the overloaded word "server" (kolu-*server* means something else).
 
 ```ts
 // @kolu/surface
@@ -97,7 +97,7 @@ Lives in **`@kolu/surface`** (the base package — it's a universal surface memb
 | In THIS three-PR refactor | Out (its own later PR) |
 |---|---|
 | `Session` (identity · reconnect · recheck) / `DaemonSession` (convergence · renew · preservation) roles + all renames | **kolu-server GROWING a `buildHostRegistry` pool** (the W4 switch) |
-| **Universal hello** — reserved `system.identity` on every surface, framework-stamped; `identity()` on the base role; every contract test updated | |
+| **`system.identity`** — the new reserved member (twin of `system.live`), framework-stamped on every surface; `identity()` on the base role; every contract test updated | |
 | `makeSession` + `sshConnector` + `endpointConnector` | |
 | **S1/S2: `buildHostRegistry` → `DestroyableSession` slot + typed `controls`** | |
 | S10: delete `getHostSession` + the global pool + evict/destroyAll | |
@@ -105,7 +105,7 @@ Lives in **`@kolu/surface`** (the base package — it's a universal surface memb
 
 ## Status of the four — all resolved
 
-1. **Universal hello BUNDLED** — `identity()` on the base `Session` role, framework auto-serves `system.identity`, no separate follow-up. ✅ srid's call.
+1. **`system.identity` BUNDLED** — the new reserved `system`-namespace member (twin of `system.live`); `identity()` on the base `Session` role; no separate follow-up. ✅ srid's call. (Name: `system.identity`, NOT "universal hello".)
 2. **`reconnect`/`recheck` on `Session`** — ✅ srid's call.
 3. **`SurfaceIdentity` in `@kolu/surface`** (rename kolu's collider) — ✅ srid's call.
-4. **Scope**: full framework reshape in (incl. universal hello + `buildHostRegistry` S1/S2); only kolu-server's *pool adoption* (W4) out. ✅ confirmed.
+4. **Scope**: full framework reshape in (incl. `system.identity` + `buildHostRegistry` S1/S2); only kolu-server's *pool adoption* (W4) out. ✅ confirmed.
