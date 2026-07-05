@@ -316,10 +316,15 @@ export interface CollectionHandlers<K, T> {
  *  passing an already-computed value would move the read back BEFORE the subscribe
  *  and reopen the window — the thunk keeps the `readAll()` on the safe side.
  *
+ *  The thunk yields ZERO-OR-MORE frames: it returns an array so a caller with an
+ *  unconditional snapshot passes a single-element array, and one whose snapshot is
+ *  CONDITIONAL (a `get` on an absent key) passes an empty array — the absent case
+ *  collapses to `[]` instead of a bespoke `if`-guarded copy of this machine.
+ *
  *  Cleanup: acquire ONE iterator up front and forward it via
  *  `yield* { [Symbol.asyncIterator]: () => iterator }` — NOT a bare `yield* frames`,
  *  which would call `[Symbol.asyncIterator]()` a second time and forward a different
- *  iterator than the one the `finally` returns. The snapshot `yield` sits BEFORE the
+ *  iterator than the one the `finally` returns. The snapshot `yield*` sits BEFORE the
  *  forwarding, so an early `.return()` taken after the snapshot (which makes an async
  *  generator skip everything past the suspended `yield`) still hits the `finally`,
  *  which returns the iterator and drops the subscriber. Idempotent: the channel's
@@ -327,12 +332,12 @@ export interface CollectionHandlers<K, T> {
 async function* subscribeBeforeSnapshot<S, F>(
   bus: Channel<F>,
   signal: AbortSignal | undefined,
-  snapshot: () => S,
+  snapshot: () => S[],
 ): AsyncGenerator<S | F> {
   const frames = bus.subscribe(signal);
   const iterator = frames[Symbol.asyncIterator]();
   try {
-    yield snapshot();
+    yield* snapshot();
     yield* { [Symbol.asyncIterator]: () => iterator };
   } finally {
     await iterator.return?.();
@@ -353,21 +358,45 @@ export function collectionHandlers<Name extends string, K, T>(
     // the `broadcastKeys` publish-side fix, is what lets an already-subscribed mirror
     // never miss a key born after it connected. See `subscribeBeforeSnapshot`.
     keys: ({ signal }) =>
-      subscribeBeforeSnapshot(deps.keysBus, signal, () =>
+      subscribeBeforeSnapshot(deps.keysBus, signal, () => [
         Array.from(deps.readAll().keys()),
-      ),
-    get: async function* ({ input, signal }) {
-      const initial = readOne(input.key);
-      if (initial === undefined) {
-        throw new Error(
-          `collection ${_coll.name}: key not found at first snapshot`,
-        );
-      }
-      yield initial;
-      for await (const v of deps.perKeyBus(input.key).subscribe(signal)) {
-        yield v;
-      }
-    },
+      ]),
+    // A `get` for a key that DOESN'T EXIST YET is a legitimate HELD-OPEN
+    // subscription, NOT an error. A collection's membership is dynamic by design
+    // (the mirror's `initialKeys` reconcile already treats it so, W2.1), so a
+    // consumer watching a fixed key may subscribe BEFORE the key is born: the
+    // stream stays open, yields NOTHING until the key's first upsert, then
+    // delivers it and every later update. Subscribe-before-snapshot (like `keys`)
+    // so a value upserted in the snapshot→forward gap isn't lost; the ONLY
+    // difference from `keys` is the snapshot is CONDITIONAL — a present key yields
+    // its current value, an absent key yields nothing.
+    //
+    // Ordering note: subscribing BEFORE the snapshot can DOUBLE-DELIVER a value
+    // whose upsert lands in the subscribe→snapshot window (the snapshot reads it
+    // AND the buffered per-key frame forwards it) — benign and INTENTIONAL: every
+    // consumer folds by replacement/reconcile, so a repeated value is idempotent.
+    // Do NOT "fix" it by reading the snapshot BEFORE subscribing — that reopens the
+    // lost-update gap this ordering exists to close (a frame born in the gap would
+    // publish to zero subscribers and be lost). The lost-update prevention is pinned
+    // by the "delivers a value published in the post-snapshot gap" test.
+    //
+    // This held-open-on-absent-key is a DELIBERATE, tested semantic, never an
+    // accidental hang. The alternative — throwing "key not found" on the first
+    // snapshot — surfaced to a consuming browser as a NON-RETRIABLE `ORPCError`
+    // (`STREAM_RETRY` never retries an `ORPCError`) that KILLED its standing
+    // subscription: a key born AFTER the subscription opened (kolu-server booting
+    // with an empty re-serve mirror; the gray Kaval chip, #1681) then never
+    // reached the client until a full page reload. Holding open turns "absent"
+    // into a RECOVERABLE waiting state the consumer renders honestly (`undefined`
+    // until the first value). A key that NEVER appears leaves the stream open
+    // yielding nothing — exactly as a `keys` subscription to an empty collection
+    // holds open — so the consumer shows its honest empty/absent state, not a
+    // corpse. Callers that need a bounded first read pass a `signal`.
+    get: ({ input, signal }) =>
+      subscribeBeforeSnapshot(deps.perKeyBus(input.key), signal, () => {
+        const v = readOne(input.key);
+        return v === undefined ? [] : [v];
+      }),
     upsert: ({ input }) => {
       deps.upsert(input.key, input.value);
     },
@@ -397,10 +426,12 @@ export function collectionHandlers<Name extends string, K, T>(
       subscribeBeforeSnapshot<CollectionDeltasMsg<K, T>, CollectionDelta<K, T>>(
         deltasBus,
         signal,
-        () => ({
-          kind: "snapshot",
-          entries: Array.from(deps.readAll().entries()),
-        }),
+        () => [
+          {
+            kind: "snapshot",
+            entries: Array.from(deps.readAll().entries()),
+          },
+        ],
       );
   }
 
@@ -1181,13 +1212,20 @@ export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
  *  so imperative procedures publish through the same channel as the wire
  *  handlers. Bypassing this and writing directly to the consumer's store
  *  silently skips the publish; don't. */
+/** `set`'s optional `{ force }` bypasses the cell's `equals` dedup for that ONE
+ *  write (a re-serve's rebind epoch republishes an equal value — #1681); omitted,
+ *  the write dedups as before. Exported as the ONE source of truth for the opts
+ *  shape so a cross-package consumer (`reServeSurface`'s cell fold) references it
+ *  instead of hand-copying a narrowed cast that would drift silently. */
+export type CellCtxSetOpts = { force?: boolean };
+type CellCtxSet<T> = (v: T, opts?: CellCtxSetOpts) => void;
 type CellCtxFor<S> = S extends {
   schema: ZodType<infer T>;
   patchSchema: ZodType<infer P>;
 }
-  ? { get: () => T; set: (v: T) => void; patch: (p: P) => void }
+  ? { get: () => T; set: CellCtxSet<T>; patch: (p: P) => void }
   : S extends { schema: ZodType<infer T> }
-    ? { get: () => T; set: (v: T) => void }
+    ? { get: () => T; set: CellCtxSet<T> }
     : never;
 
 type CollectionCtxFor<S> = S extends {
@@ -1403,8 +1441,13 @@ function walkSurface<const S extends SurfaceSpec>(
     // (TypeScript errors / test failures) if anyone adds a step to
     // only one side.
     const store = cellDeps.store;
-    function ctxApply(next: unknown): void {
-      if (equalsFn?.(store.get(), next)) return;
+    // `force` bypasses the `equals` dedup for ONE write — a re-serve's rebind epoch
+    // uses it so a fresh spawn re-confirming a value EQUAL to the pre-drain one still
+    // republishes, letting a downstream holder tell "rebound and confirmed" from
+    // "stale" (#1681; `reServeSurface`'s cell fold). Steady-state dedup is unchanged:
+    // only the explicit `force` caller opts out, per write.
+    function ctxApply(next: unknown, opts?: CellCtxSetOpts): void {
+      if (!opts?.force && equalsFn?.(store.get(), next)) return;
       onWriteFn?.(next);
       store.set(next);
       bus.publish(next);
