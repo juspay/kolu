@@ -9,11 +9,9 @@ import { startHeapDiagnostics } from "@kolu/heap-diag";
 // publisher size (a diagnostic); it no longer runs the terminal domain.
 import {
   discoverPadiDaemons,
-  padiKavalSocketPath,
-  padiSocketPath,
   previewFile,
+  probeKavalStatus,
   publisherSize,
-  resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import {
@@ -31,6 +29,7 @@ import {
   installFreshStatic,
   installPwaManifest,
 } from "@kolu/surface-app/server";
+import type { ServeResult } from "@kolu/serve-dir";
 import { reServeSurface } from "@kolu/surface-nix-host";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
@@ -52,15 +51,13 @@ import {
   serverVersion,
 } from "./hostname.ts";
 import {
+  assembleRemotePreview,
   previewTailFromRawUrl,
   rawTargetFromContext,
-  remotePreviewBlock,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import {
-  probeKavalStatus,
-  startDaemonInventorySampler,
-} from "./daemonInventory.ts";
+import { installRouteErrorLogging } from "./routeErrors.ts";
+import { startDaemonInventorySampler } from "./daemonInventory.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { type BoundPadi, ensurePadiBinding } from "./padiBinding.ts";
 import {
@@ -137,6 +134,12 @@ if (argv.flags.verbose) {
 }
 
 const app = new Hono();
+
+// Catch-all error logger: an uncaught route/middleware fault (e.g. the artifact-sdk
+// HTML decorator draining a remote-preview stream that faults mid-chunk, past the
+// preview route's own 503 `try`) is LOGGED, not answered as Hono's default,
+// unlogged 500. See `routeErrors.ts`.
+installRouteErrorLogging(app, log);
 
 // --- HTTP request logging (debug level to avoid noise in normal operation) ---
 app.use(
@@ -359,18 +362,6 @@ mountArtifactSdk(app, {
 // shadow this route with `serveStatic`'s `/*` matcher.
 app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const terminalId = c.req.param("terminalId");
-  // Remote binding (KOLU_PADI_HOST): the terminal registry lives on the ssh HOST, so
-  // `repoRootForTerminal` below answers with an absolute path in the REMOTE
-  // filesystem. `previewFile` further down reads THIS machine's LOCAL disk, so handing
-  // it a remote path would serve unrelated local bytes from the same absolute path (or
-  // 404) — a wrong-data path that violates the remote-host contract. There is no remote
-  // preview STREAM yet (that rides a later slice with the picker), so fail CLOSED with a
-  // loud 501 rather than read the wrong machine's disk — fail-fast per conventions.md,
-  // never a silent local read of a remote path.
-  const remoteBlock = remotePreviewBlock(remoteHost);
-  if (remoteBlock) {
-    return c.text(remoteBlock.body, remoteBlock.status);
-  }
   // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
   // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
   // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
@@ -393,16 +384,20 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
 
   // Which directory this terminal serves (its git repo root) — RE-SOURCED from
   // padi's registry over the bound session, since padi (not kolu-server) owns the
-  // terminal registry now. padi resolves terminal id → repoRoot; kolu-server then
-  // STREAMS the file itself via the shared `previewFile` (bounded heap, forwarding
-  // the browser's `Range` so a `<video>` seek answers 206), exactly as the retired
-  // in-process route did — so a multi-GB video is never forced whole through a
-  // base64 procedure.
+  // terminal registry now. padi resolves terminal id → repoRoot; how kolu-server
+  // then reads the bytes forks on the binding (local disk vs. the bound host), see
+  // below. Either way the file is never forced whole through the base64 procedure.
   const clientPromise = padiSession.currentClient();
+  // A degraded/warming binding (skew · unconverged · linkFailed · not-yet-connected)
+  // yields a NULL `currentClient()` (`remotePadiBinding.ts` currentClient) — a loud
+  // 503 here, never a hang. Both the client AWAIT and the repoRoot resolve stay INSIDE
+  // the try so a client-promise rejection (a fresh spawn that fails its handshake) maps
+  // to the same 503 link-fault, not an uncaught 500.
   if (!clientPromise) return c.text("padi is not connected", 503);
+  let client: Awaited<typeof clientPromise>;
   let repoRoot: string | null;
   try {
-    const client = await clientPromise;
+    client = await clientPromise;
     ({ repoRoot } = await client.surface.preview.repoRootForTerminal({
       terminalId,
     }));
@@ -410,24 +405,64 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
     // padi's `repoRootForTerminal` returns `{ repoRoot: null }` for an
     // unknown/unmapped terminal — it never THROWS for the no-repo case (that is
     // the `if (!repoRoot)` 404 below). So a thrown error here is an OPERATIONAL
-    // failure of the bound link (padi went down mid-read, a protocol error, an
-    // unexpected handler fault), NOT "no repo". Surface it as a 503 so the real
-    // fault is visible instead of masqueraded as an ordinary missing-file 404.
+    // failure of the bound link (the client promise rejected, padi went down
+    // mid-read, a protocol error, an unexpected handler fault), NOT "no repo".
+    // Surface it as a 503 so the real fault is visible instead of masqueraded as an
+    // ordinary missing-file 404.
     log.error({ err, terminalId }, "padi repoRoot resolve failed (link fault)");
     return c.text("padi link fault resolving terminal repo", 503);
   }
   if (!repoRoot) return c.text("terminal has no repo", 404);
+  // Bind to a const so the non-null narrowing survives into the remote closure.
+  const repoPath = repoRoot;
 
-  // The SAME serve-dir read + realpath guard `padiSurface.preview.read` serves,
-  // but the STREAMING form: a `ReadableStream` body on 2xx (disk→socket, bounded
-  // heap), the browser's `Range` forwarded (206 on a `<video>` seek), and the
-  // symlink-escape 403 re-enforced before any byte is read. The artifact-sdk HTML
-  // decorator (mounted above) rewrites text/html downstream.
-  const r = await previewFile({
-    repoPath: repoRoot,
-    filePath: rawTail,
-    range: c.req.header("range"),
-  });
+  const range = c.req.header("range");
+  // `If-Range` guards a `<video>` seek against the file changing mid-session: both
+  // arms honor the `Range` only while this validator still matches the file's
+  // current ETag (RFC 9110 §13.1.3), else serve the full 200.
+  const ifRange = c.req.header("if-range");
+  // The byte read forks on the binding — but the file tail + repoRoot (and their
+  // `..`/`%2f` defenses above) are identical for both arms, so a remote path never
+  // reaches a local read, and vice versa.
+  //   - REMOTE (KOLU_PADI_HOST): the file lives on the ssh HOST, so dial the bound
+  //     padi's `preview.read` in bounded chunks (`assembleRemotePreview`) — the RIGHT
+  //     host's bytes, streamed back with an O(chunk) heap on both hops. padi
+  //     re-enforces its realpath/403 guard host-side inside the read.
+  //   - LOCAL: read THIS machine's disk directly via the shared streaming
+  //     `previewFile` (the same underlying serve-dir read padi serves) — no hop, no
+  //     base64 round trip, byte-identical to before.
+  // Both return serve-dir's `ServeResult` shape; the artifact-sdk HTML decorator
+  // (mounted above) rewrites text/html downstream in either case.
+  let r: ServeResult;
+  if (remoteHost) {
+    // The remote arm's METADATA dials (the 1-byte probe + any re-dial) run
+    // synchronously inside this await; a link fault there maps to the SAME logged
+    // 503 as the repoRoot resolve above. The streaming body's per-chunk dials run
+    // LATER, when the Response is consumed, so a fault there can't reach THIS catch —
+    // but it is NOT swallowed: for a binary preview the stream goes straight to the
+    // socket and the fault resets the connection (loud at the transport); for a
+    // `text/html` preview the artifact-sdk decorator buffers the body via
+    // `res.text()`, so the fault throws in that middleware and is caught by the
+    // app-wide `installRouteErrorLogging` handler (a LOGGED 500). Either way loud,
+    // never a silent short body.
+    try {
+      r = await assembleRemotePreview(
+        (chunkRange) =>
+          client.surface.preview.read({
+            repoPath,
+            filePath: rawTail,
+            range: chunkRange,
+          }),
+        range,
+        ifRange,
+      );
+    } catch (err) {
+      log.error({ err, terminalId }, "padi preview read failed (link fault)");
+      return c.text("padi link fault serving preview", 503);
+    }
+  } else {
+    r = await previewFile({ repoPath, filePath: rawTail, range, ifRange });
+  }
   return new Response(r.body as BodyInit, {
     status: r.status,
     headers: r.headers,
@@ -567,36 +602,31 @@ padiSession.onState((s) => {
   });
 });
 
-// Feed the Kaval + Padi dialogs' host-daemon inventory: enumerate EVERY running kaval
-// + padi on this host (read-only — scan the runtime dir, read each gate `.pid`, and a
-// best-effort `system.version`/`terminal.list` probe per kaval; NEVER touches a
-// daemon's lifecycle), mark which one kolu's bound padi owns, and publish
-// `daemonInventory`. So a LEAKED post-upgrade daemon — invisible in the UI before,
-// surfaced only by a `kaval-tui` CLI error — is diagnosable at a glance. kolu's active
-// kaval is marked by socket identity against the address padi actually HOLDS: the DIGEST
-// address normally, or the pre-padi LEGACY `kaval-<port>/` address padi ADOPTED on a
-// W2.2 upgrade (`legacyKavalSocketPath(this binder's port)`, the SAME hint the adopter
-// hands padi) — so an adopted legacy kaval reads as kolu's converging active one, not a
-// leak. The active padi's honest `surfaceVersion` (off its control-core `hello`) rides
-// the bound session. A padi (re)bind force-samples so version + marking refresh at once.
-const inventoryStateRoot = resolvePadiStateRoot();
+// Feed the Kaval + Padi dialogs' host-daemon inventory. The BOUND host's daemons now
+// ride padiSurface's `hostInventory` member (padi scans its OWN host — the one scanner,
+// homed in @kolu/padi — and marks the kaval it holds + itself active); that member rides
+// the re-served surface straight to the client, so the dialog's bound-host list works
+// identically local and remote. Here kolu-server publishes only what IT knows on
+// koluSurface's `daemonInventory`: the binding host, its OWN machine's scan (only under a
+// remote binding, where that machine is not the bound host — so a leak on the machine
+// you're actually using stays visible; the SAME `enumerateHostDaemons` the member uses,
+// marking none active), and the bound padi's honest identity + a standing convergence
+// anomaly off its control-core `hello`. A padi (re)bind force-samples so version +
+// convergence refresh at once.
 startDaemonInventorySampler(
   {
     discoverKavals: discoverKavalDaemons,
     discoverPadis: discoverPadiDaemons,
     probe: probeKavalStatus,
-    digestKavalSocket: padiKavalSocketPath(inventoryStateRoot),
-    legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
-    activePadiSocket: padiSocketPath(inventoryStateRoot),
     activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
     activePadiBuildCommit: () => padiSession.padiBuildCommit(),
     activePadiConvergence: () => padiSession.padiConvergence(),
     // The SINGLE bind knob: the remote host (`KOLU_PADI_HOST`), or null for a local bind
     // (`|| null` folds an empty KOLU_PADI_HOST to null, matching the `remoteHost ?` bind
-    // decision above). daemonInventory derives `boundLocally = boundHost === null` — a
-    // REMOTE binding owns no LOCAL daemon, so the local scan lists discovered daemons (a
-    // leak stays visible) but marks none active, pins no remote identity onto a local
-    // socket, and the dialog labels the scan "this machine, not the bound host".
+    // decision above). daemonInventory derives `boundLocally = boundHost === null` — under
+    // a local binding the bound padi's `hostInventory` member already covers this machine,
+    // so no `localScan` is published (no duplicate list); under a remote binding kolu-server
+    // scans its own machine into `localScan`, labelled "this machine, not the bound host".
     boundHost: remoteHost || null,
     publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
   },

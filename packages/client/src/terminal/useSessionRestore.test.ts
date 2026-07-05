@@ -29,7 +29,10 @@ const rpc = vi.hoisted(() => ({
   sendInput: vi.fn(async () => {}),
 }));
 
-vi.mock("@kolu/padi/surface", () => ({
+// Spread the REAL (browser-safe) module so every schema kolu-common/surface pulls from
+// here — e.g. `HostDaemonInventorySchema` — stays present; override only `padiRpc`.
+vi.mock("@kolu/padi/surface", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@kolu/padi/surface")>()),
   padiRpc: () => ({
     surface: {
       session: {

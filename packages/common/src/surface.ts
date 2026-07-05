@@ -38,6 +38,13 @@ import {
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
 import { ProcessRssSchema } from "@kolu/terminal-workspace/schema";
+// The host-daemon inventory shapes live in @kolu/padi's OWN surface vocabulary — padi
+// owns the daemon domain (a kaval gate pid is a padi-domain fact, not terminal
+// awareness). kolu-common's `daemonInventory` cell composes them here via the established
+// `kolu-common → @kolu/padi` direction (the same edge `surfacesWithPadi`/`contract` use);
+// the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
+// `kolu-common/surface` importers are unchanged.
+import { HostDaemonInventorySchema } from "@kolu/padi/surface";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -76,6 +83,10 @@ export type {
   TerminalId,
   TerminalSnapshot,
 } from "@kolu/terminal-workspace/schema";
+// The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
+// home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
+// them here — the schema home moved to the daemon-domain package, the consumers didn't.
+export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
 //
 // The generic `TerminalSnapshot` (terminal identity, agent status, PR resolution,
@@ -303,78 +314,6 @@ export const ProcessStartedAtSchema = z.object({
 });
 export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
 
-/** One running kaval PTY daemon the host-daemon inventory enumerated — a diagnostic
- *  row the Kaval dialog lists so a LEAKED pre-upgrade kaval is visible AT A GLANCE.
- *  (srid hit this dogfooding W2.2: after an upgrade a leaked pre-W2.2 kaval was
- *  invisible in the UI — only a `kaval-tui: more than one kaval daemon is running`
- *  CLI error surfaced it.) Server-authored, read-only enumeration: scan the runtime
- *  dir, read each gate pid, and best-effort probe status — it NEVER kills/reaps/
- *  touches a daemon.
- *
- *  Honesty (#1034): every field the probe couldn't read is an honest `null` (rendered
- *  "—"), never a fabricated zero/version. */
-export const RunningKavalSchema = z.object({
-  /** The rendezvous socket path — the pasteable `--socket` value. */
-  socket: z.string(),
-  /** Discovery's human label ("standalone kaval" | "kolu @ <state-root>" |
-   *  "kolu-server on port <port>"), decided at discovery's matching branch. */
-  label: z.string(),
-  /** The structural kind: `stateRoot` (a padi's kaval — carries a state-root
-   *  manifest, incl. an ADOPTED legacy-address kaval), `port` (an UN-adopted legacy
-   *  `kaval-<port>/` with NO manifest — a genuine stray/leak), `standalone`, or
-   *  `unknown`. */
-  kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
-  /** True iff this is the ACTIVE kaval sitting at the pre-padi legacy `kaval-<port>/`
-   *  address — padi ADOPTED a live pre-W2.2 kaval on upgrade (keeping its PTYs) rather
-   *  than leaking it. A KNOWN, converging state (not a leak): it is kolu's live kaval,
-   *  just still at its old socket until the next kaval restart/reboot spawns it under
-   *  the digest address. Only ever true together with `active`. */
-  atLegacyAddress: z.boolean(),
-  /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
-  gatePid: z.number().int().nullable(),
-  /** Live terminal count from a best-effort `terminal.list` probe, or null when the
-   *  probe failed / the daemon didn't answer (never a fake 0). */
-  terminalCount: z.number().int().nullable(),
-  /** The kaval's build commit (`navigableCommit`) from a best-effort `system.version`
-   *  probe, or null when unreadable. */
-  buildCommit: z.string().nullable(),
-  /** The pty-host contract version from the probe, or null when unreadable. */
-  contractVersion: z.string().nullable(),
-  /** True iff this is the kaval kolu's bound padi ACTIVELY owns ("in use by kolu"). */
-  active: z.boolean(),
-});
-export type RunningKaval = z.infer<typeof RunningKavalSchema>;
-
-/** One running padi daemon the host-daemon inventory enumerated — the Padi dialog's
- *  diagnostic row (a second padi at a different state-root is a leak, visible here).
- *  Same read-only enumeration + honesty contract as {@link RunningKavalSchema}. */
-export const RunningPadiSchema = z.object({
-  /** padi's rendezvous socket path. */
-  socket: z.string(),
-  /** padi's state-root (from the digest→root manifest), or null if unreadable. */
-  stateRoot: z.string().nullable(),
-  /** The gate-holder pid (`padi.pid`), or null if unreadable. */
-  gatePid: z.number().int().nullable(),
-  /** The `padiSurface` version the RUNNING padi serves — the bound padi's honest
-   *  `hello.surfaceVersion` for the active one; null for a padi kolu-server is not
-   *  bound to (not probed) or before the first sample. */
-  surfaceVersion: z.string().nullable(),
-  /** The RUNNING padi's navigable git commit — the bound padi's honest `hello.commit`
-   *  for the active one (mirroring {@link RunningKavalSchema}'s `buildCommit`, whose
-   *  commit rides kaval's `system.version`); null for a padi kolu-server is not bound
-   *  to (not probed), a survivor padi predating the hello field, or before the first
-   *  sample. */
-  buildCommit: z.string().nullable(),
-  /** True iff this is the padi kolu-server is bound to ("in use by kolu"). */
-  active: z.boolean(),
-});
-export type RunningPadi = z.infer<typeof RunningPadiSchema>;
-
-/** The host-daemon inventory — every running kaval + padi on this host, each marked
- *  whether kolu's bound padi actively owns it. Server-authored diagnostic cell (the
- *  Kaval/Padi dialogs render it); read-only on the client. Presentation/diagnostic
- *  data, so it rides koluSurface like the memory/uptime readouts — NOT a padiSurface
- *  member (no `PADI_SURFACE_VERSION` bump). */
 /** A STANDING, user-visible convergence anomaly the (remote) binder entered — the dialog
  *  shows it so nothing is "magically swallowed" into server logs. `null`/absent = the
  *  healthy converged case (no banner). Rides {@link DaemonInventorySchema.boundPadi}
@@ -402,17 +341,33 @@ export const PadiConvergenceSchema = z.object({
 });
 export type PadiConvergence = z.infer<typeof PadiConvergenceSchema>;
 
+/** Where kolu-server's padi is bound — and, when that is NOT the machine kolu-server
+ *  itself runs on, its own-machine scan. The discriminant makes the coupling a TYPE, not
+ *  prose: `local` carries no scan (kolu is bound to the local padi, whose `hostInventory`
+ *  member already describes this machine — a second copy would show two lists for one
+ *  truth), and `remote` ALWAYS carries both the `host` and the `localScan`. The illegal
+ *  pairings — a local binding with a scan, or a remote binding missing its host/scan — are
+ *  UNREPRESENTABLE, so a future writer cannot drift them apart. The BOUND host's own
+ *  daemons never ride this cell either way: they ride padiSurface's `hostInventory` member
+ *  (works local and remote). `local` is the honest pre-first-sample default. */
+export const DaemonBindingSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local") }),
+  z.object({
+    kind: z.literal("remote"),
+    /** The ssh host the padi is bound to (`KOLU_PADI_HOST`) — drives the dialog's
+     *  machine labels ("daemons on <host>" + "this machine, not the bound host"). */
+    host: z.string(),
+    /** kolu-server's scan of the machine it ITSELF runs on — NOT the bound host, so a
+     *  leaked daemon on the box you're actually using stays visible. The same @kolu/padi
+     *  scanner the member uses, marking NONE active (kolu is bound elsewhere). */
+    localScan: HostDaemonInventorySchema,
+  }),
+]);
+export type DaemonBinding = z.infer<typeof DaemonBindingSchema>;
+
 export const DaemonInventorySchema = z.object({
-  kavals: z.array(RunningKavalSchema),
-  padis: z.array(RunningPadiSchema),
-  /** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
-   *  LOCAL binding. When set, this inventory is a scan of THIS machine's daemons — NOT
-   *  the bound host's — so the dialog labels it "local daemons — this machine, not the
-   *  bound host" and visually separates it from the bound-kaval identity (which rides
-   *  padiSurface and reflects the REMOTE host). Without this the two hosts' truths mix
-   *  unlabeled (W3.1: a remote bind must never present this-machine daemons as the
-   *  bound host's). */
-  boundHost: z.string().nullable(),
+  /** The binding + (remote-only) own-machine scan — see {@link DaemonBindingSchema}. */
+  binding: DaemonBindingSchema,
   /** The BOUND padi's honest identity off its control-core `hello` — `surfaceVersion` +
    *  `buildCommit` — for BOTH arms (local socket OR remote ssh). The Padi dialog's
    *  version chip + build-commit row read THIS, not the local-scan `active` row: under a
@@ -434,13 +389,11 @@ export const DaemonInventorySchema = z.object({
 });
 export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
 
-/** The honest pre-sample "unknown" — empty lists, so a fresh subscription renders no
- *  fabricated daemons until the first server enumeration lands. `boundHost` null until
- *  the first enumeration reports the binding. */
+/** The honest pre-sample default — `local` binding (no own-machine scan to show yet),
+ *  `boundPadi` null. The sampler's T+0 tick replaces it with the real binding at once; a
+ *  fresh subscription renders no fabricated daemons until then. */
 export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
-  kavals: [],
-  padis: [],
-  boundHost: null,
+  binding: { kind: "local" },
   boundPadi: null,
 };
 

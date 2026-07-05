@@ -161,6 +161,15 @@ const primitives = [
         {/* layer boxes */}
         <rect x="190" y="28" width="340" height="64" rx="10" class="ax-d-box"
         ></rect>
+        <image
+          href="/favicon.svg"
+          x="208"
+          y="42"
+          width="36"
+          height="36"
+          preserveAspectRatio="xMidYMid meet"
+          class="ax-d-logo"
+        ></image>
         <text x="360" y="54" text-anchor="middle" class="ax-d-label"
           >PWA client</text
         >
@@ -170,6 +179,15 @@ const primitives = [
 
         <rect x="190" y="126" width="340" height="64" rx="10" class="ax-d-box"
         ></rect>
+        <image
+          href="/favicon.svg"
+          x="208"
+          y="140"
+          width="36"
+          height="36"
+          preserveAspectRatio="xMidYMid meet"
+          class="ax-d-logo"
+        ></image>
         <text x="360" y="152" text-anchor="middle" class="ax-d-label"
           >kolu-server</text
         >
@@ -179,6 +197,15 @@ const primitives = [
 
         <rect x="190" y="224" width="340" height="64" rx="10" class="ax-d-daemon"
         ></rect>
+        <image
+          href="/padi-logo.svg"
+          x="208"
+          y="238"
+          width="36"
+          height="36"
+          preserveAspectRatio="xMidYMid meet"
+          class="ax-d-logo"
+        ></image>
         <text x="360" y="250" text-anchor="middle" class="ax-d-daemon-label"
           >padi</text
         >
@@ -188,6 +215,15 @@ const primitives = [
 
         <rect x="190" y="322" width="340" height="64" rx="10" class="ax-d-daemon"
         ></rect>
+        <image
+          href="/kaval-logo.svg"
+          x="208"
+          y="336"
+          width="36"
+          height="36"
+          preserveAspectRatio="xMidYMid meet"
+          class="ax-d-logo"
+        ></image>
         <text x="360" y="348" text-anchor="middle" class="ax-d-daemon-label"
           >kaval</text
         >
@@ -291,10 +327,19 @@ const primitives = [
         {/* top lane: padi drains and respawns */}
         <rect x="48" y="64" width="150" height="50" rx="9" class="ax-d-box"
         ></rect>
-        <text x="123" y="86" text-anchor="middle" class="ax-d-label2"
+        <image
+          href="/padi-logo.svg"
+          x="60"
+          y="75"
+          width="26"
+          height="26"
+          preserveAspectRatio="xMidYMid meet"
+          class="ax-d-logo"
+        ></image>
+        <text x="136" y="86" text-anchor="middle" class="ax-d-label2"
           >padi · vX</text
         >
-        <text x="123" y="103" text-anchor="middle" class="ax-d-sub"
+        <text x="136" y="103" text-anchor="middle" class="ax-d-sub"
           >running</text
         >
 
@@ -309,10 +354,19 @@ const primitives = [
 
         <rect x="522" y="64" width="150" height="50" rx="9" class="ax-d-daemon"
         ></rect>
-        <text x="597" y="86" text-anchor="middle" class="ax-d-daemon-label2"
+        <image
+          href="/padi-logo.svg"
+          x="534"
+          y="75"
+          width="26"
+          height="26"
+          preserveAspectRatio="xMidYMid meet"
+          class="ax-d-logo"
+        ></image>
+        <text x="610" y="86" text-anchor="middle" class="ax-d-daemon-label2"
           >padi · vY</text
         >
-        <text x="597" y="103" text-anchor="middle" class="ax-d-sub"
+        <text x="610" y="103" text-anchor="middle" class="ax-d-sub"
           >the new build</text
         >
 
@@ -324,8 +378,17 @@ const primitives = [
         {/* bottom lane: kaval, unbroken */}
         <rect x="48" y="176" width="624" height="58" rx="10" class="ax-d-daemon"
         ></rect>
-        <text x="68" y="200" class="ax-d-daemon-label2">kaval</text>
-        <text x="68" y="217" class="ax-d-sub">one process · never restarts here</text>
+        <image
+          href="/kaval-logo.svg"
+          x="70"
+          y="187"
+          width="34"
+          height="34"
+          preserveAspectRatio="xMidYMid meet"
+          class="ax-d-logo"
+        ></image>
+        <text x="116" y="200" class="ax-d-daemon-label2">kaval</text>
+        <text x="116" y="217" class="ax-d-sub">one process · never restarts here</text>
 
         {/* the PTY stream — unbroken straight through the deploy */}
         <path d="M232,205 H648" class="ax-d-stream"></path>
@@ -609,7 +672,7 @@ const primitives = [
 
 <style>
   /* Section headings — mirror the kaval page: a display-scale lowercase
-     tech-sans heading led by a tall electric-purple bar. */
+     tech-sans heading led by a tall logo-gold bar. */
   .ax-head {
     position: relative;
     margin-top: 0.2rem;
@@ -832,6 +895,11 @@ const primitives = [
   }
   .ax-diagram text {
     font-family: var(--font-mono);
+  }
+  .ax-d-logo {
+    filter: drop-shadow(
+      0 5px 10px color-mix(in srgb, var(--color-void-sunk) 70%, transparent)
+    );
   }
   .ax-d-box {
     fill: var(--color-void-raised);

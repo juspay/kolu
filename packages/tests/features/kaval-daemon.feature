@@ -12,6 +12,16 @@ Feature: kaval daemon lifecycle (B2 — the door)
     When the kaval daemon is killed
     Then the degraded canvas is shown
 
+  # W3.2 — the "Running daemons" leak diagnostic. Under a LOCAL binding the bound host IS
+  # this machine, so the dialog shows exactly ONE group (the bound host's kavals, live one
+  # badged "in use by kolu") and NOT a second "this machine, not the bound host" group — no
+  # two lists for one truth. The bound-host list rides padiSurface's `hostInventory` member,
+  # so it works identically over a remote ssh binding (proven in remotePadiSsh.test.ts).
+  Scenario: The running-daemons list shows one group locally (no duplicate this-machine group)
+    Given the terminal is ready
+    When I open the kaval rail dialog
+    Then the running-daemons list shows one group with the live kaval, no duplicate local group
+
   # W2.2 — "Restart kaval" recycles KAVAL, not padi. The button force-recycles the
   # terminal daemon (padi's `lifecycle.recycleKaval` procedure → capture → drain →
   # recycle kaval → park) while padi itself stays up. This is the DEAD-kaval arm:

@@ -73,6 +73,19 @@ export {
   terminalsDirtyChannel,
 } from "./publisher.ts";
 
+// ── host-daemon inventory scanner (the "Running daemons" leak diagnostic) ─
+// The ONE scanner both padi (its `hostInventory` member) and kolu-server's web shell
+// (its local-machine `daemonInventory.localScan` under a remote binding) reuse. Padi
+// owns the daemon domain, so the scan homes here; kolu-server imports it through this
+// barrel for its local arm (the package-boundary seal's allowed direction).
+export {
+  type HostDaemonScanDeps,
+  type KavalProbe,
+  assembleKavalInventory,
+  assemblePadiInventory,
+  enumerateHostDaemons,
+  probeKavalStatus,
+} from "./hostInventory.ts";
 // ── native serving (W1.R0) ──────────────────────────────────────────────
 export { buildPadiSurfaceDeps } from "./servePadi.ts";
 // ── session persistence ─────────────────────────────────────────────────

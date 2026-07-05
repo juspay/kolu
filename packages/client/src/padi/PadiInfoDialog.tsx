@@ -15,21 +15,26 @@ import type {
   RunningPadi,
 } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { daemonTransportLive, formatUptime } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
 import Commit from "../ui/Commit";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
+import { formatMBCompact } from "../ui/memory";
+import RunningDaemonsSection from "../ui/RunningDaemonsSection";
 import {
-  activePadi,
   activePadiSurfaceVersion,
   boundPadiBuildCommit,
   boundPadiConvergence,
   daemonScanBoundHost,
-  runningPadis,
+  localScanPadis,
 } from "../ui/useDaemonInventory";
-import { formatMBCompact } from "../ui/memory";
+import {
+  activePadi,
+  boundHostInventoryLive,
+  boundHostPadis,
+} from "../ui/useHostInventory";
 import { padiMemoryDisplay } from "../ui/useMemoryUsage";
 import { padiStartedAt } from "../ui/useProcessUptime";
 import { PADI_LINK_PRESENTATION, padiDot } from "./padiPresentation";
@@ -52,17 +57,12 @@ const RunningPadiRow: Component<{ padi: RunningPadi }> = (props) => (
         </span>
       </Show>
     </div>
-    {/* Same metrics shape as the Kaval running-daemon row (gate pid · contract ·
-        build), minus the terminal count kaval owns and padi does not. */}
+    {/* padi's contract version + build commit are NOT per-row: padi cannot probe a
+        foreign padi, so they belong to the one bound padi and ride the header chip +
+        build DetailRow (off `daemonInventory.boundPadi`). The row shows only the gate
+        pid — the terminal count kaval owns, padi does not. */}
     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-fg-3">
       <span>gate pid {props.padi.gatePid ?? dash}</span>
-      <span>contract {props.padi.surfaceVersion ?? dash}</span>
-      <span class="inline-flex items-center gap-1">
-        build
-        <Show when={props.padi.buildCommit} fallback={<span>{dash}</span>}>
-          {(sha) => <Commit sha={sha()} />}
-        </Show>
-      </span>
     </div>
     <div
       class="mt-1 truncate font-mono text-[10px] text-fg-3"
@@ -243,50 +243,19 @@ const PadiInfoDialog: Component<{
         </DetailRow>
       </div>
 
-      {/* Every running padi on this host, active one badged — so a LEAKED second padi
-          at another state-root (the padi twin of the orphaned-kaval leak) is
-          diagnosable at a glance. Honesty (#1034): an honest empty line when none is
-          discovered, never a fake. */}
-      <div
-        class="space-y-2"
-        classList={{
-          // Bound remotely: this scan is THIS machine's daemons, NOT the bound host's —
-          // fence it off so two hosts' truths can't read as one (the identity above
-          // rides padiSurface = the REMOTE host).
-          "rounded-lg border border-edge bg-surface-2/50 p-2.5":
-            daemonScanBoundHost() !== null,
-        }}
-      >
-        <h3 class="text-xs font-medium text-fg">
-          <Show when={daemonScanBoundHost()} fallback="Running padi daemons">
-            Local daemons — this machine, not the bound host
-          </Show>
-        </h3>
-        <Show when={daemonScanBoundHost()}>
-          {(host) => (
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              kolu-server is bound to padi on{" "}
-              <span class="text-fg-2">{host()}</span> over ssh — the padi
-              identity above is that host's. These are daemons discovered on
-              THIS machine (a leak diagnostic), not the bound host's.
-            </p>
-          )}
-        </Show>
-        <Show
-          when={runningPadis().length > 0}
-          fallback={
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              No running padi daemons discovered.
-            </p>
-          }
-        >
-          <ul class="space-y-1.5">
-            <For each={runningPadis()}>
-              {(padi) => <RunningPadiRow padi={padi} />}
-            </For>
-          </ul>
-        </Show>
-      </div>
+      {/* The BOUND host's running padis — active one badged — so a LEAKED second padi at
+          another state-root (the padi twin of the orphaned-kaval leak) is diagnosable at a
+          glance, plus, under a remote binding, a fenced scan of THIS machine. The section
+          owns the heading, live-gate, and fences; the padi row is passed as `renderRow`. */}
+      <RunningDaemonsSection
+        noun="padi"
+        testidPrefix="padi"
+        boundHost={daemonScanBoundHost()}
+        live={boundHostInventoryLive()}
+        boundHostRows={boundHostPadis()}
+        localScanRows={localScanPadis()}
+        renderRow={(padi) => <RunningPadiRow padi={padi} />}
+      />
     </InfoDialogShell>
   );
 };

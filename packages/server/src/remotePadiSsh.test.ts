@@ -30,6 +30,7 @@
 
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
@@ -41,6 +42,7 @@ import {
 import {
   PADI_SURFACE_VERSION,
   type PadiDaemonContract,
+  type PadiHostInventory,
   type PadiTerminal,
 } from "@kolu/padi/surface";
 import { getHostSession, isLocalHost } from "@kolu/surface-nix-host";
@@ -264,6 +266,32 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     }
     expect(screen).toContain("SSHMARK");
     console.log("[ssh] terminal round-trip OK — echo landed over the ssh leg");
+
+    // W3.2 — the `hostInventory` member answers over the REAL hop: the remote padi's
+    // scan of its OWN host, re-served across ssh. This is what powers the dialog's
+    // bound-host "Running daemons" list under a remote binding (before W3.2 it could
+    // only ever show the machine kolu-server runs on). The cell subscription replays the
+    // current value, then a frame per sample — iterate until the serving padi has marked
+    // itself active (the sampler's T+0 anchor may precede the held kaval connecting).
+    const invIter = (await padi.surface.hostInventory.get({}))[
+      Symbol.asyncIterator
+    ]();
+    let inv = (await invIter.next()).value as PadiHostInventory;
+    const invDeadline = Date.now() + 25_000; // spans two 10s sample intervals
+    while (!inv.padis.some((p) => p.active) && Date.now() < invDeadline) {
+      inv = (await invIter.next()).value as PadiHostInventory;
+    }
+    // The serving padi marks ITSELF active — the remote host's own scan re-served over
+    // the hop, not kolu-server's local machine. (Its contract version now rides
+    // `daemonInventory.boundPadi`, not this row.)
+    const activePadi = inv.padis.find((p) => p.active);
+    expect(activePadi).toBeDefined();
+    // The kaval it holds is discovered + probed on the remote host (we just ran a
+    // terminal there), and marked active — the "in use by kolu" row.
+    expect(inv.kavals.some((k) => k.held.active)).toBe(true);
+    console.log(
+      `[ssh] hostInventory over the hop: ${inv.kavals.length} kaval(s), ${inv.padis.length} padi(s), active padi socket=${activePadi?.socket}`,
+    );
   }, 180_000);
 
   it("records typing-echo latency over the ssh leg (the W3 reference vs 4.36ms p99 local)", async () => {
@@ -555,6 +583,92 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         } catch {
           /* best-effort cleanup */
         }
+      }
+    },
+    180_000,
+  );
+
+  itSelfSsh(
+    "serves real file bytes over the ssh leg — text + binary, byte-exact, range-capable [self-ssh only]",
+    async () => {
+      // W3.2 PR "preview": the iframe preview route serves a remotely-bound file by
+      // dialing `padiSurface.preview.read` over the binding (the old 501 is gone).
+      // This proves that procedure forwards over a REAL ssh hop and returns the
+      // file's exact bytes + honest headers — the wire leg the in-process unit tests
+      // (`iframePreviewRoute.test.ts`) can't cover. SELF-SSH: padi runs on THIS box,
+      // so the fixtures live on this box's disk (the same disk padi reads); a two-box
+      // binding can't reach them, hence the self-ssh gate.
+      const session = dial();
+      const combined = (await session.pin()) as PadiDaemonClient;
+      session.markConnected();
+      const padi = scopePadiSurface(combined);
+
+      const tmpRoot = fs.mkdtempSync(
+        path.join(os.tmpdir(), "kolu-ssh-preview-"),
+      );
+      try {
+        const text = "hello over ssh\nline two\n";
+        // 512 bytes spanning every byte value (incl. high/non-UTF8 bytes), so a
+        // base64 corruption on the wire would surface as a byte mismatch.
+        const blob = Buffer.from(
+          Array.from({ length: 512 }, (_, i) => i % 256),
+        );
+        fs.writeFileSync(path.join(tmpRoot, "hello.txt"), text);
+        fs.writeFileSync(path.join(tmpRoot, "blob.png"), blob);
+
+        // TEXT — whole-file 200, real text/* Content-Type, exact bytes over the hop.
+        const t = await padi.surface.preview.read({
+          repoPath: tmpRoot,
+          filePath: "hello.txt",
+        });
+        expect(t.status).toBe(200);
+        const textCt = Object.entries(t.headers).find(
+          ([k]) => k.toLowerCase() === "content-type",
+        )?.[1];
+        expect(textCt).toMatch(/^text\//);
+        expect(Buffer.from(t.bodyBase64, "base64").toString("utf8")).toBe(text);
+        console.log(
+          `[ssh] preview text OK over the hop — ${text.length} bytes, ct=${textCt}`,
+        );
+
+        // BINARY — whole-file 200, image/png, byte-exact round trip.
+        const b = await padi.surface.preview.read({
+          repoPath: tmpRoot,
+          filePath: "blob.png",
+        });
+        expect(b.status).toBe(200);
+        const blobCt = Object.entries(b.headers).find(
+          ([k]) => k.toLowerCase() === "content-type",
+        )?.[1];
+        expect(blobCt).toBe("image/png");
+        const got = Buffer.from(b.bodyBase64, "base64");
+        expect(got.byteLength).toBe(blob.byteLength);
+        expect(Buffer.compare(got, blob)).toBe(0);
+        console.log(
+          `[ssh] preview binary OK over the hop — ${got.byteLength} bytes byte-exact, ct=${blobCt}`,
+        );
+
+        // RANGE-CAPABLE — a bounded 206 (what the chunk loop drives) survives the
+        // wire with its Content-Range + exact slice, so a `<video>` seek and the
+        // route's chunked assembly both work remotely.
+        const r = await padi.surface.preview.read({
+          repoPath: tmpRoot,
+          filePath: "blob.png",
+          range: "bytes=100-163",
+        });
+        expect(r.status).toBe(206);
+        const cr = Object.entries(r.headers).find(
+          ([k]) => k.toLowerCase() === "content-range",
+        )?.[1];
+        expect(cr).toBe("bytes 100-163/512");
+        const slice = Buffer.from(r.bodyBase64, "base64");
+        expect(slice.byteLength).toBe(64);
+        expect(Buffer.compare(slice, blob.subarray(100, 164))).toBe(0);
+        console.log(
+          `[ssh] preview 206 range OK over the hop — ${cr}, 64 bytes byte-exact`,
+        );
+      } finally {
+        fs.rmSync(tmpRoot, { recursive: true, force: true });
       }
     },
     180_000,

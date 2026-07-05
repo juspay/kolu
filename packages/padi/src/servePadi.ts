@@ -43,6 +43,7 @@ import {
   restoreSession,
 } from "./sessionRestore.ts";
 import {
+  DEFAULT_PADI_HOST_INVENTORY,
   DEFAULT_PADI_PROCESS_MEMORY,
   DEFAULT_PADI_VERSION,
   type PadiStatus,
@@ -131,6 +132,13 @@ export function buildPadiSurfaceDeps(deps: {
       // constant seeded once at boot (the client's `kavalUpdatePending` nudge
       // reads it against the connected daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
+      // The running kaval + padi daemons on THIS padi's host — the "Running daemons"
+      // leak diagnostic. In-memory (a live diagnostic has no on-disk slot); the
+      // periodic host-inventory sampler (`hostInventory.ts`, wired into daemon boot)
+      // is the sole writer via `padiSurfaceCtx.cells.hostInventory.set`; a fresh
+      // subscription reads the latest via `get`. No `equals` dedup: the coarse 10s
+      // cadence + small payload is cheap.
+      hostInventory: { store: inMemoryStore(DEFAULT_PADI_HOST_INVENTORY) },
       // Live process-memory readout (padi's OWN RSS + its kaval's). In-memory —
       // a live metric has no on-disk slot. The periodic sampler
       // (`memorySampler.ts`, wired into daemon boot) is the sole writer via

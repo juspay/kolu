@@ -65,6 +65,11 @@ const WEB_SHELL_FILES = [
   // surface), not terminal domain.
   "padiLink",
   "pwaIdentity",
+  // The web shell's catch-all `app.onError` logger — turns an uncaught route/
+  // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview
+  // stream that faults past the route's own 503 `try`) into a LOGGED 500. Pure HTTP
+  // shell code, runs no terminal domain.
+  "routeErrors",
   "router",
   "state",
   "surface",

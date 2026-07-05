@@ -100,6 +100,7 @@ type ToyContract = typeof mirroredToy.contract;
 function makeUpstream(
   counterValue: number,
   items: Record<string, number> = {},
+  labelValue = "",
 ) {
   const open = new Set<Controllable<unknown>>();
   const track = <T>(c: Controllable<T>): Controllable<T> => {
@@ -119,7 +120,7 @@ function makeUpstream(
   const counter = track(controllable<number>());
   counter.push(counterValue); // snapshot; the cell stream stays open
   const label = track(controllable<string>());
-  label.push(""); // snapshot; the cell stream stays open
+  label.push(labelValue); // snapshot; the cell stream stays open
 
   const client = {
     surface: {
@@ -251,9 +252,13 @@ function makeSession() {
 type Session = ReturnType<typeof makeSession>;
 
 /** Wire a whole re-serve over an upstream serving `counterValue` + `items`. */
-function setup(counterValue: number, items: Record<string, number> = {}) {
+function setup(
+  counterValue: number,
+  items: Record<string, number> = {},
+  labelValue = "",
+) {
   const session = makeSession();
-  const upstream = makeUpstream(counterValue, items);
+  const upstream = makeUpstream(counterValue, items, labelValue);
   session.setClient(upstream.client);
   const { surface, router, done } = reServeSurface({
     source: toySurface,
@@ -372,6 +377,47 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     ctl.abort();
     await teardown(session, done, upstream2);
     await sub; // the downstream subscription drained cleanly
+  });
+
+  it("REBIND republishes an equals-gated cell EQUAL to the pre-drain value (#1681)", async () => {
+    // `label` declares `equals: (a, b) => a === b`. Serve label = "same" and hold
+    // the downstream subscription open across a rebind to a spawn serving the SAME
+    // value. The framework equals-gate would drop the equal re-fold — so a
+    // downstream holder (kolu-server's adopted-stale banner / connection recovery)
+    // could not tell "rebound and confirmed" from "stale". The re-serve's rebind
+    // epoch forces ONE republish past the gate, so the equal value crosses once.
+    const { session, upstream, done, downstream } = setup(1, {}, "same");
+    await delay(15);
+
+    const frames: string[] = [];
+    const ctl = new AbortController();
+    const sub = (async () => {
+      for await (const v of await downstream.surface.label.get(undefined, {
+        signal: ctl.signal,
+      }))
+        frames.push(v);
+    })();
+    await delay();
+    expect(frames).toEqual(["same"]); // snapshot from the first spawn
+
+    // Kill the middle hop, then rebind to a fresh spawn serving the SAME "same".
+    // Without the epoch-force the equals-gate swallows the equal re-fold and
+    // `frames` stays ["same"]; with it, the rebind republishes → ["same", "same"].
+    upstream.kill();
+    const upstream2 = makeUpstream(2, {}, "same");
+    session.setClient(upstream2.client);
+    await delay(20);
+    expect(frames).toEqual(["same", "same"]);
+
+    // Steady state still dedups: a further EQUAL agent write does NOT republish
+    // (only the rebind epoch's first fold forces; later folds keep the gate).
+    await downstream.surface.label.set("same");
+    await delay(20);
+    expect(frames).toEqual(["same", "same"]);
+
+    ctl.abort();
+    await teardown(session, done, upstream2);
+    await sub;
   });
 
   it("a VALUE channel under back-pressure DROPS OLDEST + keeps flowing + LOGS — never aborts the consumer", async () => {

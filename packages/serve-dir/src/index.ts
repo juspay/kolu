@@ -37,6 +37,7 @@
  *  pointing outside the root (`leak.html -> /etc/passwd`) is rejected with 403
  *  before a single byte is read; omitting it keeps lexical-only behavior. */
 
+import type { BigIntStats } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -212,6 +213,71 @@ export function parseByteRange(
   return { start, end };
 }
 
+/** Shape a resolved byte range into its HTTP response HEAD — the status +
+ *  range headers a preview yields for a given (resolved range, total size).
+ *  This is the response-SHAPING half of serve-dir's range contract, the
+ *  consumer of `parseByteRange`'s output: a `null` range (whole file) is a full
+ *  `200` carrying serve-dir's base headers UNCHANGED — deliberately NO
+ *  `Content-Length` (the runtime derives it from the streamed bytes; see the
+ *  200 branch in `serveFile`) — while a satisfiable `{ start, end }` is a `206`
+ *  extending the base set with `Content-Range: bytes <start>-<end>/<size>` and
+ *  `Content-Length`.
+ *
+ *  Owning it here keeps the response shape ONE source of truth: `serveFile`
+ *  (local disk) and any remote arm that re-serves these bytes over the wire both
+ *  consume it, so they can differ ONLY in where the body comes from, never in the
+ *  status/header shape. */
+export function rangeResponseHead(
+  resolved: { start: number; end: number } | null,
+  size: number,
+  baseHeaders: Record<string, string>,
+): { status: number; headers: Record<string, string> } {
+  if (resolved === null) return { status: 200, headers: baseHeaders };
+  return {
+    status: 206,
+    headers: {
+      ...baseHeaders,
+      "Content-Range": `bytes ${resolved.start}-${resolved.end}/${size}`,
+      "Content-Length": String(resolved.end - resolved.start + 1),
+    },
+  };
+}
+
+/** Read one header by CASE-INSENSITIVE name from a `ServeResult`-shaped header
+ *  record — the single INVERSE of the header shape `serveFile` / `rangeResponseHead`
+ *  produce (`Content-Type`, `Content-Range`, `Content-Length`, `ETag`, …). Lives
+ *  here beside the shape it reads so a re-serving arm that parses these headers
+ *  back doesn't re-roll the lookup per call site. `undefined` when absent. */
+export function getHeaderCI(
+  headers: Record<string, string>,
+  name: string,
+): string | undefined {
+  const lower = name.toLowerCase();
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === lower) return v;
+  }
+  return undefined;
+}
+
+/** A strong content validator (`ETag`) for an open file's CURRENT bytes, derived
+ *  from the same `stat` that sizes the response: size + **nanosecond** mtime + inode.
+ *  Two reads of the SAME unchanged file yield the SAME token; ANY change bumps it —
+ *  an in-place write or an atomic same-size replace both move `mtimeNs`, and a
+ *  replace also swaps the `inode`. Nanosecond mtime (not millisecond) is what makes
+ *  it a genuinely STRONG validator: a same-size in-place rewrite within the same
+ *  millisecond still changes `mtimeNs`, so it is caught — a millisecond-rounded token
+ *  would miss that sub-ms window. serve-dir honors `If-Range` against this token (see
+ *  `serveFile`) but never returns 304. Its other purpose: a re-serving arm that
+ *  reassembles ONE response from MULTIPLE reads — kolu's remote-bound preview, which
+ *  dials `preview.read` in bounded chunks — proves every chunk came from a single
+ *  file snapshot and fails LOUD otherwise. It is the cross-read analogue of the
+ *  single-open-handle invariant a local `serveFile` gets for free (one handle pins
+ *  one inode for the whole body); across an RPC boundary the handle can't be shared,
+ *  so the validator carries the identity in its place. */
+function fileETag(s: { size: bigint; mtimeNs: bigint; ino: bigint }): string {
+  return `"${s.size.toString(16)}-${s.mtimeNs.toString(16)}-${s.ino.toString(16)}"`;
+}
+
 /** Read the resolved file and assemble the HTTP response (the I/O half).
  *  Separated from `resolvePathUnder` so the guard is testable without fixtures
  *  and the I/O failure modes are testable without crafting URLs. */
@@ -220,6 +286,7 @@ export async function serveFile(
   rawTail: string,
   rangeHeader?: string | null,
   realpathGuard?: RealpathGuard,
+  ifRangeHeader?: string | null,
 ): Promise<ServeResult> {
   const res = resolvePathUnder(root, rawTail);
   if (!res.ok) {
@@ -267,9 +334,12 @@ export async function serveFile(
     // branches close the handle before returning; the streaming 200/206
     // branches hand it to `Readable.toWeb`, whose underlying createReadStream
     // owns the lifecycle (`autoClose` defaults on, closing on end/error).
-    let s: Awaited<ReturnType<typeof handle.stat>>;
+    // `bigint: true` gives NANOSECOND `mtimeNs` for a genuinely strong `ETag`
+    // (see `fileETag`); `size`/`ino` come back as bigint too, so derive a Number
+    // `size` for the range math (files are never near 2^53 bytes).
+    let s: BigIntStats;
     try {
-      s = await handle.stat();
+      s = await handle.stat({ bigint: true });
     } catch (e) {
       await handle.close();
       throw e;
@@ -278,6 +348,12 @@ export async function serveFile(
       await handle.close();
       return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
     }
+    const size = Number(s.size);
+    // The strong validator rides EVERY streamed 200/206 (both share `baseHeaders`),
+    // so a re-serving remote arm can prove a multi-read reassembly stayed on one
+    // file snapshot (see `fileETag`). Derived from the SAME `stat` as the size, so
+    // headers and body agree on one file description.
+    baseHeaders.ETag = fileETag(s);
 
     const streamBody = (start?: number, end?: number): ReadableStream => {
       const stream = handle!.createReadStream(
@@ -286,7 +362,18 @@ export async function serveFile(
       return Readable.toWeb(stream) as ReadableStream;
     };
 
-    const range = rangeHeader ? parseByteRange(rangeHeader, s.size) : null;
+    // `If-Range` (RFC 9110 §13.1.3): honor the `Range` ONLY when the client's
+    // validator still matches this file's CURRENT strong `ETag`; if the file has
+    // changed since the client last saw it, serve the WHOLE representation (200)
+    // rather than a 206 slice it would stitch onto stale bytes. We emit only a
+    // strong ETag, so any non-matching `If-Range` (a mismatched tag, or a date form
+    // we don't mint) conservatively collapses to the full 200. No `If-Range`, or a
+    // matching one, honors the range as before.
+    const honorRange =
+      !ifRangeHeader || ifRangeHeader.trim() === baseHeaders.ETag;
+    const effectiveRange = honorRange ? rangeHeader : null;
+
+    const range = effectiveRange ? parseByteRange(effectiveRange, size) : null;
     if (range === "invalid") {
       await handle.close();
       // The body is a plain-text error, so type it `text/plain` — NOT the
@@ -301,38 +388,28 @@ export async function serveFile(
           ...TEXT_PLAIN,
           "X-Content-Type-Options": "nosniff",
           "Accept-Ranges": "bytes",
-          "Content-Range": `bytes */${s.size}`,
+          "Content-Range": `bytes */${size}`,
         },
         body: "range not satisfiable",
       };
     }
-    if (range) {
-      // `createReadStream({ start, end })` reads only those bytes, so a
-      // `Range: bytes=0-1` against a multi-GB video moves two bytes, not the
-      // whole file, through the heap.
-      return {
-        status: 206,
-        headers: {
-          ...baseHeaders,
-          "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
-          "Content-Length": String(range.end - range.start + 1),
-        },
-        body: streamBody(range.start, range.end),
-      };
-    }
-
-    // Full 200: no Range header, or a header we collapse to the whole file
-    // (open `bytes=-`, multi-range, malformed). Stream it too — see the
-    // heap note above. Deliberately set NO `Content-Length`; the runtime
-    // derives it from the bytes actually written to the socket. Load-bearing:
-    // (1) a downstream HTML-transform middleware (kolu's artifact-sdk
-    // decorator) may splice bytes into a text/html response *after* this
-    // returns; a Content-Length pinned to the pre-splice size truncates the
-    // injected body. (2) deriving from the sent bytes is race-free on a
-    // live-reloading root, where a stat and a later read could disagree. The
-    // 206 branch above DOES set Content-Length: a partial response must, and
-    // it's never decorated (an HTML transform only touches status 200).
-    return { status: 200, headers: baseHeaders, body: streamBody() };
+    // Shape status + range headers in one place (`rangeResponseHead`, serve-dir's
+    // own response contract); this branch owns only the byte source. A 206 reads
+    // just `[start, end]` — `createReadStream({ start, end })` against a multi-GB
+    // video moves those bytes, not the whole file, through the heap. A full 200
+    // (no Range header, or one we collapse — open `bytes=-`, multi-range,
+    // malformed) streams the whole file and carries NO `Content-Length`
+    // (rangeResponseHead omits it): the runtime derives it from the bytes actually
+    // written to the socket. Load-bearing — (1) a downstream HTML-transform
+    // middleware (kolu's artifact-sdk decorator) may splice bytes into a text/html
+    // response *after* this returns; a Content-Length pinned to the pre-splice
+    // size truncates the injected body. (2) deriving from the sent bytes is
+    // race-free on a live-reloading root, where a stat and a later read could
+    // disagree. A 206 DOES carry Content-Length: a partial response must, and it's
+    // never decorated (an HTML transform only touches status 200).
+    const { status, headers } = rangeResponseHead(range, size, baseHeaders);
+    const body = range ? streamBody(range.start, range.end) : streamBody();
+    return { status, headers, body };
   } catch (e: unknown) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
