@@ -316,10 +316,15 @@ export interface CollectionHandlers<K, T> {
  *  passing an already-computed value would move the read back BEFORE the subscribe
  *  and reopen the window — the thunk keeps the `readAll()` on the safe side.
  *
+ *  The thunk yields ZERO-OR-MORE frames: it returns an array so a caller with an
+ *  unconditional snapshot passes a single-element array, and one whose snapshot is
+ *  CONDITIONAL (a `get` on an absent key) passes an empty array — the absent case
+ *  collapses to `[]` instead of a bespoke `if`-guarded copy of this machine.
+ *
  *  Cleanup: acquire ONE iterator up front and forward it via
  *  `yield* { [Symbol.asyncIterator]: () => iterator }` — NOT a bare `yield* frames`,
  *  which would call `[Symbol.asyncIterator]()` a second time and forward a different
- *  iterator than the one the `finally` returns. The snapshot `yield` sits BEFORE the
+ *  iterator than the one the `finally` returns. The snapshot `yield*` sits BEFORE the
  *  forwarding, so an early `.return()` taken after the snapshot (which makes an async
  *  generator skip everything past the suspended `yield`) still hits the `finally`,
  *  which returns the iterator and drops the subscriber. Idempotent: the channel's
@@ -327,12 +332,12 @@ export interface CollectionHandlers<K, T> {
 async function* subscribeBeforeSnapshot<S, F>(
   bus: Channel<F>,
   signal: AbortSignal | undefined,
-  snapshot: () => S,
+  snapshot: () => S[],
 ): AsyncGenerator<S | F> {
   const frames = bus.subscribe(signal);
   const iterator = frames[Symbol.asyncIterator]();
   try {
-    yield snapshot();
+    yield* snapshot();
     yield* { [Symbol.asyncIterator]: () => iterator };
   } finally {
     await iterator.return?.();
@@ -353,9 +358,9 @@ export function collectionHandlers<Name extends string, K, T>(
     // the `broadcastKeys` publish-side fix, is what lets an already-subscribed mirror
     // never miss a key born after it connected. See `subscribeBeforeSnapshot`.
     keys: ({ signal }) =>
-      subscribeBeforeSnapshot(deps.keysBus, signal, () =>
+      subscribeBeforeSnapshot(deps.keysBus, signal, () => [
         Array.from(deps.readAll().keys()),
-      ),
+      ]),
     // A `get` for a key that DOESN'T EXIST YET is a legitimate HELD-OPEN
     // subscription, NOT an error. A collection's membership is dynamic by design
     // (the mirror's `initialKeys` reconcile already treats it so, W2.1), so a
@@ -387,17 +392,11 @@ export function collectionHandlers<Name extends string, K, T>(
     // yielding nothing — exactly as a `keys` subscription to an empty collection
     // holds open — so the consumer shows its honest empty/absent state, not a
     // corpse. Callers that need a bounded first read pass a `signal`.
-    get: async function* ({ input, signal }) {
-      const frames = deps.perKeyBus(input.key).subscribe(signal);
-      const iterator = frames[Symbol.asyncIterator]();
-      try {
-        const initial = readOne(input.key);
-        if (initial !== undefined) yield initial;
-        yield* { [Symbol.asyncIterator]: () => iterator };
-      } finally {
-        await iterator.return?.();
-      }
-    },
+    get: ({ input, signal }) =>
+      subscribeBeforeSnapshot(deps.perKeyBus(input.key), signal, () => {
+        const v = readOne(input.key);
+        return v === undefined ? [] : [v];
+      }),
     upsert: ({ input }) => {
       deps.upsert(input.key, input.value);
     },
@@ -427,10 +426,12 @@ export function collectionHandlers<Name extends string, K, T>(
       subscribeBeforeSnapshot<CollectionDeltasMsg<K, T>, CollectionDelta<K, T>>(
         deltasBus,
         signal,
-        () => ({
-          kind: "snapshot",
-          entries: Array.from(deps.readAll().entries()),
-        }),
+        () => [
+          {
+            kind: "snapshot",
+            entries: Array.from(deps.readAll().entries()),
+          },
+        ],
       );
   }
 
