@@ -26,7 +26,7 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 - **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
 - **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
-- **Shipped:** L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
+- **Shipped:** L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
@@ -109,9 +109,11 @@ terminal-workspace was born as "one library, two homes" (kolu + pulam). After W2
 
 <a id="l23"></a>
 
-### L23 — route W3.1's remote arm through the convergence kit
+### L23 — route W3.1's remote arm through the convergence kit *(SHIPPED — #1700, merged 2026-07-05)*
 
-*Status: READY (W3.1 merged 2026-07-04) · Lens: lowy (same policy, second hand-rolled site) · Gate: none (kolu-internal)*
+*Status: SHIPPED · Lens: lowy (same policy, second hand-rolled site) · Gate: none (kolu-internal)*
+
+**Shipped (#1700, `ed2cd06a5`).** `remotePadiBinding.ts` now feeds the kit's pure `decide()` over the ONE `PADI_CONVERGENCE_POLICY` L6 carved out — both arms share one policy table, no second table in `packages/server`. **Narrow cut** (the entry's stated preference): `decide()` + the remote arm's own instance-keyed `admitDrain` fence + adopt-loudly; `converge()`'s enactment is NOT consumed (the remote spawn/adopt is `frontDaemonOverStdio` inside `getHostSession`'s reconnect loop — no local-endpoint boot methods; a fake `ConvergenceEndpoint` would be shape-worship). Byte-identical: `decide()`'s comparators ARE the functions the old cascade called; 31/31 tests UNCHANGED (zero-line test diff) + a verified `just e2e-ssh` drain→respawn→re-handshake→adopt run on a pu box.
 
 W3.1's `RemotePadiSession` (`packages/server/src/remotePadiBinding.ts`) hand-mirrors the local arm's convergence policy in `handshakeAndScope`: contract-skew refusal + the #1671 drain-on-build-mismatch with a once-per-boot fence. That mirroring was the deliberate call when L3 (#1674) and W3.1 (#1675) were in flight simultaneously — correct policy now, unification later. Once both are merged, this is L3's story repeating one arm over: the same decision table hand-rolled at a second site.
 
