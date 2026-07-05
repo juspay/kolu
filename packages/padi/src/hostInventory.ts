@@ -157,11 +157,12 @@ export async function probeKavalStatus(
       timeoutMs,
     );
     const { client } = conn;
-    const version = await withTimeout(
-      client.surface.system.version({}),
-      timeoutMs,
-    );
-    const list = await withTimeout(client.surface.terminal.list({}), timeoutMs);
+    // Two INDEPENDENT reads over the one open connection — race them together so the
+    // probe pays `connect + max(version, list)`, not `connect + version + list`.
+    const [version, list] = await Promise.all([
+      withTimeout(client.surface.system.version({}), timeoutMs),
+      withTimeout(client.surface.terminal.list({}), timeoutMs),
+    ]);
     return {
       terminalCount: list.entries.length,
       buildCommit: version.identity?.navigableCommit ?? null,
