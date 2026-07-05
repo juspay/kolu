@@ -15,12 +15,14 @@ import type {
   RunningPadi,
 } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { daemonTransportLive, formatUptime } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
 import Commit from "../ui/Commit";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
+import { formatMBCompact } from "../ui/memory";
+import RunningDaemonsSection from "../ui/RunningDaemonsSection";
 import {
   activePadiSurfaceVersion,
   boundPadiBuildCommit,
@@ -33,7 +35,6 @@ import {
   boundHostInventoryLive,
   boundHostPadis,
 } from "../ui/useHostInventory";
-import { formatMBCompact } from "../ui/memory";
 import { padiMemoryDisplay } from "../ui/useMemoryUsage";
 import { padiStartedAt } from "../ui/useProcessUptime";
 import { PADI_LINK_PRESENTATION, padiDot } from "./padiPresentation";
@@ -242,83 +243,19 @@ const PadiInfoDialog: Component<{
         </DetailRow>
       </div>
 
-      {/* The BOUND host's running padis — active one badged — so a LEAKED second padi
-          at another state-root (the padi twin of the orphaned-kaval leak) is diagnosable
-          at a glance, on the machine you're ACTUALLY using. Rides padiSurface's
-          `hostInventory` member (padi scans its own host), so it works identically local
-          and remote. Honesty (#1034): an honest empty line when none is discovered. */}
-      <div class="space-y-2" data-testid="padi-bound-host-daemons">
-        <h3 class="text-xs font-medium text-fg">
-          <Show when={daemonScanBoundHost()} fallback="Running padi daemons">
-            {(host) => <>Padi daemons on {host()}</>}
-          </Show>
-        </h3>
-        {/* Honest degradation (#1034): a padi only ever reports itself in a LIVE reading,
-            so a non-live reading (bind warming, ssh link dropped, or a padi too old to
-            serve `hostInventory`) leaves the seeded EMPTY default — which must read
-            "unavailable", never "No running padi daemons" (a silent zero masquerade). */}
-        <Show
-          when={boundHostInventoryLive()}
-          fallback={
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              Daemon scan unavailable — padi is connecting, or the connected
-              padi is too old to report it.
-            </p>
-          }
-        >
-          <Show
-            when={boundHostPadis().length > 0}
-            fallback={
-              <p class="text-[11px] leading-relaxed text-fg-3">
-                No running padi daemons discovered.
-              </p>
-            }
-          >
-            <ul class="space-y-1.5">
-              <For each={boundHostPadis()}>
-                {(padi) => <RunningPadiRow padi={padi} />}
-              </For>
-            </ul>
-          </Show>
-        </Show>
-      </div>
-
-      {/* Bound remotely: a SEPARATE scan of THIS machine's padis — the machine
-          kolu-server runs on is NOT the bound host, so a leak here would otherwise be
-          invisible. Fenced off so the two hosts' truths can't read as one. Absent under
-          a local binding (the list above already IS this machine). */}
-      <Show when={daemonScanBoundHost()}>
-        {(host) => (
-          <div
-            class="space-y-2 rounded-lg border border-edge bg-surface-2/50 p-2.5"
-            data-testid="padi-local-scan-daemons"
-          >
-            <h3 class="text-xs font-medium text-fg">
-              Local daemons — this machine, not the bound host
-            </h3>
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              kolu-server is bound to padi on{" "}
-              <span class="text-fg-2">{host()}</span> over ssh — the list above
-              is that host's. These are daemons discovered on THIS machine (a
-              leak diagnostic), not the bound host's.
-            </p>
-            <Show
-              when={localScanPadis().length > 0}
-              fallback={
-                <p class="text-[11px] leading-relaxed text-fg-3">
-                  No running padi daemons discovered on this machine.
-                </p>
-              }
-            >
-              <ul class="space-y-1.5">
-                <For each={localScanPadis()}>
-                  {(padi) => <RunningPadiRow padi={padi} />}
-                </For>
-              </ul>
-            </Show>
-          </div>
-        )}
-      </Show>
+      {/* The BOUND host's running padis — active one badged — so a LEAKED second padi at
+          another state-root (the padi twin of the orphaned-kaval leak) is diagnosable at a
+          glance, plus, under a remote binding, a fenced scan of THIS machine. The section
+          owns the heading, live-gate, and fences; the padi row is passed as `renderRow`. */}
+      <RunningDaemonsSection
+        noun="padi"
+        testidPrefix="padi"
+        boundHost={daemonScanBoundHost()}
+        live={boundHostInventoryLive()}
+        boundHostRows={boundHostPadis()}
+        localScanRows={localScanPadis()}
+        renderRow={(padi) => <RunningPadiRow padi={padi} />}
+      />
     </InfoDialogShell>
   );
 };
