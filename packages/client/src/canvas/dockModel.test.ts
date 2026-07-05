@@ -82,6 +82,7 @@ function makeInfo(
     presentation: {
       group: key.group,
       label: presentationLabel,
+      fallbackLabel: key.label,
       suffix: key.suffix,
     },
     titleAnnotationLabel: annotationLine(meta.intent, meta.git?.branch ?? "—"),

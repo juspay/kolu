@@ -20,7 +20,7 @@ function info(group: string, label: string): TerminalDisplayInfo {
     },
     subCount: 0,
     key: { group, label },
-    presentation: { group, label },
+    presentation: { group, label, fallbackLabel: label },
     titleAnnotationLabel: label,
   };
 }

@@ -279,7 +279,7 @@ const NameSpan: Component<{ info: TerminalDisplayInfo }> = (props) => (
     style={{ color: props.info.repoColor }}
     title={props.info.meta.cwd}
   >
-    {props.info.key.group}
+    {props.info.presentation.group}
   </span>
 );
 

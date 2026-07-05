@@ -41,6 +41,8 @@ export type TerminalIdentity = TerminalLocation & {
   id: TerminalId;
 };
 
+/** Already-projected key material for callers that need the same deterministic
+ *  suffixing algorithm in a non-identity presentation domain. */
 export type TerminalKeyBase = {
   id: TerminalId;
   group: string;

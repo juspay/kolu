@@ -3,9 +3,10 @@
  *  alphanumeric character of the repo name in any script (`répo` → `R`,
  *  `日本語` → `日`), uppercased; the sub half is the first grapheme of the
  *  intent (an emoji or other symbol when the user leads with one), with a
- *  fallback to the first alphanumeric character of the branch tail when the
- *  intent is unset. Each half is clamped to a single grapheme so unicode
- *  case-expansion (`ß` → `SS`) can't paint two glyphs on a one-glyph tile.
+ *  fallback to the first alphanumeric character of the presentation fallback
+ *  label when the intent is unset. Each half is clamped to a single grapheme
+ *  so unicode case-expansion (`ß` → `SS`) can't paint two glyphs on a one-glyph
+ *  tile.
  *
  *  Cards mode renders the same intent through `IntentMarkdownInline`,
  *  which preserves emoji and symbol prefixes verbatim. The chip's sub
@@ -41,7 +42,7 @@ function caseToOneGlyph(glyph: string, mode: "upper" | "lower"): string {
 
 /** Two-glyph rail-chip label.
  *
- *  - `repo` — first alphanumeric char of `info.key.group` in any script,
+ *  - `repo` — first alphanumeric char of `info.presentation.group` in any script,
  *    uppercased (`"kolu"` → `"K"`, `"répo"` → `"R"`). Repo names don't carry
  *    emoji, so the alphanumeric-only match is intentional here.
  *  - `sub` — first grapheme of the intent's display line (line 1, with
@@ -57,9 +58,9 @@ export function chipInitials(
   meta: TerminalMetadata,
   info: TerminalDisplayInfo,
 ): { repo: string; sub: string; subIsGlyph: boolean } {
-  const repoChar = info.key.group.match(ALPHANUM)?.[0] ?? "?";
+  const repoChar = info.presentation.group.match(ALPHANUM)?.[0] ?? "?";
   const repo = caseToOneGlyph(repoChar, "upper");
-  const branchTail = info.key.label.split("/").pop() ?? "";
+  const branchTail = info.presentation.fallbackLabel.split("/").pop() ?? "";
   // Compose to NFC so a decomposed accented lead (`e` + U+0301) classifies as
   // one letter rather than falling through to the glyph branch.
   const intentGlyph = meta.intent

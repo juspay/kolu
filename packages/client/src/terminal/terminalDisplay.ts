@@ -11,11 +11,16 @@ import {
 } from "kolu-common/terminalKey";
 import { annotationLine } from "../intent/text";
 
+/** User-facing terminal label projection, owned separately from identity so
+ *  branch/cwd changes cannot overwrite or recolor an intent-first label. */
 export type TerminalPresentation = {
   /** Repo/workspace heading used by user-facing terminal presentation. */
   group: string;
   /** Intent-first label: intent line 1 when set, else the identity label. */
   label: string;
+  /** Branch/cwd-derived fallback used by compact presentations when intent is
+   *  absent or has no renderable lead glyph. */
+  fallbackLabel: string;
   /** Presentation-domain collision suffix for matching `(group, label)`. */
   suffix?: string;
 };
@@ -74,11 +79,14 @@ export function buildTerminalDisplayInfos(
     id,
     group,
     label: annotationLine(meta.intent, label),
+    fallbackLabel: label,
   }));
-  const colors = assignColors([
-    ...entries.flatMap(({ group, label }) => [group, label]),
-    ...presentationBases.map(({ label }) => label),
-  ]);
+  const colors = assignColors(
+    entries.flatMap(({ group, label }) => [group, label]),
+  );
+  const annotationColors = assignColors(
+    presentationBases.map(({ label }) => label),
+  );
   const keys = computeTerminalKeys(
     entries.map(({ id, meta }) => ({ id, git: meta.git, cwd: meta.cwd })),
   );
@@ -86,19 +94,18 @@ export function buildTerminalDisplayInfos(
   const result = new Map<TerminalId, TerminalDisplayInfo>();
   for (const { id, meta, group, label } of entries) {
     const key = keys.get(id);
+    if (!key) throw new Error(`missing terminal identity key for ${id}`);
     const presentation = presentationKeys.get(id);
+    if (!presentation)
+      throw new Error(`missing terminal presentation key for ${id}`);
     const repoColor = colors.get(group);
+    if (!repoColor) throw new Error(`missing terminal repo color for ${id}`);
     const branchColor = colors.get(label);
-    const annotationColor = presentation
-      ? colors.get(presentation.label)
-      : undefined;
-    // `computeTerminalKeys` keys its map by the ids we just passed in,
-    // and `assignColors` was just built from these identity and
-    // presentation strings, so every entry has matching values. The
-    // skip is defence-in-depth for an unreachable case — the consumer
-    // simply gets fewer entries.
-    if (!key || !presentation || !repoColor || !branchColor || !annotationColor)
-      continue;
+    if (!branchColor)
+      throw new Error(`missing terminal branch color for ${id}`);
+    const annotationColor = annotationColors.get(presentation.label);
+    if (!annotationColor)
+      throw new Error(`missing terminal annotation color for ${id}`);
     result.set(id, {
       meta,
       repoColor,
@@ -106,7 +113,10 @@ export function buildTerminalDisplayInfos(
       annotationColor,
       subCount: getSubTerminalIds(id).length,
       key,
-      presentation,
+      presentation: {
+        ...presentation,
+        fallbackLabel: label,
+      },
       titleAnnotationLabel: annotationLine(
         meta.intent,
         meta.git?.branch ?? "—",

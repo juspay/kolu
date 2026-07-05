@@ -17,7 +17,8 @@ export function terminalSubject(
 ): TerminalSubject {
   if (!info) return { title: fallback };
   const { meta, presentation } = info;
-  const title = meta.git
+  const withGroup = meta.git || !!meta.intent;
+  const title = withGroup
     ? `${presentation.group}/${presentation.label}${presentation.suffix ?? ""}`
     : `${presentation.label}${presentation.suffix ?? ""}`;
   const pr = activePr(meta);

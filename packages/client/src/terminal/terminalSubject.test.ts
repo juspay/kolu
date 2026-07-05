@@ -60,4 +60,31 @@ describe("terminalSubject", () => {
       "repo/Keep current task#bbbb",
     );
   });
+
+  it("includes the cwd group for non-git terminals with intent labels", () => {
+    const metas: Record<string, ActiveTerminal> = {
+      "aaaa-1": meta({
+        cwd: "/tmp/alpha",
+        git: null,
+        intent: "Keep current task",
+      }),
+      "bbbb-2": meta({
+        cwd: "/tmp/beta",
+        git: null,
+        intent: "Keep current task",
+      }),
+    };
+    const infos = buildTerminalDisplayInfos(
+      Object.keys(metas),
+      (id) => metas[id],
+      () => [],
+    );
+
+    expect(terminalSubject(infos.get("aaaa-1"), "Terminal 1").title).toBe(
+      "alpha/Keep current task",
+    );
+    expect(terminalSubject(infos.get("bbbb-2"), "Terminal 2").title).toBe(
+      "beta/Keep current task",
+    );
+  });
 });

@@ -40,7 +40,11 @@ function makeGetInfo(
       },
       subCount: 0,
       key: { group: e.group, label },
-      presentation: { group: e.group, label: presentationLabel },
+      presentation: {
+        group: e.group,
+        label: presentationLabel,
+        fallbackLabel: label,
+      },
       titleAnnotationLabel: presentationLabel,
     };
   };

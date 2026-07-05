@@ -82,6 +82,7 @@ describe("buildTerminalDisplayInfos", () => {
     expect(info?.key.label).toBe("main");
     expect(info?.presentation.group).toBe("repo");
     expect(info?.presentation.label).toBe("main");
+    expect(info?.presentation.fallbackLabel).toBe("main");
     expect(info?.titleAnnotationLabel).toBe("main");
     expect(info?.repoColor).toMatch(/^oklch\(/);
     expect(info?.branchColor).toMatch(/^oklch\(/);
@@ -170,6 +171,31 @@ describe("buildTerminalDisplayInfos", () => {
     expect(result.get("bbbb-2")?.presentation.suffix).toBe("#bbbb");
     expect(result.get("aaaa-1")?.annotationColor).toBe(
       result.get("bbbb-2")?.annotationColor,
+    );
+  });
+
+  it("keeps annotation color stable when only the hidden branch identity changes", () => {
+    const before = buildTerminalDisplayInfos(
+      ["id-1"],
+      () =>
+        makeMeta({
+          git: makeGit({ branch: "zzz-branch" }),
+          intent: "Keep current task",
+        }),
+      () => [],
+    );
+    const after = buildTerminalDisplayInfos(
+      ["id-1"],
+      () =>
+        makeMeta({
+          git: makeGit({ branch: "aaa-branch" }),
+          intent: "Keep current task",
+        }),
+      () => [],
+    );
+
+    expect(after.get("id-1")?.annotationColor).toBe(
+      before.get("id-1")?.annotationColor,
     );
   });
 
