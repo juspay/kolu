@@ -37,14 +37,14 @@ import {
 // The honest three-way process-RSS union — composed below into `ProcessMemorySchema`.
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
-// The host-daemon inventory ROWS (`RunningKaval`/`RunningPadi`) live on that same leaf
-// for the same reason: `@kolu/padi/surface` serves the bound host's own scan and this
-// module carries kolu-server's local-machine scan, and the seal forbids one importing
-// the other. Re-exported below so existing `kolu-common/surface` importers are unchanged.
-import {
-  HostDaemonInventorySchema,
-  ProcessRssSchema,
-} from "@kolu/terminal-workspace/schema";
+import { ProcessRssSchema } from "@kolu/terminal-workspace/schema";
+// The host-daemon inventory shapes live in @kolu/padi's OWN surface vocabulary — padi
+// owns the daemon domain (a kaval gate pid is a padi-domain fact, not terminal
+// awareness). kolu-common's `daemonInventory` cell composes them here via the established
+// `kolu-common → @kolu/padi` direction (the same edge `surfacesWithPadi`/`contract` use);
+// the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
+// `kolu-common/surface` importers are unchanged.
+import { HostDaemonInventorySchema } from "@kolu/padi/surface";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -80,11 +80,13 @@ export type {
   ProcessRss,
   PrUnavailableSource,
   RestoreTarget,
-  RunningKaval,
-  RunningPadi,
   TerminalId,
   TerminalSnapshot,
 } from "@kolu/terminal-workspace/schema";
+// The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
+// home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
+// them here — the schema home moved to the daemon-domain package, the consumers didn't.
+export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
 //
 // The generic `TerminalSnapshot` (terminal identity, agent status, PR resolution,

@@ -1,7 +1,7 @@
 /**
  * The host-daemon inventory scanner — the ONE implementation that enumerates every
  * running kaval + padi on a host, best-effort probes each kaval, and assembles the
- * shared-leaf {@link RunningKaval}/{@link RunningPadi} rows the Kaval + Padi info
+ * padi-owned {@link RunningKaval}/{@link RunningPadi} rows the Kaval + Padi info
  * dialogs list. padi OWNS the daemon domain (it discovers, adopts, and supervises
  * the host's daemons), so the scanner lives here — and two callers reuse it:
  *
@@ -27,10 +27,6 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
-import type {
-  RunningKaval,
-  RunningPadi,
-} from "@kolu/terminal-workspace/schema";
 import {
   type KavalDaemon,
   discoverKavalDaemons,
@@ -45,7 +41,11 @@ import {
   discoverPadiDaemons,
   padiKavalSocketPath,
 } from "./stateRoot.ts";
-import type { PadiHostInventory } from "./surface.ts";
+import type {
+  PadiHostInventory,
+  RunningKaval,
+  RunningPadi,
+} from "./surface.ts";
 
 /** The best-effort status a kaval socket answered — every field `null` when the
  *  probe failed / the daemon didn't answer (honest "unknown", never a fake value). */
