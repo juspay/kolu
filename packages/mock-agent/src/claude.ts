@@ -229,28 +229,28 @@ function buildTaskLines(total: number, completed: number): string {
         toolUseResult: { task: { id, subject: `Task ${id}` } },
       }),
     );
-    if (status !== "pending") {
-      lines.push(
-        JSON.stringify({
-          type: "assistant",
-          uuid: `task-update-${id}`,
-          timestamp: new Date().toISOString(),
-          message: {
-            model: "claude-opus-4-6",
-            role: "assistant",
-            stop_reason: "tool_use",
-            content: [
-              {
-                type: "tool_use",
-                id: `tool-update-${id}`,
-                name: "TaskUpdate",
-                input: { taskId: id, status },
-              },
-            ],
-          },
-        }),
-      );
-    }
+    // Every mock task is completed or in_progress (never pending), so a
+    // TaskUpdate line always follows the create — the state the tile reads.
+    lines.push(
+      JSON.stringify({
+        type: "assistant",
+        uuid: `task-update-${id}`,
+        timestamp: new Date().toISOString(),
+        message: {
+          model: "claude-opus-4-6",
+          role: "assistant",
+          stop_reason: "tool_use",
+          content: [
+            {
+              type: "tool_use",
+              id: `tool-update-${id}`,
+              name: "TaskUpdate",
+              input: { taskId: id, status },
+            },
+          ],
+        },
+      }),
+    );
   }
   return `${lines.join("\n")}\n`;
 }
