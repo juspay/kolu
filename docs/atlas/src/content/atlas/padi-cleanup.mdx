@@ -24,7 +24,7 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L15 · L26 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
+- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L15 (+ urgency, was L19) · L26 · L16 · L17 (+ video-ext table, was L5b) · L18 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
 - **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
 - **Shipped:** L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
@@ -172,7 +172,9 @@ Born from the surface-hosting-simplify debate (2026-07-05): the `SurfaceIdentity
 
 `packages/padi/src/vocab.ts` mixes PTY-lifecycle shapes (`ActiveTerminalSchema`, `DaemonStatusSchema`) with UI-chrome shapes (`CanvasLayoutSchema`, `SubPanelStateSchema`, `CodeTabViewSchema`) — a canvas feature and a PTY change both churn one file; `viewLabel`/`rightPanelView` are presentation *logic* living in vocabulary. Split a sibling `chromeVocab.ts` (chrome schemas + their presentation helpers), same export surface.
 
-**Done when:** pure motion (rename-detection reviewable); no import cycles; padi contract tests untouched.
+Rides along the same "home a table/schema in its rightful padi package" motion: **the `UPLOAD_VIDEO_EXTENSIONS` table** (folded from L5) is duplicated in `packages/padi/src/upload.ts` and `packages/common/src/preview.ts`, held equal by a drift-guard test because the seal forbids padi→kolu-common. padi is the file-domain authority — home the classification table in `@kolu/padi` (browser-safe entry), `kolu-common/preview.ts` imports it (the sanctioned arrow), and delete the drift test because drift becomes unspellable.
+
+**Done when:** pure motion (rename-detection reviewable); no import cycles; padi contract tests untouched; the video-ext table has one home with importers on both sides and the drift-guard test removed *because the type system now enforces what it checked*.
 
 <a id="l9"></a>
 
@@ -194,13 +196,11 @@ Braids and duplications the reviews flagged as acceptable-for-scope — acceptab
 
 *Status: ProcessRss half SHIPPED (in W2.2 itself, commit `3b3550642` — the lens round homed the union on the terminal-workspace leaf and the drift-check is gone); the pattern's second instance is ready · Lens: hickey (deliberate duplication, drift-checked) · Gate: none*
 
-The audit sweep found the same pattern again: **`UPLOAD_VIDEO_EXTENSIONS`** exists in `packages/padi/src/upload.ts` (~lines 12–25, 93–97) and `packages/common/src/preview.ts` (~53–63), held equal by a drift-guard test because the seal forbids padi→kolu-common. Same fix shape: padi is the file-domain authority — home the classification table in `@kolu/padi` (browser-safe entry), `kolu-common/preview.ts` imports it (the sanctioned arrow), drift test deleted because drift becomes unspellable.
-
-**Done when:** one definition, importers on both sides of the line, the drift-guard test removed *because the type system now enforces what it checked*. (Coordinate with L7 if it reshapes the shared leaf.)
+The audit sweep found the same pattern again — **`UPLOAD_VIDEO_EXTENSIONS`** duplicated across `packages/padi/src/upload.ts` and `packages/common/src/preview.ts`. That second instance is **folded into L17** (it's the same "home a padi table in its rightful package" motion). This entry is now the shipped record of the ProcessRss half.
 
 <a id="l15"></a>
 
-### L15 — one `AutosaveGate` for the save-safety decision
+### L15 — make the `metadata.ts` write-seam invariants explicit (the `AutosaveGate` + the urgency funnel)
 
 *Status: ready · Lens: hickey (one invariant fragmented across seven files, held by comments) · Gate: none — the highest-value entry on this ledger*
 
@@ -208,7 +208,9 @@ The audit sweep found the same pattern again: **`UPLOAD_VIDEO_EXTENSIONS`** exis
 
 **Target shape:** one `AutosaveGate` module owning explicit state — `idle | armed | frozen(reason) | suppressed(parked)` — with a single `notifyDirty()` every writer calls; registry/restart push facts into the gate instead of the gate querying them. The W1/W2.2 red-when-reverted session-safety tests must pass unchanged against the new gate.
 
-**Done when:** no comment of the form "must not arm/save here" survives — each becomes a gate-state transition; `restartLocal.test.ts` + `reattach.test.ts` + the drain/capture tests green untouched.
+The same file carries a second scattered invariant — **"does this write change the urgency projection?"** — answered independently by `commitSnapshot`/`dropSnapshot`/`publishTerminalState` and by *omission* in `updateMemory` (`metadata.ts` ~99–246), the rule living in prose (was its own entry L19). Fold it into the same cleanup: `publishUrgency()` rides `publishComposedTerminal` and recomputes on every composed publish (the existing `urgencyEqual` dedup makes the extra fire free) — one write-seam invariant made explicit alongside the autosave gate.
+
+**Done when:** no comment of the form "must not arm/save here" survives — each becomes a gate-state transition; one call site computes urgency (the prose justifications deleted); `restartLocal.test.ts` + `reattach.test.ts` + the drain/capture + badge/urgency tests green untouched.
 
 <a id="l16"></a>
 
@@ -232,33 +234,21 @@ The audit sweep found the same pattern again: **`UPLOAD_VIDEO_EXTENSIONS`** exis
 
 <a id="l19"></a>
 
-### L19 — urgency refold rides the one publish funnel
-
-*Status: ready · Lens: hickey (an invariant re-derived at three of four write seams) · Gate: none*
-
-"Does this write change the urgency projection?" is answered independently by `commitSnapshot`/`dropSnapshot`/`publishTerminalState` and by *omission* in `updateMemory` (`terminalEndpoint/metadata.ts` ~99–246) — the rule lives in prose. Fold `publishUrgency()` into `publishComposedTerminal` and recompute on every composed publish; the existing `urgencyEqual` dedup makes the extra fire free.
-
-**Done when:** one call site computes urgency; the badge/urgency tests green; the prose justifications deleted.
+<!-- L19 (urgency funnel) folded into L15 — same metadata.ts write-seam cleanup. -->
 
 <a id="l20"></a>
-
-### L20 — one navigation for the re-serve's opaque client
-
-*Status: ready · Lens: hickey (three cast sites for one navigation) · Gate: drishti (`surface-nix-host`)*
-
-`reServeSurface.ts` (~282, #1664 hickey-7) reaches into the opaque upstream client via three separate cast sites. Extract one typed navigation helper; the casts collapse to one place with one justification.
-
-**Done when:** a single cast site; reServe tests green; paired drishti PR green.
-
 <a id="l21"></a>
 
-### L21 — extract the additive `inMemoryCollection` dedup
+### L20 · L21 — the re-serve internals dedup (two tiny hickey cuts, one drishti-gated PR)
 
-*Status: ready · Lens: hickey (a clean dedup deferred from #1661, candidate 21) · Gate: drishti (`@kolu/surface`)*
+*Status: ready · Lens: hickey (duplication + repeated casts in the serving internals) · Gate: drishti (`@kolu/surface*`)*
 
-The serving internals hand-roll the same additive in-memory collection shape in more than one place; #1661's review scoped extracting `inMemoryCollection<K,V>()` to W2.2, which shipped without it. Verify the duplication still exists on master (the implementer's first step), then extract.
+Two small `@kolu/surface*` cleanups that both need a paired drishti run — so they ship as ONE PR (one drishti coordination, not two). Both live in the re-serve/serving internals:
 
-**Done when:** one implementation; the serving tests green; drishti green — or the entry deleted with "duplication no longer exists".
+- **Opaque-client navigation (was L20).** `reServeSurface.ts` (~282, #1664 hickey-7) reaches into the opaque upstream client via three separate cast sites → extract one typed navigation helper; the casts collapse to one place with one justification.
+- **`inMemoryCollection` dedup (was L21).** The serving internals hand-roll the same additive in-memory collection shape in more than one place; #1661 scoped extracting `inMemoryCollection<K,V>()` to W2.2, which shipped without it. Verify the duplication still exists on master (first step), then extract.
+
+**Done when:** one cast site + one collection implementation; the reServe/serving tests green; the paired drishti PR green — or a half deleted with "duplication no longer exists" and a date.
 
 <a id="l22"></a>
 
