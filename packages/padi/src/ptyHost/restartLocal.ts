@@ -32,13 +32,13 @@
  * See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B3.2 — supervised restart).
  */
 
-import { log } from "../log.ts";
 import {
   cancelPendingAutosave,
-  freezeSessionForRestart,
-  setSavedSessionFromSnapshot,
-  unfreezeSessionForRestart,
-} from "../session.ts";
+  freezeAutosave,
+  unfreezeAutosave,
+} from "../autosaveGate.ts";
+import { log } from "../log.ts";
+import { setSavedSessionFromSnapshot } from "../session.ts";
 import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { killAllTerminals, snapshotSession } from "../terminals.ts";
 import { restartLocalEndpoint } from "./index.ts";
@@ -56,7 +56,7 @@ export function restartLocalDaemon(): Promise<void> {
       // it: the drain below kills the PTYs → they fire `terminals:dirty` → the 500ms
       // autosave would fire in the recycle GAP with an empty registry and no parked
       // entries yet, nulling the session we're about to capture, before park runs.
-      freezeSessionForRestart();
+      freezeAutosave("restart critical section (capture→drain→park)");
       setSavedSessionFromSnapshot(snapshotSession());
     },
     // Tear down kolu's terminal layer; the recycle takes the PTYs themselves.
@@ -76,7 +76,7 @@ export function restartLocalDaemon(): Promise<void> {
     // from here), OR the restart FAILED before park — either way lift the freeze and
     // cancel any drain-armed timer, so a failed restart can't null the captured
     // session after the freeze lifts.
-    unfreezeSessionForRestart();
+    unfreezeAutosave();
     cancelPendingAutosave();
   });
 }
