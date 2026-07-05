@@ -26,7 +26,7 @@
  */
 
 import type { RealpathGuard, ServeResult } from "@kolu/serve-dir";
-import { serveFile } from "@kolu/serve-dir";
+import { getHeaderCI, serveFile } from "@kolu/serve-dir";
 import { ORPCError } from "@orpc/server";
 import { assertRealpathUnder } from "kolu-git";
 
@@ -54,9 +54,19 @@ export function previewFile(input: {
   repoPath: string;
   filePath: string;
   range?: string;
+  /** Raw HTTP `If-Range` header — serve-dir honors the `range` only when this
+   *  still matches the file's current strong `ETag`, else serves the full 200
+   *  (RFC 9110 §13.1.3). Omitted = honor the range unconditionally. */
+  ifRange?: string;
 }): Promise<ServeResult> {
   const guard: RealpathGuard = previewRealpathGuard(input.repoPath);
-  return serveFile(input.repoPath, input.filePath, input.range, guard);
+  return serveFile(
+    input.repoPath,
+    input.filePath,
+    input.range,
+    guard,
+    input.ifRange,
+  );
 }
 
 /** The maximum body an unranged / open-ended {@link readPreview} will inline over
@@ -80,12 +90,12 @@ function previewTooLarge(): ORPCError<"PAYLOAD_TOO_LARGE", undefined> {
 }
 
 /** Read `Content-Length` case-insensitively (serve-dir sets it on a 206, but
- *  deliberately OMITS it on a full 200 — so its absence never means "small"). */
+ *  deliberately OMITS it on a full 200 — so its absence never means "small").
+ *  `getHeaderCI` — the inverse of the `ServeResult` header shape — lives in
+ *  `@kolu/serve-dir` beside that shape. */
 function contentLengthOf(headers: Record<string, string>): number | undefined {
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() === "content-length") return Number(v);
-  }
-  return undefined;
+  const v = getHeaderCI(headers, "content-length");
+  return v === undefined ? undefined : Number(v);
 }
 
 /** Buffer a streamed body to base64, failing fast via {@link previewTooLarge}

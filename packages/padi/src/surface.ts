@@ -425,11 +425,13 @@ export const PadiPreviewReadInputSchema = z.object({
 /** `preview.repoRootForTerminal` — resolve a TERMINAL's git repo root from padi's
  *  OWN in-process registry (`snapshotFor(id)?.git?.repoRoot`), the single source of
  *  truth for that mapping. The re-serving binder (kolu-server's iframe preview
- *  route) calls this to turn the URL's terminal id into a repo path, then STREAMS
- *  the file itself off the local disk via the shared `previewFile` (bounded heap
- *  for large videos) — so the mapping stays in padi while the byte streaming stays
- *  a local, uncapped stream (never forced whole through a base64 procedure). Null
- *  when the terminal is unknown or has no git repo. */
+ *  route) calls this to turn the URL's terminal id into a repo path, then reads the
+ *  bytes by binding: a LOCAL bind streams the file off THIS disk via the shared
+ *  `previewFile` (bounded heap for large videos); a REMOTE bind (`KOLU_PADI_HOST`)
+ *  dials `preview.read` in bounded chunks and reassembles them — either way never
+ *  forced whole through a base64 procedure. So the mapping stays in padi while the
+ *  byte read stays a bounded stream. Null when the terminal is unknown or has no
+ *  git repo. */
 export const PadiRepoRootForTerminalInputSchema = z.object({
   terminalId: TerminalIdSchema,
 });
@@ -443,8 +445,10 @@ export const PadiPreviewReadOutputSchema = z.object({
    *  `500`, verbatim from `serveFile`. */
   status: z.number().int(),
   /** Response headers verbatim from serve-dir (`Content-Type`, `Accept-Ranges`,
-   *  `X-Content-Type-Options`, `Cache-Control`, and `Content-Range` on a
-   *  206/416). The client replays them onto the reconstructed `Response`. */
+   *  `X-Content-Type-Options`, `Cache-Control`, a strong `ETag` on every 200/206,
+   *  and `Content-Range` on a 206/416). The client replays them onto the
+   *  reconstructed `Response`; the re-serving preview arm reads the `ETag` back to
+   *  pin the file snapshot across a multi-chunk reassembly. */
   headers: z.record(z.string(), z.string()),
   /** Base64-encoded response body — the (possibly ranged) file bytes on a
    *  200/206, the plain-text reason on a 400/403/404/416/500. */
