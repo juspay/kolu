@@ -418,85 +418,25 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <div class="flex items-start justify-between gap-6">
-      <div>
-        <h2 class="kv-head">
-          the sibling — <span class="kv-prog">padi-tui</span>, over the workspace
-        </h2>
-        <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
-          kaval owns the PTYs and surfaces the raw taps above;{" "}
-      <code class="mono text-ink">padi</code> is the per-host workspace daemon
-      above it — it supervises kaval, folds each terminal's observations into a
-      record (repo branch, the open PR and its checks, which AI agent is running
-      and whether it's <span class="text-ink">working</span> or{" "}
-      <span class="text-ink">waiting on you</span>, the foreground process), and
-      serves it all as one surface the thin{" "}
-      <code class="mono text-ink">padi-tui</code> CLI reads. Where{" "}
-      <code class="mono text-ink">kaval-tui</code> shows what's{" "}
-          <em>running</em> in each PTY, padi-tui shows what each terminal{" "}
-          <em>is in</em>.
-        </p>
-      </div>
-      <img
-        src="/padi-logo.svg"
-        width="96"
-        height="96"
-        alt="padi — the per-host workspace daemon"
-        class="kv-padi-logo hidden md:block w-24 shrink-0"
-      />
-    </div>
-    <div class="kv-term">
-      <span class="cmd"
-        >nix run github:juspay/kolu#padi-tui -- status<span class="cmt"> # one-shot snapshot of every terminal</span></span
-      >
-      <span class="cmd"
-        >nix run github:juspay/kolu#padi-tui -- watch<span class="cmt">  # follow the workspace live (● = live bytes)</span></span
-      >
-      <span class="cmd"
-        >nix run github:juspay/kolu#padi-tui -- wait $id --until awaiting,waiting<span class="cmt"> # block until its turn ends</span></span
-      >
-      <span class="cmd"
-        >nix run github:juspay/kolu#padi-tui -- create -- claude<span class="cmt"> # spawn an agent on the canvas</span></span
-      >
-    </div>
-    <pre
-      class="mt-4 overflow-x-auto rounded-lg border border-rule px-4 py-3 mono text-xs text-ink-dim leading-relaxed"
-    ><code>ID        REPO·BRANCH         PR        AGENT             FOREGROUND        IDLE
-a3f10000  kolu·feat/dial-ssh  #1412 ✓   claude · working  node              2s
-b7c20000  kolu·master         —         codex · waiting   codex             1m
-c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim              5m</code></pre>
-    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
-      <span class="text-ink">Usually no flag.</span> padi keys its socket by a
-      digest of its state-root, so inside a kolu terminal{" "}
-      <code class="mono text-ink">$PADI_SOCKET</code> makes{" "}
-      <code class="mono text-ink">padi-tui</code> flag-less — an agent driving its
-      siblings never guesses a path. Elsewhere it autodiscovers the running padi;{" "}
-      <code class="mono text-ink">--socket &lt;path&gt;</code> or{" "}
-      <code class="mono text-ink">--state-root &lt;dir&gt;</code> point it
-      elsewhere. (A remote padi over ssh is next; today padi-tui is local-only.)
+    <h2 class="kv-head">what lives above it</h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
+      kaval owns the PTYs and the raw taps above them: screen, cwd, title,
+      command, and exit. <a href="/padi" class="text-kolu-primary hover:underline"
+        ><code class="mono">padi</code></a
+      > is the workspace daemon above it — the layer that folds those terminal
+      observations into repo context, PR state, agent state, session restore, and
+      the <code class="mono text-ink">padi-tui</code> surface.
     </p>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
-      <code class="mono text-ink">wait &lt;id&gt; --until awaiting,waiting</code>{" "}
-      blocks until a terminal's agent finishes its turn — the precise agent-state
-      done-signal (read off real padi state, not a guess from silence) that lets
-      one agent drive another: prompt it with{" "}
-      <code class="mono text-ink">kaval-tui send</code>, wait, then read the
-      reply. Since <code class="mono text-ink">wait</code> matches the state the
-      moment it connects, a robust driver waits in two phases —{" "}
-      <code class="mono text-ink">--until working</code> for the pickup, then{" "}
-      <code class="mono text-ink">--until awaiting,waiting</code> for the
-      turn-end — so a stale previous-turn state can't satisfy it early.{" "}
-      <code class="mono text-ink">--timeout &lt;ms&gt;</code> fails loud (exit 2),
-      a terminal that exits first exits 3, and{" "}
-      <code class="mono text-ink">--json</code> prints{" "}
-      <code class="mono text-ink">{"{ id, agent }"}</code>. The workspace-surface
-      design lives in the{" "}
-      <a
-        href="https://kolu.dev/atlas/pulam.html"
-        class="text-kolu-primary hover:underline"
-        rel="noopener">atlas note</a
-      >.
+      So this page stays about kaval: holding shells, attaching safely, detaching
+      like ssh, and sending raw bytes. The workspace table, socket discovery, and
+      agent-state wait semantics live on{" "}
+      <a href="/padi" class="text-kolu-primary hover:underline">the padi page</a>.
     </p>
+    <a href="/padi" class="kv-handoff">
+      <span>meet padi and padi-tui</span>
+      <small>workspace memory, agent state, and the shell face above kaval</small>
+    </a>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
@@ -671,12 +611,6 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     );
   }
 
-  .kv-padi-logo {
-    filter: drop-shadow(
-      0 14px 32px color-mix(in srgb, var(--color-live-lime) 35%, transparent)
-    );
-  }
-
   /* Section headings — real <h2>s. The page jumped from a ~67px display H1
      straight to 13px mono captions with no mid tier, so every section read
      flat. These are now a true display-scale heading (~half the H1) in the
@@ -722,6 +656,37 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     font-weight: 700;
     letter-spacing: -0.01em;
     color: var(--color-kolu-primary);
+  }
+
+  .kv-handoff {
+    display: block;
+    max-width: 34rem;
+    margin-top: 1.5rem;
+    border: 1px solid var(--color-rule);
+    border-left: 3px solid var(--color-kolu-bottom);
+    border-radius: 0.55rem;
+    padding: 0.95rem 1rem;
+    text-decoration: none;
+    background: color-mix(in srgb, var(--color-kolu-bottom) 7%, var(--color-void-raised));
+    transition:
+      border-color 120ms ease,
+      background 120ms ease;
+  }
+  .kv-handoff:hover {
+    border-color: var(--color-kolu-bottom);
+    background: color-mix(in srgb, var(--color-kolu-bottom) 11%, var(--color-void-raised));
+  }
+  .kv-handoff span {
+    display: block;
+    font-family: var(--font-mono);
+    color: var(--color-kolu-primary);
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+  }
+  .kv-handoff small {
+    display: block;
+    color: var(--color-ink-dim);
+    line-height: 1.5;
   }
 
   /* Sub-heading inside a section (e.g. "taps kaval surfaces"). A clear step
