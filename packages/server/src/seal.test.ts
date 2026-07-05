@@ -54,6 +54,12 @@ const WEB_SHELL_FILES = [
   // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives
   // beside the shell, not in @kolu/padi.
   "padiBinding",
+  // padi's CONVERGENCE declaration into the shared daemon-convergence kit (the
+  // contract-skew policy, the frozen-control-core probe, the drain plumbing) —
+  // carved out of `padiBinding` in W4 ledger L6 as its own volatility. Web-shell
+  // code (it declares padi's policy + adapts its hello; the kit owns the mechanism),
+  // so it lives beside the binder, not in @kolu/padi.
+  "padiConvergence",
   // The W3.1 REMOTE padi binder — the ssh twin of `padiBinding`: it fronts a padi on
   // another host over `getHostSession`/`padi --stdio` and re-serves its surface through
   // the SAME `reServeSurface` seam. Web-shell code (it runs no terminal domain — it

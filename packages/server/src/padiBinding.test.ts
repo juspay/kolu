@@ -59,13 +59,16 @@ import { connectPadi } from "@kolu/padi/dial";
 import {
   ensurePadiBinding,
   localPadiDriver,
-  PADI_CONVERGENCE_POLICY,
   PADI_HOST_ID,
   PadiBindingSession,
   type PadiBindingSessionDeps,
-  probePadiForConvergence,
   resolvePadiLaunch,
 } from "./padiBinding.ts";
+// padi's convergence declaration + probe moved to `./padiConvergence.ts` in L6.
+import {
+  PADI_CONVERGENCE_POLICY,
+  probePadiForConvergence,
+} from "./padiConvergence.ts";
 import { buildAppRouter } from "./router.ts";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
