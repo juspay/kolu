@@ -24,9 +24,9 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
+- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
 - **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
-- **Shipped:** L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
+- **Shipped:** L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
@@ -139,9 +139,11 @@ Reach a padi on a remote machine from the CLI: `padi-tui --host <ssh> wait|statu
 
 <a id="l14"></a>
 
-### L14 — the memory readout should ride the mirror it already has
+### L14 — the memory readout should ride the mirror it already has *(SHIPPED — #1699, merged 2026-07-05)*
 
-*Status: ready · Lens: lowy (a second data path beside the source of truth) · Gate: none*
+*Status: SHIPPED · Lens: lowy (a second data path beside the source of truth) · Gate: none*
+
+**Shipped (#1699).** `readPadiMemoryOnce` now reads padi RSS off the re-serve mirror via an in-process directLink (the mirror already folds `processMemory`) instead of a second remote dial — one fact, one transport; `currentClient()` stays the liveness gate, not the read path. The three-way honesty contract (value · honest "absent" when no live client · loud "error" only for a real failed read) is byte-identical, `memorySampler.ts`/`.test.ts` untouched, the W2.2 flip-to-absent test preserved; the two harness nits were already fixed in-tree by post-entry merges. Follow-up recorded: the `PADI_MEMORY_READ_ERROR` arm is now near-unreachable by construction (a local in-process read can't fail like a remote dial) — retiring it is a CONTRACT change, deliberately deferred out of this transport-only PR.
 
 `readPadiMemoryOnce` (`packages/server/src/index.ts` ~401) re-dials a raw padi client every sampler tick — bypassing the re-serve mirror that already folds `processMemory`. One fact, two transports. Also fold in the sampler-harness nits from the same review (`memorySampler.ts` ~29: the unref'd interval harness + the 5s cadence constant duplicated).
 
