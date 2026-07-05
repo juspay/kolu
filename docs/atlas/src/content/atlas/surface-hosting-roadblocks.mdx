@@ -9,7 +9,7 @@ updated: 2026-07-05
 
 import Callout from "../../components/Callout.astro";
 
-The agent inventoried all three consumers and raised four design questions before writing code. All four are now resolved (srid). The headline: **the reserved `system.identity` member is bundled into this same PR** — so identity lands on the base `Session` role directly, no two-step. (This is NOT "universal hello" — that name was borrowed from padi's *daemon* control-core `hello()`; the honest name is `system.identity`, the identity twin of the framework's existing reserved `system.live`.)
+The agent inventoried all three consumers and raised four design questions before writing code. All four are now resolved (srid). The headline: **the reserved `system.identity` member is bundled into this same PR** (its value is a null-free `SurfaceIdentity` sum — see roadblock 5) — so identity lands on the base `Session` role directly, no two-step. (This is NOT "universal hello" — that name was borrowed from padi's *daemon* control-core `hello()`; the honest name is `system.identity`, the identity twin of the framework's existing reserved `system.live`.)
 
 ## 1. `system.identity` is IN this PR — identity on the base `Session` role
 
@@ -81,16 +81,15 @@ buildHostRegistry({
 You proposed `SurfaceIdentity`; it's better than `ServerIdentity`, and `system.identity` is exactly why: identity is literally a **reserved member of every surface**, so the value is *"the identity a surface carries"* — named for the framework's core noun, and dodging the overloaded word "server" (kolu-*server* means something else).
 
 ```ts
-// @kolu/surface
-// (final shape — see roadblock 5 for the startedAt/baked split and the BuildCommit sum)
-interface SurfaceIdentity {
-  startedAt: number;                 // framework-stamped when connected
-  baked: BakedIdentity | null;       // the server-declared triple, or null (no declared build)
-}
+// @kolu/surface — a SUM, no nulls (final shape; see roadblock 5)
+type SurfaceIdentity =
+  | { kind: "disconnected" }
+  | { kind: "anonymous";  startedAt: number }
+  | { kind: "identified"; startedAt: number; baked: BakedIdentity };
 interface BakedIdentity {
   contractVersion: string;
-  buildId: string;                   // the build's content hash — convergence CURRENCY (staleKey)
-  commit: { kind: "commit"; sha: string } | { kind: "dev" }; // navigable vs dev — a SUM, never `string | null`
+  buildId: string;                                             // content hash — convergence CURRENCY (staleKey)
+  commit: { kind: "commit"; sha: string } | { kind: "dev" };  // navigable vs dev — a SUM, distinct from buildId
 }
 ```
 
@@ -109,35 +108,32 @@ Lives in **`@kolu/surface`** (the base package — it's a universal surface memb
 
 ## 5. `system.identity` — where does the DATA come from? (needs your call)
 
-**No `""` sentinels** (srid — the no-silent-fallback doctrine cannot be violated). And the whole thing IS referenced as a `Maybe` — but note there are **TWO nullables, two meanings**, and collapsing them loses information:
+**No nulls anywhere** (srid — make illegal states unrepresentable; don't lean on `null`). Every state of "who is the far end" is a named arm of ONE sum; the reader is forced to branch, and impossible states (identified-but-no-`startedAt` · `baked`-while-disconnected · a commit that might-be-dev-might-be-error) simply can't be written:
 
 ```ts
-// the server-DECLARED triple — present as a WHOLE, or absent as a whole:
 type BuildCommit =
-  | { readonly kind: "commit"; readonly sha: string }  // a navigable commit (link to it)
-  | { readonly kind: "dev" };                          // built from an uncommitted tree — no navigable commit
-interface BakedIdentity {
+  | { readonly kind: "commit"; readonly sha: string }   // a navigable commit — link to it
+  | { readonly kind: "dev" };                           // built from an uncommitted tree — no navigable commit
+
+interface BakedIdentity {           // the server-DECLARED triple — always whole (matches readBakedIdentity)
   contractVersion: string;
   buildId: string;
-  commit: BuildCommit;            // a SUM, not `string | null` — dev-vs-real is explicit, reader must branch
-}
-interface SurfaceIdentity {
-  startedAt: number;              // framework-STAMPED on every answer — always present when connected
-  baked: BakedIdentity | null;    // null ⇔ connected, but the server declared no build. NOT "" sentinels.
+  commit: BuildCommit;              // a SUM, never `string | null` — dev-vs-real is explicit
 }
 
-// on the Session role — already a Maybe:
-identity(): SurfaceIdentity | null;
-//  null            ⇔ NOT CONNECTED (transient: before first contact / after a drop) — session-level
-//  { startedAt, baked: null }     ⇔ connected, server declared no build
-//  { startedAt, baked: {...} }    ⇔ connected, server declared its build
+type SurfaceIdentity =              // ONE sum. NO null. every state named.
+  | { kind: "disconnected" }                                          // no live link — nothing to identify
+  | { kind: "anonymous"; startedAt: number }                          // connected; server declared no build
+  | { kind: "identified"; startedAt: number; baked: BakedIdentity };  // connected; declared its build
+
+// on the Session role:
+identity(): SurfaceIdentity;        // TOTAL — never null; the caller matches on `.kind`
 ```
 
-Why NOT flatten further (your two questions, answered):
-- **"Make the whole `SurfaceIdentity` a Maybe (drop the wrapper)"** — it already IS (`identity(): … | null`). But that outer null means *"no connection"*. It is NOT the same as *"connected, no build"*. Folding `startedAt` into that outer null would throw away a fact we always have when connected (the framework stamps `startedAt` on every answer). So the outer null can't absorb the build-absence.
-- **"Keep `startedAt` separate?"** — yes. It's always-present-when-connected (framework-stamped), so it lives OUTSIDE the `baked` nullable. Flattening the declared triple's fields up to `SurfaceIdentity` (dropping `BakedIdentity`) would let a **half-declared** identity exist (`contractVersion` set, `buildId` `""`) — the illegal state `BakedIdentity`-as-a-unit makes unrepresentable. `readBakedIdentity("PADI")` already returns the triple as one unit, so the grouping matches reality.
-
-Two nullables, both honest: outer = "no link", inner `baked` = "no declared build". Each says something the other can't.
+Why this is the honest shape:
+- **No `null` doing double duty.** The hack was `identity(): … | null` (null = no link) *plus* `baked: … | null` (null = no build) — two nulls, two meanings, a reader guessing which. Now each is a named `kind`.
+- **Impossible states can't be written.** `startedAt` exists only on the connected arms; `baked` only on `identified`; `commit` is never a bare string that might secretly mean "dev". No contradiction is constructible.
+- **`padi` (the sole reader) matches `disconnected | identified`; `anonymous` honestly covers drishti/odu** (connected, declared nothing) — no fake, no sentinel.
 
 **Load-bearing fact:** only kolu-server's padi arm ever *reads* `.identity()`. drishti + odu never do. So only **padi** declares a `baked`.
 
@@ -147,10 +143,10 @@ implementSurface(surface, deps, { identity?: SurfaceIdentity });
 
 // padi — the one server whose identity is read — declares its baked identity:
 implementSurface(padiSurface, deps, {
-  identity: { startedAt: now, baked: { contractVersion: PADI_SURFACE_VERSION, ...readBakedIdentity("PADI") } },
+  identity: { contractVersion: PADI_SURFACE_VERSION, ...readBakedIdentity("PADI") }, // → framework serves { kind:"identified", startedAt, baked }
 });
 
-// drishti-agent / odu-runner — omit it → { startedAt, baked: null }. Typed absence, and nobody reads it:
+// drishti-agent / odu-runner — omit it → the framework serves { kind:"anonymous", startedAt }. No sentinel; nobody reads it:
 implementSurface(laneSurface, deps);
 ```
 
