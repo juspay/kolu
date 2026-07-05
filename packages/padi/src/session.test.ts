@@ -7,10 +7,10 @@
  * `snapshotSession` deliberately EXCLUDES. Without a guard, a `terminals:dirty`
  * autosave firing while parked entries linger persists a snapshot that omits them
  * — shrinking (or nulling) the saved session on disk, the restore source of
- * truth. The fix is one line in `session.ts`'s autosave callback:
- *   `if (hasParkedTerminals()) return;`
- * Tests (vi) and (iv) are red-when-reverted against that line; the two control
- * cases pin that the guard is scoped (normal autosave still persists / clears).
+ * truth. The guard lives in `autosaveGate.ts`'s fire decision: the LIVE
+ * `isRestorePending()` query short-circuits to `suppressed-parked` before any
+ * persist. Tests (vi) and (iv) are red-when-reverted against that guard; the two
+ * control cases pin that it is scoped (normal autosave still persists / clears).
  *
  * Async-timer pattern mirrors `packages/server/src/session.test.ts`'s autosave
  * test: REAL timers, a `terminalsDirtyChannel.publish({})` to arm the gate, a
