@@ -137,9 +137,13 @@ interface MirrorSession<Client = SurfaceClientLike> {
   identity(): ServerIdentity | null;
 }
 
-/** The daemon flavor adds ONLY supervision — the one thing that is daemon-y. */
+/** The daemon flavor adds supervision — and supervision INCLUDES replacement:
+ *  renew() is the manual trigger of the same machinery convergence() reports on,
+ *  and preservation declares what replacement costs (the fact a user cares about). */
 interface DaemonMirrorSession<Client = SurfaceClientLike> extends MirrorSession<Client> {
   convergence(): DaemonConvergence | null;  // adopted-stale · skew-refused · unconverged · link-failed
+  readonly preservation: PreservationStrategy; // padi: children "survive" · (kaval's vocab: "die")
+  renew(): Promise<void>;                   // replace the daemon per its declared strategy
 }
 
 /** The registry demands exactly what it calls — one method. */
@@ -157,11 +161,11 @@ function buildHostRegistry<S extends DestroyableSession, H>(opts: {
 ```
 
 ```ts
-// ── kolu's whole padi-session vocabulary, after ──
-type BoundPadi = DaemonMirrorSession<PadiSurfaceClient> & {
-  readonly preservation: { kind: "state-external"; children: "survive" };
-  renew(): Promise<void>;   // was drainBoundPadi(); the type says programs survive
-};
+// ── kolu's whole padi-session vocabulary, after: THERE ISN'T ONE ──
+// BoundPadi is deleted (srid: the alias was redundant — once renew/preservation
+// fold into the daemon sub-role, nothing padi-specific remains to name).
+// Call sites write the instantiation directly:
+DaemonMirrorSession<PadiSurfaceClient>
 ```
 
 ### kolu's usage sites
@@ -169,10 +173,10 @@ type BoundPadi = DaemonMirrorSession<PadiSurfaceClient> & {
 The server pool (W4-PR1) — note there are **no fleet controls**, so `pool.reconnect` doesn't exist and can't be called by accident:
 
 ```ts
-const pool = buildHostRegistry<BoundPadi, WsRpcHandler>({
+const pool = buildHostRegistry<DaemonMirrorSession<PadiSurfaceClient>, WsRpcHandler>({
   initialHosts: [LOCAL_HOST],
   buildEntry: (host) => {
-    const session: BoundPadi =
+    const session: DaemonMirrorSession<PadiSurfaceClient> =
       host === LOCAL_HOST ? ensurePadiBinding({ … }) : bindRemotePadi({ host });
     const reServed = reServeSurface({ source: padiSurface, policy, session });
     return { session, handler: reServed.wsHandler };
@@ -231,8 +235,8 @@ row.build  = id?.commit ?? id?.buildId.slice(0, 8);
 | knows a drain "took" | waits on the unix socket CLOSE (authoritative kernel signal) | polls `hello` under the instance-keyed fence (ssh has no close signal) |
 | extras | the legacy-kaval adoption hint · spawn-flag forwarding | the drv map · the ssh-user caveat |
 
-Everything above that line is shared and identical: one convergence policy (both feed the kit's `decide()`), one verb set, one identity readout, the same surfaced degraded states. Two transports, one behavior — which is exactly why one alias (`BoundPadi`) can name them both.
+Everything above that line is shared and identical: one convergence policy (both feed the kit's `decide()`), one verb set, one identity readout, the same surfaced degraded states. Two transports, one behavior — both simply `DaemonMirrorSession<PadiSurfaceClient>`; no alias needed (deleted per srid).
 
 ### What a user never sees anymore
 
-`RemoteMirrorSession` (renamed; "Remote" was false for the local arm) · `PadiBindingSession` (→ `LocalPadiSession`, symmetric with `RemotePadiSession`) · the role's dead `<C>` generic · `PoolableSession` (never shipped) · `padiStartedAt()/padiSurfaceVersion()/padiBuildCommit()` and their remote twins (six methods → `identity()`) · `drainBoundPadi` (→ `renew()`, with survival in the type) · `evictHostSession` (zero production callers; deleted) · `HostSession` in any registry/fanout type (the class remains only for direct `getHostSession` users).
+`RemoteMirrorSession` (renamed; "Remote" was false for the local arm) · `PadiBindingSession` (→ `LocalPadiSession`, symmetric with `RemotePadiSession`) · `BoundPadi` itself (deleted — after renew/preservation joined the daemon sub-role, the alias had nothing left to name) · the role's dead `<C>` generic · `PoolableSession` (never shipped) · `padiStartedAt()/padiSurfaceVersion()/padiBuildCommit()` and their remote twins (six methods → `identity()`) · `drainBoundPadi` (→ `renew()` on the daemon sub-role, with survival in the type) · `evictHostSession` (zero production callers; deleted) · `HostSession` in any registry/fanout type (the class remains only for direct `getHostSession` users).

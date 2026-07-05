@@ -36,6 +36,8 @@ srid ruled the parked question: **every surface server answers "who are you" —
 
 S4's field-distinctness addendum (buildId ≠ commit) carries over unchanged.
 
+**S7b (owner addendum, same session): renew()/preservation fold INTO DaemonMirrorSession; the BoundPadi alias is DELETED.** srid: the alias was redundant — and the deeper cut it revealed: renew() is supervision (the manual trigger of the machinery convergence() reports on), so it belongs on the daemon sub-role, not a per-app extension. After the fold, nothing padi-specific remains to name; call sites write `DaemonMirrorSession<PadiSurfaceClient>` directly. (Amends S7's alias shape; S7's timing point — framework `RenewableDaemon` waits — is subsumed: the sub-role now IS the home, and there is no separate interface to defer.)
+
 **S3b (owner addendum, same session): the two padi arms rename symmetrically** — `PadiBindingSession` → `LocalPadiSession`, beside `RemotePadiSession`. The names were pattern-inconsistent; the name should say the one thing that differs (transport).
 
 ## Consequences for in-flight plans
