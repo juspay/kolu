@@ -31,11 +31,13 @@ import {
   rawPathname,
 } from "@kolu/serve-dir";
 import type { ServeResult } from "@kolu/serve-dir";
+import type { PadiPreviewReadOutputSchema } from "@kolu/padi/surface";
 import type { Context } from "hono";
 import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
+import type { z } from "zod";
 
 /** The RAW, un-normalized request target `previewTailFromRawUrl` must slice —
  *  resolved here so the selection lives in ONE place the route and its test both
@@ -117,13 +119,12 @@ export const REMOTE_PREVIEW_CHUNK_BYTES = 8 * 1024 * 1024;
 const PREVIEW_PROBE_RANGE = "bytes=0-0";
 
 /** The shape `padiSurface.preview.read` returns (verbatim from serve-dir, body
- *  base64-encoded for the wire). Kept structural so {@link assembleRemotePreview}
- *  is unit-testable against a fake reader with no orpc client. */
-export type PreviewReadResult = {
-  status: number;
-  headers: Record<string, string>;
-  bodyBase64: string;
-};
+ *  base64-encoded for the wire) — the canonical padiSurface contract type, not a
+ *  hand-copy, so an added contract field can't drift from this consumer. The pure
+ *  TYPE import keeps {@link assembleRemotePreview} unit-testable against a fake
+ *  reader with no orpc runtime dependency ({@link PreviewRangeReader} stays the
+ *  structural seam). */
+export type PreviewReadResult = z.infer<typeof PadiPreviewReadOutputSchema>;
 
 /** Dial `preview.read` for one (optional) `Range`. In production this closes over
  *  the bound padi client + the terminal's `{repoPath, filePath}`; in tests it's a
