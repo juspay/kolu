@@ -191,6 +191,8 @@ Two options:
 
 *(Q1 identity-sourcing and Q2 endpointConnector-is-a-kolu-leaf were pure confirmations of the ratified design — resolved, not open.)*
 
+**Unification question RESOLVED (agent report, 2026-07-05): the two identity wires do NOT unify — the control-core wire is load-bearing.** Convergence must read a running daemon's identity *pre-handshake and across a contract skew* (`controlCore.ts`: "the version-agnostic side channel — a binder dials the running daemon and reads its identity at ANY skew"); deciding whether to drain a skewed daemon is the whole point. `system.identity` lives on the *surface*, which needs a compatible handshake — unreachable exactly during a skew. So they're not the "two ways to say the same thing" smell — they're a **justified volatility separation** (a version-agnostic side channel vs a surface readout). The fix kills the `""` sentinel on **both** wires *independently*: the readout gets `SurfaceIdentity`; the convergence wire gets its own null-free `DaemonBuild = { kind:"known"; id } | { kind:"off-nix" }` (`decide.ts` matches `.kind === "off-nix"`, not `=== ""`), right-sized for what convergence needs (it judges builds by id; it doesn't display commits). **Do not merge the wires** — that would break skew-convergence; a future deeper unification would require the control core itself to carry a version-agnostic identity (a bigger, separate cut).
+
 ## 7. The two arms don't share `padiAdmit` — they share the DECISION (build-time; RULED (a))
 
 S9's prose said "both arms share `padiAdmit`". Building it revealed that quietly assumed both transports converge POST-connect — but they don't, and the difference is real, rooted in the transports:
