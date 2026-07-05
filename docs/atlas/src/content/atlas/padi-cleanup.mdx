@@ -25,7 +25,7 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 **Status index** — updated as entries ripen or ship:
 
 - **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L15 · L26 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
-- **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence · L27 (srid mints the rule shape)
+- **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
 - **Shipped:** L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
@@ -139,27 +139,18 @@ Reach a padi on a remote machine from the CLI: `padi-tui --host <ssh> wait|statu
 
 <a id="l26"></a>
 
-### L26 — hunt the null/sentinel hacks; make illegal states unrepresentable
+### L26 — kill the overloaded null/sentinel hacks (fix + lint, one PR)
 
-*Status: ready · Lens: architecture-first-principles (illegal-states-unrepresentable) + hickey (a null doing two jobs is complecting two states) · Gate: none (kolu-internal; any @kolu/surface* hit is drishti-gated)*
+*Status: ready — srid mints the lint's exact shape · Lens: architecture-first-principles (illegal-states-unrepresentable) + hickey (a null doing two jobs complects two states) · Gate: none (kolu-internal; any `@kolu/surface*` hit is drishti-gated)*
 
-Born from the surface-hosting-simplify debate (2026-07-05): the `SurfaceIdentity` design first used `identity(): T | null` (null = no link) AND `baked: T | null` (null = no build) — **two nulls, two meanings, a reader guessing which** — plus `commit: string | null` conflating dev-mode with a real commit. srid's rule: **a nullable or a sentinel that carries more than one meaning is a defect** — replace it with a discriminated sum so every state is a named `kind` the reader must branch on, and impossible states can't be constructed. The identity type became `{ kind: "disconnected" } | { kind: "anonymous"; … } | { kind: "identified"; … }` with a `BuildCommit = { kind:"commit"; sha } | { kind:"dev" }` sub-sum — zero nulls.
+Born from the surface-hosting-simplify debate (2026-07-05): the `SurfaceIdentity` design first used `identity(): T | null` (null = no link) AND `baked: T | null` (null = no build) — **two nulls, two meanings, a reader guessing which** — plus `commit: string | null` conflating dev-mode with a real commit. srid's rule: **a nullable or sentinel that carries more than one meaning is a defect** — replace it with a discriminated sum so every state is a named `kind` the reader must branch on, and impossible states can't be constructed. The identity type became `{ kind:"disconnected" } | { kind:"anonymous"; … } | { kind:"identified"; … }` with a `BuildCommit = { kind:"commit"; sha } | { kind:"dev" }` sub-sum — zero nulls.
 
-This entry is the sweep: find the same smell elsewhere. Candidates the codebase is known to carry (the debate surfaced two): the L3 kit's `buildId === ""` meaning "off-nix" (a string sentinel — becomes the `anonymous` kind after this refactor); any `X | null` where `null` answers two different questions (absent-vs-error, disconnected-vs-empty, not-yet-vs-never). Grep seeds: `: string \| null`, `=== ""` / `!== ""` as a meaning-bearing check, `?: ` optional fields that a reader treats as a state, `as any`/`!` around a maybe-absent value.
+**One PR, two halves — the fix and the guardrail that stops it regressing:**
 
-**Where:** repo-wide, but prioritize the daemon/session/convergence surfaces (padi, surface-daemon-supervisor, the re-serve). **Steps:** (1) inventory (an Explore agent, not grep-by-hand — classify each hit as "honest single-meaning null" (fine) vs "overloaded null/sentinel" (fix)); (2) propose the sum-type replacements to the coordinator with the inventory; (3) fix in tranches by package (each tranche its own PR; a surface-package hit rides a paired drishti/odu run).
+- **Sweep + fix.** Find the same smell repo-wide (prioritize the daemon/session/convergence surfaces: padi, surface-daemon-supervisor, the re-serve). Known seeds the debate surfaced: the L3 kit's `buildId === ""` = "off-nix" (a string sentinel — becomes the `anonymous` kind after the surface refactor); any `X | null` where `null` answers two different questions (absent-vs-error, disconnected-vs-empty, not-yet-vs-never). Grep seeds: `: string | null`, `=== ""`/`!== ""` as a meaning-bearing check, optional `?:` fields a reader treats as a state, `!`/`as any` around a maybe-absent value. Inventory with an Explore agent (classify each hit: honest single-meaning null = fine · overloaded = fix); propose the sum-type replacements to the coordinator; fix the overloaded ones as discriminated unions. **NOT a blanket anti-null crusade — a single-meaning "absent" is fine; the target is `null` doing two jobs.**
+- **Code-police rule** (see `.agency/code-police.md`), e.g. `no-overloaded-null`, so the class can't come back: flag on a PR diff (a) a `T | null`/`T | undefined` whose null is tested for **two distinct meanings** (≥2 sites with divergent handling, or a name/comment implying two absence-reasons); (b) a string/number **sentinel** (`""`, `-1`, `"none"`) standing in for a state that has a real name elsewhere; (c) an optional field a consumer treats as an on/off **state**. Guidance: prefer a `{ kind: … }` union; cite `SurfaceIdentity` as the canonical exemplar.
 
-**Done when:** no `null`/`""`/optional field in the prioritized surfaces carries more than one meaning — each such state is a discriminated `kind`; the inventory's "honest single-meaning" survivors are recorded here with that verdict; **and L27's lint rule is green so the class cannot regress.**
-
-<a id="l27"></a>
-
-### L27 — a code-police rule against overloaded null/sentinel states
-
-*Status: ready — srid mints the rule's exact shape; agent wires it · Lens: process (make the L26 class un-reintroducible) · Gate: none*
-
-L26 fixes the existing null hacks; this makes them not come back. Add a `code-police` rule (see `.agency/code-police.md`) — call it e.g. `no-overloaded-null` — that flags, on a PR diff: (a) a `T | null` / `T | undefined` whose `null` the same reader tests against for **two distinct meanings** (heuristic: the value is compared to null in ≥2 sites with divergent handling, or a comment/name implies two absence-reasons); (b) a string/number **sentinel** (`""`, `-1`, `"none"`) used as a stand-in for a state that has a real name elsewhere; (c) an optional field a consumer treats as an on/off **state** rather than genuinely-optional data. The rule's guidance: **prefer a discriminated union (`{ kind: … }`) so each state is named and the reader must branch** — cite the `SurfaceIdentity` sum as the canonical example. Not a blanket ban on `null` (a single-meaning "absent" is fine) — the target is `null` *doing two jobs*.
-
-**Done when:** the rule ships in the code-police ruleset, fires on a seeded fixture (a two-meaning `T | null`) and stays quiet on an honest single-meaning one; documented with the `SurfaceIdentity` before/after as the exemplar.
+**Done when:** no `null`/`""`/optional in the prioritized surfaces carries more than one meaning (each such state is a discriminated `kind`); the "honest single-meaning" survivors recorded here with that verdict; the lint ships in the code-police ruleset, fires on a seeded two-meaning fixture, stays quiet on an honest single-meaning one, and documents the `SurfaceIdentity` before/after. *(If the sweep is large, the FIX may land in per-package tranches, but the lint ships with the first tranche and the entry closes only when the sweep is done + lint green.)*
 
 <a id="l14"></a>
 
