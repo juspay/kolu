@@ -1,6 +1,6 @@
 ---
-title: padi — the consolidation ledger (W4)
-description: The living scope of W4, padi's cleanup phase — every refactor, decomplecting move, electricity upstreaming, and deletion that W2/W3's deliberate pace deferred. Each L-entry is a self-sufficient brief an implementing agent can execute under coordinator guidance, framed through the hickey (complecting) and lowy (volatility/boundary) lenses. Appraised and appended as each W phase ships; an entry that never ripens is deleted with a reason.
+title: padi — the consolidation ledger
+description: The living scope of padi's cleanup track (unnumbered — runs in parallel with the phases) — every refactor, decomplecting move, electricity upstreaming, and deletion that W2/W3's deliberate pace deferred. Each L-entry is a self-sufficient brief an implementing agent can execute under coordinator guidance, framed through the hickey (complecting) and lowy (volatility/boundary) lenses. Appraised and appended as each W phase ships; an entry that never ripens is deleted with a reason.
 parents: [padi]
 status: proposed
 maturity: seedling
@@ -12,20 +12,20 @@ import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import birdseye from "../../diagrams/padi-cleanup-birdseye.svg?raw";
 
-**W4's scope, as a living ledger.** W2 and W3 ship at pace — a deliberate call. This note holds what that pace defers: refactors, decomplecting, framework-level electricity upstreaming, and deletions. Nothing here is user-visible; that is the point. Every entry names its **lens** (why it's structurally wrong today — [hickey](https://github.com/srid/agency) = things braided together that change separately; lowy = code living on the wrong side of a volatility boundary), its **gate** (what must be true before it's workable), and a **done-when** an implementer can't satisfy by the easy route.
+**The cleanup track's scope, as a living ledger** *(unnumbered — it runs in parallel with the numbered phases; srid de-phased it 2026-07-05)*. W2 and W3 ship at pace — a deliberate call. This note holds what that pace defers: refactors, decomplecting, framework-level electricity upstreaming, and deletions. Nothing here is user-visible; that is the point. Every entry names its **lens** (why it's structurally wrong today — [hickey](https://github.com/srid/agency) = things braided together that change separately; lowy = code living on the wrong side of a volatility boundary), its **gate** (what must be true before it's workable), and a **done-when** an implementer can't satisfy by the easy route.
 
 <Callout kind="note" title="How to execute an entry (the working protocol)">
-Each entry is **one PR on a fresh branch off master**, dispatched individually. The implementing agent: (1) reads this entry plus the files it names — the entry gives the shape, the code gives the truth; if they disagree, **message the coordinator before proceeding** (kolu terminal `bb994d02`, two-step send: `kaval-tui send bb994d02 "<msg>"` then a separate `--key Enter`; prefix `[W4-Lx]`); (2) honors the entry's gate — a `drishti` gate means a paired srid/drishti PR green against final kolu HEAD per `.claude/rules/surface.md`; (3) never merges — undraft + summary, srid decides. UX must be byte-identical for every entry (no-pixel-delta is W4's invariant); the e2e suite + the seal test are the net.
+Each entry is **one PR on a fresh branch off master**, dispatched individually. The implementing agent: (1) reads this entry plus the files it names — the entry gives the shape, the code gives the truth; if they disagree, **message the coordinator before proceeding** (kolu terminal `bb994d02`, two-step send: `kaval-tui send bb994d02 "<msg>"` then a separate `--key Enter`; prefix `[Lx]`); (2) honors the entry's gate — a `drishti` gate means a paired srid/drishti PR green against final kolu HEAD per `.claude/rules/surface.md`; (3) never merges — undraft + summary, srid decides. UX must be byte-identical for every entry (no-pixel-delta is the track's invariant); the e2e suite + the seal test are the net.
 </Callout>
 
 **Bird's-eye** — every entry is a node (click it to jump to its section); **an arrow means "do this after that"**; left→right within a lane is the preferred order; the lanes group by nature — only the top one is ordered, the third is parallel-safe in any order.
 
-<Svg svg={birdseye} caption="The W4 ledger at a glance. Top lane: the switch-prep critical path (L3 shipped → L6 in flight → L23 queued → the W3.2 switch → L11's post-switch sweep). Amber-dashed = gated; pills are milestones that live outside this ledger." />
+<Svg svg={birdseye} caption="The ledger at a glance. Top lane: the switch-prep critical path (L3 shipped → L6 in flight → L23 queued → W4 the switch → L11's post-switch sweep). Amber-dashed = gated; pills are milestones that live outside this ledger." />
 
 **Status index** — updated as entries ripen or ship:
 
 - **Ready now:** L1 · L6 · L7 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
-- **Gated:** L11 on W3.2 · L2 on kolu-tui (W5) · L9, L22 on evidence
+- **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
 - **Shipped:** L3 — the convergence kit (#1674, merged 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
@@ -53,11 +53,11 @@ In plain words: the surface framework ships data two ways — pushed values, or 
 
 ### L2 — upstream padi-tui's wait-until-predicate helper
 
-*Status: gated on kolu-tui (W5) · Lens: lowy · Gate: drishti*
+*Status: gated on kolu-tui (future work) · Lens: lowy · Gate: drishti*
 
 W2.3 hand-rolls "block until this collection satisfies a predicate, with timeout" inside padi-tui — deliberately (its phase forbade surface edits, and one consumer doesn't prove a boundary). When kolu-tui exists it will need the identical loop; that second consumer is the signal to move the helper into `@kolu/surface` beside the mirror primitives it wraps.
 
-**Where (after W2.3):** the helper in `packages/padi-tui/src/` (it will carry a `W4 ledger L2` comment); the mirror machinery in `packages/surface/src/mirrorRemoteSurface.ts` it builds on.
+**Where (after W2.3):** the helper in `packages/padi-tui/src/` (it carries a `W4 ledger L2` comment in code — the historical tag, kept as-is); the mirror machinery in `packages/surface/src/mirrorRemoteSurface.ts` it builds on.
 
 **Done when:** one implementation, two consumers (padi-tui + kolu-tui), framework home, drishti green. *If kolu-tui never ships, delete this entry with that reason — do not upstream on one consumer.*
 
@@ -259,11 +259,11 @@ W2.2's h2 bounded the **re-serve's** per-subscriber channels (HWM 4096, loud ove
 
 ### L11 — sweep the interim client-wire shapes after the binding-scoped rebuild
 
-*Status: gated on W3.2 landing · Lens: hickey (transition scaffolding) · Gate: none expected*
+*Status: gated on W4 (the switch) landing · Lens: hickey (transition scaffolding) · Gate: none expected*
 
-W3.2 rebuilds the client's module-level wire singletons (`wire.ts`, `useTerminalStore`, the `createSharedRoot` family) to be per-binding. Transitions of that shape leave scaffolding: compatibility shims, dual paths, "temporarily still global" markers. This entry is the post-landing sweep — inventory every `W3.2`-tagged interim in the client, delete each or convert it to the final shape.
+W4 (the switch) rebuilds the client's module-level wire singletons (`wire.ts`, `useTerminalStore`, the `createSharedRoot` family) to be per-binding. Transitions of that shape leave scaffolding: compatibility shims, dual paths, "temporarily still global" markers. This entry is the post-landing sweep — inventory every switch-tagged interim in the client, delete each or convert it to the final shape.
 
-**Where:** `packages/client/src/wire.ts` and every `createSharedRoot` consumer (the W3.2 PR's own diff is the inventory's seed). **Done when:** no transition-tagged code survives; the switch e2e stays green.
+**Where:** `packages/client/src/wire.ts` and every `createSharedRoot` consumer (the switch PR's own diff is the inventory's seed). **Done when:** no transition-tagged code survives; the switch e2e stays green.
 
 ## The deletions and hygiene
 
@@ -327,4 +327,4 @@ The CI pool boxes carry srid's broad personal token (installed under time pressu
 
 ## Appraisal discipline
 
-When a W phase ships, its review rounds' "deferred / acceptable-for-scope" items land here as new L-entries — explicitly, with source and gate. An entry that never ripens is **deleted with a reason** (recorded inline, dated), not silently kept. The [parent note's](padi.html#w4) W4 section stays a pointer plus the compact index; this note is the single source of truth for W4's scope.
+When a W phase ships, its review rounds' "deferred / acceptable-for-scope" items land here as new L-entries — explicitly, with source and gate. An entry that never ripens is **deleted with a reason** (recorded inline, dated), not silently kept. The [parent note's](padi.html#cleanup) consolidation section stays a pointer plus the compact index; this note is the single source of truth for the track's scope.

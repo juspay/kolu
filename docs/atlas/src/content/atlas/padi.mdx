@@ -30,13 +30,14 @@ export const ROADMAP = [
   { d: 1, g: "✓", c: "ship", l: "W2.1 · the re-serve machinery in @kolu/surface* — forwarding policy · per-binding scope", m: "#1661 · drishti #84 adopts", h: "#w21" },
   { d: 1, g: "✓", c: "ship", l: "W2.2 · padi the process — ONE PR: binary + identity + owns kaval + the cutover (bind · re-serve · store migration)", m: "#1664 · 2026-07-03", h: "#w22" },
   { d: 1, g: "✓", c: "ship", l: "W2.3 · dial carve + padi-tui born + the burial — wait/status/create/worktree · pulam* retired · terminalWorkspaceSurface DELETED", m: "#1665 · 2026-07-03", h: "#w23" },
-  { d: 0, g: "▶", c: "prog", l: "W3 · remote + the switch — 3 PRs ↓ · the user-visible feature", m: "READY — W2 ✓", h: "#w3" },
+  { d: 0, g: "▶", c: "prog", l: "W3 · remote — the binding · the full-peer gaps · CI parity", m: "W3.1 ✓ · gaps ✓", h: "#w3" },
   { d: 1, g: "✓", c: "ship", l: "W3.1 · the remote binding — provision + front a remote padi over ssh (KOLU_PADI_HOST)", m: "#1675 · 2026-07-04", h: "#w31" },
-  { d: 1, g: "○", c: "prog", l: "W3.2 · the switch — binding pool · per-view scope · host picker · clock handshake · the two W3.1 gaps", m: "READY — W3.1 ✓", h: "#w32" },
-  { d: 1, g: "○", c: "prog", l: "W3.3 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W3.2", h: "#w33" },
-  { d: 1, g: "○", c: "prog", l: "W3.4 · remote e2e parity in CI — the FULL suite vs KOLU_PADI_HOST=<pool box>, every PR", m: "READY — parallel with W3.2", h: "#w34" },
-  { d: 0, g: "○", c: "prog", l: "W4 · consolidation — refactors · decomplecting · electricity upstreaming · deletions", m: "→ the ledger note", h: "padi-cleanup.html" },
-  { d: 0, g: "○", c: "last", l: "W5 · demand-driven — cross-host dock · kolu-tui · hybrid only if earned", m: "", h: "#w5" },
+  { d: 1, g: "✓", c: "ship", l: "W3.2 · the full-peer gaps — remote file preview + remote daemon list", m: "#1685 · #1686 · 2026-07-05", h: "#w32" },
+  { d: 1, g: "○", c: "prog", l: "W3.3 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W4", h: "#w33" },
+  { d: 1, g: "▶", c: "prog", l: "W3.4 · remote e2e parity in CI — the FULL suite vs KOLU_PADI_HOST=<pool box>, every PR", m: "in flight — #1689", h: "#w34" },
+  { d: 0, g: "○", c: "prog", l: "W4 · the switch — host picker · per-view bindings · warm pool — its OWN phase (largest since W2.2)", m: "READY after L6+L23 merge", h: "#w4" },
+  { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "L6 L14 in flight · → the ledger note", h: "padi-cleanup.html" },
+  { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
 
 <PhaseTree title="ROADMAP — padi (replaces R9/R10) · kept up to date" phases={ROADMAP} />
@@ -72,7 +73,7 @@ export const LENS = [
     sub: [["2.1",4,false,true],["2.2",5,true,true],["2.3",2,true,true]] },
   { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)",
     beh: "Δ3.2 each connection now belongs to one host — the client rebuilds its plumbing when you switch · Δ3.3 notifications now fire for hosts you are not looking at (3.1 ships switched off by default)",
-    sub: [["3.1",2,true,true],["3.2",3,true],["3.3",1,true],["3.4",1]] },
+    sub: [["3.1",2,true,true],["3.2",2,true,true],["3.3",1,true],["3.4",1]] },
   { p: "W4", h: "#w4", user: "nothing — that is the point", vis: false, work: 3, why: "paying down what W2–W3's pace deferred: refactors, upstreaming, deletions off the ledger",
     beh: null, sub: null },
   { p: "W5", h: "#w5", user: "cross-host dock rows · kolu-tui — only if demanded", vis: true, faint: true, work: 1, why: "additive layers over unchanged daemons",
@@ -218,9 +219,10 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W0" name="decks cleared — freeze the old contract, retire pulam-web, land the overflow frame, close the PRs" status="done" />
 <Phase id="W1" name="the padi seam, in place — padiSurface served in-process, client migrated, root oRPC dispositioned" status="shipped" needs={["W0"]} links={[{ label: "#1652", href: "https://github.com/juspay/kolu/pull/1652" }]} />
 <Phase id="W2" name="padi the process — state-root identity, owns kaval, on-host persistence; kolu-server binds + re-serves" status="todo" needs={["W1"]} />
-<Phase id="W3" name="remote + the switch — ssh/Nix leg, host picker, per-view bindings, cross-host badges" status="todo" needs={["W2"]} />
-<Phase id="W4" name="consolidation — the cleanup ledger: refactors, decomplecting, electricity upstreaming, deletions" status="todo" needs={["W3"]} />
-<Phase id="W5" name="demand-driven — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
+<Phase id="W3" name="remote — the ssh/Nix binding, the full-peer gaps, CI parity" status="todo" needs={["W2"]} />
+<Phase id="W4" name="the switch — host picker, per-view bindings, warm pool" status="todo" needs={["W3"]} />
+<Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
+<Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **When packages are born** — graduation is a scheduled event, not a side effect:
 
@@ -277,7 +279,7 @@ W1.R's seal guarantees the domain lives behind the contract, complete as a libra
 
 <a id="w3"></a>
 
-### W3 — remote + the switch *(three PRs, phased below; the user-visible feature)*
+### W3 — remote *(the binding · the full-peer gaps · CI parity)*
 
 <a id="w31"></a>
 
@@ -291,36 +293,9 @@ W1.R's seal guarantees the domain lives behind the contract, complete as a libra
 
 <a id="w32"></a>
 
-#### W3.2 — the switch *(READY — W3.1 ✓; ~3 PRs; expanded build-ready 2026-07-04)*
+#### W3.2 — the full-peer gaps — *shipped* <PrLink pr={1685} /> <PrLink pr={1686} />
 
-Binding pool in kolu-server; **per-connection binding declared in the wire scope**; the client's wire singletons rebuilt **per binding** (the in-app instant switch — W2.1 laid the server-side scope); the **clock offset measured at each bind** (control-core `clock.now()`, RTT-halved); per-binding localStorage namespace for view posture; ChromeBar host picker (ssh-config sourced + free-text); persisted last-binding per view; #1034 loud connecting/degraded/skew states; create refused while the binding warms (today's `refuseIfWarming`, per binding). **Plus the two features W3.1 shipped without, owned here: file preview works when connected to a remote machine (today it deliberately refuses), and the "Running daemons" list shows the connected machine's daemons, not just this machine's.**
-
-**What exists today (code facts on master, verified 2026-07-04):** kolu-server picks ONE binding at boot (`packages/server/src/index.ts`: `remotePadiHost()` → a single `padiSession`; one `reServeSurface` result mounted as the `padi` sibling for every connection) — switching hosts today means restarting the server. The browser's `padi` client is a **module-level singleton** (`packages/client/src/wire.ts`), built once per page, riding the same socket as `app` (the sibling scope W2.1 laid — per-connection binding builds on exactly this). `clock.now` has sat on the frozen control core since W2.2 (`controlCore.ts`) with **no consumer yet**. The warming/degraded canvas fold exists (`padiLink`); the name `refuseIfWarming` above is conceptual — no such symbol exists on master; the behavior gets its per-binding form here. And all of W3.1's machinery (provisioning, the drain fence, adopt-loudly, the surfaced degraded states) is already **per-session** — a pool multiplies it without changing it.
-
-**Ground shifted since the block above was verified (2026-07-05, post-merges — a dispatched agent builds on THIS):** (a) **#1687 changed subscription semantics the rebuild leans on**: a per-key collection `get` for a key that doesn't exist yet now HOLDS OPEN and delivers when the key appears (no more dead-on-boot subscriptions), and a re-serve rebind force-republishes an equal cell value — so the per-binding client rebuild inherits sane boot-window behavior instead of having to work around the gray-chip class. (b) padiSurface is at **contract 1.2** (#1686's `hostInventory` member) — the daemon dialogs' bound-host group must follow the ACTIVE binding through the switch like every other member. (c) Both gap PRs are merged, so the switch PR's scope is EXACTLY the six moves plus the inherited `BoundPadi.readPreview` — nothing else rides along. (d) W3.4's harness (`KOLU_E2E_PADI_HOST` + the mock agent in the terminal) exists on master for boot-time remote binding; the switch e2e still needs to drive the PICKER mid-session — that part is this PR's own work.
-
-**The work, decomposed (six moves):**
-1. **Binding pool** — `padiSession` singular → a pool of `BoundPadi` keyed by host, created on demand, kept warm (server plumbing on existing machinery).
-2. **Per-connection binding in the wire scope** — each browser socket declares which host its `padi` sibling resolves to; one server serves different hosts to different connections simultaneously.
-3. **Client singletons → per-binding lifecycle** — the big client refactor: tear down and rebuild the `padi` client and every subscription on switch; per-binding localStorage namespace for view posture; persisted last-binding per view.
-4. **Clock offset at each bind** — `clock.now` finally consumed (RTT-halved) so host-clock timestamps render honestly cross-host (one authority per fold, on its own clock).
-5. **The picker + loud states** — ChromeBar host picker (ssh-config sourced + free text); per-binding connecting/degraded/skew (#1034); create refused while that binding warms.
-6. **The two W3.1 gaps** — remote file preview and the remote "Running daemons" list (the two self-sufficient PRs above).
-
-**The 3-PR split (re-cut 2026-07-04 after srid rejected a server-half/client-half slicing — it violated the self-sufficiency rule this note itself records: a pool nobody switches is a complete-but-unconsumed artifact, the #1651 tell):**
-- **PR "the switch" — ONE end-to-end PR, the phase's heart.** Server pool + per-connection wire-scope binding + clock offset at bind + the client per-binding rebuild + ChromeBar picker + per-binding loud states + per-binding localStorage/last-binding + the misroute-unrepresentable structure + the switch e2e (local → remote → local, stale in-flight call rejected). The server and client halves are **commit stages inside it** (the W1/W2.2 pattern — only the final state must be green); neither ships alone because neither is consumed alone. **Inherited from PR "preview" (#1685, deferred there deliberately): fold the preview byte-read fork into the binding — a polymorphic `BoundPadi.readPreview` (local → `previewFile`, remote → `assembleRemotePreview`) replacing the route's `if (remoteHost)` fork — so "a remote binding reads the local disk" becomes unspellable the moment bindings go per-view.**
-- **PR "preview" — SHIPPED (#1685, merged 2026-07-05).** File preview works when connected to a remote machine: the route asks padi for the file's bytes over `preview.read` in bounded chunks (big files never blow memory), pinned by a strong ETag so a file changing mid-read aborts loudly instead of serving spliced bytes. The audit round also moved `getHeaderCI` to its true home (`@kolu/serve-dir`) and implemented If-Range.
-- **PR "inventory" — SHIPPED (#1686, merged 2026-07-05).** The "Running daemons" list now also shows the connected machine's daemons — your padi and kaval there, plus anything leaked there — each group labeled by machine (one list when local, no duplicates). Landed with the `hostInventory` padiSurface member (contract 1.2), one shared scanner homed in `@kolu/padi`, and the mixed-version window made safe (a newer binder never re-serves a padi missing the member).
-
-Order: the two gap PRs can go first or in parallel (small, independently valuable, SURF-safe); the switch PR waits for SURF per the dispatch decision below.
-
-**Dispatch (decided, srid 2026-07-04):** the switch PR goes after the SURF PR (the #1681 subscription-recovery + cell equals-gate fixes) merges — its client refactor builds on the fixed subscription behavior rather than churning against it. W3.4 may still be in flight (harness overlap is mild).
-
-**The correctness clause to make unrepresentable** (from the done-criterion): *no cross-binding call survives a switch* — a stale in-flight call carrying host A's terminal ids must be **rejected, not misrouted** to host B. Prefer structure over checks: binding-scoped clients whose ids cannot cross, not id-validation sprinkled at call sites.
-
-**Decided (srid, 2026-07-04):** `KOLU_PADI_HOST` survives and **sets the default host only** — the boot-time binding views start on, which the picker freely switches away from. Never a pin, never an override. (W3.4's remote CI lane is why it survives at all: a headless run boots via the knob and never opens a picker.)
-
-- **Done:** an e2e switches local → remote → local with tiles live on both ends — no cross-binding call survives a switch (a stale in-flight id-keyed call is rejected, not misrouted); two browser views parked on different hosts stay independent; the switch never disturbs another device; **file preview serves real bytes on a remote binding (the 501 is gone, e2e-pinned) and the inventory lists the bound host's daemons** — the last two holes in the "full peer, nothing silently wrong-host" promise.
+**Shipped 2026-07-05, two self-sufficient PRs.** **Preview** (#1685): clicking a file while connected to a remote machine now shows the file — the route asks padi for the bytes in bounded 8 MiB chunks, pinned by a strong ETag so a file changing mid-read aborts loudly instead of serving spliced bytes; the old deliberate "preview unavailable" refusal is deleted; local mode byte-identical. **Inventory** (#1686): the "Running daemons" list now shows the connected machine's daemons (padi reports its own host via the `hostInventory` member, contract 1.2), each group labeled by machine, with the mixed-version window made safe. Together they complete the W3 "full peer — nothing silently wrong-host" promise for the single-host binding. *(This sub-phase originally also carried the switch; srid promoted it to its own phase, [W4](#w4), on 2026-07-05.)*
 
 <a id="w33"></a>
 
@@ -343,7 +318,26 @@ The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios t
 
 <a id="w4"></a>
 
-### W4 — consolidation — the cleanup ledger *(scope lives in [its own note](padi-cleanup.html))*
+### W4 — the switch *(its own phase — promoted out of W3, srid 2026-07-05: the largest change since W2.2; READY once L6 + L23 merge)*
+
+**In simple words:** today kolu marries one machine when the server starts — everything you see comes from that one machine until you restart it. After this phase, kolu keeps connections to several machines warm at once, and **each browser tab picks which machine it's looking at** — switched instantly from a picker in the top bar, like switching tmux sessions. Your laptop tab can sit on `zest` while your phone sits on `sincereintent`, against the same kolu, neither disturbing the other.
+
+**The five pieces of work, in plain words:**
+1. **The server holds a pool, not a choice.** Instead of picking one padi at boot, kolu-server keeps a warm connection per machine, opened on demand. Everything W3.1 built (provisioning, reconnecting, converge-safely) is already per-connection — the pool just holds several. *(This is why L6 + L23 gate the phase: they make the layer being multiplied clean and single-policy first.)*
+2. **Each browser tab names its machine.** "Which host" becomes part of every tab's own conversation with the server, instead of a server-wide fact.
+3. **The browser rebuilds its plumbing on switch — the hard part.** The client currently creates its wiring once per page load; switching means tearing down every live subscription and rebuilding against the new machine without a reload. The biggest client rewiring since W1 — and the reason this phase waited for #1687: rebuilt subscriptions now behave sanely from their first moment (a get for a key that doesn't exist yet waits instead of dying).
+4. **The picker, honestly.** A host list in the ChromeBar (your `~/.ssh/config`, free typing, and recents), loud connecting/degraded/incompatible states while a binding warms, creating a terminal refused until it's ready — never a frozen canvas pretending.
+5. **Honest clocks.** Timestamps are stamped on each host's own clock; the binder measures the offset at each bind (the control core's `clock.now`, RTT-halved — served since W2.2, consumed at last) so "3m ago" is true no matter which machine said it.
+
+**Decided (2026-07-05, srid):** `KOLU_PADI_HOST` sets the **default host only** — the picker switches freely away from it (W3.4's CI boots through it, and CI never opens a picker). **Recently seen servers** live server-side in the existing preferences store — `preferences.recentHosts` (`PreferencesSchema` in `packages/common/src/surface.ts`, persisted by `packages/server/src/preferences.ts` into `~/.config/kolu/config.json`) — so every device shares one list; each tab's "which host am I on" and per-host view posture (zoom, panels) live in browser localStorage, namespaced per host, deliberately per-view. **One end-to-end PR** — the server and client halves are commit stages inside it, per this note's law; the inherited `BoundPadi.readPreview` fold-in (deferred from #1685) rides along so "a remote binding reads the local disk" becomes unspellable the moment bindings go per-view.
+
+**The safety property, built in rather than checked:** a click meant for the old machine must never land on the new one ("kill terminal 42" arriving at the wrong host). Requests are born bound to their machine — binding-scoped clients whose ids cannot cross — so the misroute cannot be written, rather than being caught by sprinkled checks.
+
+- **Done:** an e2e switches local → remote → local with tiles live on both ends; a stale in-flight call is **rejected, not misrouted**; two browser views parked on different hosts stay independent; the switch never disturbs another device; picker + recents + loud warming states all exercised by the e2e.
+
+<a id="cleanup"></a>
+
+### Consolidation — the cleanup ledger *(unnumbered — a parallel, ongoing track; scope lives in [its own note](padi-cleanup.html))*
 
 W2 and W3 ship at pace (a deliberate call); W4 pays the pace's debts — refactors, decomplecting, framework-level electricity upstreaming, deletions. Nothing user-visible ships here; that is the point. **The full ledger — each entry a self-sufficient, lens-framed brief an implementing agent can execute under coordinator guidance — lives in [padi — the consolidation ledger](padi-cleanup.html)**, appraised and appended as each W phase lands (a shipped phase's "deferred / acceptable-for-scope" review items land there explicitly; an entry that never ripens is deleted with a reason). The index, for orientation:
 
@@ -352,9 +346,9 @@ W2 and W3 ship at pace (a deliberate call); W4 pays the pace's debts — refacto
 - **Dedupes/sweeps (hickey):** L5 one home for `ProcessRssSchema` (ready) · L11 W3.2's interim wire shapes (gated: W3.2)
 - **Deletions & hygiene:** L4 the legacy-kaval migration arm (at a named version) · L8 doc sweep for the buried world (after W2.3) · L10 the flaky-test debt (ready) · L12 fine-grained CI token (srid mints)
 
-<a id="w5"></a>
+<a id="future"></a>
 
-### W5 — demand-driven
+### Future work — demand-driven
 
 **Cross-host dock** (B-lite: foreign hosts' rows, urgency-ranked, click = switch + focus — the host axis is already in the contract) is the first escalation if switching proves insufficient. **kolu-tui** — the graduation proof: consume padiSurface over the socket/ssh *without kolu-server*; done only when that named path renders a live canvas (the path, not the feature, is the unit of done). **Hybrid canvas** (model B) only if one-window side-by-side proves a recurring demand — it stays an aggregation layer over N bindings, zero daemon changes.
 
