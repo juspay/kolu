@@ -402,6 +402,11 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     onLog: (line) => log.info({ line }, "local padi session"),
   });
 
+  // NB: this builds the session but does NOT dial — the loop warms on the first `pin()`.
+  // The composition root (`index.ts`) BOOT-AWAITS that pin for the LOCAL arm before it
+  // serves browsers (the pre-S9 stance), so the first re-served-surface request meets a
+  // live upstream. Keeping `ensurePadiBinding` side-effect-free lets the arm's unit tests
+  // observe `convergence()`/`identity()`/`renew()` with no real padi spawned.
   return asPadiSession(base, {
     // The LOCAL arm surfaces no convergence anomaly (parity with the pre-S9
     // PadiBindingSession, whose `padiConvergence()` returned null): the shared kit

@@ -11,27 +11,30 @@
  * (`@kolu/surface-nix-host/dialAgentOnce.test.ts`), which validates the same-shape
  * `KAVAL_AGENT_DRVS_JSON` map through ITS public seam.
  *
- * The ssh machinery (`getHostSession`, the arch probe `resolveSystem`) is mocked so the
- * valid-map arm never touches real ssh/nix — and so the parsed map can be observed:
- * the resolver thunk `getHostSession` receives closes over the parsed object, so
+ * The ssh machinery (`sshConnector` + `makeSession`, the arch probe `resolveSystem`) is
+ * mocked so the valid-map arm never touches real ssh/nix — and so the parsed map can be
+ * observed: the resolver thunk `sshConnector` receives closes over the parsed object, so
  * resolving the host's probed arch returns exactly the drv the map held for it.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  getHostSession: vi.fn(),
+  sshConnector: vi.fn(),
+  makeSession: vi.fn(),
   resolveSystem: vi.fn(),
 }));
 
-// Partial mock — override ONLY the ssh seam, keep every other real export
-// (`ResolveDrvError` etc.) so nothing in the binder's import graph breaks on load.
+// Partial mock — override ONLY the ssh seam (the connector + the session appliance +
+// the arch probe), keep every other real export (`ResolveDrvError` etc.) so nothing in
+// the binder's import graph breaks on load.
 vi.mock("@kolu/surface-nix-host", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@kolu/surface-nix-host")>();
   return {
     ...actual,
-    getHostSession: h.getHostSession,
+    sshConnector: h.sshConnector,
+    makeSession: h.makeSession,
     resolveSystem: h.resolveSystem,
   };
 });
@@ -40,9 +43,9 @@ import { ensureRemotePadiBinding } from "./remotePadiBinding.ts";
 
 const ENV = "PADI_AGENT_DRVS_JSON";
 
-/** A minimal `RemoteMirrorSession` stand-in — the only method the
- *  `RemotePadiSession` constructor calls synchronously is `onState` (snapshot-then-
- *  delta), so seed it with a benign "connecting" frame and hand back a no-op unsub. */
+/** A minimal `Session` stand-in — the arm calls `onState` (snapshot-then-delta) at
+ *  construction and spreads the rest through `asPadiSession`. Seed `onState` with a
+ *  benign "connecting" frame; stub the remaining role methods as no-ops. */
 function fakeSession() {
   return {
     onState: (cb: (s: unknown) => void) => {
@@ -58,6 +61,9 @@ function fakeSession() {
     currentClient: () => null,
     pin: () => Promise.resolve({}),
     markConnected: () => {},
+    reconnect: () => {},
+    recheck: () => {},
+    identity: () => ({ kind: "disconnected" }) as const,
     isDestroyed: () => false,
     destroy: () => {},
   };
@@ -69,20 +75,22 @@ describe("parsePadiDrvMap fail-fast (via ensureRemotePadiBinding)", () => {
   let prior: string | undefined;
   beforeEach(() => {
     prior = process.env[ENV];
-    h.getHostSession.mockReset();
+    h.sshConnector.mockReset();
+    h.makeSession.mockReset();
     h.resolveSystem.mockReset();
+    h.makeSession.mockReturnValue(fakeSession());
   });
   afterEach(() => {
     if (prior === undefined) delete process.env[ENV];
     else process.env[ENV] = prior;
   });
 
-  it("(a) UNSET → throws loudly, and never constructs a session", () => {
+  it("(a) UNSET → throws loudly, and never builds a connector", () => {
     delete process.env[ENV];
     expect(() => ensureRemotePadiBinding({ host: "nix@prod" })).toThrow(
       /PADI_AGENT_DRVS_JSON is not baked/,
     );
-    expect(h.getHostSession).not.toHaveBeenCalled();
+    expect(h.sshConnector).not.toHaveBeenCalled();
   });
 
   it("(a') the unbaked sentinel '{}' → throws (same not-baked arm)", () => {
@@ -90,15 +98,15 @@ describe("parsePadiDrvMap fail-fast (via ensureRemotePadiBinding)", () => {
     expect(() => ensureRemotePadiBinding({ host: "nix@prod" })).toThrow(
       /is not baked/,
     );
-    expect(h.getHostSession).not.toHaveBeenCalled();
+    expect(h.sshConnector).not.toHaveBeenCalled();
   });
 
-  it("(b) malformed JSON → throws, and never constructs a session", () => {
+  it("(b) malformed JSON → throws, and never builds a connector", () => {
     process.env[ENV] = "{not json";
     expect(() => ensureRemotePadiBinding({ host: "nix@prod" })).toThrow(
       /is not a valid \{ system → drv \} JSON map/,
     );
-    expect(h.getHostSession).not.toHaveBeenCalled();
+    expect(h.sshConnector).not.toHaveBeenCalled();
   });
 
   it("(c) valid JSON, wrong shape — a JSON ARRAY → throws (the parser validates shape, not just JSON.parse)", () => {
@@ -106,7 +114,7 @@ describe("parsePadiDrvMap fail-fast (via ensureRemotePadiBinding)", () => {
     expect(() => ensureRemotePadiBinding({ host: "nix@prod" })).toThrow(
       /is not a \{ system → drv string \} JSON object/,
     );
-    expect(h.getHostSession).not.toHaveBeenCalled();
+    expect(h.sshConnector).not.toHaveBeenCalled();
   });
 
   it("(c') valid JSON object with a NON-STRING value → throws (a bogus drv can't slip the shape guard)", () => {
@@ -116,7 +124,7 @@ describe("parsePadiDrvMap fail-fast (via ensureRemotePadiBinding)", () => {
     expect(() => ensureRemotePadiBinding({ host: "nix@prod" })).toThrow(
       /is not a \{ system → drv string \} JSON object/,
     );
-    expect(h.getHostSession).not.toHaveBeenCalled();
+    expect(h.sshConnector).not.toHaveBeenCalled();
   });
 
   it("(d) a valid { system → drv } map → parses, and threads the drv for the host's arch into the resolver", async () => {
@@ -125,22 +133,25 @@ describe("parsePadiDrvMap fail-fast (via ensureRemotePadiBinding)", () => {
       "aarch64-linux": "/nix/store/bbb-padi.drv",
     });
     let capturedOpts: { resolveDrvPath: () => Promise<string> } | undefined;
-    h.getHostSession.mockImplementation(
+    h.sshConnector.mockImplementation(
       (opts: { resolveDrvPath: () => Promise<string> }) => {
         capturedOpts = opts;
-        return fakeSession();
+        // The connector is never invoked (makeSession is mocked); return a dummy.
+        return async () => {
+          throw new Error("mock connector should not run");
+        };
       },
     );
     h.resolveSystem.mockResolvedValue("aarch64-linux");
 
     const binding = ensureRemotePadiBinding({ host: "nix@prod" });
     expect(binding).toBeDefined();
-    expect(h.getHostSession).toHaveBeenCalledTimes(1);
+    expect(h.sshConnector).toHaveBeenCalledTimes(1);
 
-    // The parsed map is closed over by getHostSession's `resolveDrvPath` thunk:
-    // probing the host's arch and looking it up returns exactly the drv the map held
-    // for that system — proving parsePadiDrvMap produced the expected { system → drv }
-    // OBJECT, not merely valid JSON.
+    // The parsed map is closed over by the connector's `resolveDrvPath` thunk: probing
+    // the host's arch and looking it up returns exactly the drv the map held for that
+    // system — proving parsePadiDrvMap produced the expected { system → drv } OBJECT,
+    // not merely valid JSON.
     expect(capturedOpts).toBeDefined();
     const drv = await capturedOpts?.resolveDrvPath();
     expect(drv).toBe("/nix/store/bbb-padi.drv");

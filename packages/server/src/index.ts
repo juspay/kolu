@@ -261,6 +261,20 @@ const padiSession: PadiSession = remoteHost
       verbose: argv.flags.verbose,
     });
 
+// BOOT-AWAIT the LOCAL padi arm before serving browsers: `makeSession` warms on the
+// first `pin()`, so without this the very first re-served-surface request (an e2e's
+// `lifecycle.killAll`) would race an un-connected arm and 500. Spawn/adopt + connect
+// padi HERE (the pre-S9 stance the sync `ensurePadiBinding` deferred); `reServeSurface`'s
+// pump pins again (idempotent — same in-flight dial). Fail-OPEN: a boot failure surfaces
+// on the connection cell and the loop retries, so don't crash boot. The REMOTE arm is
+// fail-open by construction (provisioning a closure over ssh takes seconds), so it is NOT
+// boot-awaited — the pump warms it and the canvas reports copying/connecting meanwhile.
+if (!remoteHost) {
+  await padiSession.pin().catch((err: unknown) => {
+    log.error({ err }, "padi endpoint failed to come up at boot");
+  });
+}
+
 // `padiSession` is a `PadiSession` (a `DaemonSession<PadiSurfaceClient>`, from the
 // local or remote arm's `makeSession` + spread); it plugs into `reServeSurface`'s loose
 // `Session` receptacle checked (S3 dropped the dead contract `<C>` at the role

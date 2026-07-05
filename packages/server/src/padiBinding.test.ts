@@ -154,14 +154,18 @@ async function bootReServedPadi(stateRoot: string): Promise<{
   padi: any;
 }> {
   activeStateRoots.add(stateRoot);
-  // Post-S9 `ensurePadiBinding` is SYNC — it builds the reconnect-mirror session and
-  // returns immediately; the loop warms on the first pin (reServeSurface pins it).
+  // `ensurePadiBinding` is side-effect-free (builds the session, doesn't dial); warm it
+  // with an explicit boot-await BEFORE dialing the re-served surface — the exact stance
+  // `index.ts` takes for the local arm, so the first round-trip meets a live upstream.
   const session = ensurePadiBinding({
     stateRoot,
     nixShellWhitelist: "default", // the test runs inside the nix devshell
     reconnectDelayMs: 400, // snappy reconnect for the kill test
   });
   activeSessions.push(session);
+  await session.pin().catch(() => {
+    /* fail-open — a boot failure surfaces on the connection cell + the loop retries */
+  });
 
   const reServed = reServeSurface<typeof padiSurface.spec>({
     source: padiSurface,
