@@ -8,41 +8,35 @@
 
 /* --- Design tokens --------------------------------------------------------
 
-  Cool-neutral terminal aesthetic: pure off-black / cool light gray
-  backgrounds, neutral ink, and a brand accent pulled from the violet
-  side of Kolu's three-step rainbow mark. Earlier iterations leaned
-  warm — cream paper, amber dots, peach accents — which read as
-  "boring brown" against the vivid terminal mockups. This palette has
-  zero warmth and is consistent with the logo's identity.
+  Kolu's logo is the palette: gold/yellow top step, rose→purple middle
+  step, teal→cyan→blue base step. The site stays terminal-dark and
+  utilitarian, but the accents now use that full mark instead of reducing
+  the identity to a single violet.
 -------------------------------------------------------------------------- */
 @theme {
-  --color-void: #0a0a0d;
-  --color-void-raised: #131318;
-  --color-void-sunk: #050507;
-  --color-ink: #e8e8ed;
-  --color-ink-dim: #a8a8b2;
-  --color-ink-muted: #6e6e78;
-  --color-ink-faint: #3a3a42;
-  --color-rule: #18181d;
-  --color-rule-strong: #28282f;
+  --color-void: #07080d;
+  --color-void-raised: #10131c;
+  --color-void-sunk: #030409;
+  --color-ink: #f4f7fb;
+  --color-ink-dim: #c1c7d0;
+  --color-ink-muted: #7d8795;
+  --color-ink-faint: #354050;
+  --color-rule: #1a2330;
+  --color-rule-strong: #2e3a4d;
 
-  /* Brand accent — the violet side of the rainbow step mark. Token
-     name stayed `amber` so every existing site class still reads
-     `text-amber*` / `bg-amber*`; only the value is purple. */
-  --color-amber: #a855f7;
-  --color-amber-bright: #c084fc;
-  --color-amber-dim: #7e22ce;
+  /* Primary brand accent — the gold/yellow top step of the logo. The
+     token keeps the historic `amber` name because site classes already
+     use `text-amber*` / `bg-amber*`, but the value now matches the mark. */
+  --color-amber: #f59e0b;
+  --color-amber-bright: #facc15;
+  --color-amber-dim: #b45309;
 
-  /* Live-state accents — *electric*, not pastel. Used wherever the
-     surface reflects *change* (agent working/awaiting in the dock,
-     tile identity on the canvas, code-tree selection, PASS pings).
-     Calibrated against the real Kolu app's saturated repo palette —
-     the earlier muted version made the marketing page look dimmer
-     than the product it advertises. */
-  --color-live-teal: #00ffd4;
-  --color-live-alert: #ef4444;
-  --color-live-violet: #ff3ec9;
-  --color-live-lime: #7cff5b;
+  /* Live-state accents from the other logo steps. Rose covers alert,
+     purple covers "needs you", cyan/teal cover working and success. */
+  --color-live-teal: #06b6d4;
+  --color-live-alert: #f43f5e;
+  --color-live-violet: #a855f7;
+  --color-live-lime: #14b8a6;
 
   /* macOS-style window-control dots — used by every faux terminal frame
      on the site. Kept as tokens so all frames stay in lockstep. */
@@ -78,27 +72,24 @@
    <html data-theme="light|dark"> before first paint (no FOUC). */
 
 [data-theme="light"] {
-  /* Light-mode shell — cool off-white (very slight blue tint) and
-     cool grays. Zero warmth: no cream paper, no beige rules, no warm
-     brown ink. The accent stays in the logo's violet family. */
-  --color-void: #f5f5f8;
-  --color-void-raised: #eeeef2;
-  --color-void-sunk: #e5e5eb;
-  --color-ink: #18181c;
-  --color-ink-dim: #4a4a52;
-  --color-ink-muted: #7c7c84;
-  --color-ink-faint: #b8b8c0;
-  --color-rule: #d8d8de;
-  --color-rule-strong: #c0c0c8;
-  --color-amber: #7e22ce;
-  --color-amber-bright: #6b21a8;
-  --color-amber-dim: #c084fc;
-  /* Light-mode live-state accents — deepened versions of the electric
-     dark tokens. Still saturated, still loud against warm paper. */
-  --color-live-teal: #007a6c;
-  --color-live-alert: #dc2626;
-  --color-live-violet: #c5008a;
-  --color-live-lime: #1a8500;
+  /* Light-mode shell — cool paper and deep ink, with the same logo
+     palette darkened enough for text contrast. */
+  --color-void: #f7f9fc;
+  --color-void-raised: #edf2f7;
+  --color-void-sunk: #e5ebf3;
+  --color-ink: #111827;
+  --color-ink-dim: #3f4b5f;
+  --color-ink-muted: #718096;
+  --color-ink-faint: #b7c2d0;
+  --color-rule: #d7e0eb;
+  --color-rule-strong: #bdcad8;
+  --color-amber: #b45309;
+  --color-amber-bright: #92400e;
+  --color-amber-dim: #f59e0b;
+  --color-live-teal: #0891b2;
+  --color-live-alert: #be123c;
+  --color-live-violet: #7e22ce;
+  --color-live-lime: #0f766e;
 }
 
 [data-theme="dark"] {
@@ -113,22 +104,20 @@
 
 html {
   background: var(--color-void);
-  /* Subtle character-cell lattice — evokes a terminal without shouting.
-     Dot opacity blended per theme via --dot-color below. Hue pulled
-     from the logo's violet step so the bg texture carries brand
-     identity without competing with content. */
-  background-image: radial-gradient(
-    circle at 1px 1px,
-    var(--dot-color) 1px,
-    transparent 0
-  );
-  background-size: 24px 24px;
+  /* Subtle character-cell lattice — gold and cyan dots echo the top/base
+     logo steps without competing with the content. */
+  background-image:
+    radial-gradient(circle at 1px 1px, var(--dot-gold) 1px, transparent 0),
+    radial-gradient(circle at 15px 15px, var(--dot-cyan) 1px, transparent 0);
+  background-size: 28px 28px;
   background-attachment: fixed;
-  --dot-color: rgba(168, 85, 247, 0.06);
+  --dot-gold: rgba(245, 158, 11, 0.08);
+  --dot-cyan: rgba(6, 182, 212, 0.055);
 }
 
 html[data-theme="light"] {
-  --dot-color: rgba(126, 34, 206, 0.08);
+  --dot-gold: rgba(180, 83, 9, 0.08);
+  --dot-cyan: rgba(8, 145, 178, 0.07);
 }
 
 body {
