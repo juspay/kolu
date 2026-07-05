@@ -153,14 +153,20 @@ debounce path swallows event paths silently.
 
 ## Failure modes worth knowing
 
-1. **Container/WSL2 bind mounts** — neither inotify nor FSEvents nor watchman
-   is available. Under `backend: "default"` parcel would silently fall back to
-   `BruteForceBackend` ~1s polling (latency degrades, correctness preserved).
-   **The backend pin (#1692) forgoes that fallback**: a pinned `inotify` on a
-   bind mount that can't inotify surfaces as an `error git: working-tree watcher
-   install failed` instead of degrading to polling. Accepted trade — Kolu's
-   daemons run on real Linux/macOS with a live inotify/FSEvents, and the pin's
-   value (no per-subscribe zombie leak) outweighs a polling path no target hits.
+1. **Container/WSL2 bind mounts** — inotify/FSEvents may be unavailable.
+   Nuance since the backend pin (#1692): `BruteForceBackend` (~1s polling) is
+   parcel's *compile-time-last-resort* backend — under `"default"` it's reached
+   only when no earlier backend is **compiled in**, not when a compiled one
+   fails to construct at runtime. On Kolu's Linux build `INOTIFY` is compiled,
+   so `"default"` selects `InotifyBackend` (after the failed watchman probe),
+   and a bind mount that can't inotify makes *both* `"default"` and the pinned
+   `"inotify"` fail identically (`error git: working-tree watcher install
+   failed`) — the pin forgoes **no** polling path there. The pin only *adds*
+   `brute-force` where it wasn't reached before: an **untargeted** platform
+   (not linux/darwin/win32) now names `brute-force` explicitly instead of
+   auto-selecting into the leaking watchman probe. Net: leak-free on every
+   platform, behaviorally identical to `"default"`'s post-probe outcome on the
+   three targets.
 2. **Linux inotify slot exhaustion** — kernel default is
    `fs.inotify.max_user_watches=8192`. A typical Kolu repo uses ~500–2000
    slots; multiple worktrees compound. Watchman amortizes this across one
