@@ -163,7 +163,7 @@ defineSurface(members, { contractVersion });   // every defineSurface call chang
 
 > **A (with the `Maybe`-typed identity above)?** — needs your call. Agent is building everything else meanwhile.
 
-## 6. The convergence kit's `buildId === ""` — fix here, or defer to L26? (build-time; needs your call)
+## 6. The convergence kit's `buildId === ""` — RULED: fix it here (srid)
 
 Surfaced mid-build. There are **two separate "what build is padi?" paths, on two different wires** — and only one is in this PR's scope:
 
@@ -181,10 +181,13 @@ if (baked.buildId === "") return "adopt";   // "" = off-nix, can't judge builds 
 
 Two options:
 
-- **(b) LEAVE it — recommended.** The sentinel is a *different layer on a different wire*; fixing it means touching the delicate convergence kit (supervisor + control-core hello + `probePadiForConvergence`) — concern-mixing + risk in a session/readout PR. And it's **already owned by L26** (the codebase-wide null/sentinel sweep, which ships *with the lint guard*). Deferring ≠ ignoring — it gets fixed, coordinated, soon. Consistency holds meanwhile: padi always declares its baked identity, so both paths read the SAME underlying value via different members — no incoherence.
-- **(a) FIX it here too.** Adapt `decide.ts` to match on the identity kind (`anonymous` = off-nix) instead of `buildId === ""`. Behavior-preserving shape swap — but a medium cross-package change (touches surface-daemon-supervisor + control-core hello + the probe), widening this PR's blast radius into convergence logic.
+> **srid RULED (a) — the sentinel dies in THIS PR (2026-07-05).** *Why it was still there:* the null-free `SurfaceIdentity` sum lives on the `system.identity` wire (what the dialogs read); the convergence decision reads padi's build off a DIFFERENT wire (`control.core.hello` → `ConvergenceIdentity`), which the readout refactor never reached — so the `buildId === ""` sentinel sat untouched. srid's point: shipping the clean design while the SAME-data sentinel survives one wire over is the exact "two ways to say the same thing" incoherence the refactor exists to kill. **It must not survive the PR that establishes the rule.**
 
-> **Coordinator's call: (b), defer to L26** — keeps this PR scoped; the sentinel still dies soon, with its lint. **srid: override to (a) if you'd rather kill it now while the agent's hands are in there.** The agent is unblocked either way (the readout layer is unambiguous); flipping later is cheap.
+**The fix (a):** make the convergence identity null-free too — off-nix becomes a *typed* absence (a `kind`/null), never `""`; `decide.ts` matches that instead of `=== ""`. Behavior-preserving shape swap (the agent confirmed), touching surface-daemon-supervisor + control-core hello + `probePadiForConvergence`.
+
+**One thing for the agent to report, not decide:** the deeper coherence win is convergence consuming the SAME identity representation as the readout (one identity, not two) — but convergence may *need* its own `control.core.hello` wire (pre-handshake, version-agnostic — it runs before the surface is established). So: kill the sentinel now (make `ConvergenceIdentity` null-free on its existing wire); and tell the coordinator whether unifying the two identity paths is safe or whether the control-core wire is load-bearing for pre-handshake convergence. If unification would force a behavior change, STOP — that's a separate decision.
+
+**L26 no longer owns this instance** (this PR does); L26 keeps the *other*, scattered null/sentinel instances + the lint.
 
 *(Q1 identity-sourcing and Q2 endpointConnector-is-a-kolu-leaf were pure confirmations of the ratified design — resolved, not open.)*
 
