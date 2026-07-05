@@ -12,7 +12,10 @@ import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import { formatMBCompact } from "../ui/memory";
 import { daemonScanBoundHost, localScanKavals } from "../ui/useDaemonInventory";
-import { boundHostKavals } from "../ui/useHostInventory";
+import {
+  boundHostInventoryLive,
+  boundHostKavals,
+} from "../ui/useHostInventory";
 import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
 import { expectedKaval } from "./KavalUpdateBadge";
 import { kavalStale } from "./kavalCurrency";
@@ -260,19 +263,34 @@ const KavalInfoDialog: Component<{
             {(host) => <>Kaval daemons on {host()}</>}
           </Show>
         </h3>
+        {/* Honest degradation (#1034): only a LIVE reading (the bound padi reported
+            itself) is trusted to say "none". Otherwise — the bind still warming, an ssh
+            link that dropped, or a padi too old to serve `hostInventory` at all — the
+            re-serve leaves the seeded EMPTY default, which must read "unavailable", never
+            "No running daemons" (a silent zero masquerade). */}
         <Show
-          when={boundHostKavals().length > 0}
+          when={boundHostInventoryLive()}
           fallback={
             <p class="text-[11px] leading-relaxed text-fg-3">
-              No running kaval daemons discovered.
+              Daemon scan unavailable — padi is connecting, or the connected
+              padi is too old to report it.
             </p>
           }
         >
-          <ul class="space-y-1.5">
-            <For each={boundHostKavals()}>
-              {(kaval) => <RunningKavalRow kaval={kaval} />}
-            </For>
-          </ul>
+          <Show
+            when={boundHostKavals().length > 0}
+            fallback={
+              <p class="text-[11px] leading-relaxed text-fg-3">
+                No running kaval daemons discovered.
+              </p>
+            }
+          >
+            <ul class="space-y-1.5">
+              <For each={boundHostKavals()}>
+                {(kaval) => <RunningKavalRow kaval={kaval} />}
+              </For>
+            </ul>
+          </Show>
         </Show>
       </div>
 

@@ -15,6 +15,7 @@
 import type { RunningKaval, RunningPadi } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { padi } from "../wire";
+import { hostInventoryReadingLive } from "./hostInventoryLive";
 
 const sub = padi.cells.hostInventory.use({
   onError: (err) => toast.error(`Host inventory error: ${err.message}`),
@@ -30,6 +31,18 @@ export function boundHostKavals(): RunningKaval[] {
  *  kolu is bound to (empty before the first scan). */
 export function boundHostPadis(): RunningPadi[] {
   return sub.value()?.padis ?? [];
+}
+
+/** Whether the bound host's inventory is a TRUSTWORTHY live reading (vs the re-serve's
+ *  seeded empty default that a not-yet-connected / degraded / version-skewed bind leaves
+ *  in place — e.g. a padi too old to serve `hostInventory`, which relays the member no
+ *  value at all). A live padi always reports ITSELF (an active padi row), so an empty /
+ *  active-less reading is the default, not a real "zero daemons". The dialogs gate their
+ *  daemon lists on this so an unavailable reading shows an honest "unavailable" state,
+ *  never "No running daemons discovered" (a silent empty masquerading as a definite
+ *  zero, #1034). See {@link hostInventoryReadingLive}. */
+export function boundHostInventoryLive(): boolean {
+  return hostInventoryReadingLive(boundHostPadis());
 }
 
 /** The BOUND padi kolu is using (`active`), or `undefined` before the first scan. The

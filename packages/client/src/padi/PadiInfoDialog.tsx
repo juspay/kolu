@@ -28,7 +28,11 @@ import {
   daemonScanBoundHost,
   localScanPadis,
 } from "../ui/useDaemonInventory";
-import { activePadi, boundHostPadis } from "../ui/useHostInventory";
+import {
+  activePadi,
+  boundHostInventoryLive,
+  boundHostPadis,
+} from "../ui/useHostInventory";
 import { formatMBCompact } from "../ui/memory";
 import { padiMemoryDisplay } from "../ui/useMemoryUsage";
 import { padiStartedAt } from "../ui/useProcessUptime";
@@ -254,19 +258,33 @@ const PadiInfoDialog: Component<{
             {(host) => <>Padi daemons on {host()}</>}
           </Show>
         </h3>
+        {/* Honest degradation (#1034): a padi only ever reports itself in a LIVE reading,
+            so a non-live reading (bind warming, ssh link dropped, or a padi too old to
+            serve `hostInventory`) leaves the seeded EMPTY default — which must read
+            "unavailable", never "No running padi daemons" (a silent zero masquerade). */}
         <Show
-          when={boundHostPadis().length > 0}
+          when={boundHostInventoryLive()}
           fallback={
             <p class="text-[11px] leading-relaxed text-fg-3">
-              No running padi daemons discovered.
+              Daemon scan unavailable — padi is connecting, or the connected
+              padi is too old to report it.
             </p>
           }
         >
-          <ul class="space-y-1.5">
-            <For each={boundHostPadis()}>
-              {(padi) => <RunningPadiRow padi={padi} />}
-            </For>
-          </ul>
+          <Show
+            when={boundHostPadis().length > 0}
+            fallback={
+              <p class="text-[11px] leading-relaxed text-fg-3">
+                No running padi daemons discovered.
+              </p>
+            }
+          >
+            <ul class="space-y-1.5">
+              <For each={boundHostPadis()}>
+                {(padi) => <RunningPadiRow padi={padi} />}
+              </For>
+            </ul>
+          </Show>
         </Show>
       </div>
 
