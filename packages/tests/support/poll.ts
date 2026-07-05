@@ -23,9 +23,9 @@ export async function pollUntil<T>(
  *  observation, so `POLL_TIMEOUT + (one tick cost)` doesn't masquerade
  *  as exactly `POLL_TIMEOUT`.
  *
- *  `onTick` runs before each `observe()` call. Use it for WAL nudges
- *  (`nudgeWal`), self-heal re-POSTs, or `fs.utimesSync` re-touches —
- *  any side-effect that drives detection retries while the loop polls. */
+ *  `onTick` runs before each `observe()` call. Use it for self-heal
+ *  re-POSTs or `fs.utimesSync` re-touches — any side-effect that drives
+ *  detection retries while the loop polls. */
 export async function pollFor<T>(opts: {
   observe: () => Promise<T>;
   isDone: (v: T) => boolean;

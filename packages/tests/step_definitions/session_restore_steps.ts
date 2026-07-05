@@ -178,7 +178,7 @@ Then(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
       { selector: WORKSPACE_SWITCHER_ENTRY_SELECTOR, count: expected },
-      { timeout: 15000 },
+      { timeout: POLL_TIMEOUT },
     );
     const actual = await entries.count();
     assert.strictEqual(

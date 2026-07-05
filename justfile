@@ -190,6 +190,12 @@ test: install
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
     cap=8; [ "$(uname)" = Darwin ] && cap=6
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
+    # The agent-state mocks run `kolu-mock-agent` INSIDE the terminal (by
+    # absolute store path). Build it and export its bin dir; hooks.ts refuses to
+    # boot (non-recording) without it. Under a remote padi bind the SAME store
+    # path must resolve on the bind target — the remote-e2e lane `nix copy`s it
+    # there (padi's closure already carries node/tsx, so only the wrapper ships).
+    export KOLU_MOCK_AGENT_BIN="${KOLU_MOCK_AGENT_BIN:-$(nix build .#mock-agent --no-link --print-out-paths)/bin}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans
     # each PR's pipeline out independently, so several PRs' e2e lanes land on

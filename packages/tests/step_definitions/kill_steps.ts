@@ -95,7 +95,7 @@ Then(
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
-      { timeout: 20000 },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

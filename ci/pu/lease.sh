@@ -50,6 +50,33 @@
 # plus run facts for ci/pu/report.sh, to .ci/pu-lease.env. A saturated/unreachable
 # pool falls back — cold ephemeral `pu create` → empty pin (hosts.json resolves
 # the lane) — so CI is never blocked; an empty PU_LEASE_HOST means "no pin".
+#
+# ─── W3.4: box-to-box relay (a SEPARATE lease + a bridging primitive) ────────
+# The remote-e2e node needs a SECOND box (the ssh bind target) reachable FROM
+# whichever host runs the lane's recipe — a leased pool box for the linux lane,
+# `rasam` for the darwin lane binding a pool box for the cross-arch exercise.
+# Leasing the second box is just a SECOND, independent `acquire` (unchanged
+# logic) pointed at its own env file via `KOLU_CI_LEASE_ENV`:
+#
+#   KOLU_CI_LEASE_ENV=.ci/pu-lease-remote.env ci/pu/lease.sh acquire <pr>   &
+#
+# Bridging is the new part: the lane host (box A / rasam) has no ssh path to
+# the leased target box — only THIS machine's `~/.pu-state/` does (every pool
+# box's ssh_config shares one cert/key through one gateway; confirmed live: a
+# pool box CAN dial another pool box through that gateway once handed the same
+# credentials). `wire-relay` copies the credentials + a renamed Host block onto
+# the lane host under a caller-chosen alias, scoped so concurrent PRs sharing a
+# long-lived host (rasam serves every PR's darwin lane) never collide:
+#
+#   ci/pu/lease.sh wire-relay <primary_ssh_dest> <target_box> <alias>
+#   ci/pu/lease.sh unwire-relay <primary_ssh_dest> <alias>   # cleanup, every exit path
+#
+# `<alias>` should be PR-scoped (e.g. `kolu-remote-pr1234`) — the relay dir and
+# config file are named from it, so two PRs' concurrent lanes on the same
+# `primary_ssh_dest` never touch each other's files. `~/.ssh/config` on the
+# primary gets exactly ONE persistent glob `Include` line (added idempotently,
+# never removed) that picks up every alias-scoped file — no accumulation, no
+# per-run edit to the shared config file itself.
 set -uo pipefail
 
 POOL_SIZE="${KOLU_CI_POOL:-8}"
@@ -193,6 +220,72 @@ release_cmd() {
   fi
 }
 
+# ── wire-relay: bridge <primary_ssh_dest> → <target_box> under <alias> ──
+# Renders target_box's OWN ssh_config block under a new Host name (<alias>),
+# rewriting its absolute key/cert/known_hosts paths to `~/.ssh/kolu-ci-relay/
+# <alias>/…` — tilde, not a hardcoded home, so the SAME rendering works whether
+# the primary's home is a pool box's `/home/toor` or rasam's own account. Ships
+# the 3 credential files + the rendered block to a unique staging tmpdir (so two
+# concurrent PRs' `scp`s onto the SAME primary, e.g. rasam, never collide), then
+# one ssh installs them and ensures the persistent glob Include exists.
+wire_relay() {
+  local primary="${1:?usage: wire-relay <primary_ssh_dest> <target_box> <alias>}"
+  local target="${2:?usage: wire-relay <primary_ssh_dest> <target_box> <alias>}"
+  local alias="${3:?usage: wire-relay <primary_ssh_dest> <target_box> <alias>}"
+  local tcfg; tcfg="$(cfg "$target")"
+  [ -f "$tcfg" ] || { log "wire-relay: no ssh_config for target box '$target' ($tcfg)"; return 1; }
+
+  local stage; stage="$(mktemp -d)"
+  # Swap the `Host <target>` line for `Host <alias>` and point the three
+  # absolute credential paths at the relay dir this alias will own on the
+  # primary — `~` so it resolves under WHATEVER account owns that box.
+  sed -e "s#^Host .*#Host $alias#" \
+      -e "s#$HOME/.pu-state/key-cert.pub#~/.ssh/kolu-ci-relay/$alias/key-cert.pub#" \
+      -e "s#$HOME/.pu-state/key#~/.ssh/kolu-ci-relay/$alias/key#" \
+      -e "s#$HOME/.pu-state/known_hosts#~/.ssh/kolu-ci-relay/$alias/known_hosts#" \
+      "$tcfg" >"$stage/block.conf"
+  cp "$HOME/.pu-state/key" "$HOME/.pu-state/key-cert.pub" "$HOME/.pu-state/known_hosts" "$stage/"
+
+  local remote_stage="/tmp/kolu-ci-relay-stage-$alias-$$"
+  ssh -o ConnectTimeout=20 "$primary" "mkdir -p '$remote_stage'" || {
+    log "wire-relay: could not reach primary '$primary'"; rm -rf "$stage"; return 1; }
+  scp -o ConnectTimeout=20 -q "$stage"/* "$primary:$remote_stage/" || {
+    log "wire-relay: scp to '$primary' failed"; rm -rf "$stage"; return 1; }
+  rm -rf "$stage"
+
+  ssh -o ConnectTimeout=20 "$primary" bash -s -- "$alias" "$remote_stage" <<'REMOTE'
+    set -euo pipefail
+    alias="$1"; stage="$2"
+    relay_dir="$HOME/.ssh/kolu-ci-relay/$alias"
+    mkdir -p "$HOME/.ssh" "$relay_dir"
+    chmod 700 "$HOME/.ssh" "$relay_dir"
+    mv "$stage/key" "$stage/key-cert.pub" "$stage/known_hosts" "$relay_dir/"
+    chmod 600 "$relay_dir/key"
+    mv "$stage/block.conf" "$HOME/.ssh/kolu-ci-relay-$alias.config"
+    rmdir "$stage" 2>/dev/null || true
+    touch "$HOME/.ssh/config"
+    if ! grep -qF 'Include ~/.ssh/kolu-ci-relay-*.config' "$HOME/.ssh/config"; then
+      { echo 'Include ~/.ssh/kolu-ci-relay-*.config'; cat "$HOME/.ssh/config"; } \
+        >"$HOME/.ssh/config.new"
+      mv "$HOME/.ssh/config.new" "$HOME/.ssh/config"
+    fi
+    chmod 600 "$HOME/.ssh/config"
+REMOTE
+  log "wire-relay: $primary can now dial '$alias' → $target"
+}
+
+# ── unwire-relay: remove one alias's files from <primary_ssh_dest> ──
+# Leaves the persistent glob Include in place (harmless with no matching files;
+# removing it too would race a DIFFERENT PR's concurrently-wired alias on a
+# shared primary like rasam).
+unwire_relay() {
+  local primary="${1:?usage: unwire-relay <primary_ssh_dest> <alias>}"
+  local alias="${2:?usage: unwire-relay <primary_ssh_dest> <alias>}"
+  ssh -o ConnectTimeout=20 "$primary" \
+    "rm -rf \"\$HOME/.ssh/kolu-ci-relay/$alias\" \"\$HOME/.ssh/kolu-ci-relay-$alias.config\"" \
+    2>/dev/null || log "unwire-relay: could not clean '$alias' on '$primary' (best-effort)"
+}
+
 # ── status: per-box idle/leased snapshot via a parallel flock probe ──
 status_cmd() {
   local tmp i b cfg
@@ -215,8 +308,10 @@ status_cmd() {
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
-  acquire) acquire "$@" ;;
-  release) release_cmd ;;
-  status)  status_cmd ;;
-  *) echo "usage: ci/pu/lease.sh {acquire <pr>|release|status}" >&2; exit 2 ;;
+  acquire)      acquire "$@" ;;
+  release)      release_cmd ;;
+  status)       status_cmd ;;
+  wire-relay)   wire_relay "$@" ;;
+  unwire-relay) unwire_relay "$@" ;;
+  *) echo "usage: ci/pu/lease.sh {acquire <pr>|release|status|wire-relay <primary> <box> <alias>|unwire-relay <primary> <alias>}" >&2; exit 2 ;;
 esac
