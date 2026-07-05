@@ -1,0 +1,129 @@
+---
+title: Surface hosting — the four build-time roadblocks, in code
+description: The implementing agent inventoried all three consumers (kolu · drishti · odu) and hit four design questions before writing code. Each answered here in code, for srid's ratify; once approved these fold into the plan.
+parents: [reference, padi]
+status: proposed
+maturity: seedling
+updated: 2026-07-05
+---
+
+The agent's inventory found: **neither drishti nor odu consumes `@kolu/surface-daemon`, and neither calls `identity()`** — the only `identity()` reader is kolu-server's padi arm, off padi's own control-core hello. That one fact drives all four answers. Proposed resolutions below; **each needs srid's yes**.
+
+## 1. Why "universal hello" can't ride this refactor
+
+Every surface pins its **exact** member set — a set-equality test:
+
+```ts
+// odu's lane surface has exactly three members, and a test locks that:
+test("laneSurface members", () => {
+  expect(memberNames(laneSurface)).toEqual(new Set(["progress", "logLine", "result"]));
+});
+```
+
+"Universal hello" means the framework makes **every** surface serve an identity member. To do that, `defineSurface` has to inject a reserved member into all of them:
+
+```ts
+function defineSurface(members) {
+  return implement({ ...members, system: { live, identity } }); // `identity` is NEW (live already exists)
+}
+// now laneSurface has FOUR members, and the test above FAILS:
+//   Set(["progress","logLine","result","system"]) ≠ Set(["progress","logLine","result"])
+```
+
+That changes every contract's member set, every set-equality test, the variance of every surface type, and the seal. **That's new behavior, not a rename** — so it can't sit inside a behavior-preserving refactor. (It's a real, doable feature — `system.live` proves the pattern — just its *own* PR.)
+
+**So for THIS refactor, identity lives where it's already sourced** — the daemon arm, from the hello padi already serves:
+
+```ts
+// (b) — proposed: identity on the DAEMON sub-role
+interface Session<Client> {            // base role: unchanged, NO identity()
+  pin(): Promise<Client>;
+  currentClient(): Promise<Client> | null;
+  isDestroyed(): boolean;
+  onState(cb): () => void;
+  markConnected(): void;
+  destroy(): void;
+}
+interface DaemonSession<Client> extends Session<Client> {
+  identity(): ServerIdentity | null;   // ← from control.core.hello(), served TODAY
+  convergence(): DaemonConvergence | null;
+  readonly preservation: PreservationStrategy;
+  renew(): Promise<void>;
+}
+```
+
+The alternative puts `identity()` on the base role now — which means every plain ssh session lies:
+
+```ts
+// (a) — rejected: identity on base Session
+const s = makeSession({ connectOnce: sshConnector({ host }) }); // drishti / odu path
+s.identity();  // → null.  forever.  (the far end serves no hello yet)   ← the silently-absent smell
+```
+
+**(a) buys nothing** — it eats the smell now AND still needs the universal-hello feature later to fix it. **(b) is clean now and graduates cleanly**: when the universal-hello PR lands, `identity()` simply *moves* from `DaemonSession` up to `Session`, and nothing returns null-forever because by then every server answers.
+
+> **Your ruling stands as the destination.** This only sequences it: **(b) now · universal hello as its own follow-up PR · then identity graduates to the base role.** Approve?
+
+## 2. Fleet controls, plainly
+
+drishti's fleet dashboard has "reconnect this host" and "recheck all" buttons. Those need `reconnect()`/`recheck()` on the session. But the minimal `Session` role above **omits** them — because `reServeSurface` (the machinery that consumes the role) never calls them. No contradiction: the session *object* carries more than any one consumer's *slot* demands.
+
+```ts
+// makeSession's RESULT carries the loop's manual triggers:
+function makeSession<C>(opts): Session<C> & { reconnect(): void; recheck(): void } {
+  /* the reconnect loop… */  return { pin, currentClient, isDestroyed, onState, markConnected, destroy, reconnect, recheck };
+}
+
+// reServeSurface asks only for the minimal role (never calls reconnect/recheck):
+reServeSurface({ source, policy, session });        // session: Session<C> — fine, it has ≥ that
+
+// drishti's fleet wires its BUTTONS to the extras, declared at registry construction (S2):
+buildHostRegistry({
+  buildEntry: (host) => ({ session: makeSession({ connectOnce: sshConnector({ host }) }), handler }),
+  controls: { reconnect: (s) => s.reconnect(), recheck: (s) => s.recheck() }, // ← the buttons
+});
+// controls SUPPLIED ⇒ registry.reconnect(host) / registry.recheckAll() EXIST and are typed.
+// controls OMITTED (kolu, odu) ⇒ those methods don't exist — calling them won't compile.
+```
+
+**Proposed: confirm this shape** (session-object has reconnect/recheck; role stays minimal; registry controls call them). It's exactly S2.
+
+## 3. The perfect framework name: `ServerIdentity`
+
+The value a session reports about the far end is `{ contractVersion, startedAt, buildId, commit }` — **the identity of the thing serving the surface.** Every server has this (a contract version, a boot time, a build); it isn't daemon-specific. So the perfect, forward-correct name is **`ServerIdentity`**, living in **`@kolu/surface`** (the base package) — so when universal hello lands it's already home, no move:
+
+```ts
+// @kolu/surface
+interface ServerIdentity {
+  contractVersion: string;
+  startedAt: number;
+  buildId: string;        // the build's content hash — convergence CURRENCY (staleKey)
+  commit: string | null;  // human-navigable source commit — a DISTINCT field, never merged
+}
+```
+
+It collides with an existing `kolu-common ServerIdentity` (the PWA identity) — **but that's kolu's to rename**, exactly as you said: the framework name should be perfect, the app moves. kolu-common's becomes `PwaIdentity` (or whatever names it accurately). `buildId` vs `commit` stay two fields with two meanings.
+
+> The daemon layer *uses* `buildId` for convergence; a plain server just *has* it. So `ServerIdentity` is universal, `convergence()` is the daemon addition. **Approve `ServerIdentity` in `@kolu/surface` + rename the kolu-common collider?**
+
+## 4. Scope — the framework happens in full; only kolu's *pool* defers
+
+The agent under-read "existing consumers only." To be exact — **the framework reshape is fully in scope even where kolu-server doesn't consume it yet** (drishti does, and the framework must be perfect regardless):
+
+| In THIS three-PR refactor | Out (its own later PR) |
+|---|---|
+| `Session` / `DaemonSession` roles + all renames | Universal framework hello (reserved `system.identity`) |
+| `makeSession` + `sshConnector` + `endpointConnector` | `identity()` graduating to the base `Session` role |
+| **S1/S2: `buildHostRegistry` → `DestroyableSession` slot + typed `controls`** (drishti's consumer) | **kolu-server GROWING a `buildHostRegistry` pool** (the W4 switch) |
+| S10: delete `getHostSession` + the global pool + evict/destroyAll | |
+| `identity()/convergence()/renew()/preservation` on `DaemonSession` | |
+| Migrate the three existing consumers: kolu single-padi arm · drishti fleet · odu lanes (odu owns its own teardown) | |
+
+**So: yes, `buildHostRegistry`'s S1/S2 reshape happens now** (drishti consumes it; perfect it). The *only* kolu-server thing deferred is it becoming a registry *client* — the pool — which is W4. **Confirm this scope split?**
+
+## The four asks, in one line
+
+1. **(b)-now + universal-hello-as-follow-up** — sequences your ruling, doesn't drop it.
+2. **Confirm** the session-carries-reconnect/recheck shape (= S2).
+3. **`ServerIdentity` in `@kolu/surface`**, rename kolu-common's collider.
+4. **Confirm** scope: full framework reshape (incl. `buildHostRegistry` S1/S2) in; only kolu-server's *pool adoption* (W4) out.
