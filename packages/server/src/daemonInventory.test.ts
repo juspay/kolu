@@ -1,7 +1,7 @@
 /**
  * The web shell's host-daemon-inventory PUBLISHER — the combine step over injected seams.
  * No filesystem, no socket: it drives `enumerateDaemonInventoryOnce` / the sampler and
- * asserts the reshaped `daemonInventory` cell (boundHost · localScan · boundPadi).
+ * asserts the reshaped `daemonInventory` cell (binding · boundPadi).
  *
  * The bound host's daemons are NOT the shell's concern anymore — padi serves them on
  * `padiSurface.hostInventory` (tested in @kolu/padi's `hostInventory.test.ts`). Here the
@@ -75,8 +75,9 @@ describe("enumerateDaemonInventoryOnce — local binding", () => {
         },
       }),
     );
-    expect(published?.boundHost).toBeNull();
-    expect(published?.localScan).toBeNull();
+    // The union makes a local binding carry NO scan by construction — not merely a null
+    // one — so `{ kind: "local" }` is the whole binding.
+    expect(published?.binding).toEqual({ kind: "local" });
   });
 
   it("publishes the bound padi's honest identity on boundPadi (works over ssh; no local active row needed)", async () => {
@@ -126,14 +127,17 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
         },
       }),
     );
+    const binding = published?.binding;
+    if (binding?.kind !== "remote")
+      throw new Error("expected a remote binding");
     // The local machine's daemons ARE listed (a leak on the machine you're using stays
     // visible) …
-    expect(published?.localScan?.kavals).toHaveLength(1);
-    expect(published?.localScan?.padis).toHaveLength(1);
+    expect(binding.localScan.kavals).toHaveLength(1);
+    expect(binding.localScan.padis).toHaveLength(1);
     // … but NONE is kolu's active one (no "in use by kolu" lie on a local socket). The
     // remote padi's version/commit ride boundPadi, never a local row.
-    expect(published?.localScan?.kavals[0]?.active).toBe(false);
-    expect(published?.localScan?.padis[0]?.active).toBe(false);
+    expect(binding.localScan.kavals[0]?.active).toBe(false);
+    expect(binding.localScan.padis[0]?.active).toBe(false);
   });
 
   it("publishes boundHost = the remote host so the dialog labels the local scan 'not the bound host'", async () => {
@@ -146,7 +150,10 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
         },
       }),
     );
-    expect(published?.boundHost).toBe("nix@prod.example");
+    expect(published?.binding).toMatchObject({
+      kind: "remote",
+      host: "nix@prod.example",
+    });
     // The BOUND padi's identity rides boundPadi (off the session readouts), so the Padi
     // dialog's version + build-commit work over ssh even though NO local padi is active.
     expect(published?.boundPadi).toEqual({

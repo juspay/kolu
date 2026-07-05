@@ -35,20 +35,24 @@ const sub = app.cells.daemonInventory.use({
  *  runs on is NOT the bound host — so the dialogs show its `localScan` as a separate
  *  "this machine, not the bound host" group beside the bound host's own list. */
 export function daemonScanBoundHost(): string | null {
-  return sub.value()?.boundHost ?? null;
+  const binding = sub.value()?.binding;
+  return binding?.kind === "remote" ? binding.host : null;
 }
 
 /** kolu-server's scan of the machine it ITSELF runs on — every running kaval on that
  *  machine, marked NONE active (kolu is bound elsewhere). Non-empty only under a remote
- *  binding; `[]` under a local binding (the bound host's member already covers it). */
+ *  binding; `[]` under a local binding (the bound host's member already covers it — the
+ *  `remote`-only discriminant makes a local scan structurally impossible to carry). */
 export function localScanKavals(): RunningKaval[] {
-  return sub.value()?.localScan?.kavals ?? [];
+  const binding = sub.value()?.binding;
+  return binding?.kind === "remote" ? binding.localScan.kavals : [];
 }
 
 /** kolu-server's scan of the machine it ITSELF runs on — every running padi on that
  *  machine, marked NONE active. Non-empty only under a remote binding. */
 export function localScanPadis(): RunningPadi[] {
-  return sub.value()?.localScan?.padis ?? [];
+  const binding = sub.value()?.binding;
+  return binding?.kind === "remote" ? binding.localScan.padis : [];
 }
 
 /** The `padiSurface` version the BOUND padi serves — its honest `hello.surfaceVersion`,

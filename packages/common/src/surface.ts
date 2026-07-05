@@ -85,13 +85,6 @@ export type {
   TerminalId,
   TerminalSnapshot,
 } from "@kolu/terminal-workspace/schema";
-// The wire schemas (values) for the daemon-inventory rows — re-exported so a
-// `kolu-common/surface` importer that references the SCHEMA (not just the type)
-// keeps resolving here even though the declaration moved to the shared leaf.
-export {
-  RunningKavalSchema,
-  RunningPadiSchema,
-} from "@kolu/terminal-workspace/schema";
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
 //
 // The generic `TerminalSnapshot` (terminal identity, agent status, PR resolution,
@@ -346,22 +339,33 @@ export const PadiConvergenceSchema = z.object({
 });
 export type PadiConvergence = z.infer<typeof PadiConvergenceSchema>;
 
+/** Where kolu-server's padi is bound — and, when that is NOT the machine kolu-server
+ *  itself runs on, its own-machine scan. The discriminant makes the coupling a TYPE, not
+ *  prose: `local` carries no scan (kolu is bound to the local padi, whose `hostInventory`
+ *  member already describes this machine — a second copy would show two lists for one
+ *  truth), and `remote` ALWAYS carries both the `host` and the `localScan`. The illegal
+ *  pairings — a local binding with a scan, or a remote binding missing its host/scan — are
+ *  UNREPRESENTABLE, so a future writer cannot drift them apart. The BOUND host's own
+ *  daemons never ride this cell either way: they ride padiSurface's `hostInventory` member
+ *  (works local and remote). `local` is the honest pre-first-sample default. */
+export const DaemonBindingSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local") }),
+  z.object({
+    kind: z.literal("remote"),
+    /** The ssh host the padi is bound to (`KOLU_PADI_HOST`) — drives the dialog's
+     *  machine labels ("daemons on <host>" + "this machine, not the bound host"). */
+    host: z.string(),
+    /** kolu-server's scan of the machine it ITSELF runs on — NOT the bound host, so a
+     *  leaked daemon on the box you're actually using stays visible. The same @kolu/padi
+     *  scanner the member uses, marking NONE active (kolu is bound elsewhere). */
+    localScan: HostDaemonInventorySchema,
+  }),
+]);
+export type DaemonBinding = z.infer<typeof DaemonBindingSchema>;
+
 export const DaemonInventorySchema = z.object({
-  /** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
-   *  LOCAL binding. The BOUND host's daemons ride padiSurface's `hostInventory` member
-   *  (the bound padi's scan of its OWN host — works local and remote), so this cell no
-   *  longer carries them. `boundHost` drives the dialog's machine labels: under a remote
-   *  binding the machine kolu-server runs on is NOT the bound host, so its `localScan`
-   *  (below) is shown as a separate "this machine, not the bound host" group. */
-  boundHost: z.string().nullable(),
-  /** kolu-server's scan of the machine it ITSELF runs on — populated ONLY under a REMOTE
-   *  binding (`boundHost !== null`), where that machine is not the bound host, so a leaked
-   *  daemon on the machine you're actually using stays visible. `null` under a LOCAL
-   *  binding: the bound padi's `hostInventory` member already describes this same machine,
-   *  and a second copy here would show two lists for one truth. Read-only enumeration (same
-   *  scanner @kolu/padi serves the member with), marking NONE active — kolu is bound
-   *  elsewhere, so no local daemon is "in use by kolu". */
-  localScan: HostDaemonInventorySchema.nullable(),
+  /** The binding + (remote-only) own-machine scan — see {@link DaemonBindingSchema}. */
+  binding: DaemonBindingSchema,
   /** The BOUND padi's honest identity off its control-core `hello` — `surfaceVersion` +
    *  `buildCommit` — for BOTH arms (local socket OR remote ssh). The Padi dialog's
    *  version chip + build-commit row read THIS, not the local-scan `active` row: under a
@@ -383,12 +387,11 @@ export const DaemonInventorySchema = z.object({
 });
 export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
 
-/** The honest pre-sample "unknown" — `boundHost` null (binding unknown), `localScan`
- *  null (no local scan until a remote binding reports one), `boundPadi` null. A fresh
- *  subscription renders no fabricated daemons until the first server enumeration lands. */
+/** The honest pre-sample default — `local` binding (no own-machine scan to show yet),
+ *  `boundPadi` null. The sampler's T+0 tick replaces it with the real binding at once; a
+ *  fresh subscription renders no fabricated daemons until then. */
 export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
-  boundHost: null,
-  localScan: null,
+  binding: { kind: "local" },
   boundPadi: null,
 };
 

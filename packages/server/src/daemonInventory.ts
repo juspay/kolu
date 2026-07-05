@@ -29,7 +29,11 @@
 import { enumerateHostDaemons } from "@kolu/padi/assembly";
 import type { KavalProbe, PadiDaemon } from "@kolu/padi/assembly";
 import type { KavalDaemon } from "kaval";
-import type { DaemonInventory, PadiConvergence } from "kolu-common/surface";
+import type {
+  DaemonBinding,
+  DaemonInventory,
+  PadiConvergence,
+} from "kolu-common/surface";
 
 /** The seams the publisher reads/writes through — injected so the wiring is one call
  *  and a test can drive it without a real host. `discover*`/`probe` are the read-only
@@ -70,30 +74,35 @@ export interface DaemonInventoryDeps {
 export async function enumerateDaemonInventoryOnce(
   deps: DaemonInventoryDeps,
 ): Promise<void> {
-  const boundLocally = deps.boundHost === null;
-  // The LOCAL-machine scan — ONLY under a remote binding, where the machine kolu-server
-  // runs on is NOT the bound host. Under a local binding the bound padi's `hostInventory`
-  // member already describes this machine, so a second copy here would duplicate it.
-  // Marks NONE active (all `active*` null): a remote binding owns no local daemon, so a
-  // stray local kaval/padi is listed (leak visible) but never labelled "in use by kolu".
-  const localScan = boundLocally
-    ? null
-    : await enumerateHostDaemons({
-        discoverKavals: deps.discoverKavals,
-        discoverPadis: deps.discoverPadis,
-        probe: deps.probe,
-        activeKavalSocket: null,
-        activeKavalAtLegacy: false,
-        activePadiSocket: null,
-      });
+  // The binding + (remote-only) own-machine scan, as ONE discriminated value so the
+  // coupling is a type, not a convention: a LOCAL binding carries no scan (the bound
+  // padi's `hostInventory` member already describes this machine — a second copy would
+  // duplicate it), and a REMOTE binding ALWAYS carries both its host and the scan. The
+  // scan runs ONLY in the remote branch, marking NONE active (a remote binding owns no
+  // local daemon, so a stray local kaval/padi is listed — leak visible — but never
+  // labelled "in use by kolu"). `boundHost === null` is the sole local/remote signal.
+  const binding: DaemonBinding =
+    deps.boundHost === null
+      ? { kind: "local" }
+      : {
+          kind: "remote",
+          host: deps.boundHost,
+          localScan: await enumerateHostDaemons({
+            discoverKavals: deps.discoverKavals,
+            discoverPadis: deps.discoverPadis,
+            probe: deps.probe,
+            activeKavalSocket: null,
+            activeKavalAtLegacy: false,
+            activePadiSocket: null,
+          }),
+        };
   // The BOUND padi's honest identity (both arms) — read ONCE off the session's hello
   // readouts (works over ssh: no local padi is `active` under a remote binding).
   const padiSurfaceVersion = deps.activePadiSurfaceVersion();
   const padiBuildCommit = deps.activePadiBuildCommit();
   const padiConvergence = deps.activePadiConvergence();
   deps.publish({
-    boundHost: deps.boundHost,
-    localScan,
+    binding,
     // The Padi dialog's version + build-commit rows read THIS, so they work over ssh even
     // though no LOCAL padi is `active` under a remote binding. Plus a STANDING convergence
     // anomaly (adopted-stale / skew / drain-fail / link-fail) so a degraded bind is a
