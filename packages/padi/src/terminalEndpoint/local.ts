@@ -56,7 +56,7 @@ import type {
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
-import { terminalsDirtyChannel } from "../publisher.ts";
+import { notifyDirty } from "../autosaveGate.ts";
 import {
   type ActiveTerminalProcess,
   drainTerminals,
@@ -95,25 +95,6 @@ import {
   updateMemory,
 } from "./metadata.ts";
 import { type OpenedAttach, reattachingDeltas } from "./reattachingDeltas.ts";
-
-// ── PTY-state notification helpers ─────────────────────────────────────
-
-/** Notify that terminal state changed (drives debounced session auto-save).
- *  The autosave *trigger* only — the saved content rides the `session` cell, and
- *  the live terminal SET rides padi's `terminals` collection (fanned out by
- *  `installSnapshot` / `publishTerminalState` / `dropSnapshot`, whose keys stream
- *  is the client's terminal list). */
-function emitTerminalsDirty(): void {
-  // Guard the publish at the boundary (like `commitSnapshot`/`updateMemory`): a
-  // throwing dirty-channel subscriber must not propagate back into the producer's
-  // emit (which would freeze a sensor). Logged, not fatal — the next restore-relevant
-  // change re-arms the autosave.
-  try {
-    terminalsDirtyChannel.publish({});
-  } catch (err) {
-    log.error({ err }, "terminals:dirty publish threw");
-  }
-}
 
 /** Birth a terminal's two halves together — register the entry (whose required
  *  `snapshot` field carries the value) and fan that snapshot out to the
@@ -568,10 +549,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     }
     // `registerAndInstall` above fanned the adopted record onto padi's
     // `terminals` collection, so the client renders the adopted tile from its
-    // keys stream. Deliberately NO `emitTerminalsDirty()`: the saved session
-    // already holds this terminal, and the boot converges the session explicitly
-    // once all survivors are adopted — arming an autosave here could persist a
-    // half-adopted set (or a not-yet-restored active marker).
+    // keys stream. Deliberately NO `notifyDirty()`: the saved session already holds
+    // this terminal, and the boot converges the session explicitly once all
+    // survivors are adopted — arming an autosave here could persist a half-adopted
+    // set (or a not-yet-restored active marker).
     tlog.info({ pid: liveEntry.pid }, "adopted surviving PTY");
   }
 
@@ -820,8 +801,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       const authoredEqual = authoredFactsEqual(before, current);
       if (!authoredEqual)
         updateMemory(id, current.memory, restoreTargetOf(current));
-      if (!restoreRelevantEqual(before, current, authoredEqual))
-        emitTerminalsDirty();
+      if (!restoreRelevantEqual(before, current, authoredEqual)) notifyDirty();
     };
 
     // Bridge the raw VT taps onto the producer's signals (fire-and-forget — the
@@ -922,7 +902,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   private finalizeRemoval(id: TerminalId): void {
     unregisterTerminal(id);
     dropSnapshot(id);
-    emitTerminalsDirty();
+    notifyDirty();
   }
 
   /** A terminal's PTY exited naturally. Stop its sensor layer, publish the
@@ -1374,7 +1354,7 @@ export function adoptLocalInventoryOrphan(
   // Identical orphan adoption to the boot path, plus the autosave arming — so it
   // composes `adoptLocalOrphan` rather than repeating `adoptTerminal(orphanSnapshot…)`.
   adoptLocalOrphan(id, liveEntry);
-  emitTerminalsDirty();
+  notifyDirty();
 }
 
 /** Fail CLOSED on a live PTY whose wire id kolu cannot represent (F1) — a

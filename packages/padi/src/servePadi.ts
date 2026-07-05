@@ -36,7 +36,7 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
-import { cancelPendingAutosave } from "./session.ts";
+import { cancelPendingAutosave } from "./autosaveGate.ts";
 import {
   forfeitSession,
   importSession,

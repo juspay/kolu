@@ -12,10 +12,10 @@
  * Tests (vi) and (iv) are red-when-reverted against that line; the two control
  * cases pin that the guard is scoped (normal autosave still persists / clears).
  *
- * Async-timer pattern mirrors `packages/server/src/session.test.ts`'s
- * `initSessionAutoSave` test: REAL timers, a `terminalsDirtyChannel.publish({})`
- * to arm the loop, a short tick to let it schedule the 500 ms timer, then a
- * longer wait to pass the autosave window.
+ * Async-timer pattern mirrors `packages/server/src/session.test.ts`'s autosave
+ * test: REAL timers, a `terminalsDirtyChannel.publish({})` to arm the gate, a
+ * short tick to let it schedule the 500 ms timer, then a longer wait to pass the
+ * autosave window.
  */
 
 import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
@@ -29,15 +29,16 @@ import {
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID } from "./ptyHost/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
+import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
 import {
-  cancelPendingAutosave,
   getSavedSession,
-  initSessionAutoSave,
+  saveSession,
   setSavedSession,
   setSavedSessionFromSnapshot,
 } from "./session.ts";
 import {
   type ActiveTerminalProcess,
+  hasParkedTerminals,
   type ParkedTerminalProcess,
   registerTerminal,
   terminalEntries,
@@ -179,7 +180,11 @@ async function fireAutosave(): Promise<void> {
 // The autosave loop subscribes exactly ONCE — register it here, not per test, and
 // give the async subscription a moment to attach before the first publish.
 beforeAll(async () => {
-  initSessionAutoSave(snapshotSession);
+  initAutosaveGate({
+    snapshot: snapshotSession,
+    isRestorePending: hasParkedTerminals,
+    persist: saveSession,
+  });
   await tick(10);
 });
 

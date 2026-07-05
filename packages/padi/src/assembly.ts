@@ -91,9 +91,14 @@ export { buildPadiSurfaceDeps } from "./servePadi.ts";
 // ── session persistence ─────────────────────────────────────────────────
 export {
   cancelPendingAutosave,
+  freezeAutosave,
+  initAutosaveGate,
+  notifyDirty,
+  unfreezeAutosave,
+} from "./autosaveGate.ts";
+export {
   clearSavedSession,
   getSavedSession,
-  initSessionAutoSave,
   saveSession,
   setSavedSession,
   setSavedSessionFromSnapshot,
