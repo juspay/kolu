@@ -19,6 +19,7 @@ import {
   type PadiProcessMemory,
   padiSurface,
 } from "@kolu/padi/surface";
+import { surfaceClientRef } from "@kolu/surface/project";
 import {
   gateHttpRpcOrigin,
   gateWsOrigin,
@@ -287,6 +288,17 @@ reServedPadi.done
     process.exit(1);
   });
 
+// An IN-PROCESS client of the re-serve mirror — a `directLink` over the mirror's
+// own router, no socket/ssh hop. The memory sampler reads padi's `{ padi, kaval }`
+// pair off THIS (the value the re-serve already folds into its per-binding store)
+// instead of opening a second transport to padi. `surfaceClientRef` pins the client
+// type off the mirror's surface; the router is opaque (`unknown`), so it's cast to
+// the factory's router param exactly as the mirror's own re-serve does.
+const reServedPadiClient = surfaceClientRef(
+  reServedPadi.surface,
+  reServedPadi.router as Parameters<typeof surfaceClientRef>[1],
+);
+
 // Splice the re-serve's INNER surface object under the `padi` key beside
 // kolu-server's own siblings. The re-serve router is a top-level single-surface
 // router (`{ surface: { <padi members>, connection } }`), so nesting its `.surface`
@@ -526,23 +538,27 @@ const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
   kaval: { status: "error" },
 };
 
-// Read padi's `{ padi, kaval }` memory pair off the bound session — a one-shot
-// read of padi's `processMemory` cell (a snapshot-first subscription; take the
-// first frame — padi's last published value — and stop). Returns `null` ONLY when
-// padi is down (no live client), so the fold reports padi + kaval as the honest
-// `absent`, never a fake zero; a read that FAILS through a live client returns the
-// `error` reading instead (never `null`), so a real anomaly stays distinct from
-// `absent`. kaval runs inside the padi process now, so padi (not kolu-server) is the
-// source of that pair; the sampler folds it in below.
+// Read padi's `{ padi, kaval }` memory pair off the RE-SERVE MIRROR — a one-shot
+// read of the mirror's own `processMemory` cell (a snapshot-first subscription; take
+// the first frame — the value the re-serve already folded into its per-binding store
+// — and stop). This is the SAME reading the browser sees on `/surface/padi/*`, so
+// the rail consumes the source of truth once folded rather than re-dialing padi on a
+// second transport. Returns `null` ONLY when padi is down (no live client), so the
+// fold reports padi + kaval as the honest `absent`, never the mirror's STALE held
+// value; a read that FAILS through a live mirror returns the `error` reading instead
+// (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside
+// the padi process now, so padi (not kolu-server) is the source of that pair; the
+// sampler folds it in below.
 async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
-  const clientPromise = padiSession.currentClient();
-  if (!clientPromise) return null;
+  // The bound padi's liveness is the gate — no live client → honest `absent`, never
+  // the mirror's stale held value. M2 (a standing skew nulls the client) and the
+  // onState flip-to-absent both ride this exactly as the old bound-session read did.
+  if (!padiSession.currentClient()) return null;
   const ctl = new AbortController();
   try {
-    // `currentClient()` already returns the typed `PadiSurfaceClient`, so the cell
-    // verb is reachable checked — no structural retype needed.
-    const client = await clientPromise;
-    const iterable = await client.surface.processMemory.get(
+    // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so
+    // this reads the folded store with no socket/ssh hop and the same cell verb.
+    const iterable = await reServedPadiClient.surface.processMemory.get(
       {},
       { signal: ctl.signal },
     );
@@ -551,15 +567,16 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
     // not "no process to measure". Report `error`, not `absent`, and log at `error`
     // (a live-client read that produced nothing is a failed read, not a degraded-but-
     // recoverable state — see `.agency/code-police.md` errors-must-log-at-error).
-    log.error({}, "padi memory read yielded no frame through a live client");
+    log.error({}, "padi memory read yielded no frame through the mirror");
     return PADI_MEMORY_READ_ERROR;
   } catch (err) {
-    // padi was BELIEVED up (a live client) yet the read threw — surface the honest
-    // `error` state, distinct from `absent`, rather than collapsing a caught error
-    // to the empty "no process" reading. padi's liveness still rides the re-serve's
-    // own `connection` cell; this only affects the memory rail's three-way readout.
-    // A caught read failure is a real error, not `warn` (errors-must-log-at-error).
-    log.error({ err }, "padi memory read failed through a live client");
+    // padi was BELIEVED up (a live client) yet the mirror read threw — surface the
+    // honest `error` state, distinct from `absent`, rather than collapsing a caught
+    // error to the empty "no process" reading. padi's liveness still rides the
+    // re-serve's own `connection` cell; this only affects the memory rail's three-way
+    // readout. A caught read failure is a real error, not `warn`
+    // (errors-must-log-at-error).
+    log.error({ err }, "padi memory read failed through the mirror");
     return PADI_MEMORY_READ_ERROR;
   } finally {
     ctl.abort();
