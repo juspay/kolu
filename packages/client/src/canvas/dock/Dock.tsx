@@ -75,13 +75,9 @@ import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
-import {
-  terminalAnnotationLabel,
-  type TerminalDisplayInfo,
-} from "../../terminal/terminalDisplay";
+import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
@@ -525,9 +521,7 @@ const DockRow: Component<{
               color: c().info.annotationColor,
             }}
           >
-            <IntentMarkdownInline
-              markdown={annotationLine(c().meta.intent, c().info.key.label)}
-            />
+            <IntentMarkdownInline markdown={c().info.presentation.label} />
           </span>
           <SubCountCell subCount={c().info.subCount} />
           {/* Recency cell — "Xs ago". Shared with the touch drawer; the
@@ -709,7 +703,8 @@ const RailChip: Component<{
 };
 
 function chipTooltip(info: TerminalDisplayInfo, bucket: DockRowBucket): string {
-  return `${info.key.group} · ${terminalAnnotationLabel(info)} · ${bucket}`;
+  const { group, label, suffix } = info.presentation;
+  return [group, label, suffix, bucket].filter(Boolean).join(" · ");
 }
 
 export default Dock;

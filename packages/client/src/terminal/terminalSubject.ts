@@ -7,10 +7,7 @@
 
 import { activePr } from "@kolu/padi/surface";
 import { prLabel } from "anyforge/schemas";
-import {
-  terminalAnnotationLabel,
-  type TerminalDisplayInfo,
-} from "./terminalDisplay";
+import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 export type TerminalSubject = { title: string; description?: string };
 
@@ -19,9 +16,10 @@ export function terminalSubject(
   fallback: string,
 ): TerminalSubject {
   if (!info) return { title: fallback };
-  const { key, meta } = info;
-  const label = terminalAnnotationLabel(info);
-  const title = meta.git ? `${key.group}/${label}${key.suffix ?? ""}` : label;
+  const { meta, presentation } = info;
+  const title = meta.git
+    ? `${presentation.group}/${presentation.label}${presentation.suffix ?? ""}`
+    : `${presentation.label}${presentation.suffix ?? ""}`;
   const pr = activePr(meta);
   if (pr) return { title, description: prLabel(pr) };
   return { title };

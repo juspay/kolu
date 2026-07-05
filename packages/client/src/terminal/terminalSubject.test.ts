@@ -1,11 +1,7 @@
-import {
-  type ActiveTerminal,
-  LOCAL_LOCATION,
-  type TerminalMetadata,
-} from "@kolu/padi/surface";
+import { type ActiveTerminal, LOCAL_LOCATION } from "@kolu/padi/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
-import type { TerminalDisplayInfo } from "./terminalDisplay";
+import { buildTerminalDisplayInfos } from "./terminalDisplay";
 import { terminalSubject } from "./terminalSubject";
 
 function git(branch: string): GitInfo {
@@ -17,20 +13,6 @@ function git(branch: string): GitInfo {
     isWorktree: false,
     mainRepoRoot: "/repo",
     remoteUrl: null,
-  };
-}
-
-function info(meta: TerminalMetadata): TerminalDisplayInfo {
-  return {
-    meta,
-    repoColor: "#000",
-    branchColor: "#111",
-    annotationColor: "#111",
-    subCount: 0,
-    key: {
-      group: meta.git?.repoName ?? "repo",
-      label: meta.git?.branch ?? meta.cwd,
-    },
   };
 }
 
@@ -50,11 +32,32 @@ function meta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
 
 describe("terminalSubject", () => {
   it("uses the intent line before the git branch in user-facing subjects", () => {
-    expect(
-      terminalSubject(
-        info(meta({ intent: "Keep current task", git: git("new-branch") })),
-        "Terminal 1",
-      ).title,
-    ).toBe("repo/Keep current task");
+    const infos = buildTerminalDisplayInfos(
+      ["t1"],
+      () => meta({ intent: "Keep current task", git: git("new-branch") }),
+      () => [],
+    );
+    expect(terminalSubject(infos.get("t1"), "Terminal 1").title).toBe(
+      "repo/Keep current task",
+    );
+  });
+
+  it("uses presentation suffixes for same-intent terminals on different branches", () => {
+    const metas: Record<string, ActiveTerminal> = {
+      "aaaa-1": meta({ intent: "Keep current task", git: git("old-branch") }),
+      "bbbb-2": meta({ intent: "Keep current task", git: git("new-branch") }),
+    };
+    const infos = buildTerminalDisplayInfos(
+      Object.keys(metas),
+      (id) => metas[id],
+      () => [],
+    );
+
+    expect(terminalSubject(infos.get("aaaa-1"), "Terminal 1").title).toBe(
+      "repo/Keep current task#aaaa",
+    );
+    expect(terminalSubject(infos.get("bbbb-2"), "Terminal 2").title).toBe(
+      "repo/Keep current task#bbbb",
+    );
   });
 });

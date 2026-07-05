@@ -11,10 +11,7 @@ import {
 } from "solid-js";
 import { MOONLIT } from "../terminal/moonlit";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
-import {
-  terminalAnnotationLabel,
-  type TerminalDisplayInfo,
-} from "../terminal/terminalDisplay";
+import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { ActivityWindowChip } from "../ui/ActivityWindowChip";
@@ -65,8 +62,7 @@ function tileTooltip(
   info: TerminalDisplayInfo,
   presence: "sleeping" | "parked" | "agent" | "none",
 ): string {
-  const { group, suffix } = info.key;
-  const label = terminalAnnotationLabel(info);
+  const { group, label, suffix } = info.presentation;
   const headParts: string[] = [group];
   if (label && label !== group) headParts.push(label);
   if (suffix) headParts.push(suffix);

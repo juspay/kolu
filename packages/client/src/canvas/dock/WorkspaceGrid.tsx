@@ -28,7 +28,6 @@ import {
 } from "solid-js";
 import IntentBody from "../../intent/IntentBody";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
@@ -568,12 +567,7 @@ const WorkspaceCard: Component<{
           class="text-[0.95rem] font-semibold truncate leading-tight"
           style={{ color: props.entry.info.annotationColor }}
         >
-          <IntentMarkdownInline
-            markdown={annotationLine(
-              props.entry.info.meta.intent,
-              props.entry.label,
-            )}
-          />
+          <IntentMarkdownInline markdown={props.entry.label} />
         </span>
         <Show when={props.entry.suffix}>
           {(suffix) => (

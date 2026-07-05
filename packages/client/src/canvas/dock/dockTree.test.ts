@@ -1,6 +1,7 @@
 import { LOCAL_LOCATION } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
+import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
 import { buildDockTree } from "./dockTree";
@@ -20,6 +21,8 @@ function makeGetInfo(
   return (id) => {
     const e = entries[id as string];
     if (!e) return undefined;
+    const label = e.label ?? "main";
+    const presentationLabel = annotationLine(e.intent, label);
     return {
       repoColor: e.color,
       branchColor: e.color,
@@ -36,7 +39,9 @@ function makeGetInfo(
         intent: e.intent,
       },
       subCount: 0,
-      key: { group: e.group, label: e.label ?? "main" },
+      key: { group: e.group, label },
+      presentation: { group: e.group, label: presentationLabel },
+      titleAnnotationLabel: presentationLabel,
     };
   };
 }
