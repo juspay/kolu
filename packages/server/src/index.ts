@@ -385,10 +385,16 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   // then reads the bytes forks on the binding (local disk vs. the bound host), see
   // below. Either way the file is never forced whole through the base64 procedure.
   const clientPromise = padiSession.currentClient();
+  // A degraded/warming binding (skew · unconverged · linkFailed · not-yet-connected)
+  // yields a NULL `currentClient()` (`remotePadiBinding.ts` currentClient) — a loud
+  // 503 here, never a hang. Both the client AWAIT and the repoRoot resolve stay INSIDE
+  // the try so a client-promise rejection (a fresh spawn that fails its handshake) maps
+  // to the same 503 link-fault, not an uncaught 500.
   if (!clientPromise) return c.text("padi is not connected", 503);
-  const client = await clientPromise;
+  let client: Awaited<typeof clientPromise>;
   let repoRoot: string | null;
   try {
+    client = await clientPromise;
     ({ repoRoot } = await client.surface.preview.repoRootForTerminal({
       terminalId,
     }));
@@ -396,9 +402,10 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
     // padi's `repoRootForTerminal` returns `{ repoRoot: null }` for an
     // unknown/unmapped terminal — it never THROWS for the no-repo case (that is
     // the `if (!repoRoot)` 404 below). So a thrown error here is an OPERATIONAL
-    // failure of the bound link (padi went down mid-read, a protocol error, an
-    // unexpected handler fault), NOT "no repo". Surface it as a 503 so the real
-    // fault is visible instead of masqueraded as an ordinary missing-file 404.
+    // failure of the bound link (the client promise rejected, padi went down
+    // mid-read, a protocol error, an unexpected handler fault), NOT "no repo".
+    // Surface it as a 503 so the real fault is visible instead of masqueraded as an
+    // ordinary missing-file 404.
     log.error({ err, terminalId }, "padi repoRoot resolve failed (link fault)");
     return c.text("padi link fault resolving terminal repo", 503);
   }
