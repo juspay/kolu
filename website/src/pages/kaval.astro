@@ -143,7 +143,7 @@ const escapes = [
     <figure class="rounded-xl border border-rule px-5 py-6 overflow-x-auto">
       <svg
         class="kv-diagram"
-        viewBox="0 0 760 260"
+        viewBox="0 0 760 276"
         role="img"
         aria-labelledby="kv-diagram-title"
       >
@@ -177,73 +177,73 @@ const escapes = [
         >
 
         {/* socket boundary */}
-        <path d="M300,62 V206" class="kv-d-socket"></path>
+        <path d="M300,62 V218" class="kv-d-socket"></path>
 
         {/* connectors: clients ⇄ socket ⇄ daemon — two-way: clients call the
             daemon AND the daemon streams live updates (taps + the inventory
             feed) back, so a create in one client surfaces in the other */}
-        <path d="M174,98 H250" class="kv-d-flow"></path>
-        <path d="M174,174 H250" class="kv-d-flow"></path>
-        <path d="M250,98 V174" class="kv-d-flow"></path>
+        <path d="M174,102 H250" class="kv-d-flow"></path>
+        <path d="M174,182 H250" class="kv-d-flow"></path>
+        <path d="M250,102 V182" class="kv-d-flow"></path>
         <path
-          d="M250,136 H372"
+          d="M250,142 H372"
           class="kv-d-flow"
           marker-start="url(#kv-arrow)"
           marker-end="url(#kv-arrow)"></path>
 
         {/* daemon → PTYs (ownership) */}
-        <path d="M528,136 H554" class="kv-d-flow"></path>
-        <path d="M554,136 V95 H580" class="kv-d-flow" marker-end="url(#kv-arrow)"
+        <path d="M528,142 H554" class="kv-d-flow"></path>
+        <path d="M554,142 V95 H580" class="kv-d-flow" marker-end="url(#kv-arrow)"
         ></path>
-        <path d="M554,136 H580" class="kv-d-flow" marker-end="url(#kv-arrow)"
+        <path d="M554,142 H580" class="kv-d-flow" marker-end="url(#kv-arrow)"
         ></path>
         <path
-          d="M554,136 V177 H580"
+          d="M554,142 V177 H580"
           class="kv-d-flow"
           marker-end="url(#kv-arrow)"></path>
 
         {/* client boxes */}
-        <rect x="24" y="70" width="150" height="56" rx="9" class="kv-d-box"
+        <rect x="24" y="66" width="150" height="72" rx="9" class="kv-d-box"
         ></rect>
         <image
           href="/padi-logo.svg"
-          x="42"
-          y="84"
+          x="85"
+          y="78"
           width="28"
           height="28"
           preserveAspectRatio="xMidYMid meet"
           class="kv-d-logo"
         ></image>
-        <text x="118" y="97" text-anchor="middle" class="kv-d-label">padi</text>
-        <text x="118" y="114" text-anchor="middle" class="kv-d-sub"
+        <text x="99" y="119" text-anchor="middle" class="kv-d-label">padi</text>
+        <text x="99" y="132" text-anchor="middle" class="kv-d-sub"
           >kolu's host daemon</text
         >
 
-        <rect x="24" y="146" width="150" height="56" rx="9" class="kv-d-box"
+        <rect x="24" y="154" width="150" height="56" rx="9" class="kv-d-box"
         ></rect>
-        <text x="99" y="173" text-anchor="middle" class="kv-d-label"
+        <text x="99" y="181" text-anchor="middle" class="kv-d-label"
           >kaval-tui</text
         >
-        <text x="99" y="190" text-anchor="middle" class="kv-d-sub"
+        <text x="99" y="198" text-anchor="middle" class="kv-d-sub"
           >the shell client</text
         >
 
         {/* daemon box */}
-        <rect x="372" y="104" width="156" height="64" rx="11" class="kv-d-daemon"
+        <rect x="372" y="102" width="156" height="78" rx="11" class="kv-d-daemon"
         ></rect>
         <image
           href="/kaval-logo.svg"
-          x="394"
-          y="118"
+          x="432"
+          y="114"
           width="36"
           height="36"
           preserveAspectRatio="xMidYMid meet"
           class="kv-d-logo"
         ></image>
-        <text x="468" y="133" text-anchor="middle" class="kv-d-daemon-label"
+        <text x="450" y="163" text-anchor="middle" class="kv-d-daemon-label"
           >kaval</text
         >
-        <text x="468" y="151" text-anchor="middle" class="kv-d-sub"
+        <text x="450" y="175" text-anchor="middle" class="kv-d-sub"
           >the PTY daemon</text
         >
 
@@ -259,10 +259,10 @@ const escapes = [
         <text x="598" y="182" class="kv-d-pty-text">▸ nvim</text>
 
         {/* socket label */}
-        <text x="300" y="226" text-anchor="middle" class="kv-d-socket-label"
+        <text x="300" y="240" text-anchor="middle" class="kv-d-socket-label"
           >unix socket</text
         >
-        <text x="300" y="240" text-anchor="middle" class="kv-d-sub2"
+        <text x="300" y="254" text-anchor="middle" class="kv-d-sub2"
           >local · over ssh</text
         >
       </svg>
@@ -418,85 +418,25 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <div class="flex items-start justify-between gap-6">
-      <div>
-        <h2 class="kv-head">
-          the sibling — <span class="kv-prog">padi-tui</span>, over the workspace
-        </h2>
-        <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
-          kaval owns the PTYs and surfaces the raw taps above;{" "}
-      <code class="mono text-ink">padi</code> is the per-host workspace daemon
-      above it — it supervises kaval, folds each terminal's observations into a
-      record (repo branch, the open PR and its checks, which AI agent is running
-      and whether it's <span class="text-ink">working</span> or{" "}
-      <span class="text-ink">waiting on you</span>, the foreground process), and
-      serves it all as one surface the thin{" "}
-      <code class="mono text-ink">padi-tui</code> CLI reads. Where{" "}
-      <code class="mono text-ink">kaval-tui</code> shows what's{" "}
-          <em>running</em> in each PTY, padi-tui shows what each terminal{" "}
-          <em>is in</em>.
-        </p>
-      </div>
-      <img
-        src="/padi-logo.svg"
-        width="96"
-        height="96"
-        alt="padi — the per-host workspace daemon"
-        class="kv-padi-logo hidden md:block w-24 shrink-0"
-      />
-    </div>
-    <div class="kv-term">
-      <span class="cmd"
-        >nix run github:juspay/kolu#padi-tui -- status<span class="cmt"> # one-shot snapshot of every terminal</span></span
-      >
-      <span class="cmd"
-        >nix run github:juspay/kolu#padi-tui -- watch<span class="cmt">  # follow the workspace live (● = live bytes)</span></span
-      >
-      <span class="cmd"
-        >nix run github:juspay/kolu#padi-tui -- wait $id --until awaiting,waiting<span class="cmt"> # block until its turn ends</span></span
-      >
-      <span class="cmd"
-        >nix run github:juspay/kolu#padi-tui -- create -- claude<span class="cmt"> # spawn an agent on the canvas</span></span
-      >
-    </div>
-    <pre
-      class="mt-4 overflow-x-auto rounded-lg border border-rule px-4 py-3 mono text-xs text-ink-dim leading-relaxed"
-    ><code>ID        REPO·BRANCH         PR        AGENT             FOREGROUND        IDLE
-a3f10000  kolu·feat/dial-ssh  #1412 ✓   claude · working  node              2s
-b7c20000  kolu·master         —         codex · waiting   codex             1m
-c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim              5m</code></pre>
-    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
-      <span class="text-ink">Usually no flag.</span> padi keys its socket by a
-      digest of its state-root, so inside a kolu terminal{" "}
-      <code class="mono text-ink">$PADI_SOCKET</code> makes{" "}
-      <code class="mono text-ink">padi-tui</code> flag-less — an agent driving its
-      siblings never guesses a path. Elsewhere it autodiscovers the running padi;{" "}
-      <code class="mono text-ink">--socket &lt;path&gt;</code> or{" "}
-      <code class="mono text-ink">--state-root &lt;dir&gt;</code> point it
-      elsewhere. (A remote padi over ssh is next; today padi-tui is local-only.)
+    <h2 class="kv-head">what lives above it</h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
+      kaval owns the PTYs and the raw taps above them: screen, cwd, title,
+      command, and exit. <a href="/padi" class="text-kolu-primary hover:underline"
+        ><code class="mono">padi</code></a
+      > is the workspace daemon above it — the layer that folds those terminal
+      observations into repo context, PR state, agent state, session restore, and
+      the <code class="mono text-ink">padi-tui</code> surface.
     </p>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
-      <code class="mono text-ink">wait &lt;id&gt; --until awaiting,waiting</code>{" "}
-      blocks until a terminal's agent finishes its turn — the precise agent-state
-      done-signal (read off real padi state, not a guess from silence) that lets
-      one agent drive another: prompt it with{" "}
-      <code class="mono text-ink">kaval-tui send</code>, wait, then read the
-      reply. Since <code class="mono text-ink">wait</code> matches the state the
-      moment it connects, a robust driver waits in two phases —{" "}
-      <code class="mono text-ink">--until working</code> for the pickup, then{" "}
-      <code class="mono text-ink">--until awaiting,waiting</code> for the
-      turn-end — so a stale previous-turn state can't satisfy it early.{" "}
-      <code class="mono text-ink">--timeout &lt;ms&gt;</code> fails loud (exit 2),
-      a terminal that exits first exits 3, and{" "}
-      <code class="mono text-ink">--json</code> prints{" "}
-      <code class="mono text-ink">{"{ id, agent }"}</code>. The workspace-surface
-      design lives in the{" "}
-      <a
-        href="https://kolu.dev/atlas/pulam.html"
-        class="text-kolu-primary hover:underline"
-        rel="noopener">atlas note</a
-      >.
+      So this page stays about kaval: holding shells, attaching safely, detaching
+      like ssh, and sending raw bytes. The workspace table, socket discovery, and
+      agent-state wait semantics live on{" "}
+      <a href="/padi" class="text-kolu-primary hover:underline">the padi page</a>.
     </p>
+    <a href="/padi" class="kv-handoff">
+      <span>meet padi and padi-tui</span>
+      <small>workspace memory, agent state, and the shell face above kaval</small>
+    </a>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
@@ -671,12 +611,6 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     );
   }
 
-  .kv-padi-logo {
-    filter: drop-shadow(
-      0 14px 32px color-mix(in srgb, var(--color-live-lime) 35%, transparent)
-    );
-  }
-
   /* Section headings — real <h2>s. The page jumped from a ~67px display H1
      straight to 13px mono captions with no mid tier, so every section read
      flat. These are now a true display-scale heading (~half the H1) in the
@@ -722,6 +656,37 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     font-weight: 700;
     letter-spacing: -0.01em;
     color: var(--color-kolu-primary);
+  }
+
+  .kv-handoff {
+    display: block;
+    max-width: 34rem;
+    margin-top: 1.5rem;
+    border: 1px solid var(--color-rule);
+    border-left: 3px solid var(--color-kolu-bottom);
+    border-radius: 0.55rem;
+    padding: 0.95rem 1rem;
+    text-decoration: none;
+    background: color-mix(in srgb, var(--color-kolu-bottom) 7%, var(--color-void-raised));
+    transition:
+      border-color 120ms ease,
+      background 120ms ease;
+  }
+  .kv-handoff:hover {
+    border-color: var(--color-kolu-bottom);
+    background: color-mix(in srgb, var(--color-kolu-bottom) 11%, var(--color-void-raised));
+  }
+  .kv-handoff span {
+    display: block;
+    font-family: var(--font-mono);
+    color: var(--color-kolu-primary);
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+  }
+  .kv-handoff small {
+    display: block;
+    color: var(--color-ink-dim);
+    line-height: 1.5;
   }
 
   /* Sub-heading inside a section (e.g. "taps kaval surfaces"). A clear step
