@@ -27,8 +27,14 @@ unless it has a similarly narrow target.
 
 Source: `node_modules/.pnpm/@parcel+watcher@2.5.6/node_modules/@parcel/watcher/src/Backend.cc:30-69`.
 
-`backend: "default"` (Kolu doesn't pass an explicit backend) selects in this
-order, first match wins:
+**Kolu pins the OS-native backend explicitly** (`inotify` / `fs-events` /
+`windows`, chosen off `process.platform` — see `PARCEL_BACKEND` in
+`working-tree-watcher.ts`). It does **not** use `backend: "default"`. The pin
+skips the auto-dispatch order below — most importantly the `WatchmanBackend`
+probe, whose per-subscribe `popen` leaks a zombie on watchman-less hosts (see
+next section). If you write a new parcel consumer, pin the backend the same way.
+
+`backend: "default"` would select in this order, first match wins:
 
 1. `FSEvents` on macOS — native recursive, one stream per repo.
 2. `WatchmanBackend` if `WatchmanBackend::checkAvailable()` returns true.
@@ -37,8 +43,9 @@ order, first match wins:
 5. `KqueueBackend` on BSD.
 6. `BruteForceBackend` — periodic full-tree stat; the fallback fallback.
 
-So on Linux, watchman is preferred over inotify whenever it's reachable; on
-macOS watchman is never used by default (FSEvents wins).
+So under `"default"` on Linux, watchman is *probed* (and preferred if reachable)
+before inotify; on macOS watchman is never used (FSEvents wins). The explicit
+pin lands directly on step 1/3/4 for the platform and never runs step 2's probe.
 
 ## How parcel invokes watchman
 
@@ -51,6 +58,16 @@ Source: `src/watchman/WatchmanBackend.cc`.
    ```
    then parses BSER output for the `sockname` field. If `WATCHMAN_SOCK` env
    var is set, that wins and the binary isn't run at all.
+
+   > **⚠ Zombie leak — why Kolu pins the backend (juspay/kolu#1691).** On a
+   > host without watchman, this `popen` forks `/bin/sh`, the `watchman` exec
+   > fails, and parcel's error path returns **without `pclose()`** — so the
+   > `sh` is never `wait()`ed. `popen` bypasses `child_process`, so Node's
+   > libuv can't reap it either: it lingers as a zombie **forever, one per
+   > `subscribe`**. Free on CPU/RAM but a long-lived daemon (a remote-bound
+   > padi serving a full e2e run) accumulates dozens and the event loop drags.
+   > Pinning the native backend (above) skips `checkAvailable()` entirely, so
+   > the `popen` never runs. Verified: per-subscribe leak → 0.
 3. From there it's a Unix-domain socket carrying BSER-encoded JSON. No more
    subprocess spawns.
 
@@ -87,9 +104,13 @@ mean the daemon was killed mid-handshake. Add `.watchman-cookie-*` to
 ## Kolu's runtime status
 
 As of #788, Kolu does **not** ship watchman with the production binary. The
-`nix run` wrapper (`default.nix:156`) only adds `nodejs git gh` to PATH, so
-`checkAvailable()` always returns false at runtime and parcel falls through to
-inotify on Linux / FSEvents on macOS. Issue #788 tracks the integration work.
+`nix run` wrapper (`default.nix:156`) only adds `nodejs git gh` to PATH — so
+even under `backend: "default"` the watchman probe would always fail and parcel
+would fall through to inotify on Linux / FSEvents on macOS. Since #1692, Kolu
+doesn't rely on that fall-through: it **pins** the native backend, so
+`checkAvailable()` (and its leaking `popen`) never runs at all. Issue #788
+tracks the watchman integration work; if it lands, the pin is where you'd
+re-enable watchman deliberately (with a `WATCHMAN_SOCK` that avoids the probe).
 
 ## Kolu's wrapper invariants
 
@@ -133,8 +154,13 @@ debounce path swallows event paths silently.
 ## Failure modes worth knowing
 
 1. **Container/WSL2 bind mounts** — neither inotify nor FSEvents nor watchman
-   is available. parcel-watcher silently falls back to ~1s polling. Latency
-   degrades, correctness preserved.
+   is available. Under `backend: "default"` parcel would silently fall back to
+   `BruteForceBackend` ~1s polling (latency degrades, correctness preserved).
+   **The backend pin (#1692) forgoes that fallback**: a pinned `inotify` on a
+   bind mount that can't inotify surfaces as an `error git: working-tree watcher
+   install failed` instead of degrading to polling. Accepted trade — Kolu's
+   daemons run on real Linux/macOS with a live inotify/FSEvents, and the pin's
+   value (no per-subscribe zombie leak) outweighs a polling path no target hits.
 2. **Linux inotify slot exhaustion** — kernel default is
    `fs.inotify.max_user_watches=8192`. A typical Kolu repo uses ~500–2000
    slots; multiple worktrees compound. Watchman amortizes this across one
