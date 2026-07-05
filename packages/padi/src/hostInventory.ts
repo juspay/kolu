@@ -46,11 +46,7 @@ import {
   discoverPadiDaemons,
   padiKavalSocketPath,
 } from "./stateRoot.ts";
-import {
-  DEFAULT_PADI_HOST_INVENTORY,
-  PADI_SURFACE_VERSION,
-  type PadiHostInventory,
-} from "./surface.ts";
+import { PADI_SURFACE_VERSION, type PadiHostInventory } from "./surface.ts";
 
 /** The best-effort status a kaval socket answered — every field `null` when the
  *  probe failed / the daemon didn't answer (honest "unknown", never a fake value). */
@@ -322,6 +318,3 @@ export function startPadiHostInventorySampler(opts: {
   tick();
   setInterval(tick, HOST_INVENTORY_SAMPLE_INTERVAL_MS).unref();
 }
-
-// Re-exported so a fresh subscriber default is one import from the sampler's home.
-export { DEFAULT_PADI_HOST_INVENTORY };
