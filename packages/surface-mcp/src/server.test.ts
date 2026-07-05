@@ -554,6 +554,29 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
     const body = (read.contents[0] as { text: string }).text;
     expect(JSON.parse(body)).toEqual({ v: "answer" });
   });
+
+  it("reading an ABSENT collection item returns not-found promptly, never hangs", async () => {
+    const over = buildEdgeSurface();
+    const { mcp, served } = await connectEdge(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // The collection `get` now HOLDS OPEN for a not-yet-born key (the #1681 fix),
+    // so a one-shot read must resolve membership from `keys` first and report the
+    // absent key as not-found instead of awaiting a `get` frame that never comes.
+    // A 2s race guards against a regression back to the indefinite hang.
+    const read = mcp.readResource({ uri: "surface://collections/rows/99" });
+    const outcome = await Promise.race([
+      read.then(
+        () => "resolved",
+        () => "rejected",
+      ),
+      new Promise<string>((r) => setTimeout(() => r("timeout"), 2000)),
+    ]);
+    expect(outcome).toBe("rejected");
+  });
 });
 
 describe("serveSurfaceAsMcp — boot-time guards", () => {
