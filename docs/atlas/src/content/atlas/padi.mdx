@@ -33,9 +33,9 @@ export const ROADMAP = [
   { d: 0, g: "▶", c: "prog", l: "W3 · remote — the binding · the full-peer gaps · CI parity", m: "W3.1 ✓ · gaps ✓", h: "#w3" },
   { d: 1, g: "✓", c: "ship", l: "W3.1 · the remote binding — provision + front a remote padi over ssh (KOLU_PADI_HOST)", m: "#1675 · 2026-07-04", h: "#w31" },
   { d: 1, g: "✓", c: "ship", l: "W3.2 · the full-peer gaps — remote file preview + remote daemon list", m: "#1685 · #1686 · 2026-07-05", h: "#w32" },
-  { d: 1, g: "○", c: "prog", l: "W3.3 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W4", h: "#w33" },
   { d: 1, g: "▶", c: "prog", l: "W3.4 · remote e2e parity in CI — the FULL suite vs KOLU_PADI_HOST=<pool box>, every PR", m: "in flight — #1689", h: "#w34" },
   { d: 0, g: "○", c: "prog", l: "W4 · the switch — host picker · per-view bindings · warm pool — its OWN phase (largest since W2.2)", m: "READY after L6+L23 merge", h: "#w4" },
+  { d: 0, g: "○", c: "prog", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W4", h: "#w5" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "L6 L14 in flight · → the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -222,6 +222,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W3" name="remote — the ssh/Nix binding, the full-peer gaps, CI parity" status="todo" needs={["W2"]} />
 <Phase id="W4" name="the switch — host picker, per-view bindings, warm pool" status="todo" needs={["W3"]} />
 <Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
+<Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="todo" needs={["W4"]} />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **When packages are born** — graduation is a scheduled event, not a side effect:
@@ -297,13 +298,6 @@ W1.R's seal guarantees the domain lives behind the contract, complete as a libra
 
 **Shipped 2026-07-05, two self-sufficient PRs.** **Preview** (#1685): clicking a file while connected to a remote machine now shows the file — the route asks padi for the bytes in bounded 8 MiB chunks, pinned by a strong ETag so a file changing mid-read aborts loudly instead of serving spliced bytes; the old deliberate "preview unavailable" refusal is deleted; local mode byte-identical. **Inventory** (#1686): the "Running daemons" list now shows the connected machine's daemons (padi reports its own host via the `hostInventory` member, contract 1.2), each group labeled by machine, with the mixed-version window made safe. Together they complete the W3 "full peer — nothing silently wrong-host" promise for the single-host binding. *(This sub-phase originally also carried the switch; srid promoted it to its own phase, [W4](#w4), on 2026-07-05.)*
 
-<a id="w33"></a>
-
-#### W3.3 — cross-host attention *(needs W3.2; the A+ bar from the UX evaluation)*
-
-kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
-- **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
-
 <a id="w34"></a>
 
 #### W3.4 — remote e2e parity in CI *(needs only W3.1 — a parallel track beside W3.2; srid's call, 2026-07-04)*
@@ -334,6 +328,13 @@ The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios t
 **The safety property, built in rather than checked:** a click meant for the old machine must never land on the new one ("kill terminal 42" arriving at the wrong host). Requests are born bound to their machine — binding-scoped clients whose ids cannot cross — so the misroute cannot be written, rather than being caught by sprinkled checks.
 
 - **Done:** an e2e switches local → remote → local with tiles live on both ends; a stale in-flight call is **rejected, not misrouted**; two browser views parked on different hosts stay independent; the switch never disturbs another device; picker + recents + loud warming states all exercised by the e2e.
+
+<a id="w5"></a>
+
+### W5 — cross-host attention *(needs W4 — the switch's warm pool is what urgency fans in from; the A+ bar from the UX evaluation)*
+
+kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
+- **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
 
 <a id="cleanup"></a>
 
