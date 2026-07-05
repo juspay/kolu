@@ -7,13 +7,16 @@ paths:
 
 Three invariants an agent editing any single file would otherwise miss. They are independent rules (different layers, different enforcement mechanisms) that share a trigger: **touching any streaming procedure**.
 
-### 1. Route client calls through the `stream` namespace
+### 1. Apply `STREAM_RETRY` — via `client.rawStream` or `unenrolledStreamCall`, never a bare `client.*` call
 
-Every async-iterator RPC the client consumes goes through `packages/client/src/rpc/rpc.ts`'s `stream` object, not `client.*` directly. The wrapper bakes in `STREAM_RETRY` context so `ClientRetryPlugin` can transparently re-subscribe on WebSocket reconnect.
+Every async-iterator RPC the client consumes must carry the `STREAM_RETRY` context so `ClientRetryPlugin` transparently re-subscribes on WebSocket reconnect. That context is applied structurally in `@kolu/surface/src/client.ts` — there is no hand-rolled `stream` wrapper object (the old `packages/client/src/rpc/rpc.ts` `stream` namespace no longer exists; `rpc.ts` holds only `createServerLifecycle`). Two paths bake it in:
 
-**When adding a new streaming procedure** (to `packages/common/src/contract.ts` + `packages/server/src/router.ts`), also add a corresponding entry to the `stream` object. Consumers MUST use `stream.xxx(...)` — calling `client.xxx(...)` directly silently loses reconnect handling.
+- **`client.rawStream(name, proc, input, { onItem, onRetry, isExpectedStop })`** — a SURFACE-scoped raw stream that ENROLS into `client.health()` (throws outside a reactive owner, so a raw stream can't silently escape the health fact). This is the default for a surface stream member.
+- **`unenrolledStreamCall(proc, input, { signal, onRetry })`** (from `@kolu/surface/client`) — the bare, un-enrolled call: `STREAM_RETRY` applied, but DELIBERATELY carved out of any surface `health()`. Reach for it only when the stream's health is a per-consumer concern that must not flicker the global gate.
 
-`stream.attach` takes an `onRetry` callback because imperative consumers (xterm.js `Terminal.tsx`, `TerminalPreview.tsx`) must clear their buffer before the retried iterator delivers its fresh snapshot — otherwise scrollback double-paints.
+Both merge a supplied `onRetry` into the retry context so the plugin invokes the callback before each re-subscribe (`@kolu/surface/src/client.ts`). The terminal **attach** stream (`padiSurface.streams.terminalAttach`, called as `padiRpc(padi).surface.terminalAttach.get` in `terminal/Terminal.tsx`) uses `unenrolledStreamCall` for exactly this reason (Leak-A carve-out): a single terminal's re-attach — overflow re-attach #1591, PTY exit — must never light padi's connection-health indicator. Its `onRetry` resets xterm + the scroll lock and re-arms the snapshot boundary, because imperative consumers must clear their buffer before the retried iterator delivers its fresh snapshot — otherwise scrollback double-paints.
+
+**When adding a new streaming procedure**, pick `client.rawStream` (enrolled) unless the stream is a deliberate health carve-out (`unenrolledStreamCall`). A bare `client.xxx(...)` / `padiRpc(padi).surface.xxx.get(...)` call without one of these silently loses reconnect handling.
 
 ### 2. Server handlers yield snapshot-then-deltas
 
