@@ -105,22 +105,32 @@ Lives in **`@kolu/surface`** (the base package — it's a universal surface memb
 
 ## 5. `system.identity` — where does the DATA come from? (needs your call)
 
-**No `""` sentinels** (srid — the no-silent-fallback doctrine cannot be violated). The server-declared fields are encapsulated as one type, referenced as `Maybe T` — so "this server declared no identity" is a **typed null the reader can't ignore**, never a magic empty string:
+**No `""` sentinels** (srid — the no-silent-fallback doctrine cannot be violated). And the whole thing IS referenced as a `Maybe` — but note there are **TWO nullables, two meanings**, and collapsing them loses information:
 
 ```ts
-// the server-DECLARED part — present as a whole, or absent as a whole:
+// the server-DECLARED triple — present as a WHOLE, or absent as a whole:
 interface BakedIdentity {
   contractVersion: string;
   buildId: string;
-  commit: string | null;   // still nullable WITHIN a baked id (a build may lack a navigable commit)
+  commit: string | null;          // nullable WITHIN a baked id (a build may lack a navigable commit)
 }
 interface SurfaceIdentity {
-  startedAt: number;              // framework-captured — ALWAYS present
-  baked: BakedIdentity | null;    // null ⇔ the server declared no baked identity. NOT "" sentinels.
+  startedAt: number;              // framework-STAMPED on every answer — always present when connected
+  baked: BakedIdentity | null;    // null ⇔ connected, but the server declared no build. NOT "" sentinels.
 }
+
+// on the Session role — already a Maybe:
+identity(): SurfaceIdentity | null;
+//  null            ⇔ NOT CONNECTED (transient: before first contact / after a drop) — session-level
+//  { startedAt, baked: null }     ⇔ connected, server declared no build
+//  { startedAt, baked: {...} }    ⇔ connected, server declared its build
 ```
 
-Why this is doctrine-clean: no sentinel to misread; **illegal states unrepresentable** (you can't have `contractVersion` without `buildId` — they travel as one `BakedIdentity`); and the reader is **forced by the type** to handle `baked === null`, so nothing leaks through as if real. It maps to reality — `readBakedIdentity("PADI")` already returns exactly this triple as a unit.
+Why NOT flatten further (your two questions, answered):
+- **"Make the whole `SurfaceIdentity` a Maybe (drop the wrapper)"** — it already IS (`identity(): … | null`). But that outer null means *"no connection"*. It is NOT the same as *"connected, no build"*. Folding `startedAt` into that outer null would throw away a fact we always have when connected (the framework stamps `startedAt` on every answer). So the outer null can't absorb the build-absence.
+- **"Keep `startedAt` separate?"** — yes. It's always-present-when-connected (framework-stamped), so it lives OUTSIDE the `baked` nullable. Flattening the declared triple's fields up to `SurfaceIdentity` (dropping `BakedIdentity`) would let a **half-declared** identity exist (`contractVersion` set, `buildId` `""`) — the illegal state `BakedIdentity`-as-a-unit makes unrepresentable. `readBakedIdentity("PADI")` already returns the triple as one unit, so the grouping matches reality.
+
+Two nullables, both honest: outer = "no link", inner `baked` = "no declared build". Each says something the other can't.
 
 **Load-bearing fact:** only kolu-server's padi arm ever *reads* `.identity()`. drishti + odu never do. So only **padi** declares a `baked`.
 
