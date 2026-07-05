@@ -57,7 +57,8 @@ import {
   encodeKey,
   planSend,
   resolveSendInput,
-  type SendTextSource,
+  type SendInput,
+  sourceIsStream,
 } from "./send.ts";
 import { executeSendPlan } from "./sendExec.ts";
 import {
@@ -486,26 +487,28 @@ function stdinIsPayload(): boolean {
  *  one live source: the positional words re-joined (the shell already split
  *  them), a `--file` payload, piped stdin, or nothing (a keys-only send). */
 async function readSendText(
-  source: SendTextSource,
+  input: SendInput,
   textArgs: readonly string[],
-  file: string | undefined,
 ): Promise<string> {
-  if (source === "positional") return textArgs.join(" ");
-  if (source === "stdin") return readStdin();
-  if (source === "file") {
-    // file is defined whenever source is "file" (resolveSendInput derives the
-    // source from hasFile). Read it as raw UTF-8 — no shell in the loop, so
-    // backticks / $( ) in the payload reach the wire byte-exact.
-    try {
-      return readFileSync(file as string, "utf8");
-    } catch (err) {
-      const e = err as NodeJS.ErrnoException;
-      throw new Error(
-        `--file ${JSON.stringify(file)}: ${e.code === "ENOENT" ? "no such file" : e.message}`,
-      );
-    }
+  switch (input.kind) {
+    case "positional":
+      return textArgs.join(" ");
+    case "stdin":
+      return readStdin();
+    case "file":
+      // The path rides the descriptor (no cast). Read it as raw UTF-8 — no shell
+      // in the loop, so backticks / $( ) in the payload reach the wire byte-exact.
+      try {
+        return readFileSync(input.path, "utf8");
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException;
+        throw new Error(
+          `--file ${JSON.stringify(input.path)}: ${e.code === "ENOENT" ? "no such file" : e.message}`,
+        );
+      }
+    case "none":
+      return "";
   }
-  return "";
 }
 
 /** Write input to a terminal — the *raw* write half of driving a program (a
@@ -522,13 +525,12 @@ async function cmdSend(
     json: boolean;
     paste: boolean | undefined;
     key: readonly string[];
-    /** The single validated text source (`resolveSendInput`) and, for a `--file`
-     *  send, its path. */
-    source: SendTextSource;
-    file: string | undefined;
+    /** The single validated text source (`resolveSendInput`), carrying its own
+     *  payload locus — the `--file` path rides the descriptor. */
+    input: SendInput;
   },
 ): Promise<void> {
-  const text = await readSendText(flags.source, textArgs, flags.file);
+  const text = await readSendText(flags.input, textArgs);
 
   // Encode the named/control keys up front so an unknown key fails loud BEFORE
   // any byte reaches the terminal (no half-send). Order is preserved.
@@ -548,7 +550,7 @@ async function cmdSend(
     paste: flags.paste,
     // A --file or piped-stdin payload is a block, so it auto-pastes even when
     // single-line (a file is one payload, not a line typed at a prompt).
-    fromStream: flags.source === "file" || flags.source === "stdin",
+    fromStream: sourceIsStream(flags.input),
     keyData,
   });
   // Drive the plan through the shared executor: it issues each write in order
@@ -890,35 +892,30 @@ async function main(): Promise<void> {
     text: readonly string[];
     paste: boolean | undefined;
     key: readonly string[];
-    source: SendTextSource;
-    file: string | undefined;
+    input: SendInput;
     json: boolean;
   } | null = null;
   if (argv.command === "send") {
-    // The tristate lives in two Boolean flags, so the both-set combination is
-    // expressible but illegal — crash loud rather than silently pick one.
-    if (argv.flags.paste && argv.flags.noPaste)
-      fail(
-        "--paste and --no-paste are mutually exclusive — pass at most one (omit both for auto).",
-      );
-    // Resolve the single text source and reject every illegal combination —
-    // text+--key, two text sources at once, or a wholly empty send — pre-dial.
-    // The pure validator throws a teaching error surfaced as `kaval-tui:` by
-    // main()'s catch; `stdinIsPayload()` `fstat`s fd 0 so an agent's ambient
-    // socket stdin doesn't read as a competing source.
-    const source = resolveSendInput({
+    // Validate the WHOLE send-input combination and resolve the single text
+    // source — the paste/no-paste exclusion, text+--key, two sources at once, and
+    // the empty send all live in this ONE pure validator, pre-dial. It throws a
+    // teaching error surfaced as `kaval-tui:` by main()'s catch; `stdinIsPayload()`
+    // `fstat`s fd 0 so an agent's ambient socket stdin doesn't read as a source.
+    const input = resolveSendInput({
       hasPositional: argv._.text.length > 0,
-      hasFile: argv.flags.file !== undefined,
+      file: argv.flags.file,
       stdinIsPayload: stdinIsPayload(),
       hasKeys: argv.flags.key.length > 0,
+      paste: argv.flags.paste === true,
+      noPaste: argv.flags.noPaste === true,
     });
     sendCall = {
       text: argv._.text,
-      // Tristate: `--paste` forces on, `--no-paste` off, neither = auto.
+      // Tristate: `--paste` forces on, `--no-paste` off, neither = auto. (The
+      // both-set conflict is already rejected by resolveSendInput above.)
       paste: argv.flags.paste ? true : argv.flags.noPaste ? false : undefined,
       key: argv.flags.key,
-      source,
-      file: argv.flags.file,
+      input,
       json: argv.flags.json,
     };
   }
@@ -987,8 +984,7 @@ async function main(): Promise<void> {
         json: sendCall.json,
         paste: sendCall.paste,
         key: sendCall.key,
-        source: sendCall.source,
-        file: sendCall.file,
+        input: sendCall.input,
       });
     } else if (waitCall !== null) {
       // `waitCall` is non-null exactly when the command is `wait` (parsed +

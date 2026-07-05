@@ -70,19 +70,35 @@ export function encodeKey(name: string): string | undefined {
   return undefined;
 }
 
-/** Where a send's TEXT comes from — resolved once by {@link resolveSendInput}
- *  from the flags/argv, so `cmdSend` reads the payload from the one validated
- *  source instead of re-deriving precedence. `"none"` is a keys-only send. */
-export type SendTextSource = "positional" | "file" | "stdin" | "none";
+/** The resolved, validated text source for a send — a discriminated descriptor
+ *  that carries its own payload locus, so a `file` send hands back the path
+ *  WITH the tag and `cmdSend` never has to re-associate a bare enum with a
+ *  separately-passed path (no untyped invariant, no cast). `none` is a keys-only
+ *  send. Produced once by {@link resolveSendInput}. */
+export type SendInput =
+  | { kind: "positional" }
+  | { kind: "file"; path: string }
+  | { kind: "stdin" }
+  | { kind: "none" };
 
-/** Validate a send's input combination and resolve the single text source —
- *  PURE, so the whole arg-legality matrix is unit-tested without a socket, a
- *  filesystem, or a tty. `main.ts` runs it pre-dial (a bad combination fails
- *  before any connection is made) and then reads the payload from the returned
- *  source. Throws a loud, teaching error on any illegal combination; the message
- *  surfaces as `kaval-tui: <msg>`.
+/** Did the resolved source arrive as a BLOCK from a stream — `--file` or piped
+ *  stdin — so it auto-pastes even when single-line? Co-located with the
+ *  {@link SendInput} definition so a new stream-y source updates one place. */
+export function sourceIsStream(input: SendInput): boolean {
+  return input.kind === "file" || input.kind === "stdin";
+}
+
+/** Validate a send's WHOLE input combination and resolve the single text source
+ *  into a {@link SendInput} descriptor — PURE, so the entire arg-legality matrix
+ *  is unit-tested without a socket, a filesystem, or a tty. This is the ONE home
+ *  for "what flag combinations are illegal for `send`": `main.ts` runs it pre-dial
+ *  (a bad combination fails before any connection is made) and then reads the
+ *  payload from the returned descriptor. Throws a loud, teaching error on any
+ *  illegal combination; the message surfaces as `kaval-tui: <msg>`.
  *
  *  The rules, all fail-fast (no silent precedence to guess at):
+ *  - `--paste` and `--no-paste` are mutually exclusive (the both-set combination
+ *    is expressible but illegal — crash loud rather than silently pick one).
  *  - AT MOST ONE text source. Positional text, `--file`, and a piped-stdin
  *    payload each fully specify the text; two at once is ambiguous, so it is
  *    rejected rather than silently letting one win.
@@ -98,13 +114,23 @@ export type SendTextSource = "positional" | "file" | "stdin" | "none";
  *  `--file`. `main.ts` computes it by `fstat`-ing fd 0. */
 export function resolveSendInput(opts: {
   hasPositional: boolean;
-  hasFile: boolean;
+  /** The `--file` path, or `undefined` when the flag is absent — carried into
+   *  the returned descriptor so the path travels WITH the source tag. */
+  file: string | undefined;
   stdinIsPayload: boolean;
   hasKeys: boolean;
-}): SendTextSource {
+  paste: boolean;
+  noPaste: boolean;
+}): SendInput {
+  if (opts.paste && opts.noPaste) {
+    throw new Error(
+      "--paste and --no-paste are mutually exclusive — pass at most one (omit both for auto).",
+    );
+  }
+
   const sources = [
     opts.hasPositional && "positional text",
-    opts.hasFile && "--file",
+    opts.file !== undefined && "--file",
     opts.stdinIsPayload && "piped stdin",
   ].filter((s): s is string => s !== false);
   if (sources.length > 1) {
@@ -113,15 +139,15 @@ export function resolveSendInput(opts: {
     );
   }
 
-  const source: SendTextSource = opts.hasPositional
-    ? "positional"
-    : opts.hasFile
-      ? "file"
-      : opts.stdinIsPayload
-        ? "stdin"
-        : "none";
+  // `opts.file !== undefined` narrows `file` to `string` in that branch, so the
+  // descriptor carries the path with no cast — the invariant is in the types.
+  let input: SendInput;
+  if (opts.hasPositional) input = { kind: "positional" };
+  else if (opts.file !== undefined) input = { kind: "file", path: opts.file };
+  else if (opts.stdinIsPayload) input = { kind: "stdin" };
+  else input = { kind: "none" };
 
-  if (source !== "none" && opts.hasKeys) {
+  if (input.kind !== "none" && opts.hasKeys) {
     throw new Error(
       "text and --key can't be combined in one send — a same-breath Enter is raced by the TUI's paste debounce and silently dropped. Send the text, watch the TUI settle, then submit as its own command:\n" +
         "  kaval-tui send <id> --file brief.md      # 1. the text\n" +
@@ -130,13 +156,13 @@ export function resolveSendInput(opts: {
     );
   }
 
-  if (source === "none" && !opts.hasKeys) {
+  if (input.kind === "none" && !opts.hasKeys) {
     throw new Error(
       'nothing to send — pass text, use --file <path>, pipe it on stdin, or use --key (e.g. `kaval-tui send <id> "hello"` or `kaval-tui send <id> --key Escape`).',
     );
   }
 
-  return source;
+  return input;
 }
 
 /** The ordered byte writes a `send` issues, plus what it actually did (for the

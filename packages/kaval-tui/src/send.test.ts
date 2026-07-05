@@ -5,6 +5,7 @@ import {
   encodeKey,
   planSend,
   resolveSendInput,
+  sourceIsStream,
 } from "./send.ts";
 
 const START = "\x1b[200~";
@@ -83,21 +84,42 @@ describe("ACCEPTED_KEY_NAMES — the help vocabulary stays in lockstep with the 
 describe("resolveSendInput — the arg-legality matrix", () => {
   const base = {
     hasPositional: false,
-    hasFile: false,
+    file: undefined as string | undefined,
     stdinIsPayload: false,
     hasKeys: false,
+    paste: false,
+    noPaste: false,
   };
 
-  it("resolves each single text source", () => {
-    expect(resolveSendInput({ ...base, hasPositional: true })).toBe(
-      "positional",
-    );
-    expect(resolveSendInput({ ...base, hasFile: true })).toBe("file");
-    expect(resolveSendInput({ ...base, stdinIsPayload: true })).toBe("stdin");
+  it("resolves each single text source into a descriptor carrying its payload locus", () => {
+    expect(resolveSendInput({ ...base, hasPositional: true })).toEqual({
+      kind: "positional",
+    });
+    // the --file path rides the descriptor (no separate channel, no cast)
+    expect(resolveSendInput({ ...base, file: "/tmp/brief.md" })).toEqual({
+      kind: "file",
+      path: "/tmp/brief.md",
+    });
+    expect(resolveSendInput({ ...base, stdinIsPayload: true })).toEqual({
+      kind: "stdin",
+    });
   });
 
   it("a keys-only send has no text source", () => {
-    expect(resolveSendInput({ ...base, hasKeys: true })).toBe("none");
+    expect(resolveSendInput({ ...base, hasKeys: true })).toEqual({
+      kind: "none",
+    });
+  });
+
+  it("--paste and --no-paste together are rejected (folded into this validator)", () => {
+    expect(() =>
+      resolveSendInput({
+        ...base,
+        hasPositional: true,
+        paste: true,
+        noPaste: true,
+      }),
+    ).toThrow(/mutually exclusive/);
   });
 
   it("text + --key is a hard error teaching the two-command flow", () => {
@@ -110,7 +132,7 @@ describe("resolveSendInput — the arg-legality matrix", () => {
 
   it("a text source from ANY channel + --key is rejected (file, stdin too)", () => {
     expect(() =>
-      resolveSendInput({ ...base, hasFile: true, hasKeys: true }),
+      resolveSendInput({ ...base, file: "/tmp/x.md", hasKeys: true }),
     ).toThrow(/can't be combined/);
     expect(() =>
       resolveSendInput({ ...base, stdinIsPayload: true, hasKeys: true }),
@@ -119,14 +141,14 @@ describe("resolveSendInput — the arg-legality matrix", () => {
 
   it("--file + positional text is rejected (two sources for one payload)", () => {
     const err = () =>
-      resolveSendInput({ ...base, hasFile: true, hasPositional: true });
+      resolveSendInput({ ...base, file: "/tmp/x.md", hasPositional: true });
     expect(err).toThrow(/each provide the send text/);
     expect(err).toThrow(/--file/);
   });
 
   it("--file + piped stdin is rejected", () => {
     const err = () =>
-      resolveSendInput({ ...base, hasFile: true, stdinIsPayload: true });
+      resolveSendInput({ ...base, file: "/tmp/x.md", stdinIsPayload: true });
     expect(err).toThrow(/each provide the send text/);
   });
 
@@ -138,6 +160,15 @@ describe("resolveSendInput — the arg-legality matrix", () => {
 
   it("a wholly empty send (no text, no keys) has nothing to do", () => {
     expect(() => resolveSendInput({ ...base })).toThrow(/nothing to send/);
+  });
+});
+
+describe("sourceIsStream — --file / stdin auto-paste as a block", () => {
+  it("is true for file and stdin, false for positional and none", () => {
+    expect(sourceIsStream({ kind: "file", path: "/x" })).toBe(true);
+    expect(sourceIsStream({ kind: "stdin" })).toBe(true);
+    expect(sourceIsStream({ kind: "positional" })).toBe(false);
+    expect(sourceIsStream({ kind: "none" })).toBe(false);
   });
 });
 
