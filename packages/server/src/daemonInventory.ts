@@ -34,6 +34,7 @@ import type {
   DaemonInventory,
   PadiConvergence,
 } from "kolu-common/surface";
+import { log } from "./log.ts";
 
 /** The seams the publisher reads/writes through — injected so the wiring is one call
  *  and a test can drive it without a real host. `discover*`/`probe` are the read-only
@@ -69,8 +70,9 @@ export interface DaemonInventoryDeps {
 
 /** Take one read-only reading and publish it: under a REMOTE binding, scan the local
  *  machine (marking nothing active) into `localScan`; always read the bound padi's honest
- *  identity + convergence into `boundPadi`; set the cell. Never throws — the scan folds
- *  each probe's failure to the empty probe. */
+ *  identity + convergence into `boundPadi`; set the cell. Each PROBE folds its own failure
+ *  to the empty probe, but this is NOT total — a discovery fs-walk, a session readout, or
+ *  the `publish` schema-validate can throw; the sampler's `.catch` makes that legible. */
 export async function enumerateDaemonInventoryOnce(
   deps: DaemonInventoryDeps,
 ): Promise<void> {
@@ -149,13 +151,23 @@ export function startDaemonInventorySampler(
       return;
     }
     inFlight = true;
-    void enumerateDaemonInventoryOnce(deps).finally(() => {
-      inFlight = false;
-      if (pending) {
-        pending = false;
-        tick();
-      }
-    });
+    void enumerateDaemonInventoryOnce(deps)
+      .catch((err) => {
+        // Each PROBE folds its own failure, but the surrounding readout is NOT total — a
+        // remote-arm discovery fs-walk, a `publish` schema-validate, or a session readout
+        // can throw. That surprise must be LEGIBLE, not an unlogged unhandled rejection
+        // that silently reverts the cell to its local default (and drops the local-scan
+        // leak diagnostic). The cell keeps its last value; the next tick retries. Mirrors
+        // the padi sampler's own `.catch` (`@kolu/padi`'s `hostInventory.ts`).
+        log.error({ err }, "daemon-inventory sample failed");
+      })
+      .finally(() => {
+        inFlight = false;
+        if (pending) {
+          pending = false;
+          tick();
+        }
+      });
   };
   tick();
   setInterval(tick, DAEMON_INVENTORY_SAMPLE_INTERVAL_MS).unref();

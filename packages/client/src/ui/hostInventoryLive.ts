@@ -1,30 +1,41 @@
 /**
- * Is the bound host's `hostInventory` reading a TRUSTWORTHY live scan, or the seeded
- * default that a not-yet-connected / degraded / version-skewed bind leaves in place?
+ * Is the bound host's `hostInventory` reading a TRUSTWORTHY live scan the dialog may
+ * present as a definite answer — or should it read "unavailable"?
  *
- * The re-serve seeds each mirrored cell with its schema DEFAULT
- * (`surface-nix-host/reServeSurface.ts` → `inMemoryStore(cellSpec.default)`) and only
- * replaces it once the bound padi relays a real value. So under a degraded bind — the
- * padi still warming, an ssh link that dropped, or a **version skew** where a newer
- * kolu-server binds an older padi that does not serve `hostInventory` at all (a 1.1
- * padi under a 1.2 binder is contract-refused, never relays the member) — the browser
- * reads the default `{ kavals: [], padis: [] }`. That is NOT "there are zero daemons";
- * it is "no reading arrived". Rendering it as "No running daemons discovered" would be
- * a silent empty masquerading as a definite zero (#1034).
+ * TWO independent ways a reading is not trustworthy, and BOTH must be excluded (#1034 —
+ * never show a stale/empty list as a definite live scan):
  *
- * The intrinsic tell: a connected padi ALWAYS reports ITSELF — `discoverPadiDaemons`
- * finds the running padi and `assemblePadiInventory` marks it `active`. So a reading
- * with an active padi row is a real scan; one without is the seeded default. The dialog
- * shows an honest "unavailable" state for the latter, never "no daemons".
+ *   1. **Not connected.** If the bound padi isn't live (an ssh link that dropped, the
+ *      Restart-kaval drain window, or a bind that never connected), the re-served cell
+ *      is either the seeded empty default OR the LAST value held STALE across the drop —
+ *      `reServeSurface` holds `value` cells across a disconnect, it does not reset them.
+ *      Payload content alone CANNOT tell a fresh reading from a stale held one, so this
+ *      leg reads the canonical bind-liveness FACT (`bindLive`), not the payload. kolu's
+ *      honest bind signal is koluSurface's directly-served `padiLink` (∧ the browser
+ *      transport) — NOT the re-served surface's own health, which is itself held stale
+ *      (see `useDaemonStatus`).
+ *   2. **Connected but no frame yet.** A just-connected bind whose sampler hasn't
+ *      delivered its first frame leaves the seeded empty `{ kavals: [], padis: [] }`. A
+ *      live padi ALWAYS reports ITSELF (`withSelfPadi` seeds the serving padi's active
+ *      row even on the T+0 tick / under `--socket`), so "no active padi row" is the tell
+ *      that no real frame has landed — distinct from a genuine zero (which can't happen:
+ *      the serving padi is always there).
+ *
+ * A reading is live iff BOTH hold: the bind is live AND the serving padi is present. So a
+ * dropped link (stale held reading) reads "unavailable" by the bind-liveness leg, and a
+ * pre-first-frame connected bind reads "unavailable" by the self-padi leg — the "shown as
+ * a definite live scan" state is unspellable without a real frame over a live bind.
  */
 
 import type { RunningPadi } from "kolu-common/surface";
 
-/** A live reading iff the serving padi reported itself (an `active` padi row). An empty
- *  or active-less padis list is the seeded default of a bind that never delivered a real
- *  scan — so the dialog must read "unavailable", not "no daemons". */
-export function hostInventoryReadingLive(
-  padis: readonly RunningPadi[],
-): boolean {
-  return padis.some((p) => p.active);
+/** The composite liveness predicate — pure, so it is unit-testable without the wire
+ *  singletons the accessor wires it to. `bindLive` is the canonical bind-liveness fact
+ *  (browser transport ∧ padiLink connected); `padis` is the bound host's padi rows. A
+ *  reading is live iff the bind is live AND the serving padi reported itself. */
+export function hostInventoryLive(opts: {
+  bindLive: boolean;
+  padis: readonly RunningPadi[];
+}): boolean {
+  return opts.bindLive && opts.padis.some((p) => p.active);
 }

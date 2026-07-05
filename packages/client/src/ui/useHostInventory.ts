@@ -14,8 +14,9 @@
 
 import type { RunningKaval, RunningPadi } from "kolu-common/surface";
 import { toast } from "solid-sonner";
+import { daemonTransportLive, padiLinkState } from "../kaval/useDaemonStatus";
 import { padi } from "../wire";
-import { hostInventoryReadingLive } from "./hostInventoryLive";
+import { hostInventoryLive } from "./hostInventoryLive";
 
 const sub = padi.cells.hostInventory.use({
   onError: (err) => toast.error(`Host inventory error: ${err.message}`),
@@ -33,16 +34,22 @@ export function boundHostPadis(): RunningPadi[] {
   return sub.value()?.padis ?? [];
 }
 
-/** Whether the bound host's inventory is a TRUSTWORTHY live reading (vs the re-serve's
- *  seeded empty default that a not-yet-connected / degraded / version-skewed bind leaves
- *  in place — e.g. a padi too old to serve `hostInventory`, which relays the member no
- *  value at all). A live padi always reports ITSELF (an active padi row), so an empty /
- *  active-less reading is the default, not a real "zero daemons". The dialogs gate their
- *  daemon lists on this so an unavailable reading shows an honest "unavailable" state,
- *  never "No running daemons discovered" (a silent empty masquerading as a definite
- *  zero, #1034). See {@link hostInventoryReadingLive}. */
+/** Whether the bound host's inventory is a TRUSTWORTHY live reading the dialog may render
+ *  as a definite answer — the conjunction of (a) the bound padi being LIVE and (b) it
+ *  having reported a real frame (its own active padi row). Not (a): a dropped ssh link /
+ *  drain window leaves the re-served cell STALE (held populated) — reading it as live
+ *  would show a dead padi's list as current (#1034); the bind-liveness fact excludes it.
+ *  Not (b): a just-connected bind before its first frame is the seeded empty default. So
+ *  the dialogs read "unavailable" for BOTH, never "No running daemons" (a masquerade).
+ *  See {@link hostInventoryLive}. */
 export function boundHostInventoryLive(): boolean {
-  return hostInventoryReadingLive(boundHostPadis());
+  return hostInventoryLive({
+    // kolu's honest bind-liveness fact: the browser transport ∧ koluSurface's
+    // directly-served `padiLink` (the re-served surface's own health is held stale
+    // across a drop, so it can't be the tell — see `useDaemonStatus`).
+    bindLive: daemonTransportLive() && padiLinkState() === "connected",
+    padis: boundHostPadis(),
+  });
 }
 
 /** The BOUND padi kolu is using (`active`), or `undefined` before the first scan. The
