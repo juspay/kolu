@@ -16,6 +16,7 @@
  * explicitly (the recycle gap outlasts the 500 ms autosave).
  */
 
+import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
 import {
   afterAll,
   afterEach,
@@ -25,6 +26,11 @@ import {
   expect,
   it,
 } from "vitest";
+import {
+  cancelPendingAutosave,
+  initAutosaveGate,
+  unfreezeAutosave,
+} from "../autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -32,11 +38,6 @@ import {
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import {
-  cancelPendingAutosave,
-  initAutosaveGate,
-  unfreezeAutosave,
-} from "../autosaveGate.ts";
 import { getSavedSession, saveSession, setSavedSession } from "../session.ts";
 import {
   type ActiveTerminalProcess,
@@ -48,7 +49,6 @@ import {
 } from "../terminal-registry.ts";
 import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { snapshotSession } from "../terminals.ts";
-import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
 import type {
   AuthoredActiveTerminal,
   SavedActiveTerminal,

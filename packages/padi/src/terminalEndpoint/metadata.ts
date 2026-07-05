@@ -48,9 +48,9 @@ import type {
   RestoreTarget,
   TerminalSnapshot,
 } from "@kolu/terminal-workspace/schema";
-import { notifyDirty } from "../publisher.ts";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
+import { notifyDirty } from "../publisher.ts";
 import { PadiParkedTerminalSchema, type PadiTerminal } from "../surface.ts";
 import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
 import { recomputeUrgency } from "../urgency.ts";

@@ -26,9 +26,11 @@ import {
  *  at process start. The control-core `hello` echoes it so the binder measures
  *  honest uptime instead of resetting the age on every reconnect. */
 const PADI_STARTED_AT = Date.now();
+
 import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
 import { implement, type Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
+import { initAutosaveGate } from "./autosaveGate.ts";
 import { currentPadiBuildId, currentPadiCommitHash } from "./buildId.ts";
 import {
   setPadiActivityFeedStore,
@@ -36,6 +38,7 @@ import {
   setPadiSessionStore,
 } from "./confStores.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
+import { startPadiHostInventorySampler } from "./hostInventory.ts";
 import { importLegacyConfigOnce } from "./importLegacy.ts";
 import {
   ensureKoluRoot,
@@ -43,20 +46,17 @@ import {
   shutdownCleanup,
 } from "./koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "./log.ts";
-import { startPadiHostInventorySampler } from "./hostInventory.ts";
 import { startPadiMemorySampler } from "./memorySampler.ts";
 import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
-import { publisher } from "./publisher.ts";
 import {
   getLocalSocketPath,
   publishDaemonStatus,
   setPadiServeSocketPath,
 } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint, setSpawnServerVersion } from "./ptyHost/index.ts";
+import { publisher } from "./publisher.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
-import { initAutosaveGate } from "./autosaveGate.ts";
 import { saveSession, setSavedSessionFromSnapshot } from "./session.ts";
-import { hasParkedTerminals } from "./terminal-registry.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
@@ -66,6 +66,7 @@ import {
 } from "./stateRoot.ts";
 import { openPadiStateStores } from "./stateStore.ts";
 import { padiDaemonContract, padiDaemonSurfaces } from "./surface.ts";
+import { hasParkedTerminals } from "./terminal-registry.ts";
 import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
 import {
   adoptSurvivingSession,

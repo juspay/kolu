@@ -20,6 +20,7 @@
 
 import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -29,7 +30,6 @@ import {
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID } from "./ptyHost/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
-import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
 import {
   getSavedSession,
   saveSession,

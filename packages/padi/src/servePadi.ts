@@ -23,6 +23,7 @@ import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
+import { cancelPendingAutosave } from "./autosaveGate.ts";
 import {
   requirePadiActivityFeedStore,
   requirePadiSessionStore,
@@ -36,7 +37,6 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
-import { cancelPendingAutosave } from "./autosaveGate.ts";
 import {
   forfeitSession,
   importSession,
