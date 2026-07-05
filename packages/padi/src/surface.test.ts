@@ -22,17 +22,18 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 1.1, and DEFAULT_PADI_VERSION carries + validates it", () => {
-    // 1.1 ADDS `lifecycle.recycleKaval` (the "Restart kaval" button) — an
-    // additive minor over 1.0.
-    expect(PADI_SURFACE_VERSION).toBe("1.1");
+  it("is version 1.2, and DEFAULT_PADI_VERSION carries + validates it", () => {
+    // 1.1 ADDED `lifecycle.recycleKaval` (the "Restart kaval" button); 1.2 ADDS the
+    // `hostInventory` cell (the "Running daemons" leak diagnostic) — both additive
+    // minors over 1.0.
+    expect(PADI_SURFACE_VERSION).toBe("1.2");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
     );
     // A newer additive minor (a future 1.x) still serves a 1.0 consumer; a
     // major bump is mutually incompatible in both directions.
-    expect(isContractVersionCompatible("1.1", "1.0")).toBe(true);
+    expect(isContractVersionCompatible("1.2", "1.0")).toBe(true);
     expect(isContractVersionCompatible("2.0", "1.0")).toBe(false);
     expect(isContractVersionCompatible("1.0", "2.0")).toBe(false);
   });
@@ -43,6 +44,7 @@ describe("padiSurface 1.0 contract", () => {
       "version",
       "urgency",
       "status",
+      "hostInventory",
       "processMemory",
       "activityFeed",
       "session",
@@ -145,6 +147,10 @@ describe("padiSurface 1.0 contract", () => {
     // a rebind replays the current session / activity-feed snapshot.
     expect(PADI_FORWARDING_POLICY.session).toBe("value");
     expect(PADI_FORWARDING_POLICY.activityFeed).toBe("value");
+    // The 1.2 host-inventory cell is value — a rebind replays the current daemon
+    // scan snapshot (so the re-served surface hands the dialog the bound host's
+    // list identically local and remote).
+    expect(PADI_FORWARDING_POLICY.hostInventory).toBe("value");
   });
 
   it("the terminals value carries the active | sleeping | parked union", () => {
