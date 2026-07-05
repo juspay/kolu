@@ -1,23 +1,22 @@
 /** Terminal identity keys — the canonical `(group, label)` projection
- *  used to group, deduplicate, AND display terminals across every
- *  surface (workspace switcher, restore card, canvas tile chrome).
+ *  used to group and deduplicate terminals.
  *
  *  Pure: same inputs produce the same outputs on every client, so the
- *  server never has to broadcast suffixes. Single function: identity
- *  and presentation are deliberately fused — the only way to keep them
- *  in sync is to make them the same projection.
+ *  server never has to broadcast suffixes. Presentation surfaces may
+ *  derive their own display labels from this identity key, but collision
+ *  suffixes still use the same deterministic algorithm below.
  */
 
 import type { GitInfo } from "kolu-git/schemas";
 import { cwdBasename, shortenCwd } from "./path";
 import type { TerminalId } from "./surface";
 
-/** `(group, label)` plus an optional `suffix` for ids that collide on
- *  `(group, label)` within the live set.
+/** `(group, label)` plus an optional `suffix` for ids that collide on the
+ *  pair within a display set.
  *  - `group` is the repo-equivalence (git repoName, or cwd basename for
- *    non-git). Renders as the pill/restore heading.
+ *    non-git).
  *  - `label` is the branch-equivalence (git branch, or cwd basename for
- *    non-git). Renders as the pill/restore secondary line.
+ *    non-git).
  *  - `suffix` is a stable short id-prefix ("#a3f2") assigned only when
  *    two terminals collide on `(group, label)` — unique pills leave it
  *    `undefined`.
@@ -42,17 +41,22 @@ export type TerminalIdentity = TerminalLocation & {
   id: TerminalId;
 };
 
-/** Canonical projection. The mapping is `git → (repoName, branch)` for
+/** Already-projected key material for callers that need the same deterministic
+ *  suffixing algorithm in a non-identity presentation domain. */
+export type TerminalKeyBase = {
+  id: TerminalId;
+  group: string;
+  label: string;
+};
+
+/** Canonical identity projection. The mapping is `git → (repoName, branch)` for
  *  git-aware terminals, `no git → (basename, shortenCwd)` otherwise.
  *
  *  Why basename + shortened-cwd for non-git: `group` is the compact
  *  heading (a basename so paths like `/home/alice/projects/foo` show as
  *  `foo`); `label` is the disambiguating sub-line (`~/projects/foo`) so
- *  two terminals at different paths with the same basename are visually
- *  distinct AND don't collide on identity. Identity, grouping, and
- *  rendering all read from this single projection — a divergent
- *  projection elsewhere silently breaks `computeTerminalKeys` collision
- *  detection or visually contradicts the live workspace switcher. */
+ *  two terminals at different paths with the same basename don't collide
+ *  on identity. */
 export function terminalKey(t: TerminalLocation): {
   group: string;
   label: string;
@@ -75,6 +79,13 @@ export function computeTerminalKeys(
     id: t.id,
     ...terminalKey(t),
   }));
+  return suffixTerminalKeys(projected);
+}
+
+/** Add deterministic short-id suffixes for colliding `(group, label)` pairs. */
+export function suffixTerminalKeys(
+  projected: readonly TerminalKeyBase[],
+): Map<TerminalId, TerminalKey> {
   const counts = new Map<string, number>();
   for (const p of projected) {
     const k = join(p.group, p.label);

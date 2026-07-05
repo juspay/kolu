@@ -21,7 +21,6 @@ import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
 import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
@@ -200,9 +199,7 @@ function DockListRow(props: {
               color: c().info.annotationColor,
             }}
           >
-            <IntentMarkdownInline
-              markdown={annotationLine(c().meta.intent, c().info.key.label)}
-            />
+            <IntentMarkdownInline markdown={c().info.presentation.label} />
           </span>
           <SubCountCell subCount={c().info.subCount} />
           {/* Recency cell — "Xs ago", same no-reflow width as the desktop

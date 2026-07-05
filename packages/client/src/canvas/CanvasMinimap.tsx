@@ -50,7 +50,7 @@ const TILE_TRANSITION_PROPS =
 
 /** Build the hover tooltip for a minimap tile. Closes #870: the previous
  *  `title={id}` showed the opaque terminal id; now it shows the same
- *  identity pair the workspace switcher uses (`repo · branch[ #suffix]`)
+ *  presentation pair the workspace switcher uses (`repo · intent/branch[ #suffix]`)
  *  plus a presence-specific duration line. Multi-line via `\n` — supported in
  *  modern browsers' `title` attribute.
  *
@@ -62,7 +62,7 @@ function tileTooltip(
   info: TerminalDisplayInfo,
   presence: "sleeping" | "parked" | "agent" | "none",
 ): string {
-  const { group, label, suffix } = info.key;
+  const { group, label, suffix } = info.presentation;
   const headParts: string[] = [group];
   if (label && label !== group) headParts.push(label);
   if (suffix) headParts.push(suffix);
@@ -364,8 +364,9 @@ const CanvasMinimap: Component<{
                     : ("none" as const);
               return { presence, bucket };
             });
-            // Hover tooltip — repo · branch[ #suffix] + last-active duration,
-            // sourced from the same identity key the workspace switcher uses.
+            // Hover tooltip — repo · intent/branch[ #suffix] + last-active
+            // duration, sourced from the same presentation label the workspace
+            // switcher uses.
             // Falls back to the bare id when display info hasn't arrived yet
             // (Show guards prevent ever rendering that case, but the accessor
             // stays total).

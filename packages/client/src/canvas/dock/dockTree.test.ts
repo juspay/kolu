@@ -1,6 +1,7 @@
 import { LOCAL_LOCATION } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
+import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
 import { buildDockTree } from "./dockTree";
@@ -12,11 +13,16 @@ function row(id: string, bucket: DockRowBucket, ts: number): RankedDockRow {
 }
 
 function makeGetInfo(
-  entries: Record<string, { group: string; color: string; label?: string }>,
+  entries: Record<
+    string,
+    { group: string; color: string; label?: string; intent?: string }
+  >,
 ): (id: TerminalId) => TerminalDisplayInfo | undefined {
   return (id) => {
     const e = entries[id as string];
     if (!e) return undefined;
+    const label = e.label ?? "main";
+    const presentationLabel = annotationLine(e.intent, label);
     return {
       repoColor: e.color,
       branchColor: e.color,
@@ -30,9 +36,16 @@ function makeGetInfo(
         agent: null,
         foreground: null,
         lastActivityAt: 0,
+        intent: e.intent,
       },
       subCount: 0,
-      key: { group: e.group, label: e.label ?? "main" },
+      key: { group: e.group, label },
+      presentation: {
+        group: e.group,
+        label: presentationLabel,
+        fallbackLabel: label,
+      },
+      titleAnnotationLabel: presentationLabel,
     };
   };
 }
@@ -160,6 +173,34 @@ describe("buildDockTree", () => {
     // Pure-recency interleaving would have been [a, b, c]; clustering
     // keeps a and c adjacent. The cluster headline is the same key
     // (-ts) as the section sort.
+    expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["a", "c", "b"]);
+  });
+
+  it("keeps same-intent terminals adjacent even when their branches diverge", () => {
+    const ranked = [
+      row("a", "working", 1000), // Review queue — newest
+      row("b", "idle", 500), // unrelated branch between a and c by recency
+      row("c", "idle", 200), // Review queue — older, different git branch
+    ];
+    const getInfo = makeGetInfo({
+      a: {
+        group: "kolu",
+        color: "#aaa",
+        label: "old-branch",
+        intent: "Review queue",
+      },
+      b: { group: "kolu", color: "#aaa", label: "middle-branch" },
+      c: {
+        group: "kolu",
+        color: "#aaa",
+        label: "new-branch",
+        intent: "Review queue",
+      },
+    });
+    const tree = buildDockTree(ranked, getInfo, false);
+    // The dock renders the intent-first annotation label. Its clustering must
+    // use the same label, so a git branch update cannot make the user's intent
+    // disappear into a branch-only position.
     expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["a", "c", "b"]);
   });
 

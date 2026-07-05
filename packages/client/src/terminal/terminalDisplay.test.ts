@@ -80,6 +80,10 @@ describe("buildTerminalDisplayInfos", () => {
     const info = result.get("id-1");
     expect(info?.key.group).toBe("repo");
     expect(info?.key.label).toBe("main");
+    expect(info?.presentation.group).toBe("repo");
+    expect(info?.presentation.label).toBe("main");
+    expect(info?.presentation.fallbackLabel).toBe("main");
+    expect(info?.titleAnnotationLabel).toBe("main");
     expect(info?.repoColor).toMatch(/^oklch\(/);
     expect(info?.branchColor).toMatch(/^oklch\(/);
     expect(info?.subCount).toBe(0);
@@ -93,6 +97,7 @@ describe("buildTerminalDisplayInfos", () => {
     );
     expect(result.get("id-1")?.key.group).toBe("foo");
     expect(result.get("id-1")?.key.label).toBe("~/projects/foo");
+    expect(result.get("id-1")?.titleAnnotationLabel).toBe("—");
   });
 
   it("counts sub-terminals", () => {
@@ -140,6 +145,58 @@ describe("buildTerminalDisplayInfos", () => {
     expect(result.get("aaaa-1")?.key.suffix).toBe("#aaaa");
     expect(result.get("bbbb-2")?.key.suffix).toBe("#bbbb");
     expect(result.get("cccc-3")?.key.suffix).toBeUndefined();
+  });
+
+  it("stamps presentation suffixes on matching intent labels even when branches differ", () => {
+    const result = buildTerminalDisplayInfos(
+      ["aaaa-1", "bbbb-2"],
+      (id) =>
+        id === "aaaa-1"
+          ? makeMeta({
+              git: makeGit({ branch: "old-branch" }),
+              intent: "Keep current task",
+            })
+          : makeMeta({
+              git: makeGit({ branch: "new-branch" }),
+              intent: "Keep current task",
+            }),
+      () => [],
+    );
+
+    expect(result.get("aaaa-1")?.key.suffix).toBeUndefined();
+    expect(result.get("bbbb-2")?.key.suffix).toBeUndefined();
+    expect(result.get("aaaa-1")?.presentation.label).toBe("Keep current task");
+    expect(result.get("bbbb-2")?.presentation.label).toBe("Keep current task");
+    expect(result.get("aaaa-1")?.presentation.suffix).toBe("#aaaa");
+    expect(result.get("bbbb-2")?.presentation.suffix).toBe("#bbbb");
+    expect(result.get("aaaa-1")?.annotationColor).toBe(
+      result.get("bbbb-2")?.annotationColor,
+    );
+  });
+
+  it("keeps annotation color stable when only the hidden branch identity changes", () => {
+    const before = buildTerminalDisplayInfos(
+      ["id-1"],
+      () =>
+        makeMeta({
+          git: makeGit({ branch: "zzz-branch" }),
+          intent: "Keep current task",
+        }),
+      () => [],
+    );
+    const after = buildTerminalDisplayInfos(
+      ["id-1"],
+      () =>
+        makeMeta({
+          git: makeGit({ branch: "aaa-branch" }),
+          intent: "Keep current task",
+        }),
+      () => [],
+    );
+
+    expect(after.get("id-1")?.annotationColor).toBe(
+      before.get("id-1")?.annotationColor,
+    );
   });
 
   it("does NOT collide non-git terminals at different paths sharing a basename", () => {

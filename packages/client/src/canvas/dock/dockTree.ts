@@ -36,16 +36,17 @@
  *  always activates the row visually first. One canonical sequence,
  *  two views.
  *
- *  Repo identity comes from `info.key.group` — the same canonical key
- *  `placementPolicy.ts:getBucketFor` uses for canvas tile clustering,
- *  so the dock's "what counts as one repo" agrees with the canvas. */
+ *  Repo headings come from `info.presentation.group`, not the identity
+ *  key. The dock renders these section names, so it consumes the same
+ *  presentation projection as row labels and tooltips; canvas placement
+ *  remains free to use identity grouping for spatial clustering. */
 
 import type { TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { RankedDockRow } from "./dockRowRanking";
 
 export type DockGroup = {
-  /** `info.key.group` — git repo name or cwd basename. */
+  /** `info.presentation.group` — visible repo/workspace section heading. */
   name: string;
   /** Per-repo OKLCH color (`info.repoColor`). */
   color: string;
@@ -112,14 +113,16 @@ export function buildDockTree(
     }
     const info = getDisplayInfo(row.id);
     if (!info) continue;
-    let group = byName.get(info.key.group);
+    const groupName = info.presentation.group;
+    let group = byName.get(groupName);
     if (!group) {
       group = { color: info.repoColor, byLabel: new Map() };
-      byName.set(info.key.group, group);
+      byName.set(groupName, group);
     }
-    const list = group.byLabel.get(info.key.label);
+    const label = info.presentation.label;
+    const list = group.byLabel.get(label);
     if (list) list.push(row);
-    else group.byLabel.set(info.key.label, [row]);
+    else group.byLabel.set(label, [row]);
   }
 
   const groups: DockGroup[] = [...byName.entries()].map(([name, g]) => ({

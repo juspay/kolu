@@ -381,9 +381,9 @@ export function buildDockModel(
   const entries: DockEntry[] = ordered.map((source) => {
     const baseFields = {
       id: source.id,
-      repoName: source.info.key.group,
-      label: source.info.key.label,
-      suffix: source.info.key.suffix,
+      repoName: source.info.presentation.group,
+      label: source.info.presentation.label,
+      suffix: source.info.presentation.suffix,
       info: source.info,
     };
     const searchText = searchTextFor(baseFields);

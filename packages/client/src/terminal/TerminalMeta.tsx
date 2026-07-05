@@ -21,7 +21,6 @@ import { type Component, Show } from "solid-js";
 import { pipVariant } from "../canvas/dock/pipVariant";
 import { paintBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
-import { annotationLine } from "../intent/text";
 import { agentWorkflow } from "../ui/agentDisplay";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
@@ -57,12 +56,12 @@ const TerminalMeta: Component<{
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
             <NameSpan info={info()} />
-            <Show when={info().key.suffix}>
+            <Show when={info().presentation.suffix}>
               {(suffix) => (
                 <span
                   data-testid="terminal-meta-suffix"
                   class="font-mono text-xs text-fg-3 tabular-nums shrink-0"
-                  title="Identifier — distinguishes terminals that share repo + branch (or cwd)"
+                  title="Identifier — distinguishes terminals that share the visible terminal label"
                 >
                   {suffix()}
                 </span>
@@ -154,12 +153,7 @@ const TerminalMeta: Component<{
                 }}
                 onDblClick={(e) => e.stopPropagation()}
               >
-                <IntentMarkdownInline
-                  markdown={annotationLine(
-                    info().meta.intent,
-                    info().meta.git?.branch ?? "—",
-                  )}
-                />
+                <IntentMarkdownInline markdown={info().titleAnnotationLabel} />
               </button>
             </Tip>
             <Show when={activeArm(info().meta)}>
@@ -229,12 +223,7 @@ export const TerminalMetaCompact: Component<{
               class="text-xs truncate min-w-0"
               style={{ color: info().annotationColor }}
             >
-              <IntentMarkdownInline
-                markdown={annotationLine(
-                  info().meta.intent,
-                  info().meta.git?.branch ?? "",
-                )}
-              />
+              <IntentMarkdownInline markdown={info().titleAnnotationLabel} />
             </span>
           </Show>
           {/* Anchor stops propagation so a tap on the PR doesn't toggle
@@ -290,7 +279,7 @@ const NameSpan: Component<{ info: TerminalDisplayInfo }> = (props) => (
     style={{ color: props.info.repoColor }}
     title={props.info.meta.cwd}
   >
-    {props.info.key.group}
+    {props.info.presentation.group}
   </span>
 );
 

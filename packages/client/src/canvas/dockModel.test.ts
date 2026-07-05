@@ -9,6 +9,7 @@ import {
 } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
+import { annotationLine } from "../intent/text";
 import type { IdleBucketKey } from "../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import {
@@ -65,17 +66,26 @@ function makeInfo(
   overrides: Partial<ActiveTerminal> = {},
 ): TerminalDisplayInfo {
   const meta = makeMeta(overrides);
+  const key = {
+    group: meta.git?.repoName ?? "nogit",
+    label: meta.git?.branch ?? meta.cwd,
+    suffix: id === "t4" ? "#t4" : undefined,
+  };
+  const presentationLabel = annotationLine(meta.intent, key.label);
   return {
     meta,
     subCount: 0,
     repoColor: "oklch(0.75 0.14 20)",
     branchColor: "oklch(0.75 0.14 140)",
     annotationColor: "oklch(0.75 0.14 140)",
-    key: {
-      group: meta.git?.repoName ?? "nogit",
-      label: meta.git?.branch ?? meta.cwd,
-      suffix: id === "t4" ? "#t4" : undefined,
+    key,
+    presentation: {
+      group: key.group,
+      label: presentationLabel,
+      fallbackLabel: key.label,
+      suffix: key.suffix,
     },
+    titleAnnotationLabel: annotationLine(meta.intent, meta.git?.branch ?? "—"),
   };
 }
 
@@ -401,5 +411,48 @@ describe("buildDockModel", () => {
     expect(
       modelFor(entries, { query: "claude sonnet" }).visibleEntries,
     ).toHaveLength(1);
+  });
+
+  it("searches the intent annotation even after the git branch changes", () => {
+    const sources = [
+      source("t-intent", {
+        intent: "Keep current task",
+        git: makeGit({ repoName: "kolu", branch: "new-intent-branch" }),
+      }),
+    ];
+
+    expect(
+      modelFor(sources, { query: "keep current" }).visibleEntries,
+    ).toHaveLength(1);
+  });
+
+  it("builds visible entries from the presentation suffix, not the branch identity suffix", () => {
+    const sources = [
+      source("aaaa-1", {
+        intent: "Keep current task",
+        git: makeGit({ repoName: "kolu", branch: "old-branch" }),
+      }),
+      source("bbbb-2", {
+        intent: "Keep current task",
+        git: makeGit({ repoName: "kolu", branch: "new-branch" }),
+      }),
+    ].map((entry) => ({
+      ...entry,
+      info: {
+        ...entry.info,
+        key: { ...entry.info.key, suffix: undefined },
+        presentation: {
+          ...entry.info.presentation,
+          suffix: `#${entry.id.slice(0, 4)}`,
+        },
+      },
+    }));
+
+    expect(
+      modelFor(sources).entries.map(({ label, suffix }) => [label, suffix]),
+    ).toEqual([
+      ["Keep current task", "#aaaa"],
+      ["Keep current task", "#bbbb"],
+    ]);
   });
 });
