@@ -3,9 +3,10 @@
  *  One `MemoryPublisher` instance with a single named channel on top:
  *
  *    - `terminalsDirtyChannel` — singleton control-flow signal that
- *      drives the session auto-save debounce loop. Distinct from the
- *      `terminalList` cell's content channel: this is the *trigger*,
- *      not the saved content.
+ *      drives the session autosave gate AND the live-activity tap
+ *      reconciliation (`liveActivity.ts`) — a two-consumer broadcast.
+ *      Distinct from the `terminalList` cell's content channel: this is
+ *      the *trigger*, not the saved content.
  *
  *  The per-terminal VT-tap channels (cwd / title / command-run / git) that
  *  used to live here are now per-terminal in-memory channels created by the
@@ -38,10 +39,11 @@ export const publisher = new MemoryPublisher<Record<string, any>>();
  *  diagnostics (see diagnostics.ts) — climbs if subscribers aren't draining. */
 export const publisherSize = (): number => publisher.size;
 
-/** Singleton broadcast: terminal state mutated. Drives session
- *  auto-save's debounced write loop; the persisted content lives on
- *  the surface's framework-owned `session:changed` channel, written
- *  via `surfaceCtx.cells.session.set(...)` from `./session.ts`. */
+/** Singleton broadcast: terminal state mutated. Drives the session autosave
+ *  gate AND the live-activity tap reconciliation (`liveActivity.ts`) — the
+ *  consumer-agnostic pulse both subscribe to. The persisted content lives on
+ *  the surface's framework-owned `session:changed` channel, written via
+ *  `surfaceCtx.cells.session.set(...)` from `./session.ts`. */
 export const terminalsDirtyChannel = publisherChannel<Record<string, never>>(
   publisher,
   "terminals:dirty",
