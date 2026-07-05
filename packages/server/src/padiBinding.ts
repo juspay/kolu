@@ -7,10 +7,10 @@
  * unix socket, handshakes the FROZEN control core, and RE-SERVES `padiSurface`
  * to browsers through W2.1's {@link reServeSurface}. This module is the padi twin
  * of `@kolu/padi/ptyHost/{connect,localDriver,index}` (which supervise kaval),
- * but supervising PADI — plus the ONE piece with no kaval analog: a
- * {@link PadiBindingSession} that turns the one-shot supervisor {@link Endpoint}
- * into the reconnect-mirror `HostSession` shape `reServeSurface`'s pump loops
- * over.
+ * but supervising PADI — plus the ONE piece with no kaval analog: an
+ * `endpointConnector` that turns the self-converging supervisor {@link Endpoint}
+ * into the `connectOnce` transport plug `makeSession` loops over (post-S9 there is
+ * no wrapper class — the session is a base `Session` + the daemon members by spread).
  *
  * The DIAL itself (`connectPadi` / `dialPadiHello` — dial + control-core
  * handshake + typed skew refusal) is imported from `@kolu/padi/dial`: W2.3 carved
@@ -21,8 +21,9 @@
  * out because it varies with daemon-lifecycle skew policy, a different volatility than the
  * binder. What stays HERE is the binder proper — the parts that spawn/supervise/re-serve:
  *   1. `localPadiDriver`      — the twin of `localKavalDriver`: how to launch padi.
- *   2. `PadiBindingSession`   — Endpoint → reconnect-mirror `HostSession` (the crux).
- *   3. `ensurePadiBinding`    — the twin of `ensureLocalEndpoint`: boot the binding.
+ *   2. `ensurePadiBinding`    — the twin of `ensureLocalEndpoint`: build the binding
+ *                               (`makeSession` over a self-converging `endpointConnector`,
+ *                               daemon members by spread — the crux, no wrapper class).
  *
  * padi is NEVER kill-9'd. The boot/reconnect convergence DELEGATES to the shared
  * daemon-convergence kit (`@kolu/surface-daemon-supervisor`'s `converge`): {@link

@@ -11,8 +11,8 @@
  * Post-S9 there is no `RemotePadiSession` class and no `HostSession`: the transport
  * is `makeSession({ connectOnce: sshConnector({ binary: "padi" }), admit: padiAdmit })`.
  * `sshConnector` owns ssh/provision/reconnect; the ONE padi-specific thing the ssh
- * arm adds — the control-core handshake + skew/build convergence — is the post-connect
- * `admit` hook `makePadiAdmit`. The daemon supervision members (`convergence` · `renew`
+ * arm adds — the control-core handshake + skew/build convergence + drain enactment — is
+ * the post-connect `admit` hook. The daemon supervision members (`convergence` · `renew`
  * · `preservation`) are added to the base session by spread ({@link asPadiSession}).
  *
  * ── The ssh-user 0700 caveat (carried over from the kaval-sessions era) ──
@@ -32,7 +32,6 @@ import {
 import {
   PADI_SURFACE_VERSION,
   type PadiDaemonContract,
-  type PadiHello,
 } from "@kolu/padi/surface";
 import {
   DaemonContractSkewError,
@@ -352,7 +351,7 @@ export function ensureRemotePadiBinding(
       case "drain-and-replace":
         return decision.axis === "contract"
           ? convergeNewerContract(running, instance)
-          : convergeBuildMismatch(c, hello, running, runningBuild, instance);
+          : convergeBuildMismatch(c, running, runningBuild, instance);
 
       default:
         throw new Error(
@@ -404,7 +403,6 @@ export function ensureRemotePadiBinding(
    *  WORKS, mismatch surfaced) — parity with the local kit's fence-spent→adopt row. */
   async function convergeBuildMismatch(
     c: PadiDaemonClient,
-    hello: PadiHello,
     running: string,
     runningBuild: string,
     instance: number | null,

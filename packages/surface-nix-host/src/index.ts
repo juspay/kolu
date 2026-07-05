@@ -50,10 +50,10 @@ export {
   type PumpRemoteSurfaceOptions,
   pumpRemoteSurface,
 } from "./hostFanout";
-export {
-  type DaemonConvergence,
-  type DaemonSession,
-  type PreservationStrategy,
+export type {
+  DaemonConvergence,
+  DaemonSession,
+  PreservationStrategy,
 } from "./daemonSession";
 export {
   type Admit,

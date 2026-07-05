@@ -40,19 +40,11 @@ import {
   converge,
   createBuildDrainFence,
   createEndpoint,
+  daemonBuild,
 } from "@kolu/surface-daemon-supervisor";
 import { reServeSurface } from "@kolu/surface-nix-host";
 import { createRouterClient } from "@orpc/server";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 // `connectPadi` moved into the shared dial kit in W2.3; the supervision it feeds
 // (bind/drain convergence, drivers, the reconnect session) stays in the binder.
 import { connectPadi } from "@kolu/padi/dial";
@@ -60,8 +52,6 @@ import {
   ensurePadiBinding,
   localPadiDriver,
   PADI_HOST_ID,
-  PadiBindingSession,
-  type PadiBindingSessionDeps,
   resolvePadiLaunch,
 } from "./padiBinding.ts";
 // padi's convergence declaration + probe moved to `./padiConvergence.ts` in L6.
@@ -69,6 +59,9 @@ import {
   PADI_CONVERGENCE_POLICY,
   probePadiForConvergence,
 } from "./padiConvergence.ts";
+// Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
+// spread) — there is no `PadiBindingSession` class.
+import type { PadiSession } from "./padiSession.ts";
 import { buildAppRouter } from "./router.ts";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
@@ -124,7 +117,7 @@ function gatePid(gatePath: string): number | undefined {
   }
 }
 
-const activeSessions: PadiBindingSession[] = [];
+const activeSessions: PadiSession[] = [];
 const activeStateRoots = new Set<string>();
 
 /** SIGKILL the CURRENT padi (its gate may point at a respawned one) AND its
@@ -156,27 +149,26 @@ afterEach(async () => {
 /** Boot a binding + re-serve, and dial it through the REAL host-router splice
  *  (`buildAppRouter` → `directLink`), so calls land at `/surface/padi/<member>`. */
 async function bootReServedPadi(stateRoot: string): Promise<{
-  session: PadiBindingSession;
+  session: PadiSession;
   // biome-ignore lint/suspicious/noExplicitAny: the dialed client is walked structurally in the round-trip helper.
   padi: any;
 }> {
   activeStateRoots.add(stateRoot);
-  const session = await ensurePadiBinding({
+  // Post-S9 `ensurePadiBinding` is SYNC — it builds the reconnect-mirror session and
+  // returns immediately; the loop warms on the first pin (reServeSurface pins it).
+  const session = ensurePadiBinding({
     stateRoot,
     nixShellWhitelist: "default", // the test runs inside the nix devshell
     reconnectDelayMs: 400, // snappy reconnect for the kill test
   });
   activeSessions.push(session);
 
-  const reServed = reServeSurface<
-    typeof padiSurface.spec,
-    typeof padiSurface.contract
-  >({
+  const reServed = reServeSurface<typeof padiSurface.spec>({
     source: padiSurface,
     policy: PADI_FORWARDING_POLICY,
-    // `PadiBindingSession implements RemoteMirrorSession<…>`, so it plugs in with
-    // no cast — the contract param is pinned explicitly (as in index.ts) because
-    // it isn't reverse-inferable from the concrete class value.
+    // The `PadiSession` plugs into `reServeSurface`'s loose `Session` receptacle — S3
+    // dropped the dead contract `<C>` at the role boundary, so only the SURFACE spec is
+    // named here (as in index.ts).
     session,
     log: () => {},
   });
@@ -192,7 +184,9 @@ async function bootReServedPadi(stateRoot: string): Promise<{
   };
   const appRouter = buildAppRouter({
     surfaceRouter,
-    drainBoundPadi: () => session.drainBoundPadi(),
+    // The re-targeted "restart" is now the session's `renew()` (the drain verb), not the
+    // deleted `drainBoundPadi()`.
+    drainBoundPadi: () => session.renew(),
   });
   // `directLink` internally; drive the assembled router in-process and walk it
   // structurally (`surface.padi.<member>`).
@@ -242,8 +236,25 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
 
 describe("kolu-server padi binder — cutover acceptance", () => {
   it("binds a spawned padi and the re-served surface round-trips a terminal", async () => {
-    const { padi } = await bootReServedPadi(makeStateRoot());
+    const { session, padi } = await bootReServedPadi(makeStateRoot());
     await roundTripTerminal(padi, "BINDMARK");
+
+    // The LOCAL arm's new-API readouts, end-to-end against a REAL padi: a healthy local
+    // bind surfaces NO convergence anomaly (parity with the pre-S9 `padiConvergence()`
+    // returning null), and `identity()` reads padi's declared `system.identity` — a
+    // null-free sum that is `identified` (padi always DECLARES its build) with the REAL
+    // padiSurface contract version and an honest boot time, once bound.
+    expect(session.convergence()).toBeNull();
+    let id = session.identity();
+    for (let i = 0; i < 100 && id.kind === "disconnected"; i++) {
+      await sleep(50);
+      id = session.identity();
+    }
+    expect(id.kind).toBe("identified");
+    if (id.kind !== "identified")
+      throw new Error("bound padi never surfaced an identity");
+    expect(id.baked.contractVersion).toBe(PADI_SURFACE_VERSION);
+    expect(id.startedAt).toBeGreaterThan(0);
   }, 60000);
 
   it("reconnects when padi dies, and the re-served surface round-trips again", async () => {
@@ -311,10 +322,17 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     expect(padiPid2).toBe(padiPid); // SAME process — adopted, not respawned.
 
     // The terminal created BEFORE the restart is still live with its screen intact,
-    // read through the FRESH binding — the metadata survived warm in padi.
+    // read through the FRESH binding — the metadata survived warm in padi. Post-S9
+    // `ensurePadiBinding` is SYNC (no first-connect await), so the fresh binding's pump
+    // may not have bound the live upstream on the first read — tolerate the warm-up gap
+    // ("no live upstream link") the SAME way `roundTripTerminal` does for `create`.
     let warm = "";
-    for (let i = 0; i < 160 && !warm.includes("WARMMARK"); i++) {
-      warm = await second.padi.screen.state({ id });
+    for (let i = 0; i < 200 && !warm.includes("WARMMARK"); i++) {
+      try {
+        warm = await second.padi.screen.state({ id });
+      } catch {
+        // pump not yet bound to the re-adopted padi — retry across the bind gap.
+      }
       if (!warm.includes("WARMMARK")) await sleep(50);
     }
     expect(warm).toContain("WARMMARK");
@@ -424,7 +442,8 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // Drain the bound padi ACROSS THE kolu↔padi WIRE: kolu-server → `control.drain`
     // → padi's `onDrain` (persist via the empty-preserve receptacle, then exit). The
     // binder's reconnect loop re-binds a fresh padi that adopts the surviving kaval.
-    await session.drainBoundPadi();
+    // `renew()` is the post-S9 "restart" verb (was `drainBoundPadi()`).
+    await session.renew();
 
     // The persisted blob must NEVER have nulled or shrunk — the drain used the
     // empty-preserve receptacle (a parked-only/empty snapshot leaves it intact) and
@@ -540,9 +559,10 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     await converge({
       endpoint: ep,
       // strictly NEWER contract than the running padi. From-source padi has no baked
-      // PADI_BUILD_ID, and this exercises the CONTRACT drain — so baked.buildId is ""
-      // too, keeping the BUILD axis dormant.
-      baked: { contractVersion: newerBinderVersion, buildId: "" },
+      // PADI_BUILD_ID, and this exercises the CONTRACT drain — so the baked build is the
+      // null-free `off-nix` DaemonBuild (RB6: the "" sentinel is gone), keeping the BUILD
+      // axis dormant.
+      baked: { contractVersion: newerBinderVersion, build: daemonBuild("") },
       probe: () => probePadiForConvergence(socketPath),
       policy: PADI_CONVERGENCE_POLICY,
       buildFence: createBuildDrainFence(),
@@ -577,73 +597,43 @@ describe("kolu-server padi binder — cutover acceptance", () => {
   }, 90000);
 });
 
-describe("PadiBindingSession.padiStartedAt — honest boot time for the rail's padi uptime", () => {
-  // A pure unit test of the boot-time lifecycle — no real padi. Fake timers so the
-  // degraded-branch `scheduleReconnect()` timer never lingers past the test (the
-  // reconnect itself is irrelevant here — we only assert the boot-time accessor).
-  // The inner afterEach restores real timers BEFORE the file-level afterEach's
-  // `await sleep(50)` runs (innermost hooks run first).
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => {
-    vi.clearAllTimers();
-    vi.useRealTimers();
-  });
+describe("ensurePadiBinding — the LOCAL arm's members before any connect (pure, no real padi)", () => {
+  // Post-S9 the boot-time lifecycle is no longer a bespoke `padiStartedAt()` on a wrapper
+  // class; it rides the base `session.identity()` (padi's `system.identity`), which is
+  // proven generically by surface-nix-host's session tests. What is padi-LOCAL-arm
+  // specific — and unit-testable with NO real padi (the session is side-effect-free until
+  // the first pin) — is: the arm surfaces NO convergence (local has none), `identity()`
+  // is the honest `disconnected` arm while unbound (never a fabricated 0), and `renew()`
+  // fails LOUDLY when there is no bound padi to drain (never a phantom success). A tmp
+  // state-root keeps the endpoint's digest isolated; `destroy()` tears the session down.
+  const build = (): PadiSession =>
+    ensurePadiBinding({ stateRoot: makeStateRoot(), reconnectDelayMs: 10_000 });
 
-  // Minimal fake endpoint: `onEndpointStatus` reads `endpoint.current()` only to scope
-  // the client on `connected`, and the boot-time lifecycle reads the STATUS's
-  // `startedAt` (not `current()`), so a null current is fine — `clientPromise` stays
-  // null and we assert only `padiStartedAt()`.
-  const makeSession = (): PadiBindingSession =>
-    new PadiBindingSession({
-      endpoint: {
-        current: () => null,
-      } as unknown as PadiBindingSessionDeps["endpoint"],
-      connectOnce: async () => true,
-      reconnectDelayMs: 10_000, // never fires — cleared by the afterEach
-    });
-
-  type Status = Parameters<PadiBindingSession["onEndpointStatus"]>[0];
-  const connected = (startedAt: number): Status => ({
-    state: "connected",
-    identity: { stateRoot: "/x", surfaceVersion: PADI_SURFACE_VERSION },
-    startedAt,
-    metadata: {
-      surfaceVersion: PADI_SURFACE_VERSION,
-      controlCoreVersion: "1.0",
-    },
-  });
-
-  it("is null before any connection (honest unknown, never a fake 0)", () => {
-    const s = makeSession();
-    expect(s.padiStartedAt()).toBeNull();
+  it("surfaces NO convergence anomaly (the LOCAL arm's `convergence()` is always null)", () => {
+    const s = build();
+    expect(s.convergence()).toBeNull();
     s.destroy();
   });
 
-  it("reports the connected status's startedAt, then clears to null on a drop", () => {
-    const s = makeSession();
-    s.onEndpointStatus(connected(1_700_000_000_000));
-    expect(s.padiStartedAt()).toBe(1_700_000_000_000);
-    // A degraded close clears it — the padi uptime reads "unknown", never a stale age.
-    s.onEndpointStatus({ state: "degraded" } as Status);
-    expect(s.padiStartedAt()).toBeNull();
+  it("identity() is the honest `disconnected` arm before any connect (never a fake 0)", () => {
+    const s = build();
+    expect(s.identity()).toEqual({ kind: "disconnected" });
+    s.destroy();
+    // …and still `disconnected` once destroyed.
+    expect(s.identity()).toEqual({ kind: "disconnected" });
+  });
+
+  it("renew() (the restart/drain verb) throws LOUDLY when no padi is bound — never a phantom success", async () => {
+    const s = build();
+    // Never pinned → the endpoint holds no connection → the drain has nothing to reach.
+    await expect(s.renew()).rejects.toThrow(/not bound|down|cannot drain/i);
     s.destroy();
   });
 
-  it("re-reads a FRESH boot time on reconnect (a respawned padi is a new process)", () => {
-    const s = makeSession();
-    s.onEndpointStatus(connected(111));
-    expect(s.padiStartedAt()).toBe(111);
-    s.onEndpointStatus({ state: "degraded" } as Status);
-    s.onEndpointStatus(connected(222)); // respawn → new boot time, not the old 111
-    expect(s.padiStartedAt()).toBe(222);
+  it("declares its preservation (padi's PTYs SURVIVE a renew — they live in kaval)", () => {
+    const s = build();
+    expect(s.preservation).toEqual({ children: "survive" });
     s.destroy();
-  });
-
-  it("is null once destroyed", () => {
-    const s = makeSession();
-    s.onEndpointStatus(connected(555));
-    s.destroy();
-    expect(s.padiStartedAt()).toBeNull();
   });
 });
 

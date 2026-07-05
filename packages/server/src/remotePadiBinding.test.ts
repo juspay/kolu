@@ -1,290 +1,393 @@
 /**
- * `RemotePadiSession` unit — the ssh arm's adapter logic, WITHOUT ssh.
+ * The ssh arm's adapter logic — the control-core `hello` handshake, skew/build
+ * convergence (`decide` + the instance-keyed drain fence + adopt-loudly), scoping to
+ * `.surface.padi`, identity, and the drain — WITHOUT a real ssh hop.
  *
- * The transport (provision · ssh · reconnect) is `@kolu/surface-nix-host`'s
- * `HostSession`, proven by its own tests; what THIS arm adds is the padi-specific
- * layer — the control-core `hello` handshake, skew refusal, scoping to
- * `.surface.padi`, identity readouts, and drain. So the "host" here is a hand-
- * driven fake `RemoteMirrorSession` (the same pattern `reServeSurface.test.ts`
- * uses): `setClient` mints a fresh client promise + fires `onState` (a spawn),
- * `drop` clears it (a link death). No process, no ssh, no nix.
+ * Post-S9 there is no `RemotePadiSession` class: the arm is
+ * `makeSession({ connectOnce: sshConnector({ binary: "padi" }), admit: padiAdmit })`
+ * plus the daemon-supervision spread. So the transport is mocked at the ssh seam —
+ * `sshConnector` is replaced (via `vi.mock` of `@kolu/surface-nix-host`) with a fake
+ * connector that hands the loop a fake PADI DAEMON client per (re)dial, exactly the way
+ * `recheck.test.ts` / `liveness.test.ts` mock the child. Everything ELSE — the real
+ * `makeSession` reconnect loop, the real `admit` hook, the real `decide()` table — runs
+ * unmocked, and the tests drive it through the public {@link PadiSession} API:
+ *   - `pin()` / `currentClient()` — a fresh spawn's scoped client, or a WITHHELD
+ *     (rejected) client on a refuse/drain (the pump cursor waits on it);
+ *   - `convergence()` — the standing anomaly (skew-refused / adopted-stale / unconverged
+ *     / link-failed), or null when healthy;
+ *   - `identity()` — the null-free identity sum read off padi's `system.identity`
+ *     (replacing the deleted `padiStartedAt`/`padiSurfaceVersion`/`padiBuildCommit`);
+ *   - `renew()` — the drain (replacing `drainBoundPadi`);
+ *   - `onState()` — the connection cell.
+ *
+ * The fake daemon client answers the frozen control core (`hello`/`drain`) and carries a
+ * `.surface.padi` sibling (with a `system.identity`) so `scopePadiSurface` + the base
+ * session's identity poll work. Skew/build-mismatch is driven by VARYING the hello's
+ * `surfaceVersion`/`buildId`/`startedAt`; a drain's link-death is modelled by `hello()`
+ * rejecting AFTER `drain()`. Injected {@link RemotePadiSessionDeps} (small
+ * `maxBuildDrainsPerInstance`, short ceilings, explicit `binderVersion`/`binderBuildId`)
+ * reach the drain/adopt-stale/unconverged paths with no real build.
+ *
+ * NOTE (mechanism vs outcome): a few OLD assertions read internals the class exposed
+ * (`markConnectedCount`, a nulled `currentClient()` on a standing skew). The refactor
+ * preserves the OUTCOME through makeSession: a refused/unconverged bind WITHHOLDS the
+ * client as a REJECTED promise (the cursor still waits — the pump never folds it), and an
+ * intended drain resets the give-up budget by classifying its disconnect `"network"`
+ * (never `"remote"`). Those assertions are re-expressed against the new observation, not
+ * weakened.
  */
 
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
-import type {
-  ConnectionState,
-  HostSessionState,
-  RemoteMirrorSession,
+import {
+  type ClosedInfo,
+  ConnectError,
+  type ConnectContext,
+  type Connection,
+  type SessionState,
 } from "@kolu/surface-nix-host";
-import type { AnyContractRouter } from "@orpc/contract";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PadiSession } from "./padiSession.ts";
 import {
   composePadiExtraArgs,
-  RemotePadiSession,
+  ensureRemotePadiBinding,
+  type RemotePadiSessionDeps,
   remotePadiHost,
 } from "./remotePadiBinding.ts";
 
-// ── Fakes ────────────────────────────────────────────────────────────────────
-
-const BASE_STATE: HostSessionState = {
-  connection: "connecting",
-  progressLines: [],
-  remoteProgressLines: [],
-  lastError: null,
-  failureCause: null,
-};
-
-/** A fake padi COMBINED client: answers the frozen control core (`hello`/`drain`)
- *  and carries a `.surface.padi` marker so `scopePadiSurface` (which returns
- *  `{ surface: client.surface.padi }`) has something to scope to. Its `hello` NEVER
- *  rejects (a live daemon), so the drain-and-await-close poll never sees an exit — a
- *  handshake/scope/skew fixture, not a drain one (the drain paths use
- *  {@link makeDrainable}, which models the link death). */
-function makeCombined(hello: {
-  stateRoot: string;
-  surfaceVersion: string;
-  controlCoreVersion: string;
-  startedAt: number;
-  commit?: string;
-}): unknown {
+// ── Mock the ssh transport ONLY ──────────────────────────────────────────────
+// Replace `sshConnector` with a fake connector the per-test harness drives; keep the
+// rest of `@kolu/surface-nix-host` (the REAL `makeSession` loop, `ConnectError`, …)
+// intact via `importOriginal`. This is the ssh seam the arm layers padi's admit over —
+// mocking it is the exact analog of `recheck`/`liveness` mocking `node:child_process`.
+const hoisted = vi.hoisted(() => ({
+  nextConnector: null as
+    | null
+    | ((ctx: ConnectContext) => Promise<Connection<unknown>>),
+}));
+vi.mock("@kolu/surface-nix-host", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@kolu/surface-nix-host")>();
   return {
-    surface: {
-      control: {
-        core: {
-          hello: async () => hello,
-          drain: async () => {},
-        },
-      },
-      padi: { marker: "padi-scoped" },
+    ...actual,
+    // Ignore the ssh opts; delegate to the harness's queue-driven connector.
+    sshConnector: () => (ctx: ConnectContext) => hoisted.nextConnector?.(ctx),
+  };
+});
+
+// ── The fake PADI daemon client + its per-spawn handle ───────────────────────
+
+type HelloOver = Partial<{
+  surfaceVersion: string;
+  startedAt: number;
+  commit: string;
+  buildId: string;
+}>;
+
+/** A control-core `hello` payload — the wire the admit reads (surfaceVersion / startedAt
+ *  / buildId drive skew + build convergence; commit rides identity). */
+function helloVals(over: HelloOver = {}) {
+  return {
+    stateRoot: "/remote/.local/state/padi",
+    surfaceVersion: over.surfaceVersion ?? PADI_SURFACE_VERSION,
+    controlCoreVersion: "1.0",
+    startedAt: over.startedAt ?? 1000,
+    commit: over.commit ?? "abc1234",
+    buildId: over.buildId ?? "build-base",
+  } as {
+    stateRoot: string;
+    surfaceVersion: string;
+    controlCoreVersion: string;
+    startedAt: number;
+    commit?: string;
+    buildId?: string;
+  };
+}
+
+type Hello = ReturnType<typeof helloVals>;
+
+/** The reserved `system.identity` the fake padi surface serves — derived from the SAME
+ *  hello so identity() and the convergence hello stay consistent (padi always DECLARES
+ *  its build → `identified`). */
+function servedIdentity(hello: Hello) {
+  return {
+    kind: "identified" as const,
+    startedAt: hello.startedAt,
+    baked: {
+      contractVersion: hello.surfaceVersion,
+      buildId: hello.buildId ?? "",
+      commit:
+        hello.commit && hello.commit !== ""
+          ? { kind: "commit" as const, sha: hello.commit }
+          : { kind: "dev" as const },
     },
   };
 }
 
-const helloOk = (
-  over: Partial<{
-    commit: string;
-    startedAt: number;
-    buildId: string;
-    surfaceVersion: string;
-  }> = {},
-) => ({
-  stateRoot: "/remote/.local/state/padi",
-  surfaceVersion: over.surfaceVersion ?? PADI_SURFACE_VERSION,
-  controlCoreVersion: "1.0",
-  startedAt: over.startedAt ?? 1000,
-  commit: over.commit ?? "abc1234",
-  buildId: over.buildId ?? "build-base",
+/** A spawn the connector hands out: a served daemon (its hello + drain behaviour) or a
+ *  connector-level rejection (a provision/ssh failure). */
+type ServeOpts = {
+  /** Drain kills the link (default true). `false` = a wedged daemon that keeps answering
+   *  after the drain (the drain did not take). */
+  diesOnDrain?: boolean;
+  /** Answer this many MORE hellos after the drain before dying (a link that takes several
+   *  polls to tear down). */
+  graceHellos?: number;
+  /** After the drain, `hello()` HANGS forever (a wedged post-drain link the per-probe
+   *  ceiling race must bound). */
+  wedgeAfterDrain?: boolean;
+};
+type SpawnSpec =
+  | ({ kind: "serve"; hello: Hello } & ServeOpts)
+  | { kind: "reject"; cause: "remote" | "network"; reason: string };
+
+interface SpawnHandle {
+  /** How many times THIS spawn's `drain()` was invoked. */
+  drainCount: number;
+  /** Model a link death (a respawn/re-adopt trigger) by resolving this spawn's `closed`. */
+  kill: () => void;
+}
+
+const serve = (hello: Hello, opts: ServeOpts = {}): SpawnSpec => ({
+  kind: "serve",
+  hello,
+  ...opts,
 });
 
-/** A fake combined client that MODELS the drain→exit: `drain()` flips the daemon
- *  "dead", after which `hello()` rejects — exactly the "link death" the real ssh
- *  leg produces when padi exits, so `drainAndAwaitClose`'s liveness poll returns.
- *  `alive: false` at the drain does NOT die (models a drain that did not take). */
-function makeDrainable(
-  hello: ReturnType<typeof helloOk>,
-  opts: { diesOnDrain?: boolean; graceHellos?: number } = {},
-): {
-  client: unknown;
-  drainCount: () => number;
-} {
-  const dies = opts.diesOnDrain ?? true;
-  let grace = opts.graceHellos ?? 0;
-  let drained = false;
-  let drains = 0;
-  return {
-    drainCount: () => drains,
-    client: {
+// ── The harness ──────────────────────────────────────────────────────────────
+
+const sessions: PadiSession[] = [];
+
+interface Arm {
+  session: PadiSession;
+  /** Queue a spawn the connector hands out on the next (re)dial. */
+  enqueue: (spec: SpawnSpec) => void;
+  /** The per-spawn handles, in dial order. */
+  handles: SpawnHandle[];
+}
+
+function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
+  const queue: SpawnSpec[] = [];
+  const handles: SpawnHandle[] = [];
+
+  hoisted.nextConnector = async (
+    ctx: ConnectContext,
+  ): Promise<Connection<unknown>> => {
+    const spec = queue.shift();
+    if (spec === undefined)
+      throw new ConnectError("no more spawns queued (test)", "network");
+    if (spec.kind === "reject") throw new ConnectError(spec.reason, spec.cause);
+
+    const hello = spec.hello;
+    const dies = spec.diesOnDrain ?? true;
+    let grace = spec.graceHellos ?? 0;
+    let drained = false;
+    const handle: SpawnHandle = { drainCount: 0, kill: () => {} };
+    handles.push(handle);
+
+    // The COMBINED daemon client `sshConnector` yields — the frozen control core plus a
+    // `.surface.padi` sibling (scoped by `scopePadiSurface`; its `system.identity` feeds
+    // the base session's identity poll).
+    const combined = {
       surface: {
         control: {
           core: {
-            hello: async () => {
-              // After the drain, a daemon that "dies" answers `graceHellos` MORE
-              // times (modelling the ssh link taking several polls to tear down),
-              // then rejects — so drainAndAwaitClose's multi-poll success loop and
-              // its post-sleep boundary are exercised, not just synchronous death.
+            hello: async (): Promise<Hello> => {
+              if (drained && spec.wedgeAfterDrain)
+                return new Promise<Hello>(() => {}); // wedged: never settles
               if (drained && dies) {
                 if (grace <= 0) throw new Error("link dead (padi exited)");
                 grace -= 1;
               }
               return hello;
             },
-            drain: async () => {
-              drains += 1;
+            drain: async (): Promise<void> => {
+              handle.drainCount += 1;
               drained = true;
             },
           },
         },
-        padi: { marker: "padi-scoped" },
+        padi: {
+          marker: "padi-scoped",
+          system: { identity: async () => servedIdentity(hello) },
+        },
       },
-    },
+    };
+
+    let resolveClosed!: (info: ClosedInfo) => void;
+    const closed = new Promise<ClosedInfo>((r) => {
+      resolveClosed = r;
+    });
+    handle.kill = () =>
+      resolveClosed({ kind: "exit", code: null, signal: null });
+
+    ctx.connecting();
+    return {
+      client: combined,
+      closed,
+      isAlive: () =>
+        combined.surface.control.core.hello().then(() => undefined),
+      teardown: () => resolveClosed({ kind: "exit", code: null, signal: null }),
+    };
   };
+
+  const session = ensureRemotePadiBinding({ host: "rmt" }, deps);
+  sessions.push(session);
+  return { session, enqueue: (s) => queue.push(s), handles };
 }
 
-/** A hand-driven `RemoteMirrorSession` standing in for the ssh `HostSession`. */
-class FakeHost implements RemoteMirrorSession<AnyContractRouter> {
-  private clientPromise: Promise<unknown> | null = null;
-  private state: HostSessionState = BASE_STATE;
-  private readonly listeners = new Set<(s: HostSessionState) => void>();
-  destroyed = false;
-  pinCount = 0;
-  markConnectedCount = 0;
-
-  /** A fresh spawn: a NEW client promise (so a cursor advances on identity) + a
-   *  state fire. */
-  setClient(client: unknown, connection: ConnectionState = "connected"): void {
-    this.clientPromise = Promise.resolve(client);
-    this.state = {
-      ...this.state,
-      connection,
-      lastError: null,
-      failureCause: null,
-    };
-    this.fire();
-  }
-
-  /** The link died: no client, a disconnected frame. */
-  drop(): void {
-    this.clientPromise = null;
-    this.state = {
-      ...this.state,
-      connection: "disconnected",
-      lastError: "link dropped",
-      failureCause: "network",
-    };
-    this.fire();
-  }
-
-  /** The link gave up TERMINALLY (unreachable host / provisioning-resolve failure) — the
-   *  HostSession `failed` frame with a reason. */
-  fail(error: string): void {
-    this.clientPromise = null;
-    this.state = {
-      ...this.state,
-      connection: "failed",
-      lastError: error,
-      failureCause: "network",
-    };
-    this.fire();
-  }
-
-  pin(): Promise<unknown> {
-    this.pinCount += 1;
-    return this.clientPromise ?? Promise.reject(new Error("no client yet"));
-  }
-  currentClient(): Promise<unknown> | null {
-    return this.destroyed ? null : this.clientPromise;
-  }
-  isDestroyed(): boolean {
-    return this.destroyed;
-  }
-  onState(cb: (s: HostSessionState) => void): () => void {
-    this.listeners.add(cb);
-    cb(this.state); // snapshot-then-delta, like HostSession.
-    return () => {
-      this.listeners.delete(cb);
-    };
-  }
-  markConnected(): void {
-    this.markConnectedCount += 1;
-  }
-  destroy(): void {
-    this.destroyed = true;
-    this.clientPromise = null;
-    this.fire();
-  }
-  private fire(): void {
-    for (const cb of [...this.listeners]) cb(this.state);
-  }
+/** Synchronous `SessionState` snapshot — `onState` fires the current state on subscribe
+ *  (snapshot-then-delta), so a subscribe/unsubscribe reads it now. */
+function snap(session: PadiSession): SessionState {
+  let s!: SessionState;
+  session.onState((state) => {
+    s = state;
+  })();
+  return s;
 }
 
-const newSession = (): { host: FakeHost; rp: RemotePadiSession } => {
-  const host = new FakeHost();
-  // binderBuildId "" — an off-nix binder that never drains on build grounds — so
-  // these handshake/scope/skew/reconnect cases ADOPT deterministically regardless of
-  // the ambient PADI_BUILD_ID; the build-convergence path has its own describe below.
-  const rp = new RemotePadiSession(
-    host as RemoteMirrorSession<never>,
-    "remote-e2e",
-    { binderBuildId: "" },
-  );
-  return { host, rp };
-};
+/** Advance fake timers by `ms` and drain microtasks — runs the admit handshake, the
+ *  drain poll loop, the identity poll, and (with a large enough `ms`) a reconnect. */
+async function flush(ms = 0): Promise<void> {
+  await vi.advanceTimersByTimeAsync(ms);
+}
+
+// Ceilings small enough that a single `flush(CEIL)` covers a drain but not the 2s
+// makeSession reconnect backoff. `RECONNECT` steps past that backoff → the next (re)dial.
+const CEIL = 60;
+const POLL = 10;
+const RECONNECT = 2600;
+
+/** Pin a session that is expected to ADOPT (possibly after a drain that did not take),
+ *  advance past the drain ceiling + the identity poll, and return the scoped client. */
+async function pinAdopt(session: PadiSession): Promise<{
+  surface: { marker?: string };
+}> {
+  const p = session.pin();
+  p.catch(() => {});
+  await flush(CEIL);
+  await flush();
+  return (await p) as { surface: { marker?: string } };
+}
+
+// ── Setup ────────────────────────────────────────────────────────────────────
+
+let priorDrvMap: string | undefined;
+beforeEach(() => {
+  vi.useFakeTimers();
+  // `ensureRemotePadiBinding` parses the baked drv map EAGERLY (fail-fast). The value is
+  // never used here (the fake connector bypasses provisioning), but it must be present.
+  priorDrvMap = process.env.PADI_AGENT_DRVS_JSON;
+  process.env.PADI_AGENT_DRVS_JSON =
+    '{"x86_64-linux":"/nix/store/fake-padi.drv"}';
+});
+afterEach(() => {
+  for (const s of sessions.splice(0)) s.destroy();
+  hoisted.nextConnector = null;
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  vi.clearAllMocks();
+  if (priorDrvMap === undefined) delete process.env.PADI_AGENT_DRVS_JSON;
+  else process.env.PADI_AGENT_DRVS_JSON = priorDrvMap;
+});
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => {
+describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
   it("handshakes a fresh spawn, scopes to .surface.padi, and reads identity", async () => {
-    const { host, rp } = newSession();
-    host.setClient(
-      makeCombined(helloOk({ commit: "deadbee", startedAt: 4242 })),
-    );
+    // Off-nix binder ("") never drains on build grounds → a compatible contract ADOPTS
+    // deterministically regardless of the survivor's buildId.
+    const { session, enqueue } = makeArm({ binderBuildId: "" });
+    enqueue(serve(helloVals({ commit: "deadbee", startedAt: 4242 })));
 
-    const client = (await rp.currentClient()) as { surface: unknown };
-    // scopePadiSurface = { surface: combined.surface.padi } — the re-serve mirrors
-    // `.surface.padi.<member>`, so the scoped client's surface IS padi's.
-    expect(client.surface).toEqual({ marker: "padi-scoped" });
+    const scoped = await pinAdopt(session);
+    // scopePadiSurface = { surface: combined.surface.padi } — the scoped client's
+    // `.surface` IS padi's sibling (the re-serve mirrors `.surface.padi.<member>`).
+    expect(scoped.surface.marker).toBe("padi-scoped");
 
-    // Identity is read off the control-core hello (the daemonInventory + rail cells).
-    expect(rp.padiSurfaceVersion()).toBe(PADI_SURFACE_VERSION);
-    expect(rp.padiBuildCommit()).toBe("deadbee");
-    expect(rp.padiStartedAt()).toBe(4242);
+    // Identity graduates to the base `identity()` off padi's `system.identity` (the old
+    // padiSurfaceVersion / padiBuildCommit / padiStartedAt readouts, now one sum).
+    const id = session.identity();
+    expect(id.kind).toBe("identified");
+    if (id.kind !== "identified") throw new Error("expected identified");
+    expect(id.baked.contractVersion).toBe(PADI_SURFACE_VERSION);
+    expect(id.baked.commit).toEqual({ kind: "commit", sha: "deadbee" });
+    expect(id.startedAt).toBe(4242);
+    // Healthy bind → no standing anomaly.
+    expect(session.convergence()).toBeNull();
   });
 
-  it("refuses an incompatible padiSurface LOUDLY (skew) — rejects the client, degrades the cell, never a kill", async () => {
-    const { host, rp } = newSession();
-    host.setClient(makeCombined({ ...helloOk(), surfaceVersion: "99.0" }));
+  it("refuses an incompatible padiSurface LOUDLY (skew) — WITHHOLDS the client, degrades the cell, never a kill", async () => {
+    const { session, enqueue } = makeArm({ binderBuildId: "" });
+    enqueue(serve(helloVals({ surfaceVersion: "99.0" })));
 
+    const p = session.pin();
+    p.catch(() => {});
+    await flush();
     // The mirrored client REJECTS so the pump's cursor keeps waiting (no crash).
-    await expect(rp.currentClient()).rejects.toThrow(/skew/i);
+    await expect(p).rejects.toThrow(/skew/i);
+    await flush();
 
-    // …and the connection cell reads a loud, honest degraded/remote frame — never a
-    // silent "connected but empty".
-    let last: HostSessionState | undefined;
-    rp.onState((s) => {
-      last = s;
-    });
-    expect(last?.connection).toBe("disconnected");
-    expect(last?.failureCause).toBe("remote");
-    expect(rp.padiSurfaceVersion()).toBeNull();
+    // The connection cell reads a loud, honest degraded/remote frame.
+    const s = snap(session);
+    expect(s.connection).toBe("disconnected");
+    expect(s.failureCause).toBe("remote");
+    // Identity is the honest `disconnected` arm (nothing adopted) — the old
+    // padiSurfaceVersion()===null.
+    expect(session.identity().kind).toBe("disconnected");
 
-    // M2: a STANDING skew must yield a NULL client on subsequent live-client reads — NOT
-    // the rejected memo hammered forever. `readPadiMemoryOnce` (index.ts) polls off
-    // `currentClient()` every 5s; over a still-up transport a rejected-through-live client
-    // would spam 'poll failed' + log.error, where the LOCAL arm (which nulls its client)
-    // reports honest 'absent'. currentClient() must match that: null, not a rejected promise.
-    expect(rp.currentClient()).toBeNull();
+    // M2: a STANDING skew WITHHOLDS the live client — the base session keeps the client
+    // promise REJECTED (the cursor waits; the pump never folds a rejected client), which
+    // is how makeSession expresses the old class's nulled `currentClient()`.
+    await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
+      /skew/i,
+    );
 
-    // …and the reason is a STANDING, surfaced convergence state so the Padi dialog shows WHY
-    // (an incompatible contract, refused), not a swallowed log line.
-    expect(rp.padiConvergence()?.state).toBe("skew-refused");
-    expect(rp.padiConvergence()?.detail).toMatch(/contract skew|refusing/i);
+    // …and the reason is a STANDING, surfaced convergence state so the Padi dialog shows WHY.
+    expect(session.convergence()?.state).toBe("skew-refused");
+    expect(session.convergence()?.detail).toMatch(/contract skew|refusing/i);
   });
 
   it("a TERMINAL link failure (host unreachable / provisioning failed) surfaces as a standing link-failed state, canvas dead", async () => {
-    const { host, rp } = newSession();
-    // The HostSession gave up terminally — an unreachable host / a `nix copy` that failed.
-    host.fail("testhost: 'nix copy --derivation' exited with code 1");
-    // No live client (canvas dead) — currentClient is null (honest absent), nothing to poll.
-    expect(rp.currentClient()).toBeNull();
-    // …but the REASON is a standing, surfaced convergence state — not a swallowed log or a
-    // bare disconnected dot with no "why".
-    const conv = rp.padiConvergence();
+    const { session, enqueue } = makeArm({ binderBuildId: "" });
+    // The connector rejects every dial (a `nix copy` that failed) → after the bounded
+    // give-up budget the session goes terminal `failed`.
+    for (let i = 0; i < 5; i++)
+      enqueue({
+        kind: "reject",
+        cause: "remote",
+        reason: "testhost: 'nix copy --derivation' exited with code 1",
+      });
+
+    const p = session.pin();
+    p.catch(() => {});
+    await expect(p).rejects.toThrow(/nix copy|exited with code/i);
+    // Walk the exponential backoff (2s+4s+8s+16s) to the give-up.
+    await flush(60_000);
+
+    expect(snap(session).connection).toBe("failed");
+    // No live client (canvas dead) — currentClient is null (honest absent).
+    expect(session.currentClient()).toBeNull();
+    // …but the REASON is a standing, surfaced convergence state.
+    const conv = session.convergence();
     expect(conv?.state).toBe("link-failed");
     expect(conv?.detail).toMatch(/nix copy|exited with code/i);
-    // The connection cell reads the terminal failed frame.
-    let last: HostSessionState | undefined;
-    rp.onState((s) => {
-      last = s;
-    });
-    expect(last?.connection).toBe("failed");
   });
 
-  it("P1: a fresh spawn under a STANDING linkFailed does not float an unhandled handshake rejection (no fatal process.exit)", async () => {
-    const { host, rp } = newSession();
-    // Enter linkFailed (a terminal transport failure). A `failed → re-arm` recovery does NOT
-    // reset it, so the next fresh spawn arrives while bindState still reads linkFailed.
-    host.fail("provisioning failed");
-    expect(rp.padiConvergence()?.state).toBe("link-failed");
+  it("P1: a fresh spawn under a STANDING link-failed does not float an unhandled handshake rejection (no fatal process.exit)", async () => {
+    const { session, enqueue } = makeArm({ binderBuildId: "" });
+    for (let i = 0; i < 5; i++)
+      enqueue({
+        kind: "reject",
+        cause: "remote",
+        reason: "provisioning failed",
+      });
+    // The post-failed re-arm brings up a REFUSED skew — its handshake rejects.
+    enqueue(serve(helloVals({ surfaceVersion: "99.0" })));
+
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(60_000);
+    expect(session.convergence()?.state).toBe("link-failed");
 
     const rejections: unknown[] = [];
     const onUnhandled = (r: unknown): void => {
@@ -292,14 +395,13 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
     };
     process.on("unhandledRejection", onUnhandled);
     try {
-      // The host RE-ARMS with a NEW spawn that will be REFUSED (an incompatible skew) — its
-      // handshake REJECTS. currentClient memoizes that handshake, but the guard returns null
-      // (still linkFailed) and the pump never awaits it — the memo must NOT float its rejection
-      // (else index.ts's unhandledRejection handler process.exit(1)s the whole server).
-      host.setClient(makeCombined({ ...helloOk(), surfaceVersion: "99.0" }));
-      expect(rp.currentClient()).toBeNull();
-      // Let the refused handshake reject + settle; a floated rejection would surface here.
-      await new Promise((r) => setTimeout(r, 20));
+      // Re-arm the failed session with a NEW spawn that will be REFUSED. makeSession's
+      // reconnect path attaches its own `.catch` to the launched attempt, so the refused
+      // handshake's rejection must NOT float (else index.ts's unhandledRejection handler
+      // process.exit(1)s the whole server).
+      session.reconnect();
+      await flush();
+      await flush();
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }
@@ -307,529 +409,501 @@ describe("RemotePadiSession — the ssh arm's handshake + scope + drain", () => 
   });
 
   it("drains the bound padi and WAITS for its exit (the restart verb) — resolves only once the link dies", async () => {
-    const host = new FakeHost();
-    const rp = new RemotePadiSession(
-      host as RemoteMirrorSession<never>,
-      "rmt",
-      {
-        binderBuildId: "", // off-nix → adopt on bind, no build drain
-        drainTeardownCeilingMs: 200,
-        drainPollMs: 10,
-      },
-    );
-    const d = makeDrainable(helloOk()); // dies on drain (graceHellos 0)
-    host.setClient(d.client);
-    await rp.currentClient(); // adopt → bound
-    await rp.drainBoundPadi(); // resolves only after the modelled link death
-    expect(d.drainCount()).toBe(1);
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "", // off-nix → adopt on bind, no build drain
+      drainTeardownCeilingMs: 200,
+      drainPollMs: POLL,
+    });
+    enqueue(serve(helloVals())); // dies on drain (graceHellos 0)
+    await pinAdopt(session); // adopt → bound
+
+    const r = session.renew();
+    r.catch(() => {});
+    await flush(200);
+    await r; // resolves only after the modelled link death
+    expect(handles[0]!.drainCount).toBe(1);
   });
 
-  it("drainBoundPadi THROWS when the padi does not exit in the window (never a phantom success)", async () => {
-    const host = new FakeHost();
-    const rp = new RemotePadiSession(
-      host as RemoteMirrorSession<never>,
-      "rmt",
-      {
-        binderBuildId: "",
-        drainTeardownCeilingMs: 40,
-        drainPollMs: 10,
-      },
-    );
+  it("renew() THROWS when the padi does not exit in the window (never a phantom success)", async () => {
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "",
+      drainTeardownCeilingMs: 40,
+      drainPollMs: POLL,
+    });
     // The daemon keeps answering after drain (the drain did not take) — the fail-fast
-    // window elapses and the restart verb THROWS rather than reporting a success that
-    // did not happen. Never a kill.
-    const stubborn = makeDrainable(helloOk(), { diesOnDrain: false });
-    host.setClient(stubborn.client);
-    await rp.currentClient();
-    await expect(rp.drainBoundPadi()).rejects.toThrow(
-      /did not (complete|exit)/i,
-    );
-    expect(stubborn.drainCount()).toBe(1); // attempted once, no kill
+    // window elapses and the restart verb THROWS. Never a kill.
+    enqueue(serve(helloVals(), { diesOnDrain: false }));
+    await pinAdopt(session);
+
+    const r = session.renew();
+    r.catch(() => {});
+    await flush(80);
+    await expect(r).rejects.toThrow(/did not (complete|exit)/i);
+    expect(handles[0]!.drainCount).toBe(1); // attempted once, no kill
   });
 
   it("throws on drain when unbound (no crash, an honest error)", async () => {
-    const { rp } = newSession();
-    await expect(rp.drainBoundPadi()).rejects.toThrow(
-      /no adopted daemon to drain/i,
-    );
+    const { session } = makeArm({ binderBuildId: "" });
+    // Never pinned → no combined client → renew throws honestly (the arm's message is
+    // "not bound — cannot drain", the new spelling of the old "no adopted daemon").
+    await expect(session.renew()).rejects.toThrow(/not bound|cannot drain/i);
   });
 
   it("refuses to drain a padi it only REFUSED for a skew — honors the bind verdict, never downgrades it", async () => {
-    const { host, rp } = newSession();
-    host.setClient(makeCombined({ ...helloOk(), surfaceVersion: "99.0" }));
-    await expect(rp.currentClient()).rejects.toThrow(/skew/i);
-    // The restart verb must NOT reach the raw host client for a padi we never adopted:
+    const { session, enqueue } = makeArm({ binderBuildId: "" });
+    enqueue(serve(helloVals({ surfaceVersion: "99.0" })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush();
+    await expect(p).rejects.toThrow(/skew/i);
+    await flush(); // let the disconnect frame null `combined`
+    // The restart verb must NOT reach the raw host client for a padi we never adopted —
     // an older binder draining a refused newer padi would DOWNGRADE it (anti-monotonic).
-    await expect(rp.drainBoundPadi()).rejects.toThrow(
-      /no adopted daemon to drain/i,
-    );
+    await expect(session.renew()).rejects.toThrow(/not bound|cannot drain/i);
   });
 
   it("re-handshakes a NEW spawn on reconnect, refreshing identity", async () => {
-    const { host, rp } = newSession();
-    host.setClient(makeCombined(helloOk({ commit: "aaa1111" })));
-    await rp.currentClient();
-    expect(rp.padiBuildCommit()).toBe("aaa1111");
+    const { session, enqueue, handles } = makeArm({ binderBuildId: "" });
+    enqueue(serve(helloVals({ commit: "aaa1111" })));
+    await pinAdopt(session);
+    const first = session.identity();
+    if (first.kind !== "identified") throw new Error("expected identified");
+    expect(first.baked.commit).toEqual({ kind: "commit", sha: "aaa1111" });
 
-    // Link drops: identity clears to the honest "unknown".
-    host.drop();
-    expect(rp.padiBuildCommit()).toBeNull();
-    expect(rp.currentClient()).toBeNull();
+    // Link drops: identity clears to the honest `disconnected`, no live client.
+    handles[0]!.kill();
+    await flush();
+    expect(session.identity().kind).toBe("disconnected");
+    expect(session.currentClient()).toBeNull();
 
-    // A fresh spawn (a respawned/re-adopted padi) re-handshakes with fresh identity.
-    host.setClient(makeCombined(helloOk({ commit: "bbb2222" })));
-    await rp.currentClient();
-    expect(rp.padiBuildCommit()).toBe("bbb2222");
+    // A fresh spawn (a respawned / re-adopted padi) re-handshakes with fresh identity.
+    enqueue(serve(helloVals({ commit: "bbb2222" })));
+    await flush(RECONNECT);
+    await flush();
+    const second = session.identity();
+    if (second.kind !== "identified") throw new Error("expected identified");
+    expect(second.baked.commit).toEqual({ kind: "commit", sha: "bbb2222" });
   });
 
   it("advances currentClient identity per spawn, but stays STABLE within one (no cursor spin)", async () => {
-    const { host, rp } = newSession();
-    host.setClient(makeCombined(helloOk()));
-    const a = rp.currentClient();
-    const b = rp.currentClient();
-    // Stable within a spawn — the memoized promise, so makeClientCursor keeps
-    // waiting instead of busy-spinning on a fresh object each poll.
+    const { session, enqueue, handles } = makeArm({ binderBuildId: "" });
+    enqueue(serve(helloVals()));
+    await pinAdopt(session);
+    const a = session.currentClient();
+    const b = session.currentClient();
+    // Stable within a spawn — the memoized promise, so a cursor keeps waiting instead of
+    // busy-spinning on a fresh object each poll.
     expect(a).toBe(b);
 
-    host.setClient(makeCombined(helloOk()));
-    const c = rp.currentClient();
-    // A genuinely new spawn → a new promise identity → the cursor advances.
+    // A genuinely new spawn (drop → reconnect → re-adopt) → a new promise identity.
+    handles[0]!.kill();
+    await flush();
+    enqueue(serve(helloVals()));
+    await flush(RECONNECT);
+    await flush();
+    const c = session.currentClient();
     expect(c).not.toBe(a);
     await Promise.all([a, c]);
   });
 
-  it("pin() kicks the host spawn; markConnected + destroy forward", () => {
-    const { host, rp } = newSession();
-    void rp.pin().catch(() => {});
-    expect(host.pinCount).toBe(1);
+  it("pin() kicks a fresh spawn; markConnected + destroy forward", async () => {
+    const { session, enqueue, handles } = makeArm({ binderBuildId: "" });
+    enqueue(serve(helloVals()));
+    expect(handles.length).toBe(0); // nothing dialed until pinned
 
-    rp.markConnected();
-    expect(host.markConnectedCount).toBe(1);
+    await pinAdopt(session);
+    expect(handles.length).toBe(1); // pin kicked exactly one spawn
+    expect(snap(session).connection).toBe("connected");
 
-    rp.destroy();
-    expect(host.destroyed).toBe(true);
-    expect(rp.isDestroyed()).toBe(true);
-    expect(rp.currentClient()).toBeNull();
+    session.markConnected(); // idempotent — a second mark is a no-op
+    expect(snap(session).connection).toBe("connected");
+
+    session.destroy();
+    expect(session.isDestroyed()).toBe(true);
+    expect(session.currentClient()).toBeNull();
   });
 });
 
-describe("RemotePadiSession — build/contract convergence at the remote bind (mirrors drainSupersededSurvivor, over ssh)", () => {
-  // Inject a specific binder build id so the drain path runs without two real nix
-  // builds — the same shape the local arm's bindPadiOnce is unit-tested at. The build
-  // fence is now keyed by daemon INSTANCE (startedAt), not a global boolean, so tests
-  // drive convergence with the survivor's startedAt + a small per-instance budget.
-  const make = (
-    deps: {
-      binderBuildId?: string;
-      binderVersion?: string;
-      maxBuildDrains?: number;
-    } = {},
-  ) => {
-    const host = new FakeHost();
-    const rp = new RemotePadiSession(
-      host as RemoteMirrorSession<never>,
-      "rmt",
-      {
-        binderBuildId: deps.binderBuildId,
-        binderVersion: deps.binderVersion,
-        maxBuildDrainsPerInstance: deps.maxBuildDrains,
-        // Fast fail-fast window so a drain-that-doesn't-take test isn't slow.
-        drainTeardownCeilingMs: 60,
-        drainPollMs: 10,
-      },
-    );
-    return { host, rp };
-  };
-
+describe("remote padi arm — build/contract convergence at the bind (over ssh)", () => {
   it("same build → ADOPTS, no drain", async () => {
-    const { host, rp } = make({ binderBuildId: "build-X" });
-    const c = makeDrainable(helloOk({ buildId: "build-X" }));
-    host.setClient(c.client);
-    const scoped = (await rp.currentClient()) as { surface: unknown };
-    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
-    expect(c.drainCount()).toBe(0);
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-X",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    enqueue(serve(helloVals({ buildId: "build-X" })));
+    const scoped = await pinAdopt(session);
+    expect(scoped.surface.marker).toBe("padi-scoped");
+    expect(handles[0]!.drainCount).toBe(0);
   });
 
   it("build MISMATCH → drains the survivor, then adopts the respawned build (fresh instance, matched build)", async () => {
-    const { host, rp } = make({ binderBuildId: "build-NEW" });
-
-    // Spawn 1 — the survivor is an OLD build (instance startedAt 1000). The mismatch
-    // drains + rejects (the pump cursor waits) to reconnect. This is the flagship #1670
-    // redeploy, over ssh.
-    const old = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 1000 }),
-    );
-    host.setClient(old.client);
-    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
-    expect(old.drainCount()).toBe(1);
-
-    // Spawn 2 — the drain TOOK: the HostSession reconnect respawned a FRESH instance
-    // (startedAt 2000) running THIS binder's build. It matches → ADOPT, no second drain.
-    const fresh = makeDrainable(
-      helloOk({ buildId: "build-NEW", startedAt: 2000 }),
-    );
-    host.setClient(fresh.client);
-    const scoped = (await rp.currentClient()) as { surface: unknown };
-    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
-    expect(fresh.drainCount()).toBe(0);
-  });
-
-  it("reset-on-adopt: adopting a matched build CLEARS the instance tracker, so a LATER mismatch drains AFRESH (the drain budget resets across a genuine converge)", async () => {
-    // Pins `this.drainedInstance = null; this.drainAttempts = 0` on the ADOPT path
-    // (the matched-build branch of handshakeAndScope). Without that reset, the tracker
-    // would still hold the FIRST drained instance after a genuine converge, and a later,
-    // unrelated build change would be misread as a two-supervisor treadmill (a DIFFERENT
-    // instance still wrong "this boot") and degrade LOUDLY instead of draining — turning
-    // a normal redeploy into a wedged canvas.
-    const { host, rp } = make({ binderBuildId: "build-NEW" });
-
-    // 1. A build-MISMATCH survivor (instance startedAt 1000, build-OLD) → drain took →
-    //    reject to reconnect. Tracker now: drainedInstance=1000, drainAttempts=1.
-    const old = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 1000 }),
-    );
-    host.setClient(old.client);
-    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
-    expect(old.drainCount()).toBe(1);
-
-    // 2. The reconnect brings up a MATCHED build (build-NEW, a fresh instance) → ADOPT.
-    //    Reaching the matched build proves the earlier drain genuinely took, so the adopt
-    //    path CLEARS the tracker (drainedInstance=null, drainAttempts=0) — the reset.
-    const matched = makeDrainable(
-      helloOk({ buildId: "build-NEW", startedAt: 2000 }),
-    );
-    host.setClient(matched.client);
-    const scoped = (await rp.currentClient()) as { surface: unknown };
-    expect(scoped.surface).toEqual({ marker: "padi-scoped" });
-    expect(matched.drainCount()).toBe(0);
-
-    // 3. LATER a NEW mismatched instance appears (startedAt 3000, build-OLD again) — e.g. a
-    //    subsequent redeploy or a transient old survivor. BECAUSE the tracker was cleared on
-    //    adopt, this is a FRESH convergence: it must DRAIN AFRESH (drainCount 1, /build
-    //    mismatch/), NOT trip anti-livelock as a "different instance still wrong this boot".
-    //    A missing reset would instead throw /anti-livelock/ with drainCount 0 here.
-    const laterOld = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 3000 }),
-    );
-    host.setClient(laterOld.client);
-    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
-    expect(laterOld.drainCount()).toBe(1);
-  });
-
-  it("a link BLIP misread as an exit → the SAME instance RE-DRAINS, then ADOPTS LOUDLY the resident on budget exhaustion (M4)", async () => {
-    // Over ssh a `hello()` rejection during the post-drain poll can be a transient LINK
-    // BLIP, not a daemon exit — the daemon survives and the reconnect re-adopts the SAME
-    // instance (same startedAt). A global once-per-boot fence would have "spent" on the
-    // first blip and then SILENTLY adopted the stale build. The instance-keyed fence
-    // instead re-drains the same never-exited instance up to the budget; on exhaustion
-    // (a contested host we can't win by draining) it ADOPTS LOUDLY — canvas works, mismatch
-    // surfaced — never a silent adopt, never a pointless re-drain.
-    const { host, rp } = make({
+    const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
-      maxBuildDrains: 2,
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
     });
+    // Spawn 1 — an OLD build (instance 1000). The mismatch DRAINS + rejects (the cursor
+    // waits) to reconnect. The flagship #1670 redeploy, over ssh.
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/build mismatch/i);
+    expect(handles[0]!.drainCount).toBe(1);
 
-    // Blip 1: survivor is build-OLD, instance startedAt 5000. drain → hello rejects (the
-    // blip reads as "took") → the binder throws to reconnect. Drained once, NOT adopted.
-    const blip1 = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 5000 }),
+    // Spawn 2 — the drain TOOK: the reconnect respawned a FRESH instance (2000) running
+    // THIS binder's build. It matches → ADOPT, no second drain.
+    enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
+    await flush(RECONNECT);
+    await flush();
+    const scoped = (await session.currentClient()) as {
+      surface: { marker?: string };
+    };
+    expect(scoped.surface.marker).toBe("padi-scoped");
+    expect(handles[1]!.drainCount).toBe(0);
+  });
+
+  it("reset-on-adopt: adopting a matched build CLEARS the instance tracker, so a LATER mismatch drains AFRESH", async () => {
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    // 1. build-MISMATCH survivor (1000, build-OLD) → drain took → reject. Tracker now:
+    //    drainedInstance=1000, drainAttempts=1.
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/build mismatch/i);
+    expect(handles[0]!.drainCount).toBe(1);
+
+    // 2. reconnect brings up a MATCHED build (2000) → ADOPT → the adopt path CLEARS the
+    //    tracker (drainedInstance=null, drainAttempts=0).
+    enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
+    await flush(RECONNECT);
+    await flush();
+    const scoped = (await session.currentClient()) as {
+      surface: { marker?: string };
+    };
+    expect(scoped.surface.marker).toBe("padi-scoped");
+    expect(handles[1]!.drainCount).toBe(0);
+
+    // 3. LATER a NEW mismatched instance (3000, build-OLD) appears. BECAUSE the tracker
+    //    was cleared on adopt, this is a FRESH convergence → DRAIN AFRESH (drainCount 1),
+    //    NOT anti-livelock. A missing reset would instead adopt-stale with drainCount 0.
+    handles[1]!.kill(); // the matched build's link drops → reconnect
+    await flush();
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 3000 })));
+    await flush(RECONNECT);
+    await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
+      /build mismatch/i,
     );
-    host.setClient(blip1.client);
-    await expect(rp.currentClient()).rejects.toThrow(
+    expect(handles[2]!.drainCount).toBe(1);
+  });
+
+  it("a link BLIP misread as an exit → the SAME instance RE-DRAINS, then ADOPTS LOUDLY on budget exhaustion (M4)", async () => {
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-NEW",
+      maxBuildDrainsPerInstance: 2,
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    // Blip 1: build-OLD, instance 5000. drain → reconnect. Drained once, NOT adopted.
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 5000 })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/build mismatch|link death/i);
+    expect(handles[0]!.drainCount).toBe(1);
+
+    // The daemon SURVIVED the blip: reconnect re-adopts the SAME instance (5000), still
+    // build-OLD → RE-DRAIN (never adopt the stale build).
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 5000 })));
+    await flush(RECONNECT);
+    await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
       /build mismatch|link death/i,
     );
-    expect(blip1.drainCount()).toBe(1);
-
-    // The daemon SURVIVED the blip: the reconnect re-adopts the SAME instance (startedAt
-    // 5000), still build-OLD. It must RE-DRAIN (never adopt the stale build).
-    const blip2 = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 5000 }),
-    );
-    host.setClient(blip2.client);
-    await expect(rp.currentClient()).rejects.toThrow(
-      /build mismatch|link death/i,
-    );
-    expect(blip2.drainCount()).toBe(1); // re-drained the SAME instance, not adopted
+    expect(handles[1]!.drainCount).toBe(1);
 
     // Budget (2) exhausted for instance 5000: the SAME instance again → ADOPT-LOUDLY the
     // resident build (canvas WORKS), never a pointless re-drain.
-    const blip3 = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 5000 }),
-    );
-    host.setClient(blip3.client);
-    const client = await rp.currentClient(); // RESOLVES — a live resident client
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 5000 })));
+    await flush(RECONNECT);
+    await flush();
+    const client = await session.currentClient();
     expect(client).toBeTruthy();
-    expect(blip3.drainCount()).toBe(0); // budget spent, did not re-drain
-    // The mismatch is a STANDING, surfaced convergence state (running vs expected build).
-    const conv = rp.padiConvergence();
+    expect(handles[2]!.drainCount).toBe(0);
+    const conv = session.convergence();
     expect(conv?.state).toBe("adopted-stale");
     expect(conv?.runningBuild).toBe("build-OLD");
     expect(conv?.expectedBuild).toBe("build-NEW");
     expect(conv?.detail).toMatch(
       /flapping|will not converge|riding the resident/i,
     );
-    // Connection stays CONNECTED (canvas alive), and the resident identity is readable.
-    let last: HostSessionState | undefined;
-    rp.onState((s) => {
-      last = s;
-    });
-    expect(last?.connection).toBe("connected");
-    expect(rp.padiSurfaceVersion()).toBe(PADI_SURFACE_VERSION);
+    expect(snap(session).connection).toBe("connected"); // canvas alive
+    const id = session.identity();
+    expect(id.kind === "identified" && id.baked.contractVersion).toBe(
+      PADI_SURFACE_VERSION,
+    );
   });
 
-  it("a DIFFERENT instance still build-mismatched after a drain → ADOPTS LOUDLY the resident (anti-livelock, never treadmills)", async () => {
-    const { host, rp } = make({ binderBuildId: "build-NEW" });
-    // Drain instance 1000 (build-OLD) → throw to reconnect.
-    const first = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 1000 }),
-    );
-    host.setClient(first.client);
-    await expect(rp.currentClient()).rejects.toThrow(
-      /build mismatch|link death/i,
-    );
-    expect(first.drainCount()).toBe(1);
-    // The reconnect brings up a DIFFERENT instance (startedAt 2000) STILL build-OLD — two
-    // supervisors, or the absent-id dev loop respawning the old build. Do NOT treadmill:
-    // ADOPT LOUDLY the resident (canvas works) and surface the mismatch, no fresh drain.
-    const different = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 2000 }),
-    );
-    host.setClient(different.client);
-    const client = await rp.currentClient(); // ADOPTS the resident (canvas alive)
+  it("a DIFFERENT instance still build-mismatched after a drain → ADOPTS LOUDLY (anti-livelock, never treadmills)", async () => {
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/build mismatch|link death/i);
+    expect(handles[0]!.drainCount).toBe(1);
+
+    // reconnect brings up a DIFFERENT instance (2000) STILL build-OLD — two supervisors,
+    // or the absent-id dev loop. Do NOT treadmill: ADOPT LOUDLY the resident, no fresh drain.
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 2000 })));
+    await flush(RECONNECT);
+    await flush();
+    const client = await session.currentClient();
     expect(client).toBeTruthy();
-    expect(different.drainCount()).toBe(0); // never drained the fresh mismatched instance
-    const conv = rp.padiConvergence();
+    expect(handles[1]!.drainCount).toBe(0);
+    const conv = session.convergence();
     expect(conv?.state).toBe("adopted-stale");
     expect(conv?.detail).toMatch(/anti-livelock|respawning/i);
   });
 
-  it("drainBoundPadi restarts an ADOPTED-STALE resident (a live adopted daemon), not a false 'not bound' error", async () => {
-    const { host, rp } = make({ binderBuildId: "build-NEW" });
-    // Reach adopted-stale via anti-livelock: drain instance 1000, then a DIFFERENT instance
-    // 2000 is still mismatched → adopt-stale the resident (no fresh drain).
-    const first = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 1000 }),
-    );
-    host.setClient(first.client);
-    await expect(rp.currentClient()).rejects.toThrow(
-      /build mismatch|link death/i,
-    );
-    const resident = makeDrainable(
-      helloOk({ buildId: "build-OLD", startedAt: 2000 }),
-    );
-    host.setClient(resident.client);
-    await rp.currentClient(); // adopts-stale the resident (a LIVE daemon)
-    expect(rp.padiConvergence()?.state).toBe("adopted-stale");
-    // Restart the resident: drainBoundPadi must DRAIN it (it exits), not reject with the
-    // old "not bound (skew/refused)" error — adopted-stale is a live adopted daemon.
-    await rp.drainBoundPadi();
-    expect(resident.drainCount()).toBe(1);
+  it("renew() restarts an ADOPTED-STALE resident (a live adopted daemon), not a false 'not bound' error", async () => {
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    // Reach adopted-stale via anti-livelock: drain 1000, then a DIFFERENT instance 2000
+    // is still mismatched → adopt-stale the resident (no fresh drain).
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/build mismatch|link death/i);
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 2000 })));
+    await flush(RECONNECT);
+    await flush();
+    await session.currentClient(); // adopts-stale the resident (a LIVE daemon)
+    expect(session.convergence()?.state).toBe("adopted-stale");
+
+    // Restart the resident: renew must DRAIN it (it exits), not reject "not bound" —
+    // adopted-stale is a live adopted daemon.
+    const r = session.renew();
+    r.catch(() => {});
+    await flush(CEIL);
+    await r;
+    expect(handles[1]!.drainCount).toBe(1);
   });
 
   it("ABSENT buildId (a pre-field survivor) → drains as an older build", async () => {
-    const { host, rp } = make({ binderBuildId: "build-NEW" });
-    // A hello with NO buildId field — `?? ""` folds it to "", which never equals the
-    // binder's non-empty id, so it drains (a pre-field padi is an older build).
-    const preField = makeDrainable({
-      stateRoot: "/remote/.local/state/padi",
-      surfaceVersion: PADI_SURFACE_VERSION,
-      controlCoreVersion: "1.0",
-      startedAt: 1000,
-      commit: "abc",
-    } as ReturnType<typeof helloOk>);
-    host.setClient(preField.client);
-    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
-    expect(preField.drainCount()).toBe(1);
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    // A hello with NO buildId field (`undefined`) — `?? ""` folds it to off-nix, which
+    // never matches the binder's known id, so it drains (a pre-field padi is an older
+    // build). Omit it via override rather than `delete` (noDelete).
+    const h = { ...helloVals({ startedAt: 1000 }), buildId: undefined };
+    enqueue(serve(h));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/build mismatch/i);
+    expect(handles[0]!.drainCount).toBe(1);
   });
 
   it("off-nix binder (binderBuildId='') → never drains on build grounds", async () => {
-    const { host, rp } = make({ binderBuildId: "" });
-    const old = makeDrainable(helloOk({ buildId: "build-OLD" }));
-    host.setClient(old.client);
-    await rp.currentClient(); // adopts
-    expect(old.drainCount()).toBe(0);
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    enqueue(serve(helloVals({ buildId: "build-OLD" })));
+    await pinAdopt(session);
+    expect(handles[0]!.drainCount).toBe(0);
   });
 
   it("build-mismatch drain that does NOT take (daemon keeps answering) → ADOPTS LOUDLY the resident, never a kill (M4)", async () => {
-    const { host, rp } = make({ binderBuildId: "build-NEW" });
-    // `diesOnDrain: false` — the daemon keeps answering after drain (the drain didn't take,
-    // a wedged link). The fail-fast window elapses → we could not drain-replace it, so
-    // ADOPT LOUDLY the resident build (canvas works, mismatch surfaced), never a kill.
-    const stubborn = makeDrainable(helloOk({ buildId: "build-OLD" }), {
-      diesOnDrain: false,
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
     });
-    host.setClient(stubborn.client);
-    const client = await rp.currentClient(); // ADOPTS the resident (canvas alive)
+    // `diesOnDrain: false` — the daemon keeps answering after drain (a wedged link). The
+    // fail-fast window elapses → could not drain-replace, so ADOPT LOUDLY, never a kill.
+    enqueue(serve(helloVals({ buildId: "build-OLD" }), { diesOnDrain: false }));
+    const client = await pinAdopt(session);
     expect(client).toBeTruthy();
-    expect(stubborn.drainCount()).toBe(1); // attempted once, no kill
-    const conv = rp.padiConvergence();
+    expect(handles[0]!.drainCount).toBe(1); // attempted once, no kill
+    const conv = session.convergence();
     expect(conv?.state).toBe("adopted-stale");
     expect(conv?.detail).toMatch(/did not take|kept answering/i);
-    let last: HostSessionState | undefined;
-    rp.onState((s) => {
-      last = s;
-    });
-    expect(last?.connection).toBe("connected"); // canvas stays live
+    expect(snap(session).connection).toBe("connected"); // canvas stays live
   });
 
   it("contract skew, binder NEWER → drains (newest-wins), instance-keyed bounded", async () => {
-    const { host, rp } = make({ binderVersion: "9.0", binderBuildId: "b" });
-    const oldContract = makeDrainable(helloOk({ surfaceVersion: "1.1" }));
-    host.setClient(oldContract.client);
-    await expect(rp.currentClient()).rejects.toThrow(/newer contract/i);
-    expect(oldContract.drainCount()).toBe(1);
+    const { session, enqueue, handles } = makeArm({
+      binderVersion: "9.0",
+      binderBuildId: "b",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    enqueue(serve(helloVals({ surfaceVersion: "1.1" })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/newer contract/i);
+    expect(handles[0]!.drainCount).toBe(1);
   });
 
-  it("P4: contract drain → respawn on a COMPATIBLE contract → ADOPTS (the newest-wins convergence completes)", async () => {
-    // off-nix binder (never drains on build) so this isolates the CONTRACT axis end-to-end.
-    const { host, rp } = make({ binderVersion: "5.0", binderBuildId: "" });
-    // An OLD-contract survivor → binder is newer → DRAIN (took) → throw to reconnect.
-    const old = makeDrainable(
-      helloOk({ surfaceVersion: "1.1", startedAt: 1000 }),
-    );
-    host.setClient(old.client);
-    await expect(rp.currentClient()).rejects.toThrow(/newer contract/i);
-    expect(old.drainCount()).toBe(1);
-    // The reconnect brings up this binder's OWN (compatible) contract → ADOPT, converged.
-    host.setClient(
-      makeCombined(helloOk({ surfaceVersion: "5.0", startedAt: 2000 })),
-    );
-    const client = await rp.currentClient(); // adopts the respawned compatible padi
+  it("P4: contract drain → respawn on a COMPATIBLE contract → ADOPTS (newest-wins convergence completes)", async () => {
+    const { session, enqueue } = makeArm({
+      binderVersion: "5.0",
+      binderBuildId: "", // isolate the CONTRACT axis (off-nix never build-drains)
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    // An OLD-contract survivor → binder newer → DRAIN (took) → reconnect.
+    enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 1000 })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/newer contract/i);
+
+    // reconnect brings up this binder's OWN (compatible) contract → ADOPT, converged.
+    enqueue(serve(helloVals({ surfaceVersion: "5.0", startedAt: 2000 })));
+    await flush(RECONNECT);
+    await flush();
+    const client = await session.currentClient();
     expect(client).toBeTruthy();
-    expect(rp.padiSurfaceVersion()).toBe("5.0");
-    expect(rp.padiConvergence()).toBeNull(); // healthy — no degraded banner
+    const id = session.identity();
+    expect(id.kind === "identified" && id.baked.contractVersion).toBe("5.0");
+    expect(session.convergence()).toBeNull(); // healthy — no degraded banner
   });
 
   it("contract-skew TREADMILL: a DIFFERENT skewed instance after a drain → degrades LOUDLY (anti-livelock), never drains forever (M1)", async () => {
-    // The remote host's OWN older kolu-server respawns its old-contract padi after each
-    // of our drains — a two-supervisor treadmill. Before M1 the contract axis had no
-    // bound, and markConnected-on-hello resets the give-up budget every cycle, so it would
-    // drain forever. The shared admitDrain must catch the FRESH skewed instance and go
-    // loud-terminal unconverged, never a kill, never an endless treadmill.
-    const { host, rp } = make({ binderVersion: "9.0", binderBuildId: "b" });
+    const { session, enqueue, handles } = makeArm({
+      binderVersion: "9.0",
+      binderBuildId: "b",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
     // Drain instance 1000 (old contract 1.1) → took → reconnect.
-    const first = makeDrainable(
-      helloOk({ surfaceVersion: "1.1", startedAt: 1000 }),
-    );
-    host.setClient(first.client);
-    await expect(rp.currentClient()).rejects.toThrow(/newer contract/i);
-    expect(first.drainCount()).toBe(1);
-    // Reconnect brings up a DIFFERENT instance (startedAt 2000), STILL old contract — the
-    // remote supervisor respawned it. Do NOT re-drain: LOUD terminal unconverged.
-    const different = makeDrainable(
-      helloOk({ surfaceVersion: "1.1", startedAt: 2000 }),
-    );
-    host.setClient(different.client);
-    await expect(rp.currentClient()).rejects.toThrow(
+    enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 1000 })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/newer contract/i);
+    expect(handles[0]!.drainCount).toBe(1);
+
+    // reconnect brings up a DIFFERENT instance (2000), STILL old contract. Do NOT re-drain:
+    // LOUD terminal unconverged.
+    enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 2000 })));
+    await flush(RECONNECT);
+    await flush();
+    await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
       /anti-livelock|treadmill/i,
     );
-    expect(different.drainCount()).toBe(0); // never drained the fresh skewed instance
+    expect(handles[1]!.drainCount).toBe(0);
+    expect(session.convergence()?.state).toBe("unconverged");
   });
 
-  it("marks the HostSession connected on a drain — resets its give-up budget so an INTENDED drain always respawns (never terminal 'failed')", async () => {
-    // Regression: an intended drain REJECTS the mirrored client, so the pump never
-    // folds a frame and never calls markConnected — leaving the drain-induced clean
-    // child-exit classified as a bounded "remote" fault that, after prior failures,
-    // tripped the HostSession's give-up gate to terminal 'failed' with no respawn. The
-    // fix marks connected on the successful hello, BEFORE the drain.
-    const { host, rp } = make({ binderBuildId: "build-NEW" });
-    host.setClient(makeDrainable(helloOk({ buildId: "build-OLD" })).client);
-    await expect(rp.currentClient()).rejects.toThrow(/build mismatch/i);
-    expect(host.markConnectedCount).toBeGreaterThanOrEqual(1);
+  it("an INTENDED drain resets the give-up budget — its disconnect is classified 'network', never the bounded 'remote'", async () => {
+    // The OLD arm marked the HostSession connected BEFORE a drain to reset the give-up
+    // budget so a deliberate drain-exit isn't counted a connect failure. makeSession
+    // preserves the OUTCOME differently: a `replaced` (drain) disconnect carries
+    // failureCause "network" — and network failures are NEVER terminal — so an intended
+    // drain treadmill can never trip the bounded give-up gate to `failed`.
+    const { session, enqueue } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
+    });
+    enqueue(serve(helloVals({ buildId: "build-OLD" })));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/build mismatch/i);
+    expect(snap(session).failureCause).toBe("network");
+    expect(snap(session).connection).not.toBe("failed");
   });
 
   it("contract skew, binder NEWER, drain does NOT take → degrades LOUDLY (unconverged), never adopts an incompatible contract", async () => {
-    const { host, rp } = make({ binderVersion: "9.0", binderBuildId: "b" });
-    const stubborn = makeDrainable(helloOk({ surfaceVersion: "1.1" }), {
-      diesOnDrain: false,
+    const { session, enqueue, handles } = makeArm({
+      binderVersion: "9.0",
+      binderBuildId: "b",
+      drainTeardownCeilingMs: CEIL,
+      drainPollMs: POLL,
     });
-    host.setClient(stubborn.client);
-    await expect(rp.currentClient()).rejects.toThrow(
-      /did not take|kept answering|skew/i,
+    enqueue(
+      serve(helloVals({ surfaceVersion: "1.1" }), { diesOnDrain: false }),
     );
-    expect(stubborn.drainCount()).toBe(1); // attempted once, no kill
-    let last: HostSessionState | undefined;
-    rp.onState((s) => {
-      last = s;
-    });
-    expect(last?.connection).toBe("disconnected");
-    expect(last?.failureCause).toBe("remote");
-    expect(rp.padiSurfaceVersion()).toBeNull();
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(CEIL);
+    await expect(p).rejects.toThrow(/did not take|kept answering|skew/i);
+    expect(handles[0]!.drainCount).toBe(1); // attempted once, no kill
+    await flush();
+    const s = snap(session);
+    expect(s.connection).toBe("disconnected");
+    expect(s.failureCause).toBe("remote");
+    expect(session.identity().kind).toBe("disconnected");
     // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
     // can't be ridden, unlike a build mismatch).
-    expect(rp.padiConvergence()?.state).toBe("unconverged");
-    // P4: a STANDING unconverged yields a NULL client on subsequent live-client reads (like
-    // skew) — so `readPadiMemoryOnce` reports honest 'absent', not a rejected-through-live
-    // 'poll failed' every 5s.
-    expect(rp.currentClient()).toBeNull();
+    expect(session.convergence()?.state).toBe("unconverged");
+    // The client is WITHHELD (rejected) on subsequent live-client reads (like skew).
+    await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
+      /did not take|kept answering|newer/i,
+    );
   });
 
   it("stays BOUNDED when the post-drain liveness probe HANGS (a wedged link never blocks past the ceiling)", async () => {
-    const host = new FakeHost();
-    const rp = new RemotePadiSession(
-      host as RemoteMirrorSession<never>,
-      "rmt",
-      {
-        binderBuildId: "build-NEW",
-        drainTeardownCeilingMs: 40,
-        drainPollMs: 10,
-      },
+    const { session, enqueue } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: 40,
+      drainPollMs: POLL,
+    });
+    // After the drain the daemon's `hello` NEVER settles — a wedged ssh link. The per-probe
+    // ceiling race must give up within the window and ADOPT the old build (degraded).
+    enqueue(
+      serve(helloVals({ buildId: "build-OLD" }), { wedgeAfterDrain: true }),
     );
-    // After the drain the daemon's `hello` NEVER settles — a wedged ssh link that
-    // neither answers nor rejects. A bare `await hello()` would hang the whole handshake
-    // forever; the per-probe ceiling race must instead give up within the window and
-    // ADOPT the old build (degraded), never a hang, never a kill.
-    let drained = false;
-    const wedged = {
-      surface: {
-        control: {
-          core: {
-            hello: async () =>
-              drained
-                ? new Promise(() => {}) // hang forever (link wedged post-drain)
-                : helloOk({ buildId: "build-OLD" }),
-            drain: async () => {
-              drained = true;
-            },
-          },
-        },
-        padi: { marker: "padi-scoped" },
-      },
-    };
-    host.setClient(wedged);
-    // Build mismatch → drain → the probe hangs → the ceiling elapses → did-not-take →
-    // ADOPT LOUDLY the resident old build (M4), never a hang. `currentClient()` RESOLVING at
-    // all (within the ceiling, to a live client) is the bound-ceiling proof — an unbounded
-    // probe would time out the test.
-    const client = await rp.currentClient();
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(80);
+    await flush();
+    // `currentClient()` RESOLVING at all (to a live client) is the bound-ceiling proof.
+    const client = await p;
     expect(client).toBeTruthy();
-    expect(rp.padiConvergence()?.state).toBe("adopted-stale");
-    expect(rp.padiConvergence()?.detail).toMatch(
+    expect(session.convergence()?.state).toBe("adopted-stale");
+    expect(session.convergence()?.detail).toMatch(
       /did not take|kept answering/i,
     );
   });
 
-  it("build-mismatch drain converges when the link takes SEVERAL polls to die (multi-poll success loop, not just synchronous death)", async () => {
-    const host = new FakeHost();
-    const rp = new RemotePadiSession(
-      host as RemoteMirrorSession<never>,
-      "rmt",
-      {
-        binderBuildId: "build-NEW",
-        drainTeardownCeilingMs: 500,
-        drainPollMs: 10,
-      },
-    );
-    // The daemon answers 4 more hellos after the drain, then dies — drainAndAwaitClose
-    // must still detect the exit ("took" → throw to reconnect) rather than time out.
-    const slow = makeDrainable(helloOk({ buildId: "build-OLD" }), {
-      graceHellos: 4,
+  it("build-mismatch drain converges when the link takes SEVERAL polls to die (multi-poll success loop)", async () => {
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: 500,
+      drainPollMs: POLL,
     });
-    host.setClient(slow.client);
-    await expect(rp.currentClient()).rejects.toThrow(
-      /build mismatch|link death/i,
-    );
-    expect(slow.drainCount()).toBe(1);
+    // The daemon answers 4 more hellos after the drain, then dies — drainAndAwaitClose must
+    // still detect the exit ("took" → reconnect) rather than time out.
+    enqueue(serve(helloVals({ buildId: "build-OLD" }), { graceHellos: 4 }));
+    const p = session.pin();
+    p.catch(() => {});
+    await flush(500);
+    await expect(p).rejects.toThrow(/build mismatch|link death/i);
+    expect(handles[0]!.drainCount).toBe(1);
   });
 });
 
@@ -857,7 +931,6 @@ describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", ()
   it("passes --spawn-version through, and NEVER includes --stdio (host.ts already runs `padi --stdio`)", () => {
     const args = composePadiExtraArgs("1.2.3");
     expect(args).toEqual(["--spawn-version", "1.2.3"]);
-    // The F2 pin: a duplicate --stdio here wedges the re-exec front. host.ts owns the flag.
     expect(args).not.toContain("--stdio");
   });
 
