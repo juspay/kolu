@@ -111,7 +111,7 @@ And the road not taken, named honestly: a bespoke `Map<host, …>` in kolu-serve
 
 *(The shapes below are the ratified end-state — the debate record in `debates/surface-hosting-simplify/` holds the how-we-got-here; none of it is needed to use this.)*
 
-<Svg svg={after} wide caption="After the series lands — with the implementations shown. MirrorSession has THREE implementations (HostSession + the two padi arms); DaemonMirrorSession has exactly TWO (the padi arms — the only sessions that supervise); BoundPadi is the alias naming their shared type; the remote arm composes a HostSession rather than reimplementing it. No red arrows left." />
+<Svg svg={after} wide caption="After the series lands — with the implementations shown. MirrorSession has THREE implementations (HostSession + the two padi arms); DaemonSession has exactly TWO (the padi arms — the only sessions that supervise); BoundPadi is the alias naming their shared type; the remote arm composes a HostSession rather than reimplementing it. No red arrows left." />
 
 ### The types you'll touch
 
@@ -140,7 +140,7 @@ interface MirrorSession<Client = SurfaceClientLike> {
 /** The daemon flavor adds supervision — and supervision INCLUDES replacement:
  *  renew() is the manual trigger of the same machinery convergence() reports on,
  *  and preservation declares what replacement costs (the fact a user cares about). */
-interface DaemonMirrorSession<Client = SurfaceClientLike> extends MirrorSession<Client> {
+interface DaemonSession<Client = SurfaceClientLike> extends MirrorSession<Client> {
   convergence(): DaemonConvergence | null;  // adopted-stale · skew-refused · unconverged · link-failed
   readonly preservation: PreservationStrategy; // padi: children "survive" · (kaval's vocab: "die")
   renew(): Promise<void>;                   // replace the daemon per its declared strategy
@@ -163,9 +163,9 @@ function buildHostRegistry<S extends DestroyableSession, H>(opts: {
 ```ts
 // ── kolu's whole padi-session vocabulary, after: THERE ISN'T ONE ──
 // BoundPadi is deleted (srid: the alias was redundant — once renew/preservation
-// fold into the daemon sub-role, nothing padi-specific remains to name).
+// fold into the `DaemonSession` sub-role, nothing padi-specific remains to name).
 // Call sites write the instantiation directly:
-DaemonMirrorSession<PadiSurfaceClient>
+DaemonSession<PadiSurfaceClient>
 ```
 
 ### kolu's usage sites
@@ -173,10 +173,10 @@ DaemonMirrorSession<PadiSurfaceClient>
 The server pool (W4-PR1) — note there are **no fleet controls**, so `pool.reconnect` doesn't exist and can't be called by accident:
 
 ```ts
-const pool = buildHostRegistry<DaemonMirrorSession<PadiSurfaceClient>, WsRpcHandler>({
+const pool = buildHostRegistry<DaemonSession<PadiSurfaceClient>, WsRpcHandler>({
   initialHosts: [LOCAL_HOST],
   buildEntry: (host) => {
-    const session: DaemonMirrorSession<PadiSurfaceClient> =
+    const session: DaemonSession<PadiSurfaceClient> =
       host === LOCAL_HOST ? ensurePadiBinding({ … }) : bindRemotePadi({ host });
     const reServed = reServeSurface({ source: padiSurface, policy, session });
     return { session, handler: reServed.wsHandler };
@@ -235,8 +235,8 @@ row.build  = id?.commit ?? id?.buildId.slice(0, 8);
 | knows a drain "took" | waits on the unix socket CLOSE (authoritative kernel signal) | polls `hello` under the instance-keyed fence (ssh has no close signal) |
 | extras | the legacy-kaval adoption hint · spawn-flag forwarding | the drv map · the ssh-user caveat |
 
-Everything above that line is shared and identical: one convergence policy (both feed the kit's `decide()`), one verb set, one identity readout, the same surfaced degraded states. Two transports, one behavior — both simply `DaemonMirrorSession<PadiSurfaceClient>`; no alias needed (deleted per srid).
+Everything above that line is shared and identical: one convergence policy (both feed the kit's `decide()`), one verb set, one identity readout, the same surfaced degraded states. Two transports, one behavior — both simply `DaemonSession<PadiSurfaceClient>`; no alias needed (deleted per srid).
 
 ### What a user never sees anymore
 
-`RemoteMirrorSession` (→ `ReconnectingSession` — named for what it IS, not its `reServeSurface` consumer) · `HostSession` (→ `SshHostSession` — the name says the transport; "Host" distinguished nothing, local is a host too) · `BoundPadi` (deleted — after renew/preservation joined the daemon sub-role, nothing padi-specific remained to name) · `PadiBindingSession`/`RemotePadiSession` as classes (gone — one `reconnectingSession` loop + `endpointConnector`/`sshConnector` plugs + one `admit` hook; the two arms are two calls to `padiSession(connector)`, daemon members added by object spread — no wrapper classes, no forwarding boilerplate) · the role's dead `<C>` generic · `PoolableSession` (never shipped) · the six bespoke identity readouts (→ one `identity()`) · `drainBoundPadi` (→ `renew()`, survival in the type) · `evictHostSession` (zero production callers; deleted) · `HostSession` in any registry/fanout type (`SshHostSession` remains only for direct `getHostSession` users).
+`RemoteMirrorSession` (→ `Session` — named for what it IS, not its `reServeSurface` consumer) · `HostSession` (→ `SshHostSession` — the name says the transport; "Host" distinguished nothing, local is a host too) · `BoundPadi` (deleted — after renew/preservation joined the `DaemonSession` sub-role, nothing padi-specific remained to name) · `PadiBindingSession`/`RemotePadiSession` as classes (gone — one `session` loop + `endpointConnector`/`sshConnector` plugs + one `admit` hook; the two arms are two calls to `padiSession(connector)`, daemon members added by object spread — no wrapper classes, no forwarding boilerplate) · the role's dead `<C>` generic · `PoolableSession` (never shipped) · the six bespoke identity readouts (→ one `identity()`) · `drainBoundPadi` (→ `renew()`, survival in the type) · `evictHostSession` (zero production callers; deleted) · `HostSession` in any registry/fanout type (`SshHostSession` remains only for direct `getHostSession` users).
