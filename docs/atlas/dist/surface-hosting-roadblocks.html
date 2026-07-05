@@ -85,34 +85,37 @@
 </tbody>
 </table>
 <h2 id="5-systemidentity--where-does-the-data-come-from-needs-your-call">5. <code>system.identity</code> — where does the DATA come from? (needs your call)</h2>
-<p>The framework serves the <em>member</em> for free. The <em>four fields</em> don’t all have a free source:</p>
-<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">interface</span><span style="color:#6F42C1"> SurfaceIdentity</span><span style="color:#24292E"> {</span></span>
-<span class="line"><span style="color:#E36209">  startedAt</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> number</span><span style="color:#24292E">;      </span><span style="color:#6A737D">// ✅ FREE — framework captures serve/process start</span></span>
-<span class="line"><span style="color:#E36209">  contractVersion</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> string</span><span style="color:#24292E">;</span><span style="color:#6A737D">// ✗ a surface carries no version today (padi keeps PADI_SURFACE_VERSION separate)</span></span>
-<span class="line"><span style="color:#E36209">  buildId</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> string</span><span style="color:#24292E">;        </span><span style="color:#6A737D">// ✗ baked, but PER-SERVER prefix (PADI_BUILD_ID / KAVAL_*) — no framework-standard var</span></span>
-<span class="line"><span style="color:#E36209">  commit</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> string</span><span style="color:#D73A49"> |</span><span style="color:#005CC5"> null</span><span style="color:#24292E">;  </span><span style="color:#6A737D">// ✗ same</span></span>
+<p><strong>No <code>&quot;&quot;</code> sentinels</strong> (srid — the no-silent-fallback doctrine cannot be violated). The server-declared fields are encapsulated as one type, referenced as <code>Maybe T</code> — so “this server declared no identity” is a <strong>typed null the reader can’t ignore</strong>, never a magic empty string:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// the server-DECLARED part — present as a whole, or absent as a whole:</span></span>
+<span class="line"><span style="color:#D73A49">interface</span><span style="color:#6F42C1"> BakedIdentity</span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#E36209">  contractVersion</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> string</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#E36209">  buildId</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> string</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#E36209">  commit</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> string</span><span style="color:#D73A49"> |</span><span style="color:#005CC5"> null</span><span style="color:#24292E">;   </span><span style="color:#6A737D">// still nullable WITHIN a baked id (a build may lack a navigable commit)</span></span>
+<span class="line"><span style="color:#24292E">}</span></span>
+<span class="line"><span style="color:#D73A49">interface</span><span style="color:#6F42C1"> SurfaceIdentity</span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#E36209">  startedAt</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> number</span><span style="color:#24292E">;              </span><span style="color:#6A737D">// framework-captured — ALWAYS present</span></span>
+<span class="line"><span style="color:#E36209">  baked</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> BakedIdentity</span><span style="color:#D73A49"> |</span><span style="color:#005CC5"> null</span><span style="color:#24292E">;    </span><span style="color:#6A737D">// null ⇔ the server declared no baked identity. NOT "" sentinels.</span></span>
 <span class="line"><span style="color:#24292E">}</span></span></code></pre>
-<p><strong>Load-bearing fact:</strong> only kolu-server’s padi arm ever <em>reads</em> <code>.identity()</code>. drishti + odu never do. So only <strong>padi</strong> needs real values.</p>
+<p>Why this is doctrine-clean: no sentinel to misread; <strong>illegal states unrepresentable</strong> (you can’t have <code>contractVersion</code> without <code>buildId</code> — they travel as one <code>BakedIdentity</code>); and the reader is <strong>forced by the type</strong> to handle <code>baked === null</code>, so nothing leaks through as if real. It maps to reality — <code>readBakedIdentity(&quot;PADI&quot;)</code> already returns exactly this triple as a unit.</p>
+<p><strong>Load-bearing fact:</strong> only kolu-server’s padi arm ever <em>reads</em> <code>.identity()</code>. drishti + odu never do. So only <strong>padi</strong> declares a <code>baked</code>.</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// ── OPTION A (recommended) — implementSurface takes an optional identity; only padi wires it ──</span></span>
 <span class="line"><span style="color:#6F42C1">implementSurface</span><span style="color:#24292E">(surface, deps, { identity?: SurfaceIdentity });</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#6A737D">// padi — the ONE server whose identity is read — supplies real values:</span></span>
+<span class="line"><span style="color:#6A737D">// padi — the one server whose identity is read — declares its baked identity:</span></span>
 <span class="line"><span style="color:#6F42C1">implementSurface</span><span style="color:#24292E">(padiSurface, deps, {</span></span>
-<span class="line"><span style="color:#24292E">  identity: { contractVersion: </span><span style="color:#005CC5">PADI_SURFACE_VERSION</span><span style="color:#24292E">, </span><span style="color:#D73A49">...</span><span style="color:#6F42C1">readBakedIdentity</span><span style="color:#24292E">(</span><span style="color:#032F62">"PADI"</span><span style="color:#24292E">), startedAt: now },</span></span>
+<span class="line"><span style="color:#24292E">  identity: { startedAt: now, baked: { contractVersion: </span><span style="color:#005CC5">PADI_SURFACE_VERSION</span><span style="color:#24292E">, </span><span style="color:#D73A49">...</span><span style="color:#6F42C1">readBakedIdentity</span><span style="color:#24292E">(</span><span style="color:#032F62">"PADI"</span><span style="color:#24292E">) } },</span></span>
 <span class="line"><span style="color:#24292E">});</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#6A737D">// drishti-agent / odu-runner — omit it → honest-unknown, and NOBODY reads it:</span></span>
-<span class="line"><span style="color:#6F42C1">implementSurface</span><span style="color:#24292E">(laneSurface, deps);</span></span>
-<span class="line"><span style="color:#6A737D">//   → system.identity answers { contractVersion:"", buildId:"", commit:null, startedAt: serveTime }</span></span>
-<span class="line"><span style="color:#6A737D">//   "" is already the codebase's honest-unknown for buildId (an off-nix server). Not a lie, not a silent default.</span></span></code></pre>
+<span class="line"><span style="color:#6A737D">// drishti-agent / odu-runner — omit it → { startedAt, baked: null }. Typed absence, and nobody reads it:</span></span>
+<span class="line"><span style="color:#6F42C1">implementSurface</span><span style="color:#24292E">(laneSurface, deps);</span></span></code></pre>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// ── OPTION B — truly zero-code, but a 3-repo-wide ripple for ZERO readers today ──</span></span>
 <span class="line"><span style="color:#6F42C1">defineSurface</span><span style="color:#24292E">(members, { contractVersion });   </span><span style="color:#6A737D">// every defineSurface call changes</span></span>
 <span class="line"><span style="color:#6A737D">// + every server's nix wrapper bakes framework-standard SURFACE_BUILD_ID / SURFACE_COMMIT</span></span>
 <span class="line"><span style="color:#6A737D">// + padi's existing PADI_* must ALSO bake the standard names</span></span></code></pre>
-<p><strong>Why A:</strong> it delivers your ruling’s intent — identity is a <em>universal capability</em> (on the base role, any session can ask any server, no daemon-gating) — while the <em>data source</em> is wired only where it’s read (padi). B builds the full baked-var machinery for real identity on drishti/odu, which <strong>has no reader</strong> — a receptacle for a population of zero. A doesn’t foreclose B when a second reader appears.</p>
-<p><strong>Corrects the note’s earlier overclaim:</strong> “zero per-server code” is true for the <em>member</em>, not the <em>data</em> — padi (the sole reader’s source) wires its identity; every other server auto-answers honest-unknown.</p>
+<p><strong>Why A:</strong> identity stays a <em>universal capability</em> (member on every surface, <code>identity()</code> on base role) while the <em>source</em> is wired only where read (padi). B builds baked-var machinery for identity on drishti/odu that <strong>has no reader</strong> — a receptacle for population zero. A doesn’t foreclose B later.</p>
+<p><strong>One consequence to reconcile:</strong> the L3 convergence kit today uses <code>buildId === &quot;&quot;</code> to mean “off-nix server”. With <code>baked: null</code> that check becomes <code>baked === null</code> — the SAME sentinel-removal, one layer down. A consistent improvement (the kit reads identity, so it adapts either way).</p>
 <blockquote>
-<p><strong>A or B?</strong> — needs your call. Agent is building everything else meanwhile.</p>
+<p><strong>A (with the <code>Maybe</code>-typed identity above)?</strong> — needs your call. Agent is building everything else meanwhile.</p>
 </blockquote>
 <h2 id="status-of-the-four--all-resolved">Status of the four — all resolved</h2>
 <ol>
