@@ -105,12 +105,16 @@ export interface PadiDaemonOptions {
 }
 
 // ── Typed boot pipeline ───────────────────────────────────────────────────────
-// Each phase takes the PRIOR phase's token, so a step invoked before its precondition
+// Each phase takes the PRIOR phase's token, so a PHASE invoked before its predecessor
 // is a COMPILE error, not a silent violation. The two ordering invariants once held by
 // prose — "claim the gate FIRST" (W2.2's B1 blocker) and "the stores are injected
 // before anything reads them" — are now the {@link HeldGate} / {@link StoresReady}
 // types threaded through the chain; the boot below reads as `gate → stores → identity
-// → serve → endpoint` with the dependency edges checked by the compiler.
+// → serve → endpoint`, its PHASE ordering checked by the compiler. The setter sequence
+// WITHIN a phase (e.g. the exit-wipe hook after `ensureKoluRoot` in
+// `configureDaemonIdentity`) is a short, co-located, documented convention — not a
+// compiler-checked edge; the win is that those setters are grouped into one phase
+// instead of scattered across the boot the way they used to be.
 
 /** Padi's HELD single-instance gate — the `acquired` arm of `acquirePidGate`,
  *  narrowed past the `held` / `dir-not-private` exits. Threaded into every boot phase
@@ -147,12 +151,11 @@ interface SurfacesServed {
 
 /** The local kaval endpoint has booted (adopt-or-spawn) and the saved session is
  *  reconciled — the precondition for the samplers + manifests that read the held
- *  kaval's socket. */
+ *  kaval's socket. The served router is NOT re-carried here — this phase neither
+ *  produces nor consumes it; the caller reads it straight off the `served` value. */
 interface EndpointBooted {
   readonly phase: "endpoint";
   readonly gate: HeldGate;
-  // biome-ignore lint/suspicious/noExplicitAny: threads the served router (see `SurfacesServed`).
-  readonly router: Router<any, any>;
 }
 
 /** Open padi's state-root stores UNDER the held gate: open the `Conf`, run the
@@ -271,7 +274,7 @@ async function bootLocalEndpoint(
     onNotAdopted: parkSavedSession,
     onBootSettled: startInventoryReconciler,
   });
-  return { phase: "endpoint", gate: served.gate, router: served.router };
+  return { phase: "endpoint", gate: served.gate };
 }
 
 /** Run the padi daemon to completion: own its state-root, adopt-or-spawn its
@@ -384,7 +387,9 @@ export async function runPadiDaemon(
   return daemonMain({
     gatePath,
     socketPath,
-    router: endpoint.router,
+    // The router is the serve phase's output — read it straight off `served` rather
+    // than re-threading it through the endpoint token that neither owns nor touches it.
+    router: served.router,
     lifetime: { kind: "forever" },
     log,
     signal: drainController.signal,

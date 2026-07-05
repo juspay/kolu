@@ -35,9 +35,10 @@
  *     would duplicate that truth and could stale the PATH-B guard.
  *
  * The gate is a pure state machine over injected effects (`snapshot`, `persist`,
- * `isRestorePending`): it imports nothing from the session/registry layers it drives,
- * so those layers PUSH their facts and effects into it rather than the gate reaching
- * back out. It consumes the shared `terminals:dirty` pulse (also read by the activity
+ * `isRestorePending`): it imports no runtime VALUE from the session/registry layers it
+ * drives (only the `SessionSnapshot` type, erased at compile), so those layers PUSH
+ * their facts and effects into it rather than the gate reaching back out. It consumes
+ * the shared `terminals:dirty` pulse (also read by the activity
  * taps in `liveActivity.ts`); the single writer-facing entry that emits it,
  * `notifyDirty`, lives beside the channel in `./publisher.ts` — the gate is a pure
  * subscriber here.
