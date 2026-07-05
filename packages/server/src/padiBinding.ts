@@ -14,39 +14,24 @@
  *
  * The DIAL itself (`connectPadi` / `dialPadiHello` — dial + control-core
  * handshake + typed skew refusal) is imported from `@kolu/padi/dial`: W2.3 carved
- * it into padi's package as the client-side dial kit `padi-tui` shares. What stays
- * here is SUPERVISION over that dial — the parts that mutate padi's lifecycle:
- *   1. the convergence POLICY + probe adapter — padi's declaration into the shared kit.
- *   2. `localPadiDriver`      — the twin of `localKavalDriver`: how to launch padi.
- *   3. `PadiBindingSession`   — Endpoint → reconnect-mirror `HostSession` (the crux).
- *   4. `ensurePadiBinding`    — the twin of `ensureLocalEndpoint`: boot the binding.
+ * it into padi's package as the client-side dial kit `padi-tui` shares. And padi's
+ * CONVERGENCE declaration into the shared daemon-convergence kit (the contract-skew
+ * {@link PADI_CONVERGENCE_POLICY}, the FROZEN-control-core {@link probePadiForConvergence}
+ * probe, and the drain plumbing) lives in `./padiConvergence.ts`: W4 ledger L6 carved it
+ * out because it varies with daemon-lifecycle skew policy, a different volatility than the
+ * binder. What stays HERE is the binder proper — the parts that spawn/supervise/re-serve:
+ *   1. `localPadiDriver`      — the twin of `localKavalDriver`: how to launch padi.
+ *   2. `PadiBindingSession`   — Endpoint → reconnect-mirror `HostSession` (the crux).
+ *   3. `ensurePadiBinding`    — the twin of `ensureLocalEndpoint`: boot the binding.
  *
- * padi is NEVER kill-9'd. The boot/reconnect convergence now DELEGATES to the shared
- * daemon-convergence kit (`@kolu/surface-daemon-supervisor`'s `converge`): padi declares
- * its {@link PADI_CONVERGENCE_POLICY} and supplies a probe adapter
- * ({@link probePadiForConvergence}) that reads the running padi's identity over the FROZEN
- * control core, and the kit owns the mechanism, the two-axis ordering, and the build fence.
- * The behaviour is UNCHANGED — just relocated. It still converges on TWO independent axes:
- *   - CONTRACT (`padiSurface` version): a skew where THIS binder is NEWER →
- *     DRAIN it over the frozen control core (persist + exit; its kaval + PTYs
- *     survive), so the spawn path brings up this binder's OWN newer closure —
- *     the padi gate pid changes, the surviving kaval is re-adopted, the session
- *     is intact; a skew where the binder is OLDER / major-behind → the kit's
- *     loud REFUSE, UNCHANGED (leave padi standing + degraded, never touch it).
- *     Older NEVER drains — the monotonicity that stops two mixed-version binders
- *     from livelocking (only the strictly-newer one acts). Declared as
- *     `onContractSkew: drain-newer-else-refuse`.
- *   - BUILD (same contract, different closure; #1670): when the handshake would
- *     otherwise ADOPT, a survivor whose baked `PADI_BUILD_ID` differs from this
- *     binder's expected one (or is ABSENT — a pre-field survivor, an older build)
- *     is DRAINED ONCE at boot so the spawn brings up this binder's build. Store
- *     hashes don't order, so the anti-livelock guarantee here is a once-per-binder-
- *     boot fence (the kit's `createBuildDrainFence`) rather than a version comparison —
- *     a reconnect never re-drains, so sequential deploys converge to last-deployed.
- *     Declared as `onBuildMismatch: drain-and-replace`.
- * And the "restart" verb DRAINS the running padi (persist + exit; the PTYs
- * survive in kaval) via the frozen control core, then the reconnect loop
- * re-spawns it.
+ * padi is NEVER kill-9'd. The boot/reconnect convergence DELEGATES to the shared
+ * daemon-convergence kit (`@kolu/surface-daemon-supervisor`'s `converge`): {@link
+ * ensurePadiBinding} feeds it padi's declared policy + probe (from `./padiConvergence.ts`),
+ * and the kit owns the mechanism, the two-axis ordering (contract drain-newer/refuse-older;
+ * build-mismatch drain-once, #1670), and the build fence — see that file's header for the
+ * full two-axis behaviour. And the "restart" verb DRAINS the running padi (persist + exit;
+ * the PTYs survive in kaval) via the frozen control core (`drainViaControlCore`, same
+ * plumbing), then the reconnect loop re-spawns it.
  */
 
 import { createRequire } from "node:module";
@@ -60,15 +45,13 @@ import {
 } from "@kolu/padi/assembly";
 // The client-side dial kit — carved out of THIS module in W2.3 so `padi-tui` and
 // the binder share it (`@kolu/padi/dial`). What stays here is SUPERVISION: the
-// drivers, padi's convergence policy + probe adapter (the shared kit owns the
-// mechanism), the reconnect-mirror session, and the re-serve — everything that
-// mutates padi's lifecycle, never a mere dial.
+// drivers, the reconnect-mirror session, and the re-serve — everything that mutates
+// padi's lifecycle, never a mere dial. (padi's convergence policy + probe + drain
+// carved out to `./padiConvergence.ts` in L6.)
 import {
   connectPadi,
-  dialPadiHello,
   type PadiConnectionMetadata,
   type PadiDaemonClient,
-  type PadiDial,
   type PadiIdentity,
   type PadiSurfaceClient,
   scopePadiSurface,
@@ -76,8 +59,6 @@ import {
 import { PADI_SURFACE_VERSION, type padiSurface } from "@kolu/padi/surface";
 import type { PadiConvergence } from "kolu-common/surface";
 import {
-  type ConvergencePolicy,
-  type ConvergenceProbe,
   converge,
   createBuildDrainFence,
   createEndpoint,
@@ -94,14 +75,15 @@ import type {
 } from "@kolu/surface-nix-host";
 import { match, P } from "ts-pattern";
 import { log } from "./log.ts";
-
-/** How long `drainBoundPadi` waits for the socket to CLOSE after the drain RPC
- *  rejects, before treating the rejection as a real failure. A drain that reached
- *  padi persists + exits near-instantly, so the close follows within a beat; this
- *  ceiling only bounds the wait for a rejection that is NOT the expected teardown
- *  (a stale link, or an `onDrain` that threw before persisting) so the "restart"
- *  verb reports failure instead of hanging. */
-const DRAIN_TEARDOWN_CEILING_MS = 2000;
+// padi's convergence declaration into the shared daemon-convergence kit — the
+// contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
+// probe and the "restart" verb share. Carved out of this file in W4 ledger L6: it
+// varies with daemon-lifecycle skew policy, a different volatility than the binder.
+import {
+  drainViaControlCore,
+  PADI_CONVERGENCE_POLICY,
+  probePadiForConvergence,
+} from "./padiConvergence.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 //
@@ -119,135 +101,7 @@ type PadiEndpoint = Endpoint<
 type PadiEndpointStatus = EndpointStatus<PadiIdentity, PadiConnectionMetadata>;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. The convergence POLICY + probe adapter — padi's declaration into the shared
-//    daemon-convergence kit (`@kolu/surface-daemon-supervisor`'s `converge`). The kit
-//    owns the mechanism, the two-axis ordering, and the build fence; padi declares its
-//    policy and adapts its FROZEN control-core hello into the kit's identity probe. The
-//    two-axis behaviour (contract drain-newer/refuse-older; build-mismatch drain-once,
-//    #1670) is UNCHANGED — just relocated out of a hand-rolled arm into the kit.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// padi declares its policy into the shared kit; the kit owns the mechanism + ordering +
-// fence. padi is drain-capable (its control core has a `drain` verb), so it can spell the
-// drain arms: a contract skew drains-if-newer / refuses-if-older, and a build mismatch
-// drains-and-replaces once per binder boot.
-export const PADI_CONVERGENCE_POLICY: ConvergencePolicy<"drainable"> = {
-  capability: "drainable",
-  onContractSkew: { kind: "drain-newer-else-refuse" },
-  onBuildMismatch: { kind: "drain-and-replace" },
-};
-
-/** The minimal connection shape the drain plumbing needs: the COMBINED dialed
- *  client (to reach `surface.control.core.drain`) and an `onClose` (the socket
- *  close that is the drain's ground truth). Both a held endpoint connection
- *  (`endpoint.current()`) and a fresh convergence probe (`probePadiForConvergence`)
- *  satisfy it. */
-type DrainableConn = {
-  client: PadiDaemonClient;
-  onClose: (cb: () => void) => void;
-};
-
-/**
- * DRAIN a padi over the FROZEN control core, then confirm it actually exited by
- * the SOCKET CLOSING within the teardown window. The one drain mechanism, shared
- * by BOTH the user-facing "restart" (`PadiBindingSession.drainBoundPadi`) and the
- * shared kit's convergence drain (through {@link probePadiForConvergence}'s `drain`)
- * — never re-rolled.
- *
- * GROUND TRUTH is the SOCKET CLOSE (padi actually exited), NOT the drain call's
- * resolve/reject. padi's `onDrain` persists, REPLIES, then triggers the exit that
- * closes the socket — so `drain()` can RESOLVE with padi still momentarily alive
- * (a reply beats the exit), or REJECT (the reply lost as the socket died mid-write),
- * and neither is the completion signal. Waiting only for the resolve would let the
- * convergence pre-flight race `adoptOrSpawnOrRefuse` in and RE-ADOPT the still-live,
- * about-to-exit padi (its gate pid unchanged) — the bug the newer-drain arm exists
- * to avoid. So we ALWAYS wait for the socket to close (the same signal the endpoint
- * reads to flip to `degraded`), and FAIL-FAST if it does not close within the
- * teardown window (a wedged `onDrain`, or a stale link the drain never reached) —
- * so no caller reports success on a drain that did not happen, and the pre-flight
- * never spawns over a padi that did not exit.
- */
-async function drainViaControlCore(conn: DrainableConn): Promise<void> {
-  // Arm the close wait BEFORE the drain, so a fast exit that closes the socket
-  // before `drain()` even settles is never missed.
-  let onClosed!: () => void;
-  const closed = new Promise<void>((resolve) => {
-    onClosed = resolve;
-  });
-  conn.onClose(onClosed);
-
-  // Kick the drain. `.catch` keeps a mid-write rejection from going unhandled and
-  // remembers it only to enrich a timeout failure — the call's outcome does not
-  // decide completion (the socket close does).
-  let drainErr: unknown;
-  void conn.client.surface.control.core.drain().catch((e) => {
-    drainErr = e;
-  });
-
-  let timer!: ReturnType<typeof setTimeout>;
-  const timedOut = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), DRAIN_TEARDOWN_CEILING_MS);
-  });
-  try {
-    const outcome = await Promise.race([
-      closed.then(() => "closed" as const),
-      timedOut,
-    ]);
-    if (outcome === "timeout") {
-      throw new Error(
-        `padi drain did not complete — its socket did not close within ${DRAIN_TEARDOWN_CEILING_MS}ms (padi did not exit)` +
-          (drainErr ? `; drain call rejected: ${String(drainErr)}` : ""),
-      );
-    }
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * The kit's identity probe for padi: dial the running padi's FROZEN control core and
- * expose its identity + a `drain`, or `null` if none answers (a fresh boot, or padi
- * mid-teardown) — in which case the kit's `converge` simply spawns fresh. This is the
- * intended first use of the frozen control core: "a binder dials the socket, reads
- * control.hello FIRST" (controlCore.ts), then the kit decides. padi is drain-capable, so
- * this returns a `ConvergenceProbe<"drainable">`.
- */
-export async function probePadiForConvergence(
-  socketPath: string,
-): Promise<ConvergenceProbe<"drainable"> | null> {
-  let dialed: PadiDial;
-  try {
-    dialed = await dialPadiHello(socketPath);
-  } catch {
-    return null; // no live padi answering — spawn will handle it.
-  }
-  const { socket, client, hello } = dialed;
-  let closed = false;
-  socket.once("close", () => {
-    closed = true;
-  });
-  return {
-    capability: "drainable",
-    // Identity read over the FROZEN control-core hello (reachable at any skew, Pin 3):
-    // the padiSurface contract version + padi's staleKey (absent → "" = honest unknown).
-    identity: {
-      contractVersion: hello.surfaceVersion,
-      buildId: hello.buildId ?? "",
-    },
-    drain: () =>
-      drainViaControlCore({
-        client,
-        onClose: (cb) => {
-          if (closed) queueMicrotask(cb);
-          else socket.once("close", cb);
-        },
-      }),
-    dispose: () => socket.destroy(),
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. localPadiDriver — the twin of localKavalDriver (…/ptyHost/localDriver.ts)
+// 1. localPadiDriver — the twin of localKavalDriver (…/ptyHost/localDriver.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -397,7 +251,7 @@ export function localPadiDriver(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. PadiBindingSession — Endpoint → reconnect-mirror `HostSession` adapter.
+// 2. PadiBindingSession — Endpoint → reconnect-mirror `HostSession` adapter.
 //    ⚠️ NO kaval analog. THIS is the crux the cutover adds. `reServeSurface`'s
 //    pump loops on the `currentClient()` promise identity + `onState`; the
 //    supervisor Endpoint holds ONE connection and flips to `degraded` on close
@@ -701,7 +555,7 @@ export class PadiBindingSession implements BoundPadi {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. ensurePadiBinding — the twin of ensureLocalEndpoint (…/ptyHost/index.ts)
+// 3. ensurePadiBinding — the twin of ensureLocalEndpoint (…/ptyHost/index.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface EnsurePadiBindingOptions {
