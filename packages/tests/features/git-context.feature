@@ -8,7 +8,7 @@ Feature: Git context in header and workspace switcher
     Then the right panel should be visible
 
   Scenario: Header and workspace switcher show branch in a git repo
-    When I run "git init /tmp/kolu-git-test"
+    When I run "rm -rf /tmp/kolu-git-test && git init /tmp/kolu-git-test"
     And I run "cd /tmp/kolu-git-test"
     Then the header should show a branch name
     And the workspace switcher should show a branch name
@@ -17,7 +17,7 @@ Feature: Git context in header and workspace switcher
     And there should be no page errors
 
   Scenario: Branch updates live when HEAD changes externally
-    When I run "git init /tmp/kolu-git-watch"
+    When I run "rm -rf /tmp/kolu-git-watch && git init /tmp/kolu-git-watch"
     And I run "cd /tmp/kolu-git-watch"
     Then the header should show a branch name
     When the branch is switched to "watcher-test" in "/tmp/kolu-git-watch"
@@ -26,7 +26,7 @@ Feature: Git context in header and workspace switcher
     And there should be no page errors
 
   Scenario: Git worktree shows its own branch and main repo name
-    When I run "git init /tmp/kolu-wt-main && cd /tmp/kolu-wt-main && git commit --allow-empty -m init"
+    When I run "rm -rf /tmp/kolu-wt-main /tmp/kolu-wt-feature && git init /tmp/kolu-wt-main && cd /tmp/kolu-wt-main && git commit --allow-empty -m init"
     And I run "cd /tmp/kolu-wt-main"
     Then the header should show a branch name
     And the workspace switcher label should show "kolu-wt-main"
@@ -39,7 +39,7 @@ Feature: Git context in header and workspace switcher
     And there should be no page errors
 
   Scenario: CWD inside .worktrees parent dir shows main repo name
-    When I run "git init /tmp/kolu-wt-parent && cd /tmp/kolu-wt-parent && git commit --allow-empty -m init"
+    When I run "rm -rf /tmp/kolu-wt-parent && git init /tmp/kolu-wt-parent && cd /tmp/kolu-wt-parent && git commit --allow-empty -m init"
     And I run "mkdir -p /tmp/kolu-wt-parent/.worktrees && git -C /tmp/kolu-wt-parent worktree add -b wt-branch /tmp/kolu-wt-parent/.worktrees/wt-branch"
     And I run "cd /tmp/kolu-wt-parent/.worktrees"
     Then the workspace switcher label should show "kolu-wt-parent"
@@ -47,7 +47,7 @@ Feature: Git context in header and workspace switcher
     And there should be no page errors
 
   Scenario: Git init in an empty directory shows branch in workspace switcher
-    When I run "mkdir -p /tmp/kolu-git-init-test && cd /tmp/kolu-git-init-test"
+    When I run "rm -rf /tmp/kolu-git-init-test && mkdir -p /tmp/kolu-git-init-test && cd /tmp/kolu-git-init-test"
     And I run "git init"
     Then the header should show a branch name
     And the workspace switcher should show a branch name
@@ -85,7 +85,7 @@ Feature: Git context in header and workspace switcher
     And there should be no page errors
 
   Scenario: Workspace switcher does not show PR info on default branch
-    When I run "git init /tmp/kolu-pr-default && cd /tmp/kolu-pr-default"
+    When I run "rm -rf /tmp/kolu-pr-default && git init /tmp/kolu-pr-default && cd /tmp/kolu-pr-default"
     Then the header should show a branch name
     And the workspace switcher should not show PR info
     And there should be no page errors
