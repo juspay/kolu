@@ -33,7 +33,7 @@ export const ROADMAP = [
   { d: 0, g: "▶", c: "prog", l: "W3 · remote — the binding · the full-peer gaps · CI parity", m: "W3.1 ✓ · gaps ✓", h: "#w3" },
   { d: 1, g: "✓", c: "ship", l: "W3.1 · the remote binding — provision + front a remote padi over ssh (KOLU_PADI_HOST)", m: "#1675 · 2026-07-04", h: "#w31" },
   { d: 1, g: "✓", c: "ship", l: "W3.2 · the full-peer gaps — remote file preview + remote daemon list", m: "#1685 · #1686 · 2026-07-05", h: "#w32" },
-  { d: 1, g: "▶", c: "prog", l: "W3.4 · remote e2e parity in CI — the FULL suite vs KOLU_PADI_HOST=<pool box>, every PR", m: "in flight — #1689", h: "#w34" },
+  { d: 1, g: "▶", c: "prog", l: "W3.4 · remote e2e parity in CI — machinery DONE; gate parked on the parity tail", m: "#1689 parked → remote-bind-parity note", h: "#w34" },
   { d: 0, g: "○", c: "prog", l: "W4 · the switch — 2 PRs: pick-your-host (reload-apply) → switch-without-reload", m: "READY after L23 merges", h: "#w4" },
   { d: 0, g: "○", c: "prog", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W4", h: "#w5" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "L6 L14 in flight · → the ledger note", h: "padi-cleanup.html" },
@@ -300,7 +300,7 @@ W1.R's seal guarantees the domain lives behind the contract, complete as a libra
 
 <a id="w34"></a>
 
-#### W3.4 — remote e2e parity in CI *(needs only W3.1 — a parallel track beside W3.2; srid's call, 2026-07-04)*
+#### W3.4 — remote e2e parity in CI *(machinery done + proven; the GATE is parked until the parity tail clears — see [the remote-bind parity note](remote-bind-parity.html), srid 2026-07-05)*
 
 Today the full e2e suite (~493 scenarios) runs in CI per-PR **locally only**; the `KOLU_PADI_HOST` path has zero CI coverage (the sandbox claim is honest but the exposure is real — the two live bugs of 2026-07-04 were both found by hand). This phase closes it: **every PR's CI runs the existing e2e suite AS-IS, twice — local (as today) and with kolu-server bound remotely** (`KOLU_PADI_HOST=<a second pu box leased from the pool>`). No tagged subsets, no reduced tier: the same scenarios, a real ssh hop.
 
