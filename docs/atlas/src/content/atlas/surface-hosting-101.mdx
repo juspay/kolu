@@ -222,6 +222,17 @@ row.uptime = id && Date.now() - id.startedAt;
 row.build  = id?.commit ?? id?.buildId.slice(0, 8);
 ```
 
+### The two arms, precisely (they differ ONLY below the waterline)
+
+| | `LocalPadiSession` *(today: `PadiBindingSession` — renamed for symmetry; the name should say the one thing that differs)* | `RemotePadiSession` |
+|---|---|---|
+| gets the pipe | unix socket to a padi it adopt-or-spawns via the local endpoint | wraps a `HostSession` (Nix-provisions padi, fronts it over ssh) |
+| keeps the pipe | its own reconnect loop (bridges the one-shot endpoint onto the mirror contract — the L6-audited, transport-dictated exception) | delegates to `HostSession`'s ssh reconnect |
+| knows a drain "took" | waits on the unix socket CLOSE (authoritative kernel signal) | polls `hello` under the instance-keyed fence (ssh has no close signal) |
+| extras | the legacy-kaval adoption hint · spawn-flag forwarding | the drv map · the ssh-user caveat |
+
+Everything above that line is shared and identical: one convergence policy (both feed the kit's `decide()`), one verb set, one identity readout, the same surfaced degraded states. Two transports, one behavior — which is exactly why one alias (`BoundPadi`) can name them both.
+
 ### What a user never sees anymore
 
-`RemoteMirrorSession` (renamed; "Remote" was false for the local arm) · the role's dead `<C>` generic · `PoolableSession` (never shipped) · `padiStartedAt()/padiSurfaceVersion()/padiBuildCommit()` and their remote twins (six methods → `identity()`) · `drainBoundPadi` (→ `renew()`, with survival in the type) · `evictHostSession` (zero production callers; deleted) · `HostSession` in any registry/fanout type (the class remains only for direct `getHostSession` users).
+`RemoteMirrorSession` (renamed; "Remote" was false for the local arm) · `PadiBindingSession` (→ `LocalPadiSession`, symmetric with `RemotePadiSession`) · the role's dead `<C>` generic · `PoolableSession` (never shipped) · `padiStartedAt()/padiSurfaceVersion()/padiBuildCommit()` and their remote twins (six methods → `identity()`) · `drainBoundPadi` (→ `renew()`, with survival in the type) · `evictHostSession` (zero production callers; deleted) · `HostSession` in any registry/fanout type (the class remains only for direct `getHostSession` users).

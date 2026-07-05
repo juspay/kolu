@@ -36,6 +36,8 @@ srid ruled the parked question: **every surface server answers "who are you" —
 
 S4's field-distinctness addendum (buildId ≠ commit) carries over unchanged.
 
+**S3b (owner addendum, same session): the two padi arms rename symmetrically** — `PadiBindingSession` → `LocalPadiSession`, beside `RemotePadiSession`. The names were pattern-inconsistent; the name should say the one thing that differs (transport).
+
 ## Consequences for in-flight plans
 
 - **W4-PR1**: the pool consumes the S1/S2-shaped registry (no PoolableSession; the widen-the-slot plan in the primer is superseded by the smaller cut).
