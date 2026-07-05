@@ -42,6 +42,7 @@ import {
   shutdownCleanup,
 } from "./koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "./log.ts";
+import { startPadiHostInventorySampler } from "./hostInventory.ts";
 import { startPadiMemorySampler } from "./memorySampler.ts";
 import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { publisher } from "./publisher.ts";
@@ -283,6 +284,18 @@ export async function runPadiDaemon(
     dirname(getLocalSocketPath() ?? kavalSocket),
     stateRoot,
   );
+
+  // Feed the Kaval + Padi dialogs' "Running daemons" list: scan THIS host's running
+  // kaval + padi daemons (read-only) and publish them on `padiSurface.hostInventory`,
+  // marking the kaval this padi holds + itself `active`. Because it rides the re-served
+  // surface, the dialog shows the BOUND host's daemons identically whether kolu-server
+  // reaches this padi locally or over ssh — so a leaked daemon on the machine you're
+  // actually using is finally visible. Started after `ensureLocalEndpoint` so the held
+  // kaval's socket is known, and after the manifests are written so the very first tick
+  // labels the discovered kaval by state-root. The serving padi reports ITSELF by
+  // construction (see `withSelfPadi`), so the liveness tell holds even on this T+0 tick,
+  // before `daemonMain` below opens `padi.sock`.
+  startPadiHostInventorySampler({ padiSocket: socketPath, stateRoot });
 
   return daemonMain({
     gatePath,

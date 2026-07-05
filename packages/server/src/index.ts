@@ -9,11 +9,9 @@ import { startHeapDiagnostics } from "@kolu/heap-diag";
 // publisher size (a diagnostic); it no longer runs the terminal domain.
 import {
   discoverPadiDaemons,
-  padiKavalSocketPath,
-  padiSocketPath,
   previewFile,
+  probeKavalStatus,
   publisherSize,
-  resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import {
@@ -57,10 +55,7 @@ import {
   remotePreviewBlock,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import {
-  probeKavalStatus,
-  startDaemonInventorySampler,
-} from "./daemonInventory.ts";
+import { startDaemonInventorySampler } from "./daemonInventory.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { type BoundPadi, ensurePadiBinding } from "./padiBinding.ts";
 import {
@@ -567,36 +562,31 @@ padiSession.onState((s) => {
   });
 });
 
-// Feed the Kaval + Padi dialogs' host-daemon inventory: enumerate EVERY running kaval
-// + padi on this host (read-only — scan the runtime dir, read each gate `.pid`, and a
-// best-effort `system.version`/`terminal.list` probe per kaval; NEVER touches a
-// daemon's lifecycle), mark which one kolu's bound padi owns, and publish
-// `daemonInventory`. So a LEAKED post-upgrade daemon — invisible in the UI before,
-// surfaced only by a `kaval-tui` CLI error — is diagnosable at a glance. kolu's active
-// kaval is marked by socket identity against the address padi actually HOLDS: the DIGEST
-// address normally, or the pre-padi LEGACY `kaval-<port>/` address padi ADOPTED on a
-// W2.2 upgrade (`legacyKavalSocketPath(this binder's port)`, the SAME hint the adopter
-// hands padi) — so an adopted legacy kaval reads as kolu's converging active one, not a
-// leak. The active padi's honest `surfaceVersion` (off its control-core `hello`) rides
-// the bound session. A padi (re)bind force-samples so version + marking refresh at once.
-const inventoryStateRoot = resolvePadiStateRoot();
+// Feed the Kaval + Padi dialogs' host-daemon inventory. The BOUND host's daemons now
+// ride padiSurface's `hostInventory` member (padi scans its OWN host — the one scanner,
+// homed in @kolu/padi — and marks the kaval it holds + itself active); that member rides
+// the re-served surface straight to the client, so the dialog's bound-host list works
+// identically local and remote. Here kolu-server publishes only what IT knows on
+// koluSurface's `daemonInventory`: the binding host, its OWN machine's scan (only under a
+// remote binding, where that machine is not the bound host — so a leak on the machine
+// you're actually using stays visible; the SAME `enumerateHostDaemons` the member uses,
+// marking none active), and the bound padi's honest identity + a standing convergence
+// anomaly off its control-core `hello`. A padi (re)bind force-samples so version +
+// convergence refresh at once.
 startDaemonInventorySampler(
   {
     discoverKavals: discoverKavalDaemons,
     discoverPadis: discoverPadiDaemons,
     probe: probeKavalStatus,
-    digestKavalSocket: padiKavalSocketPath(inventoryStateRoot),
-    legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
-    activePadiSocket: padiSocketPath(inventoryStateRoot),
     activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
     activePadiBuildCommit: () => padiSession.padiBuildCommit(),
     activePadiConvergence: () => padiSession.padiConvergence(),
     // The SINGLE bind knob: the remote host (`KOLU_PADI_HOST`), or null for a local bind
     // (`|| null` folds an empty KOLU_PADI_HOST to null, matching the `remoteHost ?` bind
-    // decision above). daemonInventory derives `boundLocally = boundHost === null` — a
-    // REMOTE binding owns no LOCAL daemon, so the local scan lists discovered daemons (a
-    // leak stays visible) but marks none active, pins no remote identity onto a local
-    // socket, and the dialog labels the scan "this machine, not the bound host".
+    // decision above). daemonInventory derives `boundLocally = boundHost === null` — under
+    // a local binding the bound padi's `hostInventory` member already covers this machine,
+    // so no `localScan` is published (no duplicate list); under a remote binding kolu-server
+    // scans its own machine into `localScan`, labelled "this machine, not the bound host".
     boundHost: remoteHost || null,
     publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
   },
