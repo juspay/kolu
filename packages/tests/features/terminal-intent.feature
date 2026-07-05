@@ -60,6 +60,46 @@ Feature: Terminal intent
     And the active terminal annotation slot should render no anchor
     And there should be no page errors
 
+  Scenario: Intent survives a branch change in the terminal
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I run "rm -rf /tmp/kolu-intent-branch && git init /tmp/kolu-intent-branch && cd /tmp/kolu-intent-branch && git commit --allow-empty -m init"
+    Then the header should show a branch name
+    When I click the active terminal annotation slot
+    And I type "🎯 fix the bug" into the intent editor
+    And I save the intent
+    Then the active terminal annotation slot should start with "🎯"
+    When I run "git checkout -b new-branch"
+    Then the header branch should contain "new-branch"
+    But the active terminal annotation slot should start with "🎯"
+
+  Scenario: Intent survives an external branch change (git watcher path)
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I run "rm -rf /tmp/kolu-intent-ext && git init /tmp/kolu-intent-ext && cd /tmp/kolu-intent-ext && git commit --allow-empty -m init"
+    Then the header should show a branch name
+    When I click the active terminal annotation slot
+    And I type "🚀 ship it" into the intent editor
+    And I save the intent
+    Then the active terminal annotation slot should start with "🚀"
+    When the branch is switched to "ext-test" in "/tmp/kolu-intent-ext"
+    Then the header branch should contain "ext-test"
+    But the active terminal annotation slot should start with "🚀"
+
+  Scenario: Intent survives cd into a worktree on a new branch
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I run "rm -rf /tmp/kolu-intent-wt-main /tmp/kolu-intent-wt-feature && git init /tmp/kolu-intent-wt-main && cd /tmp/kolu-intent-wt-main && git commit --allow-empty -m init"
+    Then the header should show a branch name
+    When I click the active terminal annotation slot
+    And I type "🔍 investigate" into the intent editor
+    And I save the intent
+    Then the active terminal annotation slot should start with "🔍"
+    When I run "git worktree add -b feature-branch /tmp/kolu-intent-wt-feature"
+    And I run "cd /tmp/kolu-intent-wt-feature"
+    Then the header branch should contain "feature-branch"
+    But the active terminal annotation slot should start with "🔍"
+
   Scenario: Edit intent via the command palette
     When I open the command palette
     And I select "Edit intent" in the palette
