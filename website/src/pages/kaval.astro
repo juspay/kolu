@@ -64,13 +64,13 @@ const escapes = [
   description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, send input to, and kill your terminals from the shell."
 >
   <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
-    {/* Warning orange uses the logo-gold token directly; this is a product
-        maturity warning, not a separate danger palette. */}
+    {/* Warning orange uses the logo's top-step token directly; this is a product
+        maturity warning, not the site's primary accent. */}
     <div
-      class="mb-8 flex items-start gap-3 border border-brand-amber/50 bg-brand-amber/10 rounded-lg px-4 py-3 max-w-xl"
+      class="mb-8 flex items-start gap-3 border border-kolu-top/50 bg-kolu-top/10 rounded-lg px-4 py-3 max-w-xl"
     >
       <svg
-        class="mt-0.5 h-5 w-5 shrink-0 text-brand-amber"
+        class="mt-0.5 h-5 w-5 shrink-0 text-kolu-top"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -85,7 +85,7 @@ const escapes = [
         <line x1="12" y1="17" x2="12.01" y2="17"></line>
       </svg>
       <p class="mono text-sm text-ink leading-relaxed">
-        <span class="text-brand-amber font-semibold">alpha</span> — kaval and
+        <span class="text-kolu-top font-semibold">alpha</span> — kaval and
         kaval-tui are an early preview. Commands, flags, and output formats{" "}
         <span class="text-ink">will change</span> before they're finalized for
         production use; don't script against them yet.
@@ -95,7 +95,7 @@ const escapes = [
       <div>
         <p class="eyebrow text-ink-dim mb-4">the PTY daemon &amp; its client · alpha</p>
         <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
-          a watch over<br />your <span class="text-amber">terminals</span>.
+          a watch over<br />your <span class="text-kolu-primary">terminals</span>.
         </h1>
       </div>
       <img
@@ -493,7 +493,7 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
       design lives in the{" "}
       <a
         href="https://kolu.dev/atlas/pulam.html"
-        class="text-amber hover:underline"
+        class="text-kolu-primary hover:underline"
         rel="noopener">atlas note</a
       >.
     </p>
@@ -532,7 +532,7 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
       kolu's <code class="mono text-ink">/debate</code> skill (a port of{" "}
       <a
         href="https://github.com/srid/llm-debate"
-        class="text-amber hover:underline"
+        class="text-kolu-primary hover:underline"
         rel="noopener">srid/llm-debate</a
       >) runs entirely this way: agents exchange arguments as numbered markdown
       files in a shared directory, each reading the others' and writing its own by
@@ -555,14 +555,14 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
       <em>after</em> you answer, so the only way to see "it's waiting on you" is to{" "}
       <a
         href="https://github.com/juspay/kolu/pull/1160"
-        class="text-amber hover:underline"
+        class="text-kolu-primary hover:underline"
         rel="noopener">read the rendered screen</a
       >, and you answer it with <span class="text-ink">arrow keys</span>, not
       text. A message bus wouldn't help there either. Files carry the content, the
       terminal carries the floor — the full argument is in the{" "}
       <a
         href="https://kolu.dev/atlas/hcom-vs-kolu.html"
-        class="text-amber hover:underline"
+        class="text-kolu-primary hover:underline"
         rel="noopener">hcom vs. kolu note</a
       >.
     </p>
@@ -598,7 +598,7 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
       {
         escapes.map((e) => (
           <div class="border-t border-rule py-3.5 grid grid-cols-[5rem_1fr] gap-6">
-            <code class="mono text-amber text-sm">{e.keys}</code>
+            <code class="mono text-kolu-primary text-sm">{e.keys}</code>
             <p class="text-ink-dim text-[0.95rem] leading-relaxed">{e.what}</p>
           </div>
         ))
@@ -652,7 +652,7 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
         escape model — lives in the{" "}
         <a
           href="https://kolu.dev/atlas/pty-daemon.html"
-          class="text-amber hover:underline"
+          class="text-kolu-primary hover:underline"
           rel="noopener">kaval atlas note</a
         >.
       </li>
@@ -662,12 +662,12 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
 
 <style>
   /* Hero product mark — a glowing badge, not a stray icon floating in the
-     corner. The gold halo echoes the Kolu logo's top step, and the larger size
-     gives it presence opposite the headline. */
+     corner. The primary halo echoes the Kolu logo's middle step, and the
+     larger size gives it presence opposite the headline. */
   .kv-logo {
     border-radius: 1.5rem;
     filter: drop-shadow(
-      0 16px 38px color-mix(in srgb, var(--color-amber) 34%, transparent)
+      0 16px 38px color-mix(in srgb, var(--color-kolu-primary) 34%, transparent)
     );
   }
 
@@ -680,7 +680,7 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
   /* Section headings — real <h2>s. The page jumped from a ~67px display H1
      straight to 13px mono captions with no mid tier, so every section read
      flat. These are now a true display-scale heading (~half the H1) in the
-     same lowercase tech-sans as the hero, with a tall logo-gold bar as
+     same lowercase tech-sans as the hero, with a tall middle-step bar as
      the section marker — the accent grounds the heading instead of *being* it. */
   .kv-head {
     position: relative;
@@ -707,26 +707,26 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     bottom: 0.16em;
     width: 5px;
     border-radius: 3px;
-    background: var(--color-amber);
+    background: var(--color-kolu-primary);
     box-shadow: 0 0 14px -1px
-      color-mix(in srgb, var(--color-amber) 60%, transparent);
+      color-mix(in srgb, var(--color-kolu-primary) 60%, transparent);
   }
 
   /* Program names inside a heading (kaval, kolu, padi-tui, kaval-tui) — they are
-     code identifiers, so set them apart from the prose: amber, in the mono
-     face, sized and weighted to sit flush with the bold sans around them. */
+     code identifiers, so set them apart from the prose: primary color, in the
+     mono face, sized and weighted to sit flush with the bold sans around them. */
   .kv-prog {
     font-family: var(--font-mono);
     font-variant-ligatures: none;
     font-size: 0.82em;
     font-weight: 700;
     letter-spacing: -0.01em;
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
 
   /* Sub-heading inside a section (e.g. "taps kaval surfaces"). A clear step
-     below the H2 but still a real heading — semibold tech-sans, ink, led by an
-     amber terminal caret. Plain inline flow so program-name spans don't break. */
+     below the H2 but still a real heading — semibold tech-sans, ink, led by a
+     top-step terminal caret. Plain inline flow so program-name spans don't break. */
   .kv-subhead {
     font-family: var(--font-sans);
     font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.2rem);
@@ -738,11 +738,11 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
   .kv-subhead::before {
     content: "▸ ";
     font-weight: 700;
-    color: var(--color-amber);
+    color: var(--color-kolu-top);
   }
 
   /* Terminal command card — the page is about a terminal tool, so commands
-     live in a real prompt block (one sunk panel, an amber `$` per line),
+     live in a real prompt block (one sunk panel, a top-step `$` per line),
      not a scattered row of individually-bordered inline pills. */
   .kv-term {
     margin-top: 1.1rem;
@@ -764,7 +764,7 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
   }
   .kv-term .cmd::before {
     content: "$ ";
-    color: var(--color-amber);
+    color: var(--color-kolu-top-strong);
     font-weight: 600;
   }
   .kv-term .cmt {
@@ -776,17 +776,17 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     color: var(--color-ink-muted);
   }
 
-  /* Numbered step badge for "run the pair" — an amber-tinted chip, not a bare
-     digit floating in the margin. */
+  /* Numbered step badge for "run the pair" — a top-step chip, not a bare digit
+     floating in the margin. */
   .kv-step {
     display: grid;
     place-items: center;
     width: 1.8rem;
     height: 1.8rem;
     border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-amber) 42%, transparent);
-    color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-kolu-top) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-kolu-top) 42%, transparent);
+    color: var(--color-kolu-top-strong);
     font-family: var(--font-mono);
     font-size: 0.85rem;
     font-weight: 700;
@@ -813,22 +813,22 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     stroke-width: 1.5;
   }
   .kv-d-daemon {
-    fill: color-mix(in srgb, var(--color-amber) 12%, var(--color-void-raised));
-    stroke: var(--color-amber);
+    fill: color-mix(in srgb, var(--color-kolu-primary) 12%, var(--color-void-raised));
+    stroke: var(--color-kolu-primary);
     stroke-width: 1.5;
   }
   .kv-d-pty {
     fill: var(--color-void-sunk);
-    stroke: var(--color-rule-strong);
+    stroke: color-mix(in srgb, var(--color-kolu-bottom) 34%, var(--color-rule-strong));
     stroke-width: 1.25;
   }
   .kv-d-flow {
     fill: none;
-    stroke: var(--color-amber);
+    stroke: var(--color-kolu-top);
     stroke-width: 1.5;
   }
   .kv-d-arrow {
-    fill: var(--color-amber);
+    fill: var(--color-kolu-top);
   }
   .kv-d-socket {
     fill: none;
@@ -837,7 +837,7 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     stroke-dasharray: 3 4;
   }
   .kv-d-cap {
-    fill: var(--color-amber);
+    fill: var(--color-kolu-primary);
     font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 1.6px;
@@ -848,7 +848,7 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
     font-weight: 600;
   }
   .kv-d-daemon-label {
-    fill: var(--color-amber-bright);
+    fill: var(--color-kolu-primary-hover);
     font-size: 20px;
     font-weight: 700;
     letter-spacing: -0.4px;

@@ -46,7 +46,7 @@ const nav = [
             <a
               href={item.href}
               rel="noopener"
-              class="text-ink-dim hover:text-amber transition-colors flex items-center gap-1.5"
+              class="text-ink-dim hover:text-kolu-primary transition-colors flex items-center gap-1.5"
             >
               <span>{item.label}</span>
               <span class="text-ink-faint" aria-hidden="true">↗</span>
@@ -57,7 +57,7 @@ const nav = [
               class:list={[
                 'transition-colors',
                 'hideOnMobile' in item && 'hidden sm:inline-block',
-                isActive(item.path) ? 'text-amber' : 'text-ink-dim hover:text-ink',
+                isActive(item.path) ? 'text-kolu-primary' : 'text-ink-dim hover:text-ink',
               ]}
             >
               {item.label}
@@ -70,7 +70,7 @@ const nav = [
         id="theme-toggle"
         type="button"
         aria-label="Toggle light/dark theme"
-        class="relative size-7 rounded-sm border border-transparent hover:border-rule text-ink-dim hover:text-amber transition-colors flex items-center justify-center"
+        class="relative size-7 rounded-sm border border-transparent hover:border-rule text-ink-dim hover:text-kolu-primary transition-colors flex items-center justify-center"
       >
         {/* Sun — shown in dark mode (click to go light) */}
         <svg
