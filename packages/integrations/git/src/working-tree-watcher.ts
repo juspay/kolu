@@ -54,37 +54,52 @@ import type { Logger } from "kolu-shared";
 import { listIgnoredPaths } from "./browse.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
+/** The one backend we must never hand parcel: `"watchman"` is the leaking one,
+ *  and *omitting* the backend re-selects it. Narrowing the pin's type to exclude
+ *  it makes the leak **unspellable** — `linux: "watchman"` or `?? "watchman"`
+ *  become compile errors, so the invariant below is enforced by the type, not
+ *  just trusted to the comment. */
+type NonWatchmanBackend = Exclude<BackendType, "watchman">;
+
 /** Pin parcel's watcher backend, per platform, instead of letting it
- *  auto-select — and pin a *named* backend on EVERY platform, never `undefined`.
+ *  auto-select — and pin a *named*, non-watchman backend on EVERY platform.
  *
- *  Auto-selection (`backend: "default"`) probes the **watchman** backend FIRST,
- *  on **every** `subscribe`, via a native `popen("watchman … get-sockname
- *  2>/dev/null")` (parcel's `WatchmanBackend::checkAvailable`). On a host
- *  without watchman — every kolu pool box, most dev machines — that probe fails
- *  and parcel's error path never `pclose()`s the pipe, so the `/bin/sh` it
- *  forked leaks as an **unreaped zombie, one per subscribe**. libuv can't reap a
- *  native-`popen` child, so in a long-lived daemon (a remote-bound padi serving
- *  a whole e2e run) the zombies pile up unbounded — invisible to CPU/RAM, but
- *  they drag the event loop enough that Code-tab renders time out in the back
- *  half of a run. Surfaced by W3.4's remote-e2e lane; parcel@2.5.6 (#1691).
+ *  Auto-selection (parcel's default when `backend` is **omitted**) probes the
+ *  **watchman** backend FIRST, on **every** `subscribe`, via a native
+ *  `popen("watchman … get-sockname 2>/dev/null")` (parcel's
+ *  `WatchmanBackend::checkAvailable`). On a host without watchman — every kolu
+ *  pool box, most dev machines — that probe fails and parcel's error path never
+ *  `pclose()`s the pipe, so the `/bin/sh` it forked leaks as an **unreaped
+ *  zombie, one per subscribe**. libuv can't reap a native-`popen` child, so in a
+ *  long-lived daemon (a remote-bound padi serving a whole e2e run) the zombies
+ *  pile up unbounded — invisible to CPU/RAM, but they drag the event loop enough
+ *  that Code-tab renders time out in the back half of a run. Surfaced by W3.4's
+ *  remote-e2e lane; parcel@2.5.6 (#1691).
  *
  *  Naming a backend skips the probe. On kolu's targets the pin lands on the
- *  exact backend `"default"` would have picked *after* the probe failed
+ *  exact backend the default would have picked *after* the probe failed
  *  (`inotify` / `fs-events` / `windows`), so nothing changes but the removed
- *  leak. The `?? "brute-force"` arm matters for correctness, not just tidiness:
- *  an untargeted platform must still name a NON-watchman backend, or it falls
- *  back to the leaking auto-select. `brute-force` is parcel's universal poller —
- *  slower, but leak-free and functional — so the probe is skipped *everywhere*
- *  and there is no `undefined` "no preference" that quietly re-arms the leak. */
+ *  leak. An untargeted platform (not linux/darwin/win32) hits the `throw`
+ *  rather than a poller: kolu runs on exactly those three, and the repo's
+ *  fail-fast philosophy forbids a silent graceful-degradation fallback — so we
+ *  crash loudly instead. That throw also guarantees an omitted/`undefined`
+ *  backend can never reach parcel to re-arm the probe. */
 const PARCEL_BACKEND_BY_PLATFORM: Partial<
-  Record<NodeJS.Platform, BackendType>
+  Record<NodeJS.Platform, NonWatchmanBackend>
 > = {
   darwin: "fs-events",
   linux: "inotify",
   win32: "windows",
 };
-const PARCEL_BACKEND: BackendType =
-  PARCEL_BACKEND_BY_PLATFORM[process.platform] ?? "brute-force";
+const platformBackend = PARCEL_BACKEND_BY_PLATFORM[process.platform];
+if (platformBackend === undefined) {
+  throw new Error(
+    `working-tree watcher: unsupported platform "${process.platform}" — kolu ` +
+      "targets linux/darwin/win32; refusing to omit parcel's backend (that " +
+      "re-selects the leaking watchman probe, #1691)",
+  );
+}
+const PARCEL_BACKEND: NonWatchmanBackend = platformBackend;
 
 /** `.git` is always ignored: git never lists its own dir, and the git-dir
  *  watchers (HEAD/reflog/index) cover the parts we care about — watching it

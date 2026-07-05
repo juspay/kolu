@@ -161,12 +161,14 @@ debounce path swallows event paths silently.
    so `"default"` selects `InotifyBackend` (after the failed watchman probe),
    and a bind mount that can't inotify makes *both* `"default"` and the pinned
    `"inotify"` fail identically (`error git: working-tree watcher install
-   failed`) — the pin forgoes **no** polling path there. The pin only *adds*
-   `brute-force` where it wasn't reached before: an **untargeted** platform
-   (not linux/darwin/win32) now names `brute-force` explicitly instead of
-   auto-selecting into the leaking watchman probe. Net: leak-free on every
-   platform, behaviorally identical to `"default"`'s post-probe outcome on the
-   three targets.
+   failed`) — the pin forgoes **no** polling path there. On the three targets
+   the pin is behaviorally identical to `"default"`'s post-probe outcome, minus
+   the leak. On an **untargeted** platform (not linux/darwin/win32) the pin
+   throws at module init (`unsupported platform …`) rather than degrade to a
+   silent poller — kolu targets exactly those three, and the repo's fail-fast
+   philosophy forbids a graceful-degradation fallback. (If a BSD/other target
+   ever became real, map it to its native backend — `kqueue` etc. — not to a
+   poller.) Net: leak-free everywhere, and no platform silently degrades.
 2. **Linux inotify slot exhaustion** — kernel default is
    `fs.inotify.max_user_watches=8192`. A typical Kolu repo uses ~500–2000
    slots; multiple worktrees compound. Watchman amortizes this across one
