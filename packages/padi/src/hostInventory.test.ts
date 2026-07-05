@@ -186,60 +186,23 @@ const padi = (over: Partial<PadiDaemon>): PadiDaemon => ({
 });
 
 describe("assemblePadiInventory", () => {
-  it("marks the serving padi active and gives ONLY it the honest surfaceVersion + buildCommit", () => {
+  it("marks ONLY the serving padi active (identity does not ride the row)", () => {
     const rows = assemblePadiInventory(
       [
         padi({ socket: PADI_ACTIVE }),
         padi({ socket: PADI_OTHER, stateRoot: "/tmp/other" }),
       ],
       PADI_ACTIVE,
-      "1.2",
-      "padi9f8",
     );
-    const active = rows.find((r) => r.socket === PADI_ACTIVE);
-    const other = rows.find((r) => r.socket === PADI_OTHER);
-    // Build commit rides the active padi, mirroring the Kaval running-daemon row.
-    expect(active).toMatchObject({
-      active: true,
-      surfaceVersion: "1.2",
-      buildCommit: "padi9f8",
-    });
-    // A discovered-but-not-owned padi (a leak at another state-root) is not probed → null
-    // surfaceVersion AND null buildCommit (honest "unknown"), never the active padi's
-    // identity leaking onto it.
-    expect(other).toMatchObject({
-      active: false,
-      surfaceVersion: null,
-      buildCommit: null,
-    });
+    // The bound padi is active; a discovered-but-not-owned padi (a leak at another
+    // state-root) is not. Version/build live on `daemonInventory.boundPadi`, not here.
+    expect(rows.find((r) => r.socket === PADI_ACTIVE)?.active).toBe(true);
+    expect(rows.find((r) => r.socket === PADI_OTHER)?.active).toBe(false);
   });
 
-  it("no active socket → nothing active, no surfaceVersion / buildCommit anywhere", () => {
-    const rows = assemblePadiInventory(
-      [padi({ socket: PADI_ACTIVE })],
-      null,
-      "1.2",
-      "padi9f8",
-    );
-    expect(rows[0]).toMatchObject({
-      active: false,
-      surfaceVersion: null,
-      buildCommit: null,
-    });
-  });
-
-  it("active padi with an unknown build commit stays honestly null (off-nix, no baked commit)", () => {
-    const rows = assemblePadiInventory(
-      [padi({ socket: PADI_ACTIVE })],
-      PADI_ACTIVE,
-      "1.2",
-      null,
-    );
-    expect(rows[0]).toMatchObject({
-      active: true,
-      surfaceVersion: "1.2",
-      buildCommit: null,
-    });
+  it("no active socket → nothing active", () => {
+    const rows = assemblePadiInventory([padi({ socket: PADI_ACTIVE })], null);
+    expect(rows[0]?.active).toBe(false);
   });
 });
 
@@ -256,19 +219,13 @@ describe("enumerateHostDaemons — the shared scan orchestration", () => {
       activeKavalSocket: ACTIVE,
       activeKavalAtLegacy: false,
       activePadiSocket: PADI_ACTIVE,
-      activePadiSurfaceVersion: "1.2",
-      activePadiBuildCommit: "padi9f8",
     });
     expect(inv.kavals.find((k) => k.socket === ACTIVE)).toMatchObject({
       active: true,
       terminalCount: 2,
     });
     expect(inv.kavals.find((k) => k.socket === LEGACY)?.active).toBe(false);
-    expect(inv.padis[0]).toMatchObject({
-      active: true,
-      surfaceVersion: "1.2",
-      buildCommit: "padi9f8",
-    });
+    expect(inv.padis[0]?.active).toBe(true);
   });
 
   it("a local-machine scan under a remote binding (no active sockets) marks NOTHING active", async () => {
@@ -281,19 +238,13 @@ describe("enumerateHostDaemons — the shared scan orchestration", () => {
       activeKavalSocket: null,
       activeKavalAtLegacy: false,
       activePadiSocket: null,
-      activePadiSurfaceVersion: null,
-      activePadiBuildCommit: null,
     });
     // Leaks stay VISIBLE (listed) …
     expect(inv.kavals).toHaveLength(1);
     expect(inv.padis).toHaveLength(1);
-    // … but none is "in use by kolu", and no identity is pinned onto a local socket.
+    // … but none is "in use by kolu".
     expect(inv.kavals[0]?.active).toBe(false);
-    expect(inv.padis[0]).toMatchObject({
-      active: false,
-      surfaceVersion: null,
-      buildCommit: null,
-    });
+    expect(inv.padis[0]?.active).toBe(false);
   });
 
   it("a probe that THROWS folds to an honest-null row (never a dropped row, never a rejected scan)", async () => {
@@ -313,8 +264,6 @@ describe("enumerateHostDaemons — the shared scan orchestration", () => {
       activeKavalSocket: ACTIVE,
       activeKavalAtLegacy: false,
       activePadiSocket: null,
-      activePadiSurfaceVersion: null,
-      activePadiBuildCommit: null,
     });
     // Both rows land — the healthy one with its probe, the throwing one honest-null.
     expect(inv.kavals).toHaveLength(2);

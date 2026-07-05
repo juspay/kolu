@@ -130,14 +130,10 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
     // visible) …
     expect(published?.localScan?.kavals).toHaveLength(1);
     expect(published?.localScan?.padis).toHaveLength(1);
-    // … but NONE is kolu's active one, and the remote padi's version/commit attach to
-    // nothing local (no "in use by kolu" lie, no remote identity on a local socket).
+    // … but NONE is kolu's active one (no "in use by kolu" lie on a local socket). The
+    // remote padi's version/commit ride boundPadi, never a local row.
     expect(published?.localScan?.kavals[0]?.active).toBe(false);
-    expect(published?.localScan?.padis[0]).toMatchObject({
-      active: false,
-      surfaceVersion: null,
-      buildCommit: null,
-    });
+    expect(published?.localScan?.padis[0]?.active).toBe(false);
   });
 
   it("publishes boundHost = the remote host so the dialog labels the local scan 'not the bound host'", async () => {

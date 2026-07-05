@@ -36,7 +36,6 @@ import {
   discoverKavalDaemons,
   type ptyHostSurface,
 } from "kaval";
-import { currentPadiCommitHash } from "./buildId.ts";
 import { log } from "./log.ts";
 import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { LOCAL_HOST_ID } from "./ptyHost/index.ts";
@@ -46,7 +45,7 @@ import {
   discoverPadiDaemons,
   padiKavalSocketPath,
 } from "./stateRoot.ts";
-import { PADI_SURFACE_VERSION, type PadiHostInventory } from "./surface.ts";
+import type { PadiHostInventory } from "./surface.ts";
 
 /** The best-effort status a kaval socket answered — every field `null` when the
  *  probe failed / the daemon didn't answer (honest "unknown", never a fake value). */
@@ -106,32 +105,24 @@ export function assembleKavalInventory(
 }
 
 /**
- * PURE: assemble `RunningPadi[]` from discovered padi daemons, the socket of the padi
- * the scanning host's kolu owns (or `null`), and that padi's honest `surfaceVersion` +
- * `buildCommit`.
+ * PURE: assemble `RunningPadi[]` from discovered padi daemons and the socket of the padi
+ * the scanning host's kolu owns (or `null`).
  *
- * `active` is decided by SOCKET IDENTITY. Only the ACTIVE padi gets a `surfaceVersion`
- * and `buildCommit` — the serving padi knows its OWN identity directly (its baked
- * `PADI_SURFACE_VERSION` / `PADI_COMMIT_HASH`); a discovered-but-not-owned padi reads
- * `null` (not probed), the honest "unknown".
+ * `active` is decided by SOCKET IDENTITY. The active padi's contract version + build
+ * commit are NOT carried per-row — padi cannot probe a foreign padi, so they belong to
+ * exactly one padi and are published once on `daemonInventory.boundPadi` (the honest
+ * live read that works over ssh), not mirrored onto this row.
  */
 export function assemblePadiInventory(
   daemons: readonly PadiDaemon[],
   activeSocket: string | null,
-  activeSurfaceVersion: string | null,
-  activeBuildCommit: string | null,
 ): RunningPadi[] {
-  return daemons.map((d) => {
-    const active = activeSocket !== null && d.socket === activeSocket;
-    return {
-      socket: d.socket,
-      stateRoot: d.stateRoot,
-      gatePid: d.gatePid,
-      surfaceVersion: active ? activeSurfaceVersion : null,
-      buildCommit: active ? activeBuildCommit : null,
-      active,
-    };
-  });
+  return daemons.map((d) => ({
+    socket: d.socket,
+    stateRoot: d.stateRoot,
+    gatePid: d.gatePid,
+    active: activeSocket !== null && d.socket === activeSocket,
+  }));
 }
 
 /** How long a single kaval status probe (connect + version + list) may take before it
@@ -201,10 +192,6 @@ export interface HostDaemonScanDeps {
   activeKavalAtLegacy: boolean;
   /** The padi socket the scanning host's kolu owns (marked `active`), or `null`. */
   activePadiSocket: string | null;
-  /** The active padi's own `padiSurface` version — annotates the active padi row. */
-  activePadiSurfaceVersion: string | null;
-  /** The active padi's own navigable git commit — annotates the active padi row. */
-  activePadiBuildCommit: string | null;
 }
 
 /** Take one read-only reading of the host-daemon inventory: discover every kaval +
@@ -236,12 +223,7 @@ export async function enumerateHostDaemons(
       deps.activeKavalSocket,
       deps.activeKavalAtLegacy,
     ),
-    padis: assemblePadiInventory(
-      padiDaemons,
-      deps.activePadiSocket,
-      deps.activePadiSurfaceVersion,
-      deps.activePadiBuildCommit,
-    ),
+    padis: assemblePadiInventory(padiDaemons, deps.activePadiSocket),
   };
 }
 
@@ -282,9 +264,6 @@ export function startPadiHostInventorySampler(opts: {
   /** THIS padi's resolved state-root — resolves the held-kaval fallback address. */
   stateRoot: string;
 }): void {
-  // padi's own build is a boot constant (`||` not `??`: off-nix the commit is "",
-  // which reads as the honest "—", not null-that-means-something-else).
-  const buildCommit = currentPadiCommitHash() || null;
   const sampleOnce = async (): Promise<void> => {
     const held = heldKaval(opts.stateRoot);
     const inv = await enumerateHostDaemons({
@@ -294,8 +273,6 @@ export function startPadiHostInventorySampler(opts: {
       activeKavalSocket: held.socket,
       activeKavalAtLegacy: held.atLegacy,
       activePadiSocket: opts.padiSocket,
-      activePadiSurfaceVersion: PADI_SURFACE_VERSION,
-      activePadiBuildCommit: buildCommit,
     });
     padiSurfaceCtx.cells.hostInventory.set(inv);
   };

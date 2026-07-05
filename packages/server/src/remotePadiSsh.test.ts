@@ -280,21 +280,16 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     while (!inv.padis.some((p) => p.active) && Date.now() < invDeadline) {
       inv = (await invIter.next()).value as PadiHostInventory;
     }
-    // The serving padi marks ITSELF active and carries its own honest surfaceVersion —
-    // the remote host's identity, not kolu-server's local machine.
+    // The serving padi marks ITSELF active — the remote host's own scan re-served over
+    // the hop, not kolu-server's local machine. (Its contract version now rides
+    // `daemonInventory.boundPadi`, not this row.)
     const activePadi = inv.padis.find((p) => p.active);
     expect(activePadi).toBeDefined();
-    expect(
-      isContractVersionCompatible(
-        activePadi?.surfaceVersion ?? "",
-        PADI_SURFACE_VERSION,
-      ),
-    ).toBe(true);
     // The kaval it holds is discovered + probed on the remote host (we just ran a
     // terminal there), and marked active — the "in use by kolu" row.
     expect(inv.kavals.some((k) => k.active)).toBe(true);
     console.log(
-      `[ssh] hostInventory over the hop: ${inv.kavals.length} kaval(s), ${inv.padis.length} padi(s), active padi surfaceVersion=${activePadi?.surfaceVersion}`,
+      `[ssh] hostInventory over the hop: ${inv.kavals.length} kaval(s), ${inv.padis.length} padi(s), active padi socket=${activePadi?.socket}`,
     );
   }, 180_000);
 

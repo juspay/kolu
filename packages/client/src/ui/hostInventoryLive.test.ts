@@ -19,8 +19,6 @@ const padi = (over: Partial<RunningPadi> = {}): RunningPadi => ({
   socket: "/run/user/1000/padi-abc/padi.sock",
   stateRoot: "/home/u/.local/state/padi",
   gatePid: 111,
-  surfaceVersion: "1.2",
-  buildCommit: "padi9f8",
   active: true,
   ...over,
 });

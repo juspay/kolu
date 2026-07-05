@@ -324,16 +324,11 @@ export const RunningPadiSchema = z.object({
   stateRoot: z.string().nullable(),
   /** The gate-holder pid (`padi.pid`), or null if unreadable. */
   gatePid: z.number().int().nullable(),
-  /** The `padiSurface` version the RUNNING padi serves — the serving padi's own
-   *  `PADI_SURFACE_VERSION` for the active one; null for a discovered-but-not-owned
-   *  padi (not probed) or before the first sample. */
-  surfaceVersion: z.string().nullable(),
-  /** The RUNNING padi's navigable git commit — the serving padi's own `PADI_COMMIT_HASH`
-   *  for the active one (mirroring {@link RunningKavalSchema}'s `buildCommit`); null for a
-   *  discovered-but-not-owned padi, a survivor predating the field, or before the first
-   *  sample. */
-  buildCommit: z.string().nullable(),
-  /** True iff this is the padi the scanning host's kolu owns ("in use by kolu"). */
+  /** True iff this is the padi the scanning host's kolu owns ("in use by kolu"). The
+   *  active padi's contract version + build commit do NOT ride this row — padi cannot
+   *  probe a foreign padi, so every non-active row would carry nulls; the one bound
+   *  padi's identity is published once on `daemonInventory.boundPadi` (the honest
+   *  fresh-each-tick live read that also works over ssh). */
   active: z.boolean(),
 });
 export type RunningPadi = z.infer<typeof RunningPadiSchema>;

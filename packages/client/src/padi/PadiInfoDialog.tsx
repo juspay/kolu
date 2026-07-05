@@ -56,17 +56,12 @@ const RunningPadiRow: Component<{ padi: RunningPadi }> = (props) => (
         </span>
       </Show>
     </div>
-    {/* Same metrics shape as the Kaval running-daemon row (gate pid · contract ·
-        build), minus the terminal count kaval owns and padi does not. */}
+    {/* padi's contract version + build commit are NOT per-row: padi cannot probe a
+        foreign padi, so they belong to the one bound padi and ride the header chip +
+        build DetailRow (off `daemonInventory.boundPadi`). The row shows only the gate
+        pid — the terminal count kaval owns, padi does not. */}
     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-fg-3">
       <span>gate pid {props.padi.gatePid ?? dash}</span>
-      <span>contract {props.padi.surfaceVersion ?? dash}</span>
-      <span class="inline-flex items-center gap-1">
-        build
-        <Show when={props.padi.buildCommit} fallback={<span>{dash}</span>}>
-          {(sha) => <Commit sha={sha()} />}
-        </Show>
-      </span>
     </div>
     <div
       class="mt-1 truncate font-mono text-[10px] text-fg-3"

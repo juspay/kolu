@@ -85,8 +85,6 @@ export async function enumerateDaemonInventoryOnce(
         activeKavalSocket: null,
         activeKavalAtLegacy: false,
         activePadiSocket: null,
-        activePadiSurfaceVersion: null,
-        activePadiBuildCommit: null,
       });
   // The BOUND padi's honest identity (both arms) — read ONCE off the session's hello
   // readouts (works over ssh: no local padi is `active` under a remote binding).
