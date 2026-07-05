@@ -251,13 +251,49 @@ function heldKaval(stateRoot: string): { socket: string; atLegacy: boolean } {
   };
 }
 
+/**
+ * Guarantee the SERVING padi is in the discovered padi set — the liveness invariant
+ * (a live padi ALWAYS reports itself, #1034) made true BY CONSTRUCTION instead of left
+ * to autodiscovery, which misses the serving socket in two real windows the client
+ * would otherwise read as "unavailable":
+ *
+ *   1. the T+0 tick, which runs BEFORE `daemonMain` opens `padi.sock`, so
+ *      `discoverPadiDaemons`' `isSocketInode` check can't yet see the serving padi; and
+ *   2. a `--socket PATH` override, whose socket sits OUTSIDE the `padi-<digest>` dirs
+ *      `discoverPadiDaemons` scans, so autodiscovery never lists it at all.
+ *
+ * The serving padi knows its OWN identity first-hand (its socket, state-root, and pid),
+ * so it seeds that row directly. Deduped by socket, so a normally discovered self is
+ * never doubled. ONLY padi's own sampler does this — kolu-server's local-machine scan
+ * (`activePadiSocket: null`) passes bare `discoverPadiDaemons`, so it still lists only
+ * truly-discovered padis and marks none active.
+ */
+export function withSelfPadi(
+  discovered: readonly PadiDaemon[],
+  self: { padiSocket: string; stateRoot: string },
+): PadiDaemon[] {
+  if (discovered.some((p) => p.socket === self.padiSocket)) {
+    return [...discovered];
+  }
+  return [
+    ...discovered,
+    {
+      socket: self.padiSocket,
+      stateRoot: self.stateRoot,
+      gatePid: process.pid,
+    },
+  ];
+}
+
 /** Start padi's periodic host-inventory sampler — the sole writer of the
  *  `hostInventory` surface cell. Scans THIS padi's host and marks the kaval it holds +
  *  itself `active`, so the re-served member hands the dialog the bound host's daemons
- *  (identically local and remote). Fires once immediately (a T+0 anchor so the cell has
- *  a value before the first dialog open), then every {@link
- *  HOST_INVENTORY_SAMPLE_INTERVAL_MS}. Non-overlapping (a slow tick never doubles up)
- *  and `unref`'d so the interval never holds padi's process open on its own. */
+ *  (identically local and remote). The serving padi ALWAYS reports itself via {@link
+ *  withSelfPadi} — the liveness tell holds even on the T+0 tick (socket not yet
+ *  listening) and under a `--socket` override (outside the discovered dirs). Fires once
+ *  immediately (a T+0 anchor so the cell has a value before the first dialog open), then
+ *  every {@link HOST_INVENTORY_SAMPLE_INTERVAL_MS}. Non-overlapping (a slow tick never
+ *  doubles up) and `unref`'d so the interval never holds padi's process open on its own. */
 export function startPadiHostInventorySampler(opts: {
   /** THIS padi's own rendezvous socket — the padi row it marks `active`. */
   padiSocket: string;
@@ -268,7 +304,13 @@ export function startPadiHostInventorySampler(opts: {
     const held = heldKaval(opts.stateRoot);
     const inv = await enumerateHostDaemons({
       discoverKavals: discoverKavalDaemons,
-      discoverPadis: discoverPadiDaemons,
+      // The serving padi reports itself by construction — never dependent on the socket
+      // already listening (T+0) or on the digest-dir naming (a `--socket` override).
+      discoverPadis: () =>
+        withSelfPadi(discoverPadiDaemons(), {
+          padiSocket: opts.padiSocket,
+          stateRoot: opts.stateRoot,
+        }),
       probe: probeKavalStatus,
       activeKavalSocket: held.socket,
       activeKavalAtLegacy: held.atLegacy,

@@ -15,6 +15,7 @@ import {
   assemblePadiInventory,
   enumerateHostDaemons,
   type KavalProbe,
+  withSelfPadi,
 } from "./hostInventory.ts";
 
 const DIGEST = "/run/user/1000/kaval-abc123/pty-host.sock";
@@ -203,6 +204,43 @@ describe("assemblePadiInventory", () => {
   it("no active socket → nothing active", () => {
     const rows = assemblePadiInventory([padi({ socket: PADI_ACTIVE })], null);
     expect(rows[0]?.active).toBe(false);
+  });
+});
+
+describe("withSelfPadi — the serving padi reports itself by construction", () => {
+  const self = {
+    padiSocket: "/run/user/1000/padi-self/padi.sock",
+    stateRoot: "/home/u/.local/state/padi",
+  };
+
+  it("seeds the serving padi when autodiscovery misses it (T+0 socket-not-listening / --socket override)", () => {
+    // The F2/F1 window: discovery returns nothing (the serving socket isn't yet an inode,
+    // or the override socket sits outside the scanned `padi-<digest>` dirs). The self row
+    // must still appear so `assemblePadiInventory(_, self.padiSocket)` can mark it active
+    // and the client's liveness tell (`hostInventoryReadingLive`) reads a real scan.
+    const rows = withSelfPadi([], self);
+    expect(rows).toEqual([
+      {
+        socket: self.padiSocket,
+        stateRoot: self.stateRoot,
+        gatePid: process.pid,
+      },
+    ]);
+    expect(assemblePadiInventory(rows, self.padiSocket)[0]?.active).toBe(true);
+  });
+
+  it("keeps a leaked sibling padi AND seeds self alongside it", () => {
+    const rows = withSelfPadi([padi({ socket: PADI_OTHER })], self);
+    expect(rows.map((r) => r.socket)).toEqual([PADI_OTHER, self.padiSocket]);
+  });
+
+  it("does NOT double the self row once autodiscovery finds it (deduped by socket)", () => {
+    const rows = withSelfPadi(
+      [padi({ socket: self.padiSocket, stateRoot: self.stateRoot })],
+      self,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.socket).toBe(self.padiSocket);
   });
 });
 

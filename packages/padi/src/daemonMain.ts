@@ -272,15 +272,6 @@ export async function runPadiDaemon(
   // kaval poll can reach a connected daemon; a not-yet-connected kaval reads `absent`.
   startPadiMemorySampler();
 
-  // Feed the Kaval + Padi dialogs' "Running daemons" list: scan THIS host's running
-  // kaval + padi daemons (read-only) and publish them on `padiSurface.hostInventory`,
-  // marking the kaval this padi holds + itself `active`. Because it rides the re-served
-  // surface, the dialog shows the BOUND host's daemons identically whether kolu-server
-  // reaches this padi locally or over ssh — so a leaked daemon on the machine you're
-  // actually using is finally visible. Started after `ensureLocalEndpoint` so the held
-  // kaval's socket is known; a pre-connect tick falls back to the digest address.
-  startPadiHostInventorySampler({ padiSocket: socketPath, stateRoot });
-
   // ── Manifests (digest → state-root) so a flag-less kaval-tui can label what it
   // discovers. padi knows the state-root the opaque digest stands for; write it
   // into both padi's and its kaval's runtime dirs.
@@ -293,6 +284,18 @@ export async function runPadiDaemon(
     dirname(getLocalSocketPath() ?? kavalSocket),
     stateRoot,
   );
+
+  // Feed the Kaval + Padi dialogs' "Running daemons" list: scan THIS host's running
+  // kaval + padi daemons (read-only) and publish them on `padiSurface.hostInventory`,
+  // marking the kaval this padi holds + itself `active`. Because it rides the re-served
+  // surface, the dialog shows the BOUND host's daemons identically whether kolu-server
+  // reaches this padi locally or over ssh — so a leaked daemon on the machine you're
+  // actually using is finally visible. Started after `ensureLocalEndpoint` so the held
+  // kaval's socket is known, and after the manifests are written so the very first tick
+  // labels the discovered kaval by state-root. The serving padi reports ITSELF by
+  // construction (see `withSelfPadi`), so the liveness tell holds even on this T+0 tick,
+  // before `daemonMain` below opens `padi.sock`.
+  startPadiHostInventorySampler({ padiSocket: socketPath, stateRoot });
 
   return daemonMain({
     gatePath,
