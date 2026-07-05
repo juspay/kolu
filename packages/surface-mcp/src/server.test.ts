@@ -570,12 +570,21 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
     const read = mcp.readResource({ uri: "surface://collections/rows/99" });
     const outcome = await Promise.race([
       read.then(
-        () => "resolved",
-        () => "rejected",
+        () => ({ kind: "resolved", message: "" }),
+        (e: unknown) => ({
+          kind: "rejected",
+          message: e instanceof Error ? e.message : String(e),
+        }),
       ),
-      new Promise<string>((r) => setTimeout(() => r("timeout"), 2000)),
+      new Promise<{ kind: string; message: string }>((r) =>
+        setTimeout(() => r({ kind: "timeout", message: "" }), 2000),
+      ),
     ]);
-    expect(outcome).toBe("rejected");
+    expect(outcome.kind).toBe("rejected");
+    // A well-formed but not-yet-present key reads as "no value yet", NOT the
+    // generic "unknown resource" a malformed/unaddressable URI gets — the two
+    // absence causes must not collapse to one message.
+    expect(outcome.message).toMatch(/no value yet|not present/i);
   });
 
   it("a collection item DELETED before the read returns not-found promptly (delete race)", async () => {
@@ -603,12 +612,18 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
     const read = mcp.readResource({ uri: "surface://collections/rows/42" });
     const outcome = await Promise.race([
       read.then(
-        () => "resolved",
-        () => "rejected",
+        () => ({ kind: "resolved", message: "" }),
+        (e: unknown) => ({
+          kind: "rejected",
+          message: e instanceof Error ? e.message : String(e),
+        }),
       ),
-      new Promise<string>((r) => setTimeout(() => r("timeout"), 2000)),
+      new Promise<{ kind: string; message: string }>((r) =>
+        setTimeout(() => r({ kind: "timeout", message: "" }), 2000),
+      ),
     ]);
-    expect(outcome).toBe("rejected");
+    expect(outcome.kind).toBe("rejected");
+    expect(outcome.message).toMatch(/no value yet|not present/i);
   });
 });
 

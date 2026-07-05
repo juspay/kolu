@@ -361,18 +361,26 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // down the underlying held-open subscription instead of leaking it.
   server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
     const { uri } = req.params;
-    const snapshot = await withClient((client) =>
+    const result = await withClient((client) =>
       readSnapshot(client, uri, byUri, keySchemaByCollection, extra.signal),
     );
-    if (snapshot === undefined) {
-      throw new Error(`surface-mcp: unknown resource "${uri}"`);
+    if (isMiss(result)) {
+      // A not-yet-present collection key is a well-formed but empty resource, NOT
+      // an unknown URI — distinct messages so an agent can tell "this address is
+      // wrong" from "this value hasn't arrived yet" (it may appear once its
+      // producer reports in; watch it via `resources/subscribe`).
+      throw new Error(
+        result.miss === "not-present"
+          ? `surface-mcp: resource "${uri}" has no value yet — its collection key is not present`
+          : `surface-mcp: unknown resource "${uri}"`,
+      );
     }
     return {
       contents: [
         {
           uri,
-          mimeType: snapshot.mimeType,
-          text: JSON.stringify(snapshot.value, null, 2),
+          mimeType: result.mimeType,
+          text: JSON.stringify(result.value, null, 2),
         },
       ],
     };
@@ -552,6 +560,16 @@ interface Snapshot {
   mimeType: string;
 }
 
+/** A one-shot read that produced no snapshot, and WHY — so the handler tells a
+ *  genuinely unaddressable URI (`unresolved`) apart from a well-formed
+ *  collection-item URI whose key is simply not present yet (`not-present`, the
+ *  #1681 held-open case). Collapsing both to a bare `undefined` + one "unknown
+ *  resource" message hid that distinction (invalid-states-unrepresentable). */
+type ReadMiss = { miss: "unresolved" | "not-present" };
+function isMiss(r: Snapshot | ReadMiss): r is ReadMiss {
+  return "miss" in r;
+}
+
 /** Read a one-shot snapshot for a resource URI: pull the first frame of the
  *  primitive's streaming source and return immediately.
  *
@@ -588,23 +606,34 @@ async function readSnapshot<Client extends SurfaceClientCallable>(
   byUri: Map<string, ResourceEntry>,
   keySchemaByCollection: Map<string, ZodType>,
   signal: AbortSignal | undefined,
-): Promise<Snapshot | undefined> {
+): Promise<Snapshot | ReadMiss> {
   const call = resolveCall(client, uri, byUri, keySchemaByCollection);
-  if (call === undefined) return undefined;
-  if (call.kind === "event") return { value: null, mimeType: call.mimeType };
-  // A collection-item read must not lean on the held-open `get` to signal
-  // absence — an absent key yields nothing forever — so it gets a BOUNDED read
-  // that races the `get` first frame against a live `keys`-absence watch.
-  if (call.kind === "collection-item") {
-    return readCollectionItemSnapshot(
-      client,
-      uri,
-      call,
-      keySchemaByCollection,
-      signal,
-    );
+  if (call === undefined) return { miss: "unresolved" };
+  switch (call.kind) {
+    case "event":
+      return { value: null, mimeType: call.mimeType };
+    // A collection-item read must not lean on the held-open `get` to signal
+    // absence — an absent key yields nothing forever — so it gets a BOUNDED read
+    // that races the `get` first frame against a live `keys`-absence watch.
+    case "collection-item":
+      return readCollectionItemSnapshot(
+        client,
+        uri,
+        call,
+        keySchemaByCollection,
+        signal,
+      );
+    case "cell":
+    case "collection":
+    case "stream":
+      return readFirstFrameSnapshot(call, uri, signal);
+    default: {
+      // Exhaustiveness guard: a new `ResolvedCall` kind must add its own case
+      // rather than silently falling through to the snapshot-first reader.
+      const unreachable: never = call.kind;
+      throw new Error(`surface-mcp: unhandled resource kind "${unreachable}"`);
+    }
   }
-  return readFirstFrameSnapshot(call, uri, signal);
 }
 
 /** Open a snapshot-first source (cell / collection / stream / a PRESENT
@@ -670,7 +699,7 @@ async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   call: ResolvedCall,
   keySchemaByCollection: Map<string, ZodType>,
   signal: AbortSignal | undefined,
-): Promise<Snapshot | undefined> {
+): Promise<Snapshot | ReadMiss> {
   const item = parseCollectionItem(uri);
   const keysProc = item !== null ? client.surface[item.key]?.keys : undefined;
   if (item === null || keysProc === undefined) {
@@ -687,15 +716,16 @@ async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   }
   try {
     const present = readFirstFrameSnapshot(call, uri, ac.signal);
-    const absent = (async (): Promise<undefined> => {
+    const absent = (async (): Promise<ReadMiss> => {
       const source = await keysProc(undefined, { signal: ac.signal });
       for await (const frame of source as AsyncIterable<unknown>) {
-        if (!(Array.isArray(frame) && frame.includes(key))) return undefined;
+        if (!(Array.isArray(frame) && frame.includes(key)))
+          return { miss: "not-present" };
       }
       // `keys` ended without ever reporting the key absent — for a live surface
       // this only happens on teardown; treat as not-found so the read stays
       // bounded rather than resolving a value the collection no longer holds.
-      return undefined;
+      return { miss: "not-present" };
     })();
     return await Promise.race([present, absent]);
   } finally {
