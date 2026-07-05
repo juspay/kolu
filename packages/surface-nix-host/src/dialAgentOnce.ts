@@ -27,7 +27,8 @@
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
 import { resolveSystem } from "./arch";
-import { type AgentClient, HostSession } from "./hostSession";
+import { makeSession } from "./session";
+import { type AgentClient, sshConnector } from "./sshConnector";
 
 /** Parse + validate a `{ system → drvPath }` map from an already-read env value.
  *  The env-var NAME is the caller's (the Nix-wrapper boundary spells it
@@ -162,22 +163,31 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   opts: DialAgentOnceOptions<C>,
 ): Promise<AgentDial<C>> {
   const drvBySystem = parseDrvBySystem(opts.envVar, opts.agentDrvsJson);
-  // Unpooled — NOT `getHostSession`. The pool is keyed only by `(host, binary)`,
-  // keeps a destroyed session in the map (no `isDestroyed` eviction), and lets
-  // the FIRST caller's `opts` win. A one-shot dial is independent by contract:
-  // its `dispose()` calls `session.destroy()`, so a second same-host/binary
-  // dial in the same process would otherwise be handed back the prior dial's
-  // destroyed session (stale resolver, no reconnect — `scheduleReconnect`
-  // early-returns when `destroyed`), and two concurrent dials would share one
-  // session where either `dispose()` kills the other's link. A fresh
-  // `HostSession` per dial closes both holes: each gets its own resolver/drv
-  // map and its own teardown.
-  const session = new HostSession<C>({
-    host: opts.host,
-    binary: opts.binary,
-    extraArgs: opts.extraArgs,
+  // A fresh `makeSession` per dial (no shared pool — the pool is deleted, S10). A
+  // one-shot dial is independent by contract: its `dispose()` calls
+  // `session.destroy()`, and each dial gets its own connector (resolver/drv map)
+  // and its own teardown, so two concurrent dials never share a session where
+  // either `dispose()` kills the other's link.
+  const session = makeSession<AgentClient<C>>({
+    connectOnce: sshConnector<C>({
+      host: opts.host,
+      binary: opts.binary,
+      extraArgs: opts.extraArgs,
+      resolveDrvPath: () =>
+        resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
+    }),
     onLog: opts.onLog,
-    resolveDrvPath: () => resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
+    // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag
+    // every `HostSession` line carried), so an alt-screen consumer's log filtering
+    // and the failure-read tail are unchanged.
+    label: `host:${opts.host}`,
+  });
+  // Capture the latest session state (snapshot-then-delta) so the failure path can
+  // read the agent's own fatal off `remoteProgressLines` — the role exposes no
+  // synchronous `current()` snapshot, so a live `onState` mirror stands in.
+  let latestRemoteLines: readonly string[] = [];
+  const unsubState = session.onState((s) => {
+    latestRemoteLines = s.remoteProgressLines;
   });
   // The agent's OWN fatal reason, read off the session AFTER a failed dial. When
   // the agent exits before serving — a bad `--kaval` pick, a startup crash — the
@@ -243,14 +253,18 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     session.markConnected();
     return {
       client,
-      dispose: () => session.destroy(),
+      dispose: () => {
+        unsubState();
+        session.destroy();
+      },
     };
   } catch (err) {
     // The probe's stream-closed rejection can win the race with the child's
     // `exit` event, so yield once to let that handler land the agent's stderr on
     // the session state before we read the whole current tail.
     await new Promise((resolve) => setImmediate(resolve));
-    const reason = agentFatal(session.current().remoteProgressLines);
+    const reason = agentFatal(latestRemoteLines);
+    unsubState();
     // Best-effort teardown — a throw from `destroy()` (it kills the ssh child
     // and clears timers) must NOT replace the failure the caller needs to see.
     try {

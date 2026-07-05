@@ -33,6 +33,12 @@ import { type ZodType, z } from "zod";
 import type { Cell, Collection, Event, Stream } from "./index";
 import { cell, collection, event, stream } from "./index";
 import {
+  IDENTITY_NAMESPACE,
+  IDENTITY_VERB,
+  identityContractEntry,
+  type ReservedIdentityContract,
+} from "./identity";
+import {
   LIVENESS_NAMESPACE,
   LIVENESS_VERB,
   livenessContractEntry,
@@ -330,11 +336,15 @@ function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
 type EmptyObj = NonNullable<unknown>;
 
 /** Wire shape for `defineSurface(spec).contract`: every entry lives
- *  under one `surface` namespace. The reserved `system.live` liveness proc
- *  (`./liveness`) is intersected in so it's present on every surface contract —
- *  the type counterpart to the runtime `claim` in `defineSurface`. */
+ *  under one `surface` namespace. The reserved `system.live` liveness proc and the
+ *  reserved `system.identity` proc (`./liveness`, `./identity`) are intersected in
+ *  so both are present on every surface contract — the type counterpart to the two
+ *  runtime `claim`s in `defineSurface`. They share the `system` namespace, so the
+ *  intersection folds to `system: { live, identity }`. */
 export type SurfaceContractFor<S extends SurfaceSpec> = {
-  surface: SurfaceInnerContract<S> & ReservedLivenessContract;
+  surface: SurfaceInnerContract<S> &
+    ReservedLivenessContract &
+    ReservedIdentityContract;
 };
 
 type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
@@ -835,6 +845,11 @@ export function defineSurface<const S extends SurfaceSpec>(
   // any app-owned `system` namespace and rejects only a duplicate `live` verb, so
   // it can't silently clobber an app procedure.
   claim(LIVENESS_NAMESPACE, { [LIVENESS_VERB]: livenessContractEntry() });
+  // Reserve the framework identity verb on EVERY surface (see ./identity), the
+  // identity twin of `live`: contract-only, auto-answered by `implementSurface`
+  // from the server's baked build info. Shares the `system` namespace with `live`
+  // (claim merges the namespace, rejecting only a duplicate `identity` verb).
+  claim(IDENTITY_NAMESPACE, { [IDENTITY_VERB]: identityContractEntry() });
 
   // Descriptor handles for the manual escape hatch.
   const descriptors = {

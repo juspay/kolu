@@ -1,6 +1,6 @@
 import { defineSurface } from "@kolu/surface/define";
-import type { AnyContractRouter } from "@orpc/contract";
-import { describe, expect, it, vi } from "vitest";
+import type { SurfaceClientLike } from "@kolu/surface/project";
+import { type Mock, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   buildHostRegistry,
@@ -9,38 +9,44 @@ import {
   type LiveSpawnHolder,
   pumpRemoteSurface,
 } from "./hostFanout";
-import type { AgentClient, HostSession } from "./hostSession";
+import type { Session } from "./session";
 
-/** A stand-in for the slice of `HostSession` the registry touches
- *  (`destroy`/`reconnect`/`recheck`). `HostSession` is a class, so we mint a
- *  structural stub with spies and cast at the `buildEntry` boundary — the
- *  registry never reaches past these three methods. */
-function fakeSession() {
-  const session = {
-    destroy: vi.fn(),
-    reconnect: vi.fn(),
-    recheck: vi.fn(),
-  };
-  return session as typeof session & HostSession<AnyContractRouter>;
+/** A stand-in for the slice of a session the registry + its `controls` touch: the
+ *  minimal `DestroyableSession` (`destroy`) the registry itself calls, plus
+ *  `reconnect`/`recheck` the fleet `controls` invoke. A structural stub with spies —
+ *  the registry never reaches past these three. */
+interface FakeSession {
+  destroy: Mock;
+  reconnect: Mock;
+  recheck: Mock;
+}
+function fakeSession(): FakeSession {
+  return { destroy: vi.fn(), reconnect: vi.fn(), recheck: vi.fn() };
 }
 
 type Handler = { id: string };
 
 /** Build a registry whose `buildEntry` records each host's stub session +
- *  handler so a test can assert against them, plus a `persist` spy. */
+ *  handler so a test can assert against them, plus a `persist` spy. Built WITH
+ *  `controls` (S2), so `registry.reconnect(host)`/`recheckAll()` exist and pass
+ *  through to each stub session's `reconnect`/`recheck`. */
 function harness(initialHosts: readonly string[]) {
-  const built = new Map<string, HostEntry<AnyContractRouter, Handler>>();
+  const built = new Map<string, HostEntry<FakeSession, Handler>>();
   const persist = vi.fn(async (_hosts: string[]) => {});
-  const registry = buildHostRegistry<AnyContractRouter, Handler>({
+  const registry = buildHostRegistry<FakeSession, Handler>({
     initialHosts,
     persist,
     buildEntry: (host) => {
-      const entry: HostEntry<AnyContractRouter, Handler> = {
+      const entry: HostEntry<FakeSession, Handler> = {
         session: fakeSession(),
         handler: { id: host },
       };
       built.set(host, entry);
       return entry;
+    },
+    controls: {
+      reconnect: (s) => s.reconnect(),
+      recheck: (s) => s.recheck(),
     },
   });
   return { registry, built, persist };
@@ -71,12 +77,12 @@ describe("buildHostRegistry", () => {
     // `buildEntry` already started a pump/pinned a session for it — a leaked
     // background loop for a config typo. The throw must fire before any
     // `buildEntry` side effect.
-    const built = new Map<string, HostEntry<AnyContractRouter, Handler>>();
+    const built = new Map<string, HostEntry<FakeSession, Handler>>();
     expect(() =>
-      buildHostRegistry<AnyContractRouter, Handler>({
+      buildHostRegistry<FakeSession, Handler>({
         initialHosts: ["alpha", "beta", "alpha"],
         buildEntry: (host) => {
-          const entry: HostEntry<AnyContractRouter, Handler> = {
+          const entry: HostEntry<FakeSession, Handler> = {
             session: fakeSession(),
             handler: { id: host },
           };
@@ -110,15 +116,15 @@ describe("buildHostRegistry", () => {
   });
 
   it("add() persists BEFORE committing — a persist reject leaves nothing added and tears the new session down", async () => {
-    const built = new Map<string, HostEntry<AnyContractRouter, Handler>>();
+    const built = new Map<string, HostEntry<FakeSession, Handler>>();
     const persist = vi
       .fn<(hosts: string[]) => Promise<void>>()
       .mockRejectedValue(new Error("disk full"));
-    const registry = buildHostRegistry<AnyContractRouter, Handler>({
+    const registry = buildHostRegistry<FakeSession, Handler>({
       initialHosts: ["alpha"],
       persist,
       buildEntry: (host) => {
-        const entry: HostEntry<AnyContractRouter, Handler> = {
+        const entry: HostEntry<FakeSession, Handler> = {
           session: fakeSession(),
           handler: { id: host },
         };
@@ -137,15 +143,15 @@ describe("buildHostRegistry", () => {
   });
 
   it("remove() persists BEFORE committing — a persist reject leaves the host fully live", async () => {
-    const built = new Map<string, HostEntry<AnyContractRouter, Handler>>();
+    const built = new Map<string, HostEntry<FakeSession, Handler>>();
     const persist = vi
       .fn<(hosts: string[]) => Promise<void>>()
       .mockRejectedValue(new Error("disk full"));
-    const registry = buildHostRegistry<AnyContractRouter, Handler>({
+    const registry = buildHostRegistry<FakeSession, Handler>({
       initialHosts: ["alpha", "beta"],
       persist,
       buildEntry: (host) => {
-        const entry: HostEntry<AnyContractRouter, Handler> = {
+        const entry: HostEntry<FakeSession, Handler> = {
           session: fakeSession(),
           handler: { id: host },
         };
@@ -206,7 +212,7 @@ describe("buildHostRegistry", () => {
   });
 
   it("works with no persist hook (a static host set)", async () => {
-    const registry = buildHostRegistry<AnyContractRouter, Handler>({
+    const registry = buildHostRegistry<FakeSession, Handler>({
       initialHosts: ["alpha"],
       buildEntry: (host) => ({ session: fakeSession(), handler: { id: host } }),
     });
@@ -241,7 +247,7 @@ const pumpSurface = defineSurface({
  *  compares the promise identity, not the awaited client). Listeners fire on
  *  `destroy()` so the cursor's next wait observes `isDestroyed()` and the loop
  *  exits. */
-function fakePumpSession(client: AgentClient<AnyContractRouter>) {
+function fakePumpSession(client: SurfaceClientLike) {
   const listeners = new Set<() => void>();
   let destroyed = false;
   const clientPromise = Promise.resolve(client);
@@ -258,7 +264,9 @@ function fakePumpSession(client: AgentClient<AnyContractRouter>) {
       for (const cb of [...listeners]) cb();
     },
   };
-  return session as typeof session & HostSession<AnyContractRouter>;
+  // The pump reads only pin/isDestroyed/currentClient/onState; cast to the full
+  // Session role (markConnected/reconnect/recheck/identity go uncalled here).
+  return session as unknown as Session;
 }
 
 describe("pumpRemoteSurface — onLinkDown", () => {
@@ -279,13 +287,13 @@ describe("pumpRemoteSurface — onLinkDown", () => {
         },
       },
       // biome-ignore lint/suspicious/noExplicitAny: structural fake client; the mirror reads `.surface` structurally.
-    } as any as AgentClient<AnyContractRouter>;
+    } as any as SurfaceClientLike;
 
     const session = fakePumpSession(client);
 
     // Live holders the pump must clear BEFORE firing onLinkDown — assert that
     // ordering by snapshotting the holder's `.current` from inside the hook.
-    const liveClient: LiveSpawnHolder<AgentClient<AnyContractRouter>> = {
+    const liveClient: LiveSpawnHolder<SurfaceClientLike> = {
       current: null,
     };
     let clientAtLinkDown: unknown = "unset";

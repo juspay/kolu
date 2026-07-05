@@ -39,8 +39,10 @@ export {
 export {
   buildHostRegistry,
   type ClosableSocket,
+  type FleetControls,
   type HostEntry,
   type HostRegistry,
+  type HostRegistryControlOptions,
   type HostRegistryOptions,
   type LiveSpawnHolder,
   type ObservableHolder,
@@ -49,17 +51,30 @@ export {
   pumpRemoteSurface,
 } from "./hostFanout";
 export {
-  type AgentClient,
+  type DaemonConvergence,
+  type DaemonSession,
+  type PreservationStrategy,
+} from "./daemonSession";
+export {
+  type ClosedInfo,
+  type ConnectContext,
+  type Connection,
+  ConnectError,
+  type Connector,
   type ConnectionState,
-  destroyAllSessions,
-  evictHostSession,
+  type DestroyableSession,
   type FailureCause,
-  getHostSession,
-  HostSession,
-  type HostSessionOptions,
-  type HostSessionState,
-  type RemoteMirrorSession,
-} from "./hostSession";
+  makeSession,
+  type MakeSessionOptions,
+  type Session,
+  type SessionState,
+  surfaceLiveProbe,
+} from "./session";
+export {
+  type AgentClient,
+  sshConnector,
+  type SshConnectorOptions,
+} from "./sshConnector";
 export {
   type ProvisionOptions,
   type ProvisionResult,

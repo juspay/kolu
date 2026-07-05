@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ServerIdentity } from "kolu-common/contract";
+import type { PwaIdentity } from "kolu-common/contract";
 import { remotePadiHost } from "./remotePadiBinding.ts";
 
 const THEME_COLORS = [
@@ -46,7 +46,7 @@ export function appName(
 export function pwaIdentityForHostname(
   hostname: string,
   remoteHost: string | undefined = remotePadiHost(),
-): ServerIdentity {
+): PwaIdentity {
   return {
     hostname,
     name: appName(hostname, remoteHost),

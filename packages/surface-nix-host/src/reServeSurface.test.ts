@@ -21,11 +21,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { mirroredSurface } from "./connection";
 import { type Controllable, controllable } from "./controllableStream.testutil";
-import type {
-  AgentClient,
-  HostSessionState,
-  RemoteMirrorSession,
-} from "./hostSession";
+import type { Session as MirrorSession, SessionState } from "./session";
+import type { AgentClient } from "./sshConnector";
 import { reServeSurface } from "./reServeSurface";
 import type { RelayPolicy } from "./relayStream";
 
@@ -207,11 +204,11 @@ function makeUpstream(
  *  `onState`; `onState` also carries a `HostSessionState` so the connection pipe
  *  can project it. */
 function makeSession() {
-  const listeners = new Set<(s: HostSessionState) => void>();
+  const listeners = new Set<(s: SessionState) => void>();
   let destroyed = false;
   let clientPromise: Promise<AgentClient<typeof toySurface.contract>> | null =
     null;
-  let state: HostSessionState = {
+  let state: SessionState = {
     connection: "copying",
     progressLines: [],
     remoteProgressLines: [],
@@ -225,7 +222,7 @@ function makeSession() {
     pin: () => clientPromise ?? Promise.reject(new Error("no client yet")),
     isDestroyed: () => destroyed,
     currentClient: () => (destroyed ? null : clientPromise),
-    onState: (cb: (s: HostSessionState) => void) => {
+    onState: (cb: (s: SessionState) => void) => {
       listeners.add(cb);
       cb(state); // snapshot on subscribe, like the real inMemoryCell-backed onState
       return () => {
@@ -263,8 +260,8 @@ function setup(
   const { surface, router, done } = reServeSurface({
     source: toySurface,
     policy: toyPolicy,
-    session: session as unknown as RemoteMirrorSession<
-      typeof toySurface.contract
+    session: session as unknown as MirrorSession<
+      AgentClient<typeof toySurface.contract>
     >,
   });
   return {
@@ -437,8 +434,8 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     const { router, done } = reServeSurface({
       source: toySurface,
       policy: toyPolicy,
-      session: session as unknown as RemoteMirrorSession<
-        typeof toySurface.contract
+      session: session as unknown as MirrorSession<
+        AgentClient<typeof toySurface.contract>
       >,
       log: (line) => logs.push(line),
     });
@@ -548,8 +545,8 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // policy is consulted (and enforced) for those alone — cells, collections, and
     // procedures fold / forward regardless of any policy entry. Both cases target
     // the `attach` STREAM, the one member whose classification the re-serve reads.
-    const s = makeSession() as unknown as RemoteMirrorSession<
-      typeof toySurface.contract
+    const s = makeSession() as unknown as MirrorSession<
+      AgentClient<typeof toySurface.contract>
     >;
     // A stream classified as neither "value" nor "delta".
     expect(() =>
@@ -687,8 +684,8 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
         s: { inputSchema: z.object({}), outputSchema: z.string() },
       },
     });
-    const s = makeSession() as unknown as RemoteMirrorSession<
-      typeof cellless.contract
+    const s = makeSession() as unknown as MirrorSession<
+      AgentClient<typeof cellless.contract>
     >;
     expect(() =>
       reServeSurface({ source: cellless, policy: { s: "delta" }, session: s }),

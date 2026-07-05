@@ -1,5 +1,5 @@
-import type { AnyContractRouter } from "@orpc/contract";
-import type { AgentClient, RemoteMirrorSession } from "./hostSession";
+import type { SurfaceClientLike } from "@kolu/surface/project";
+import type { Session } from "./session";
 
 /** A stateful cursor over a session's spawn lifecycle. Each `next()` blocks
  *  until the session exposes a genuinely NEW spawn, then resolves with that
@@ -18,9 +18,9 @@ import type { AgentClient, RemoteMirrorSession } from "./hostSession";
  *    await Promise.allSettled([pumpA(client), pumpB(client)]);
  *  }
  *  ``` */
-export interface ClientCursor<C extends AnyContractRouter> {
+export interface ClientCursor {
   /** Block until the session exposes a new spawn; resolve with its client. */
-  next(): Promise<AgentClient<C>>;
+  next(): Promise<SurfaceClientLike>;
 }
 
 /** Build a {@link ClientCursor} over `session`.
@@ -33,10 +33,8 @@ export interface ClientCursor<C extends AnyContractRouter> {
  *  forget to advance it and `next()` resolves instantly every iteration,
  *  busy-spinning exactly as the bug below describes. With the token hidden,
  *  there is nothing to forget. */
-export function makeClientCursor<C extends AnyContractRouter>(
-  session: RemoteMirrorSession<C>,
-): ClientCursor<C> {
-  let previous: Promise<AgentClient<C>> | null = null;
+export function makeClientCursor(session: Session): ClientCursor {
+  let previous: Promise<SurfaceClientLike> | null = null;
   return {
     async next() {
       const { client, clientPromise } = await waitForNextClient(
@@ -53,9 +51,9 @@ export function makeClientCursor<C extends AnyContractRouter>(
  *  the `clientPromise` it came from. `makeClientCursor` threads `clientPromise`
  *  back in as `previous` so the next wait blocks until a genuinely new spawn
  *  appears. */
-interface NextClient<C extends AnyContractRouter> {
-  client: AgentClient<C>;
-  clientPromise: Promise<AgentClient<C>>;
+interface NextClient {
+  client: SurfaceClientLike;
+  clientPromise: Promise<SurfaceClientLike>;
 }
 
 /** Block until the session exposes a NEW spawn — a `clientPromise`
@@ -73,31 +71,22 @@ interface NextClient<C extends AnyContractRouter> {
  *  resolved-client identity check (`client !== previous`) is *always*
  *  true. A consumer reconnect-loop that re-pumps on each
  *  `waitForNextClient` would then resolve instantly every iteration and
- *  busy-spin — pegging the event loop so the child-`exit` handler and the
+ *  busy-spin — pegging the event loop so the link-death handler and the
  *  reconnect-backoff timer never run, which is self-sustaining. The
  *  `clientPromise` reference, by contrast, is reassigned exactly once per
- *  spawn (`pin`/`reconnect`/`scheduleReconnect`) and is null between a
- *  child's death and the next spawn — so comparing *it* correctly blocks
- *  until a real reconnect. */
-function waitForNextClient<C extends AnyContractRouter>(
-  session: RemoteMirrorSession<C>,
-  previous: Promise<AgentClient<C>> | null,
-): Promise<NextClient<C>> {
+ *  spawn and is null between a link's death and the next spawn — so comparing
+ *  *it* correctly blocks until a real reconnect. */
+function waitForNextClient(
+  session: Session,
+  previous: Promise<SurfaceClientLike> | null,
+): Promise<NextClient> {
   return new Promise((resolve, reject) => {
     const tryResolve = async (): Promise<boolean> => {
       if (session.isDestroyed()) {
         reject(new Error("session destroyed"));
         return true;
       }
-      // `RemoteMirrorSession` yields its client at the loose `unknown` receptacle
-      // type (so a specific-contract session stays assignable to a general
-      // receptacle — see that interface's doc). This cursor is generic over the
-      // real contract `C`, and the runtime value IS the `AgentClient<C>` the
-      // concrete session produced (only the role's static *view* was widened), so
-      // re-narrow the promise here — the single place the loosening is reconciled.
-      const clientPromise = session.currentClient() as Promise<
-        AgentClient<C>
-      > | null;
+      const clientPromise = session.currentClient();
       // null (no spawn in flight) or the same promise the caller already
       // pumped (link still down / unchanged) → keep waiting. This identity
       // check on the *promise* is what stops the busy-spin.
