@@ -134,21 +134,41 @@ export type PreviewRangeReader = (
   range: string | undefined,
 ) => Promise<PreviewReadResult>;
 
-/** The `/<total>` tail of a serve-dir `Content-Range` (`bytes a-b/<total>` on a
- *  206, `bytes *​/<total>` on a 416). Throws LOUDLY on a malformed/absent header —
- *  a 206 that can't state its size is a broken read, never a silent zero. Reads
- *  the header through padi's shared `getHeaderCI` (the one case-insensitive lookup
- *  over serve-dir's header shape), not a hand-rolled scan. */
-function totalFromContentRange(headers: Record<string, string>): number {
+/** Parse a serve-dir 206 `Content-Range` (`bytes <start>-<end>/<total>`) in FULL —
+ *  start, end AND total — so a chunk can be validated against the EXACT slice it
+ *  was asked for, not merely its total size: a broken upstream that answered the
+ *  right LENGTH from the wrong OFFSET (`bytes 128-255` for a `bytes=0-127` request)
+ *  is caught here, not emitted silently. Throws LOUDLY on a malformed/absent header
+ *  — a 206 that can't state its own range is a broken read, never a silent accept.
+ *  Reads the header through padi's shared `getHeaderCI` (the one case-insensitive
+ *  lookup over serve-dir's header shape), not a hand-rolled scan.
+ *
+ *  Only serve-dir's 206 form (`bytes a-b/total`) is parsed here; a 416's
+ *  `bytes *​/total` never reaches this (a 416 is propagated verbatim as an
+ *  `errorResult`, never chunked). */
+function parseContentRange(headers: Record<string, string>): {
+  start: number;
+  end: number;
+  total: number;
+} {
   const cr = getHeaderCI(headers, "content-range");
   if (cr === undefined)
     throw new Error(
       `remote preview: a ranged read returned no Content-Range (headers: ${JSON.stringify(headers)})`,
     );
-  const total = Number(cr.slice(cr.lastIndexOf("/") + 1));
-  if (!Number.isInteger(total) || total < 0)
-    throw new Error(`remote preview: unparseable Content-Range "${cr}"`);
-  return total;
+  const m = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(cr.trim());
+  if (!m) throw new Error(`remote preview: unparseable Content-Range "${cr}"`);
+  return { start: Number(m[1]), end: Number(m[2]), total: Number(m[3]) };
+}
+
+/** The serve-dir statuses that carry a plain-text reason and propagate VERBATIM as
+ *  an `errorResult` (a real `400` bad path / `403` escape / `404` missing / `500`
+ *  I/O fault). A status OUTSIDE this set on a probe/re-dial is a broken upstream a
+ *  ranged read must never produce (a `200`/`3xx`) — the callers below fail LOUD on
+ *  it rather than mangle a possibly-binary body through `errorResult`'s UTF-8
+ *  decode and serve it under a success status. */
+function isServeDirErrorStatus(status: number): boolean {
+  return status === 400 || status === 403 || status === 404 || status === 500;
 }
 
 /** Strip the range-specific headers (`Content-Range`, `Content-Length`) from a
@@ -188,15 +208,25 @@ function emptyStream(): ReadableStream {
 
 /** Stream `[lo, hi]` (inclusive) by looping bounded `read` dials of at most
  *  {@link REMOTE_PREVIEW_CHUNK_BYTES} each, enqueuing decoded bytes as they arrive.
- *  Every dial is VALIDATED — a non-206 status, a total that changed mid-stream
- *  (the file was replaced), or a short chunk throws, which ERRORS the stream and
- *  aborts the HTTP response. That is the fail-loud contract: a truncated remote
- *  read surfaces as a broken/reset response, NEVER a clean body missing bytes. */
+ *  Every dial is VALIDATED against the SNAPSHOT the probe measured, and any failure
+ *  THROWS — which ERRORS the stream and aborts the HTTP response. That is the
+ *  fail-loud contract: an inconsistent remote read surfaces as a broken/reset
+ *  response, NEVER a clean body that silently mixes or drops bytes. The checks, in
+ *  order:
+ *    - a non-206 status → a truncated/failed read;
+ *    - the total size CHANGED → the file was resized under the loop;
+ *    - the returned slice ISN'T the one we asked for (right length, wrong offset) →
+ *      a broken upstream serving the wrong bytes;
+ *    - the strong `etag` validator CHANGED → the file was replaced mid-stream, even
+ *      by another file of the SAME size (which the total check alone can't catch) —
+ *      the cross-read analogue of the local read's single-open-handle invariant;
+ *    - the decoded chunk is SHORT of the range it promised. */
 function streamByteRange(
   read: PreviewRangeReader,
   lo: number,
   hi: number,
   total: number,
+  etag: string,
   chunkBytes: number,
 ): ReadableStream {
   let pos = lo;
@@ -212,10 +242,19 @@ function streamByteRange(
         throw new Error(
           `remote preview chunk bytes=${pos}-${end}: expected 206, got ${chunk.status} — refusing a truncated body`,
         );
-      const chunkTotal = totalFromContentRange(chunk.headers);
-      if (chunkTotal !== total)
+      const cr = parseContentRange(chunk.headers);
+      if (cr.total !== total)
         throw new Error(
-          `remote preview: file size changed mid-stream (${total} → ${chunkTotal}) — refusing an inconsistent body`,
+          `remote preview: file size changed mid-stream (${total} → ${cr.total}) — refusing an inconsistent body`,
+        );
+      if (cr.start !== pos || cr.end !== end)
+        throw new Error(
+          `remote preview chunk bytes=${pos}-${end}: server answered the wrong slice (bytes ${cr.start}-${cr.end}) — refusing a mismatched body`,
+        );
+      const chunkETag = getHeaderCI(chunk.headers, "etag");
+      if (chunkETag !== etag)
+        throw new Error(
+          `remote preview: file changed mid-stream (validator ${etag} → ${chunkETag ?? "<none>"}) — refusing an inconsistent body`,
         );
       const buf = Buffer.from(chunk.bodyBase64, "base64");
       const want = end - pos + 1;
@@ -251,12 +290,21 @@ export async function assembleRemotePreview(
   // behavior on small fixtures instead of multi-megabyte ones.
   chunkBytes: number = REMOTE_PREVIEW_CHUNK_BYTES,
 ): Promise<ServeResult> {
-  // 1. METADATA PROBE — 1 byte learns total size + mime + existence, no body pull.
+  // 1. METADATA PROBE — 1 byte learns total size + mime + validator + existence, no
+  //    body pull.
   const probe = await read(PREVIEW_PROBE_RANGE);
 
-  // A non-2xx that ISN'T the empty-file 416 is a real serve-dir error (403 escape,
-  // 404 missing, 400 bad path, 500) — propagate it verbatim.
-  if (probe.status !== 206 && probe.status !== 416) return errorResult(probe);
+  // A ranged read can only answer 206 (non-empty), 416 (empty file), or a real
+  // serve-dir error (400/403/404/500 — propagate verbatim). Anything else (a 200
+  // or 3xx a ranged read must NEVER produce) is a broken upstream: fail LOUD rather
+  // than mangle its possibly-binary body through `errorResult` and serve it under a
+  // success status.
+  if (probe.status !== 206 && probe.status !== 416) {
+    if (isServeDirErrorStatus(probe.status)) return errorResult(probe);
+    throw new Error(
+      `remote preview: probe ${PREVIEW_PROBE_RANGE} returned unexpected status ${probe.status} — refusing to serve`,
+    );
+  }
 
   if (probe.status === 416) {
     // 416 on a `bytes=0-0` read ⇒ a ZERO-length file (byte 0 is unsatisfiable only
@@ -269,20 +317,48 @@ export async function assembleRemotePreview(
     // an unranged read exposes for an empty file (every ranged read 416s). The body
     // is 0 bytes, so no cap concern.
     const empty = await read(undefined);
-    if (empty.status !== 200) return errorResult(empty);
+    if (empty.status !== 200) {
+      if (isServeDirErrorStatus(empty.status)) return errorResult(empty);
+      throw new Error(
+        `remote preview: unranged empty-file re-read returned unexpected status ${empty.status} — refusing to serve`,
+      );
+    }
+    // The probe said EMPTY; if the re-read now carries bytes, the file GREW between
+    // the two dials. Refuse rather than silently serving a 0-byte body for a file
+    // that is no longer empty — the empty-file analogue of the mid-stream guards.
+    if (Buffer.from(empty.bodyBase64, "base64").byteLength !== 0)
+      throw new Error(
+        "remote preview: file became non-empty between the empty-file probe and its re-read — refusing an inconsistent body",
+      );
     return { status: 200, headers: empty.headers, body: emptyStream() };
   }
 
-  // 2. probe is 206 ⇒ a non-empty file. Learn its total + serve-dir's base headers,
-  //    then resolve the browser's effective range with serve-dir's OWN parser.
-  const total = totalFromContentRange(probe.headers);
+  // 2. probe is 206 ⇒ a non-empty file. Learn its total, its strong validator, and
+  //    serve-dir's base headers, then resolve the browser's effective range with
+  //    serve-dir's OWN parser.
+  const { total } = parseContentRange(probe.headers);
+  // The validator pins the file SNAPSHOT across the whole multi-chunk read (see
+  // `streamByteRange`). serve-dir sets it on every streamed 200/206, so its absence
+  // on a 206 is a serve-dir contract break — fail LOUD, never chunk without it.
+  const etag = getHeaderCI(probe.headers, "etag");
+  if (etag === undefined)
+    throw new Error(
+      "remote preview: a 206 probe carried no ETag validator — cannot guarantee a consistent multi-chunk read",
+    );
   const baseHeaders = baseHeadersFrom(probe.headers);
   const resolved = parseByteRange(browserRange, total);
 
   if (resolved === "invalid") {
     // Re-dial with the browser's exact range so serve-dir emits its verbatim 416
-    // (rather than reconstructing its header shape here). A 416 body is tiny.
-    return errorResult(await read(browserRange));
+    // (rather than reconstructing its header shape here). A 416 body is tiny. A
+    // status OTHER than 416 here is a broken upstream (the range was unsatisfiable
+    // against the probe's total) — fail LOUD.
+    const redial = await read(browserRange);
+    if (redial.status !== 416)
+      throw new Error(
+        `remote preview: expected 416 re-dialing unsatisfiable range "${browserRange}", got ${redial.status}`,
+      );
+    return errorResult(redial);
   }
 
   const [lo, hi] =
@@ -298,6 +374,6 @@ export async function assembleRemotePreview(
   return {
     status,
     headers,
-    body: streamByteRange(read, lo, hi, total, chunkBytes),
+    body: streamByteRange(read, lo, hi, total, etag, chunkBytes),
   };
 }

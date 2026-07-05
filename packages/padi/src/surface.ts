@@ -327,11 +327,13 @@ export const PadiPreviewReadInputSchema = z.object({
 /** `preview.repoRootForTerminal` — resolve a TERMINAL's git repo root from padi's
  *  OWN in-process registry (`snapshotFor(id)?.git?.repoRoot`), the single source of
  *  truth for that mapping. The re-serving binder (kolu-server's iframe preview
- *  route) calls this to turn the URL's terminal id into a repo path, then STREAMS
- *  the file itself off the local disk via the shared `previewFile` (bounded heap
- *  for large videos) — so the mapping stays in padi while the byte streaming stays
- *  a local, uncapped stream (never forced whole through a base64 procedure). Null
- *  when the terminal is unknown or has no git repo. */
+ *  route) calls this to turn the URL's terminal id into a repo path, then reads the
+ *  bytes by binding: a LOCAL bind streams the file off THIS disk via the shared
+ *  `previewFile` (bounded heap for large videos); a REMOTE bind (`KOLU_PADI_HOST`)
+ *  dials `preview.read` in bounded chunks and reassembles them — either way never
+ *  forced whole through a base64 procedure. So the mapping stays in padi while the
+ *  byte read stays a bounded stream. Null when the terminal is unknown or has no
+ *  git repo. */
 export const PadiRepoRootForTerminalInputSchema = z.object({
   terminalId: TerminalIdSchema,
 });

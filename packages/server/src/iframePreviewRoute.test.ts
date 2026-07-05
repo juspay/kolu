@@ -300,6 +300,57 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     await expect(drain(r.body)).rejects.toThrow(/size changed mid-stream/);
   });
 
+  it("FAILS LOUDLY when the file is REPLACED by a same-size file mid-stream — the validator catches what the size check can't", async () => {
+    // The subtle case the total-size check alone MISSES: the file is atomically
+    // replaced between chunks by a DIFFERENT file of the SAME byte length. Every
+    // per-chunk length/total/offset check still passes, so without the strong
+    // `ETag` validator the stream would silently mix two files' bytes. serve-dir's
+    // validator changes on any replace (mtime + inode), so mutating it here mimics
+    // that swap — the loop must refuse rather than emit a Frankenstein body.
+    const inner = serveDirReader("blob.png");
+    const faulty: PreviewRangeReader = async (range) => {
+      const r = await inner(range);
+      if (range === "bytes=128-255")
+        return { ...r, headers: { ...r.headers, ETag: '"deadbeef-swap"' } };
+      return r;
+    };
+    const r = await assembleRemotePreview(faulty, undefined, 128);
+    await expect(drain(r.body)).rejects.toThrow(/validator/);
+  });
+
+  it("FAILS LOUDLY when a chunk answers the WRONG slice at the right length — refuses a mismatched body", async () => {
+    // A broken upstream returns the correct byte COUNT from the wrong OFFSET:
+    // `bytes 0-127` when the loop asked for `bytes=128-255` (same length, same
+    // total). Parsing only `/total` would accept it and emit the wrong slice; the
+    // full Content-Range check rejects the offset mismatch.
+    const inner = serveDirReader("blob.png");
+    const faulty: PreviewRangeReader = async (range) => {
+      const r = await inner(range);
+      if (range === "bytes=128-255")
+        return {
+          ...r,
+          headers: { ...r.headers, "Content-Range": "bytes 0-127/300" },
+        };
+      return r;
+    };
+    const r = await assembleRemotePreview(faulty, undefined, 128);
+    await expect(drain(r.body)).rejects.toThrow(/wrong slice/);
+  });
+
+  it("FAILS LOUDLY when the metadata probe returns an unexpected 200 — never a UTF-8-mangled binary body under a success status", async () => {
+    // A ranged `bytes=0-0` probe can only be 206/416/4xx/5xx; a 200 is a broken
+    // upstream. The old code wrapped it via `errorResult` (a UTF-8 decode) and
+    // served it as a success — corrupting binary. It must now throw instead.
+    const faulty: PreviewRangeReader = async (range) => {
+      if (range === "bytes=0-0")
+        return { status: 200, headers: {}, bodyBase64: "" };
+      return serveDirReader("blob.png")(range);
+    };
+    await expect(assembleRemotePreview(faulty, undefined)).rejects.toThrow(
+      /unexpected status 200/,
+    );
+  });
+
   it("uses an 8 MiB production chunk bound", () => {
     // Guards the documented memory story: the default per-dial bound is 8 MiB,
     // comfortably under readPreview's 64 MiB inline cap.

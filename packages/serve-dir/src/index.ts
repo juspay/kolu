@@ -242,6 +242,22 @@ export function rangeResponseHead(
   };
 }
 
+/** A strong content validator (`ETag`) for an open file's CURRENT bytes, derived
+ *  from the same `stat` that sizes the response: size + mtime + inode. Two reads of
+ *  the SAME unchanged file yield the SAME token; ANY change bumps it — an in-place
+ *  write or an atomic same-size replace both move `mtime`, and a replace also swaps
+ *  the `inode`. serve-dir itself does not honor conditional requests (it never
+ *  returns 304); this exists so a re-serving arm that reassembles ONE response from
+ *  MULTIPLE reads — kolu's remote-bound preview, which dials `preview.read` in
+ *  bounded chunks — can prove every chunk came from a single file snapshot and fail
+ *  LOUD otherwise. It is the cross-read analogue of the single-open-handle invariant
+ *  a local `serveFile` gets for free (one handle pins one inode for the whole body);
+ *  across an RPC boundary the handle can't be shared, so the validator carries the
+ *  identity in its place. */
+function fileETag(s: { size: number; mtimeMs: number; ino: number }): string {
+  return `"${s.size.toString(16)}-${Math.round(s.mtimeMs).toString(16)}-${s.ino.toString(16)}"`;
+}
+
 /** Read the resolved file and assemble the HTTP response (the I/O half).
  *  Separated from `resolvePathUnder` so the guard is testable without fixtures
  *  and the I/O failure modes are testable without crafting URLs. */
@@ -308,6 +324,11 @@ export async function serveFile(
       await handle.close();
       return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
     }
+    // The strong validator rides EVERY streamed 200/206 (both share `baseHeaders`),
+    // so a re-serving remote arm can prove a multi-read reassembly stayed on one
+    // file snapshot (see `fileETag`). Derived from the SAME `stat` as the size, so
+    // headers and body agree on one file description.
+    baseHeaders.ETag = fileETag(s);
 
     const streamBody = (start?: number, end?: number): ReadableStream => {
       const stream = handle!.createReadStream(
