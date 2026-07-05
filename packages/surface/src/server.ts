@@ -1213,8 +1213,11 @@ export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
  *  silently skips the publish; don't. */
 /** `set`'s optional `{ force }` bypasses the cell's `equals` dedup for that ONE
  *  write (a re-serve's rebind epoch republishes an equal value — #1681); omitted,
- *  the write dedups as before. */
-type CellCtxSet<T> = (v: T, opts?: { force?: boolean }) => void;
+ *  the write dedups as before. Exported as the ONE source of truth for the opts
+ *  shape so a cross-package consumer (`reServeSurface`'s cell fold) references it
+ *  instead of hand-copying a narrowed cast that would drift silently. */
+export type CellCtxSetOpts = { force?: boolean };
+type CellCtxSet<T> = (v: T, opts?: CellCtxSetOpts) => void;
 type CellCtxFor<S> = S extends {
   schema: ZodType<infer T>;
   patchSchema: ZodType<infer P>;
@@ -1442,7 +1445,7 @@ function walkSurface<const S extends SurfaceSpec>(
     // republishes, letting a downstream holder tell "rebound and confirmed" from
     // "stale" (#1681; `reServeSurface`'s cell fold). Steady-state dedup is unchanged:
     // only the explicit `force` caller opts out, per write.
-    function ctxApply(next: unknown, opts?: { force?: boolean }): void {
+    function ctxApply(next: unknown, opts?: CellCtxSetOpts): void {
       if (!opts?.force && equalsFn?.(store.get(), next)) return;
       onWriteFn?.(next);
       store.set(next);

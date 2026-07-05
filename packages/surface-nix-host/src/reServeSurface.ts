@@ -49,6 +49,7 @@
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
 import {
+  type CellCtxSetOpts,
   type ImplementSurfaceDeps,
   implementSurface,
   inMemoryChannelByName,
@@ -367,7 +368,7 @@ export function reServeSurface<
   const ctx = fragment.ctx as {
     cells: Record<
       string,
-      { set: (v: unknown, opts?: { force?: boolean }) => void } | undefined
+      { set: (v: unknown, opts?: CellCtxSetOpts) => void } | undefined
     >;
     collections: Record<
       string,
