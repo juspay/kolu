@@ -331,6 +331,34 @@ export interface PadiBindingSessionDeps {
 }
 
 /**
+ * The bound padi's HONEST identity off its control-core `hello` — the three
+ * kolu-server-facing readouts as ONE value, so they can never disagree about
+ * whether padi is bound. Present ⇔ padi is bound (a fresh `connected` sets the
+ * whole record); `null` ⇔ unbound (a degraded/dead close, or `destroy`, clears
+ * the whole record) — the three fields share EXACTLY one lifecycle, so one
+ * nullable value makes a partial identity (e.g. an uptime with no version)
+ * unrepresentable (illegal-states-unrepresentable; L6, collapsing three parallel
+ * nullable fields set/cleared together in four places).
+ *
+ * Each member is itself nullable for an honest per-field "unknown" WHILE bound:
+ *   - `startedAtMs` — boot time (ms epoch), off the connected status's `startedAt`
+ *     (`hello.startedAt`). Feeds koluSurface's `processStartedAt` cell (the rail's
+ *     padi uptime). `null` while unbound renders as the honest "unknown".
+ *   - `surfaceVersion` — the `padiSurface` version the LIVE padi serves, off the
+ *     handshake identity (`connectPadi` → `identity.surfaceVersion`; the handshake
+ *     proved it compatible). Feeds `daemonInventory` (the Padi dialog + rail chip's
+ *     "contract v<x.y>"). Read off the live padi, not the binder's build constant.
+ *   - `buildCommit` — the running padi's navigable git commit off the same identity
+ *     (`identity.commit`), or `null` when a survivor padi predates the field (off-nix
+ *     reads "—", not a blank link). Feeds `daemonInventory`'s "build commit".
+ */
+type BoundIdentity = {
+  startedAtMs: number | null;
+  surfaceVersion: string | null;
+  buildCommit: string | null;
+};
+
+/**
  * The reconnect-mirror session over the supervisor Endpoint. Drives:
  *   - boot: `connectOnce()` → `endpoint.current()` holds the live connection.
  *   - reconnect: on the endpoint reporting degraded/dead, wait a backoff then
@@ -344,30 +372,13 @@ export interface PadiBindingSessionDeps {
 export class PadiBindingSession implements BoundPadi {
   private clientPromise: Promise<PadiSurfaceClient> | null = null;
   private destroyed = false;
-  /** The bound padi's HONEST boot time (ms epoch) off its control-core `hello`
-   *  (echoed on every `connected` endpoint status as `startedAt`), or `null` while
-   *  padi is unbound. Managed on the SAME lifecycle as `clientPromise` — set on a
-   *  fresh `connected` (a respawned padi is a new process, so its boot time is
-   *  fresh), cleared to `null` on a degraded/dead close — so `padiStartedAt()` reports
-   *  a real uptime or an honest "unknown", never a stale boot time from the old
-   *  process. Feeds koluSurface's `processStartedAt` cell (the rail's padi uptime). */
-  private padiStartedAtMs: number | null = null;
-  /** The bound padi's HONEST `padiSurface` version off its control-core `hello`
-   *  (`connectPadi` reads it into `identity.surfaceVersion`; the handshake proved
-   *  it compatible), or `null` while padi is unbound. Managed on the SAME lifecycle
-   *  as `clientPromise`/`padiStartedAtMs` — set on a fresh `connected`, cleared on a
-   *  degraded/dead close — so `padiSurfaceVersion()` reports the version the LIVE
-   *  padi actually serves or an honest "unknown", never a stale value from the old
-   *  process. Feeds koluSurface's `daemonInventory` cell (the Padi dialog + rail
-   *  chip's "contract v<x.y>" readout). */
-  private padiSurfaceVersionStr: string | null = null;
-  /** The bound padi's navigable git commit off its control-core `hello`
-   *  (`connectPadi` reads it into `identity.commit`), or `null` while unbound / when a
-   *  survivor padi predates the field. Managed on the SAME lifecycle as
-   *  `padiSurfaceVersionStr` — set on a fresh `connected`, cleared on close — so
-   *  `padiBuildCommit()` reports the LIVE padi's build or an honest "unknown". Feeds
-   *  koluSurface's `daemonInventory` cell (the Padi dialog's "build commit"). */
-  private padiBuildCommitStr: string | null = null;
+  /** The bound padi's HONEST identity (boot time · surface version · build commit)
+   *  as ONE value, or `null` while padi is unbound. Managed on the SAME lifecycle as
+   *  `clientPromise` — the whole record is set on a fresh `connected` (a respawned padi
+   *  is a new process, so its identity is fresh) and cleared on a degraded/dead close —
+   *  so the three readouts report the LIVE padi or an honest "unknown" together, never a
+   *  stale mix from the old process. See {@link BoundIdentity} for each field's cell. */
+  private boundIdentity: BoundIdentity | null = null;
   /** A reconnect timer is already scheduled — so overlapping degraded/dead events
    *  (a close, then the endpoint's own `dead` emit) don't STACK timers, each firing
    *  its own `adoptOrSpawnOrRefuse`. Cleared when the scheduled attempt fires. */
@@ -386,20 +397,20 @@ export class PadiBindingSession implements BoundPadi {
     // currentClient()), then project + fire ONCE for every transition.
     match(s.state)
       .with("connected", () => {
-        // padi's honest boot time rides the connected status (`hello.startedAt` →
-        // endpoint `startedAt`). Read it off the STATUS, not `endpoint.current()`, so
-        // a respawned padi's FRESH boot time lands (never the old process's).
-        this.padiStartedAtMs = s.startedAt ?? null;
+        // padi's honest identity as ONE record. Boot time rides the connected STATUS
+        // (`hello.startedAt` → endpoint `startedAt`), read off the status not
+        // `endpoint.current()` so a respawned padi's FRESH boot time lands (never the
+        // old process's); the surface version + build commit ride the held connection's
+        // handshake identity (the version the LIVE padi serves, so the Padi dialog/rail
+        // read it rather than the binder's build constant; commit "" → null, the honest
+        // "unknown", so off-nix reads "—" not a blank link).
         const conn = this.deps.endpoint.current();
+        this.boundIdentity = {
+          startedAtMs: s.startedAt ?? null,
+          surfaceVersion: conn?.identity?.surfaceVersion ?? null,
+          buildCommit: conn?.identity?.commit || null,
+        };
         if (conn) {
-          // The bound padi's honest surface version off the handshake `hello`
-          // (`connectPadi` → `identity.surfaceVersion`) — the version the LIVE padi
-          // actually serves, so the Padi dialog/rail read it rather than the binder's
-          // build constant.
-          this.padiSurfaceVersionStr = conn.identity?.surfaceVersion ?? null;
-          // The RUNNING padi's build commit off the same hello identity (empty "" →
-          // null, the honest "unknown", so off-nix reads "—" not a blank link).
-          this.padiBuildCommitStr = conn.identity?.commit || null;
           // Scope the COMBINED dialed client down to the padi sibling so the relay's
           // `client.surface.<member>` resolves at /surface/padi/<member>. The binder
           // keeps `conn.client` (combined) for supervision (`control.core.drain`) and
@@ -410,13 +421,11 @@ export class PadiBindingSession implements BoundPadi {
       })
       .with(P.union("degraded", "dead"), () => {
         // The live link dropped. Clear the client so a forward in the gap fails
-        // honestly, clear padi's boot time so its uptime reads the honest "unknown"
-        // (never a stale age), then schedule ONE reconnect (padi survives its own
-        // unit; the re-adopt re-attaches the surviving kaval + PTYs).
+        // honestly, clear padi's identity so its uptime/version/commit read the honest
+        // "unknown" together (never a stale mix), then schedule ONE reconnect (padi
+        // survives its own unit; the re-adopt re-attaches the surviving kaval + PTYs).
         this.clientPromise = null;
-        this.padiStartedAtMs = null;
-        this.padiSurfaceVersionStr = null;
-        this.padiBuildCommitStr = null;
+        this.boundIdentity = null;
         this.scheduleReconnect();
       })
       // connecting | restarting: transient warming — no client-handle change; the
@@ -464,7 +473,7 @@ export class PadiBindingSession implements BoundPadi {
    *  session is destroyed). kolu-server publishes `now`-relative uptime from this onto
    *  koluSurface's `processStartedAt` cell; `null` renders as the honest "unknown". */
   padiStartedAt(): number | null {
-    return this.destroyed ? null : this.padiStartedAtMs;
+    return this.destroyed ? null : (this.boundIdentity?.startedAtMs ?? null);
   }
 
   /** The bound padi's `padiSurface` version off its control-core `hello`, or `null`
@@ -472,7 +481,7 @@ export class PadiBindingSession implements BoundPadi {
    *  `daemonInventory` cell carries it as the active padi's `surfaceVersion`; `null`
    *  renders as the honest "—". */
   padiSurfaceVersion(): string | null {
-    return this.destroyed ? null : this.padiSurfaceVersionStr;
+    return this.destroyed ? null : (this.boundIdentity?.surfaceVersion ?? null);
   }
 
   /** The bound padi's navigable git commit off its control-core `hello`, or `null`
@@ -480,7 +489,7 @@ export class PadiBindingSession implements BoundPadi {
    *  destroyed). koluSurface's `daemonInventory` cell carries it as the active padi's
    *  `buildCommit`; `null` renders as the honest "—". */
   padiBuildCommit(): string | null {
-    return this.destroyed ? null : this.padiBuildCommitStr;
+    return this.destroyed ? null : (this.boundIdentity?.buildCommit ?? null);
   }
 
   /** The LOCAL arm surfaces no convergence anomaly today: the shared kit collapses a
@@ -511,9 +520,7 @@ export class PadiBindingSession implements BoundPadi {
   destroy(): void {
     this.destroyed = true;
     this.clientPromise = null;
-    this.padiStartedAtMs = null;
-    this.padiSurfaceVersionStr = null;
-    this.padiBuildCommitStr = null;
+    this.boundIdentity = null;
     this.deps.endpoint.current()?.dispose();
     // Re-publish to wake any cursor blocked on the next client so the pump exits.
     this.fire();
