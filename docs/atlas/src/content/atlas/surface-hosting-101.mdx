@@ -1,0 +1,83 @@
+---
+title: The surface framework's hosting side, taught
+description: A plain-words primer on how a surface travels between machines — serve, mirror, re-serve, sessions, and the host registry — ending at the exact type-vs-volatility fork the W4 switch ran into.
+parents: [reference, padi]
+maturity: seedling
+updated: 2026-07-05
+---
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import map from "../../diagrams/surface-hosting-101-map.svg?raw";
+
+This note teaches one slice of the `@kolu/surface` stack — the slice that moves a surface **between machines** — from the ground up, in plain words. It ends at a real, current decision (the W4 switch's server pool) so the teaching has a point. You should be able to read this cold and then judge that decision yourself.
+
+<Svg svg={map} caption="Two apps, one framework. Top: kolu's story — a browser bound to ONE host's padi through a mirror kolu-server holds. Bottom: drishti's story — a fleet of hosts behind a registry that picks by ?host=. Middle: the shared parts both are built from." />
+
+## A surface is a menu of live things
+
+A **surface** is a typed menu a server offers: *these are the things you can watch and ask*. The menu has four kinds of item:
+
+- a **cell** — one value that changes over time (the padi connection state, your preferences);
+- a **collection** — a keyed set of values (the `terminals` collection: one entry per terminal);
+- a **procedure** — ask once, get an answer (`git.getDiff`, `preview.read`);
+- a **stream** — live bytes or events (`terminalAttach`: your terminal's screen).
+
+One side calls `implementSurface` and backs each item with real code. The other side gets a **client** and subscribes — in the browser through Solid hooks (`.use()`), so a cell changing repaints the UI by itself. The wire underneath (websocket, unix socket, ssh pipe) is interchangeable; the menu doesn't care.<Footnote>Kolu's browser actually talks to three sibling surfaces over one websocket — `app` (the web shell), `padi` (everything terminal), `surfaceApp` (build identity). One socket, three menus.</Footnote>
+
+## A mirror is how a surface crosses a machine
+
+Now the interesting part. padi serves its surface on a **unix socket on its own machine**. Your browser can't reach that. So kolu-server sits in the middle and does two things at once:
+
+1. **subscribe to everything** padi serves, and keep a live local copy (the *mirror*);
+2. **serve that copy onward** to browsers, forwarding writes back up.
+
+That combination is `reServeSurface` — *mirror it, then serve it again*. It's how the same canvas works whether padi is local or on another machine: the browser always talks to kolu-server's copy; only the pipe **behind** the copy changes.
+
+One rule makes this safe, and it's per-item: **values may be held and replayed; live byte streams must break loudly.** If the pipe to padi blips, the mirror keeps showing the last known terminal *list* (a value — replaying it is honest) but your terminal's *screen* stream must end and reattach fresh (replaying stale bytes would silently lie).<Footnote>This per-item rule is declared in the contract itself and pinned by a test — every member says which kind it is. The gray-chip bug (#1681) lived one layer below this: asking the mirror for a key that didn't exist *yet* used to kill the subscription; since #1687 it politely waits.</Footnote>
+
+## A session is the thing that owns the pipe
+
+Something has to own the messy lifecycle of that behind-the-copy pipe: dial it, notice it died, redial, give up loudly after too many failures. That something is a **session**, and there are two words to keep apart:
+
+- **`RemoteMirrorSession` is a *role*** — a small interface saying only: *"I can hand you a live client, and tell you the connection's state."* Anything satisfying it can sit behind `reServeSurface`.
+- **`HostSession` is one *class* that plays the role over ssh** — it also Nix-provisions the binary onto the host, runs it through an ssh pipe, reconnects with backoff, and gives up loudly. Drishti uses it directly for every machine in its fleet.
+
+Kolu defines its own flavor of the role, **`BoundPadi`**: a `RemoteMirrorSession` *plus* the padi-specific verbs kolu needs (drain the daemon for restart; report its identity). It has two implementations — the **local arm** (plain unix socket to a padi on this machine) and the **remote arm** (which *wraps* a `HostSession`, adding padi's convergence policy on top). Same role, two transports; `reServeSurface` can't tell them apart. That indifference is the whole design.
+
+## The registry is "many sessions, picked by name"
+
+Drishti's product is a *fleet*: N machines at once. So the framework grew `buildHostRegistry`: a map from host name to `{ session, handler }`, plus a dispatcher — when a websocket arrives with `?host=zest`, hand it zest's entry. It also has fleet-keeping verbs: add a host, remove one, `reconnect(host)`, `recheckAll()`.
+
+Notice what this *is*: **"hold a session per host and dispatch by name" — extracted once, as a shared part**, because drishti proved the need. In this codebase's vocabulary that makes it *electricity*: a receptacle in the framework wall, not app code.
+
+## The fork we just hit — and how to judge it
+
+The W4 switch needs kolu-server to hold **several bound padis at once** and pick one per browser tab. Read the last two sections again: that is *literally* what `buildHostRegistry` does. So the plan said "consume it."
+
+The agent then hit a wall, and the wall is worth understanding precisely. The registry's slot is typed with the **class**:
+
+```ts
+// today — the slot names a concrete class:
+interface HostEntry<C> { session: HostSession<C>; handler: WsRpcHandler }
+```
+
+`HostSession` has private fields, and in TypeScript a class with private fields can only be satisfied by *itself*.<Footnote>Normally TypeScript is structural — anything with the right shape fits. Private fields switch a class to effectively *nominal*: only real instances qualify. That's why `BoundPadi`, despite having everything the registry actually uses, cannot compile into that slot.</Footnote> Kolu's `BoundPadi` is a role, not that class — so it doesn't fit, and the tempting exit is: *"fine, I'll hand-roll my own little map in kolu-server."*
+
+Here is the discipline for judging that exit, and it's one question: **is the mismatch about *behavior* or about a *type annotation*?** Check what the registry's code actually *calls* on the slot. Answer (verified): the core calls only `.destroy()`; `reconnect`/`recheck` are used by exactly two fleet-keeping methods kolu never invokes. The behavior fits perfectly — only the annotation doesn't. That's a **type problem**, and the fix for a type problem is to fix the type:
+
+```ts
+// the widen — name the role the registry actually needs:
+interface PoolableSession<C> extends RemoteMirrorSession<C> {
+  destroy(): void;
+  reconnect?(): void;   // fleet-keeping; only reconnect(host) touches it
+  recheck?(): void;     // fleet-keeping; only recheckAll() touches it
+}
+interface HostEntry<C> { session: PoolableSession<C>; handler: WsRpcHandler }
+```
+
+`HostSession` already has all four members, so drishti compiles unchanged — its green CI is the proof the widening broke nobody. `BoundPadi` has the two required ones, so kolu now fits. One receptacle, two consumers.
+
+And the road not taken, named honestly: a bespoke `Map<host, …>` in kolu-server would have been a **second implementation of one volatility** — exactly the duplication the L3 convergence-kit work just spent two PRs deleting elsewhere. The type wall made the clone *tempting*; it never made it *right*.<Footnote>One refinement still open to the review lenses: optional methods that silently don't exist are a mild fallback smell. The stricter shape makes "reconnectable" a declared capability, so calling `reconnect` on a pool of non-reconnectable sessions is a compile error rather than a no-op. Whether that rigor is worth its complexity is a per-review judgment.</Footnote>
+
+**The takeaway rule, beyond this case:** when your thing won't fit a framework slot, first ask what the slot's code actually *does* with it. If the behavior fits and only the annotation refuses — widen the slot to the role. If the behavior genuinely differs — that's when you're allowed to build your own.
