@@ -122,6 +122,7 @@ type HeldGate = Extract<GateAcquisition, { kind: "acquired" }>;
  *  for anything that reads a padi cell (serve, reconcile). Carries the gate forward so
  *  the whole pipeline is value-threaded to the spine at the end. */
 interface StoresReady {
+  readonly phase: "stores";
   readonly gate: HeldGate;
 }
 
@@ -129,6 +130,7 @@ interface StoresReady {
  *  koluRoot, the exit-wipe hook, the autosave gate) is configured — the precondition
  *  for spawning a terminal or serving. */
 interface IdentityReady {
+  readonly phase: "identity";
   readonly gate: HeldGate;
 }
 
@@ -137,6 +139,7 @@ interface IdentityReady {
  *  kaval endpoint, whose reconcile publishes onto that ctx. Carries the served
  *  router. */
 interface SurfacesServed {
+  readonly phase: "served";
   readonly gate: HeldGate;
   // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC served router — the same `Router<any, any>` the served fragment narrows to (see `serveDaemonSurfaces`).
   readonly router: Router<any, any>;
@@ -146,6 +149,7 @@ interface SurfacesServed {
  *  reconciled — the precondition for the samplers + manifests that read the held
  *  kaval's socket. */
 interface EndpointBooted {
+  readonly phase: "endpoint";
   readonly gate: HeldGate;
   // biome-ignore lint/suspicious/noExplicitAny: threads the served router (see `SurfacesServed`).
   readonly router: Router<any, any>;
@@ -168,7 +172,7 @@ function openStateStores(
   setPadiSessionStore(stores.session);
   setPadiActivityFeedStore(stores.activityFeed);
   setPadiLastPairedDaemonStore(stores.lastPairedDaemon);
-  return { gate };
+  return { phase: "stores", gate };
 }
 
 /** Configure padi's per-process identity + wire the autosave gate. Requires the stores
@@ -202,7 +206,7 @@ function configureDaemonIdentity(
     isRestorePending: hasParkedTerminals,
     persist: saveSession,
   });
-  return { gate: stores.gate };
+  return { phase: "identity", gate: stores.gate };
 }
 
 /** Serve padiSurface + the frozen control core on ONE socket and wire the late-bound
@@ -246,7 +250,7 @@ function serveDaemonSurfaces(
     surfaceFragment as any,
     // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC served router — the same `Router<any, any>` cast kaval's inProcessPtyHost narrows to (the contract-derived context doesn't line up, runtime shape is correct).
   ) as Router<any, any>;
-  return { gate: identity.gate, router: servedRouter };
+  return { phase: "served", gate: identity.gate, router: servedRouter };
 }
 
 /** Boot padi's OWN kaval (adopt-or-spawn under `kaval-<digest>/`), reconcile its live
@@ -267,7 +271,7 @@ async function bootLocalEndpoint(
     onNotAdopted: parkSavedSession,
     onBootSettled: startInventoryReconciler,
   });
-  return { gate: served.gate, router: served.router };
+  return { phase: "endpoint", gate: served.gate, router: served.router };
 }
 
 /** Run the padi daemon to completion: own its state-root, adopt-or-spawn its
