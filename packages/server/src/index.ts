@@ -58,6 +58,7 @@ import {
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
+import { installRouteErrorLogging } from "./routeErrors.ts";
 import {
   probeKavalStatus,
   startDaemonInventorySampler,
@@ -138,6 +139,12 @@ if (argv.flags.verbose) {
 }
 
 const app = new Hono();
+
+// Catch-all error logger: an uncaught route/middleware fault (e.g. the artifact-sdk
+// HTML decorator draining a remote-preview stream that faults mid-chunk, past the
+// preview route's own 503 `try`) is LOGGED, not answered as Hono's default,
+// unlogged 500. See `routeErrors.ts`.
+installRouteErrorLogging(app, log);
 
 // --- HTTP request logging (debug level to avoid noise in normal operation) ---
 app.use(
@@ -415,6 +422,10 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const repoPath = repoRoot;
 
   const range = c.req.header("range");
+  // `If-Range` guards a `<video>` seek against the file changing mid-session: both
+  // arms honor the `Range` only while this validator still matches the file's
+  // current ETag (RFC 9110 §13.1.3), else serve the full 200.
+  const ifRange = c.req.header("if-range");
   // The byte read forks on the binding — but the file tail + repoRoot (and their
   // `..`/`%2f` defenses above) are identical for both arms, so a remote path never
   // reaches a local read, and vice versa.
@@ -430,11 +441,15 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   let r: ServeResult;
   if (remoteHost) {
     // The remote arm's METADATA dials (the 1-byte probe + any re-dial) run
-    // synchronously inside this await; a link fault there must map to the SAME
-    // logged 503 as the repoRoot resolve above, not an unlogged generic 500. (The
-    // streaming body's per-chunk dials run LATER, when the Response is consumed —
-    // a fault there errors the stream and resets the response by design, and can't
-    // reach this catch.)
+    // synchronously inside this await; a link fault there maps to the SAME logged
+    // 503 as the repoRoot resolve above. The streaming body's per-chunk dials run
+    // LATER, when the Response is consumed, so a fault there can't reach THIS catch —
+    // but it is NOT swallowed: for a binary preview the stream goes straight to the
+    // socket and the fault resets the connection (loud at the transport); for a
+    // `text/html` preview the artifact-sdk decorator buffers the body via
+    // `res.text()`, so the fault throws in that middleware and is caught by the
+    // app-wide `installRouteErrorLogging` handler (a LOGGED 500). Either way loud,
+    // never a silent short body.
     try {
       r = await assembleRemotePreview(
         (chunkRange) =>
@@ -444,13 +459,14 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
             range: chunkRange,
           }),
         range,
+        ifRange,
       );
     } catch (err) {
       log.error({ err, terminalId }, "padi preview read failed (link fault)");
       return c.text("padi link fault serving preview", 503);
     }
   } else {
-    r = await previewFile({ repoPath, filePath: rawTail, range });
+    r = await previewFile({ repoPath, filePath: rawTail, range, ifRange });
   }
   return new Response(r.body as BodyInit, {
     status: r.status,

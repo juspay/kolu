@@ -25,8 +25,8 @@
  *  guard's 403 coverage now lives against padi's `previewFile`. */
 
 import type { HttpBindings } from "@hono/node-server";
-import { getHeaderCI } from "@kolu/padi/assembly";
 import {
+  getHeaderCI,
   parseByteRange,
   rangeResponseHead,
   rawPathname,
@@ -140,8 +140,8 @@ export type PreviewRangeReader = (
  *  right LENGTH from the wrong OFFSET (`bytes 128-255` for a `bytes=0-127` request)
  *  is caught here, not emitted silently. Throws LOUDLY on a malformed/absent header
  *  — a 206 that can't state its own range is a broken read, never a silent accept.
- *  Reads the header through padi's shared `getHeaderCI` (the one case-insensitive
- *  lookup over serve-dir's header shape), not a hand-rolled scan.
+ *  Reads the header through serve-dir's shared `getHeaderCI` (the one case-insensitive
+ *  lookup over serve-dir's own header shape), not a hand-rolled scan.
  *
  *  Only serve-dir's 206 form (`bytes a-b/total`) is parsed here; a 416's
  *  `bytes *​/total` never reaches this (a 416 is propagated verbatim as an
@@ -289,6 +289,12 @@ function streamByteRange(
 export async function assembleRemotePreview(
   read: PreviewRangeReader,
   browserRange: string | undefined,
+  // Raw HTTP `If-Range` header (RFC 9110 §13.1.3): the browser's `Range` is honored
+  // only while this still matches the file's current strong `ETag`; a stale one
+  // serves the full 200 instead of a 206 the client would stitch onto changed bytes.
+  // Omitted = honor the range unconditionally. Evaluated here (kolu-server), so
+  // padi's `preview.read` needs no `If-Range` field — the chunk dials never carry it.
+  ifRange?: string,
   // The per-dial byte bound. A genuine parameter of the loop, not a production
   // knob: the sole production caller passes {@link REMOTE_PREVIEW_CHUNK_BYTES}; the
   // default matches it, and unit tests pass a tiny value to exercise chunk-boundary
@@ -316,11 +322,13 @@ export async function assembleRemotePreview(
     // when size is 0). Match serve-dir exactly: a ranged browser request 416s (its
     // `Content-Range: bytes *​/0` is identical to the probe's, size-independent), an
     // unranged one 200s empty.
-    if (parseByteRange(browserRange, 0) === "invalid")
-      return errorResult(probe);
-    // Full 200 empty — dial UNRANGED for the file's real Content-Type, which only
-    // an unranged read exposes for an empty file (every ranged read 416s). The body
-    // is 0 bytes, so no cap concern.
+    const rangeSent = parseByteRange(browserRange, 0) === "invalid";
+    // Fast path: a range with no `If-Range` on an empty file is unsatisfiable → 416,
+    // no second dial needed.
+    if (rangeSent && ifRange === undefined) return errorResult(probe);
+    // Full 200 empty — dial UNRANGED for the file's real Content-Type (and, for the
+    // If-Range case below, its ETag), which only an unranged read exposes for an
+    // empty file (every ranged read 416s). The body is 0 bytes, so no cap concern.
     const empty = await read(undefined);
     if (empty.status !== 200) {
       if (isServeDirErrorStatus(empty.status)) return errorResult(empty);
@@ -335,6 +343,16 @@ export async function assembleRemotePreview(
       throw new Error(
         "remote preview: file became non-empty between the empty-file probe and its re-read — refusing an inconsistent body",
       );
+    // A range WITH an If-Range on an empty file: honor it (→ 416, unsatisfiable) only
+    // while the validator still matches; a stale one means the file changed → serve
+    // the full (empty) 200, matching serve-dir's own If-Range handling on the local
+    // arm. (`ifRange` is defined here — the `rangeSent && ifRange === undefined` fast
+    // path returned above.)
+    if (rangeSent) {
+      const emptyEtag = getHeaderCI(empty.headers, "etag");
+      if (emptyEtag !== undefined && ifRange?.trim() === emptyEtag)
+        return errorResult(probe);
+    }
     return { status: 200, headers: empty.headers, body: emptyStream() };
   }
 
@@ -351,7 +369,12 @@ export async function assembleRemotePreview(
       "remote preview: a 206 probe carried no ETag validator — cannot guarantee a consistent multi-chunk read",
     );
   const baseHeaders = baseHeadersFrom(probe.headers);
-  const resolved = parseByteRange(browserRange, total);
+  // If-Range (RFC 9110 §13.1.3): honor the browser's Range only while its validator
+  // still matches this file's current strong ETag; a stale one collapses to the full
+  // 200 (never a 206 slice the client would stitch onto changed bytes). Mirrors
+  // serve-dir's own If-Range handling on the local arm, so both stay in step.
+  const honorRange = ifRange === undefined || ifRange.trim() === etag;
+  const resolved = parseByteRange(honorRange ? browserRange : undefined, total);
 
   if (resolved === "invalid") {
     // Re-dial with the browser's exact range so serve-dir emits its verbatim 416

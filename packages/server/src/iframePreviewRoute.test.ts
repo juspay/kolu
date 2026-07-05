@@ -164,6 +164,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     const r = await assembleRemotePreview(
       serveDirReader("blob.png"),
       undefined,
+      undefined,
       128,
     );
     expect(r.status).toBe(200);
@@ -178,7 +179,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     // the last a partial (44 bytes) — after the 1-byte probe. No dial exceeds the
     // chunk bound; none reads past EOF.
     const rec = recording(serveDirReader("blob.png"));
-    const r = await assembleRemotePreview(rec.read, undefined, 128);
+    const r = await assembleRemotePreview(rec.read, undefined, undefined, 128);
     await drain(r.body); // pull the whole stream so every chunk dial fires
     expect(rec.ranges).toEqual([
       "bytes=0-0", // metadata probe
@@ -218,6 +219,29 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     );
     expect(r.status).toBe(416);
     expect(headerCI(r.headers, "content-range")).toBe("bytes */11");
+  });
+
+  it("honors a matching If-Range (206) and collapses a STALE If-Range to a full 200", async () => {
+    // RFC 9110 §13.1.3, remote arm: the Range is honored only while the client's
+    // validator still matches the file's current ETag; a stale one serves the full
+    // 200 rather than a 206 the client would stitch onto changed bytes.
+    const reader = serveDirReader("blob.png");
+    const probe = await reader("bytes=0-0");
+    const etag = headerCI(probe.headers, "etag");
+    expect(etag).toBeDefined();
+    // Matching If-Range → the Range is honored (206 slice).
+    const match = await assembleRemotePreview(reader, "bytes=0-63", etag);
+    expect(match.status).toBe(206);
+    expect(headerCI(match.headers, "content-range")).toBe("bytes 0-63/300");
+    // Stale If-Range → the Range is ignored → full 200 with the whole file.
+    const stale = await assembleRemotePreview(
+      reader,
+      "bytes=0-63",
+      '"stale-nomatch"',
+    );
+    expect(stale.status).toBe(200);
+    expect(headerCI(stale.headers, "content-range")).toBeUndefined();
+    expect((await drain(stale.body)).byteLength).toBe(300);
   });
 
   it("serves a ZERO-length file (no Range) as a 200 with an empty body", async () => {
@@ -265,7 +289,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
       }
       return inner(range);
     };
-    const r = await assembleRemotePreview(faulty, undefined, 128);
+    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
     expect(r.status).toBe(200); // headers committed before the fault
     await expect(drain(r.body)).rejects.toThrow(/expected 206, got 500/);
   });
@@ -280,7 +304,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
         return { ...r, bodyBase64: r.bodyBase64.slice(0, 8) };
       return r;
     };
-    const r = await assembleRemotePreview(faulty, undefined, 128);
+    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
     await expect(drain(r.body)).rejects.toThrow(/expected 128 bytes/);
   });
 
@@ -296,7 +320,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
       }
       return r;
     };
-    const r = await assembleRemotePreview(faulty, undefined, 128);
+    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
     await expect(drain(r.body)).rejects.toThrow(/size changed mid-stream/);
   });
 
@@ -314,7 +338,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
         return { ...r, headers: { ...r.headers, ETag: '"deadbeef-swap"' } };
       return r;
     };
-    const r = await assembleRemotePreview(faulty, undefined, 128);
+    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
     await expect(drain(r.body)).rejects.toThrow(/validator/);
   });
 
@@ -354,7 +378,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
         };
       return r;
     };
-    const r = await assembleRemotePreview(faulty, undefined, 128);
+    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
     await expect(drain(r.body)).rejects.toThrow(/wrong slice/);
   });
 

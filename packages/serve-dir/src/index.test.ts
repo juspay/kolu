@@ -298,6 +298,69 @@ describe("serveFile", () => {
     expect(await readBody(res.body)).toBe("2345");
   });
 
+  it("emits a strong ETag (size-mtimeNs-ino) on 200 and 206, stable across reads of the unchanged file", async () => {
+    const full = await serveFile(tmpRoot, "clip.mp4");
+    const ranged = await serveFile(tmpRoot, "clip.mp4", "bytes=2-5");
+    // Quoted (strong) validator of three hex fields — size, NANOSECOND mtime, inode.
+    expect(full.headers.ETag).toMatch(/^"[0-9a-f]+-[0-9a-f]+-[0-9a-f]+"$/);
+    expect(ranged.headers.ETag).toBe(full.headers.ETag); // one file → one token
+    const again = await serveFile(tmpRoot, "clip.mp4");
+    expect(again.headers.ETag).toBe(full.headers.ETag); // stable across reads
+  });
+
+  it("bumps the ETag when the file content changes", async () => {
+    const p = path.join(tmpRoot, "etag-change.bin");
+    fs.writeFileSync(p, "aaaa");
+    const e1 = (await serveFile(tmpRoot, "etag-change.bin")).headers.ETag;
+    fs.writeFileSync(p, "bbbbbb"); // different bytes AND size → different token
+    const e2 = (await serveFile(tmpRoot, "etag-change.bin")).headers.ETag;
+    expect(e1).toBeDefined();
+    expect(e2).not.toBe(e1);
+    fs.rmSync(p, { force: true });
+  });
+
+  it("honors a Range when If-Range matches the current ETag (206)", async () => {
+    const etag = (await serveFile(tmpRoot, "clip.mp4")).headers.ETag;
+    const res = await serveFile(
+      tmpRoot,
+      "clip.mp4",
+      "bytes=2-5",
+      undefined,
+      etag,
+    );
+    expect(res.status).toBe(206);
+    expect(res.headers["Content-Range"]).toBe("bytes 2-5/10");
+    expect(await readBody(res.body)).toBe("2345");
+  });
+
+  it("serves the full 200 when If-Range is STALE — never a 206 stitched onto changed bytes", async () => {
+    // RFC 9110 §13.1.3: a non-matching If-Range means the client's cached copy is
+    // stale, so the Range must be ignored and the whole representation served.
+    const res = await serveFile(
+      tmpRoot,
+      "clip.mp4",
+      "bytes=2-5",
+      undefined,
+      '"deadbeef-stale-nomatch"',
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers["Content-Range"]).toBeUndefined();
+    expect(res.headers["Content-Length"]).toBeUndefined();
+    expect(await readBody(res.body)).toBe("0123456789");
+  });
+
+  it("ignores If-Range when there is no Range header (a plain 200 stays a 200)", async () => {
+    const res = await serveFile(
+      tmpRoot,
+      "clip.mp4",
+      undefined,
+      undefined,
+      '"whatever"',
+    );
+    expect(res.status).toBe(200);
+    expect(await readBody(res.body)).toBe("0123456789");
+  });
+
   it("streams a 206 body consistent with its headers when the path is atomically replaced mid-flight", async () => {
     // The ranged path opens one file handle, stats *that handle*, and streams
     // from *that handle* — so `Content-Range`/`Content-Length` and the bytes

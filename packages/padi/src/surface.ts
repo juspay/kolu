@@ -347,8 +347,10 @@ export const PadiPreviewReadOutputSchema = z.object({
    *  `500`, verbatim from `serveFile`. */
   status: z.number().int(),
   /** Response headers verbatim from serve-dir (`Content-Type`, `Accept-Ranges`,
-   *  `X-Content-Type-Options`, `Cache-Control`, and `Content-Range` on a
-   *  206/416). The client replays them onto the reconstructed `Response`. */
+   *  `X-Content-Type-Options`, `Cache-Control`, a strong `ETag` on every 200/206,
+   *  and `Content-Range` on a 206/416). The client replays them onto the
+   *  reconstructed `Response`; the re-serving preview arm reads the `ETag` back to
+   *  pin the file snapshot across a multi-chunk reassembly. */
   headers: z.record(z.string(), z.string()),
   /** Base64-encoded response body — the (possibly ranged) file bytes on a
    *  200/206, the plain-text reason on a 400/403/404/416/500. */
