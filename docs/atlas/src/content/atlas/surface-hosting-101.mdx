@@ -10,6 +10,7 @@ import Svg from "../../components/Svg.astro";
 import Footnote from "../../components/Footnote.astro";
 import map from "../../diagrams/surface-hosting-101-map.svg?raw";
 import roles from "../../diagrams/surface-hosting-101-roles.svg?raw";
+import after from "../../diagrams/surface-hosting-101-after.svg?raw";
 
 This note teaches one slice of the `@kolu/surface` stack — the slice that moves a surface **between machines** — from the ground up, in plain words. It ends at a real, current decision (the W4 switch's server pool) so the teaching has a point. You should be able to read this cold and then judge that decision yourself.
 
@@ -65,7 +66,7 @@ A fair follow-up (srid asked it): *why shouldn't the generic `HostSession` optio
 
 The one place mechanism-duplication was genuinely suspected — the local arm's reconnect loop vs `HostSession`'s — was formally audited (ledger L6, verdict c): different transports honestly dictate different reconnect mechanisms, while the *policy* both arms follow is shared through the L3 convergence kit. Acquitted, with the reasoning on record.
 
-<Svg svg={roles} wide caption="One plug shape at the top; everything else either implements it, extends it, or consumes it. The red arrow is the actual smell: buildHostRegistry's slot names the APPLIANCE (the class) where every other consumer speaks the ROLE — which is precisely the wall the W4 pool hit." />
+<Svg svg={roles} wide caption="TODAY's shapes (what the code on master looks like as you read this). The red arrow is the smell that started everything: the registry's slot names the class. The AFTER picture — post-ledger — is at the end of the note, next to the final API." />
 
 Where a real smell *does* live, your nose is right — twice, in fact — and that's the last section's subject.
 
@@ -106,12 +107,121 @@ And the road not taken, named honestly: a bespoke `Map<host, …>` in kolu-serve
 
 **The takeaway rule, beyond this case:** when your thing won't fit a framework slot, first ask what the slot's code actually *does* with it. If the behavior fits and only the annotation refuses — widen the slot to the role. If the behavior genuinely differs — that's when you're allowed to build your own.
 
-## Proposed solution *(SUPERSEDED — the three-AI debate ratified a stronger ledger)*
+## The final API — what you'll write as a framework user
 
-**This section's proposals were debated (claude ⇄ codex ⇄ grok, 2026-07-05, three rounds, unanimous) and superseded by the ratified ledger — PLUS srid's post-ratification ruling: hello is UNIVERSAL (the framework auto-serves the identity preamble for every server; identity() lives on the BASE role; only convergence/supervision stays the daemon sub-role) in [`debates/surface-hosting-simplify/conclusion.md`](https://github.com/juspay/kolu/tree/RT-fable/debates/surface-hosting-simplify)** — headline deltas vs the text below: the `PoolableSession` widen DIED (the registry's honest slot is just `DestroyableSession { destroy() }` — it never calls anything else); the rename `RemoteMirrorSession → MirrorSession` was upgraded from optional to ratified ("Remote" is false for the local arm); identity graduates NOW on a `DaemonMirrorSession` sub-role; BoundPadi becomes an alias + one typed `renew()` verb; W4-PR2's framework delta shrinks to an accessor prop. The original text stays below as the record of the pre-debate position.
+*(The shapes below are the ratified end-state — the debate record in `debates/surface-hosting-simplify/` holds the how-we-got-here; none of it is needed to use this.)*
 
-### The pre-debate version (kept for the record)
+<Svg svg={after} wide caption="The hosting side after the simplification series lands: identity is universal on the base role (every server auto-answers hello), the daemon sub-role carries only supervision, BoundPadi is an alias, and the registry demands exactly the one method it calls. No red arrows left." />
 
-**Now:** widen `buildHostRegistry`'s slot from the class to the role (`PoolableSession` = the plug + `destroy()`) — that deletes the diagram's red arrow; drishti compiles unchanged and its green CI proves the widening broke nobody. Then one cheap audit: grep `@kolu/surface*` for any other slot typed with the concrete `HostSession` and widen those the same way. The rule this leaves behind: **framework slots speak roles; classes are for `new`.**
+### The types you'll touch
 
-**Not now, on purpose:** no renames (the table above becomes the canonical explainer, linked from the three docstrings; rename only if confusion keeps recurring), and nothing daemon-flavored on the transport class — drain stays a typed per-daemon capability in the L3 kit (kaval's recycle is a different verb with a different promise), and a shared `SupervisedSession` waits for a second durable daemon consumed through a bound session. **One piece shouldn't wait at all** (srid's push surfaced it): daemon identity is already generic in the kit, so graduating the frozen control core into the shared daemon package — the standard `hello` preamble every daemon serves — is finishing a planned job, not a bet; do it and the shared daemon-session role carries `identity()` honestly. **One genuinely open question** to settle before any `SupervisedSession` extraction: does replace-the-daemon want to stay two verbs (padi `drain` · kaval `recycle`) or become one supervisor `renew()` that branches on a daemon-declared preservation strategy (state-external → exit; state-internal → snapshot-kill-restore)? The kit already unifies the *decision*; this is about the *enactment*. And whether the fleet verbs ride the role as optionals or a declared capability gets settled in the widen's own review, where the real call sites are visible.
+```ts
+// ── @kolu/surface-daemon — identity is ONE value, served by EVERY server ──
+interface ServerIdentity {
+  contractVersion: string;
+  startedAt: number;
+  buildId: string;        // convergence currency (the staleKey) — deliberately
+  commit: string | null;  // distinct from the navigable commit; never merged
+}
+
+// ── @kolu/surface-nix-host ──
+interface MirrorSession<Client = SurfaceClientLike> {
+  pin(): Promise<Client>;
+  currentClient(): Promise<Client> | null;
+  isDestroyed(): boolean;
+  onState(cb: (s: SessionState) => void): () => void;
+  markConnected(): void;
+  destroy(): void;
+  /** Universal — every server answers hello (the framework stamps it), so this
+   *  is null only transiently before first contact, never null-forever. */
+  identity(): ServerIdentity | null;
+}
+
+/** The daemon flavor adds ONLY supervision — the one thing that is daemon-y. */
+interface DaemonMirrorSession<Client = SurfaceClientLike> extends MirrorSession<Client> {
+  convergence(): DaemonConvergence | null;  // adopted-stale · skew-refused · unconverged · link-failed
+}
+
+/** The registry demands exactly what it calls — one method. */
+interface DestroyableSession { destroy(): void }
+interface HostEntry<S extends DestroyableSession, H> { session: S; handler: H }
+
+function buildHostRegistry<S extends DestroyableSession, H>(opts: {
+  initialHosts: readonly string[];
+  buildEntry(host: string): HostEntry<S, H>;
+  persist?: (hosts: string[]) => Promise<void>;
+  /** Supply this and the RETURNED TYPE gains reconnect(host)/recheckAll().
+   *  Omit it and those members don't exist — calling them won't compile. */
+  controls?: { reconnect(s: S): void; recheck(s: S): void };
+}): HostRegistry<S, H>;
+```
+
+```ts
+// ── kolu's whole padi-session vocabulary, after ──
+type BoundPadi = DaemonMirrorSession<PadiSurfaceClient> & {
+  readonly preservation: { kind: "state-external"; children: "survive" };
+  renew(): Promise<void>;   // was drainBoundPadi(); the type says programs survive
+};
+```
+
+### kolu's usage sites
+
+The server pool (W4-PR1) — note there are **no fleet controls**, so `pool.reconnect` doesn't exist and can't be called by accident:
+
+```ts
+const pool = buildHostRegistry<BoundPadi, WsRpcHandler>({
+  initialHosts: [LOCAL_HOST],
+  buildEntry: (host) => {
+    const session: BoundPadi =
+      host === LOCAL_HOST ? ensurePadiBinding({ … }) : bindRemotePadi({ host });
+    const reServed = reServeSurface({ source: padiSurface, policy, session });
+    return { session, handler: reServed.wsHandler };
+  },
+  persist: (hosts) => prefs.patch({ recentHosts: hosts }),
+});
+// websocket upgrade: pool.getHandler(hostOf(req)) — each tab names its host
+```
+
+The dialogs and the restart button — six bespoke readouts become two accessors and one verb:
+
+```ts
+const id = session.identity();          // { startedAt, commit, contractVersion, buildId } | null
+const conv = session.convergence();     // the standing banner state, or null when healthy
+await session.renew();                  // the Restart verb; session.preservation.children === "survive"
+```
+
+The browser (W4-PR2's entire framework delta):
+
+```ts
+<SurfaceAppProvider controlPlane={() => active().clients.surfaceApp} …>
+//                  today's static callers just write: {() => surfaceApp}
+```
+
+### drishti's usage sites
+
+The fleet — **with** controls, so the fleet verbs exist, typed:
+
+```ts
+const fleet = buildHostRegistry<HostSession<AgentContract>, WsRpcHandler>({
+  initialHosts: cfg.hosts,
+  buildEntry: (host) => {
+    const session = getHostSession<AgentContract>({ host, binary: "drishti-agent" });
+    return { session, handler: agentHandler(session) };
+  },
+  controls: { reconnect: (s) => s.reconnect(), recheck: (s) => s.recheck() },
+});
+fleet.reconnect("zest");   // exists BECAUSE controls were declared
+fleet.recheckAll();
+```
+
+The fleet rows — identity for free on every agent (they auto-serve hello now; drishti writes nothing):
+
+```ts
+const id = fleet.getSession(host)?.identity();
+row.uptime = id && Date.now() - id.startedAt;
+row.build  = id?.commit ?? id?.buildId.slice(0, 8);
+```
+
+### What a user never sees anymore
+
+`RemoteMirrorSession` (renamed; "Remote" was false for the local arm) · the role's dead `<C>` generic · `PoolableSession` (never shipped) · `padiStartedAt()/padiSurfaceVersion()/padiBuildCommit()` and their remote twins (six methods → `identity()`) · `drainBoundPadi` (→ `renew()`, with survival in the type) · `evictHostSession` (zero production callers; deleted) · `HostSession` in any registry/fanout type (the class remains only for direct `getHostSession` users).
