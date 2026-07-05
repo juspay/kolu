@@ -110,6 +110,16 @@ export function probeSurfaceIdentity(client: unknown): Promise<ServedIdentity> {
   ]({});
 }
 
+/** Map a baked commit string (a daemon's `<PREFIX>_COMMIT_HASH`, `""` off-nix / on a
+ *  dirty tree) to the {@link BuildCommit} sum: a non-empty hash is a navigable
+ *  `commit`, `""` is `dev`. The one place a baked `""` commit becomes the `dev` arm —
+ *  so a server declaring its identity never has to spell the null-free mapping. */
+export function buildCommit(commitHash: string): BuildCommit {
+  return commitHash === ""
+    ? { kind: "dev" }
+    : { kind: "commit", sha: commitHash };
+}
+
 /** Wrap a server's optional declared build into the value the reserved
  *  `system.identity` serves: `identified` when it declared a build, else
  *  `anonymous` — both stamped with the server's `startedAt`. The one place the

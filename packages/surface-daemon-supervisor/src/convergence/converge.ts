@@ -20,7 +20,11 @@
  *     build fence is spent even on drain failure (degraded-loudly, never a livelock).
  */
 
-import type { ConvergenceIdentity, Logger } from "@kolu/surface-daemon";
+import {
+  buildLabel,
+  type ConvergenceIdentity,
+  type Logger,
+} from "@kolu/surface-daemon";
 import { decide } from "./decide.ts";
 import type { BuildDrainFence } from "./fence.ts";
 import type { ConvergencePolicy, DrainCapability } from "./policy.ts";
@@ -149,8 +153,8 @@ export async function converge<Cap extends DrainCapability>(args: {
     const skewCtx = {
       runningContract: probe.identity.contractVersion,
       mineContract: args.baked.contractVersion,
-      runningBuild: probe.identity.buildId,
-      mineBuild: args.baked.buildId,
+      runningBuild: buildLabel(probe.identity.build),
+      mineBuild: buildLabel(args.baked.build),
     };
     switch (decision.kind) {
       case "spawn":

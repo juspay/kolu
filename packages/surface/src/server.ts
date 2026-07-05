@@ -1915,6 +1915,11 @@ export function implementSurfaces<const S extends SurfaceMap>(
   base: {
     channel: <T>(name: string) => Channel<T>;
     onStreamReadError?: (err: unknown, info: { stream: string }) => void;
+    /** Per-key DECLARED build identity — what each sibling's reserved
+     *  `system.identity` serves as its `identified` arm (see `./identity`). Omit a
+     *  key → that sibling serves `anonymous`. Only a sibling whose identity a
+     *  consumer reads (kolu-server reads the `padi` sibling's) needs an entry. */
+    identity?: { [K in keyof S]?: BakedIdentity };
   },
   deps: SurfaceDepsFor<S>,
 ): {
@@ -1941,12 +1946,17 @@ export function implementSurfaces<const S extends SurfaceMap>(
     if (!surfaceDeps) {
       throw new Error(`implementSurfaces: missing deps for surface "${key}"`);
     }
-    const { namespaces, ctx } = walkSurface(t.surface[key], surface, {
-      ...surfaceDeps,
-      channel: keyedChannel,
-      onStreamReadError:
-        surfaceDeps.onStreamReadError ?? base.onStreamReadError,
-    });
+    const { namespaces, ctx } = walkSurface(
+      t.surface[key],
+      surface,
+      {
+        ...surfaceDeps,
+        channel: keyedChannel,
+        onStreamReadError:
+          surfaceDeps.onStreamReadError ?? base.onStreamReadError,
+      },
+      base.identity?.[key as keyof S],
+    );
     byKey[key] = namespaces;
     ctxByKey[key] = ctx;
   }

@@ -21,6 +21,7 @@ import {
   converge,
   createBuildDrainFence,
   createEndpoint,
+  daemonBuild,
   type Endpoint,
   type EndpointStatus,
   outcomeAdopted,
@@ -293,7 +294,7 @@ export async function ensureLocalEndpoint(opts: {
       endpoint: ep,
       baked: {
         contractVersion: PTY_HOST_CONTRACT_VERSION,
-        buildId: currentPtyHostIdentity().staleKey,
+        build: daemonBuild(currentPtyHostIdentity().staleKey),
       },
       probe: () => probeKavalForConvergence(socketPath),
       policy: KAVAL_CONVERGENCE_POLICY,

@@ -26,9 +26,10 @@ import {
   type PadiDaemonClient,
   type PadiDial,
 } from "@kolu/padi/dial";
-import type {
-  ConvergencePolicy,
-  ConvergenceProbe,
+import {
+  type ConvergencePolicy,
+  type ConvergenceProbe,
+  daemonBuild,
 } from "@kolu/surface-daemon-supervisor";
 
 /** How long `drainViaControlCore` waits for the socket to CLOSE after the drain RPC
@@ -141,10 +142,11 @@ export async function probePadiForConvergence(
   return {
     capability: "drainable",
     // Identity read over the FROZEN control-core hello (reachable at any skew, Pin 3):
-    // the padiSurface contract version + padi's staleKey (absent → "" = honest unknown).
+    // the padiSurface contract version + padi's build knowledge (absent → the typed
+    // `off-nix` DaemonBuild, never the "" sentinel).
     identity: {
       contractVersion: hello.surfaceVersion,
-      buildId: hello.buildId ?? "",
+      build: daemonBuild(hello.buildId ?? ""),
     },
     drain: () =>
       drainViaControlCore({

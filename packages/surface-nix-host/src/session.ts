@@ -122,10 +122,11 @@ export interface Session<Client = SurfaceClientLike> {
   /** Force a fresh link probe (wake / network change) — force-cycles even a
    *  seemingly-`connected` link whose socket may have gone stale across a sleep. */
   recheck(): void;
-  /** The bound server's identity off its reserved `system.identity`, or `null`
-   *  before the first successful connect (never null-forever — every server
-   *  answers). */
-  identity(): SurfaceIdentity | null;
+  /** The bound server's identity off its reserved `system.identity` — a TOTAL,
+   *  null-free {@link SurfaceIdentity} sum. `disconnected` before the first successful
+   *  connect / between dials; `anonymous`/`identified` once connected (never
+   *  null-forever — every server answers `system.identity`). */
+  identity(): SurfaceIdentity;
 }
 
 /** How a live connection ended — the RAW transport signal the loop classifies (it
@@ -550,6 +551,10 @@ export function makeSession<Client = SurfaceClientLike>(
       if (verdict.kind === "replaced") {
         // The admit hook drained the far end (it exits); tear the old link down and
         // reconnect to bring up the successor (`network` — a converge, not a fault).
+        // The admit hello proved the transport live, so reset the give-up budget —
+        // a bounded drain→respawn treadmill (fenced by the arm) must not grow the
+        // backoff toward give-up, matching the pre-S9 markConnected-before-drain.
+        consecutiveFailures = 0;
         conn.teardown();
         updateState({
           connection: "disconnected",

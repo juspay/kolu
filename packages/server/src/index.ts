@@ -60,7 +60,8 @@ import { log } from "./log.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
 import { startDaemonInventorySampler } from "./daemonInventory.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { type BoundPadi, ensurePadiBinding } from "./padiBinding.ts";
+import { ensurePadiBinding } from "./padiBinding.ts";
+import type { PadiSession } from "./padiSession.ts";
 import {
   ensureRemotePadiBinding,
   remotePadiHost,
@@ -229,7 +230,7 @@ const rpcPlugins = [
 // over ssh can take seconds, and the binding is fail-open (the connection cell
 // reports copying/connecting/degraded while it warms).
 const remoteHost = remotePadiHost();
-const padiSession: BoundPadi = remoteHost
+const padiSession: PadiSession = remoteHost
   ? ensureRemotePadiBinding({
       host: remoteHost,
       // Forward THIS kolu build's app version so the remote-spawned PTYs' own
@@ -238,7 +239,7 @@ const padiSession: BoundPadi = remoteHost
       // `padi --stdio`'s re-exec to the durable daemon.
       spawnVersion: serverVersion,
     })
-  : await ensurePadiBinding({
+  : ensurePadiBinding({
       // The nix-shell env whitelist rides padi's CLI flag (kolu-server no longer
       // spawns PTYs — padi's kaval does — so `configureNixShellEnv` is FORWARDED to
       // padi, not called here).
@@ -260,16 +261,11 @@ const padiSession: BoundPadi = remoteHost
       verbose: argv.flags.verbose,
     });
 
-// Pin the contract type param explicitly: `padiSession` is a `BoundPadi` (the
-// local `PadiBindingSession` or the remote `RemotePadiSession`, both implementing
-// `RemoteMirrorSession<padi contract>`), and the pump's `session:
-// RemoteMirrorSession<C>` param can't reverse-infer `C` from that value (it hides
-// inside the mapped `AgentClient<C>`). Naming the contract here plugs `padiSession`
-// in checked — the old `as unknown as HostSession<…>` double-cast is gone.
-const reServedPadi = reServeSurface<
-  typeof padiSurface.spec,
-  typeof padiSurface.contract
->({
+// `padiSession` is a `PadiSession` (a `DaemonSession<PadiSurfaceClient>`, from the
+// local or remote arm's `makeSession` + spread); it plugs into `reServeSurface`'s loose
+// `Session` receptacle checked (S3 dropped the dead contract `<C>` at the role
+// boundary, so only the SURFACE spec is named here).
+const reServedPadi = reServeSurface<typeof padiSurface.spec>({
   source: padiSurface, // the BASE surface; reServeSurface adds `connection` internally.
   policy: PADI_FORWARDING_POLICY, // per-member value|delta forwarding.
   session: padiSession,
@@ -315,7 +311,7 @@ const appRouter = buildAppRouter({
   surfaceRouter,
   // The re-targeted "restart": drain the bound padi (persist + exit; kaval + its
   // PTYs survive; the reconnect loop re-spawns padi). Never a kill-9.
-  drainBoundPadi: () => padiSession.drainBoundPadi(),
+  drainBoundPadi: () => padiSession.renew(),
 });
 
 // --- oRPC handlers (HTTP non-streaming + WS streaming) ---
@@ -613,6 +609,28 @@ startMemorySampler(
 // WHOLE drain window instead of a frozen re-served daemonStatus (#1034). `onState` fires
 // the current state synchronously on subscribe, so the cell is seeded before the first
 // transition.
+// Map the base `session.identity()` sum onto the three daemon-inventory readouts the
+// dialog reads (uptime · contract version · navigable commit). `identity()` is TOTAL
+// (disconnected | anonymous | identified); padi always DECLARES its build, so a bound
+// padi is always `identified`, a mid-reconnect gap is `disconnected` (never
+// `anonymous`). This REPLACES the six bespoke `padiStartedAt`/`padiSurfaceVersion`/…
+// readouts with one universal member (S4).
+const padiStartedAt = (): number | null => {
+  const id = padiSession.identity();
+  return id.kind === "disconnected" ? null : id.startedAt;
+};
+const padiSurfaceVersion = (): string | null => {
+  const id = padiSession.identity();
+  return id.kind === "identified" ? id.baked.contractVersion : null;
+};
+const padiBuildCommit = (): string | null => {
+  const id = padiSession.identity();
+  // A navigable commit → its sha; a dev build (or unidentified) → null (honest "—").
+  return id.kind === "identified" && id.baked.commit.kind === "commit"
+    ? id.baked.commit.sha
+    : null;
+};
+
 padiSession.onState((s) => {
   koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection));
   // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
@@ -622,7 +640,7 @@ padiSession.onState((s) => {
   // that moves neither boot time. kaval's uptime is NOT here (it rides `daemonStatus`).
   koluSurfaceCtx.cells.processStartedAt.set({
     server: serverStartedAt,
-    padi: padiSession.padiStartedAt(),
+    padi: padiStartedAt(),
   });
 });
 
@@ -642,9 +660,9 @@ startDaemonInventorySampler(
     discoverKavals: discoverKavalDaemons,
     discoverPadis: discoverPadiDaemons,
     probe: probeKavalStatus,
-    activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
-    activePadiBuildCommit: () => padiSession.padiBuildCommit(),
-    activePadiConvergence: () => padiSession.padiConvergence(),
+    activePadiSurfaceVersion: () => padiSurfaceVersion(),
+    activePadiBuildCommit: () => padiBuildCommit(),
+    activePadiConvergence: () => padiSession.convergence(),
     // The SINGLE bind knob: the remote host (`KOLU_PADI_HOST`), or null for a local bind
     // (`|| null` folds an empty KOLU_PADI_HOST to null, matching the `remoteHost ?` bind
     // decision above). daemonInventory derives `boundLocally = boundHost === null` — under

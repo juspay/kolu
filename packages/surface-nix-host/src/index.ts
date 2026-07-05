@@ -56,6 +56,9 @@ export {
   type PreservationStrategy,
 } from "./daemonSession";
 export {
+  type Admit,
+  type AdmitRefusal,
+  type AdmitVerdict,
   type ClosedInfo,
   type ConnectContext,
   type Connection,

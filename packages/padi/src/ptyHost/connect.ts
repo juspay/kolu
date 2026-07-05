@@ -22,6 +22,7 @@ import {
   type ConvergenceProbe,
   type DaemonConnection,
   DaemonContractSkewError,
+  daemonBuild,
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
 import {
@@ -149,7 +150,7 @@ export async function probeKavalForConvergence(
     capability: "not-drainable",
     identity: {
       contractVersion: version.contractVersion,
-      buildId: version.identity?.staleKey ?? "",
+      build: daemonBuild(version.identity?.staleKey ?? ""),
     },
     dispose: () => socket.destroy(),
   };
