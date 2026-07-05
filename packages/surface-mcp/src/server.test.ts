@@ -603,12 +603,15 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
       v: "answer",
     });
 
-    // Remove it, then read again. Because the item `get` HOLDS OPEN for an
-    // absent key, a read that relied on `get` alone would hang forever after the
-    // delete. The bounded read races `get` against a LIVE `keys` watch, so the
-    // removal frame makes the read not-found instead of hanging — this is the
-    // delete-race the two-step check-then-`get` sequence would have left open.
-    over.client.surface.rows.delete({ key: 42 });
+    // Remove it — AWAIT the delete so the removal is applied and published
+    // BEFORE the read subscribes; otherwise the ordering is unpinned and the read
+    // could race a still-present 42 (a resolved value), never exercising the
+    // delete case this test names. With the delete settled, the read's `keys`
+    // snapshot omits 42. Because the item `get` HOLDS OPEN for an absent key, a
+    // read that relied on `get` alone would hang forever here; the bounded read
+    // resolves not-found from the `keys`-absence watch instead — so a regression
+    // back to the hang trips the 2s timeout and fails this test.
+    await over.client.surface.rows.delete({ key: 42 });
     const read = mcp.readResource({ uri: "surface://collections/rows/42" });
     const outcome = await Promise.race([
       read.then(
