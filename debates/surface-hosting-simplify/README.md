@@ -28,6 +28,6 @@ The surprises:
 - The framework loses a false name (`RemoteMirrorSession` → `MirrorSession`), a dead generic, three duplicate readout methods, one dead export, and gains one honest identity value shared by all daemons.
 - Every daemon's identity (when it started, what build, what contract) becomes **one universal value** — with the build-currency and the human-navigable commit kept as deliberately distinct fields.
 
-## The one still-open question
+## The question that didn't survive the owner's review
 
-Should *every* server this framework fronts answer "who are you?" (not just daemons)? If yes someday, one more layer collapses. Parked, documented, blocking nothing.
+The debate parked "should *every* server answer 'who are you?'" as a someday question. **srid ruled it immediately: of course — no exceptions.** The framework will answer it automatically for every server (no author writes anything), identity moves to the base role, and only *supervision* (convergence, drain) stays daemon-specific. The parked assumption turned out to be scope-timidity, not architecture.

@@ -25,9 +25,16 @@ Three participants (claude — doctrine judge; codex, grok — radical simplifie
 - **The dead export**: `evictHostSession` has ZERO production callers (tests + README only), and `hostSession.ts`'s comment claiming `buildHostRegistry.remove` uses it is FALSE (remove calls `destroy()` directly). Disposition at implementation time: delete it or wire it truthfully — the lying comment does not survive either way. `destroyAllSessions` has one consumer (the example monitor).
 - **The module memo-cache (`getHostSession`) and the registry are cache-vs-owner, not rival pools** (codex's framing, confirmed against grok's inventory).
 
-## Open questions, documented (not blocking anything above)
+## Post-ratification amendment (srid, 2026-07-05) — F2 RESOLVED: hello IS universal
 
-- **F2 — universal `hello`**: making the identity preamble something every surface *server* answers (not just daemons) would dissolve S4's sub-role split. Bigger than the hosting side; revisit if/when a non-daemon far end needs identity.
+srid ruled the parked question: **every surface server answers "who are you" — no exceptions.** The debate's counter-argument ("identity() on the base role claims daemon semantics") conflated basic identity (contract version · startedAt · build · commit — meaningful for EVERY serving process) with supervision semantics (convergence states, drain — genuinely daemon-only). The null-forever objection was only true while some servers don't answer; the ruling removes that class. Design consequence, amending S4:
+
+- **The framework auto-serves the identity preamble** on every serve path (`implementSurface`/serve wrappers stamp it from baked identity — zero per-server code; fakes conform for free; like HTTP answering OPTIONS).
+- **`identity()` moves to the base `MirrorSession`** (null only transiently before first contact, never null-forever).
+- **`DaemonMirrorSession` shrinks to `convergence()`** — supervision stays the sub-role; identity does not.
+- Skew becomes pre-handshake-detectable on EVERY client-server pair, not just supervised daemons.
+
+S4's field-distinctness addendum (buildId ≠ commit) carries over unchanged.
 
 ## Consequences for in-flight plans
 
