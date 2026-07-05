@@ -424,15 +424,11 @@ export function reServeSurface<
       // banner / connection recovery) could not tell "rebound and confirmed" from
       // "stale". Force ONE republish on the FIRST fold of this spawn to cross the
       // gate; every later fold in the same spawn keeps steady-state dedup.
-      let epochForced = false;
+      let firstFold = true;
       cells[key] = (value) => {
         onFirst();
-        if (epochForced) {
-          cell.set(value);
-        } else {
-          epochForced = true;
-          cell.set(value, { force: true });
-        }
+        cell.set(value, firstFold ? { force: true } : undefined);
+        firstFold = false;
       };
     }
     const collections: Record<

@@ -1,7 +1,15 @@
 /**
- * Read the first frame of a snapshot-then-delta stream — the surface protocol
- * guarantees every cell/collection subscription OPENS with a snapshot frame, so
- * "the first value the stream yields" is the current snapshot.
+ * Read the first frame of a snapshot-then-delta stream — a cell subscription, a
+ * PRESENT-key collection `get`, and a collection `keys` all OPEN with a snapshot
+ * frame, so "the first value the stream yields" is the current snapshot.
+ *
+ * EXCEPTION (#1681): a collection `get` for a key that is NOT a member yet is a
+ * held-open subscription that yields NOTHING until the key's first upsert (see
+ * `collectionHandlers.get`), so it has no opening snapshot to read one-shot. A
+ * one-shot reader that might target an absent key must therefore NOT block on
+ * `firstFrameOrThrow` alone — it must bound the read against membership (the
+ * `keys` stream) and the request signal, or it hangs. `surface-mcp`'s
+ * `readCollectionItemSnapshot` is the reference bounded reader for that case.
  *
  * The single axis here is the snapshot contract; the only thing that varies per
  * consumer is the empty-stream POLICY — an empty stream means "no snapshot ever
