@@ -52,9 +52,9 @@ import {
   serverVersion,
 } from "./hostname.ts";
 import {
+  assembleRemotePreview,
   previewTailFromRawUrl,
   rawTargetFromContext,
-  remotePreviewBlock,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import {
@@ -359,18 +359,6 @@ mountArtifactSdk(app, {
 // shadow this route with `serveStatic`'s `/*` matcher.
 app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const terminalId = c.req.param("terminalId");
-  // Remote binding (KOLU_PADI_HOST): the terminal registry lives on the ssh HOST, so
-  // `repoRootForTerminal` below answers with an absolute path in the REMOTE
-  // filesystem. `previewFile` further down reads THIS machine's LOCAL disk, so handing
-  // it a remote path would serve unrelated local bytes from the same absolute path (or
-  // 404) — a wrong-data path that violates the remote-host contract. There is no remote
-  // preview STREAM yet (that rides a later slice with the picker), so fail CLOSED with a
-  // loud 501 rather than read the wrong machine's disk — fail-fast per conventions.md,
-  // never a silent local read of a remote path.
-  const remoteBlock = remotePreviewBlock(remoteHost);
-  if (remoteBlock) {
-    return c.text(remoteBlock.body, remoteBlock.status);
-  }
   // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
   // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
   // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
@@ -393,16 +381,14 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
 
   // Which directory this terminal serves (its git repo root) — RE-SOURCED from
   // padi's registry over the bound session, since padi (not kolu-server) owns the
-  // terminal registry now. padi resolves terminal id → repoRoot; kolu-server then
-  // STREAMS the file itself via the shared `previewFile` (bounded heap, forwarding
-  // the browser's `Range` so a `<video>` seek answers 206), exactly as the retired
-  // in-process route did — so a multi-GB video is never forced whole through a
-  // base64 procedure.
+  // terminal registry now. padi resolves terminal id → repoRoot; how kolu-server
+  // then reads the bytes forks on the binding (local disk vs. the bound host), see
+  // below. Either way the file is never forced whole through the base64 procedure.
   const clientPromise = padiSession.currentClient();
   if (!clientPromise) return c.text("padi is not connected", 503);
+  const client = await clientPromise;
   let repoRoot: string | null;
   try {
-    const client = await clientPromise;
     ({ repoRoot } = await client.surface.preview.repoRootForTerminal({
       terminalId,
     }));
@@ -417,17 +403,33 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
     return c.text("padi link fault resolving terminal repo", 503);
   }
   if (!repoRoot) return c.text("terminal has no repo", 404);
+  // Bind to a const so the non-null narrowing survives into the remote closure.
+  const repoPath = repoRoot;
 
-  // The SAME serve-dir read + realpath guard `padiSurface.preview.read` serves,
-  // but the STREAMING form: a `ReadableStream` body on 2xx (disk→socket, bounded
-  // heap), the browser's `Range` forwarded (206 on a `<video>` seek), and the
-  // symlink-escape 403 re-enforced before any byte is read. The artifact-sdk HTML
-  // decorator (mounted above) rewrites text/html downstream.
-  const r = await previewFile({
-    repoPath: repoRoot,
-    filePath: rawTail,
-    range: c.req.header("range"),
-  });
+  const range = c.req.header("range");
+  // The byte read forks on the binding — but the file tail + repoRoot (and their
+  // `..`/`%2f` defenses above) are identical for both arms, so a remote path never
+  // reaches a local read, and vice versa.
+  //   - REMOTE (KOLU_PADI_HOST): the file lives on the ssh HOST, so dial the bound
+  //     padi's `preview.read` in bounded chunks (`assembleRemotePreview`) — the RIGHT
+  //     host's bytes, streamed back with an O(chunk) heap on both hops. padi
+  //     re-enforces its realpath/403 guard host-side inside the read.
+  //   - LOCAL: read THIS machine's disk directly via the shared streaming
+  //     `previewFile` (the same underlying serve-dir read padi serves) — no hop, no
+  //     base64 round trip, byte-identical to before.
+  // Both return serve-dir's `ServeResult` shape; the artifact-sdk HTML decorator
+  // (mounted above) rewrites text/html downstream in either case.
+  const r = remoteHost
+    ? await assembleRemotePreview(
+        (chunkRange) =>
+          client.surface.preview.read({
+            repoPath,
+            filePath: rawTail,
+            range: chunkRange,
+          }),
+        range,
+      )
+    : await previewFile({ repoPath, filePath: rawTail, range });
   return new Response(r.body as BodyInit, {
     status: r.status,
     headers: r.headers,
