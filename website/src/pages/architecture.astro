@@ -518,7 +518,7 @@ const primitives = [
       {
         primitives.map((p) => (
           <div>
-            <code class="mono text-amber text-sm">{p.sig}</code>
+            <code class="mono text-kolu-primary text-sm">{p.sig}</code>
             <p class="mono text-ink-dim text-xs mt-1">{p.q}</p>
             <p class="text-ink-dim text-[0.95rem] leading-relaxed mt-1.5">
               {p.what}
@@ -549,7 +549,7 @@ const primitives = [
         separate app,{" "}
         <a
           href="https://github.com/srid/drishti"
-          class="text-amber hover:underline"
+          class="text-kolu-primary hover:underline"
           rel="noopener">drishti</a
         >, is built on the same <code class="mono text-ink">@kolu/surface</code>,
         and every change to the framework must ship with drishti's own tests
@@ -601,7 +601,7 @@ const primitives = [
     <h2 class="ax-head">next — your <span class="ax-prog">other</span> machines</h2>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
       The same surface contract already runs over ssh: it's how{" "}
-      <a href="/kaval" class="text-amber hover:underline"
+      <a href="/kaval" class="text-kolu-primary hover:underline"
         ><code class="mono">kaval-tui --host</code></a
       > drives a daemon on another machine with nothing pre-installed there.
       Pointing kolu's browser at
@@ -672,7 +672,7 @@ const primitives = [
 
 <style>
   /* Section headings — mirror the kaval page: a display-scale lowercase
-     tech-sans heading led by a tall logo-gold bar. */
+     tech-sans heading led by a tall middle-step bar. */
   .ax-head {
     position: relative;
     margin-top: 0.2rem;
@@ -694,20 +694,20 @@ const primitives = [
     bottom: 0.16em;
     width: 5px;
     border-radius: 3px;
-    background: var(--color-amber);
+    background: var(--color-kolu-primary);
     box-shadow: 0 0 14px -1px
-      color-mix(in srgb, var(--color-amber) 60%, transparent);
+      color-mix(in srgb, var(--color-kolu-primary) 60%, transparent);
   }
 
-  /* Program/identifier names inside a heading — amber, mono, sized to sit
-     flush with the bold sans around them. */
+  /* Program/identifier names inside a heading — primary color, mono, sized to
+     sit flush with the bold sans around them. */
   .ax-prog {
     font-family: var(--font-mono);
     font-variant-ligatures: none;
     font-size: 0.82em;
     font-weight: 700;
     letter-spacing: -0.01em;
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
 
   /* "read the story" companion link under a heading. */
@@ -717,12 +717,12 @@ const primitives = [
     gap: 0.4rem;
     font-family: var(--font-mono);
     font-size: 0.82rem;
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
     text-decoration: none;
     transition: color 0.15s;
   }
   .ax-readmore a:hover {
-    color: var(--color-amber-bright);
+    color: var(--color-kolu-primary-hover);
   }
 
   /* Survival / "what killing it does not lose" table. */
@@ -748,7 +748,7 @@ const primitives = [
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
   .ax-table td {
     color: var(--color-ink-dim);
@@ -771,20 +771,21 @@ const primitives = [
     color: var(--color-ink-muted);
   }
   .ax-cmp thead th:last-child {
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
   .ax-cmp td:last-child {
     color: var(--color-ink);
   }
   /* Semantic cell coding — by OUTCOME, uniform across columns (so "survives" is
-     green in every column, and the reboot row reads amber for all three). Each
-     class carries a shape glyph as well as a tint, so meaning survives without
-     colour. ✓ win · ~ partial/conditional · ✕ none/no · – not applicable. */
+     teal in every column, and the reboot row reads the top-step colour for all
+     three). Each class carries a shape glyph as well as a tint, so meaning
+     survives without colour. ✓ win · ~ partial/conditional · ✕ none/no · – not
+     applicable. */
   .ax-cmp td.c-yes {
     background: color-mix(in srgb, var(--color-live-lime) 9%, transparent);
   }
   .ax-cmp td.c-mid {
-    background: color-mix(in srgb, var(--color-brand-amber) 10%, transparent);
+    background: color-mix(in srgb, var(--color-kolu-top) 10%, transparent);
   }
   .ax-cmp td.c-no {
     background: color-mix(in srgb, var(--color-live-alert) 9%, transparent);
@@ -799,7 +800,7 @@ const primitives = [
   }
   .ax-cmp td.c-mid::before {
     content: "~  ";
-    color: var(--color-brand-amber);
+    color: var(--color-kolu-top);
     font-weight: 700;
   }
   .ax-cmp td.c-no::before {
@@ -816,9 +817,9 @@ const primitives = [
   /* Tinted callout card — left accent bar, raised fill. */
   .ax-callout {
     border: 1px solid var(--color-rule);
-    border-left: 3px solid var(--color-amber);
+    border-left: 3px solid var(--color-kolu-primary);
     border-radius: 0.6rem;
-    background: color-mix(in srgb, var(--color-amber) 6%, var(--color-void-raised));
+    background: color-mix(in srgb, var(--color-kolu-primary) 6%, var(--color-void-raised));
     padding: 0.95rem 1.15rem;
   }
   .ax-callout p {
@@ -871,10 +872,10 @@ const primitives = [
   .ax-link-t {
     font-family: var(--font-mono);
     font-size: 0.9rem;
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
   a.ax-link:hover .ax-link-t {
-    color: var(--color-amber-bright);
+    color: var(--color-kolu-primary-hover);
   }
   .ax-link-d {
     font-size: 0.85rem;
@@ -907,27 +908,27 @@ const primitives = [
     stroke-width: 1.5;
   }
   .ax-d-daemon {
-    fill: color-mix(in srgb, var(--color-amber) 12%, var(--color-void-raised));
-    stroke: var(--color-amber);
+    fill: color-mix(in srgb, var(--color-kolu-primary) 12%, var(--color-void-raised));
+    stroke: var(--color-kolu-primary);
     stroke-width: 1.5;
   }
   .ax-d-pty {
     fill: var(--color-void-sunk);
-    stroke: var(--color-rule-strong);
+    stroke: color-mix(in srgb, var(--color-kolu-bottom) 34%, var(--color-rule-strong));
     stroke-width: 1.25;
   }
   .ax-d-flow {
     fill: none;
-    stroke: var(--color-amber);
+    stroke: var(--color-kolu-top);
     stroke-width: 1.5;
   }
   .ax-d-stream {
     fill: none;
-    stroke: var(--color-amber);
+    stroke: var(--color-kolu-bottom);
     stroke-width: 2;
   }
   .ax-d-arrow {
-    fill: var(--color-amber);
+    fill: var(--color-kolu-top);
   }
   .ax-d-bracket {
     fill: none;
@@ -941,7 +942,7 @@ const primitives = [
     stroke-dasharray: 3 4;
   }
   .ax-d-cap {
-    fill: var(--color-amber);
+    fill: var(--color-kolu-primary);
     font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 1.6px;
@@ -962,13 +963,13 @@ const primitives = [
     font-weight: 600;
   }
   .ax-d-daemon-label {
-    fill: var(--color-amber-bright);
+    fill: var(--color-kolu-primary-hover);
     font-size: 19px;
     font-weight: 700;
     letter-spacing: -0.4px;
   }
   .ax-d-daemon-label2 {
-    fill: var(--color-amber-bright);
+    fill: var(--color-kolu-primary-hover);
     font-size: 15px;
     font-weight: 700;
     letter-spacing: -0.2px;
@@ -986,7 +987,7 @@ const primitives = [
     font-size: 11px;
   }
   .ax-d-tick {
-    fill: var(--color-amber-bright);
+    fill: var(--color-kolu-bottom);
     font-size: 13px;
     text-anchor: middle;
   }

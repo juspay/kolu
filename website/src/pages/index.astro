@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { getCollection } from 'astro:content';
+import { KOLU_VERSION } from '../site';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => `${base}${p}` || '/';
@@ -22,13 +23,13 @@ const tunnels = [
     name: 'Cloudflare Tunnel + Access',
     intent: 'public + identity-gated',
     note: 'expose to the world, but force a login (SSO / email) before anyone reaches it.',
-    accent: 'var(--color-live-violet)',
+    accent: 'var(--color-kolu-primary)',
   },
   {
     name: 'ngrok',
     intent: 'throwaway public URL',
     note: 'a quick share link for a demo. No auth — tear it down after.',
-    accent: 'var(--color-amber-bright)',
+    accent: 'var(--color-kolu-top-strong)',
   },
 ];
 
@@ -60,7 +61,7 @@ const tunnels = [
       aria-hidden="true"
       class="absolute top-10 right-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
     >
-      v0.1 ┐
+      v{KOLU_VERSION} ┐
     </span>
 
     <div class="mt-8 mx-auto max-w-3xl text-center">
@@ -68,14 +69,14 @@ const tunnels = [
            in its own section just below. -->
       <div class="reveal reveal-1 flex flex-col items-center">
         <p class="eyebrow flex items-center justify-center gap-2">
-          <span class="text-amber-dim">$</span>
+          <span class="text-kolu-primary-muted">$</span>
           <span>kolu — the terminal, done right</span>
         </p>
 
         <h1
           class="display reveal reveal-2 mt-5 text-[3rem] sm:text-[3.6rem] md:text-[4.4rem]"
         >
-          The terminal<br />built for <span class="text-amber">many</span>.<span
+          The terminal<br />built for <span class="text-kolu-primary">many</span>.<span
             class="cursor"
             aria-hidden="true"></span>
         </h1>
@@ -101,7 +102,7 @@ const tunnels = [
         <div class="reveal reveal-4 mt-8 flex flex-wrap items-center justify-center gap-3">
           <a
             href="#quickstart"
-            class="inline-flex items-center gap-2 rounded-sm bg-amber text-void px-5 py-2.5 mono text-[0.82rem] font-medium hover:bg-amber-bright transition-colors"
+            class="inline-flex items-center gap-2 rounded-sm bg-kolu-primary text-void px-5 py-2.5 mono text-[0.82rem] font-medium hover:bg-kolu-primary-hover transition-colors"
           >
             Get started <span aria-hidden="true">→</span>
           </a>
@@ -710,7 +711,7 @@ const tunnels = [
         <dt>Multi-agent at scale</dt>
         <dd>
           The dock pulses for working agents and breathes for awaiting ones; a
-          finished background agent fires a loud purple ping plus a toast with a
+          finished background agent fires a loud rose ping plus a toast with a
           <strong>Switch</strong> action that pans the canvas straight to it —
           and, on an HTTPS/<code>localhost</code> kolu with notifications
           granted, a native <strong>OS notification</strong> you can click to
@@ -1043,14 +1044,14 @@ const tunnels = [
           <p class="eyebrow">from the blog</p>
           <a
             href={href('/blog')}
-            class="mono text-[0.72rem] text-ink-dim hover:text-amber transition-colors"
+            class="mono text-[0.72rem] text-ink-dim hover:text-kolu-primary transition-colors"
           >
             all posts →
           </a>
         </div>
         <a
           href={href(`/blog/${latest.id}`)}
-          class="block group relative border-t border-b border-rule py-10 hover:border-amber-dim transition-colors"
+          class="block group relative border-t border-b border-rule py-10 hover:border-kolu-primary-muted transition-colors"
         >
           <time
             class="mono text-[0.72rem] text-ink-muted tracking-widest"
@@ -1064,13 +1065,13 @@ const tunnels = [
               })
               .toUpperCase()}
           </time>
-          <h3 class="display-sm text-[2rem] md:text-[2.4rem] mt-3 text-ink group-hover:text-amber transition-colors">
+          <h3 class="display-sm text-[2rem] md:text-[2.4rem] mt-3 text-ink group-hover:text-kolu-primary transition-colors">
             {latest.data.title}
           </h3>
           <p class="mt-4 text-ink-dim leading-relaxed max-w-2xl">
             {latest.data.description}
           </p>
-          <span class="mt-6 inline-block mono text-[0.76rem] text-ink-dim group-hover:text-amber transition-colors">
+          <span class="mt-6 inline-block mono text-[0.76rem] text-ink-dim group-hover:text-kolu-primary transition-colors">
             read →
           </span>
         </a>
@@ -1092,7 +1093,7 @@ const tunnels = [
      terminal can pick its own — the demo mirrors that with three
      distinct palettes across the page so the hero, canvas main tile,
      and canvas side tile each read as a separate terminal.
-     The shared block pins cool-neutral ink + logo-gold amber tokens
+     The shared block pins cool-neutral ink + middle-step primary tokens
      *inside* the terminal regardless of page theme, so light-mode
      visitors still see legible terminal output on the dark theme bg
      without washing out the terminal palettes. */
@@ -1103,9 +1104,15 @@ const tunnels = [
     --color-ink-dim: #a8a8b2;
     --color-ink-muted: #6e6e78;
     --color-ink-faint: #3a3a42;
-    --color-amber: #f59e0b;
-    --color-amber-bright: #facc15;
-    --color-amber-dim: #b45309;
+    --color-kolu-primary: var(--color-kolu-logo-middle);
+    --color-kolu-primary-hover: var(--color-kolu-logo-middle-hover);
+    --color-kolu-primary-muted: var(--color-kolu-logo-middle-muted);
+    --color-kolu-top: var(--color-kolu-logo-top);
+    --color-kolu-top-strong: var(--color-kolu-logo-top-strong);
+    --color-kolu-top-muted: var(--color-kolu-logo-top-muted);
+    --color-kolu-bottom: var(--color-kolu-logo-bottom);
+    --color-kolu-bottom-strong: var(--color-kolu-logo-bottom-strong);
+    --color-kolu-bottom-deep: var(--color-kolu-logo-bottom-deep);
     --color-rule: #18181d;
     --color-rule-strong: #28282f;
     color: var(--color-ink);
@@ -1113,7 +1120,7 @@ const tunnels = [
   .theme-phala {
     --term-bg: #160721;
     --term-bg-bar: #1f0a2e;
-    --term-glow: var(--color-live-violet);
+    --term-glow: var(--color-kolu-primary);
   }
   .theme-solarized {
     --term-bg: #02161c;
@@ -1128,7 +1135,7 @@ const tunnels = [
 
   /* ── Hero demo video (the real captured kolu session) ────────────────────
      The full-width centerpiece right under the hero copy. The clip carries
-     kolu's own chrome, so this is just a bordered, amber-glowing 16:9 frame. */
+     kolu's own chrome, so this is just a bordered, primary-glowing 16:9 frame. */
   .demo-video {
     display: block;
     width: 100%;
@@ -1151,7 +1158,7 @@ const tunnels = [
     overflow: hidden;
     background: var(--color-void-sunk);
     box-shadow: 0 0 90px -30px
-      color-mix(in srgb, var(--color-amber) 35%, transparent);
+      color-mix(in srgb, var(--color-kolu-primary) 35%, transparent);
     line-height: 0;
   }
 
@@ -1176,8 +1183,8 @@ const tunnels = [
       background 120ms ease;
   }
   .copy-cli-btn:hover {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
+    color: var(--color-kolu-primary);
+    border-color: var(--color-kolu-primary);
   }
   .copy-cli-btn.is-done {
     color: var(--color-live-lime);
@@ -1236,11 +1243,11 @@ const tunnels = [
   }
   .guide-link {
     color: var(--color-ink);
-    border-bottom: 1px solid var(--color-amber-dim);
+    border-bottom: 1px solid var(--color-kolu-primary-muted);
     transition: border-color 120ms ease;
   }
   .guide-link:hover {
-    border-bottom-color: var(--color-amber);
+    border-bottom-color: var(--color-kolu-primary);
   }
 
   .guide-section :not(pre) > code {
@@ -1250,7 +1257,7 @@ const tunnels = [
     border-radius: 0.25rem;
     padding: 0.08rem 0.38rem;
     font-size: 0.86em;
-    color: var(--color-amber-bright);
+    color: var(--color-kolu-top-strong);
   }
   .guide-section kbd {
     font-family: var(--font-mono);
@@ -1270,7 +1277,7 @@ const tunnels = [
     border-radius: 0.5rem;
     overflow: hidden;
     background: var(--color-void-sunk);
-    box-shadow: 0 0 60px -25px color-mix(in srgb, var(--color-amber) 30%, transparent);
+    box-shadow: 0 0 60px -25px color-mix(in srgb, var(--color-kolu-primary) 30%, transparent);
     margin-block: 1.5rem;
   }
   .term-frame-sm {
@@ -1317,10 +1324,10 @@ const tunnels = [
     font-size: inherit;
   }
   .c-comment {
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
   .c-prompt {
-    color: var(--color-amber-dim);
+    color: var(--color-kolu-primary-muted);
     user-select: none;
   }
   .c-arrow {
@@ -1346,8 +1353,8 @@ const tunnels = [
     color: var(--color-ink);
   }
   .callout-note {
-    border-left-color: var(--color-amber);
-    background: color-mix(in srgb, var(--color-amber) 5%, var(--color-void-raised));
+    border-left-color: var(--color-kolu-primary);
+    background: color-mix(in srgb, var(--color-kolu-primary) 5%, var(--color-void-raised));
   }
   .callout-ok {
     border-left-color: var(--color-live-lime);
@@ -1382,7 +1389,7 @@ const tunnels = [
     border: 1px solid var(--color-rule-strong);
     font-family: var(--font-mono);
     font-size: 0.8rem;
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
     background: var(--color-void-raised);
   }
   .step-t {
@@ -1520,7 +1527,7 @@ const tunnels = [
   }
   .deep[open] > summary::after {
     content: "−";
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
   .deep > summary:hover {
     background: var(--color-void-sunk);
@@ -1530,8 +1537,8 @@ const tunnels = [
     font-size: 0.6rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--color-amber);
-    border: 1px solid var(--color-amber-dim);
+    color: var(--color-kolu-primary);
+    border: 1px solid var(--color-kolu-primary-muted);
     border-radius: 0.25rem;
     padding: 0.1rem 0.4rem;
     flex-shrink: 0;
@@ -1566,7 +1573,7 @@ const tunnels = [
     content: "›";
     position: absolute;
     left: 0;
-    color: var(--color-amber-dim);
+    color: var(--color-kolu-primary-muted);
     font-family: var(--font-mono);
   }
   .deep-body strong {
@@ -1663,7 +1670,7 @@ const tunnels = [
     color: var(--color-ink-dim);
   }
   .section-rail a.is-active {
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
   .rail-dot {
     flex: none;
@@ -1678,7 +1685,7 @@ const tunnels = [
   }
   .section-rail a.is-active .rail-dot {
     opacity: 1;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-amber) 22%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-kolu-primary) 22%, transparent);
   }
   .rail-label {
     opacity: 0;

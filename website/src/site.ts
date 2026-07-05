@@ -13,3 +13,12 @@ export const SITE_DESCRIPTION =
   "kolu is a terminal app built for scale: real xterm.js tiles on an infinite canvas, with a dock that never loses one — especially when you're running five agents at once.";
 
 export const SITE_TAGLINE = "the best way to run terminals";
+
+export const KOLU_PALETTE = {
+  primaryRgb: [225, 69, 132] as [number, number, number],
+};
+
+export const KOLU_VERSION = import.meta.env.PUBLIC_KOLU_VERSION;
+if (!KOLU_VERSION) {
+  throw new Error("PUBLIC_KOLU_VERSION is required for the website build");
+}

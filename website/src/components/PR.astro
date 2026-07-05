@@ -1,9 +1,9 @@
 ---
 /**
  * Inline reference to a GitHub pull request or issue, rendered as a small
- * GitHub-style token: a state-colored Octicon (merged = purple, open = green,
- * closed = red) followed by the monospace number. Themed via the global CSS
- * custom properties, so it tracks light/dark automatically.
+ * GitHub-style token: a state-colored Octicon (merged = Kolu primary, open =
+ * bottom-step green, closed = red) followed by the monospace number. Themed via
+ * the global CSS custom properties, so it tracks light/dark automatically.
  *
  *   <PR id={984} />                          → juspay/kolu#984  (merged PR)
  *   <PR id={951} kind="issue" />             → juspay/kolu#951  (open issue)
@@ -79,7 +79,7 @@ const ICON: Record<string, string> = {
 
 <style>
   .pr-ref {
-    --pr-state: var(--color-amber);
+    --pr-state: var(--color-kolu-primary);
     display: inline-flex;
     align-items: center;
     gap: 0.3em;
@@ -100,13 +100,13 @@ const ICON: Record<string, string> = {
       border-color 0.15s ease;
   }
   .pr-ref[data-state="merged"] {
-    --pr-state: var(--color-amber);
+    --pr-state: var(--color-kolu-primary);
   }
   .pr-ref[data-state="open"] {
-    --pr-state: var(--color-brand-green);
+    --pr-state: var(--color-kolu-bottom-strong);
   }
   .pr-ref[data-state="closed"] {
-    --pr-state: var(--color-brand-red);
+    --pr-state: var(--color-kolu-primary-muted);
   }
   .pr-ref:hover {
     background: color-mix(in srgb, var(--pr-state) 22%, transparent);

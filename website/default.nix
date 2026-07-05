@@ -33,12 +33,14 @@
     cp ${../packages/kaval/logo.svg} $out/public/kaval-logo.svg
     rm -f $out/public/padi-logo.svg
     cp ${../packages/padi/logo.svg} $out/public/padi-logo.svg
+    cp ${../packages/server/package.json} $out/kolu-server-package.json
   ''
 }:
 let
-  # Single source for the website version — its own package.json (no literal to
-  # drift). Threaded into fetchPnpmDeps and the typecheck derivation below.
-  version = (pkgs.lib.importJSON ./package.json).version;
+  # Website displays Kolu's app version, whose single source of truth is
+  # packages/server/package.json (same as the root derivation). Thread this
+  # through Nix so the sandbox never needs to reach outside `src`.
+  version = (pkgs.lib.importJSON ../packages/server/package.json).version;
 
   # fetchPnpmDeps hash is platform-independent. Regenerate when pnpm-lock.yaml
   # changes — `just ci::pnpm-hash-fresh` checks this alongside the root's
@@ -74,7 +76,7 @@ let
 
   default = pkgs.stdenv.mkDerivation {
     pname = "kolu-website";
-    version = "0.1.0";
+    inherit version;
     inherit src pnpmDeps;
 
     nativeBuildInputs = [
