@@ -41,7 +41,10 @@
  *  so the dock's "what counts as one repo" agrees with the canvas. */
 
 import type { TerminalId } from "kolu-common/surface";
-import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import {
+  terminalAnnotationLabel,
+  type TerminalDisplayInfo,
+} from "../../terminal/terminalDisplay";
 import type { RankedDockRow } from "./dockRowRanking";
 
 export type DockGroup = {
@@ -117,9 +120,10 @@ export function buildDockTree(
       group = { color: info.repoColor, byLabel: new Map() };
       byName.set(info.key.group, group);
     }
-    const list = group.byLabel.get(info.key.label);
+    const label = terminalAnnotationLabel(info);
+    const list = group.byLabel.get(label);
     if (list) list.push(row);
-    else group.byLabel.set(info.key.label, [row]);
+    else group.byLabel.set(label, [row]);
   }
 
   const groups: DockGroup[] = [...byName.entries()].map(([name, g]) => ({

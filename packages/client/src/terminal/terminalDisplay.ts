@@ -10,6 +10,7 @@ import {
   type TerminalKey,
   terminalKey,
 } from "kolu-common/terminalKey";
+import { annotationLine } from "../intent/text";
 
 export type TerminalDisplayInfo = {
   /** Deterministic OKLCH hue per repo `group`. Always defined: `group`
@@ -30,6 +31,17 @@ export type TerminalDisplayInfo = {
    *  terminal in the same display set shares `(group, label)`. */
   key: TerminalKey;
 };
+
+/** Intent-first label for user-facing terminal presentation.
+ *
+ *  `key.label` remains the identity/collision key (git branch or shortened cwd).
+ *  Presentation surfaces that show or search the branch-like slot should read
+ *  this helper so a git branch update cannot obscure a user-authored intent. */
+export function terminalAnnotationLabel(
+  info: Pick<TerminalDisplayInfo, "meta" | "key">,
+): string {
+  return annotationLine(info.meta.intent, info.key.label);
+}
 
 /** Assign OKLCH colors via golden-angle hue spacing.
  *  All keys share one sequence so no two get the same color. */

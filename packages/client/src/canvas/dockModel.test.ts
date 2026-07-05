@@ -402,4 +402,17 @@ describe("buildDockModel", () => {
       modelFor(entries, { query: "claude sonnet" }).visibleEntries,
     ).toHaveLength(1);
   });
+
+  it("searches the intent annotation even after the git branch changes", () => {
+    const sources = [
+      source("t-intent", {
+        intent: "Keep current task",
+        git: makeGit({ repoName: "kolu", branch: "new-intent-branch" }),
+      }),
+    ];
+
+    expect(
+      modelFor(sources, { query: "keep current" }).visibleEntries,
+    ).toHaveLength(1);
+  });
 });

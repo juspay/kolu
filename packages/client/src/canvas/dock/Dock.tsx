@@ -78,7 +78,10 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
-import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import {
+  terminalAnnotationLabel,
+  type TerminalDisplayInfo,
+} from "../../terminal/terminalDisplay";
 import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
@@ -706,7 +709,7 @@ const RailChip: Component<{
 };
 
 function chipTooltip(info: TerminalDisplayInfo, bucket: DockRowBucket): string {
-  return `${info.key.group} · ${info.key.label} · ${bucket}`;
+  return `${info.key.group} · ${terminalAnnotationLabel(info)} · ${bucket}`;
 }
 
 export default Dock;

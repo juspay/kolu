@@ -12,7 +12,10 @@ import {
   type IdleBucket,
   type IdleBucketKey,
 } from "../terminal/activityWindow";
-import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
+import {
+  terminalAnnotationLabel,
+  type TerminalDisplayInfo,
+} from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 
 /** Live-terminal source row before a presentation-specific order is applied. */
@@ -325,6 +328,7 @@ function searchTextFor(entry: {
   const values: string[] = [
     entry.repoName,
     entry.label,
+    terminalAnnotationLabel(info),
     ...prSearchFields(arm?.pr),
   ];
 

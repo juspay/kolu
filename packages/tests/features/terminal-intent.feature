@@ -33,6 +33,19 @@ Feature: Terminal intent
     And I refresh the page
     Then the active terminal annotation slot should start with "🚀"
 
+  Scenario: Intent stays visible when the git branch changes
+    When I set up a git repo at "/tmp/kolu-intent-branch-change"
+    And I run "cd /tmp/kolu-intent-branch-change"
+    Then the header should show a branch name
+    When I collapse the dock to rail
+    And I click the active terminal annotation slot
+    And I type "Keep current task" into the intent editor
+    And I save the intent
+    Then the active terminal annotation slot should start with "Keep current task"
+    When I run "git checkout -b new-intent-branch"
+    Then the header branch should contain "new-intent-branch"
+    And the active terminal annotation slot should start with "Keep current task"
+
   Scenario: Clear via editor's Clear button → annotation slot back to empty
     When I click the active terminal annotation slot
     And I type "⚡ fast" into the intent editor
