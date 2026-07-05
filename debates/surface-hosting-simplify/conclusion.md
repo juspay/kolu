@@ -27,10 +27,10 @@ Three participants (claude — doctrine judge; codex, grok — radical simplifie
 
 ## Post-ratification amendment (srid, 2026-07-05) — F2 RESOLVED: hello IS universal
 
-srid ruled the parked question: **every surface server answers "who are you" — no exceptions.** The debate's counter-argument ("identity() on the base role claims daemon semantics") conflated basic identity (contract version · startedAt · build · commit — meaningful for EVERY serving process) with supervision semantics (convergence states, drain — genuinely daemon-only). The null-forever objection was only true while some servers don't answer; the ruling removes that class. Design consequence, amending S4:
+srid ruled the parked question: **every surface server answers "who are you" — no exceptions — AND (2026-07-05) bundled it INTO this PR (a coordinated 3-repo change moves all servers+consumers together, so the contract-member addition is safe now, not a follow-up).** The debate's counter-argument ("identity() on the base role claims daemon semantics") conflated basic identity (contract version · startedAt · build · commit — meaningful for EVERY serving process) with supervision semantics (convergence states, drain — genuinely daemon-only). The null-forever objection was only true while some servers don't answer; the ruling removes that class. Design consequence, amending S4:
 
 - **The framework auto-serves the identity preamble** on every serve path (`implementSurface`/serve wrappers stamp it from baked identity — zero per-server code; fakes conform for free; like HTTP answering OPTIONS).
-- **`identity()` moves to the base `MirrorSession`** (null only transiently before first contact, never null-forever).
+- **`identity()` is on the base `Session` role** (universal, framework-stamped `system.identity` reserved member; null only transiently). Named **`SurfaceIdentity`** (it's a surface member).
 - **`DaemonMirrorSession` shrinks to `convergence()`** — supervision stays the sub-role; identity does not.
 - Skew becomes pre-handshake-detectable on EVERY client-server pair, not just supervised daemons.
 

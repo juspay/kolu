@@ -9,63 +9,23 @@ updated: 2026-07-05
 
 import Callout from "../../components/Callout.astro";
 
-The agent's inventory found: **neither drishti nor odu calls `identity()` today** — the only `identity()` reader is kolu-server's padi arm, off padi's own control-core hello. (They *may* consume `@kolu/surface-daemon` — it's not forbidden; it's just a fact of the current code that they don't, and that no one but kolu reads identity.) That one fact drives the answers.
+The agent inventoried all three consumers and raised four design questions before writing code. All four are now resolved (srid). The headline: **universal hello is bundled into this same PR** — so identity lands on the base `Session` role directly, no two-step.
 
-## 1. Why "universal hello" can't ride this refactor
+## 1. Universal hello is IN this PR — identity on the base `Session` role
 
-First, the test the whole argument hinges on — and **what it's for**:
+Originally scoped out as "behavior-preserving refactor can't add a contract member." srid's ruling: **bundle it.** This is a coordinated three-repo PR — every server and consumer moves together — so the usual cross-deploy-drift danger of a contract change doesn't apply, and the `system.live` reserved member already proves the pattern.
 
-```ts
-// odu's lane surface has exactly three members, and a test locks that set:
-test("laneSurface members", () => {
-  expect(memberNames(laneSurface)).toEqual(new Set(["progress", "logLine", "result"]));
-});
-```
-
-<Callout kind="note" title="What this test is FOR (it's the point of the whole roadblock)">
-A surface is a **contract between two processes** — one `implementSurface`s it (the server), another holds a client (the consumer) — often on different machines or different deploys. **The set of members IS that contract.** If a member is silently added, removed, or dropped by a refactor, the two sides drift: the consumer asks for a member the server no longer serves, or misses a new one, and it fails at runtime, across a wire, hard to trace.
-
-This test **freezes the exact member set**. Any change to it fails the test — and that failure is the *feature*: it forces a human to look and say "yes, I meant to change this contract" (bump the version, update the consumer). It makes contract changes **deliberate and reviewed, never accidental.**
-
-So: adding a universal identity member would trip **every** such test in the repo — which is exactly correct, because it genuinely changes every contract. That's the proof it's a *behavior change*, not a rename.
-</Callout>
-
-"Universal hello" means the framework makes **every** surface serve an identity member — `defineSurface` injects a reserved one into all of them:
+What it means concretely — the framework auto-serves an identity preamble on **every** surface:
 
 ```ts
 function defineSurface(members) {
-  return implement({ ...members, system: { live, identity } }); // `identity` is NEW (live already exists)
+  return implement({ ...members, system: { live, identity } }); // `identity` is NEW; `live` already exists
 }
-// now laneSurface has FOUR members, and the test above FAILS:
-//   Set(["progress","logLine","result","system"]) ≠ Set(["progress","logLine","result"])
+// The serve path STAMPS identity from the server's own baked build info — zero per-server code.
+// Every server (daemon or not) now answers "who are you".
 ```
 
-That trips every set-equality test, changes every surface's type/variance, and moves the seal. It's a real feature (`system.live` proves the pattern) — just its **own PR**, not part of a behavior-preserving refactor.
-
-**So for THIS refactor, identity lives where padi already serves it — the daemon arm.** The two options, named plainly (this is what "(a)/(b)" referred to):
-
-```ts
-// OPTION A — identity() on the BASE Session role:
-const s = makeSession({ connectOnce: sshConnector({ host }) }); // drishti / odu path
-s.identity();  // → null.  forever.  (that far end serves no hello yet)   ← the silently-absent smell
-
-// OPTION B — identity() on the DAEMON sub-role only (proposed):
-interface DaemonSession<Client> extends Session<Client> {
-  identity(): SurfaceIdentity | null;  // ← from control.core.hello(), which padi serves TODAY
-  convergence(): DaemonConvergence | null;
-  readonly preservation: PreservationStrategy;
-  renew(): Promise<void>;
-}
-// base Session has no identity() → a plain ssh session physically CAN'T return null-forever.
-```
-
-**Option A** puts `identity()` on the base role now, so every non-daemon session answers `null` forever — the exact smell we killed elsewhere — and it *still* needs the universal-hello feature later to become non-null. It buys nothing. **Option B** is clean now and graduates cleanly: when the universal-hello PR lands, `identity()` simply *moves up* from `DaemonSession` to `Session`, and nothing is null-forever because by then every server answers.
-
-> **srid's universal-hello ruling stays the destination.** This only sequences it: **Option B now · universal hello as its own follow-up PR · then identity graduates to the base role.** — needs your explicit yes.
-
-## 2. Fleet verbs go on `Session` (your call — and it's cleaner)
-
-You asked why `reconnect()`/`recheck()` can't just be on `Session`. **They can, and they should** — for the same reason the role is `Session` not `ReconnectingSession`: *every* session reconnects (a one-shot is a dial, not a session), so the manual triggers of that universal capability belong on the role, not bolted on as an intersection.
+So `identity()` lives on the base role, and it is **never null-forever** — because every server truly answers:
 
 ```ts
 interface Session<Client> {
@@ -75,26 +35,50 @@ interface Session<Client> {
   onState(cb): () => void;
   markConnected(): void;
   destroy(): void;
-  reconnect(): void;   // force a redial now — universal to sessions
-  recheck(): void;     // re-probe liveness now — universal to sessions
+  reconnect(): void;                      // universal to sessions (roadblock 2)
+  recheck(): void;
+  identity(): SurfaceIdentity | null;     // universal — null only transiently before first contact
+}
+
+interface DaemonSession<Client> extends Session<Client> {
+  convergence(): DaemonConvergence | null;   // ONLY supervision is daemon-specific
+  readonly preservation: PreservationStrategy;
+  renew(): Promise<void>;
 }
 ```
 
-This drops the awkward `Session & { reconnect; recheck }` intersection the note had. The only nuance it leaves: **whether a REGISTRY surfaces `registry.reconnect(host)` is still a per-registry choice** (S2) — the *session* always has the method, but the registry exposes a fleet verb only when built with `controls` (drishti's fleet does; kolu's future pool need not). The `controls` callback is now a trivial passthrough:
+The one real cost of bundling, named honestly — **every surface's contract test changes**, and here's why that test exists:
+
+<Callout kind="note" title="What the contract set-equality test is FOR — and why bundling trips all of them">
+```ts
+test("laneSurface members", () => {
+  expect(memberNames(laneSurface)).toEqual(new Set(["progress", "logLine", "result"]));
+});
+```
+A surface is a **contract between two processes** (one serves, one consumes, often on different machines). **The set of members IS the contract.** This test freezes that set so a member can never be added or dropped *by accident* — any change fails the test and forces a human to ratify it deliberately.
+
+Universal hello adds `system.identity` to every surface, so **every one of these tests updates to include it.** That is not a problem to route around — it is the test doing its job: each update is the deliberate, reviewed ratification of the (intended) contract change. Mechanical churn across three repos, all in this PR, all moving together.
+</Callout>
+
+## 2. Fleet verbs go on `Session` (srid's call — cleaner)
+
+You asked why `reconnect()`/`recheck()` can't just be on `Session`. They can, and they should — same reason the role is `Session` not `ReconnectingSession`: every session reconnects (a one-shot is a *dial*, not a session), so the manual triggers of that universal capability belong on the role. That's why they're already in the `Session` interface above — no `Session & { reconnect; recheck }` intersection.
+
+Whether a **registry** surfaces `registry.reconnect(host)` is still a per-registry choice (S2) — the session always has the method; the registry exposes a fleet verb only when built with `controls` (drishti's fleet does; kolu's future pool need not):
 
 ```ts
 buildHostRegistry({
   buildEntry: (host) => ({ session: makeSession({ connectOnce: sshConnector({ host }) }), handler }),
-  controls: { reconnect: (s) => s.reconnect(), recheck: (s) => s.recheck() }, // trivial now
+  controls: { reconnect: (s) => s.reconnect(), recheck: (s) => s.recheck() }, // trivial passthrough now
 });
 // controls supplied ⇒ registry.reconnect(host)/recheckAll() EXIST (typed). Omitted ⇒ they don't.
 ```
 
-(One honest cost: `reServeSurface` consumes `Session` and now carries two methods it never calls — harmless, since they're *guaranteed present*, not optional-maybe-absent. The registry's own minimal slot stays `DestroyableSession { destroy() }`, unchanged.)
+(`reServeSurface` consumes `Session` and carries `reconnect`/`recheck` it never calls — harmless, since they're *guaranteed present*, not optional-maybe-absent. The registry's own slot stays minimal `DestroyableSession { destroy() }`.)
 
-## 3. The name: `SurfaceIdentity` (your call — and it's the better one)
+## 3. The name: `SurfaceIdentity` (srid's call — the better one)
 
-You proposed `SurfaceIdentity`, reasoning "this is only used for surfaces, and a surface's implementor is by definition a server." **Agreed — it's better than `ServerIdentity`**, and the universal-hello destination is why: under universal hello, identity is literally a **member of every surface** (`system.identity`). So the value is *"the identity a surface carries"* — named for the framework's core noun, not the implementation detail that there's a server behind it. It also dodges the overloaded word "server" (kolu-*server* means something else entirely).
+You proposed `SurfaceIdentity`; it's better than `ServerIdentity`, and universal hello is exactly why: under it, identity is literally a **member of every surface** (`system.identity`), so the value is *"the identity a surface carries"* — named for the framework's core noun, and dodging the overloaded word "server" (kolu-*server* means something else).
 
 ```ts
 // @kolu/surface
@@ -106,24 +90,22 @@ interface SurfaceIdentity {
 }
 ```
 
-Lives in **`@kolu/surface`** (the base package) so it's already home when universal hello ships. The colliding `kolu-common ServerIdentity` (the PWA identity) is kolu's to rename — the framework name is perfect; the app moves.
+Lives in **`@kolu/surface`** (the base package — it's a universal surface member now). The colliding `kolu-common ServerIdentity` (the PWA identity) is kolu's to rename; the framework name is perfect, the app moves.
 
-## 4. Scope — confirmed
-
-> **srid: Ok.** The full framework reshape happens now — including `buildHostRegistry`'s S1/S2 (drishti consumes it; perfect it regardless of kolu). The *only* deferred kolu thing is kolu-server becoming a registry *client* — the W4 pool.
+## 4. Scope — the framework happens in full; only kolu's *pool* defers
 
 | In THIS three-PR refactor | Out (its own later PR) |
 |---|---|
-| `Session` (with reconnect/recheck) / `DaemonSession` roles + all renames | Universal framework hello (reserved `system.identity`) |
-| `makeSession` + `sshConnector` + `endpointConnector` | `identity()` graduating to the base `Session` role |
-| **S1/S2: `buildHostRegistry` → `DestroyableSession` slot + typed `controls`** | **kolu-server GROWING a `buildHostRegistry` pool** (the W4 switch) |
+| `Session` (identity · reconnect · recheck) / `DaemonSession` (convergence · renew · preservation) roles + all renames | **kolu-server GROWING a `buildHostRegistry` pool** (the W4 switch) |
+| **Universal hello** — reserved `system.identity` on every surface, framework-stamped; `identity()` on the base role; every contract test updated | |
+| `makeSession` + `sshConnector` + `endpointConnector` | |
+| **S1/S2: `buildHostRegistry` → `DestroyableSession` slot + typed `controls`** | |
 | S10: delete `getHostSession` + the global pool + evict/destroyAll | |
-| `identity()/convergence()/renew()/preservation` on `DaemonSession` | |
 | Migrate the three existing consumers: kolu single-padi arm · drishti fleet · odu lanes (odu owns its own teardown) | |
 
-## Status of the four
+## Status of the four — all resolved
 
-1. **Sequencing (Option B now, universal-hello follow-up)** — awaiting srid's explicit yes.
-2. **`reconnect`/`recheck` on `Session`** — ✅ srid's call, adopted.
-3. **`SurfaceIdentity` in `@kolu/surface`** (rename kolu's collider) — ✅ srid's call, adopted.
-4. **Scope split** — ✅ confirmed.
+1. **Universal hello BUNDLED** — `identity()` on the base `Session` role, framework auto-serves `system.identity`, no separate follow-up. ✅ srid's call.
+2. **`reconnect`/`recheck` on `Session`** — ✅ srid's call.
+3. **`SurfaceIdentity` in `@kolu/surface`** (rename kolu's collider) — ✅ srid's call.
+4. **Scope**: full framework reshape in (incl. universal hello + `buildHostRegistry` S1/S2); only kolu-server's *pool adoption* (W4) out. ✅ confirmed.
