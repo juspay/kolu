@@ -257,6 +257,13 @@ Two ways to point at a specific daemon instead of autodiscovering:
   form — e.g. `/tmp/kaval-7692-501/pty-host.sock` for kolu-server on port 7692. (The
   old `$XDG_RUNTIME_DIR/kolu/…` was wrong on every platform — kolu-server never
   serves under `kolu/` — and on macOS it collapses to a broken `/kolu/…`.)
+
+  > **Socket paths must stay under 108 bytes (the `AF_UNIX` limit).** If you spin
+  > up your *own* standalone kaval to verify (no kolu running), keep `--socket`
+  > short — `/tmp/kv.$$/pty.sock`, **not** a socket under your agent scratchpad.
+  > The scratchpad prefix alone already sits at the 108-byte cap, so a socket
+  > there overflows and the daemon fails to bind. The autodiscovered paths above
+  > are short by construction; this only bites a hand-rolled `--socket`.
 - **`--host <ssh>`** reaches a daemon on another machine (provisioned with Nix);
   a remote PTY survives the link.
 
