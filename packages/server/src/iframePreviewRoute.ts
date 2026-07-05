@@ -262,8 +262,13 @@ function streamByteRange(
         throw new Error(
           `remote preview chunk bytes=${pos}-${end}: expected ${want} bytes, got ${buf.byteLength} — refusing a truncated body`,
         );
-      // Copy out of the (possibly pooled) Buffer before handing it to the stream.
-      controller.enqueue(new Uint8Array(buf));
+      // `buf` is a fresh, dedicated allocation from this pull's base64 decode
+      // (a production `REMOTE_PREVIEW_CHUNK_BYTES` chunk is far past Node's 4 KiB
+      // pool threshold, and even a small pooled decode is never handed back over a
+      // still-live view) — so enqueue it directly. A defensive `new Uint8Array(buf)`
+      // copy would add a full-chunk memcpy per pull on the hot path (a multi-GB
+      // video is hundreds of 8 MiB chunks) for no safety gain.
+      controller.enqueue(buf);
       pos = end + 1;
     },
   });

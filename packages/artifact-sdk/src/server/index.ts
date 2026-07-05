@@ -63,7 +63,8 @@ export function mountArtifactSdk(app: Hono, opts: MountOptions): void {
     // new copy comes right back. Stripping the source is the one that sticks.
     res.headers.delete("etag");
     res.headers.delete("content-length");
-    const headers = new Headers(res.headers);
-    c.res = new Response(decorated, { status: 200, headers });
+    // `res.headers` (etag/content-length now stripped) IS the HeadersInit — the
+    // `Response` constructor copies it, so no separate clone is needed.
+    c.res = new Response(decorated, { status: 200, headers: res.headers });
   });
 }
