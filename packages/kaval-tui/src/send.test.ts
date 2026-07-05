@@ -4,6 +4,7 @@ import {
   ACCEPTED_KEY_NAMES,
   encodeKey,
   planSend,
+  rejectUnknownSendFlags,
   resolveSendInput,
   sourceIsStream,
 } from "./send.ts";
@@ -160,6 +161,35 @@ describe("resolveSendInput — the arg-legality matrix", () => {
 
   it("a wholly empty send (no text, no keys) has nothing to do", () => {
     expect(() => resolveSendInput({ ...base })).toThrow(/nothing to send/);
+  });
+});
+
+describe("rejectUnknownSendFlags — no silently-ignored flag on send", () => {
+  it("no unknown flags → does not throw", () => {
+    expect(() => rejectUnknownSendFlags([])).not.toThrow();
+  });
+
+  it("--submit gets a migration message pointing at the two-command pattern", () => {
+    const err = () => rejectUnknownSendFlags(["submit"]);
+    expect(err).toThrow(/--submit was removed/);
+    expect(err).toThrow(/--key Enter/); // teaches the separate submit step
+  });
+
+  it("--submit takes precedence even mixed with another unknown flag", () => {
+    expect(() => rejectUnknownSendFlags(["bogus", "submit"])).toThrow(
+      /--submit was removed/,
+    );
+  });
+
+  it("any other unknown flag fails generically, naming it", () => {
+    const err = () => rejectUnknownSendFlags(["bogus"]);
+    expect(err).toThrow(/unknown flag for send: --bogus/);
+  });
+
+  it("pluralizes for multiple unknown flags", () => {
+    expect(() => rejectUnknownSendFlags(["foo", "bar"])).toThrow(
+      /unknown flags for send: --foo, --bar/,
+    );
   });
 });
 

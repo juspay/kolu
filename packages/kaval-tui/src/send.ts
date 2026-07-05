@@ -70,6 +70,32 @@ export function encodeKey(name: string): string | undefined {
   return undefined;
 }
 
+/** Reject unknown flags on `send` — its flag set is a KNOWN, closed set, so an
+ *  unrecognized flag is a typo or a removed flag, never something to silently
+ *  ignore. Pure (takes the parsed unknown-flag names, throws a loud error), so
+ *  it's unit-testable without argv. Fail-fast, no-silent-fallback doctrine: a
+ *  `send <id> "hi" --submit` that quietly sends WITHOUT submitting is exactly the
+ *  footgun this PR removes, so `--submit` (just deleted) gets a migration message
+ *  pointing at the two-command pattern; any other unknown flag fails generically.
+ *  `main.ts` passes `Object.keys(argv.unknownFlags)`. */
+export function rejectUnknownSendFlags(
+  unknownFlagNames: readonly string[],
+): void {
+  if (unknownFlagNames.length === 0) return;
+  if (unknownFlagNames.includes("submit")) {
+    throw new Error(
+      "--submit was removed — submitting a prompt is now its OWN command, because a same-breath Enter races the TUI's paste debounce and is silently dropped. Send the text, watch the TUI settle, then submit separately:\n" +
+        '  kaval-tui send <id> "the prompt"\n' +
+        "  kaval-tui wait <id> --until idle:300\n" +
+        "  kaval-tui send <id> --key Enter",
+    );
+  }
+  const names = unknownFlagNames.map((f) => `--${f}`).join(", ");
+  throw new Error(
+    `unknown flag${unknownFlagNames.length > 1 ? "s" : ""} for send: ${names}. send accepts text (positional) or --file <path>, plus --key, --paste / --no-paste, --json, and --socket / --host.`,
+  );
+}
+
 /** The resolved, validated text source for a send — a discriminated descriptor
  *  that carries its own payload locus, so a `file` send hands back the path
  *  WITH the tag and `cmdSend` never has to re-associate a bare enum with a

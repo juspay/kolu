@@ -56,6 +56,7 @@ import {
   ACCEPTED_KEY_NAMES,
   encodeKey,
   planSend,
+  rejectUnknownSendFlags,
   resolveSendInput,
   type SendInput,
   sourceIsStream,
@@ -896,6 +897,11 @@ async function main(): Promise<void> {
     json: boolean;
   } | null = null;
   if (argv.command === "send") {
+    // `send`'s flags are a closed set, so an unknown flag is a typo or a removed
+    // flag — fail loud, never silently ignore (a `--submit` quietly dropped would
+    // send the text UNSUBMITTED, the exact footgun this command removed). `--submit`
+    // gets a migration message; cleye collects the rest in `unknownFlags`.
+    rejectUnknownSendFlags(Object.keys(argv.unknownFlags));
     // Validate the WHOLE send-input combination and resolve the single text
     // source — the paste/no-paste exclusion, text+--key, two sources at once, and
     // the empty send all live in this ONE pure validator, pre-dial. It throws a
