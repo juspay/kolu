@@ -122,13 +122,13 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
       background 0.15s ease;
   }
   .cl-change-tag:hover {
-    color: var(--color-amber);
-    border-color: color-mix(in srgb, var(--color-amber) 45%, transparent);
+    color: var(--color-kolu-primary);
+    border-color: color-mix(in srgb, var(--color-kolu-primary) 45%, transparent);
   }
   .cl-change-tag[data-active="true"] {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
+    color: var(--color-kolu-primary);
+    border-color: var(--color-kolu-primary);
+    background: color-mix(in srgb, var(--color-kolu-primary) 10%, transparent);
   }
   /* Touch / no-JS fallback: an inline collapse (grid 0fr→1fr) that animates to
      the description's natural height with no magic max-height. Indented under
@@ -223,7 +223,7 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
     }
     .cl-change.open .cl-change-arrow {
       transform: translateX(1px) rotate(90deg);
-      color: var(--color-amber);
+      color: var(--color-kolu-primary);
     }
     .cl-change.cl-tap .cl-change-head {
       cursor: pointer;

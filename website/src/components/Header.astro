@@ -10,20 +10,22 @@ const isActive = (p: string) =>
   p === '/' ? normalized === '/' : normalized.startsWith(p);
 
 // `hideOnMobile` drops the longest, most-redundant labels below `sm` so the
-// single-row nav fits narrow phones (≤360px) without overflowing. The brand
-// logo already links home, so "Get started" is the safe one to hide there.
+// single-row nav fits narrow phones without overflowing. The brand logo already
+// links home, and architecture is linked prominently from the system sections.
 const nav = [
   { label: 'Get started', href: `${href('/')}#quickstart`, path: '/', hideOnMobile: true },
-  { label: 'Architecture', href: href('/architecture'), path: '/architecture' },
-  { label: 'Changelog', href: href('/changelog'), path: '/changelog' },
+  { label: 'Architecture', href: href('/architecture'), path: '/architecture', hideOnMobile: true },
+  { label: 'Padi', href: href('/padi'), path: '/padi' },
+  { label: 'Kaval', href: href('/kaval'), path: '/kaval' },
+  { label: 'Changelog', href: href('/changelog'), path: '/changelog', hideOnMobile: true },
   { label: 'Blog', href: href('/blog'), path: '/blog' },
-  { label: 'Discord', href: 'https://discord.com/invite/9acjNV8nmS', external: true },
+  { label: 'Discord', href: 'https://discord.com/invite/9acjNV8nmS', external: true, hideOnMobile: true },
   { label: 'GitHub', href: 'https://github.com/juspay/kolu', external: true },
 ];
 ---
 
 <header class="sticky top-0 z-10 border-b border-rule backdrop-blur-xs bg-void/80">
-  <div class="mx-auto max-w-[68rem] px-6 h-14 flex items-center justify-between">
+  <div class="mx-auto max-w-[68rem] px-4 sm:px-6 h-14 flex items-center justify-between">
     <a
       href={href('/')}
       class="flex items-center gap-2.5 group"
@@ -39,14 +41,17 @@ const nav = [
       </span>
     </a>
 
-    <nav class="flex items-center gap-4 sm:gap-7 mono text-[0.78rem]">
+    <nav class="flex items-center gap-3 sm:gap-7 mono text-[0.78rem]">
       {
         nav.map((item) =>
           'external' in item ? (
             <a
               href={item.href}
               rel="noopener"
-              class="text-ink-dim hover:text-amber transition-colors flex items-center gap-1.5"
+              class:list={[
+                'text-ink-dim hover:text-kolu-primary transition-colors flex items-center gap-1.5',
+                'hideOnMobile' in item && 'hidden sm:flex',
+              ]}
             >
               <span>{item.label}</span>
               <span class="text-ink-faint" aria-hidden="true">↗</span>
@@ -57,7 +62,7 @@ const nav = [
               class:list={[
                 'transition-colors',
                 'hideOnMobile' in item && 'hidden sm:inline-block',
-                isActive(item.path) ? 'text-amber' : 'text-ink-dim hover:text-ink',
+                isActive(item.path) ? 'text-kolu-primary' : 'text-ink-dim hover:text-ink',
               ]}
             >
               {item.label}
@@ -70,7 +75,7 @@ const nav = [
         id="theme-toggle"
         type="button"
         aria-label="Toggle light/dark theme"
-        class="relative size-7 rounded-sm border border-transparent hover:border-rule text-ink-dim hover:text-amber transition-colors flex items-center justify-center"
+        class="relative size-7 rounded-sm border border-transparent hover:border-rule text-ink-dim hover:text-kolu-primary transition-colors flex items-center justify-center"
       >
         {/* Sun — shown in dark mode (click to go light) */}
         <svg

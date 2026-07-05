@@ -10,8 +10,8 @@
 # `import ./website { inherit pkgs; }` with no synthesis of its own.
 { pkgs ? import ../nix/nixpkgs.nix { }
 , src ? # Self-contained website source for the Nix sandbox. The working tree keeps
-  # public/{favicon,kaval-logo}.svg as symlinks into packages/ (one SVG each
-  # on disk, no duplicated bytes) — but those dangle once copied into the
+  # public/{favicon,kaval-logo,padi-logo}.svg as symlinks into packages/ (one SVG
+  # each on disk, no duplicated bytes) — but those dangle once copied into the
   # store, so resolve them to real bytes here. Astro/Vite then sees a
   # complete tree. Add a line per new out-of-tree public/ asset.
   pkgs.runCommand "kolu-website-src" { } ''
@@ -31,12 +31,16 @@
     cp ${../packages/client/favicon.svg} $out/public/favicon.svg
     rm -f $out/public/kaval-logo.svg
     cp ${../packages/kaval/logo.svg} $out/public/kaval-logo.svg
+    rm -f $out/public/padi-logo.svg
+    cp ${../packages/padi/logo.svg} $out/public/padi-logo.svg
+    cp ${../packages/server/package.json} $out/kolu-server-package.json
   ''
 }:
 let
-  # Single source for the website version — its own package.json (no literal to
-  # drift). Threaded into fetchPnpmDeps and the typecheck derivation below.
-  version = (pkgs.lib.importJSON ./package.json).version;
+  # Website displays Kolu's app version, whose single source of truth is
+  # packages/server/package.json (same as the root derivation). Thread this
+  # through Nix so the sandbox never needs to reach outside `src`.
+  version = (pkgs.lib.importJSON ../packages/server/package.json).version;
 
   # fetchPnpmDeps hash is platform-independent. Regenerate when pnpm-lock.yaml
   # changes — `just ci::pnpm-hash-fresh` checks this alongside the root's
@@ -72,7 +76,7 @@ let
 
   default = pkgs.stdenv.mkDerivation {
     pname = "kolu-website";
-    version = "0.1.0";
+    inherit version;
     inherit src pnpmDeps;
 
     nativeBuildInputs = [

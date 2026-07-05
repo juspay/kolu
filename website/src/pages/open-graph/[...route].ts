@@ -10,13 +10,13 @@
  * blog pages pass `blog/<slug>`, the home passes `site`, and any
  * future page can pass its own key.
  *
- * Brand: void background (#0a0a0a / #121110 gradient) with an amber
- * inline-start border (#e7b87a) — same palette as the site chrome.
+ * Brand: void background with a middle-step pink inline-start border — same
+ * primary palette as the site chrome.
  */
 
 import { getCollection } from "astro:content";
 import { OGImageRoute } from "astro-og-canvas";
-import { SITE_DESCRIPTION } from "../../site";
+import { KOLU_PALETTE, SITE_DESCRIPTION } from "../../site";
 
 const blog = await getCollection("blog");
 
@@ -47,22 +47,22 @@ export const { getStaticPaths, GET } = await OGImageRoute({
     title: page.title,
     description: page.description,
     bgGradient: [
-      [10, 10, 10],
-      [18, 17, 16],
+      [7, 8, 13],
+      [16, 19, 28],
     ],
-    border: { color: [231, 184, 122], width: 8, side: "inline-start" },
+    border: { color: KOLU_PALETTE.primaryRgb, width: 8, side: "inline-start" },
     padding: 80,
     fonts: [NOTO_SANS],
     font: {
       title: {
-        color: [232, 229, 221],
+        color: [244, 247, 251],
         size: 64,
         weight: "Medium",
         lineHeight: 1.15,
         families: ["Noto Sans"],
       },
       description: {
-        color: [169, 165, 154],
+        color: [193, 199, 208],
         size: 28,
         weight: "Normal",
         lineHeight: 1.5,

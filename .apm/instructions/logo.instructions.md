@@ -1,6 +1,6 @@
 ---
-description: Kolu and Kaval logo assets — keep favicon, PWA icons, website branding, screenshots, and app identity in sync
-applyTo: "{packages/client/favicon.svg,packages/client/public/icon-192.png,packages/client/public/icon-512.png,packages/client/public/icon-512-maskable.png,packages/client/index.html,packages/client/src/AboutDialog.tsx,packages/client/src/WelcomeDialog.tsx,packages/client/src/ChromeBar.tsx,packages/client/src/MobileChromeSheet.tsx,packages/client/src/terminal/useActivityAlerts.ts,packages/client/src/screenshotTerminal.ts,packages/client/src/kaval/KavalInfoDialog.tsx,packages/server/src/index.ts,packages/server/src/pwaIdentity.ts,packages/server/src/pwaIdentity.test.ts,packages/kaval/logo.svg,packages/kaval/README.md,website/default.nix,website/public/favicon.svg,website/src/layouts/BaseLayout.astro,website/src/components/Header.astro,website/src/styles/global.css,website/src/pages/index.astro,website/src/pages/kaval.astro,README.md}"
+description: Kolu, Padi, and Kaval logo assets — keep favicon, PWA icons, website branding, palette, screenshots, and app identity in sync
+applyTo: "{packages/client/favicon.svg,packages/client/public/icon-192.png,packages/client/public/icon-512.png,packages/client/public/icon-512-maskable.png,packages/client/index.html,packages/client/src/AboutDialog.tsx,packages/client/src/WelcomeDialog.tsx,packages/client/src/ChromeBar.tsx,packages/client/src/MobileChromeSheet.tsx,packages/client/src/terminal/useActivityAlerts.ts,packages/client/src/screenshotTerminal.ts,packages/client/src/kaval/KavalInfoDialog.tsx,packages/server/src/index.ts,packages/server/src/pwaIdentity.ts,packages/server/src/pwaIdentity.test.ts,packages/padi/logo.svg,packages/kaval/logo.svg,packages/kaval/README.md,website/default.nix,website/public/favicon.svg,website/public/padi-logo.svg,website/public/kaval-logo.svg,website/src/**,README.md}"
 ---
 
 ## Kolu Logo
@@ -10,6 +10,18 @@ applyTo: "{packages/client/favicon.svg,packages/client/public/icon-192.png,packa
 - Keep the mark readable at 16px: no text, no thin strokes, no crowded prompt glyph.
 - Verify both surfaces: browser tab favicon and macOS Dock/PWA-sized icon.
 - Keep app identity as `Kolu [host]`; do not reintroduce `kolu@host` or `short_name: "kolu"`.
+
+## Website Palette
+
+- Keep the website palette in sync with the Kolu logo. When `packages/client/favicon.svg` changes colour, update the website tokens in `website/src/styles/global.css` and any non-CSS consumers such as the OG RGB tuple in `website/src/site.ts`.
+- Treat the logo as three colour roles on the website: the middle step is the primary action/link/hover colour; the top step is the formatting accent for code, prompts, markers, and warnings; the bottom step is the body/detail accent for rules, tips, quotes, diagram streams, and live/success accents.
+- Use the website's palette variables (`--color-kolu-logo-*`, `--color-kolu-primary*`, `--color-kolu-top*`, `--color-kolu-bottom*`) instead of duplicating raw hex values or reintroducing old amber/purple/violet site tokens.
+- If a website diagram or page represents Kolu, Padi, or Kaval, use the relevant program logo asset from `website/public/` rather than drawing an unrelated placeholder mark.
+
+## Padi Logo
+
+- Treat `packages/padi/logo.svg` as the source vector for Padi. The website copies it to `website/public/padi-logo.svg`.
+- Keep the Padi SVG background transparent. Let the consuming surface provide any tile or panel behind it.
 
 ## Kaval Logo
 
