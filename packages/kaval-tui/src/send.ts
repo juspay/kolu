@@ -2,33 +2,37 @@
  * Pure logic for the `send` subcommand — turn the text/keys a caller passes into
  * the exact byte writes that reach the PTY, with no I/O or transport so it is
  * unit-testable without a socket. `main.ts` is the thin glue that resolves the
- * id, reads stdin, issues `terminal.write` for each planned chunk, and prints.
+ * id, reads the text (positional / `--file` / stdin), issues `terminal.write`
+ * for each planned chunk, and prints; `sendExec.ts` drives the plan to the wire
+ * under a bounded write deadline.
  *
- * `send` writes EXACTLY what the caller asked for — the literal text, plus any
- * explicit `--key`s — and nothing more. It does NOT append a submit Enter on its
- * own: a prompt is sent only when you say so, with `kaval-tui send <id> --key
- * Enter`. Keeping submit explicit avoids two traps an implicit Enter fell into:
- * it's invisible magic the caller can't time, and against Claude Code's
- * bracketed-paste / debounced input it raced the paste and was silently dropped —
- * so `send` would report success while the prompt sat staged, unsubmitted. Make
- * submitting its own `send --key Enter` (a separate write, after the text has
- * settled) and the race is gone too.
+ * `send` writes EXACTLY what the caller asked for — the literal text, OR any
+ * explicit `--key`s — and nothing more. It NEVER appends a submit Enter on its
+ * own, and it never bakes in a timing grace: a prompt is submitted only when the
+ * caller says so, as its own separate `kaval-tui send <id> --key Enter`.
  *
- * The one transformation `send` does apply is BRACKETED PASTE for multiline or
- * piped-stdin text: the agent's input box takes it as ONE block instead of
- * submitting line-by-line (each `\n` would otherwise fire a half-written prompt).
- * It is auto — on for multiline / stdin, off for a single-line argument — and
- * `--paste` / `--no-paste` force it; the `paste` field of the result makes it
- * visible, never silent.
+ * Why submit is its own command, not a flag. Against a bracketed-paste TUI
+ * (Claude Code), the input box debounces a paste before accepting an Enter. An
+ * Enter written in the SAME breath as the text — `send <id> "text" --key Enter`,
+ * or the deleted `--submit=<ms>` grace — races that debounce: `kaval` cannot
+ * observe when the TUI settled, so any fixed delay is a knob you tune until the
+ * race stops biting on your machine and starts again on a slower one. The honest
+ * design (the tmux `send-keys` model — strictly compositional, no submit
+ * convenience) is a three-step flow where the CALLER observes the settle:
  *
- * `--submit` is the ONE sanctioned exception to "no implicit Enter". It doesn't
- * relax the rule that raced above — it SCHEDULES around it: write the text (paste
- * rules unchanged), wait a fixed grace, THEN write the Enter, so the submit lands
- * after the paste debounce instead of inside it. The grace is the whole trick — a
- * blind delay, not a read of the screen — collapsing the two-command type-then-
- * Enter ritual into one call. It carries the submit Enter itself, so it is
- * mutually exclusive with `--key` (the caller enforces that); a plain `send`
- * without it stays byte-for-byte the raw, no-Enter behavior above.
+ *     kaval-tui send <id> --file brief.md     # 1. the text
+ *     kaval-tui wait <id> --until idle:300     # 2. OBSERVE the TUI settle (a signal, not a sleep)
+ *     kaval-tui send <id> --key Enter          # 3. submit
+ *
+ * So text + `--key` in ONE send is a HARD ERROR (see {@link resolveSendInput}):
+ * the dropped-Enter trap is made unspellable, not merely warned about.
+ *
+ * The one transformation `send` applies is BRACKETED PASTE for multiline text,
+ * piped stdin, or a `--file` payload: the agent's input box takes it as ONE
+ * block instead of submitting line-by-line (each `\n` would otherwise fire a
+ * half-written prompt). It is auto — on for multiline / stream text, off for a
+ * single-line argument — and `--paste` / `--no-paste` force it; the `paste`
+ * field of the result makes it visible, never silent.
  */
 import {
   BRACKETED_PASTE_END,
@@ -37,64 +41,6 @@ import {
   metaByte,
   NAMED_KEY_BYTES,
 } from "@kolu/terminal-protocol";
-import { MAX_TIMER_MS } from "./wait.ts";
-
-/** The Enter byte `--submit` writes after the grace delay — the SAME carriage
- *  return `--key Enter` sends (`NAMED_KEY_BYTES.enter`), so the auto-submit and
- *  the manual key channel agree on the byte; only the timing differs. */
-export const SUBMIT_ENTER = NAMED_KEY_BYTES.enter;
-
-/** Grace (ms) between the text write and the submit Enter for a bare `--submit`.
- *  Chosen to sit comfortably above the bracketed-paste debounce a TUI applies
- *  after a paste — 250ms cleared Claude Code's in a real end-to-end check (the
- *  prompt submitted, not staged) and still returns the command in well under a
- *  second. It is NOT a measured floor for every agent, so it's a *default*, not a
- *  guarantee: an agent with a slower debounce takes a larger `--submit=<ms>`. */
-export const DEFAULT_SUBMIT_GRACE_MS = 250;
-
-/** Turn the value `--submit` carries into a grace delay in ms. type-flag hands a
- *  bare `--submit` as "" (→ the default) and `--submit=<ms>` as the digits.
- *  Integer milliseconds only: a non-integer or negative value fails LOUD rather
- *  than NaN-degrading silently back to the default (no fallback). A value above
- *  {@link MAX_TIMER_MS} is ALSO rejected loud: `executeSendPlan` feeds this to
- *  `setTimeout`, which silently CLAMPS an over-32-bit delay to 1ms and fires
- *  near-instantly — so `--submit=2147483648` would drop the tuned grace and race
- *  the debounce exactly as a bare same-breath Enter does. That is the same
- *  overflow guard `wait.ts` applies to `--until idle:<ms>` / `--timeout`. The
- *  caller runs this inside the command's try, so the throw surfaces as
- *  `kaval-tui: <msg>`. */
-export function parseSubmitGrace(raw: string): number {
-  if (raw === "") return DEFAULT_SUBMIT_GRACE_MS;
-  if (!/^\d+$/.test(raw)) {
-    throw new Error(
-      `--submit expects a non-negative integer of milliseconds — pass it bare (--submit) for the ${DEFAULT_SUBMIT_GRACE_MS}ms default, or --submit=<ms>; got ${JSON.stringify(raw)}`,
-    );
-  }
-  const ms = Number(raw);
-  if (ms > MAX_TIMER_MS) {
-    throw new Error(
-      `--submit grace must be ≤ ${MAX_TIMER_MS}ms (~24.8 days): a larger delay overflows setTimeout, which clamps it to 1ms and fires near-instantly — dropping the grace and racing the paste debounce; got ${JSON.stringify(raw)}`,
-    );
-  }
-  return ms;
-}
-
-/** Did a BARE `--submit` (no `=`) swallow the following positional as its grace?
- *  `send` takes `[text...]`, and type-flag resolves a value-typed flag given
- *  space-separated (`--submit 250`) by consuming the next argv token — so
- *  `send <id> --submit <prompt>` eats the prompt as the grace, silently dropping
- *  it (and an all-digit prompt even parses as a valid grace, so nothing errors).
- *  A bare `--submit` only ever means "default grace"; its value must arrive via
- *  `=`. So a bare `--submit` token in the raw argv that nonetheless carries a
- *  non-empty parsed value is a swallow — the caller rejects it loud. `--submit=<ms>`
- *  puts the value in the `--submit=…` token (no bare `--submit` in argv), and a
- *  bare `--submit` at the end parses to "" (nothing swallowed), so both pass. */
-export function submitSwallowedPositional(
-  rawArgv: readonly string[],
-  submitValue: string,
-): boolean {
-  return submitValue !== "" && rawArgv.includes("--submit");
-}
 
 /** The named keys `send` accepts, as one human string for the command help, the
  *  `--key` flag help, and the unknown-key error — so the vocabulary is written
@@ -124,44 +70,109 @@ export function encodeKey(name: string): string | undefined {
   return undefined;
 }
 
+/** Where a send's TEXT comes from — resolved once by {@link resolveSendInput}
+ *  from the flags/argv, so `cmdSend` reads the payload from the one validated
+ *  source instead of re-deriving precedence. `"none"` is a keys-only send. */
+export type SendTextSource = "positional" | "file" | "stdin" | "none";
+
+/** Validate a send's input combination and resolve the single text source —
+ *  PURE, so the whole arg-legality matrix is unit-tested without a socket, a
+ *  filesystem, or a tty. `main.ts` runs it pre-dial (a bad combination fails
+ *  before any connection is made) and then reads the payload from the returned
+ *  source. Throws a loud, teaching error on any illegal combination; the message
+ *  surfaces as `kaval-tui: <msg>`.
+ *
+ *  The rules, all fail-fast (no silent precedence to guess at):
+ *  - AT MOST ONE text source. Positional text, `--file`, and a piped-stdin
+ *    payload each fully specify the text; two at once is ambiguous, so it is
+ *    rejected rather than silently letting one win.
+ *  - TEXT + `--key` is forbidden outright — the dropped-Enter trap (a same-breath
+ *    Enter raced by the paste debounce) is made unspellable. Keys-only sends
+ *    (menus, `C-c`, a lone `--key Enter` submit) stay legal.
+ *  - A send with no text and no keys has nothing to do — rejected.
+ *
+ *  `stdinIsPayload` is whether fd 0 is a DELIBERATE pipe (a `fifo` from `| cmd`
+ *  or a `regular file` from `< file` / a heredoc), NOT merely "not a tty": an
+ *  agent driving `send` from a subprocess has a `socket` on stdin, which is
+ *  ambient, not a payload — so it must not read as a stdin send nor collide with
+ *  `--file`. `main.ts` computes it by `fstat`-ing fd 0. */
+export function resolveSendInput(opts: {
+  hasPositional: boolean;
+  hasFile: boolean;
+  stdinIsPayload: boolean;
+  hasKeys: boolean;
+}): SendTextSource {
+  const sources = [
+    opts.hasPositional && "positional text",
+    opts.hasFile && "--file",
+    opts.stdinIsPayload && "piped stdin",
+  ].filter((s): s is string => s !== false);
+  if (sources.length > 1) {
+    throw new Error(
+      `${sources.join(" and ")} each provide the send text — pass exactly one source, not several.`,
+    );
+  }
+
+  const source: SendTextSource = opts.hasPositional
+    ? "positional"
+    : opts.hasFile
+      ? "file"
+      : opts.stdinIsPayload
+        ? "stdin"
+        : "none";
+
+  if (source !== "none" && opts.hasKeys) {
+    throw new Error(
+      "text and --key can't be combined in one send — a same-breath Enter is raced by the TUI's paste debounce and silently dropped. Send the text, watch the TUI settle, then submit as its own command:\n" +
+        "  kaval-tui send <id> --file brief.md      # 1. the text\n" +
+        "  kaval-tui wait <id> --until idle:300      # 2. observe the settle\n" +
+        "  kaval-tui send <id> --key Enter           # 3. submit",
+    );
+  }
+
+  if (source === "none" && !opts.hasKeys) {
+    throw new Error(
+      'nothing to send — pass text, use --file <path>, pipe it on stdin, or use --key (e.g. `kaval-tui send <id> "hello"` or `kaval-tui send <id> --key Escape`).',
+    );
+  }
+
+  return source;
+}
+
 /** The ordered byte writes a `send` issues, plus what it actually did (for the
  *  human/JSON line). `paste` is the EFFECTIVE value — text-gated and
  *  paste-auto-resolved — not the raw flag. */
 export interface SendPlan {
-  /** Each element is one `terminal.write` payload, issued back-to-back in order
-   *  (the text, then any `--key`s). */
+  /** Each element is one `terminal.write` payload, issued back-to-back in order.
+   *  A send carries EITHER the text OR the keys (never both — the caller rejects
+   *  the mix), so this holds exactly one element for a non-empty send. */
   writes: string[];
-  /** Total UTF-8 bytes across every byte this send writes — the `writes` above
-   *  PLUS the deferred submit Enter when `submit` is set (paste markers included). */
+  /** Total UTF-8 bytes across every byte this send writes (paste markers
+   *  included) — the honest CR/byte total for `--json`. */
   bytes: number;
   paste: boolean;
-  /** `--submit`: after the `writes` land, wait `graceMs` then write
-   *  {@link SUBMIT_ENTER} — the scheduled Enter that clears the paste debounce.
-   *  `null` for a plain send (today's raw behavior — no implicit Enter). When
-   *  set, `writes` carries no `--key` bytes: `--submit` owns the Enter and the
-   *  caller rejects `--submit` + `--key`. */
-  submit: { graceMs: number } | null;
 }
 
 /** Plan the writes for a send. Pure: the text, the paste flag, whether the text
- *  came from stdin, and the already-encoded `keyData` are passed in. Paste is
- *  resolved here (auto unless `paste` is set); the text goes first, then the keys
- *  verbatim. No submit Enter is ever synthesized — the caller sends one as an
- *  explicit `--key Enter`, which lands in `keyData`. */
+ *  came from a stream (`--file` or piped stdin), and the already-encoded
+ *  `keyData` are passed in. Paste is resolved here (auto unless `paste` is set);
+ *  the text goes first, then the keys verbatim. No submit Enter is ever
+ *  synthesized — the caller submits with an explicit, separate `--key Enter`. */
 export function planSend(opts: {
   text: string;
   paste: boolean | undefined;
-  fromStdin: boolean;
+  /** The text arrived as a BLOCK from a stream — piped stdin or `--file` — not
+   *  as a literal single-line argument, so it auto-pastes even when single-line
+   *  (a file/heredoc is one payload, not a line typed at a prompt). */
+  fromStream: boolean;
   keyData: string;
-  /** `--submit`'s grace in ms, or `undefined` for a plain send. When set, the
-   *  caller has already rejected `--submit` + `--key`, so `keyData` is empty. */
-  submitGraceMs: number | undefined;
 }): SendPlan {
   const hasText = opts.text.length > 0;
-  // Auto-paste: a single-line argument types literally, but multiline OR piped
-  // stdin is bracketed so it lands as one block. An explicit flag overrides.
+  // Auto-paste: a single-line argument types literally, but multiline OR a
+  // stream payload (--file / piped stdin) is bracketed so it lands as one block.
+  // An explicit flag overrides.
   const paste =
-    hasText && (opts.paste ?? (opts.fromStdin || opts.text.includes("\n")));
+    hasText && (opts.paste ?? (opts.fromStream || opts.text.includes("\n")));
 
   const writes: string[] = [];
   if (hasText) {
@@ -171,17 +182,10 @@ export function planSend(opts: {
         : opts.text,
     );
   }
-  // Keys are their own write, after the text — so a `--key Enter` submit lands
-  // after the (possibly pasted) text rather than riding inside its write.
+  // Keys are their own write, after the text — but the caller forbids text+key,
+  // so in practice a send carries one or the other.
   if (opts.keyData.length > 0) writes.push(opts.keyData);
 
-  const submit =
-    opts.submitGraceMs === undefined ? null : { graceMs: opts.submitGraceMs };
-
-  // `bytes` counts every byte the send emits — the immediate `writes` plus the
-  // deferred submit Enter, so `--json`'s byte total stays honest about the CR.
-  const bytes =
-    writes.reduce((n, s) => n + Buffer.byteLength(s, "utf8"), 0) +
-    (submit ? Buffer.byteLength(SUBMIT_ENTER, "utf8") : 0);
-  return { writes, bytes, paste, submit };
+  const bytes = writes.reduce((n, s) => n + Buffer.byteLength(s, "utf8"), 0);
+  return { writes, bytes, paste };
 }

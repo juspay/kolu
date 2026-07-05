@@ -55,7 +55,9 @@ vocabulary matches the Dock), then exits. `--until` is a comma list;
 
 ```sh
 id=$(padi-tui create -- claude)              # spawn a Claude Code agent
-kaval-tui send "$id" "explain this repo" --submit   # type AND submit it
+kaval-tui send "$id" "explain this repo"     # the text
+kaval-tui wait "$id" --until idle:300         # observe the TUI settle
+kaval-tui send "$id" --key Enter              # submit
 padi-tui wait "$id" --until awaiting,waiting  # …block until its turn ends
 ```
 

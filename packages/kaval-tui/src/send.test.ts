@@ -2,14 +2,10 @@ import { NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { describe, expect, it } from "vitest";
 import {
   ACCEPTED_KEY_NAMES,
-  DEFAULT_SUBMIT_GRACE_MS,
   encodeKey,
-  parseSubmitGrace,
   planSend,
-  submitSwallowedPositional,
-  SUBMIT_ENTER,
+  resolveSendInput,
 } from "./send.ts";
-import { MAX_TIMER_MS } from "./wait.ts";
 
 const START = "\x1b[200~";
 const END = "\x1b[201~";
@@ -84,18 +80,77 @@ describe("ACCEPTED_KEY_NAMES — the help vocabulary stays in lockstep with the 
   });
 });
 
+describe("resolveSendInput — the arg-legality matrix", () => {
+  const base = {
+    hasPositional: false,
+    hasFile: false,
+    stdinIsPayload: false,
+    hasKeys: false,
+  };
+
+  it("resolves each single text source", () => {
+    expect(resolveSendInput({ ...base, hasPositional: true })).toBe(
+      "positional",
+    );
+    expect(resolveSendInput({ ...base, hasFile: true })).toBe("file");
+    expect(resolveSendInput({ ...base, stdinIsPayload: true })).toBe("stdin");
+  });
+
+  it("a keys-only send has no text source", () => {
+    expect(resolveSendInput({ ...base, hasKeys: true })).toBe("none");
+  });
+
+  it("text + --key is a hard error teaching the two-command flow", () => {
+    // The core fix: the dropped-Enter trap is unspellable, not warned about.
+    const err = () =>
+      resolveSendInput({ ...base, hasPositional: true, hasKeys: true });
+    expect(err).toThrow(/can't be combined/);
+    expect(err).toThrow(/--key Enter/); // it teaches the submit-as-its-own-command step
+  });
+
+  it("a text source from ANY channel + --key is rejected (file, stdin too)", () => {
+    expect(() =>
+      resolveSendInput({ ...base, hasFile: true, hasKeys: true }),
+    ).toThrow(/can't be combined/);
+    expect(() =>
+      resolveSendInput({ ...base, stdinIsPayload: true, hasKeys: true }),
+    ).toThrow(/can't be combined/);
+  });
+
+  it("--file + positional text is rejected (two sources for one payload)", () => {
+    const err = () =>
+      resolveSendInput({ ...base, hasFile: true, hasPositional: true });
+    expect(err).toThrow(/each provide the send text/);
+    expect(err).toThrow(/--file/);
+  });
+
+  it("--file + piped stdin is rejected", () => {
+    const err = () =>
+      resolveSendInput({ ...base, hasFile: true, stdinIsPayload: true });
+    expect(err).toThrow(/each provide the send text/);
+  });
+
+  it("positional + piped stdin is rejected (uniform: at most one source)", () => {
+    expect(() =>
+      resolveSendInput({ ...base, hasPositional: true, stdinIsPayload: true }),
+    ).toThrow(/each provide the send text/);
+  });
+
+  it("a wholly empty send (no text, no keys) has nothing to do", () => {
+    expect(() => resolveSendInput({ ...base })).toThrow(/nothing to send/);
+  });
+});
+
 describe("planSend — building the ordered writes", () => {
   it("a single-line argument is written literally — NO implicit Enter", () => {
     const plan = planSend({
       text: "fix the parser",
       paste: undefined,
-      fromStdin: false,
+      fromStream: false,
       keyData: "",
-      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual(["fix the parser"]);
     expect(plan.paste).toBe(false);
-    expect(plan.submit).toBeNull();
     expect(plan.bytes).toBe(Buffer.byteLength("fix the parser"));
   });
 
@@ -104,22 +159,19 @@ describe("planSend — building the ordered writes", () => {
     const plan = planSend({
       text,
       paste: undefined,
-      fromStdin: false,
+      fromStream: false,
       keyData: "",
-      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual([`${START}${text}${END}`]);
     expect(plan.paste).toBe(true);
-    expect(plan.submit).toBeNull();
   });
 
-  it("piped stdin auto-pastes even when single-line", () => {
+  it("a stream payload (--file / piped stdin) auto-pastes even when single-line", () => {
     const plan = planSend({
       text: "do the thing",
       paste: undefined,
-      fromStdin: true,
+      fromStream: true,
       keyData: "",
-      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual([`${START}do the thing${END}`]);
     expect(plan.paste).toBe(true);
@@ -130,9 +182,8 @@ describe("planSend — building the ordered writes", () => {
     const plan = planSend({
       text,
       paste: false,
-      fromStdin: false,
+      fromStream: false,
       keyData: "",
-      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual([text]);
     expect(plan.paste).toBe(false);
@@ -142,204 +193,33 @@ describe("planSend — building the ordered writes", () => {
     const plan = planSend({
       text: "hi",
       paste: true,
-      fromStdin: false,
+      fromStream: false,
       keyData: "",
-      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual([`${START}hi${END}`]);
     expect(plan.paste).toBe(true);
-  });
-
-  it("text then a --key Enter submit: text first, key its own write", () => {
-    const plan = planSend({
-      text: "yes",
-      paste: undefined,
-      fromStdin: false,
-      keyData: "\r", // `--key Enter`
-      submitGraceMs: undefined,
-    });
-    expect(plan.writes).toEqual(["yes", "\r"]);
   });
 
   it("keys-only (no text) sends just the key bytes", () => {
     const plan = planSend({
       text: "",
       paste: undefined,
-      fromStdin: false,
+      fromStream: false,
       keyData: "\x03",
-      submitGraceMs: undefined,
     });
     expect(plan.writes).toEqual(["\x03"]);
     expect(plan.paste).toBe(false);
     expect(plan.bytes).toBe(1);
   });
 
-  it("counts total UTF-8 bytes across every write", () => {
+  it("counts total UTF-8 bytes of the write", () => {
     const text = "café\nlatte"; // é is 2 bytes, the \n forces paste
     const plan = planSend({
       text,
       paste: undefined,
-      fromStdin: false,
-      keyData: "\r",
-      submitGraceMs: undefined,
-    });
-    const expected =
-      Buffer.byteLength(`${START}${text}${END}`) + Buffer.byteLength("\r");
-    expect(plan.bytes).toBe(expected);
-  });
-});
-
-describe("planSend — --submit schedules a deferred Enter", () => {
-  it("text is the immediate write; the Enter is deferred, not appended", () => {
-    const plan = planSend({
-      text: "fix the parser",
-      paste: undefined,
-      fromStdin: false,
+      fromStream: false,
       keyData: "",
-      submitGraceMs: 250,
     });
-    // The Enter is NOT in `writes` — it rides the scheduled `submit`, written
-    // only after the grace, so it clears the paste debounce.
-    expect(plan.writes).toEqual(["fix the parser"]);
-    expect(plan.submit).toEqual({ graceMs: 250 });
-  });
-
-  it("counts the deferred submit Enter in the byte total", () => {
-    const plan = planSend({
-      text: "hi",
-      paste: undefined,
-      fromStdin: false,
-      keyData: "",
-      submitGraceMs: 100,
-    });
-    expect(plan.bytes).toBe(
-      Buffer.byteLength("hi") + Buffer.byteLength(SUBMIT_ENTER),
-    );
-  });
-
-  it("composes with a bracketed multi-line paste — paste wrap AND submit", () => {
-    const text = "line one\nline two";
-    const plan = planSend({
-      text,
-      paste: undefined,
-      fromStdin: false,
-      keyData: "",
-      submitGraceMs: 250,
-    });
-    expect(plan.writes).toEqual([`${START}${text}${END}`]);
-    expect(plan.paste).toBe(true);
-    expect(plan.submit).toEqual({ graceMs: 250 });
-  });
-
-  it("a grace of 0 is a real (falsy) request, not 'no submit'", () => {
-    const plan = planSend({
-      text: "go",
-      paste: undefined,
-      fromStdin: false,
-      keyData: "",
-      submitGraceMs: 0,
-    });
-    expect(plan.submit).toEqual({ graceMs: 0 });
-  });
-
-  it("--submit with no text submits an Enter after the grace", () => {
-    const plan = planSend({
-      text: "",
-      paste: undefined,
-      fromStdin: false,
-      keyData: "",
-      submitGraceMs: 250,
-    });
-    expect(plan.writes).toEqual([]);
-    expect(plan.submit).toEqual({ graceMs: 250 });
-    expect(plan.bytes).toBe(Buffer.byteLength(SUBMIT_ENTER));
-  });
-});
-
-describe("SUBMIT_ENTER — the submit byte is the shared Enter", () => {
-  it("is the same carriage return `--key Enter` sends", () => {
-    expect(SUBMIT_ENTER).toBe(NAMED_KEY_BYTES.enter);
-    expect(SUBMIT_ENTER).toBe(encodeKey("Enter"));
-  });
-});
-
-describe("submitSwallowedPositional — a bare `--submit <word>` ate the prompt", () => {
-  it("false for a bare --submit at the end (value '' — nothing swallowed)", () => {
-    // `send a1b2 "text" --submit` → type-flag gives submit "" and text intact.
-    expect(
-      submitSwallowedPositional(
-        ["node", "main.ts", "send", "a1b2", "text", "--submit"],
-        "",
-      ),
-    ).toBe(false);
-  });
-
-  it("false for --submit=<ms> (the value rides the `--submit=…` token, no bare `--submit`)", () => {
-    expect(
-      submitSwallowedPositional(
-        ["node", "main.ts", "send", "a1b2", "text", "--submit=250"],
-        "250",
-      ),
-    ).toBe(false);
-    // an explicit empty `--submit=` is still the `=` form, not a bare swallow
-    expect(
-      submitSwallowedPositional(
-        ["node", "main.ts", "send", "a1b2", "--submit="],
-        "",
-      ),
-    ).toBe(false);
-  });
-
-  it("true when a bare --submit swallowed the next word as its grace", () => {
-    // The dangerous silent case: an all-digit prompt parses as a valid grace.
-    expect(
-      submitSwallowedPositional(
-        ["node", "main.ts", "send", "a1b2", "--submit", "12345"],
-        "12345",
-      ),
-    ).toBe(true);
-    // and a non-digit swallow too (it fails later in parseSubmitGrace, but the
-    // guard catches the dropped-text case first, with a message about the text).
-    expect(
-      submitSwallowedPositional(
-        ["node", "main.ts", "send", "a1b2", "--submit", "fix"],
-        "fix",
-      ),
-    ).toBe(true);
-  });
-});
-
-describe("parseSubmitGrace — bare vs =<ms>", () => {
-  it("a bare --submit ('') is the default grace", () => {
-    expect(parseSubmitGrace("")).toBe(DEFAULT_SUBMIT_GRACE_MS);
-  });
-
-  it("--submit=<ms> parses the digits, including 0", () => {
-    expect(parseSubmitGrace("250")).toBe(250);
-    expect(parseSubmitGrace("0")).toBe(0);
-    expect(parseSubmitGrace("1000")).toBe(1000);
-  });
-
-  it("fails loud on junk rather than NaN-degrading to the default", () => {
-    expect(() => parseSubmitGrace("abc")).toThrow(/non-negative integer/);
-    expect(() => parseSubmitGrace("-5")).toThrow(/non-negative integer/);
-    expect(() => parseSubmitGrace("12.5")).toThrow(/non-negative integer/);
-    expect(() => parseSubmitGrace("250ms")).toThrow(/non-negative integer/);
-  });
-
-  it("accepts the exact setTimeout ceiling (MAX_TIMER_MS)", () => {
-    // The boundary is honorable: setTimeout can wait a signed-32-bit delay.
-    expect(parseSubmitGrace(String(MAX_TIMER_MS))).toBe(MAX_TIMER_MS);
-  });
-
-  it("rejects a grace above the setTimeout ceiling rather than clamping it to 1ms", () => {
-    // MAX_TIMER_MS + 1 and a huge digit string both overflow setTimeout, which
-    // would silently fire at 1ms and drop the tuned grace — fail loud instead.
-    expect(() => parseSubmitGrace(String(MAX_TIMER_MS + 1))).toThrow(
-      /overflows setTimeout/,
-    );
-    expect(() => parseSubmitGrace("99999999999999999999")).toThrow(
-      /overflows setTimeout/,
-    );
+    expect(plan.bytes).toBe(Buffer.byteLength(`${START}${text}${END}`));
   });
 });

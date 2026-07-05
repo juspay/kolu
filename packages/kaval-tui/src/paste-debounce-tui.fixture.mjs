@@ -1,12 +1,13 @@
 // A scripted stand-in for a TUI agent (Claude Code / Codex) that reproduces the
-// ONE failure mode `kaval-tui send --submit` exists to fix: a bracketed paste is
-// staged on the prompt line, and an Enter (`\r`) arriving within a short DEBOUNCE
-// window of the paste's end is SILENTLY DROPPED — the prompt sits staged, unsent.
-// An Enter that arrives AFTER the window submits. That is exactly the race
-// `--submit` schedules around: it writes the paste, waits a grace > DEBOUNCE,
-// THEN writes the Enter, so the submit lands past the debounce instead of inside
-// it. Real not mocked: this runs in a real PTY spawned by the kaval host; the
-// acceptance test drives it with the real send byte-plan (paste → grace → Enter).
+// ONE failure mode the canonical two-command submit exists to fix: a bracketed
+// paste is staged on the prompt line, and an Enter (`\r`) arriving within a short
+// DEBOUNCE window of the paste's end is SILENTLY DROPPED — the prompt sits
+// staged, unsent. An Enter that arrives AFTER the window submits. `send` bakes in
+// NO grace: the caller sends the paste, OBSERVES the TUI settle (`wait --until
+// idle`, past DEBOUNCE), THEN sends the Enter as its own command, so the submit
+// lands past the debounce instead of inside it. Real not mocked: this runs in a
+// real PTY spawned by the kaval host; the acceptance test drives it with the real
+// send byte-plan (paste, then — after the observed settle — a separate Enter).
 //
 // It reads raw stdin, reassembles bracketed pastes across chunk boundaries (a
 // multi-KB paste arrives in several socket reads), and prints one line per event

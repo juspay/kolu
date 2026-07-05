@@ -134,7 +134,6 @@ describe("formatSend — the human trailer", () => {
         bytes: 14,
         paste: true,
         keys: ["Enter"],
-        submit: null,
       }),
     ).toBe("sent 14 bytes to a1b2c3d4 · pasted · keys: Enter");
   });
@@ -146,7 +145,6 @@ describe("formatSend — the human trailer", () => {
         bytes: 2,
         paste: false,
         keys: ["Escape", "C-c"],
-        submit: null,
       }),
     ).toBe("sent 2 bytes to a1b2c3d4 · keys: Escape, C-c");
   });
@@ -158,21 +156,8 @@ describe("formatSend — the human trailer", () => {
         bytes: 1,
         paste: false,
         keys: [],
-        submit: null,
       }),
     ).toBe("sent 1 byte to a1b2c3d4");
-  });
-
-  it("shows the submit grace under --submit (and no keys, since they can't co-occur)", () => {
-    expect(
-      formatSend({
-        id: "a1b2c3d4-1111-2222-3333-444455556666",
-        bytes: 15,
-        paste: true,
-        keys: [],
-        submit: { graceMs: 250 },
-      }),
-    ).toBe("sent 15 bytes to a1b2c3d4 · pasted · submitted (grace 250ms)");
   });
 });
 
