@@ -283,6 +283,103 @@ describe("collection deltas — handler subscribe-before-snapshot", () => {
   });
 });
 
+// #1681 — the gray Kaval chip. A per-key `get` for a key that DOESN'T EXIST YET
+// must be a HELD-OPEN subscription (yield nothing, wait for the key), NOT a throw.
+// The old handler threw "key not found at first snapshot", which reached a browser
+// as a non-retriable ORPCError that KILLED its standing subscription — so a key
+// born after the subscription opened (kolu-server booting with an empty re-serve
+// mirror) never reached the consumer until a full page reload.
+describe("collection get — held-open on an absent key (#1681)", () => {
+  type V = { name: string };
+
+  const makeHandlers = (store: Map<string, V>, perKey: Channel<V>) =>
+    collectionHandlers(
+      { name: "daemonStatus" } as never,
+      {
+        readAll: () => store as unknown as Map<unknown, unknown>,
+        perKeyBus: () => perKey as unknown as Channel<unknown>,
+        keysBus: inMemoryChannel<unknown[]>() as unknown as Channel<unknown[]>,
+        upsert: () => {},
+        remove: () => {},
+      } as never,
+    );
+
+  it("holds open for an absent key, then DELIVERS it the moment it is upserted", async () => {
+    const store = new Map<string, V>(); // empty — "local" is ABSENT at subscribe
+    const perKey = inMemoryChannel<V>();
+    const gen = makeHandlers(store, perKey).get({
+      input: { key: "local" } as never,
+    });
+
+    // First pull: the key is absent, so the handler yields NOTHING yet — a live,
+    // held-open subscription WAITING for the key (the pull is pending). Subscribe-
+    // before-snapshot means it is already subscribed to the per-key channel.
+    const pull = gen.next();
+    // The key is born now — its first upsert publishes to that same channel.
+    perKey.publish({ name: "connected" });
+    const frame = await pull;
+
+    expect(frame.done).toBe(false);
+    expect(frame.value).toEqual({ name: "connected" });
+    await gen.return?.(undefined);
+  });
+
+  it("delivers a value published in the post-snapshot gap without loss (subscribe-before-snapshot)", async () => {
+    // The key is PRESENT at subscribe. The handler subscribes to the per-key
+    // channel BEFORE reading the snapshot, so a value published in the window
+    // between the snapshot `yield` and the consumer's next pull is BUFFERED and
+    // delivered — never lost. Reordering to snapshot-BEFORE-subscribe would drop it
+    // (published to zero subscribers): this test guards the ordering that the
+    // held-open change preserves. (A same-window value equal to the snapshot may be
+    // delivered twice — benign under fold semantics; see the handler docstring.)
+    const store = new Map<string, V>([["local", { name: "a" }]]);
+    const perKey = inMemoryChannel<V>();
+    const gen = makeHandlers(store, perKey).get({
+      input: { key: "local" } as never,
+    });
+
+    const first = await gen.next(); // snapshot
+    expect(first.value).toEqual({ name: "a" });
+
+    // A producer ticks a new value NOW — in the gap before we resume.
+    perKey.publish({ name: "b" });
+    const second = await gen.next();
+    expect(second.value).toEqual({ name: "b" });
+
+    await gen.return?.(undefined);
+  });
+
+  it("a key that NEVER appears leaves the stream OPEN yielding nothing (waiting, not errored), and drops cleanly on abort", async () => {
+    const store = new Map<string, V>(); // empty forever
+    const perKey = inMemoryChannel<V>();
+    // Teardown is via the consumer's abort SIGNAL — how a real consumer ends a
+    // held-open subscription (the reactive owner disposing / STREAM_RETRY abort).
+    const ac = new AbortController();
+    const gen = makeHandlers(store, perKey).get({
+      input: { key: "local" } as never,
+      signal: ac.signal,
+    });
+
+    const pull = gen.next();
+    // The subscription is live and waiting — it did NOT throw.
+    expect(perKey.subscriberCount()).toBe(1);
+    // The pull stays PENDING: no frame, no error — the honest "absent/waiting"
+    // state a consumer renders (the gray chip is a recoverable truth, not a corpse).
+    const settled = await Promise.race([
+      pull.then(() => "settled" as const),
+      new Promise<"pending">((r) => setTimeout(() => r("pending"), 30)),
+    ]);
+    expect(settled).toBe("pending");
+
+    // Aborting drops the subscriber — no lifecycle leak. The pending pull rejects
+    // with the AbortError (drained here), exactly as `keys` on an empty collection.
+    ac.abort();
+    await pull.catch(() => {});
+    await tick();
+    expect(perKey.subscriberCount()).toBe(0);
+  });
+});
+
 describe("foldCollectionDeltas — client fold", () => {
   type V = { name: string };
   const empty = { byKey: {} as Record<string, V>, order: [] as number[] };
