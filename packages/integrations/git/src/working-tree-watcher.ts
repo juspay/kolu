@@ -47,11 +47,39 @@
 import path from "node:path";
 import {
   type AsyncSubscription,
+  type BackendType,
   subscribe as parcelSubscribe,
 } from "@parcel/watcher";
 import type { Logger } from "kolu-shared";
 import { listIgnoredPaths } from "./browse.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
+
+/** Pin parcel's backend to the OS-native one instead of letting it auto-select.
+ *
+ *  Auto-selection probes the **watchman** backend FIRST, on **every**
+ *  `subscribe`, via a native `popen("watchman … get-sockname 2>/dev/null")`
+ *  (parcel's `WatchmanBackend::checkAvailable`). On a host without watchman
+ *  installed — every kolu pool box and most dev machines — that probe fails and
+ *  parcel's error path never `pclose()`s the pipe, so the `/bin/sh` it forked
+ *  leaks as an **unreaped zombie, one per subscribe**. Node's libuv can't reap
+ *  it (the child was spawned by native `popen`, not through `child_process`), so
+ *  in a long-lived daemon (a remote-bound padi serving a whole e2e run) the
+ *  zombies pile up unbounded — invisible to CPU/RAM, but they drag the daemon's
+ *  event loop enough that Code-tab renders time out in the back half of a run.
+ *  Surfaced by W3.4's remote-e2e lane; diagnosed to parcel@2.5.6 + no-watchman.
+ *
+ *  Pinning the native backend skips the watchman probe entirely (verified: the
+ *  per-subscribe `sh` leak goes to zero). The only thing forgone is watchman's
+ *  fewer-inotify-slots optimization for hosts that HAVE it opted in — which
+ *  kolu's targets don't — so this is pure win, not a fallback we're giving up. */
+const PARCEL_BACKEND: BackendType | undefined =
+  process.platform === "darwin"
+    ? "fs-events"
+    : process.platform === "linux"
+      ? "inotify"
+      : process.platform === "win32"
+        ? "windows"
+        : undefined;
 
 /** `.git` is always ignored: git never lists its own dir, and the git-dir
  *  watchers (HEAD/reflog/index) cover the parts we care about — watching it
@@ -181,7 +209,9 @@ function installSharedWorkingTreeWatcher(
           // exactly once, after the burst settles. Reset on every new batch.
           scheduleFire();
         },
-        { ignore },
+        // `backend` pins the OS-native watcher and skips parcel's leaking
+        // per-subscribe watchman probe — see PARCEL_BACKEND above.
+        { ignore, backend: PARCEL_BACKEND },
       );
 
       if (cancelled) {
