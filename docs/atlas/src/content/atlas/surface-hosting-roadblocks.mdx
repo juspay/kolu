@@ -82,11 +82,15 @@ You proposed `SurfaceIdentity`; it's better than `ServerIdentity`, and `system.i
 
 ```ts
 // @kolu/surface
+// (final shape — see roadblock 5 for the startedAt/baked split and the BuildCommit sum)
 interface SurfaceIdentity {
+  startedAt: number;                 // framework-stamped when connected
+  baked: BakedIdentity | null;       // the server-declared triple, or null (no declared build)
+}
+interface BakedIdentity {
   contractVersion: string;
-  startedAt: number;
-  buildId: string;        // the build's content hash — convergence CURRENCY (staleKey)
-  commit: string | null;  // human-navigable source commit — a DISTINCT field, never merged
+  buildId: string;                   // the build's content hash — convergence CURRENCY (staleKey)
+  commit: { kind: "commit"; sha: string } | { kind: "dev" }; // navigable vs dev — a SUM, never `string | null`
 }
 ```
 
@@ -109,10 +113,13 @@ Lives in **`@kolu/surface`** (the base package — it's a universal surface memb
 
 ```ts
 // the server-DECLARED triple — present as a WHOLE, or absent as a whole:
+type BuildCommit =
+  | { readonly kind: "commit"; readonly sha: string }  // a navigable commit (link to it)
+  | { readonly kind: "dev" };                          // built from an uncommitted tree — no navigable commit
 interface BakedIdentity {
   contractVersion: string;
   buildId: string;
-  commit: string | null;          // nullable WITHIN a baked id (a build may lack a navigable commit)
+  commit: BuildCommit;            // a SUM, not `string | null` — dev-vs-real is explicit, reader must branch
 }
 interface SurfaceIdentity {
   startedAt: number;              // framework-STAMPED on every answer — always present when connected
@@ -156,7 +163,7 @@ defineSurface(members, { contractVersion });   // every defineSurface call chang
 
 **Why A:** identity stays a *universal capability* (member on every surface, `identity()` on base role) while the *source* is wired only where read (padi). B builds baked-var machinery for identity on drishti/odu that **has no reader** — a receptacle for population zero. A doesn't foreclose B later.
 
-**One consequence to reconcile:** the L3 convergence kit today uses `buildId === ""` to mean "off-nix server". With `baked: null` that check becomes `baked === null` — the SAME sentinel-removal, one layer down. A consistent improvement (the kit reads identity, so it adapts either way).
+**Two consequences to reconcile:** (1) the L3 convergence kit's `buildId === ""` "off-nix" check becomes `baked === null` — the same sentinel-removal one layer down. (2) the dialog's build-commit line branches on the `BuildCommit` sum — `kind:"commit"` → a navigable link, `kind:"dev"` → a "dev build" badge (no more null-means-maybe-dev-maybe-error).
 
 > **A (with the `Maybe`-typed identity above)?** — needs your call. Agent is building everything else meanwhile.
 
