@@ -42,9 +42,8 @@ import {
 // module carries kolu-server's local-machine scan, and the seal forbids one importing
 // the other. Re-exported below so existing `kolu-common/surface` importers are unchanged.
 import {
+  HostDaemonInventorySchema,
   ProcessRssSchema,
-  RunningKavalSchema,
-  RunningPadiSchema,
 } from "@kolu/terminal-workspace/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
@@ -362,12 +361,7 @@ export const DaemonInventorySchema = z.object({
    *  and a second copy here would show two lists for one truth. Read-only enumeration (same
    *  scanner @kolu/padi serves the member with), marking NONE active — kolu is bound
    *  elsewhere, so no local daemon is "in use by kolu". */
-  localScan: z
-    .object({
-      kavals: z.array(RunningKavalSchema),
-      padis: z.array(RunningPadiSchema),
-    })
-    .nullable(),
+  localScan: HostDaemonInventorySchema.nullable(),
   /** The BOUND padi's honest identity off its control-core `hello` — `surfaceVersion` +
    *  `buildCommit` — for BOTH arms (local socket OR remote ssh). The Padi dialog's
    *  version chip + build-commit row read THIS, not the local-scan `active` row: under a

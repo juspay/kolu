@@ -61,9 +61,8 @@ import {
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
+  HostDaemonInventorySchema,
   RepoChangePulseSchema,
-  RunningKavalSchema,
-  RunningPadiSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-workspace/schema";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
@@ -162,14 +161,12 @@ export const DEFAULT_PADI_STATUS: PadiStatus = {};
  *  is the authority on its host's inventory — and, crucially, it can see the host
  *  the browser is actually using even when kolu-server is bound to it over ssh: the
  *  member rides the re-served surface, so the dialog's bound-host list works
- *  identically local and remote. The row shapes are the shared-leaf
- *  {@link RunningKavalSchema}/{@link RunningPadiSchema}, so kolu-server's OWN
- *  local-machine scan (koluSurface's `daemonInventory.localScan`, shown as a second
- *  group under a remote binding) is the same wire shape from the same one scanner. */
-export const PadiHostInventorySchema = z.object({
-  kavals: z.array(RunningKavalSchema),
-  padis: z.array(RunningPadiSchema),
-});
+ *  identically local and remote. The container is the shared-leaf
+ *  {@link HostDaemonInventorySchema}, so kolu-server's OWN local-machine scan
+ *  (koluSurface's `daemonInventory.localScan`, shown as a second group under a remote
+ *  binding) is the same wire shape from the same one scanner — one declaration, both
+ *  sides of the padi seal. */
+export const PadiHostInventorySchema = HostDaemonInventorySchema;
 export type PadiHostInventory = z.infer<typeof PadiHostInventorySchema>;
 
 /** The honest pre-sample value — empty lists, so a fresh subscriber renders no

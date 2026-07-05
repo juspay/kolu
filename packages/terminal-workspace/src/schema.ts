@@ -338,6 +338,18 @@ export const RunningPadiSchema = z.object({
 });
 export type RunningPadi = z.infer<typeof RunningPadiSchema>;
 
+/** One host's daemon inventory — every running kaval + padi on a single machine.
+ *  Homed on this browser-safe leaf beside the two row shapes it wraps so BOTH sides
+ *  of the padi seal read ONE declaration: `@kolu/padi/surface`'s `hostInventory`
+ *  member (the bound host's own scan) and `kolu-common/surface`'s
+ *  `daemonInventory.localScan` (kolu-server's local-machine scan) compose this one
+ *  container, not two lockstep copies. The scanner returns this neutral name. */
+export const HostDaemonInventorySchema = z.object({
+  kavals: z.array(RunningKavalSchema),
+  padis: z.array(RunningPadiSchema),
+});
+export type HostDaemonInventory = z.infer<typeof HostDaemonInventorySchema>;
+
 // ── Live-output cadence ────────────────────────────────────────────────────
 
 /** Output quiet-period before a terminal reads as static again — the ONE cadence
