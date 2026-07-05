@@ -24,9 +24,9 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L15 (+ urgency, was L19) · L26 · L16 · L17 (+ video-ext table, was L5b) · L18 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
+- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L26 · L17 (+ video-ext table, was L5b) · L18 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
 - **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
-- **Shipped:** L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
+- **Shipped:** L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
@@ -200,7 +200,7 @@ The audit sweep found the same pattern again — **`UPLOAD_VIDEO_EXTENSIONS`** d
 
 <a id="l15"></a>
 
-### L15 — make the `metadata.ts` write-seam invariants explicit (the `AutosaveGate` + the urgency funnel)
+### L15 — make the `metadata.ts` write-seam invariants explicit (the `AutosaveGate` + the urgency funnel) *(SHIPPED — #1703, merged 2026-07-05)*
 
 *Status: ready · Lens: hickey (one invariant fragmented across seven files, held by comments) · Gate: none — the highest-value entry on this ledger*
 
@@ -214,7 +214,7 @@ The same file carries a second scattered invariant — **"does this write change
 
 <a id="l16"></a>
 
-### L16 — make `runPadiDaemon`'s boot order compile-time
+### L16 — make `runPadiDaemon`'s boot order compile-time *(SHIPPED — #1703, merged 2026-07-05)*
 
 *Status: ready · Lens: hickey (~10 boot concerns ordered only by prose) · Gate: none*
 
