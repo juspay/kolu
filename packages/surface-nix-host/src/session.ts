@@ -181,7 +181,11 @@ export type Connector<Client> = (
 export class ConnectError extends Error {
   constructor(
     message: string,
-    readonly cause: FailureCause,
+    // NB: NOT `cause` — that shadows the built-in `Error.cause`, which a strict
+    // downstream tsconfig (drishti's `noImplicitOverride`) rejects (TS4115). This is
+    // the connector's own transport classification, so it gets its own honest name,
+    // matching `AdmitRefusal.failureCause`.
+    readonly failureCause: FailureCause,
   ) {
     super(message);
     this.name = "ConnectError";
@@ -492,7 +496,7 @@ export function makeSession<Client = SurfaceClientLike>(
       });
     } catch (err) {
       const cause: FailureCause =
-        err instanceof ConnectError ? err.cause : "network";
+        err instanceof ConnectError ? err.failureCause : "network";
       const reason = err instanceof Error ? err.message : String(err);
       updateState({
         connection: "disconnected",
