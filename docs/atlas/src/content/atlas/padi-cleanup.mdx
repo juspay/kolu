@@ -24,9 +24,9 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L1 · L6 · L7 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
+- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
 - **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
-- **Shipped:** L3 — the convergence kit (#1674, merged 2026-07-04); L5's fold-half
+- **Shipped:** L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
@@ -83,17 +83,13 @@ Places where a phase's landing changes what the right boundary *is* — each nee
 
 <a id="l6"></a>
 
-### L6 — re-audit `padiBinding.ts` after the dial carve
+### L6 — re-audit `padiBinding.ts` after the dial carve *(SHIPPED — #1698, merged 2026-07-05)*
 
-*Status: READY (W2.3 shipped 2026-07-03) · Lens: hickey (three concerns in one file?) · Gate: none (kolu-internal)*
+*Status: SHIPPED · Lens: hickey (three concerns in one file?) · Gate: none (kolu-internal — verdict (c) confirmed binder-specific, so no relocation, no drishti)*
+
+**Shipped (#1698, `d93852563`).** (a) `padiConvergence.ts` carved out (`PADI_CONVERGENCE_POLICY` + `probePadiForConvergence` + `drainViaControlCore`) — **honest size: ~130 real lines, not the ~300 this entry imagined**; that gap is L3 (#1674), which had already absorbed `parseMajorMinor`/`probePadiSkew`/`drainSkewedSurvivorIfNewer`/`bindPadiOnce` into the kit, so what remained to split was padi's declaration INTO the kit, still a distinct fourth volatility. (b) the three parallel nullable identity fields collapsed to one `boundIdentity | null` (partial identity now unrepresentable). (c) **VERDICT — the reconnect loop stays in the binder**: the two arms share convergence *policy* (both delegate to the kit) but NOT reconnect *mechanism* (the local arm bridges a single-shot Endpoint onto the re-serve's HostSession mirror; the remote arm's is `getHostSession`'s ssh loop — a different mechanism). Relocating would drag the browser-facing `HostSessionState` projection into `surface-daemon-supervisor` (wrong volatility, location is structure) — so it does not move, and there is no drishti gate. padiBinding.ts 850→711; `padiBinding.test.ts` 12/12 + seal green on a pu box. srid merged directly (simple refactor, gauntlet waived).
 
 After W2.3 moves `connectPadi` into `@kolu/padi/dial`, what remains in `packages/server/src/padiBinding.ts` is roughly: the spawn/supervise driver (`localPadiDriver`, adopt-or-spawn-or-refuse, the legacy-kaval hint), the reconnect session (`PadiBindingSession`), and the re-serve wiring. Question for the audit: do these change for the same reason? The supervisor changes with daemon-lifecycle policy; the re-serve changes with the surface contract; the session bridges them. If the file reads as three braided concerns, split it (`padiSupervision.ts` / the session / re-serve wiring already partly in `reServeSurface` usage); if it reads as one binder concern with three paragraphs, leave it and record that verdict here.
-
-**The audit passes sharpened this entry — three named sub-items:** (a) the header claims three concerns but there is a **fourth**: the newest-wins convergence pre-flight (`parseMajorMinor`/`probePadiSkew`/`drainSkewedSurvivorIfNewer`/`bindPadiOnce`, ~300 lines) varies with contract-skew policy and is already deps-injected + independently tested — split candidate `padiConvergence.ts`; (b) `PadiBindingSession` shatters one identity into **three parallel nullable fields** (`padiStartedAtMs`/`padiSurfaceVersionStr`/`padiBuildCommitStr`, set/cleared together in four places) — collapse to one `boundIdentity | null` value; (c) the reconnect/re-dial loop lives in the binding adapter rather than the supervisor spine (`padiBinding.ts` ~386, #1664 hickey-8) — decide whether it relocates to `surface-daemon-supervisor` (that half would be drishti-gated) or is binder-specific by nature.
-
-**Where:** `packages/server/src/padiBinding.ts` (+ its tests `padiBinding.test.ts`, `padiConverge.test.ts`, `padiLink.ts` as the neighboring already-split example).
-
-**Done when:** a verdict is recorded in this entry (split shipped, or "one concern — no-op" with reasoning); if split: seal + all binder tests green, no behavior change.
 
 <a id="l7"></a>
 
