@@ -52,7 +52,7 @@ Kolu defines its own flavor of the role, **`BoundPadi`**: a `RemoteMirrorSession
 | --- | --- | --- |
 | `RemoteMirrorSession` | the **role** — the plug shape every session must fit | no — pure interface |
 | `HostSession` | the **one appliance** for "pipe to another machine" (ssh + Nix + reconnect) | yes |
-| `BoundPadi` | the role **plus two padi pins** (drain · identity) — a domain extension, not a re-implementation | no — interface; its two arms run |
+| `BoundPadi` | the role **plus the two padi-only verbs**: *drain* ("save state and exit gracefully" — the Restart button; kaval + PTYs survive) and *identity* (who is on the other end: started-when · contract version · build commit, off the `hello` handshake) — a domain extension, not a re-implementation | no — interface; its two arms run |
 
 The one place mechanism-duplication was genuinely suspected — the local arm's reconnect loop vs `HostSession`'s — was formally audited (ledger L6, verdict c): different transports honestly dictate different reconnect mechanisms, while the *policy* both arms follow is shared through the L3 convergence kit. Acquitted, with the reasoning on record.
 
