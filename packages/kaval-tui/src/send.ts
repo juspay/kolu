@@ -108,10 +108,19 @@ export type SendInput =
   | { kind: "none" };
 
 /** Did the resolved source arrive as a BLOCK from a stream — `--file` or piped
- *  stdin — so it auto-pastes even when single-line? Co-located with the
- *  {@link SendInput} definition so a new stream-y source updates one place. */
+ *  stdin — so it auto-pastes even when single-line? An EXHAUSTIVE switch over
+ *  `input.kind` with no default (matching `readSendText`'s reader), so adding a
+ *  {@link SendInput} variant is compiler-forced to declare its stream-ness rather
+ *  than silently defaulting to the line-by-line path. */
 export function sourceIsStream(input: SendInput): boolean {
-  return input.kind === "file" || input.kind === "stdin";
+  switch (input.kind) {
+    case "file":
+    case "stdin":
+      return true;
+    case "positional":
+    case "none":
+      return false;
+  }
 }
 
 /** Validate a send's WHOLE input combination and resolve the single text source
