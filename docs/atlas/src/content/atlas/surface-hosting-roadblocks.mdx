@@ -191,6 +191,28 @@ Two options:
 
 *(Q1 identity-sourcing and Q2 endpointConnector-is-a-kolu-leaf were pure confirmations of the ratified design — resolved, not open.)*
 
+## 7. The two arms don't share `padiAdmit` — they share the DECISION (build-time; RULED (a))
+
+S9's prose said "both arms share `padiAdmit`". Building it revealed that quietly assumed both transports converge POST-connect — but they don't, and the difference is real, rooted in the transports:
+
+```ts
+// REMOTE (ssh): hands you a RAW client → converge AFTER connect. `admit` IS that seam:
+const remotePadi = makeSession({ connectOnce: sshConnector({ binary: "padi" }), admit: padiAdmit });
+
+// LOCAL (supervisor Endpoint): converges AS it connects, BY DESIGN —
+//   endpoint.adoptOrSpawnOrRefuse() = probe → decide → drain-enact → THEN connect.
+//   There is no "raw adopt-or-spawn without the check" method. So NO post-connect admit:
+const localPadi = makeSession({ connectOnce: endpointConnector(endpoint) });  // admit omitted — self-converged
+
+// The REAL dedup both arms share (this is what S9 was actually after):
+//   • ONE PADI_CONVERGENCE_POLICY / decide()      • drainViaControlCore
+//   • the daemon-member spread { ...base, convergence, renew, preservation }
+```
+
+**Ruling: (a).** Local convergence stays pre-connect inside `endpointConnector` (the `Endpoint` is UNCHANGED — honors Q3's "don't touch surface-daemon-supervisor"); the remote arm carries `admit: padiAdmit`. This is not a divergence from S9 — it's the correct use of S9's **`admit?` optional**: the local connector already converges, so it has no post-connect hook to pass. It preserves both arms' exact convergence timing, still deletes `BoundPadi` + the wrapper classes, and still collapses to closures + spread + one policy + one drain — S9's whole intent.
+
+Rejected **(b)** (rip out the `Endpoint`, force a shared post-connect admit): it deletes a working mechanism to rebuild local adopt-or-spawn from scratch, risks a local-convergence timing change (briefly connecting to an about-to-be-drained padi), and brushes the Q3 boundary — a bigger, riskier change for a *literal* symmetry the transports don't support.
+
 ## Status of the four — all resolved
 
 1. **`system.identity` BUNDLED** — the new reserved `system`-namespace member (twin of `system.live`); `identity()` on the base `Session` role; no separate follow-up. ✅ srid's call. (Name: `system.identity`, NOT "universal hello".)
