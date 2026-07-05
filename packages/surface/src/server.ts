@@ -1181,13 +1181,17 @@ export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
  *  so imperative procedures publish through the same channel as the wire
  *  handlers. Bypassing this and writing directly to the consumer's store
  *  silently skips the publish; don't. */
+/** `set`'s optional `{ force }` bypasses the cell's `equals` dedup for that ONE
+ *  write (a re-serve's rebind epoch republishes an equal value — #1681); omitted,
+ *  the write dedups as before. */
+type CellCtxSet<T> = (v: T, opts?: { force?: boolean }) => void;
 type CellCtxFor<S> = S extends {
   schema: ZodType<infer T>;
   patchSchema: ZodType<infer P>;
 }
-  ? { get: () => T; set: (v: T) => void; patch: (p: P) => void }
+  ? { get: () => T; set: CellCtxSet<T>; patch: (p: P) => void }
   : S extends { schema: ZodType<infer T> }
-    ? { get: () => T; set: (v: T) => void }
+    ? { get: () => T; set: CellCtxSet<T> }
     : never;
 
 type CollectionCtxFor<S> = S extends {
@@ -1403,8 +1407,13 @@ function walkSurface<const S extends SurfaceSpec>(
     // (TypeScript errors / test failures) if anyone adds a step to
     // only one side.
     const store = cellDeps.store;
-    function ctxApply(next: unknown): void {
-      if (equalsFn?.(store.get(), next)) return;
+    // `force` bypasses the `equals` dedup for ONE write — a re-serve's rebind
+    // epoch uses it so a fresh spawn re-confirming a value EQUAL to the pre-drain
+    // one still republishes, letting a downstream holder tell "rebound and
+    // confirmed" from "stale" (#1681; `reServeSurface`'s cell fold). Steady-state
+    // dedup is unchanged: only the explicit `force` caller opts out, per write.
+    function ctxApply(next: unknown, opts?: { force?: boolean }): void {
+      if (!opts?.force && equalsFn?.(store.get(), next)) return;
       onWriteFn?.(next);
       store.set(next);
       bus.publish(next);

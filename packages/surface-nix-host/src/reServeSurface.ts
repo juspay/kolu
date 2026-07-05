@@ -365,7 +365,10 @@ export function reServeSurface<
 
   const fragment = implementSurface(surface, deps);
   const ctx = fragment.ctx as {
-    cells: Record<string, { set: (v: unknown) => void } | undefined>;
+    cells: Record<
+      string,
+      { set: (v: unknown, opts?: { force?: boolean }) => void } | undefined
+    >;
     collections: Record<
       string,
       | {
@@ -413,9 +416,22 @@ export function reServeSurface<
       // the only writer of the local mirror, and the only place `equals` guards
       // (the wire-write forward path bypasses it, closing the h3 dedup edge).
       // `markConnected` fires on the first folded frame.
+      //
+      // REBIND EPOCH (#1681): a fresh spawn (this sink is minted once PER spawn)
+      // re-serving a cell value EQUAL to the pre-drain one would be swallowed by
+      // the equals-gate — so a downstream holder (kolu-server's adopted-stale
+      // banner / connection recovery) could not tell "rebound and confirmed" from
+      // "stale". Force ONE republish on the FIRST fold of this spawn to cross the
+      // gate; every later fold in the same spawn keeps steady-state dedup.
+      let epochForced = false;
       cells[key] = (value) => {
         onFirst();
-        cell.set(value);
+        if (epochForced) {
+          cell.set(value);
+        } else {
+          epochForced = true;
+          cell.set(value, { force: true });
+        }
       };
     }
     const collections: Record<

@@ -23,6 +23,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { createStore } from "solid-js/store";
+import { consumeReSubscribing } from "./consumeReSubscribing";
 import type { Subscription } from "./createSubscription";
 import { writeWrappedValue } from "./writeValue";
 
@@ -55,21 +56,24 @@ export function createReactiveSubscription<I, T>(
       const controller = new AbortController();
       onCleanup(() => controller.abort());
 
-      void (async () => {
-        try {
-          const iterable = await factory(input, controller.signal);
-          for await (const item of iterable) {
-            if (controller.signal.aborted) break;
+      // Re-subscribe (within this input round) if the SERVER completes the stream
+      // cleanly — a re-serve across a rebind (#1681); an input change aborts this
+      // controller and the effect re-runs with a fresh one. (`consumeReSubscribing`.)
+      void consumeReSubscribing(
+        () => factory(input, controller.signal),
+        {
+          onItem: (item) => {
             writeWrappedValue(setStore, item);
             if (pending()) setPending(false);
             if (error()) setError(undefined);
-          }
-        } catch (err) {
-          if (controller.signal.aborted) return;
-          setError(toError(err));
-          setPending(false);
-        }
-      })();
+          },
+          onError: (err) => {
+            setError(toError(err));
+            setPending(false);
+          },
+        },
+        controller.signal,
+      );
     }),
   );
 

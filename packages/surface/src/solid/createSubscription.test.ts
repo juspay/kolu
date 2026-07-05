@@ -561,4 +561,78 @@ describe("createSubscription", () => {
       expect(result.pending).toBe(false);
     });
   });
+
+  // #1681 — the gray Kaval chip. A surface stream is held open (snapshot-then-
+  // deltas); a CLEAN completion means the server ended it — e.g. a re-serve across
+  // a padi drain→respawn rebind. `ClientRetryPlugin` re-subscribes only on a
+  // transport ERROR, never on a clean completion, so a standing subscription must
+  // re-open itself to observe the post-rebind republished snapshot. Without the
+  // fix the subscription runs `source()` ONCE and dies on the first completion —
+  // the fresh frame never arrives (the chip stays stale until a page reload).
+  describe("re-subscribe on clean completion (#1681)", () => {
+    it("delivers a republished frame after a server-side stream completion", async () => {
+      const result = await new Promise<{ subscribes: number; value: unknown }>(
+        (resolve) => {
+          createRoot(async (dispose) => {
+            let subscribes = 0;
+            // Round 0 yields the pre-rebind frame then COMPLETES (the server ended
+            // the stream across the rebind). Round 1 (a re-subscribe) yields the
+            // fresh post-rebind frame and stays open.
+            const source = () => {
+              const round = subscribes++;
+              return Promise.resolve(
+                (async function* () {
+                  if (round === 0) {
+                    yield { state: "connected", adopted: 0 };
+                    return; // clean completion
+                  }
+                  yield { state: "connected", adopted: 1 };
+                  await new Promise(() => {}); // stay open
+                })(),
+              );
+            };
+
+            const sub = createSubscription(source);
+            // The pre-rebind frame lands promptly.
+            await flush();
+            // The re-subscribe is bounded by RESUBSCRIBE_DELAY_MS (1s); wait past it.
+            await new Promise((r) => setTimeout(r, 1150));
+
+            resolve({ subscribes, value: sub() });
+            dispose();
+          });
+        },
+      );
+
+      // Re-subscribed (source called ≥ twice) and observed the fresh frame.
+      expect(result.subscribes).toBeGreaterThanOrEqual(2);
+      expect(result.value).toEqual({ state: "connected", adopted: 1 });
+    }, 10_000);
+
+    it("stops (does not re-subscribe) on a thrown stream error", async () => {
+      const result = await new Promise<{ subscribes: number; error: string }>(
+        (resolve) => {
+          createRoot(async (dispose) => {
+            let subscribes = 0;
+            const sub = createSubscription(() => {
+              subscribes++;
+              return Promise.resolve(
+                (async function* () {
+                  throw new Error("boom");
+                })(),
+              );
+            });
+            // Wait well past the re-subscribe delay: a thrown error is terminal,
+            // so `source` must have been called exactly once.
+            await new Promise((r) => setTimeout(r, 1150));
+            resolve({ subscribes, error: readSubError(sub).message });
+            dispose();
+          });
+        },
+      );
+
+      expect(result.subscribes).toBe(1);
+      expect(result.error).toBe("boom");
+    }, 10_000);
+  });
 });

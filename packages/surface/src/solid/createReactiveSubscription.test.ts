@@ -442,6 +442,45 @@ describe("createReactiveSubscription", () => {
     });
   });
 
+  // #1681 — a standing stream the SERVER completes cleanly (a re-serve across a
+  // rebind) must re-subscribe WITHIN the same input round to observe the
+  // republished frame, not just on an input change.
+  describe("re-subscribe on clean completion (#1681)", () => {
+    it("delivers a republished frame after a server-side stream completion", async () => {
+      const result = await new Promise<{ factories: number; value: unknown }>(
+        (resolve) => {
+          createRoot(async (dispose) => {
+            let factories = 0;
+            const factory = () => {
+              const round = factories++;
+              return Promise.resolve(
+                (async function* () {
+                  if (round === 0) {
+                    yield "pre";
+                    return; // clean completion (input unchanged)
+                  }
+                  yield "post";
+                  await new Promise(() => {}); // stay open
+                })(),
+              );
+            };
+            const sub = createReactiveSubscription<string, string>(
+              () => "in",
+              factory,
+            );
+            await flush();
+            // The re-subscribe is bounded by RESUBSCRIBE_DELAY_MS (1s).
+            await new Promise((r) => setTimeout(r, 1150));
+            resolve({ factories, value: sub() });
+            dispose();
+          });
+        },
+      );
+      expect(result.factories).toBeGreaterThanOrEqual(2);
+      expect(result.value).toBe("post");
+    }, 10_000);
+  });
+
   describe("object values", () => {
     it("yields object values via reconcile branch", async () => {
       const result = await new Promise<{ a: number; b: number }>((resolve) => {

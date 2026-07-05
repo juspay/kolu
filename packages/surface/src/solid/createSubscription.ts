@@ -15,6 +15,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { createStore } from "solid-js/store";
+import { consumeReSubscribing } from "./consumeReSubscribing";
 import { writeWrappedValue } from "./writeValue";
 
 /**
@@ -107,23 +108,25 @@ export function createSubscription<T, R = T>(
       return controller.signal;
     })();
 
-  // Consume the stream
-  void (async () => {
-    try {
-      const iterable = await source();
-      for await (const item of iterable) {
-        if (abortSignal.aborted) break;
+  // Consume the stream. `consumeReSubscribing` re-opens a standing subscription the
+  // SERVER completes cleanly (a re-serve across a padi rebind, #1681) — the retained
+  // value + `pending`/`error` are left untouched across the re-subscribe, so
+  // recovery is a silent refresh in place (no flash to undefined).
+  void consumeReSubscribing(
+    source,
+    {
+      onItem: (item) => {
         updateValue(reduce ? reduce(store.v as T | R, item) : item);
         if (pending()) setPending(false);
         if (error()) setError(undefined);
-      }
-    } catch (err) {
-      if (!abortSignal.aborted) {
+      },
+      onError: (err) => {
         setError(toError(err));
         if (pending()) setPending(false);
-      }
-    }
-  })();
+      },
+    },
+    abortSignal,
+  );
 
   const sub = Object.assign(() => store.v as (T | R) | undefined, {
     error,
