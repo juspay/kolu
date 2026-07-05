@@ -25,7 +25,7 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 **Status index** — updated as entries ripen or ship:
 
 - **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L14 · L15 · L16 · L17 · L18 · L19 · L20 (drishti) · L21 (drishti) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version; L5's remaining half (video-ext table)
-- **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22, L25 on evidence
+- **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
 - **Shipped:** L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
@@ -251,16 +251,6 @@ W2.2's h2 bounded the **re-serve's** per-subscriber channels (HWM 4096, loud ove
 
 **Done when:** a load test demonstrates bounded memory under an unpaced sender at every serve site — or the entry closes with the recorded per-consumer-bound decision.
 
-<a id="l25"></a>
-
-### L25 — extract the browser padi-binding into its own home *(only if a second consumer earns it)*
-
-*Status: gated on evidence (a second consumer of the browser-side binding layer) · Lens: lowy (a maybe-receptacle, population one) · Gate: drishti if it becomes a package touching `@kolu/surface*`; none if it stays a kolu-internal module*
-
-W4's switch PR-2 builds the per-binding client lifecycle in-place in `packages/client` as a cohesive `binding/` module (`bindHost(host) → handle`, components take a handle not a page-global). srid floated a `packages/padi-web-client` package for it (2026-07-05); the verdict was **build in-place first** — it has one consumer today and a package boundary doesn't shrink the Solid teardown/rebuild work, only relocates it (the electricity three-tests: not a domain-agnostic volatility — `@kolu/surface` already owns that — and unproven by a second consumer). This entry is the revisit: if a real second consumer of the browser binding layer appears (a second web frontend — NOT kolu-tui, which is a TUI on `@kolu/padi/dial`), extract the `binding/` module to its own home. Because PR-2 shapes it as a factory-API module from the start, the extraction is pure motion, not a redesign.
-
-**Done when:** either a second consumer exists and the module is extracted (seal/deps green; drishti green if it lands as a shared package), or this entry is deleted with "one consumer, stays a leaf" and a date.
-
 <a id="l11"></a>
 
 ### L11 — sweep the interim client-wire shapes after the binding-scoped rebuild
@@ -328,6 +318,7 @@ The CI pool boxes carry srid's broad personal token (installed under time pressu
 - *#1661 cand 5d* (`RelayPolicy` vocab → `@kolu/surface`): arguably correct where it is — a re-serve concern. Revisit only if a third policy consumer appears. (2026-07-03)
 - *#1661 cand 14* (zod-per-frame passthrough opt-out): speculative perf; below the evidence bar L9/L22 set. (2026-07-03)
 - *W1 residual (c)* (pre-existing scratch dirs not retro-chmodded): verified moot — the parent runtime dir is itself 0700 tmpfs; requires same-session PID reuse across the fix boundary. (2026-07-03)
+- *L25* (extract the browser padi-binding if a 2nd consumer appears): deleted same-day — superseded by srid's ruling that W4 PR-2 lands the client-lifetime electricity DIRECTLY in `@kolu/surface-app` (dynamic client scope, drishti as the proving consumer); kolu's remaining `binding/` module is pure domain (host/picker/recents) and never extracts. (2026-07-05)
 - *#1204* (CI-pool egress): infra, not padi cleanup; tracked as its own issue. *#1658* (boot state backups): deliberately descoped by srid; the import's copy-aside covers the migration case. (2026-07-03)
 - *User-visible correctness bugs found by the sweep* (worktree-remove stranding · mass-depart dead-id focus · deleted-file-before-first-frame "Loading…") are **not** ledger entries by charter — filed as GitHub issues instead. (2026-07-03)
 
