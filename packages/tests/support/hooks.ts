@@ -153,6 +153,22 @@ for (const name of AGENT_DIR_VARS) {
   else process.env[name] = value;
 }
 
+// Pre-create the (empty) agent home dirs BEFORE the server/padi starts. The
+// codex WAL watcher (`createWalSubscription`) attaches an fs.watch to
+// `~/.codex` at padi boot; if that dir doesn't exist yet — the mock-agent
+// creates it lazily on its first write, which is AFTER padi boots — the watch
+// silently never attaches and a second-turn token update is never re-read. The
+// old ventriloquist mock got this for free (its dirs were `mkSubDir`'d before
+// the server spawned). Remote runs pre-create the SAME dirs on the bind target
+// as part of box B's provisioning. No-op under recording (no fixture home).
+if (fixtureHome !== undefined) {
+  const d = agentHomeDefaults(fixtureHome);
+  fs.mkdirSync(d.KOLU_CLAUDE_SESSIONS_DIR, { recursive: true });
+  fs.mkdirSync(d.KOLU_CLAUDE_PROJECTS_DIR, { recursive: true });
+  fs.mkdirSync(d.KOLU_CODEX_DIR, { recursive: true });
+  fs.mkdirSync(path.dirname(d.KOLU_OPENCODE_DB), { recursive: true });
+}
+
 // The agent mocks (claude/codex/opencode) are now `kolu-mock-agent` run INSIDE
 // the terminal by absolute store path (support/mockAgent.ts) — the old
 // renamed-`bash` fakes + KOLU_FAKE_*_BIN are gone. The recipe builds

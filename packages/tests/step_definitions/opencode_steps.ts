@@ -10,32 +10,15 @@
  * step `cd`s the terminal into a scenario-unique on-box dir first.
  */
 
-import { After, Then, When } from "@cucumber/cucumber";
-import { waitForBufferContains } from "../support/buffer.ts";
+import { Then, When } from "@cucumber/cucumber";
 import {
   type AgentKind,
   launchMockAgent,
   type MockStateOpts,
-  quitActiveMockAgent,
   setMockState,
 } from "../support/mockAgent.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-
-const workerId = process.env.CUCUMBER_WORKER_ID ?? "0";
-let cwdCounter = 0;
-
-/** `cd` the active terminal into a fresh, scenario-unique dir created on the box
- *  the terminal lives on (so the mock-agent's `process.cwd()` — the OpenCode
- *  `directory` match key — is that dir on whichever box). */
-async function cdIntoScenarioDir(world: KoluWorld): Promise<void> {
-  cwdCounter += 1;
-  const dir = `/tmp/kolu-opencode-w${workerId}-${cwdCounter}`;
-  const marker = `OPENCODE_CWD_READY_${workerId}_${cwdCounter}`;
-  await world.page.keyboard.type(`mkdir -p ${dir} && cd ${dir} && echo ${marker}`);
-  await world.page.keyboard.press("Enter");
-  await waitForBufferContains(world.page, marker);
-}
 
 async function mockOpenCodeSession(
   world: KoluWorld,
@@ -43,14 +26,9 @@ async function mockOpenCodeSession(
   opts: MockStateOpts,
   { shim = false }: { shim?: boolean } = {},
 ): Promise<void> {
-  await cdIntoScenarioDir(world);
   await launchMockAgent(world, "opencode" satisfies AgentKind, { shim });
   await setMockState(world, state, opts);
 }
-
-After({ tags: "@opencode-mock" }, async function (this: KoluWorld) {
-  await quitActiveMockAgent(this);
-});
 
 When(
   "an OpenCode session is mocked with state {string}",

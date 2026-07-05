@@ -13,45 +13,21 @@
  * terminal lives) and the mock-agent picks that cwd up via `process.cwd()`.
  */
 
-import { After, Then, When } from "@cucumber/cucumber";
-import { waitForBufferContains } from "../support/buffer.ts";
+import { Then, When } from "@cucumber/cucumber";
 import {
+  activeMockCwd,
   type AgentKind,
   launchMockAgent,
   type MockStateOpts,
-  quitActiveMockAgent,
   setMockState,
 } from "../support/mockAgent.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-const workerId = process.env.CUCUMBER_WORKER_ID ?? "0";
-let cwdCounter = 0;
-let mockCwd: string | null = null;
-
-/** The dir the active mock `cd`'d the terminal into — exposed so the
- *  sleeping-terminals journey can assert a WOKEN terminal re-spawned in this
- *  SAVED cwd (matched by its unique leaf). Throws if no mock is active. */
-export function codexMockCwd(): string {
-  if (!mockCwd)
-    throw new Error("No Codex mock active — call the mock step first");
-  return mockCwd;
-}
-
-/** `cd` the active terminal into a fresh, scenario-unique, RECOGNIZABLE dir
- *  created on the box the terminal lives on, and record it. The chosen leaf is
- *  deterministic (worker + counter), so no fragile buffer-path parse is needed
- *  and the woken-cwd assertions match on the leaf. */
-async function cdIntoScenarioDir(world: KoluWorld): Promise<string> {
-  cwdCounter += 1;
-  const dir = `/tmp/kolu-codex-w${workerId}-${cwdCounter}`;
-  const marker = `CODEX_CWD_READY_${workerId}_${cwdCounter}`;
-  await world.page.keyboard.type(`mkdir -p ${dir} && cd ${dir} && echo ${marker}`);
-  await world.page.keyboard.press("Enter");
-  await waitForBufferContains(world.page, marker);
-  mockCwd = dir;
-  return dir;
-}
+/** Re-exported for the sleeping-terminals journey (it asserts a WOKEN terminal
+ *  re-spawned in the codex mock's SAVED cwd). `launchMockAgent` `cd`s into a
+ *  scenario-unique dir, so this is just the active mock's cwd. */
+export const codexMockCwd = activeMockCwd;
 
 async function mockCodexSession(
   world: KoluWorld,
@@ -59,15 +35,9 @@ async function mockCodexSession(
   opts: MockStateOpts,
   { shim = false }: { shim?: boolean } = {},
 ): Promise<void> {
-  await cdIntoScenarioDir(world);
   await launchMockAgent(world, "codex" satisfies AgentKind, { shim });
   await setMockState(world, state, opts);
 }
-
-After({ tags: "@codex-mock" }, async function (this: KoluWorld) {
-  await quitActiveMockAgent(this);
-  mockCwd = null;
-});
 
 When(
   "a Codex session is mocked with state {string}",

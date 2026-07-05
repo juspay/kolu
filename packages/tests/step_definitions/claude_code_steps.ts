@@ -10,25 +10,24 @@
  */
 
 import * as assert from "node:assert";
-import { After, Then, When } from "@cucumber/cucumber";
+import { Then, When } from "@cucumber/cucumber";
 import {
   augmentMockState,
   launchMockAgent,
   paintPrompt,
-  quitActiveMockAgent,
   quitMockAgent,
   setMockState,
 } from "../support/mockAgent.ts";
 import { pollFor } from "../support/poll.ts";
 import { HYDRATION_TIMEOUT, type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-// Tear the mock-agent down geographically-in-place (it removes its own `~/.claude`
-// artifacts on WHATEVER box the terminal lives) before the next scenario's
-// `terminal/killAll` SIGKILLs the tree — so no stale session leaks across
-// scenarios, local or remote.
-After({ tags: "@claude-mock" }, async function (this: KoluWorld) {
-  await quitActiveMockAgent(this);
-});
+// No per-scenario mock-agent teardown hook: the next scenario's
+// `terminal/killAll` (hooks.ts Before) SIGKILLs the whole terminal tree
+// (including a still-resident mock-agent), and lingering artifacts don't leak
+// across scenarios — claude keys on the LIVE foreground pid, codex/opencode on a
+// per-scenario UNIQUE cwd. Box B's hygiene is the recipe's pre-run wipe. (A
+// separate After can't drive the mock anyway: hooks.ts's page-close After runs
+// first in cucumber's reverse order, so the page is already gone.)
 
 When(
   "a Claude Code session is mocked with state {string}",

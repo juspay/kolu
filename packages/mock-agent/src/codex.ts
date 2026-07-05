@@ -10,7 +10,7 @@
  * process writing its own cwd is exactly what production senses.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { codexDir } from "./paths.ts";
@@ -62,19 +62,45 @@ function buildRollout(opts: {
   return `${lines.join("\n")}\n`;
 }
 
-/** One WAL commit frame with a namespaced transient row — the self-nudge that
- *  re-fires the server's WAL watcher so a dropped inotify event can't wedge
- *  detection. Replaces the old test-side `onTick: nudgeCodex`. */
-const NUDGE_SQL = `BEGIN; INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms) VALUES ('__kolu_nudge__', '', '', 'cli', 0, 0); DELETE FROM threads WHERE id = '__kolu_nudge__'; COMMIT;`;
-
 export class CodexAgent implements MockKind {
   private readonly dir = codexDir();
   private readonly dbPath = join(this.dir, "state_5.sqlite");
   private readonly cwd = process.cwd();
   private rolloutPath = join(this.dir, `rollout-${process.pid}.jsonl`);
+  private conn: DatabaseSync | null = null;
+
+  /** ONE long-lived WAL connection for the agent's lifetime. Opening + closing
+   *  a fresh connection per write (the obvious shape) is subtly fatal here: on
+   *  the last connection's close SQLite checkpoints and RECREATES the `-wal`
+   *  file, so the server's `fs.watch` on `state_5.sqlite-wal` is left watching a
+   *  dead inode and never fires again — the mock's second write (and every
+   *  self-nudge) then goes unseen. Holding the connection open keeps the `-wal`
+   *  inode stable so every write reaches the watcher. */
+  private db(): DatabaseSync {
+    if (this.conn) return this.conn;
+    mkdirSync(this.dir, { recursive: true });
+    const db = new DatabaseSync(this.dbPath);
+    db.exec("PRAGMA journal_mode = WAL;");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS threads (
+        id TEXT PRIMARY KEY,
+        rollout_path TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        source TEXT NOT NULL,
+        archived INTEGER NOT NULL DEFAULT 0,
+        updated_at_ms INTEGER NOT NULL,
+        title TEXT,
+        model TEXT
+      );
+    `);
+    this.conn = db;
+    return db;
+  }
 
   setState(state: AgentState, opts: StateOpts): void {
-    mkdirSync(this.dir, { recursive: true });
+    // Open the connection FIRST — `db()` creates `~/.codex`, so the rollout
+    // write below has a directory to land in.
+    const db = this.db();
     writeFileSync(
       this.rolloutPath,
       buildRollout({
@@ -83,68 +109,50 @@ export class CodexAgent implements MockKind {
         cachedInputTokens: opts.cachedInputTokens,
       }),
     );
-    const db = new DatabaseSync(this.dbPath);
+    // Atomic row-swap: a reader landing between DELETE and INSERT must never
+    // see zero rows for this cwd (which clears the indicator to null). Mirrors
+    // the real Codex CLI's transactional write. DELETE by cwd OR the fixed
+    // THREAD_ID (a primary key): the id is constant across scenarios (the
+    // sleeping-terminals journey asserts `codex resume <THREAD_ID>`), so a
+    // PRIOR scenario's row — written at a DIFFERENT cwd — must be cleared too,
+    // else re-inserting THREAD_ID trips a UNIQUE constraint.
+    db.exec("BEGIN IMMEDIATE;");
     try {
-      db.exec("PRAGMA journal_mode = WAL;");
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS threads (
-          id TEXT PRIMARY KEY,
-          rollout_path TEXT NOT NULL,
-          cwd TEXT NOT NULL,
-          source TEXT NOT NULL,
-          archived INTEGER NOT NULL DEFAULT 0,
-          updated_at_ms INTEGER NOT NULL,
-          title TEXT,
-          model TEXT
-        );
-      `);
-      // Atomic row-swap: a reader landing between DELETE and INSERT must never
-      // see zero rows for this cwd (which clears the indicator to null). Mirrors
-      // the real Codex CLI's transactional write.
-      db.exec("BEGIN IMMEDIATE;");
-      try {
-        db.prepare("DELETE FROM threads WHERE cwd = ?").run(this.cwd);
-        db.prepare(
-          "INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms, title, model) VALUES (?, ?, ?, 'cli', 0, ?, ?, ?)",
-        ).run(
-          THREAD_ID,
-          this.rolloutPath,
-          this.cwd,
-          Date.now(),
-          opts.title ?? "codex-mock test thread",
-          opts.model ?? "gpt-5",
-        );
-        db.exec("COMMIT;");
-      } catch (e) {
-        db.exec("ROLLBACK;");
-        throw e;
-      }
-    } finally {
-      db.close();
+      db.prepare("DELETE FROM threads WHERE cwd = ? OR id = ?").run(
+        this.cwd,
+        THREAD_ID,
+      );
+      db.prepare(
+        "INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms, title, model) VALUES (?, ?, ?, 'cli', 0, ?, ?, ?)",
+      ).run(
+        THREAD_ID,
+        this.rolloutPath,
+        this.cwd,
+        Date.now(),
+        opts.title ?? "codex-mock test thread",
+        opts.model ?? "gpt-5",
+      );
+      db.exec("COMMIT;");
+    } catch (e) {
+      db.exec("ROLLBACK;");
+      throw e;
     }
   }
 
   nudge(): void {
-    if (!existsSync(this.dbPath)) return;
-    const db = new DatabaseSync(this.dbPath);
-    try {
-      db.exec("PRAGMA journal_mode = WAL;");
-      db.exec(NUDGE_SQL);
-    } finally {
-      db.close();
-    }
+    // No-op: codex's provider watches the SQLite WAL, which is reliable here (a
+    // persistent connection keeps the `-wal` inode stable). A periodic self-kick
+    // would only HURT — it fires the WAL faster than the provider's 150ms
+    // trailing debounce can settle, starving `performRefresh` so a real state
+    // change is never re-read. Each `setState`'s own WAL commit already wakes the
+    // watcher; that's the whole signal.
   }
 
   remove(): void {
-    if (!existsSync(this.dbPath)) return;
-    const db = new DatabaseSync(this.dbPath);
-    try {
-      // Row-delete, not file-unlink: unlinking would break the server's WAL
-      // inotify handle. Deleting this cwd's thread row reproduces the "session
-      // gone" clear the old `clearMockDatabase` produced.
-      db.prepare("DELETE FROM threads WHERE cwd = ?").run(this.cwd);
-    } finally {
-      db.close();
-    }
+    if (!this.conn) return;
+    // Row-delete, not file-unlink: unlinking would break the server's WAL
+    // inotify handle. Deleting this cwd's thread row reproduces the "session
+    // gone" clear the old `clearMockDatabase` produced.
+    this.conn.prepare("DELETE FROM threads WHERE cwd = ?").run(this.cwd);
   }
 }

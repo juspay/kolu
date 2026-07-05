@@ -41,10 +41,46 @@ function mockAgentBin(kind: AgentKind): string {
 }
 
 /** The mock-agent live in THIS worker's active terminal, if any — tracked so
- *  follow-up steps can augment the current state (tasks/stale-jsonl) and the
- *  After hook can tear it down geography-free. One scenario runs at a time per
- *  worker, so a single module-level slot is safe. */
-let active: { kind: AgentKind; state: string; opts: MockStateOpts } | null = null;
+ *  follow-up steps can augment the current state (tasks/stale-jsonl). One
+ *  scenario runs at a time per worker, so a single module-level slot is safe. */
+let active: {
+  kind: AgentKind;
+  state: string;
+  opts: MockStateOpts;
+  cwd: string;
+} | null = null;
+
+const workerId = process.env.CUCUMBER_WORKER_ID ?? "0";
+let cwdCounter = 0;
+
+/** `cd` the active terminal into a fresh, scenario-unique, RECOGNIZABLE dir
+ *  created ON THE BOX the terminal lives on (so it exists whether the terminal
+ *  is local or on a remote bind target). Isolating the cwd per launch isolates
+ *  every kind's artifacts: claude's `projectDir` is keyed on the cwd (so a
+ *  lingering workflow journal can't bleed into the next scenario's fixed
+ *  `SESSION_ID`), and codex/opencode match on the cwd directly. The chosen leaf
+ *  is deterministic, so no fragile buffer-path parse is needed and the woken-cwd
+ *  assertions match on the leaf. */
+async function cdIntoScenarioDir(
+  world: KoluWorld,
+  kind: AgentKind,
+): Promise<string> {
+  cwdCounter += 1;
+  const dir = `/tmp/kolu-${kind}-w${workerId}-${cwdCounter}`;
+  const marker = `MOCK_CWD_READY_${workerId}_${cwdCounter}`;
+  await world.page.keyboard.type(`mkdir -p ${dir} && cd ${dir} && echo ${marker}`);
+  await world.page.keyboard.press("Enter");
+  await waitForBufferContains(world.page, marker);
+  return dir;
+}
+
+/** The cwd the active mock `cd`'d the terminal into — exposed for the
+ *  sleeping-terminals journey (it asserts a WOKEN terminal re-spawned in this
+ *  SAVED cwd, matched by its unique leaf). Throws if no mock is active. */
+export function activeMockCwd(): string {
+  if (!active) throw new Error("No mock-agent active — call the mock step first");
+  return active.cwd;
+}
 
 /** Launch the mock-agent for `kind` in the active terminal and wait until it is
  *  the settled foreground process (its READY marker on screen). `shim` presents
@@ -54,11 +90,12 @@ export async function launchMockAgent(
   kind: AgentKind,
   { shim = false }: { shim?: boolean } = {},
 ): Promise<void> {
+  const cwd = await cdIntoScenarioDir(world, kind);
   const cmd = `${mockAgentBin(kind)}${shim ? " --shim" : ""}`;
   await world.page.keyboard.type(cmd);
   await world.page.keyboard.press("Enter");
   await waitForBufferContains(world.page, `MOCK-AGENT-READY ${kind}`);
-  active = { kind, state: "", opts: {} };
+  active = { kind, state: "", opts: {}, cwd };
 }
 
 function renderOpts(opts: MockStateOpts): string {

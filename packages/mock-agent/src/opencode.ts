@@ -7,7 +7,7 @@
  * in — so the provider's cwd match is against the real cwd, as production sees.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { opencodeDbPath } from "./paths.ts";
@@ -43,24 +43,31 @@ CREATE TABLE IF NOT EXISTS todo (
 );
 `;
 
-/** WAL commit frame with a namespaced transient session row — self-nudge that
- *  replaces the old test-side `onTick: nudgeOpenCode`. */
-const NUDGE_SQL = `BEGIN; INSERT INTO session (id, title, directory, time_updated, time_archived) VALUES ('__kolu_nudge__', '', '', 0, NULL); DELETE FROM session WHERE id = '__kolu_nudge__'; COMMIT;`;
-
 export class OpenCodeAgent implements MockKind {
   private readonly dbPath = opencodeDbPath();
   private readonly cwd = process.cwd();
+  private conn: DatabaseSync | null = null;
 
-  setState(state: AgentState, opts: StateOpts): void {
+  /** ONE long-lived WAL connection for the agent's lifetime — see the codex
+   *  agent's `db()` for why: closing a per-write connection checkpoints and
+   *  recreates `-wal`, leaving the server's `fs.watch` on the WAL watching a
+   *  dead inode so subsequent writes go unseen. */
+  private db(): DatabaseSync {
+    if (this.conn) return this.conn;
     mkdirSync(dirname(this.dbPath), { recursive: true });
     const db = new DatabaseSync(this.dbPath);
-    try {
-      db.exec("PRAGMA journal_mode = WAL;");
-      db.exec(SCHEMA);
-      // DELETE+INSERT inside one transaction so a concurrent reader sees either
-      // the old or new state, never a session-less half-rewrite that clears the
-      // indicator to null/null.
-      db.exec("BEGIN IMMEDIATE;");
+    db.exec("PRAGMA journal_mode = WAL;");
+    db.exec(SCHEMA);
+    this.conn = db;
+    return db;
+  }
+
+  setState(state: AgentState, opts: StateOpts): void {
+    const db = this.db();
+    // DELETE+INSERT inside one transaction so a concurrent reader sees either
+    // the old or new state, never a session-less half-rewrite that clears the
+    // indicator to null/null.
+    db.exec("BEGIN IMMEDIATE;");
       db.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(
         SESSION_ID,
         this.cwd,
@@ -154,40 +161,26 @@ export class OpenCodeAgent implements MockKind {
         );
       }
 
-      if (opts.todos) {
-        for (let i = 0; i < opts.todos.total; i++) {
-          db.prepare(
-            "INSERT INTO todo (id, session_id, status) VALUES (?, ?, ?)",
-          ).run(`t${i}`, SESSION_ID, i < opts.todos.completed ? "completed" : "pending");
-        }
+    if (opts.todos) {
+      for (let i = 0; i < opts.todos.total; i++) {
+        db.prepare(
+          "INSERT INTO todo (id, session_id, status) VALUES (?, ?, ?)",
+        ).run(`t${i}`, SESSION_ID, i < opts.todos.completed ? "completed" : "pending");
       }
-      db.exec("COMMIT;");
-    } finally {
-      db.close();
     }
+    db.exec("COMMIT;");
   }
 
   nudge(): void {
-    if (!existsSync(this.dbPath)) return;
-    const db = new DatabaseSync(this.dbPath);
-    try {
-      db.exec("PRAGMA journal_mode = WAL;");
-      db.exec(NUDGE_SQL);
-    } finally {
-      db.close();
-    }
+    // No-op — see CodexAgent.nudge(): a WAL self-kick starves the provider's
+    // debounce; each setState's own commit is the signal.
   }
 
   remove(): void {
-    if (!existsSync(this.dbPath)) return;
-    const db = new DatabaseSync(this.dbPath);
-    try {
-      db.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(
-        SESSION_ID,
-        this.cwd,
-      );
-    } finally {
-      db.close();
-    }
+    if (!this.conn) return;
+    this.conn.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(
+      SESSION_ID,
+      this.cwd,
+    );
   }
 }
