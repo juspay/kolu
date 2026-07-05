@@ -18,7 +18,8 @@
  * observe when the TUI settled, so any fixed delay is a knob you tune until the
  * race stops biting on your machine and starts again on a slower one. The honest
  * design (the tmux `send-keys` model — strictly compositional, no submit
- * convenience) is a three-step flow where the CALLER observes the settle:
+ * convenience) is a three-step flow where the CALLER observes the settle (the
+ * command lines are single-sourced in {@link SUBMIT_FLOW_HELP}):
  *
  *     kaval-tui send <id> --file brief.md     # 1. the text
  *     kaval-tui wait <id> --until idle:300     # 2. OBSERVE the TUI settle (a signal, not a sleep)
@@ -70,6 +71,16 @@ export function encodeKey(name: string): string | undefined {
   return undefined;
 }
 
+/** The canonical three-step submit ritual, rendered ONCE so the command lines
+ *  can't drift across the sites that teach it: the `--submit` migration error
+ *  ({@link rejectUnknownSendFlags}), the text+key error ({@link resolveSendInput}),
+ *  and this module's docstring. Only the load-bearing command lines are
+ *  single-sourced here — each site keeps its own framing sentence. */
+export const SUBMIT_FLOW_HELP =
+  "  kaval-tui send <id> --file brief.md      # 1. the text\n" +
+  "  kaval-tui wait <id> --until idle:300     # 2. observe the TUI settle\n" +
+  "  kaval-tui send <id> --key Enter          # 3. submit";
+
 /** Reject unknown flags on `send` — its flag set is a KNOWN, closed set, so an
  *  unrecognized flag is a typo or a removed flag, never something to silently
  *  ignore. Pure (takes the parsed unknown-flag names, throws a loud error), so
@@ -85,9 +96,7 @@ export function rejectUnknownSendFlags(
   if (unknownFlagNames.includes("submit")) {
     throw new Error(
       "--submit was removed — submitting a prompt is now its OWN command, because a same-breath Enter races the TUI's paste debounce and is silently dropped. Send the text, watch the TUI settle, then submit separately:\n" +
-        '  kaval-tui send <id> "the prompt"\n' +
-        "  kaval-tui wait <id> --until idle:300\n" +
-        "  kaval-tui send <id> --key Enter",
+        SUBMIT_FLOW_HELP,
     );
   }
   const names = unknownFlagNames.map((f) => `--${f}`).join(", ");
@@ -185,9 +194,7 @@ export function resolveSendInput(opts: {
   if (input.kind !== "none" && opts.hasKeys) {
     throw new Error(
       "text and --key can't be combined in one send — a same-breath Enter is raced by the TUI's paste debounce and silently dropped. Send the text, watch the TUI settle, then submit as its own command:\n" +
-        "  kaval-tui send <id> --file brief.md      # 1. the text\n" +
-        "  kaval-tui wait <id> --until idle:300      # 2. observe the settle\n" +
-        "  kaval-tui send <id> --key Enter           # 3. submit",
+        SUBMIT_FLOW_HELP,
     );
   }
 
