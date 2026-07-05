@@ -366,6 +366,15 @@ export function collectionHandlers<Name extends string, K, T>(
     // difference from `keys` is the snapshot is CONDITIONAL — a present key yields
     // its current value, an absent key yields nothing.
     //
+    // Ordering note: subscribing BEFORE the snapshot can DOUBLE-DELIVER a value
+    // whose upsert lands in the subscribe→snapshot window (the snapshot reads it
+    // AND the buffered per-key frame forwards it) — benign and INTENTIONAL: every
+    // consumer folds by replacement/reconcile, so a repeated value is idempotent.
+    // Do NOT "fix" it by reading the snapshot BEFORE subscribing — that reopens the
+    // lost-update gap this ordering exists to close (a frame born in the gap would
+    // publish to zero subscribers and be lost). The lost-update prevention is pinned
+    // by the "delivers a value published in the post-snapshot gap" test.
+    //
     // This held-open-on-absent-key is a DELIBERATE, tested semantic, never an
     // accidental hang. The alternative — throwing "key not found" on the first
     // snapshot — surfaced to a consuming browser as a NON-RETRIABLE `ORPCError`

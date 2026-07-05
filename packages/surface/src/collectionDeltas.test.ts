@@ -324,6 +324,31 @@ describe("collection get — held-open on an absent key (#1681)", () => {
     await gen.return?.(undefined);
   });
 
+  it("delivers a value published in the post-snapshot gap without loss (subscribe-before-snapshot)", async () => {
+    // The key is PRESENT at subscribe. The handler subscribes to the per-key
+    // channel BEFORE reading the snapshot, so a value published in the window
+    // between the snapshot `yield` and the consumer's next pull is BUFFERED and
+    // delivered — never lost. Reordering to snapshot-BEFORE-subscribe would drop it
+    // (published to zero subscribers): this test guards the ordering that the
+    // held-open change preserves. (A same-window value equal to the snapshot may be
+    // delivered twice — benign under fold semantics; see the handler docstring.)
+    const store = new Map<string, V>([["local", { name: "a" }]]);
+    const perKey = inMemoryChannel<V>();
+    const gen = makeHandlers(store, perKey).get({
+      input: { key: "local" } as never,
+    });
+
+    const first = await gen.next(); // snapshot
+    expect(first.value).toEqual({ name: "a" });
+
+    // A producer ticks a new value NOW — in the gap before we resume.
+    perKey.publish({ name: "b" });
+    const second = await gen.next();
+    expect(second.value).toEqual({ name: "b" });
+
+    await gen.return?.(undefined);
+  });
+
   it("a key that NEVER appears leaves the stream OPEN yielding nothing (waiting, not errored), and drops cleanly on abort", async () => {
     const store = new Map<string, V>(); // empty forever
     const perKey = inMemoryChannel<V>();
