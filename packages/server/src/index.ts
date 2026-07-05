@@ -31,6 +31,7 @@ import {
   installFreshStatic,
   installPwaManifest,
 } from "@kolu/surface-app/server";
+import type { ServeResult } from "@kolu/serve-dir";
 import { reServeSurface } from "@kolu/surface-nix-host";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
@@ -426,8 +427,16 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   //     base64 round trip, byte-identical to before.
   // Both return serve-dir's `ServeResult` shape; the artifact-sdk HTML decorator
   // (mounted above) rewrites text/html downstream in either case.
-  const r = remoteHost
-    ? await assembleRemotePreview(
+  let r: ServeResult;
+  if (remoteHost) {
+    // The remote arm's METADATA dials (the 1-byte probe + any re-dial) run
+    // synchronously inside this await; a link fault there must map to the SAME
+    // logged 503 as the repoRoot resolve above, not an unlogged generic 500. (The
+    // streaming body's per-chunk dials run LATER, when the Response is consumed —
+    // a fault there errors the stream and resets the response by design, and can't
+    // reach this catch.)
+    try {
+      r = await assembleRemotePreview(
         (chunkRange) =>
           client.surface.preview.read({
             repoPath,
@@ -435,8 +444,14 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
             range: chunkRange,
           }),
         range,
-      )
-    : await previewFile({ repoPath, filePath: rawTail, range });
+      );
+    } catch (err) {
+      log.error({ err, terminalId }, "padi preview read failed (link fault)");
+      return c.text("padi link fault serving preview", 503);
+    }
+  } else {
+    r = await previewFile({ repoPath, filePath: rawTail, range });
+  }
   return new Response(r.body as BodyInit, {
     status: r.status,
     headers: r.headers,

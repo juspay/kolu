@@ -351,6 +351,18 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     );
   });
 
+  it("propagates a probe-phase reader rejection (so the route maps a link fault to a logged 503, not a silent 500)", async () => {
+    // The metadata dials (probe + any re-dial) run synchronously inside the
+    // `assembleRemotePreview` await; if the bound link drops, `read` REJECTS. The
+    // rejection must propagate out of `assembleRemotePreview` unchanged so the route
+    // can catch it and answer a logged 503 — not swallow it into a body or a 500.
+    const linkFault = new Error("ssh link dropped mid-probe");
+    const read: PreviewRangeReader = async () => {
+      throw linkFault;
+    };
+    await expect(assembleRemotePreview(read, undefined)).rejects.toBe(linkFault);
+  });
+
   it("uses an 8 MiB production chunk bound", () => {
     // Guards the documented memory story: the default per-dial bound is 8 MiB,
     // comfortably under readPreview's 64 MiB inline cap.
