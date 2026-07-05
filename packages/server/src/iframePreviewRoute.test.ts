@@ -318,6 +318,27 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     await expect(drain(r.body)).rejects.toThrow(/validator/);
   });
 
+  it("FAILS LOUDLY when a 206 probe carries NO ETag — the snapshot guard can't be silently defeated", async () => {
+    // The probe's ETag is what pins the file SNAPSHOT across every chunk. This
+    // exercises the probe presence-check in ISOLATION: if serve-dir ever stopped
+    // emitting an ETag, the per-chunk `chunkETag !== etag` guard would collapse to
+    // `undefined !== undefined` (false) and silently accept a mixed body. The probe
+    // MUST reject a 206 with no validator up front rather than stream unguarded — so
+    // deleting that check fails THIS test (not just the same-size-replace one, which
+    // an ETag-less serve-dir would also stop catching).
+    const inner = serveDirReader("blob.png");
+    const noEtag: PreviewRangeReader = async (range) => {
+      const r = await inner(range);
+      const headers: Record<string, string> = {};
+      for (const [k, v] of Object.entries(r.headers))
+        if (k.toLowerCase() !== "etag") headers[k] = v;
+      return { ...r, headers };
+    };
+    await expect(assembleRemotePreview(noEtag, undefined)).rejects.toThrow(
+      /no ETag validator/,
+    );
+  });
+
   it("FAILS LOUDLY when a chunk answers the WRONG slice at the right length — refuses a mismatched body", async () => {
     // A broken upstream returns the correct byte COUNT from the wrong OFFSET:
     // `bytes 0-127` when the loop asked for `bytes=128-255` (same length, same
@@ -360,7 +381,9 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     const read: PreviewRangeReader = async () => {
       throw linkFault;
     };
-    await expect(assembleRemotePreview(read, undefined)).rejects.toBe(linkFault);
+    await expect(assembleRemotePreview(read, undefined)).rejects.toBe(
+      linkFault,
+    );
   });
 
   it("uses an 8 MiB production chunk bound", () => {
