@@ -111,7 +111,7 @@ And the road not taken, named honestly: a bespoke `Map<host, …>` in kolu-serve
 
 *(The shapes below are the ratified end-state — the debate record in `debates/surface-hosting-simplify/` holds the how-we-got-here; none of it is needed to use this.)*
 
-<Svg svg={after} wide caption="The hosting side after the simplification series lands: identity is universal on the base role (every server auto-answers hello), the daemon sub-role carries only supervision, BoundPadi is an alias, and the registry demands exactly the one method it calls. No red arrows left." />
+<Svg svg={after} wide caption="After the series lands — with the implementations shown. MirrorSession has THREE implementations (HostSession + the two padi arms); DaemonMirrorSession has exactly TWO (the padi arms — the only sessions that supervise); BoundPadi is the alias naming their shared type; the remote arm composes a HostSession rather than reimplementing it. No red arrows left." />
 
 ### The types you'll touch
 
