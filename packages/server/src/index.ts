@@ -543,16 +543,23 @@ const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
 // the first frame — the value the re-serve already folded into its per-binding store
 // — and stop). This is the SAME reading the browser sees on `/surface/padi/*`, so
 // the rail consumes the source of truth once folded rather than re-dialing padi on a
-// second transport. Returns `null` ONLY when padi is down (no live client), so the
-// fold reports padi + kaval as the honest `absent`, never the mirror's STALE held
-// value; a read that FAILS through a live mirror returns the `error` reading instead
-// (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside
-// the padi process now, so padi (not kolu-server) is the source of that pair; the
-// sampler folds it in below.
+// second transport. Returns `null` when padi is DOWN (no live client), so a down padi
+// folds to the honest `absent` — the liveness GATE decides down-ness, NOT the mirror
+// store, which deliberately HOLDS its last value across an upstream drop (reading the
+// store alone would report a dead process's stale-but-live figure). The one window the
+// gate does not cover is a fresh REBIND: `currentClient()` flips live the instant padi
+// reconnects, a beat before the mirror re-folds, so a resample in that beat can briefly
+// surface the last-known reading until the next fold/tick overwrites it — bounded to one
+// fold cycle and self-correcting on the coarse rail (a named, accepted residual; Ledger
+// L14). A read that FAILS through a live mirror returns the `error` reading instead
+// (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside the
+// padi process now, so padi (not kolu-server) is the source of that pair; the sampler
+// folds it in below.
 async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
-  // The bound padi's liveness is the gate — no live client → honest `absent`, never
-  // the mirror's stale held value. M2 (a standing skew nulls the client) and the
-  // onState flip-to-absent both ride this exactly as the old bound-session read did.
+  // The bound padi's liveness is the gate — no live client → honest `absent` (the gate,
+  // not the held store, decides down-ness). M2 (a standing skew nulls the client) and
+  // the onState flip-to-absent both ride this exactly as the old bound-session read did;
+  // a fresh rebind has a bounded stale-read window until the mirror re-folds (see above).
   if (!padiSession.currentClient()) return null;
   const ctl = new AbortController();
   try {
