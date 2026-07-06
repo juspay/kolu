@@ -26,8 +26,8 @@
  * best-effort probes each kaval; it NEVER spawns, writes, kills, or reaps.
  */
 
-import { enumerateHostDaemons } from "@kolu/padi/assembly";
 import type { KavalProbe, PadiDaemon } from "@kolu/padi/assembly";
+import { enumerateHostDaemons } from "@kolu/padi/assembly";
 import type { KavalDaemon } from "kaval";
 import type {
   DaemonBinding,

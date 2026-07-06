@@ -19,10 +19,10 @@
  * RETIRES the old binding — tearing down its lifecycle root AND closing its socket
  * (`retireSocket`, which also stubs `send` to throw) — so an in-flight or late call
  * minted on the old host's client throws at the now-dead transport rather than
- * silently reconnecting to (and landing on) a stale host. `assertLive(binding)` is
- * the programmatic assertion of that `retired` flag (pinned by `bindings.test.ts`);
- * a fresh `padi()`/`app()` accessor never sees a retired binding at all, because
- * `activeBinding()` rebuilds one the moment the cached entry is retired.
+ * silently reconnecting to (and landing on) a stale host. A fresh `padi()`/`app()`
+ * accessor never sees a retired binding at all, because `activeBinding()` rebuilds
+ * one the moment the cached entry is retired. (`bindings.test.ts` pins that
+ * switching retires the old binding and closes its socket.)
  */
 
 import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
@@ -45,6 +45,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { toast } from "solid-sonner";
+import { createSharedRoot } from "../createSharedRoot";
 
 // `LOCAL_HOST` (the `"local"` sentinel) is defined once in kolu-common/contract
 // and re-exported here for this module's consumers.
@@ -140,6 +141,26 @@ function makeBinding(targetHost: string): Binding {
     },
   };
 
+  // If the server rejects this host as UNKNOWN (close 1008 — the host was removed
+  // from the shared pool by another device, or this is a stale tab whose host is
+  // gone), stop the pointless reconnect loop and fall back to local. Without this a
+  // PartySocket (maxRetries: Infinity) would re-dial `?host=<gone>` forever while the
+  // server rejects each attempt, leaving the tab stuck on a misleading "Reconnecting…".
+  // Guarded so it fires once — for the CURRENT host only, before this binding retires.
+  conn.ws.addEventListener("close", (ev: { code?: number }) => {
+    if (
+      ev.code === 1008 &&
+      !binding.retired &&
+      targetHost !== LOCAL_HOST &&
+      activeHost() === targetHost
+    ) {
+      toast.error(
+        `Host "${targetHost}" is no longer available — switched to local.`,
+      );
+      void switchHost(LOCAL_HOST);
+    }
+  });
+
   return binding;
 }
 
@@ -163,17 +184,6 @@ export function activeBinding(): Binding {
     cache.set(h, b);
   }
   return b;
-}
-
-/** Reject a call routed through a stale (retired) binding — the misroute guard's
- *  teeth. A call minted on host A's client, still referenced after switching to
- *  B, throws instead of silently hitting A's (still-warm) server handler. */
-export function assertLive(binding: Binding): void {
-  if (binding.retired) {
-    throw new Error(
-      `stale binding for host "${binding.host}" (retired on host switch) — call rejected to prevent a misroute`,
-    );
-  }
 }
 
 const [knownDefaultHost, setKnownDefaultHost] =
@@ -220,6 +230,10 @@ function readStoredHost(): string | undefined {
   try {
     return sessionStorage.getItem(ACTIVE_HOST_KEY) ?? undefined;
   } catch {
+    // sessionStorage unavailable (private mode / storage disabled): there IS no
+    // stored host to honor, so `undefined` is the correct answer, not a lost value —
+    // the tab genuinely starts clean and `seedDefaultHost` falls to the server
+    // default, exactly as a fresh tab does. Nothing to recover or surface.
     return undefined;
   }
 }
@@ -311,6 +325,19 @@ export function bindingScoped<T>(
   );
   onCleanup(() => disposePrev?.());
   return value as Accessor<T>;
+}
+
+/** The app-lifetime singleton form of {@link bindingScoped}: wrap the re-keying
+ *  sub in a `createSharedRoot` so it has ONE app-owned reactive owner shared by
+ *  every consumer (never a component's owner, which fast-refresh/teardown would
+ *  dispose out from under the others). Read it as `useX()()` — the outer call
+ *  resolves the shared root, the inner reads the current host's sub. Collapses the
+ *  `createSharedRoot(() => bindingScoped(...))` boilerplate the standing per-host
+ *  subscriptions (daemon status, inventory, memory, uptime, kaval status) repeat. */
+export function useBindingScopedSub<T>(
+  pick: (binding: Binding) => T,
+): () => Accessor<T> {
+  return createSharedRoot(() => bindingScoped(pick));
 }
 
 // Restore the per-tab host BEFORE the first binding is built (this module is

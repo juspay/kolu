@@ -26,7 +26,7 @@ import {
   Show,
 } from "solid-js";
 import { match, P } from "ts-pattern";
-import { getClockNow } from "../time/clock";
+import { activeHost, LOCAL_HOST } from "../binding/bindings";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
 import {
   KavalUpdateBadge,
@@ -48,11 +48,11 @@ import {
   padiDot,
 } from "../padi/padiPresentation";
 import type { WsStatus } from "../rpc/rpc";
-import { activeHost, LOCAL_HOST } from "../binding/bindings";
-import { activePadiSurfaceVersion } from "./useDaemonInventory";
+import { getClockNow } from "../time/clock";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { formatMBCompact, mbText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
+import { activePadiSurfaceVersion } from "./useDaemonInventory";
 import {
   clientHeapUsedBytes,
   kavalMemoryDisplay,

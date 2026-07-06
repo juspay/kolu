@@ -15,20 +15,17 @@
  */
 
 import { toast } from "solid-sonner";
-import { bindingScoped } from "../binding/bindings";
-import { createSharedRoot } from "../createSharedRoot";
+import { useBindingScopedSub } from "../binding/bindings";
 
 // W4 "the switch": `bindingScoped` re-keys the sub onto the ACTIVE host's socket, so
 // the uptime rail never reads a boot-binding socket that a switch-away retired
 // (closed). The `processStartedAt` cell is kolu-server's own host-independent
 // surface, served on every per-host socket; only the socket is per-binding.
 // `createSharedRoot` gives `bindingScoped` its app-lifetime reactive owner.
-const uptime = createSharedRoot(() =>
-  bindingScoped((b) =>
-    b.clients.kolu.cells.processStartedAt.use({
-      onError: (err) => toast.error(`Uptime readout error: ${err.message}`),
-    }),
-  ),
+const uptime = useBindingScopedSub((b) =>
+  b.clients.kolu.cells.processStartedAt.use({
+    onError: (err) => toast.error(`Uptime readout error: ${err.message}`),
+  }),
 );
 const sub = () => uptime()();
 

@@ -12,8 +12,8 @@ import {
   probeKavalStatus,
   publisherSize,
 } from "@kolu/padi/assembly";
-import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import type { PadiProcessMemory } from "@kolu/padi/surface";
+import type { ServeResult } from "@kolu/serve-dir";
 import {
   gateHttpRpcOrigin,
   gateWsOrigin,
@@ -24,12 +24,12 @@ import {
   installFreshStatic,
   installPwaManifest,
 } from "@kolu/surface-app/server";
-import type { ServeResult } from "@kolu/serve-dir";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
+import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import { DEFAULT_PORT } from "kolu-common/config";
 import {
@@ -37,24 +37,24 @@ import {
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
 import { type WebSocket, WebSocketServer } from "ws";
+import { startDaemonInventorySampler } from "./daemonInventory.ts";
 import {
   serverHostname,
   serverProcessId,
   serverStartedAt,
   serverVersion,
 } from "./hostname.ts";
+import { buildHostPool, LOCAL_HOST } from "./hostPool.ts";
 import {
   assembleRemotePreview,
   previewTailFromRawUrl,
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import { installRouteErrorLogging } from "./routeErrors.ts";
-import { startDaemonInventorySampler } from "./daemonInventory.ts";
-import { buildHostPool, LOCAL_HOST } from "./hostPool.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { remotePadiHost } from "./remotePadiBinding.ts";
+import { installRouteErrorLogging } from "./routeErrors.ts";
 import { store } from "./state.ts";
 import { koluSurfaceCtx, koluSurfaceRouter } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
@@ -225,14 +225,23 @@ const rpcPlugins = [
 // (Debug-only) picker switches freely away from it. `recentHosts` (server-persisted
 // preferences) seeds the pool so a device lands on its known hosts.
 const bootHost = remotePadiHost();
+// Cap the remembered-host list so it can't grow without bound over an install's
+// lifetime: every recent host is re-warmed into a live PadiSession + re-serve pump
+// at each boot (see the pool's `initialHosts`), so an uncapped list would dial an
+// ever-growing fan of ssh sessions on every restart. Keep the most-recent N; older
+// picks age out of the picker (and stop being auto-warmed), mirroring padi's own
+// `MAX_RECENT_REPOS`/`MAX_RECENT_AGENTS` MRU caps.
+const MAX_RECENT_HOSTS = 20;
 const pool = buildHostPool({
   bootHost,
-  recentHosts: store.get("preferences").recentHosts,
+  recentHosts: store.get("preferences").recentHosts.slice(-MAX_RECENT_HOSTS),
   // The pool's host set (local excluded) IS the user's recentHosts; write it back
-  // through the preferences cell so the change persists AND every connected device's
-  // picker refreshes (a plain `store.set` would persist but not publish).
+  // through the preferences cell (capped) so the change persists AND every connected
+  // device's picker refreshes (a plain `store.set` would persist but not publish).
   persistRecentHosts: (hosts) =>
-    koluSurfaceCtx.cells.preferences.patch({ recentHosts: hosts }),
+    koluSurfaceCtx.cells.preferences.patch({
+      recentHosts: hosts.slice(-MAX_RECENT_HOSTS),
+    }),
   localArmOpts: {
     // The nix-shell env whitelist rides padi's CLI flag (kolu-server no longer spawns
     // PTYs — padi's kaval does — so it is FORWARDED to padi, not called here).
@@ -706,12 +715,15 @@ wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   acceptor.accept(ws, url, () => {
     // W4 "the switch": dispatch to the connection's declared host. The tab names
     // it in `?host=<host>` (the default host when omitted, so a tab that never
-    // switches is byte-identical). An UNKNOWN host is rejected LOUD (close 1008) —
-    // the picker `add`s a host BEFORE opening its socket, so a socket for a host
-    // not in the pool is a bug, never a side-effect that provisions ssh from a
-    // stray query param. Each host has its OWN handler (its re-served padi + the
-    // shared kolu/surfaceApp fragment), so a call minted on one host's socket can
-    // never reach another — the pool is the misroute boundary on the server side.
+    // switches is byte-identical). An UNKNOWN host is rejected with close 1008 —
+    // the picker `add`s a host BEFORE opening its socket, so a fresh socket for a
+    // host not in the pool never provisions ssh from a stray query param. This is
+    // an unexpected but RECOVERABLE case, not a hard failure — e.g. a stale tab
+    // still bound to a host another device just removed; the client treats the
+    // 1008 as "host gone" and falls back to local, so `warn` (not `error`) is the
+    // right level. Each host has its OWN handler (its re-served padi + the shared
+    // kolu/surfaceApp fragment), so a call minted on one host's socket can never
+    // reach another — the pool is the misroute boundary on the server side.
     const host = url.searchParams.get("host") ?? pool.defaultHost;
     const handler = pool.registry.getHandler(host);
     if (!handler) {

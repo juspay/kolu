@@ -134,6 +134,21 @@ describe("buildHostPool — the warm pool", () => {
     expect(persisted.length).toBe(1); // only the first, real add persisted
   });
 
+  it("serializes CONCURRENT adds of the same new host (no double-provision)", async () => {
+    const pool = makePool();
+    // Two devices add the same brand-new host at nearly the same moment. Without the
+    // in-flight fence both pass the `has()` check (neither committed yet) and each
+    // dials a live session — the loser's session/pump is then orphaned (never
+    // destroyed), and its fail-loud pump can crash the server. The fence makes the
+    // second call JOIN the first, so exactly one session is provisioned.
+    await Promise.all([pool.hosts.add("race"), pool.hosts.add("race")]);
+    const raceProvisions = ensureRemotePadiBinding.mock.calls.filter(
+      (c) => ((c as unknown[])[0] as { host: string })?.host === "race",
+    ).length;
+    expect(raceProvisions).toBe(1);
+    expect(pool.registry.has("race")).toBe(true);
+  });
+
   it("hosts.remove forgets a host and re-persists recentHosts", async () => {
     const persisted: string[][] = [];
     const pool = makePool({

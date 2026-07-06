@@ -16,8 +16,7 @@
 
 import type { ProcessRss } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { bindingScoped } from "../binding/bindings";
-import { createSharedRoot } from "../createSharedRoot";
+import { useBindingScopedSub } from "../binding/bindings";
 import {
   daemonTransportLive,
   localDaemonStatus,
@@ -31,12 +30,10 @@ import { readJsHeapUsedBytes } from "./memory";
 // switching away RETIRES (closes) the old binding's socket. `bindingScoped` re-opens
 // the sub against the live active binding, so the rail never reads a dead socket.
 // `createSharedRoot` gives `bindingScoped` its app-lifetime reactive owner.
-const memory = createSharedRoot(() =>
-  bindingScoped((b) =>
-    b.clients.kolu.cells.processMemory.use({
-      onError: (err) => toast.error(`Memory readout error: ${err.message}`),
-    }),
-  ),
+const memory = useBindingScopedSub((b) =>
+  b.clients.kolu.cells.processMemory.use({
+    onError: (err) => toast.error(`Memory readout error: ${err.message}`),
+  }),
 );
 const sub = () => memory()();
 

@@ -40,8 +40,8 @@
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
   type ClosedInfo,
-  ConnectError,
   type ConnectContext,
+  ConnectError,
   type Connection,
   type SessionState,
 } from "@kolu/surface-nix-host";

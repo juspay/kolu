@@ -19,7 +19,7 @@ import { LOCAL_HOST } from "kolu-common/contract";
 import type { PadiLink } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { bindingScoped } from "../binding/bindings";
+import { useBindingScopedSub } from "../binding/bindings";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
 import { app } from "../wire";
@@ -75,31 +75,28 @@ export function daemonTransportLive(): boolean {
 }
 
 // W4 "the switch": the daemon-status collection AND the per-host binding readiness
-// re-key off the ACTIVE binding. `bindingScoped` re-opens each sub against the new
-// host on a switch and disposes the old one (no leak across the swap), so
+// re-key off the ACTIVE binding. `useBindingScopedSub` re-opens each sub against the
+// new host on a switch and disposes the old one (no leak across the swap), so
 // `localDaemonStatus()`/`padiLinkState()` follow the tab to whichever host it views.
 // The `daemonStatus` collection rides padi (W1.R7); "the binding is (re)connecting"
 // now rides the padi `connection` cell (the framework mirror cell, per host) — the
 // replacement for the retired single-host `kolu.padiLink` cell, which could not carry
-// N bound hosts. Both live in one app-lifetime `createSharedRoot` so `bindingScoped`
-// has a reactive owner.
-const hostSubs = createSharedRoot(() => ({
-  daemonStatus: bindingScoped((b) =>
-    b.clients.padi.collections.daemonStatus.use({
-      keys: () => [LOCAL_HOST],
-      onError: (err) => toast.error(`Daemon status error: ${err.message}`),
-    }),
-  ),
-  connection: bindingScoped((b) =>
-    b.clients.padi.cells.connection.use({
-      onError: (err) => toast.error(`padi link status error: ${err.message}`),
-    }),
-  ),
-}));
+// N bound hosts. Each is an app-lifetime shared root (read as `sub()()`).
+const daemonStatusSub = useBindingScopedSub((b) =>
+  b.clients.padi.collections.daemonStatus.use({
+    keys: () => [LOCAL_HOST],
+    onError: (err) => toast.error(`Daemon status error: ${err.message}`),
+  }),
+);
+const connectionSub = useBindingScopedSub((b) =>
+  b.clients.padi.cells.connection.use({
+    onError: (err) => toast.error(`padi link status error: ${err.message}`),
+  }),
+);
 
 /** The active host's local daemon status, or undefined before the first server yield. */
 export function localDaemonStatus(): DaemonStatus | undefined {
-  return hostSubs().daemonStatus().byKey(LOCAL_HOST)?.();
+  return daemonStatusSub()().byKey(LOCAL_HOST)?.();
 }
 
 /** The active binding's live binding-to-padi state, or `undefined` before the first
@@ -109,7 +106,7 @@ export function localDaemonStatus(): DaemonStatus | undefined {
  *  re-served kaval `daemonStatus` (#1034). A reactive accessor; read it inside a
  *  tracking scope. */
 export function padiLinkState(): PadiLink | undefined {
-  const state = hostSubs().connection().value()?.state;
+  const state = connectionSub()().value()?.state;
   return state === undefined ? undefined : connectionToPadiLink(state);
 }
 
@@ -122,7 +119,7 @@ export function padiLinkState(): PadiLink | undefined {
  *  subscription, which is itself the pre-first-value state, so treat that as
  *  pending too. */
 export function daemonStatusPending(): boolean {
-  return hostSubs().daemonStatus().byKey(LOCAL_HOST)?.pending() ?? true;
+  return daemonStatusSub()().byKey(LOCAL_HOST)?.pending() ?? true;
 }
 
 /** The single projection of "is the daemon down, and which kind" — `dead`

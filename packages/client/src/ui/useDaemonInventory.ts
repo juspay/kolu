@@ -24,8 +24,7 @@ import type {
   RunningPadi,
 } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { bindingScoped } from "../binding/bindings";
-import { createSharedRoot } from "../createSharedRoot";
+import { useBindingScopedSub } from "../binding/bindings";
 
 // W4 "the switch": `bindingScoped` re-keys the sub onto the ACTIVE host's socket, so
 // the dialogs never read a boot-binding socket that a switch-away retired (closed).
@@ -33,12 +32,10 @@ import { createSharedRoot } from "../createSharedRoot";
 // data describes kolu-server's own machine + bound host — an acceptable-for-scope
 // default-host diagnostic), served on every per-host socket; only the socket is
 // per-binding. `createSharedRoot` gives `bindingScoped` its reactive owner.
-const inventory = createSharedRoot(() =>
-  bindingScoped((b) =>
-    b.clients.kolu.cells.daemonInventory.use({
-      onError: (err) => toast.error(`Daemon inventory error: ${err.message}`),
-    }),
-  ),
+const inventory = useBindingScopedSub((b) =>
+  b.clients.kolu.cells.daemonInventory.use({
+    onError: (err) => toast.error(`Daemon inventory error: ${err.message}`),
+  }),
 );
 const sub = () => inventory()();
 

@@ -1,9 +1,9 @@
 /**
  * The host binding + the MISROUTE GUARD (W4 "the switch"). Drives the real
- * `switchHost` / `activeBinding` / `assertLive` with `connectSurfaces` mocked, so
- * no socket is opened. Pins the coordinator's condition 3a: switching hosts retires
- * the old binding, and a stale reference to it is REJECTED (never silently routed to
- * the wrong — or a dead — host).
+ * `switchHost` / `activeBinding` with `connectSurfaces` mocked, so no socket is
+ * opened. Pins the coordinator's condition 3a: switching hosts retires the old
+ * binding and closes its socket, so a stale reference to it is REJECTED at the dead
+ * transport (never silently routed to the wrong — or a dead — host).
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,21 +23,37 @@ vi.stubGlobal("sessionStorage", {
 });
 
 // Each `connectSurfaces` call is a DISTINCT bundle (so two hosts' bindings are
-// distinct objects). `link.hosts.add`/`remove` resolve immediately.
+// distinct objects). `link.hosts.add`/`remove` resolve immediately. The ws captures
+// its `close` listeners so a test can fire the server's `close(1008)` rejection.
 let connectCount = 0;
 const connectSurfaces = vi.fn(() => {
   connectCount += 1;
+  const listeners: Record<string, ((ev: unknown) => void)[]> = {};
   return {
     clients: { kolu: {}, surfaceApp: {}, padi: {} },
     link: {
       hosts: { add: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
     },
-    ws: { close: vi.fn(), addEventListener: vi.fn() },
+    ws: {
+      close: vi.fn(),
+      addEventListener: (type: string, cb: (ev: unknown) => void) => {
+        (listeners[type] ??= []).push(cb);
+      },
+      __listeners: listeners,
+    },
     echo: { remember: vi.fn() },
     dispose: vi.fn(),
     status: () => "live",
   };
 });
+
+/** Fire a `close` event on a binding's (mock) socket, as the server would. */
+function fireClose(binding: { ws: unknown }, ev: { code: number }): void {
+  const ws = binding.ws as {
+    __listeners: Record<string, ((ev: unknown) => void)[]>;
+  };
+  for (const cb of ws.__listeners.close ?? []) cb(ev);
+}
 
 // The real `retireSocket` closes the socket + stubs `send` to throw; spy on it so
 // the test can prove a switch actually retires the old host's socket (the misroute
@@ -70,7 +86,7 @@ vi.mock("solid-sonner", () => ({
   toast: { error: vi.fn(), warning: vi.fn() },
 }));
 
-const { activeBinding, assertLive, LOCAL_HOST, switchHost } = await import(
+const { activeBinding, activeHost, LOCAL_HOST, switchHost } = await import(
   "./bindings"
 );
 
@@ -84,7 +100,6 @@ describe("the misroute guard (condition 3a)", () => {
     const local = activeBinding();
     expect(local.host).toBe(LOCAL_HOST);
     expect(local.retired).toBe(false);
-    expect(() => assertLive(local)).not.toThrow();
 
     // Switch to a remote host: it is added to the pool first (add-then-connect),
     // then the tab's binding swaps.
@@ -92,19 +107,17 @@ describe("the misroute guard (condition 3a)", () => {
     expect(local.link.hosts.add).toHaveBeenCalledWith({ host: "zest" });
 
     // The OLD (local) binding is retired + its socket torn down — the misroute
-    // guard's teeth: a call still holding the local binding now throws, instead of
-    // silently landing on the wrong (or dead) host. `retired === true` is set inside
-    // the dispose closure, AND the dispose retires (closes + poisons) the socket, so
-    // a late call on it throws at the transport rather than re-dialing this host.
+    // guard's teeth: the dispose closure sets `retired` AND retires (closes +
+    // poisons `send`) the socket, so a late call on it throws at the now-dead
+    // transport rather than silently re-dialing this host after the tab moved on.
     expect(local.retired).toBe(true);
     expect(retireSocketMock).toHaveBeenCalledWith(local.ws);
-    expect(() => assertLive(local)).toThrow(/stale binding for host "local"/);
 
     // The NEW active binding is a DISTINCT, live object for the switched-to host.
     const remote = activeBinding();
     expect(remote).not.toBe(local);
     expect(remote.host).toBe("zest");
-    expect(() => assertLive(remote)).not.toThrow();
+    expect(remote.retired).toBe(false);
   });
 
   it("switching back to a previously-retired host builds a fresh binding (never reuses the retired one)", async () => {
@@ -124,5 +137,29 @@ describe("the misroute guard (condition 3a)", () => {
     await switchHost(before.host);
     expect(activeBinding()).toBe(before);
     expect(connectCount).toBe(count);
+  });
+});
+
+describe("a removed host falls the tab back to local (close 1008)", () => {
+  it("stops the reconnect loop and switches to local when the server rejects the host as unknown", async () => {
+    await switchHost("gone");
+    const remote = activeBinding();
+    expect(remote.host).toBe("gone");
+
+    // Another device removed "gone" from the shared pool, so this tab's (re)connect
+    // is rejected `close(1008)`. Without the fallback a PartySocket would re-dial the
+    // gone host forever; instead the tab falls back to local.
+    fireClose(remote, { code: 1008 });
+    expect(activeHost()).toBe(LOCAL_HOST);
+  });
+
+  it("ignores an ORDINARY disconnect (only 1008 = unknown host triggers the fallback)", async () => {
+    await switchHost("box2");
+    expect(activeHost()).toBe("box2");
+
+    // A transient drop (1006) is PartySocket's job to reconnect — the tab must NOT
+    // abandon the host it's viewing on every blip.
+    fireClose(activeBinding(), { code: 1006 });
+    expect(activeHost()).toBe("box2");
   });
 });

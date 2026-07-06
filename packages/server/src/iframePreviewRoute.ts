@@ -25,14 +25,14 @@
  *  guard's 403 coverage now lives against padi's `previewFile`. */
 
 import type { HttpBindings } from "@hono/node-server";
+import type { PadiPreviewReadOutputSchema } from "@kolu/padi/surface";
+import type { ServeResult } from "@kolu/serve-dir";
 import {
   getHeaderCI,
   parseByteRange,
   rangeResponseHead,
   rawPathname,
 } from "@kolu/serve-dir";
-import type { ServeResult } from "@kolu/serve-dir";
-import type { PadiPreviewReadOutputSchema } from "@kolu/padi/surface";
 import type { Context } from "hono";
 import {
   TERMINAL_FILE_ROUTE_BASE,

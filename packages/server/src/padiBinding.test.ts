@@ -26,6 +26,9 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+// `connectPadi` moved into the shared dial kit in W2.3; the supervision it feeds
+// (bind/drain convergence, drivers, the reconnect session) stays in the binder.
+import { connectPadi } from "@kolu/padi/dial";
 import {
   padiGatePath,
   padiKavalSocketPath,
@@ -45,9 +48,6 @@ import {
 import { reServeSurface } from "@kolu/surface-nix-host";
 import { createRouterClient } from "@orpc/server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-// `connectPadi` moved into the shared dial kit in W2.3; the supervision it feeds
-// (bind/drain convergence, drivers, the reconnect session) stays in the binder.
-import { connectPadi } from "@kolu/padi/dial";
 import {
   ensurePadiBinding,
   localPadiDriver,

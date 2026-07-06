@@ -32,8 +32,6 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isContractVersionCompatible } from "@kolu/surface/define";
-import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import {
   type PadiDaemonClient,
   type PadiSurfaceClient,
@@ -45,6 +43,8 @@ import {
   type PadiHostInventory,
   type PadiTerminal,
 } from "@kolu/padi/surface";
+import { isContractVersionCompatible } from "@kolu/surface/define";
+import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import { isLocalHost, makeSession, sshConnector } from "@kolu/surface-nix-host";
 import type { TerminalId } from "@kolu/terminal-workspace/schema";
 import { afterAll, describe, expect, it } from "vitest";

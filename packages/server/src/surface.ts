@@ -30,6 +30,7 @@
  * cross into padi from kolu-server.
  */
 
+import { publisher } from "@kolu/padi/assembly";
 import {
   type CellStore,
   composeSurfaceContracts,
@@ -41,7 +42,6 @@ import {
 import { surfaceAppServer } from "@kolu/surface-app/server";
 import { oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
-import { publisher } from "@kolu/padi/assembly";
 import { contract } from "kolu-common/contract";
 import type {
   DaemonInventory,

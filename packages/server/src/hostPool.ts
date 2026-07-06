@@ -33,8 +33,8 @@ import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { LOCAL_HOST } from "kolu-common/contract";
 import { log } from "./log.ts";
 import {
-  ensurePadiBinding,
   type EnsurePadiBindingOptions,
+  ensurePadiBinding,
 } from "./padiBinding.ts";
 import type { PadiSession } from "./padiSession.ts";
 import { ensureRemotePadiBinding } from "./remotePadiBinding.ts";
@@ -123,15 +123,31 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
   // RPC handlers only fire at runtime, long after).
   let registry: HostRegistry<PadiSession, PadiWsHandler>;
 
+  // In-flight `add`s, keyed by host — the pool is shared across a user's devices,
+  // so two tabs can call `hosts.add("newbox")` at nearly the same moment. Without
+  // this fence both would pass the `registry.has` check (neither has committed yet),
+  // both `buildEntry` a live ssh session + re-serve pump, and the loser's entry would
+  // be silently dropped WITHOUT `.destroy()` — an orphaned pump whose `process.exit(1)`
+  // fail-loud arm can then take the whole server down from a resource nothing owns. A
+  // second concurrent add JOINS the first's promise instead of racing it.
+  const adding = new Map<string, Promise<void>>();
+
   const hosts = {
     add: async (host: string): Promise<void> => {
       if (host === LOCAL_HOST) return; // the local host is always present.
       if (registry.has(host)) return; // idempotent — already warm.
-      await registry.add(host);
+      const inflight = adding.get(host);
+      if (inflight) return inflight; // a concurrent add for THIS host — join it.
+      const p = registry.add(host).finally(() => adding.delete(host));
+      adding.set(host, p);
+      return p;
     },
     remove: async (host: string): Promise<void> => {
       if (host === LOCAL_HOST) return; // never remove the local host.
       if (!registry.has(host)) return;
+      // Lifecycle log (retired) — the per-host padi binding is a long-lived,
+      // add/remove-able resource; log its teardown in a greppable format.
+      log.info({ host }, `hostPool: ${host} binding retired`);
       await registry.remove(host);
     },
   };
@@ -146,6 +162,10 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
       ...deps.recentHosts,
     ]),
     buildEntry: (host) => {
+      // Lifecycle log (installed) — the per-host padi binding is a long-lived,
+      // add/remove-able resource; log its creation in a greppable format so an
+      // operational sweep can pair it with the "retired" log above.
+      log.info({ host }, `hostPool: ${host} binding installed`);
       const session: PadiSession =
         host === LOCAL_HOST
           ? ensurePadiBinding(deps.localArmOpts)

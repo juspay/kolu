@@ -17,8 +17,7 @@
 import type { PadiStatus } from "@kolu/padi/surface";
 import type { Component } from "solid-js";
 import { toast } from "solid-sonner";
-import { bindingScoped } from "../binding/bindings";
-import { createSharedRoot } from "../createSharedRoot";
+import { useBindingScopedSub } from "../binding/bindings";
 import { kavalStale } from "./kavalCurrency";
 import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
 
@@ -32,12 +31,10 @@ import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
 // it views — never pinning the boot host's `expectedKaval`. It lives in an
 // app-lifetime `createSharedRoot` so `bindingScoped` has a reactive owner; the old
 // module-level `padi.cells.status.use(...)` had none AND pinned the boot binding.
-const kavalStatus = createSharedRoot(() =>
-  bindingScoped((b) =>
-    b.clients.padi.cells.status.use({
-      onError: (err) => toast.error(`Kaval status error: ${err.message}`),
-    }),
-  ),
+const kavalStatus = useBindingScopedSub((b) =>
+  b.clients.padi.cells.status.use({
+    onError: (err) => toast.error(`Kaval status error: ${err.message}`),
+  }),
 );
 
 /** The *expected* kaval identity — the build padi would spawn
