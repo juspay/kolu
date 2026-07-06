@@ -95,6 +95,13 @@ const preferencesStore: CellStore<Preferences> = confStore<Preferences>(
   "preferences",
 );
 
+// The `recentHosts` cell is Conf-backed on its OWN top-level key (D1) — server-owned
+// pool state, persisted + served in one write. `persistRecentHosts` (index.ts) sets it.
+const recentHostsStore: CellStore<string[]> = confStore<string[]>(
+  store,
+  "recentHosts",
+);
+
 // ── processMemory cell: live metric, in-memory backing + whole-MB dedup ──
 //
 // Defined here beside the cell entry, not in `memorySampler.ts`: the cell's
@@ -246,6 +253,16 @@ const koluDeps: Omit<
       // steady-state tick never re-publishes to every connected client — a shallow
       // JSON compare is fine (the lists are tiny, a handful of daemons at most).
       store: daemonInventoryCellStore,
+      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+    },
+    recentHosts: {
+      // The warm pool's remembered hosts (D1). Conf-backed (its OWN top-level key), so
+      // `koluSurfaceCtx.cells.recentHosts.set(...)` from `persistRecentHosts` (index.ts)
+      // BOTH persists to disk AND publishes to every connected device — the client reads
+      // it SERVER-authority, so an add on one device updates another's open picker live.
+      // A fresh subscription reads the current value via the Conf `get`. `equals` dedups a
+      // no-op re-publish (the pool re-persists on every add/remove).
+      store: recentHostsStore,
       equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
     },
   },

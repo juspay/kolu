@@ -118,6 +118,9 @@ let _activityFeed!: Accessor<
 let _savedSession!: Accessor<
   ReturnType<Clients["padi"]["cells"]["session"]["use"]>
 >;
+let _recentHosts!: Accessor<
+  ReturnType<Clients["kolu"]["cells"]["recentHosts"]["use"]>
+>;
 let _terminalKeys!: Accessor<Subscription<TerminalId[]>>;
 
 createRoot(() => {
@@ -128,6 +131,14 @@ createRoot(() => {
       // Debounce window for size writes that opt in via `{ coalesce: true }` (#1041).
       coalesceMs: 150,
       onError: (err) => toast.error(`Preferences error: ${err.message}`),
+    }),
+  );
+  // D1 — the picker's "recents" ride their OWN server-authority cell (NOT preferences),
+  // so a `hosts.add` on another device reaches THIS tab's open picker live. No
+  // `authority: "local"` — the default honors the server's pushes.
+  _recentHosts = bindingScoped((b) =>
+    b.clients.kolu.cells.recentHosts.use({
+      onError: (err) => toast.error(`Recent hosts error: ${err.message}`),
     }),
   );
   _activityFeed = bindingScoped((b) =>
@@ -161,6 +172,12 @@ createRoot(() => {
  *  server yield. */
 export const preferences = (): Preferences =>
   _preferences().value() ?? DEFAULT_PREFERENCES;
+
+/** The warm pool's remembered hosts, live from the server-authority `recentHosts` cell
+ *  (D1) — updates when ANY device adds/removes a host, with no reload. `[]` before the
+ *  first yield. */
+export const recentHosts = (): readonly string[] =>
+  _recentHosts().value() ?? [];
 
 /** Re-key a `Subscription` handle onto whatever the ACTIVE binding currently
  *  exposes: `active()` yields the current host's sub each read, so `()`/`.pending`/

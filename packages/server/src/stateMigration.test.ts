@@ -19,7 +19,10 @@ import { afterEach, describe, expect, it } from "vitest";
 // Importing state.ts opens its own throwaway store at the test harness's
 // KOLU_STATE_DIR (set by the `test:unit` script) — unrelated to the fixtures
 // below, which each build their own Conf under a fresh temp dir.
-import { stripLegacyStateKeys_1_31_0 } from "./state.ts";
+import {
+  moveRecentHostsOutOfPreferences_1_32_0,
+  stripLegacyStateKeys_1_31_0,
+} from "./state.ts";
 
 const dirs: string[] = [];
 
@@ -124,5 +127,34 @@ describe("stripLegacyStateKeys_1_31_0", () => {
       recentRepos: ["/repo"],
       recentAgents: [],
     });
+  });
+});
+
+describe("moveRecentHostsOutOfPreferences_1_32_0 (D1)", () => {
+  function fakeStore(initial: Record<string, unknown>) {
+    const data = { ...initial };
+    return {
+      data,
+      get: (key: "preferences") => data[key] as Record<string, unknown>,
+      set: (key: "recentHosts" | "preferences", value: unknown) => {
+        data[key] = value;
+      },
+    };
+  }
+
+  it("moves a branch-runner's preferences.recentHosts into its OWN top-level key + strips it", () => {
+    const store = fakeStore({
+      preferences: { seenTips: [], recentHosts: ["zest", "box2"] },
+    });
+    moveRecentHostsOutOfPreferences_1_32_0(store);
+    expect(store.data.recentHosts).toEqual(["zest", "box2"]); // moved to its own key
+    expect(store.data.preferences).toEqual({ seenTips: [] }); // stripped from preferences
+  });
+
+  it("is a no-op for a fresh user whose preferences never carried recentHosts", () => {
+    const store = fakeStore({ preferences: { seenTips: [] } });
+    moveRecentHostsOutOfPreferences_1_32_0(store);
+    expect(store.data.recentHosts).toBeUndefined(); // untouched → defaults to [] via conf
+    expect(store.data.preferences).toEqual({ seenTips: [] });
   });
 });

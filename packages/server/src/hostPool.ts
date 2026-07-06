@@ -63,10 +63,11 @@ export interface HostPoolDeps {
   /** The host bound when a tab names none — `KOLU_PADI_HOST` if set, else the
    *  local host. Seeded into the pool and served on `server.info.defaultHost`. */
   bootHost: string | undefined;
-  /** Hosts remembered from `preferences.recentHosts` — warmed at boot so a device
+  /** Hosts remembered from the `recentHosts` cell/key (D1) — warmed at boot so a device
    *  lands on its known hosts without re-adding them. */
   recentHosts: readonly string[];
-  /** Persist the pool's host set (local excluded) back onto `preferences.recentHosts`. */
+  /** Persist the pool's host set (local excluded) — index.ts writes the SERVER-authority
+   *  `recentHosts` cell (persists + publishes to every device, D1). */
   persistRecentHosts: (hosts: string[]) => void;
   /** Options forwarded to the LOCAL endpoint arm (`ensurePadiBinding`) — the
    *  nix-shell whitelist, the legacy-kaval adopt hint, spawn version, verbose. */

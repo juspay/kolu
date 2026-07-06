@@ -28,6 +28,13 @@
  * without a migration ladder.
  */
 
+// The host-daemon inventory shapes live in @kolu/padi's OWN surface vocabulary — padi
+// owns the daemon domain (a kaval gate pid is a padi-domain fact, not terminal
+// awareness). kolu-common's `daemonInventory` cell composes them here via the established
+// `kolu-common → @kolu/padi` direction (the same edge `surfacesWithPadi`/`contract` use);
+// the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
+// `kolu-common/surface` importers are unchanged.
+import { HostDaemonInventorySchema } from "@kolu/padi/surface";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import {
   type BuildInfo,
@@ -38,17 +45,14 @@ import {
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
 import { ProcessRssSchema } from "@kolu/terminal-workspace/schema";
-// The host-daemon inventory shapes live in @kolu/padi's OWN surface vocabulary — padi
-// owns the daemon domain (a kaval gate pid is a padi-domain fact, not terminal
-// awareness). kolu-common's `daemonInventory` cell composes them here via the established
-// `kolu-common → @kolu/padi` direction (the same edge `surfacesWithPadi`/`contract` use);
-// the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
-// `kolu-common/surface` importers are unchanged.
-import { HostDaemonInventorySchema } from "@kolu/padi/surface";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
 
+// The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
+// home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
+// them here — the schema home moved to the daemon-domain package, the consumers didn't.
+export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
 export type {
   AgentPaintClass,
   AlertClass,
@@ -76,17 +80,13 @@ export type {
   CodexInfo,
   Foreground,
   OpenCodeInfo,
-  PrResult,
   ProcessRss,
+  PrResult,
   PrUnavailableSource,
   RestoreTarget,
   TerminalId,
   TerminalSnapshot,
 } from "@kolu/terminal-workspace/schema";
-// The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
-// home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
-// them here — the schema home moved to the daemon-domain package, the consumers didn't.
-export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
 //
 // The generic `TerminalSnapshot` (terminal identity, agent status, PR resolution,
@@ -169,13 +169,12 @@ export const PreferencesSchema = z.object({
    *  rendering shift on focus swap at the cost of WebGL throughput. */
   terminalRenderer: z.enum(["auto", "webgl", "dom"]),
   rightPanel: RightPanelPrefsSchema,
-  /** Hosts the warm pool has been asked to hold, most-recent last — the source
-   *  the (Debug-only, W4) host picker offers as "recents". Server-persisted so
-   *  every device sharing this kolu sees the same list; the local host is never
-   *  listed (it is always reachable). Kept in `preferences` because it is a
-   *  user-scoped shell fact, not per-host terminal state (which lives on padi). */
-  recentHosts: z.array(z.string()),
 });
+// (`recentHosts` moved OUT of preferences to its OWN server-authority `recentHosts`
+//  cell — D1. It is SERVER-owned data (the warm pool's host set), not a locally-edited
+//  user preference; carrying it in the local-authority preferences cell meant a device
+//  that added a host never reached another device's open picker until reload. Its own
+//  server-authority cell pushes live. It never shipped in preferences (new in this PR).)
 
 /** Preference patch — top-level fields are optional; nested objects are deep-partial. */
 export const PreferencesPatchSchema = PreferencesSchema.omit({
@@ -234,7 +233,6 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
-  recentHosts: [],
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`
@@ -512,6 +510,19 @@ export const koluSurface = defineSurface({
         kaval: { status: "absent" },
       } satisfies z.infer<typeof ProcessMemorySchema>,
       verbs: ["get"],
+    },
+
+    /** The warm pool's remembered hosts (local excluded), most-recent last — what the
+     *  (Debug-only, W4) picker offers as "recents" (D1). SERVER-authored + persisted:
+     *  the pool is the source of truth (`persistRecentHosts` writes it on every
+     *  add/remove), and the client subscribes read-only with SERVER authority, so a
+     *  `hosts.add` on one device reaches every other device's OPEN picker WITHOUT a
+     *  reload — the cross-device sync the local-authority preferences cell could never
+     *  deliver. `test__set` for e2e fixtures. */
+    recentHosts: {
+      schema: z.array(z.string()),
+      default: [],
+      verbs: ["get", "test__set"],
     },
 
     // The `padiLink` cell RETIRED at W4 ("the switch"): it was a SINGLE server-wide

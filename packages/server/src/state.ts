@@ -65,9 +65,31 @@ export function migratePreferences_1_30_0(
  *  migration entry below. */
 const PersistedStateSchema = z.object({
   preferences: PreferencesSchema,
+  // The warm pool's remembered hosts (W4, D1) — SERVER-owned, its OWN top-level key
+  // (not a user preference). Served on the read-only `recentHosts` koluSurface cell so
+  // an add on one device reaches another's open picker live. New in this PR — it briefly
+  // lived under `preferences` (the 1.32.0 migration moves any branch residue out).
+  recentHosts: z.array(z.string()),
 });
 
 type PersistedState = z.infer<typeof PersistedStateSchema>;
+
+/** The 1.32.0 migration body (D1): move `recentHosts` out of `preferences` into its OWN
+ *  top-level key. It never shipped in preferences (new in this PR), so for a fresh user
+ *  this is a no-op (the key defaults to `[]`); for a branch-runner who stored it under
+ *  preferences, migrate the value out and strip the stale field. Exported so
+ *  `stateMigration.test.ts` can exercise it directly without a `Conf` under KOLU_STATE_DIR. */
+export function moveRecentHostsOutOfPreferences_1_32_0(store: {
+  get(key: "preferences"): Record<string, unknown>;
+  set(key: "recentHosts" | "preferences", value: unknown): void;
+}): void {
+  const current = store.get("preferences");
+  if (Array.isArray(current.recentHosts)) {
+    store.set("recentHosts", current.recentHosts);
+    const { recentHosts: _drop, ...rest } = current;
+    store.set("preferences", rest);
+  }
+}
 
 /**
  * Schema version — bump this when adding migrations.
@@ -152,6 +174,7 @@ export const store = new Conf<PersistedState>({
   projectVersion: SCHEMA_VERSION,
   defaults: {
     preferences: DEFAULT_PREFERENCES,
+    recentHosts: [],
   },
   migrations: {
     // 1.1.0 legacy: sortOrder added to SavedTerminal. The field was
@@ -490,16 +513,14 @@ export const store = new Conf<PersistedState>({
     // `preferences` now. BACKUP-FIRST (see `stripLegacyStateKeys_1_31_0`).
     "1.31.0": (store: Conf<PersistedState>) =>
       stripLegacyStateKeys_1_31_0(store),
-    // `recentHosts` added to preferences (W4 "the switch"): the warm pool's host
-    // list, shared across a user's devices, offered as the picker's recents.
-    // Backfill an empty array so an existing user's `preferences` validates
-    // against the widened schema (no host is remembered until one is picked).
-    "1.32.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      if ((current as Record<string, unknown>).recentHosts === undefined) {
-        store.set("preferences", { ...current, recentHosts: [] });
-      }
-    },
+    // `recentHosts` (W4 "the switch") lives in its OWN top-level key now (D1), NOT
+    // preferences — it is server-owned pool state, not a user preference. It never
+    // shipped in preferences (new in this PR), so this places it right at first release
+    // rather than bumping the ladder for a field nobody has. For anyone who ran an
+    // earlier branch build that DID store it under preferences, move that residue out
+    // and strip the stale field; a fresh user's `recentHosts` key defaults to `[]`.
+    "1.32.0": (store: Conf<PersistedState>) =>
+      moveRecentHostsOutOfPreferences_1_32_0(store),
   },
 });
 

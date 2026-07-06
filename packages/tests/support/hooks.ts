@@ -1008,6 +1008,10 @@ Before(async function (this: KoluWorld, scenario) {
   // stays the same.
   await Promise.all([
     postJSON(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {}),
+    // W4 "the switch": reset the warm-pool host list (its OWN server-authority cell now,
+    // D1 — no longer a preferences field) so each scenario starts with no remembered
+    // hosts (the picker offers only local).
+    postJSON(`${baseUrl}/rpc/surface/kolu/recentHosts/test__set`, { json: [] }),
     postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
       json: {
         // Reset all preferences to defaults (newTerminalTheme "inherit" so new
@@ -1022,9 +1026,6 @@ Before(async function (this: KoluWorld, scenario) {
         activityAlerts: true,
         colorScheme: "dark",
         terminalRenderer: "auto",
-        // W4 "the switch": the warm-pool host list. Reset to empty so each
-        // scenario starts with no remembered hosts (the picker offers only local).
-        recentHosts: [],
         // `rightPanel` preferences hold only workspace-level chrome
         // (collapsed/size/codeTabTreeSize) — `activeTab`/`codeMode` are
         // per-terminal state (DEFAULT_RIGHT_PANEL_PER_TERMINAL), not

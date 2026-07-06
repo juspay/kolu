@@ -37,11 +37,7 @@ import {
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
 import { type WebSocket, WebSocketServer } from "ws";
-import {
-  serverHostname,
-  serverProcessId,
-  serverVersion,
-} from "./hostname.ts";
+import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildHostPool, LOCAL_HOST } from "./hostPool.ts";
 import {
   assembleRemotePreview,
@@ -233,14 +229,14 @@ const bootHost = remotePadiHost();
 const MAX_RECENT_HOSTS = 20;
 const pool = buildHostPool({
   bootHost,
-  recentHosts: store.get("preferences").recentHosts.slice(-MAX_RECENT_HOSTS),
+  recentHosts: store.get("recentHosts").slice(-MAX_RECENT_HOSTS),
   // The pool's host set (local excluded) IS the user's recentHosts; write it back
-  // through the preferences cell (capped) so the change persists AND every connected
-  // device's picker refreshes (a plain `store.set` would persist but not publish).
+  // through the SERVER-authority `recentHosts` cell (capped, D1). Its Conf-backed store
+  // makes one `.set` BOTH persist to disk AND publish to every connected device — so an
+  // add on one device updates another's open picker live (the local-authority preferences
+  // cell couldn't: the client seeds from the first yield and ignores later pushes).
   persistRecentHosts: (hosts) =>
-    koluSurfaceCtx.cells.preferences.patch({
-      recentHosts: hosts.slice(-MAX_RECENT_HOSTS),
-    }),
+    koluSurfaceCtx.cells.recentHosts.set(hosts.slice(-MAX_RECENT_HOSTS)),
   localArmOpts: {
     // The nix-shell env whitelist rides padi's CLI flag (kolu-server no longer spawns
     // PTYs — padi's kaval does — so it is FORWARDED to padi, not called here).

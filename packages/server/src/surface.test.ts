@@ -32,16 +32,18 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // and the `terminalExit` event — relocated onto `padiSurface` (the W1 padi
     // seam). koluSurface keeps only kolu-server's OWN cells: `preferences`,
     // `processMemory`, `processStartedAt` (the server + padi boot times the rail
-    // renders as uptime), and `daemonInventory` (the read-only host-daemon
-    // enumeration the Kaval/Padi dialogs list). The `padiLink` cell RETIRED at W4
-    // ("the switch"): a single server-wide binding fact can't carry a warm POOL of N
-    // padis, so per-host readiness moved to the padi `connection` cell (per bound
-    // host). No collections, no events.
+    // renders as uptime), `daemonInventory` (the read-only host-daemon enumeration
+    // the Kaval/Padi dialogs list), and `recentHosts` (the warm pool's remembered
+    // hosts — its OWN server-authority cell now, D1, not a preferences field). The
+    // `padiLink` cell RETIRED at W4 ("the switch"): a single server-wide binding fact
+    // can't carry a warm POOL of N padis, so per-host readiness moved to the padi
+    // `connection` cell (per bound host). No collections, no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "daemonInventory",
       "preferences",
       "processMemory",
       "processStartedAt",
+      "recentHosts",
     ]);
     expect(spec.cells?.session).toBeUndefined();
     expect(spec.cells?.activityFeed).toBeUndefined();

@@ -15,7 +15,7 @@
  */
 
 import type { PaletteGroup, PaletteItem } from "../CommandPalette";
-import { preferences } from "../wire";
+import { recentHosts } from "../wire";
 import {
   activeHost,
   forgetHost,
@@ -32,7 +32,7 @@ export function hostPickerCommand(): PaletteGroup {
     description: "Pick which machine this tab views (Debug — dogfood only)",
     children: (): PaletteItem[] => {
       const active = activeHost();
-      const recents = preferences().recentHosts;
+      const recents = recentHosts();
       // Local always; the server default (if it's a remote host); then each recent.
       // De-duped, first-seen order (a `Set` preserves insertion order).
       const known = [
