@@ -40,6 +40,7 @@ function harness(initialHosts: readonly string[]) {
       const entry: HostEntry<FakeSession, Handler> = {
         session: fakeSession(),
         handler: { id: host },
+        cells: { dispose: vi.fn() },
       };
       built.set(host, entry);
       return entry;
@@ -209,6 +210,26 @@ describe("buildHostRegistry", () => {
     expect(registry.hosts()).toEqual([]);
     expect(built.get("alpha")?.session.destroy).toHaveBeenCalledOnce();
     expect(built.get("beta")?.session.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("disposes each entry's per-entry cells at EVERY teardown site (remove, add-rollback, destroyAll)", async () => {
+    // remove: the entry-scoped cells go down beside the session.
+    const removed = harness(["alpha"]);
+    await removed.registry.remove("alpha");
+    expect(removed.built.get("alpha")?.cells?.dispose).toHaveBeenCalledOnce();
+
+    // add-rollback: a persist reject tears down the just-built entry's cells too
+    // (the old side-map disposer never ran here — a latent leak this closes).
+    const rolled = harness([]);
+    rolled.persist.mockRejectedValueOnce(new Error("disk full"));
+    await expect(rolled.registry.add("beta")).rejects.toThrow("disk full");
+    expect(rolled.built.get("beta")?.cells?.dispose).toHaveBeenCalledOnce();
+
+    // destroyAll: server shutdown disposes every entry's cells (also previously leaked).
+    const all = harness(["alpha", "beta"]);
+    all.registry.destroyAll();
+    expect(all.built.get("alpha")?.cells?.dispose).toHaveBeenCalledOnce();
+    expect(all.built.get("beta")?.cells?.dispose).toHaveBeenCalledOnce();
   });
 
   it("works with no persist hook (a static host set)", async () => {

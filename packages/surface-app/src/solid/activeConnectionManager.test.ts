@@ -14,7 +14,9 @@ import {
 
 interface FakeConn extends ManagedConnection {
   key: string;
-  ws: { addEventListener: (t: "close", cb: (ev: { code?: number }) => void) => void };
+  ws: {
+    addEventListener: (t: "close", cb: (ev: { code?: number }) => void) => void;
+  };
 }
 
 /** A connection factory whose sockets fire `close` on command + whose disposes are recorded. */

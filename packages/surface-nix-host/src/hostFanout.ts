@@ -14,10 +14,12 @@
  *     of an `implementSurface` re-serve shell.
  *
  *   - `buildHostRegistry({ buildEntry })` — the keyed `Map<host, {session,
- *     handler}>` a `?host=` upgrade dispatcher reads. Owns only the map + its
- *     lifecycle (add/remove + per-host socket eviction, plus the optional fleet
- *     verbs a `controls` supplies); the app supplies `buildEntry` (how a host
- *     becomes a session + an oRPC handler) and an optional `persist` hook.
+ *     handler, cells?}>` a `?host=` upgrade dispatcher reads. Owns only the map +
+ *     its lifecycle (add/remove + per-host socket eviction, disposing each entry's
+ *     optional per-entry served `cells` beside destroying its session, plus the
+ *     optional fleet verbs a `controls` supplies); the app supplies `buildEntry`
+ *     (how a host becomes a session + an oRPC handler + optional entry-scoped cells)
+ *     and an optional `persist` hook.
  *
  * Both are lifted verbatim-in-shape from drishti's `bridgeAgentToParent` +
  * `hostRegistry.ts` — the two consumers (drishti's process monitor, pulam-web's
@@ -244,15 +246,24 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
 
 // ── buildHostRegistry — the keyed per-host fan-out ─────────────────────────
 
-/** One host's entry: its session and the oRPC handler a `?host=` dispatcher
- *  upgrades a browser socket onto. The session slot is the minimal
- *  {@link DestroyableSession} (S1) — the registry only ever `destroy()`s it; a
- *  richer type (`Session`) still fits, and the app's `S` is what `getSession`
- *  hands back. `H` stays generic (the app's `RPCHandler<…>`) so this package needs
- *  no `@orpc/server/ws` dependency. */
+/** One host's entry: its session, the oRPC handler a `?host=` dispatcher upgrades a
+ *  browser socket onto, and OPTIONALLY per-entry served cells derived from the session.
+ *  The session slot is the minimal {@link DestroyableSession} (S1) — the registry only
+ *  ever `destroy()`s it; a richer type (`Session`) still fits, and the app's `S` is what
+ *  `getSession` hands back. `H` stays generic (the app's `RPCHandler<…>`) so this package
+ *  needs no `@orpc/server/ws` dependency.
+ *
+ *  `cells` is the entry-scoped surface fragment: a served-cell bundle the app derives
+ *  from THIS entry's session (kolu's per-host padi diagnostics — processStartedAt,
+ *  daemonInventory), which the registry tears down wherever it destroys the session, so
+ *  the samplers' timers + subscriptions share the entry's exact lifetime. The registry
+ *  stays ignorant of WHICH cells or what they carry — same discipline it applies to
+ *  `session` (it knows only `.destroy()`). */
 export interface HostEntry<S extends DestroyableSession, H> {
   session: S;
   handler: H;
+  /** Per-entry served cells derived from `session`, disposed with the entry. */
+  cells?: { dispose(): void };
 }
 
 /** The structural subset of a server-side WebSocket the registry closes on
@@ -402,6 +413,7 @@ export function buildHostRegistry<S extends DestroyableSession, H>(
       try {
         await persistHosts([...entries.keys(), host]);
       } catch (err) {
+        entry.cells?.dispose();
         entry.session.destroy();
         throw err;
       }
@@ -428,6 +440,7 @@ export function buildHostRegistry<S extends DestroyableSession, H>(
         }
         socketsByHost.delete(host);
       }
+      entry.cells?.dispose();
       entry.session.destroy();
       entries.delete(host);
       log(`removed host: ${host} (total ${entries.size})`);
@@ -447,7 +460,10 @@ export function buildHostRegistry<S extends DestroyableSession, H>(
     },
 
     destroyAll() {
-      for (const entry of entries.values()) entry.session.destroy();
+      for (const entry of entries.values()) {
+        entry.cells?.dispose();
+        entry.session.destroy();
+      }
       entries.clear();
       socketsByHost.clear();
     },

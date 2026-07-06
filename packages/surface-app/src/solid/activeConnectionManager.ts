@@ -55,7 +55,10 @@ export interface ActiveConnectionManager<K, C extends ManagedConnection> {
   restore(): void;
 }
 
-export interface ActiveConnectionManagerOptions<K, C extends ManagedConnection> {
+export interface ActiveConnectionManagerOptions<
+  K,
+  C extends ManagedConnection,
+> {
   /** The key active before any switch (used unless `persistence.read()` restores one). */
   initialKey: K;
   /** POLICY: build a live connection for a key (kolu: `connectSurfaces` + lifecycle +

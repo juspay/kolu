@@ -145,11 +145,6 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
   // second concurrent add JOINS the first's promise instead of racing it.
   const adding = new Map<string, Promise<void>>();
 
-  // Per-host samplers (the `processStartedAt`/`daemonInventory` cell publishers built in
-  // buildEntry) — torn down when the host leaves the pool, so a removed guest doesn't
-  // leak an unref'd 10s scan + a held `onState` closure on a destroyed session.
-  const koluCellDisposers = new Map<string, () => void>();
-
   const hosts = {
     add: async (host: string): Promise<void> => {
       if (host === LOCAL_HOST) return; // the local host is always present.
@@ -173,9 +168,9 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
       // Lifecycle log (retired) — the per-host padi binding is a long-lived,
       // add/remove-able resource; log its teardown in a greppable format.
       log.info({ host }, `hostPool: ${host} binding retired`);
+      // `registry.remove` disposes the entry's `cells` (the per-host samplers) beside
+      // destroying its session — the entry-scoped surface fragment's teardown.
       await registry.remove(host);
-      koluCellDisposers.get(host)?.();
-      koluCellDisposers.delete(host);
     },
   };
 
@@ -258,9 +253,10 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
       // A1 — THIS host's per-host `kolu` cell fragment (processStartedAt +
       // daemonInventory, wired to the entry's session). Spliced OVER the shared
       // `kolu` namespace so a tab reads the ACTIVE host's padi uptime/build/
-      // convergence, not the boot default's. Disposed when the host leaves the pool.
+      // convergence, not the boot default's. Handed back as the entry's `cells` so the
+      // registry disposes it with the session — at EVERY teardown site (remove,
+      // add-rollback, destroyAll), not just `hosts.remove` (closing two latent leaks).
       const perHostKolu = deps.buildHostKoluCells(host, session);
-      koluCellDisposers.set(host, perHostKolu.dispose);
 
       const appRouter = buildAppRouter({
         surfaceRouter: {
@@ -294,7 +290,11 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
         plugins: deps.rpcPlugins,
       });
 
-      return { session, handler };
+      return {
+        session,
+        handler,
+        cells: { dispose: perHostKolu.dispose },
+      };
     },
     persist: async (poolHosts) => {
       // The pool's host set (local excluded) IS the user's recentHosts.
