@@ -84,23 +84,9 @@ function makeBinding(targetHost: string): Binding {
   // Each host's socket owns its OWN lifecycle (status + stale-restart handling),
   // the per-binding twin of the pre-W4 module-level `rpc.ts` lifecycle. The
   // half-open watchdog lives in `connectSurfaces`' `createLiveSignal` (one per
-  // socket), so this lifecycle opts its own out (`heartbeat: false`).
-  const binding: Binding = {
-    host: targetHost,
-    clients: conn.clients,
-    link: conn.link,
-    ws: conn.ws as unknown as WebSocket,
-    retired: false,
-    // Assigned below (the lifecycle needs `binding` for `onStaleRestart`).
-    status: () => "live",
-    lifecycle: () => ({ kind: "connecting" }) as ServerLifecycleEvent,
-    serverProcessId: () => undefined,
-    dispose: () => {
-      binding.retired = true;
-      conn.dispose();
-    },
-  };
-
+  // socket), so this lifecycle opts its own out (`heartbeat: false`). It needs only
+  // `conn` (never the Binding), so derive it FIRST and assemble the Binding once
+  // with the real accessors — no placeholder-then-repatch dance.
   const { lifecycle, serverProcessId, status } = createServerLifecycle({
     ws: conn.ws,
     probe: () => surfaceAppProbe(conn.clients.surfaceApp),
@@ -111,14 +97,21 @@ function makeBinding(targetHost: string): Binding {
     restartCloseCode: STALE_PROCESS_CLOSE_CODE,
     onStaleRestart: () => retireSocket(conn.ws),
   });
-  // Re-point the three lifecycle accessors (the object is `const`, its fields are
-  // reassigned here now that the lifecycle exists).
-  (binding as { status: Accessor<ConnectionStatus> }).status = status;
-  (binding as { lifecycle: Accessor<ServerLifecycleEvent> }).lifecycle =
-    lifecycle;
-  (
-    binding as { serverProcessId: Accessor<string | undefined> }
-  ).serverProcessId = serverProcessId;
+
+  const binding: Binding = {
+    host: targetHost,
+    clients: conn.clients,
+    link: conn.link,
+    ws: conn.ws as unknown as WebSocket,
+    retired: false,
+    status,
+    lifecycle,
+    serverProcessId,
+    dispose: () => {
+      binding.retired = true;
+      conn.dispose();
+    },
+  };
 
   return binding;
 }
