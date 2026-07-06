@@ -68,3 +68,10 @@ Lead with **credit** for what's closed — don't move goalposts on done work —
 patch and the defect just relocates — give the property, and if you must show an example,
 give a few from different angles and call it one costume of many. Separate "the product is
 fine" from "the claim isn't yet true". Post to the PR only when asked (`--post`).
+
+Alongside the defects, report **structural opportunities** — the receptacles the change
+*wants* (the electricity angle): each new app-local mechanism that hides a hard volatility
+(transport, connection lifetime, reconnection, multiplicity racing user intent) gets NAMED
+with the volatility it encapsulates and the home it wants, **even at a population of one**.
+These are non-blocking findings for the ledger, never gates: prove-then-extract still
+governs *when* to extract; this review's job is that candidates are recorded, not invisible.
