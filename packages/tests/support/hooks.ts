@@ -1022,6 +1022,9 @@ Before(async function (this: KoluWorld, scenario) {
         activityAlerts: true,
         colorScheme: "dark",
         terminalRenderer: "auto",
+        // W4 "the switch": the warm-pool host list. Reset to empty so each
+        // scenario starts with no remembered hosts (the picker offers only local).
+        recentHosts: [],
         // `rightPanel` preferences hold only workspace-level chrome
         // (collapsed/size/codeTabTreeSize) — `activeTab`/`codeMode` are
         // per-terminal state (DEFAULT_RIGHT_PANEL_PER_TERMINAL), not
