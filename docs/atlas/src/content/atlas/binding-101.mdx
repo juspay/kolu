@@ -20,17 +20,63 @@ A client that can live-switch connections faces one hard volatility: **connectio
 
 ## The six additions, ground up
 
-**1 · `createKeyedRoot<K, T>` — the atom (surface-app/solid).** *Problem:* "when this key changes identity, tear down everything the old key built and rebuild for the new one" — with the first value available *synchronously* (a render must never see `undefined`). It sounds trivial; it had been hand-rolled **twice** with two different bugs waiting (one copy tested, one not). *Shape:* `createKeyedRoot(key, factory)` — dispose-and-recreate a reactive root on key-identity change. Everything else in this note stands on it.
+**1 · `createKeyedRoot<K, T>` — the atom (surface-app/solid).** *Problem:* "when this key changes identity, tear down everything the old key built and rebuild for the new one" — with the first value available *synchronously* (a render must never see `undefined`). It sounds trivial; it had been hand-rolled **twice** with two different bugs waiting (one copy tested, one not). *Shape:* `createKeyedRoot(key, factory)` — dispose-and-recreate a reactive root on key-identity change. Everything else in this note stands on it. **Kolu usage:** never called directly — kolu reaches it *through* additions 2 and 4 (both are built on it), which is the point: one tested implementation of the guarantee, zero copies in app code.
 
-**2 · `connectionScoped` — subscriptions that survive a swap (surface-app/solid).** *Problem:* a subscription opened against the active connection must tear down and re-open when the active connection changes — **and a torn-down subscription must be *silent***. The bug that forced the invariant: the readout subscriptions were wrapped in a detached reactive root whose disposer was *discarded*, so a swap disposed the owner but **never the subscription** — it leaked live, caught the old socket's dying error, and fired three red "server restarted" toasts on every switch.<Footnote>The honest debugging story, kept because it teaches: the first instinct was to *filter* the error at the subscribe site — a band-aid. The question "why isn't the abort signal already catching this?" exposed the truth: the sub was never disposed at all. Two framework fixes fell out: the detached root's disposer is now tied to the caller's owner, and the abort signal now travels all the way into the stream source so a pending read cancels immediately (fixing an asymmetry — the reactive sibling already passed its signal). The invariant, named: <em>a disposed subscription cannot report anything</em>.</Footnote> *Shape:* `connectionScoped(active, factory)` — keyed on the connection's identity, synchronously populated, owner-safe. When to reach for it: any `.use()`-style standing subscription in an app whose connection can swap.
+**2 · `connectionScoped` — subscriptions that survive a swap (surface-app/solid).** *Problem:* a subscription opened against the active connection must tear down and re-open when the active connection changes — **and a torn-down subscription must be *silent***. The bug that forced the invariant: the readout subscriptions were wrapped in a detached reactive root whose disposer was *discarded*, so a swap disposed the owner but **never the subscription** — it leaked live, caught the old socket's dying error, and fired three red "server restarted" toasts on every switch.<Footnote>The honest debugging story, kept because it teaches: the first instinct was to *filter* the error at the subscribe site — a band-aid. The question "why isn't the abort signal already catching this?" exposed the truth: the sub was never disposed at all. Two framework fixes fell out: the detached root's disposer is now tied to the caller's owner, and the abort signal now travels all the way into the stream source so a pending read cancels immediately (fixing an asymmetry — the reactive sibling already passed its signal). The invariant, named: <em>a disposed subscription cannot report anything</em>.</Footnote> *Shape:* `connectionScoped(active, factory)` — keyed on the connection's identity, synchronously populated, owner-safe. When to reach for it: any `.use()`-style standing subscription in an app whose connection can swap. **Kolu usage** — `bindingScoped` is literally the manager's `connectionScoped` re-exported, and every standing readout rides it:
 
-**3 · `createActiveConnectionManager<K, C>` — the client-side twin of the registry (surface-app/solid).** *Problem:* someone must own the keyed cache of live connections, the one-active rule, and the switch itself — and the switch has two failure modes that look exotic until they bite. **The yank:** warming a new connection can take *seconds* (an ssh provision); a naive `await warm(); setActive(k)` means an abandoned pick commits *late* and yanks the user away from their newer choice. The manager owns a **pick epoch** — bumped as the *first* statement (before even the same-key early return, so re-picking the current key *cancels* an in-flight pick), re-checked after every await: last intent wins, always. **The misroute:** a call in flight on the old connection must not resolve against it while the UI shows the new one — switching **retires** the old connection (socket closed, `send` stubbed to throw a *typed, honest* "retired by this client" error — never a fake "server restarted"). *Shape:* the manager takes policy callbacks — how to build a connection, how to warm it, what to do when the server rejects a key — and owns all the mechanism. It is `buildHostRegistry`'s mirror image; the framework now holds both halves of "a changing set of live connections."
+```ts
+// packages/client/src/binding/bindings.ts — the framework primitive IS kolu's helper:
+export const bindingScoped = manager.connectionScoped;
 
-**4 · The provider goes accessor-shaped (surface-app).** *Problem:* `SurfaceAppProvider` took its control-plane client as a static value — a page-lifetime assumption baked into the framework's own front door. *Shape:* `controlPlane: Accessor<ControlPlane<T>>`; the provider re-derives its build-info subscription per control-plane *identity* (on `createKeyedRoot`, same guarantee, one tested home). Static callers just write `() => client`; swapping callers hand it the active connection's accessor.
+// packages/client/src/kaval/KavalUpdateBadge.tsx — a real consumer: this kaval-status
+// sub re-opens against the new host's padi on every switch, old one torn down + silent:
+const kavalStatus = useBindingScopedSub((b) =>
+  b.clients.padi.cells.daemonStatus.use(...));
+```
 
-**5 · Honest teardown as a typed fact (surface-app).** *Problem:* a retired socket used to throw an error whose message claimed "server restarted — reload required" — a *lie* for an intentional switch, and downstream code toasted it. Two different states shared one representation. *Shape:* retirement now throws a **distinct typed error** ("socket retired by this client"); genuine stale-restart keeps its own. Distinct states, distinct types — the same rule as the identity sum in the hosting note.
+**3 · `createActiveConnectionManager<K, C>` — the client-side twin of the registry (surface-app/solid).** *Problem:* someone must own the keyed cache of live connections, the one-active rule, and the switch itself — and the switch has two failure modes that look exotic until they bite. **The yank:** warming a new connection can take *seconds* (an ssh provision); a naive `await warm(); setActive(k)` means an abandoned pick commits *late* and yanks the user away from their newer choice. The manager owns a **pick epoch** — bumped as the *first* statement (before even the same-key early return, so re-picking the current key *cancels* an in-flight pick), re-checked after every await: last intent wins, always. **The misroute:** a call in flight on the old connection must not resolve against it while the UI shows the new one — switching **retires** the old connection (socket closed, `send` stubbed to throw a *typed, honest* "retired by this client" error — never a fake "server restarted"). *Shape:* the manager takes policy callbacks — how to build a connection, how to warm it, what to do when the server rejects a key — and owns all the mechanism. **Kolu usage** — the entire host switch is this one construction plus policy (`packages/client/src/binding/bindings.ts`):
 
-**6 · Entry-scoped cells on `buildHostRegistry` (surface-nix-host).** *Problem:* a registry entry often wants to serve its *own* diagnostic cells (identity, inventory) derived from its own session — and a hand-rolled side-map of disposers next to the registry disposed them on explicit removal but **not** on add-rollback or destroy-all: two latent leaks. *Shape:* `HostEntry` gains optional `cells?: { dispose() }`, and the registry disposes entry cells beside `session.destroy()` at **every** teardown site. The leak class is structurally gone — the lifecycle lives with the thing that owns the other teardowns.
+```ts
+manager = createActiveConnectionManager<string, Binding>({
+  initialKey: LOCAL_HOST,
+  makeConnection: makeBinding,          // kolu's connectSurfaces bundle for ?host=<h>
+  socketOf: (b) => b.ws,                // what to retire on switch
+  isFallbackKey: (h) => h === LOCAL_HOST,
+  fallbackKey: LOCAL_HOST,              // where a rejected host falls back to
+  serverRejectedCloseCode: 1008,        // "host gone" → fallback, stop re-dialing
+  warm: async (h, active) => {          // deliberate add-then-connect, via the
+    await active.link.hosts.add({ host: h });  // CURRENT binding's link
+  },
+  /* …toasts on warm-failure/rejection — policy, not mechanism */
+});
+// switching a tab = manager.switchTo("zest") — epoch, retirement, re-key all inherited.
+```
+
+It is `buildHostRegistry`'s mirror image; the framework now holds both halves of "a changing set of live connections."
+
+**4 · The provider goes accessor-shaped (surface-app).** *Problem:* `SurfaceAppProvider` took its control-plane client as a static value — a page-lifetime assumption baked into the framework's own front door. *Shape:* `controlPlane: Accessor<ControlPlane<T>>`; the provider re-derives its build-info subscription per control-plane *identity* (on `createKeyedRoot`, same guarantee, one tested home). Static callers just write `() => client`; swapping callers hand it the active connection's accessor. **Kolu usage** (`packages/client/src/index.tsx`) — one JSX prop is the whole integration:
+
+```tsx
+<SurfaceAppProvider controlPlane={() => activeBinding().clients.surfaceApp} …>
+// a host switch re-derives build identity for the new host — no reload, no stale banner.
+```
+
+**5 · Honest teardown as a typed fact (surface-app).** *Problem:* a retired socket used to throw an error whose message claimed "server restarted — reload required" — a *lie* for an intentional switch, and downstream code toasted it. Two different states shared one representation. *Shape:* retirement now throws a **distinct typed error** ("socket retired by this client"); genuine stale-restart keeps its own. Distinct states, distinct types — the same rule as the identity sum in the hosting note. **Kolu usage:** nothing to call — kolu only tells the manager *what* to retire (`socketOf: (b) => b.ws` above) and inherits the honesty: a late call on a switched-away binding rejects with the retired-transport fact, the reload overlay fires only on a *genuine* server restart, and the old three-red-toasts lie is unspellable.
+
+**6 · Entry-scoped cells on `buildHostRegistry` (surface-nix-host).** *Problem:* a registry entry often wants to serve its *own* diagnostic cells (identity, inventory) derived from its own session — and a hand-rolled side-map of disposers next to the registry disposed them on explicit removal but **not** on add-rollback or destroy-all: two latent leaks. *Shape:* `HostEntry` gains optional `cells?: { dispose() }`, and the registry disposes entry cells beside `session.destroy()` at **every** teardown site. **Kolu usage** (`packages/server/src/hostPool.ts`) — each pool entry serves its host's own diagnostics and hands their lifecycle to the registry:
+
+```ts
+buildEntry: (host) => {
+  const perHostKolu = buildPerHostKoluCells(host, session); // identity·convergence·inventory,
+  return {                                                  // read from THIS host's session
+    session,
+    handler,
+    cells: { dispose: perHostKolu.dispose }, // registry disposes at EVERY teardown site —
+  };                                          // remove, add-rollback, destroyAll alike
+},
+```
+
+The leak class is structurally gone — the lifecycle lives with the thing that owns the other teardowns.
 
 <Svg svg={swap} wide caption="One swap, end to end, in framework terms: the epoch guards the pick (addition 3), retirement makes late calls fail loudly and honestly (3 + 5), and every connectionScoped subscription tears down and re-keys with a synchronous first value (1 + 2). The three bugs named at the bottom are the ones these primitives ate." />
 
