@@ -54,6 +54,13 @@ export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 export const HostInputSchema = z.object({ host: z.string() });
 export type HostInput = z.infer<typeof HostInputSchema>;
 
+/** The sentinel host id for THIS machine's padi — the always-present pool entry
+ *  bound by the local endpoint arm. The single source of truth for the host
+ *  wire-contract's local sentinel: the client sends it in `?host=`, the server
+ *  dispatches on it, and it keys the padi `daemonStatus` collection. A real ssh
+ *  host is any other string. */
+export const LOCAL_HOST = "local";
+
 // ── The contract ──────────────────────────────────────────────────────
 
 export const contract = oc.router({

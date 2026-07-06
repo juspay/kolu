@@ -49,7 +49,17 @@ vi.mock("@kolu/surface-app/solid", () => ({
 }));
 vi.mock("@kolu/surface-app", () => ({ STALE_PROCESS_CLOSE_CODE: 4001 }));
 vi.mock("kolu-common/surfacesWithPadi", () => ({ surfacesWithPadi: {} }));
-vi.mock("@kolu/padi/surface", () => ({ padiRpc: vi.fn(() => ({})) }));
+// `bindings.ts` imports `LOCAL_HOST` from `kolu-common/contract`, whose eval chain
+// reaches `kolu-common/surface` — it references `HostDaemonInventorySchema` as a
+// cell field. Keep the real schema (the client can't resolve `zod` directly to
+// stand one in) and mock only `padiRpc`.
+vi.mock("@kolu/padi/surface", async (importActual) => {
+  const actual = await importActual<typeof import("@kolu/padi/surface")>();
+  return {
+    padiRpc: vi.fn(() => ({})),
+    HostDaemonInventorySchema: actual.HostDaemonInventorySchema,
+  };
+});
 vi.mock("solid-sonner", () => ({
   toast: { error: vi.fn(), warning: vi.fn() },
 }));

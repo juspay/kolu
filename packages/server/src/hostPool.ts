@@ -30,6 +30,7 @@ import {
   reServeSurface,
 } from "@kolu/surface-nix-host";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
+import { LOCAL_HOST } from "kolu-common/contract";
 import { log } from "./log.ts";
 import {
   ensurePadiBinding,
@@ -39,10 +40,9 @@ import type { PadiSession } from "./padiSession.ts";
 import { ensureRemotePadiBinding } from "./remotePadiBinding.ts";
 import { buildAppRouter } from "./router.ts";
 
-/** The sentinel id for THIS machine's padi — the always-present pool entry bound
- *  by the local endpoint arm. Matches the client's `LOCAL_HOST` and the padi
- *  `daemonStatus` collection key. A real ssh host is any other string. */
-export const LOCAL_HOST = "local";
+// `LOCAL_HOST` (the `"local"` sentinel) is defined once in kolu-common/contract —
+// the host wire-contract's home — and re-exported here for the server's callers.
+export { LOCAL_HOST };
 
 /** The per-host oRPC WS handler — the registry's `H`. Context is empty at
  *  upgrade (`{ context: {} }`); typed loosely to match the `appRouter as any`

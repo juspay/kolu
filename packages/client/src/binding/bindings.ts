@@ -31,7 +31,7 @@ import {
   type ServerLifecycleEvent,
   surfaceAppProbe,
 } from "@kolu/surface-app/solid";
-import type { contract } from "kolu-common/contract";
+import { type contract, LOCAL_HOST } from "kolu-common/contract";
 import { surfacesWithPadi } from "kolu-common/surfacesWithPadi";
 import {
   type Accessor,
@@ -43,8 +43,9 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 
-/** The sentinel id for THIS machine's padi — matches the server `LOCAL_HOST`. */
-export const LOCAL_HOST = "local";
+// `LOCAL_HOST` (the `"local"` sentinel) is defined once in kolu-common/contract
+// and re-exported here for this module's consumers.
+export { LOCAL_HOST };
 
 const { protocol, host } = window.location;
 const wsBase = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;

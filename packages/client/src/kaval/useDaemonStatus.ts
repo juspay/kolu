@@ -15,6 +15,7 @@
  */
 
 import type { DaemonStatus } from "@kolu/padi/surface";
+import { LOCAL_HOST } from "kolu-common/contract";
 import type { PadiLink } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
@@ -44,9 +45,6 @@ export {
   liveWarming,
   serverDot,
 } from "./daemonPresentation";
-
-/** The one host today; R-2's ssh hosts add more keys to the same collection. */
-export const LOCAL_HOST = "local";
 
 // ONE shared, app-lifetime memo of the liveness boolean. `app.health()` is a plain
 // accessor (not a memo) that re-folds the WHOLE registry — walking every enrolled

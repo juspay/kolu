@@ -6,6 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 // A minimal `PadiSession` — only `destroy` (the registry's `DestroyableSession`
 // slot) and `renew` (drainBoundPadi) are ever touched here.
@@ -25,6 +26,10 @@ vi.mock("@kolu/surface/project", () => ({ surfaceClientRef }));
 vi.mock("@kolu/padi/surface", () => ({
   PADI_FORWARDING_POLICY: {},
   padiSurface: { spec: {} },
+  // `hostPool.ts` now imports `LOCAL_HOST` from `kolu-common/contract`, whose eval
+  // chain reaches `kolu-common/surface` — it references this schema as a cell field.
+  // A minimal ZodType is enough here (the pool never validates against it).
+  HostDaemonInventorySchema: z.unknown(),
 }));
 vi.mock("@orpc/server/ws", () => ({
   // The handler is opaque to the pool — a distinct object per host is enough to
