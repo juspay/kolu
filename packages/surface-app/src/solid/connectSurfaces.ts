@@ -37,12 +37,12 @@ import {
 } from "@kolu/surface/solid";
 import type { WebSocket as PartySocket } from "partysocket";
 import type { Accessor } from "solid-js";
-import { STALE_PROCESS_CLOSE_CODE } from "../index";
 import {
   createSurfaceSocket,
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
+import { STALE_PROCESS_CLOSE_CODE } from "../index";
 
 export interface ConnectSurfacesOptions<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.

@@ -29,6 +29,7 @@ import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
 import {
   type ConnectionStatus,
   connectSurfaces,
+  createKeyedRoot,
   createServerLifecycle,
   retireSocket,
   type ServerLifecycleEvent,
@@ -36,14 +37,7 @@ import {
 } from "@kolu/surface-app/solid";
 import { type contract, LOCAL_HOST } from "kolu-common/contract";
 import { surfacesWithPadi } from "kolu-common/surfacesWithPadi";
-import {
-  type Accessor,
-  createRenderEffect,
-  createRoot,
-  createSignal,
-  on,
-  onCleanup,
-} from "solid-js";
+import { type Accessor, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 
@@ -333,25 +327,13 @@ export async function forgetHost(host: string): Promise<void> {
 export function bindingScoped<T>(
   factory: (binding: Binding) => T,
 ): Accessor<T> {
-  const [value, setValue] = createSignal<T>();
-  let disposePrev: (() => void) | undefined;
-  // A RENDER effect, not a plain effect: it runs SYNCHRONOUSLY on creation, so the
-  // first `factory(activeBinding())` result is in `value` before any consumer reads
-  // it. A deferred `createEffect` would leave `value` undefined until the effect
-  // phase, so a consumer that reads `X()().byKey(...)` / `X()().value()` during the
-  // first synchronous render would hit `undefined.<member>` — the pre-W4 direct sub
-  // (`app.collections.X.use(...)`) was never undefined, and this keeps that invariant.
-  createRenderEffect(
-    on(activeHost, () => {
-      disposePrev?.();
-      disposePrev = createRoot((dispose) => {
-        setValue(() => factory(activeBinding()));
-        return dispose;
-      });
-    }),
-  );
-  onCleanup(() => disposePrev?.());
-  return value as Accessor<T>;
+  // Keyed on `activeHost` (H1): `createKeyedRoot` re-runs the factory under a fresh root
+  // per host, disposing the prior one on a switch — no stale sub leaks (#1687). It uses a
+  // RENDER effect, so the value is populated SYNCHRONOUSLY on first read (a deferred
+  // effect would leave it undefined until the effect phase, and a consumer reading
+  // `X()().byKey(...)`/`.value()` on the first synchronous render would hit
+  // `undefined.<member>` — the pre-W4 direct sub was never undefined; this keeps that).
+  return createKeyedRoot(activeHost, () => factory(activeBinding()));
 }
 
 /** The app-lifetime singleton form of {@link bindingScoped}: wrap the re-keying

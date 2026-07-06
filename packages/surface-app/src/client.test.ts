@@ -11,8 +11,7 @@
  * a constant-keyed index anyway). This test only proves the names agree.
  */
 
-import { expectTypeOf } from "vitest";
-import { describe, it } from "vitest";
+import { describe, expectTypeOf, it } from "vitest";
 import { SHELL_COMMIT_GLOBAL } from "./index";
 
 describe("client.d.ts Window augmentation", () => {

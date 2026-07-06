@@ -31,18 +31,18 @@ import type {
 import {
   createLiveSignal,
   type HeartbeatTuning,
-  type SurfaceConnectionStatus,
   type SurfaceClient,
+  type SurfaceConnectionStatus,
   surfaceClient,
 } from "@kolu/surface/solid";
 import type { WebSocket as PartySocket } from "partysocket";
 import type { Accessor } from "solid-js";
-import { STALE_PROCESS_CLOSE_CODE } from "../index";
 import {
   createSurfaceSocket,
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
+import { STALE_PROCESS_CLOSE_CODE } from "../index";
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   extends SurfaceSocketOptions {

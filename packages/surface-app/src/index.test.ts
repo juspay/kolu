@@ -19,9 +19,9 @@ import {
   rejectStaleProcess,
   SHELL_CACHE_CONTROL,
   SHELL_COMMIT_GLOBAL,
-  shellCommitScript,
   SW_MESSAGE_TYPE,
   SW_SOURCE,
+  shellCommitScript,
 } from "./index";
 
 describe("rejectStaleProcess", () => {

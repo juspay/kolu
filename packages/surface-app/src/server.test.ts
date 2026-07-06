@@ -24,10 +24,10 @@ import {
 import {
   acceptSurfaceSocket,
   buildInfoServer,
-  gateStaleSocket,
   type GateableSocket,
-  heartbeatSweep,
+  gateStaleSocket,
   type HeartbeatableSocket,
+  heartbeatSweep,
   installFreshStatic,
   installSurfaceApp,
   startWsHeartbeat,

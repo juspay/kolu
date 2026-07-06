@@ -50,6 +50,22 @@ import {
 } from "../connect";
 import { reloadForUpdate, retireSocket } from "../lifecycle";
 
+// The single, UNFORGEABLE minter of a `LiveSignal` — wires the half-open watchdog
+// AND brands the liveness accessor in one call — now lives in `@kolu/surface`
+// (co-located with the module-private brand symbol, so nothing can forge a brand).
+// Re-exported here for compat: `connectSurface`/`connectSurfaces` wrap it, and a
+// hand-built `surfaceClient + websocketLink` (an example, or kolu's combined
+// `wire.ts`) calls it directly. `SurfaceConnectionStatus` / `HeartbeatTuning` also
+// moved there; re-exported so existing `@kolu/surface-app/solid` importers keep one
+// import path.
+export {
+  type CreateLiveSignalOptions,
+  createLiveSignal,
+  type HeartbeatTuning,
+  type LiveSignalHandle,
+  type SurfaceConnectionStatus,
+  type WatchableSocket,
+} from "@kolu/surface/solid";
 // The turnkey single-surface connect seam (socket + client + default-on
 // heartbeat). It builds a Solid `surfaceClient`, so it lives in this `/solid`
 // subpath, not the framework-free `/connect`.
@@ -65,22 +81,6 @@ export {
   connectSurfaces,
   type SurfacesConnection,
 } from "./connectSurfaces";
-// The single, UNFORGEABLE minter of a `LiveSignal` — wires the half-open watchdog
-// AND brands the liveness accessor in one call — now lives in `@kolu/surface`
-// (co-located with the module-private brand symbol, so nothing can forge a brand).
-// Re-exported here for compat: `connectSurface`/`connectSurfaces` wrap it, and a
-// hand-built `surfaceClient + websocketLink` (an example, or kolu's combined
-// `wire.ts`) calls it directly. `SurfaceConnectionStatus` / `HeartbeatTuning` also
-// moved there; re-exported so existing `@kolu/surface-app/solid` importers keep one
-// import path.
-export {
-  createLiveSignal,
-  type CreateLiveSignalOptions,
-  type HeartbeatTuning,
-  type LiveSignalHandle,
-  type SurfaceConnectionStatus,
-  type WatchableSocket,
-} from "@kolu/surface/solid";
 
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";
@@ -613,6 +613,43 @@ function setAttention(count: number): void {
   }
 }
 
+/** A reactive value re-derived under a FRESH `createRoot` each time `key` changes,
+ *  disposing the prior root on the swap. The factory's subscriptions/effects are OWNED
+ *  by that per-`key` root, so a swap tears the old one down synchronously — no stream
+ *  leaks across the change (the #1687 gray-chip class). Eager: it opens at creation and
+ *  stays a standing observer (`createRenderEffect`), so the old root is disposed the
+ *  INSTANT `key` changes, not lazily on the next read. `createRoot` here is a nested
+ *  child of the caller's owner (unlike `@kolu/surface`'s detached root whose disposer is
+ *  discarded), so we can and do dispose it. Two hand-rolled copies collapse into this:
+ *  the host-scoped client subscriptions (kolu's `bindingScoped`) and this provider's
+ *  own per-control-plane buildInfo cell. Must run under a reactive owner. */
+export function createKeyedRoot<K, T>(
+  key: Accessor<K>,
+  factory: (key: K) => T,
+): Accessor<T> {
+  let disposePrev: (() => void) | undefined;
+  if (getOwner()) onCleanup(() => disposePrev?.());
+  const cell = createMemo(() => {
+    const k = key(); // TRACKED — a change re-runs the memo (disposes + rebuilds)
+    return untrack(() => {
+      // `untrack` fences the factory's OWN reactive reads out of the memo, so only a
+      // `key` change — never a value the factory's subscription yields — re-runs it.
+      disposePrev?.();
+      let result!: T;
+      disposePrev = createRoot((dispose) => {
+        result = factory(k);
+        return dispose;
+      });
+      return result;
+    });
+  });
+  // Keep the memo EAGER — a render effect is a synchronous standing observer, so the old
+  // root is disposed + the new one built the INSTANT `key` changes (not lazily on the
+  // next read), and the value is live on the first read (never one tick late).
+  if (getOwner()) createRenderEffect(() => void cell());
+  return cell;
+}
+
 /** Provide the headless app-shell model to the tree. Render your chrome from
  *  `useSurfaceApp()` underneath it. */
 export function SurfaceAppProvider<
@@ -624,40 +661,21 @@ export function SurfaceAppProvider<
   // the `{ initial }` (local-authority) shape. Pass `onError` so a dead stream
   // surfaces instead of silently collapsing `stale()` to the default.
   //
-  // `controlPlane` is an ACCESSOR: when the app swaps which host it views, it
-  // yields a NEW client, and every swap must tear down the prior buildInfo
-  // subscription and open a fresh one — the framework guarantee that makes an
-  // in-place host switch (no reload) safe, and where the gray-chip class of
-  // bug (#1687) is designed out. `buildInfo.use` is created inside
-  // `@kolu/surface`'s detached `createRoot` (its disposer discarded), so
-  // re-running it alone would LEAK the old stream; we own a `createRoot` per
-  // control-plane identity and dispose it on swap. `createMemo` keeps the read
-  // synchronous (the value is live on first read, not one tick late), and
-  // `untrack` fences the subscription's own reactive reads out of the memo so
-  // only a control-plane swap — never a buildInfo yield — re-runs it.
-  let disposePrevCell: (() => void) | undefined;
-  if (getOwner()) onCleanup(() => disposePrevCell?.());
-  const buildInfoCell = createMemo(() => {
-    const controlPlane = props.controlPlane();
-    return untrack(() => {
-      disposePrevCell?.();
-      let cell!: { value: Accessor<T | undefined> };
-      disposePrevCell = createRoot((dispose) => {
-        cell = controlPlane.cells.buildInfo.use({
-          authority: "server",
-          onError: props.onError,
-        });
-        return dispose;
-      });
-      return cell;
-    });
-  });
-  // Keep the subscription eager (open at mount, re-derived the instant the
-  // control plane swaps) rather than lazy-on-first-read — matching the
-  // pre-accessor behavior and guaranteeing the old host's stream is torn down
-  // synchronously on the switch, not whenever a consumer next reads. A render
-  // effect is a synchronous standing observer, so the memo can't go dormant.
-  if (getOwner()) createRenderEffect(() => void buildInfoCell());
+  // `controlPlane` is an ACCESSOR: when the app swaps which host it views, it yields a
+  // NEW client, and every swap must tear down the prior buildInfo subscription and open
+  // a fresh one — the framework guarantee that makes an in-place host switch (no reload)
+  // safe, and where the gray-chip class of bug (#1687) is designed out. `createKeyedRoot`
+  // owns a `createRoot` per control-plane identity and disposes it on swap (re-running
+  // `buildInfo.use` alone would leak the old stream, since it opens inside @kolu/surface's
+  // detached root whose disposer is discarded), and keeps the read eager + synchronous.
+  const buildInfoCell = createKeyedRoot(
+    () => props.controlPlane(),
+    (controlPlane) =>
+      controlPlane.cells.buildInfo.use({
+        authority: "server",
+        onError: props.onError,
+      }),
+  );
   const server = () => buildInfoCell().value();
   // The connection status. Prefer a caller-supplied `status` accessor (the app
   // already derived the lifecycle once — read it, don't re-derive it: a second

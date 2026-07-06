@@ -20,6 +20,7 @@
 import { defineSurface } from "@kolu/surface/define";
 import { websocketLink } from "@kolu/surface/links/websocket";
 import {
+  createLiveSignal,
   surfaceClient,
   surfaceClients,
   surfaceClientsHealth,
@@ -28,7 +29,6 @@ import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { STALE_PROCESS_CLOSE_CODE } from "../index";
-import { createLiveSignal } from "@kolu/surface/solid";
 import { connectSurface } from "./connectSurface";
 
 // `connectSurface` builds its OWN socket via `createSurfaceSocket`. To exercise
