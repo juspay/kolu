@@ -22,6 +22,7 @@ function facts(overrides: Partial<CanvasFacts> = {}): CanvasFacts {
     warmingLabel: "Connecting…",
     daemonState: "connected",
     terminalCount: 1,
+    recordsAwaited: 0,
     transportLive: true,
     ...overrides,
   };
@@ -98,6 +99,30 @@ describe("resolveCanvasMode precedence (#1340)", () => {
     expect(resolveCanvasMode(facts({ terminalCount: 3 }))).toEqual({
       kind: "workspace",
     });
+  });
+
+  it("reload: records still awaited hold `connecting`, then workspace once they compose", () => {
+    // The restore-card-flash fix. On a browser reload the 7 live terminals' records
+    // are in flight after the key list resolves — `terminalCount` is transiently 0
+    // (metadata hasn't composed) while `recordsAwaited` is 7. `empty` here would flash
+    // the restore card; the census holds `connecting` above it instead.
+    expect(
+      resolveCanvasMode(facts({ terminalCount: 0, recordsAwaited: 7 })),
+    ).toEqual({ kind: "connecting" });
+    // A beat later every record has composed live → the tiles show. No card was seen.
+    expect(
+      resolveCanvasMode(facts({ terminalCount: 7, recordsAwaited: 0 })),
+    ).toEqual({ kind: "workspace" });
+  });
+
+  it("reboot: records all settled (parked) with zero tiles resolves to `empty`/restore", () => {
+    // The case the card EXISTS for, and the reason `recordsAwaited` (not a bare
+    // count==0) is the gate: a genuine reboot's records arrive PARKED, so they're
+    // fully settled (`recordsAwaited === 0`) yet contribute no tile (`terminalCount`
+    // 0). This must fall THROUGH the reload arm to `empty` so the restore card shows.
+    expect(
+      resolveCanvasMode(facts({ terminalCount: 0, recordsAwaited: 0 })),
+    ).toEqual({ kind: "empty" });
   });
 
   it("floors `empty` on transport-live — a dead link never paints a stale 'no terminals'", () => {

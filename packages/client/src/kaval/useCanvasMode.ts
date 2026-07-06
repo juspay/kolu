@@ -33,6 +33,7 @@ export type { CanvasMode } from "./canvasModeResolver";
 export function canvasMode(deps: {
   isLoading: () => boolean;
   terminalCount: () => number;
+  recordsAwaited: () => number;
 }): CanvasMode {
   return resolveCanvasMode({
     isLoading: deps.isLoading(),
@@ -42,6 +43,7 @@ export function canvasMode(deps: {
     warmingLabel: warmingCanvasLabel(),
     daemonState: localDaemonStatus()?.state,
     terminalCount: deps.terminalCount(),
+    recordsAwaited: deps.recordsAwaited(),
     transportLive: daemonTransportLive(),
   });
 }

@@ -113,6 +113,46 @@ export function useTerminalMetadata(deps: {
     return record === undefined || isParked(record) ? undefined : record;
   }
 
+  /** The tri-state census of the listed terminals' composed records, counted from
+   *  the RAW `terminals.byKey` read — BEFORE `getMetadata`'s parked-collapse folds
+   *  "not yet arrived" and "arrived-but-parked" into one `undefined`. That collapse
+   *  is right for tile consumers (neither is a tile) but destroys the bit the
+   *  empty-vs-loading decision needs: on a browser RELOAD the live records are merely
+   *  in flight (→ keep loading, `awaited > 0`), whereas on a genuine REBOOT they
+   *  arrive PARKED (→ show the restore card, `awaited === 0 && live === 0`).
+   *  `terminalIds().length === 0` alone can't tell the two apart; this census keeps
+   *  the states distinct so `resolveCanvasMode` owns the choice.
+   *
+   *  Reading each record's own signal inside the memo IS the fine-grained
+   *  subscription that drives this — no polling, no effect: the memo re-runs as each
+   *  key yields. Arms:
+   *    - `awaited` — record not yet yielded (`byKey(id)?.()` undefined). An id absent
+   *      from the collection reads undefined too, and counts as awaited (correct — we
+   *      wait it out rather than treat it as settled).
+   *    - `parked`  — arrived as a restore-card row (`isParked`).
+   *    - `live`    — arrived as an active|sleeping tile.
+   *  Over an EMPTY `keys()` all three are 0 — trivially settled; the loading gate then
+   *  falls through to the saved-session cell for the genuinely-empty boot.
+   *
+   *  HAZARD: a record whose per-key stream WEDGES without erroring stays `awaited`
+   *  forever, holding the canvas on `connecting` while `terminalIds()` is 0. There is
+   *  deliberately NO timeout knob (fail-fast doctrine): the floor is
+   *  `CanvasFacts.transportLive` (watchdog-backed) — a LIVE transport with a
+   *  never-composing record is a padi/compose BUG that must surface loudly, not a UI
+   *  state to tune around. */
+  const recordPhases = createMemo(() => {
+    let awaited = 0;
+    let parked = 0;
+    let live = 0;
+    for (const id of keys()) {
+      const record = terminals.byKey(id)?.();
+      if (record === undefined) awaited++;
+      else if (isParked(record)) parked++;
+      else live++;
+    }
+    return { awaited, parked, live };
+  });
+
   // --- Order: server Map insertion order, filtered by parent relationship ---
 
   /** Top-level terminal IDs in server-provided order.
@@ -183,6 +223,7 @@ export function useTerminalMetadata(deps: {
 
   return {
     getMetadata,
+    recordPhases,
     terminalIds,
     getSubTerminalIds,
     isWorktreeShared,

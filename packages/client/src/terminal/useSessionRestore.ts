@@ -263,26 +263,26 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
 
   return {
     // Loading is true until we can make an HONEST empty-vs-restore decision.
-    // The terminal count alone isn't enough: `store.terminalIds()` (the
-    // metadata-derived top-level IDs) yields `[]` (terminals were killed on the
-    // previous shutdown) before the `session` cell has reported, and rendering
-    // the bare empty state in that window is a *lie* — it claims "nothing to
-    // restore" while the saved-session snapshot is still in flight, so the
-    // restore card only appears after a full reload re-subs.
-    // When `terminalIds()` is empty we therefore also wait on `savedSessionSub`
-    // so the decision is made with the session snapshot in hand. When at least
-    // one terminal's metadata has arrived (`terminalIds().length > 0`), the
-    // canvas renders immediately — the session cell is irrelevant.
-    // Note: `terminalIds()` excludes terminals whose per-terminal metadata
-    // hasn't arrived yet, so there is a brief window after `listSub` resolves
-    // where all metadata is still in-flight and the gate also holds loading.
-    // `terminalIds()` is the same signal the empty-state branch reads at
-    // App.tsx:397 (`showEmpty = !session.isLoading() && terminalIds().length
-    // === 0`), so the loading gate and the empty-state branch agree on what
-    // "empty" means.
+    // `store.terminalIds().length === 0` is NOT enough on its own — it reads 0 in
+    // two very different situations, because `getMetadata` collapses "record not
+    // yet arrived" and "record arrived-but-parked" into the same `undefined`:
+    //   - a browser RELOAD, where the live terminals' records are merely in flight
+    //     (we must keep loading — they're milliseconds away); and
+    //   - a genuine REBOOT, where records arrive PARKED and the count stays 0 for
+    //     good (we must show the restore card).
+    // The metadata census (`recordPhases`) keeps those distinct: while any record
+    // is still `awaited` we hold loading; once they've all settled (reboot → all
+    // parked), `awaited` is 0 and we fall through to the saved-session cell, whose
+    // ONE honest job is "is there a blob to offer?" for the genuinely-empty boot.
+    // (The session cell used to double as a metadata-timing proxy here — it
+    // resolves first, so it dropped the gate mid-flight and flashed the restore
+    // card; the `recordPhases().awaited` term replaces that proxy.) When at least
+    // one terminal's metadata has arrived (`terminalIds().length > 0`), the canvas
+    // renders immediately — neither the census nor the session cell matters.
     isLoading: () =>
       store.listSub.pending() ||
-      (store.terminalIds().length === 0 && savedSessionSub.pending()),
+      (store.terminalIds().length === 0 &&
+        (store.recordPhases().awaited > 0 || savedSessionSub.pending())),
     savedSession,
     isRestoring,
     handleRestoreSession,
