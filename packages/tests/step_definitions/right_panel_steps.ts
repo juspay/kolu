@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { waitForBufferContains } from "../support/buffer.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 // ── Actions ──
@@ -76,29 +77,12 @@ Then(
       draft,
       "No composed draft — was 'I type … in the compose box' called first?",
     );
-    // The draft was inserted (not submitted), so it sits on the shell's current
-    // input line. Poll the focused terminal's xterm buffer until any visible
-    // line carries it — the send → PTY → attach-stream → xterm round-trip is
-    // async, so a bare snapshot would race the echo.
-    await this.page.waitForFunction(
-      (expected) => {
-        // Same `__xterm`-on-the-tile-div access `readFirstVisibleLine` uses;
-        // the type augmentation rides in via the support side-effect import.
-        const container = document.querySelector<HTMLDivElement>(
-          "[data-visible][data-terminal-id]",
-        );
-        const term = container?.__xterm;
-        if (!term) return false;
-        const buf = term.buffer.active;
-        for (let y = 0; y < term.rows; y++) {
-          const line = buf.getLine(buf.viewportY + y)?.translateToString(true);
-          if (line?.includes(expected)) return true;
-        }
-        return false;
-      },
-      draft,
-      { timeout: POLL_TIMEOUT },
-    );
+    // The draft was inserted (not submitted), so it sits on the active
+    // terminal's current input line. `waitForBufferContains` polls the
+    // focused terminal's xterm buffer (timer-based, not rAF) until it carries
+    // the text — the send → PTY → attach-stream → xterm round-trip is async, so
+    // a bare snapshot would race the echo.
+    await waitForBufferContains(this.page, draft);
   },
 );
 
