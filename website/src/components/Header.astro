@@ -1,9 +1,9 @@
 ---
 /**
- * The site header for the file-based pages (landing, blog, changelog). It wraps
- * the shared <NavBar /> in the sticky, translucent bar. The Starlight docs pages
- * render the same <NavBar /> via StarlightHeader.astro (inside Starlight's own
- * fixed header), so the top bar is identical across the whole site.
+ * The site header. It wraps the shared <NavBar /> in the sticky, translucent
+ * bar, and is used by BaseLayout for every page — the file-based ones (landing,
+ * blog, changelog) and the docs (which render through the same BaseLayout via
+ * DocsLayout) — so the top bar is identical across the whole site.
  */
 import NavBar from "./NavBar.astro";
 ---

@@ -6,7 +6,10 @@ koluHero:
   headline: How {kolu} is built
 ---
 
-import { Aside, Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
 
 kolu splits the terminal problem across daemons, and each one survives a different
 failure. Close the browser tab, restart the web server, redeploy the whole thing —

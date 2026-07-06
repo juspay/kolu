@@ -1,0 +1,69 @@
+---
+/**
+ * "On this page" table of contents — built from the headings Astro's render()
+ * returns for the page. Lists the section headings (h2) and links to their
+ * auto-generated anchors. Sticky on wide viewports; hidden on narrow ones where
+ * vertical space is scarce (the sidebar disclosure covers navigation there).
+ */
+import type { MarkdownHeading } from "astro";
+
+interface Props {
+  headings: MarkdownHeading[];
+}
+const { headings } = Astro.props;
+const items = headings.filter((h) => h.depth === 2);
+---
+
+{
+  items.length > 0 && (
+    <nav class="docs-toc" aria-label="On this page">
+      <p class="docs-toc__label">On this page</p>
+      <ul>
+        {items.map((h) => (
+          <li>
+            <a href={`#${h.slug}`}>{h.text}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+<style>
+  .docs-toc {
+    position: sticky;
+    top: 4.5rem;
+    font-size: 0.85rem;
+  }
+  .docs-toc__label {
+    margin: 0 0 0.7rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+  }
+  .docs-toc ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .docs-toc a {
+    color: var(--color-ink-dim);
+    text-decoration: none;
+    line-height: 1.4;
+    transition: color 120ms ease;
+  }
+  .docs-toc a:hover {
+    color: var(--color-kolu-primary);
+  }
+  @media (max-width: 72rem) {
+    .docs-toc {
+      display: none;
+    }
+  }
+</style>

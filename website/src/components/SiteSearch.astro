@@ -1,14 +1,11 @@
 ---
 /**
- * Site-wide search — one control rendered in the shared <NavBar />, so the
- * SAME search button appears in the header on every page (the file-based
- * landing/blog/changelog AND the Starlight docs). Starlight's own <Search />
- * can't be used here: it reads `Astro.locals.t`, which only exists on Starlight
- * routes, so it would crash on the file-based pages. Instead we drive the same
- * underlying Pagefind UI (@pagefind/default-ui — the exact library Starlight
- * uses) ourselves, which needs nothing but the /pagefind/ index Starlight's
- * build emits. Pagefind indexes the docs pages (they carry data-pagefind-body),
- * so this searches the documentation from anywhere on the site.
+ * Site-wide search — one control rendered in the shared <NavBar />, so the same
+ * search button appears in the header on every page. It drives the Pagefind UI
+ * (@pagefind/default-ui) directly, loading the /pagefind/ index the postbuild
+ * step emits (see package.json `build`). Pagefind indexes the docs pages (they
+ * carry data-pagefind-body on the DocsLayout content), so this searches the
+ * documentation from anywhere on the site.
  *
  * The trigger and modal are themed with the site's own --color-* tokens so the
  * button sits flush with the mono nav and the toggle beside it.

@@ -1,12 +1,149 @@
-/* Ported figure styling for the migrated docs pages (padi · kaval ·
- * architecture). The hand-authored inline SVG diagrams and the tmux/zellij
- * comparison table came across from the old .astro pages; their prose,
- * warnings, card grids, steps, and command blocks are now Starlight idioms
- * (Aside / Card / CardGrid / LinkCard / Steps / fenced code), so only the
- * pieces Starlight has no equivalent for live here.
- *
- * Every colour pulls from the global --color-* tokens, so all three figures
- * track the light/dark theme automatically — no hard-coded hex. */
+/* Docs presentation — loaded by DocsLayout. Covers the markdown prose
+ * (`.docs-prose`) and the pieces the migrated pages bring across verbatim: the
+ * hand-authored inline SVG diagrams and the tmux/zellij comparison table.
+ * Warnings / card grids / steps / link cards are the site-native components in
+ * src/components/docs/. Every colour pulls from the global --color-* tokens, so
+ * the whole thing tracks the light/dark theme automatically — no hard-coded hex.
+ */
+
+/* ── Markdown prose ──────────────────────────────────────────────────────────
+   The docs body. Section headings (h2) get the original pages' pink accent-bar
+   treatment, applied to EVERY page's markdown so a new .md inherits it for free. */
+.docs-prose {
+  color: var(--color-ink-dim);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+.docs-prose > :first-child {
+  margin-top: 0;
+}
+.docs-prose p {
+  margin: 1.15rem 0;
+  max-width: 44rem;
+}
+.docs-prose strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.docs-prose em {
+  color: var(--color-ink);
+}
+
+.docs-prose h2 {
+  position: relative;
+  margin: 2.6rem 0 1.4rem;
+  padding-left: 1.15rem;
+  font-family: var(--font-sans);
+  font-size: clamp(1.7rem, 1.05rem + 2.1vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  color: var(--color-ink);
+  text-wrap: balance;
+  scroll-margin-top: 4.5rem;
+}
+.docs-prose h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.16em;
+  bottom: 0.16em;
+  width: 5px;
+  border-radius: 3px;
+  background: var(--color-kolu-primary);
+  box-shadow: 0 0 14px -1px
+    color-mix(in srgb, var(--color-kolu-primary) 60%, transparent);
+}
+.docs-prose h3 {
+  margin: 2rem 0 0.6rem;
+  font-family: var(--font-sans);
+  font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.25rem);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  scroll-margin-top: 4.5rem;
+}
+
+.docs-prose a {
+  color: var(--color-kolu-primary);
+  text-decoration: none;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-kolu-primary) 40%, transparent);
+  transition: border-color 120ms ease;
+}
+.docs-prose a:hover {
+  border-bottom-color: var(--color-kolu-primary);
+}
+
+.docs-prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  padding: 0.08rem 0.38rem;
+  font-size: 0.88em;
+  color: var(--color-kolu-top-strong);
+  font-weight: 500;
+}
+.docs-prose pre {
+  margin: 1.4rem 0;
+  padding: 0.95rem 1.1rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.7rem;
+  background: var(--color-void-sunk);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+.docs-prose pre code {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+.docs-prose ul,
+.docs-prose ol {
+  margin: 1.15rem 0;
+  padding-left: 1.3rem;
+  max-width: 44rem;
+}
+.docs-prose li {
+  margin: 0.4rem 0;
+}
+.docs-prose li::marker {
+  color: var(--color-kolu-primary);
+}
+
+/* Markdown tables (the command references + the survival table). */
+.docs-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  font-size: 0.9rem;
+  display: block;
+  overflow-x: auto;
+}
+.docs-prose th,
+.docs-prose td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid var(--color-rule);
+  line-height: 1.5;
+}
+.docs-prose thead th {
+  border-top: none;
+  border-bottom: 1px solid var(--color-rule-strong);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-kolu-primary);
+}
+.docs-prose td {
+  color: var(--color-ink-dim);
+}
 
 /* Horizontal-scroll wrapper for a wide block (the comparison table) so the
    page body never scrolls sideways on a narrow viewport. */

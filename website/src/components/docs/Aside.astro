@@ -1,0 +1,76 @@
+---
+/**
+ * A callout box for the docs (`type` + `title`), used by the .mdx pages.
+ * Styled like the original pages' alpha banner / `.ax-callout`: a tinted card
+ * with a left accent bar, coloured by the logo role — caution = top step
+ * (amber), tip = bottom step (teal), note = the primary.
+ */
+interface Props {
+  type?: "note" | "tip" | "caution";
+  title?: string;
+}
+const { type = "note", title } = Astro.props;
+const defaultTitle = { note: "Note", tip: "Tip", caution: "Caution" }[type];
+---
+
+<aside class:list={["doc-aside", `doc-aside--${type}`]}>
+  <p class="doc-aside__title">
+    <svg class="doc-aside__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      {
+        type === "caution" ? (
+          <>
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </>
+        ) : (
+          <>
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </>
+        )
+      }
+    </svg>
+    {title ?? defaultTitle}
+  </p>
+  <div class="doc-aside__body"><slot /></div>
+</aside>
+
+<style>
+  .doc-aside {
+    --aside-accent: var(--color-kolu-primary);
+    margin: 1.75rem 0;
+    border: 1px solid var(--color-rule);
+    border-left: 3px solid var(--aside-accent);
+    border-radius: 0.6rem;
+    padding: 0.95rem 1.15rem;
+    background: color-mix(in srgb, var(--aside-accent) 6%, var(--color-void-raised));
+  }
+  .doc-aside--caution {
+    --aside-accent: var(--color-kolu-top);
+  }
+  .doc-aside--tip {
+    --aside-accent: var(--color-kolu-bottom);
+  }
+  .doc-aside__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 0.4rem;
+    font-family: var(--font-sans);
+    font-weight: 650;
+    color: var(--aside-accent);
+  }
+  .doc-aside__icon {
+    width: 1.15rem;
+    height: 1.15rem;
+    flex: none;
+  }
+  .doc-aside__body :global(> :first-child) {
+    margin-top: 0;
+  }
+  .doc-aside__body :global(> :last-child) {
+    margin-bottom: 0;
+  }
+</style>

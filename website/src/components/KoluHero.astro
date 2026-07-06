@@ -1,40 +1,49 @@
 ---
 /**
- * Starlight `PageTitle` override — gives every docs page the kolu.dev hero
- * treatment instead of a stock <h1>.
+ * The docs page hero — used directly by DocsLayout.
  *
- * Two modes, both kolu-themed:
- *   - A page with `koluHero` frontmatter gets the full bespoke hero: a mono
- *     eyebrow, a huge display headline with one accent-coloured word, and an
- *     optional glowing product mark on the right — the same shape the original
- *     /padi and /kaval pages had.
- *   - A plain page (only `title`) falls back to the same display headline
- *     styling driven by its title. So a brand-new .md dropped into the docs
- *     inherits the look with zero per-page work — the whole point of the theme.
- *
- * The headline keeps Starlight's title anchor id ("_top") so the "Overview"
- * entry in the on-this-page panel still targets it.
+ * Two modes, both the site's design language:
+ *   - With a `hero` (the page's `koluHero` frontmatter): the full bespoke hero —
+ *     a mono eyebrow, a huge display headline with one accent-coloured word, and
+ *     an optional glowing product mark on the right (the shape /padi and /kaval
+ *     have always had).
+ *   - Without one: the same display headline styling driven by the page `title`.
+ *     So a brand-new .md dropped into the docs gets the look with zero per-page
+ *     work.
  */
-const { entry } = Astro.locals.starlightRoute;
-const hero = entry.data.koluHero;
-const headline = hero?.headline ?? entry.data.title;
+interface Props {
+  hero?: {
+    eyebrow?: string;
+    headline: string;
+    image?: string;
+    imageAlt?: string;
+  };
+  title: string;
+}
+const { hero, title } = Astro.props;
+const headline = hero?.headline ?? title;
 
-// Split a headline into lines, and each line into plain vs. {accent} segments,
+// Split the headline into lines, and each line into plain vs. {accent} segments,
 // so the accent word renders in the kolu primary and multi-line headlines break
 // where the author wrote a newline.
-const lines = headline.replace(/\n+$/, "").split("\n").map((line) =>
-  line.split(/(\{[^}]+\})/).map((part) =>
-    part.startsWith("{") && part.endsWith("}")
-      ? { text: part.slice(1, -1), accent: true }
-      : { text: part, accent: false },
-  ),
-);
+const lines = headline
+  .replace(/\n+$/, "")
+  .split("\n")
+  .map((line) =>
+    line
+      .split(/(\{[^}]+\})/)
+      .map((part) =>
+        part.startsWith("{") && part.endsWith("}")
+          ? { text: part.slice(1, -1), accent: true }
+          : { text: part, accent: false },
+      ),
+  );
 ---
 
-<div class="kolu-hero">
+<header class="kolu-hero">
   <div class="kolu-hero__text">
     {hero?.eyebrow && <p class="kolu-hero__eyebrow eyebrow">{hero.eyebrow}</p>}
-    <h1 id="_top" class="kolu-hero__title display">
+    <h1 class="kolu-hero__title display">
       {
         lines.map((line, i) => (
           <>
@@ -63,4 +72,38 @@ const lines = headline.replace(/\n+$/, "").split("\n").map((line) =>
       />
     )
   }
-</div>
+</header>
+
+<style>
+  .kolu-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+  .kolu-hero__eyebrow {
+    margin-bottom: 1rem;
+  }
+  .kolu-hero__title {
+    font-size: clamp(2.6rem, 1.6rem + 4vw, 4.2rem);
+    color: var(--color-ink);
+    margin: 0;
+  }
+  .kolu-hero__accent {
+    color: var(--color-kolu-primary);
+  }
+  .kolu-hero__mark {
+    flex: none;
+    width: clamp(5.5rem, 4rem + 6vw, 9rem);
+    height: auto;
+    filter: drop-shadow(
+      0 16px 38px color-mix(in srgb, var(--color-kolu-primary) 34%, transparent)
+    );
+  }
+  @media (max-width: 40rem) {
+    .kolu-hero__mark {
+      display: none;
+    }
+  }
+</style>

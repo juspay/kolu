@@ -1,0 +1,62 @@
+---
+/**
+ * A navigational link card for the docs. Styled like the original pages'
+ * `.pd-links` / `.ax-link` cards:
+ * a raised panel with a top accent border, a mono primary title, and a dimmed
+ * description. External links get a small ↗ and rel="noopener".
+ */
+interface Props {
+  title: string;
+  href: string;
+  description?: string;
+}
+const { title, href, description } = Astro.props;
+const external = /^https?:\/\//.test(href);
+---
+
+<a class="doc-linkcard" href={href} {...external ? { rel: "noopener" } : {}}>
+  <span class="doc-linkcard__title">
+    {title}
+    <span class="doc-linkcard__arrow" aria-hidden="true">{external ? "↗" : "→"}</span>
+  </span>
+  {description && <span class="doc-linkcard__desc">{description}</span>}
+</a>
+
+<style>
+  .doc-linkcard {
+    display: block;
+    border: 1px solid var(--color-rule);
+    border-top: 2px solid var(--color-kolu-primary);
+    border-radius: 0.55rem;
+    padding: 0.95rem 1rem;
+    text-decoration: none;
+    background: var(--color-void-raised);
+    transition:
+      border-color 120ms ease,
+      background 120ms ease;
+  }
+  .doc-linkcard:hover {
+    border-color: var(--color-kolu-primary);
+    background: color-mix(in srgb, var(--color-kolu-primary) 7%, var(--color-void-raised));
+  }
+  .doc-linkcard__title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    color: var(--color-kolu-primary);
+    font-size: 0.9rem;
+    margin-bottom: 0.4rem;
+  }
+  .doc-linkcard__arrow {
+    color: var(--color-ink-muted);
+  }
+  .doc-linkcard__desc {
+    display: block;
+    color: var(--color-ink-dim);
+    font-size: 0.86rem;
+    line-height: 1.5;
+  }
+</style>

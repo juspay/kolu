@@ -87,11 +87,9 @@ const ogImageUrl = new URL(
     {/* FOUC-safe theme bootstrap — runs before any CSS/body paint. */}
     <script is:inline>
       (() => {
-        // Dark by default — kolu.dev is dark-first (the Starlight docs match via
-        // KoluThemeProvider). Only a stored light choice flips it. Read either
-        // key so a choice made on a docs page (starlight-theme) carries here.
-        const stored =
-          localStorage.getItem("theme") ?? localStorage.getItem("starlight-theme");
+        // Dark by default — kolu.dev is dark-first. Only a stored light choice
+        // flips it. Runs before any paint, so there's no flash.
+        const stored = localStorage.getItem("theme");
         const theme = stored === "light" ? "light" : "dark";
         document.documentElement.dataset.theme = theme;
       })();

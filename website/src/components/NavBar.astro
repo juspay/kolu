@@ -2,20 +2,15 @@
 /**
  * The site's top navigation bar — brand mark, primary nav, and the light/dark
  * toggle. Extracted from Header.astro so the exact same bar can be rendered in
- * two places without divergence:
- *   - Header.astro wraps it in the site's sticky <header> for the file-based
- *     pages (landing, blog, changelog).
- *   - StarlightHeader.astro renders it bare inside Starlight's own fixed header
- *     slot, so the docs pages wear the identical bar. (A <header> can't nest
- *     inside Starlight's <header>, which is why the wrapper lives one level up.)
+ * two places without divergence: Header.astro wraps it in the site's sticky
+ * <header> for every page — the file-based ones (landing, blog, changelog) and
+ * the docs (DocsLayout renders through the same BaseLayout/Header). So the whole
+ * site shares one header.
  *
- * The theme toggle writes BOTH persistence keys — the site's own `theme` and
- * Starlight's `starlight-theme` — so a choice made on either kind of page is
- * honoured before first paint on the other. Both surfaces key their palette on
- * the same `data-theme` attribute, so the toggle is genuinely one control.
- *
- * It also carries the shared <SiteSearch /> (Pagefind), so the same search
- * button sits in the header on every page — file-based and docs alike.
+ * The theme toggle writes the `theme` key and flips the `data-theme` attribute
+ * the palette keys on, so it's one control across the site. It also carries the
+ * shared <SiteSearch /> (Pagefind), so the same search button sits in the header
+ * on every page.
  */
 import SiteSearch from "./SiteSearch.astro";
 
@@ -35,8 +30,7 @@ const isActive = (p: string) =>
 const nav = [
   { label: 'Get started', href: `${href('/')}#quickstart`, path: '/', hideOnMobile: true },
   // Docs entry point — architecture is the broad overview and the docs front
-  // door; padi/kaval/architecture now live in Starlight, so landing on any of
-  // them reveals the full docs sidebar.
+  // door; landing on any docs page reveals the full docs sidebar.
   { label: 'Docs', href: href('/architecture'), path: '/architecture', hideOnMobile: true },
   { label: 'Padi', href: href('/padi'), path: '/padi' },
   { label: 'Kaval', href: href('/kaval'), path: '/kaval' },
@@ -134,10 +128,6 @@ const nav = [
     const html = document.documentElement;
     const next = html.dataset.theme === "dark" ? "light" : "dark";
     html.dataset.theme = next;
-    // Write both persistence keys so the choice carries between the site's
-    // file-based pages (read `theme`) and the Starlight docs pages (Starlight
-    // reads `starlight-theme` before first paint).
     localStorage.setItem("theme", next);
-    localStorage.setItem("starlight-theme", next);
   });
 </script>

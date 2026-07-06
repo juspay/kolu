@@ -1,0 +1,48 @@
+---
+/**
+ * Numbered steps for the docs. Wraps a Markdown ordered list and renders each
+ * item with a top-step numbered badge, like the original kaval page's `.kv-step`
+ * run-the-pair list.
+ */
+---
+
+<div class="doc-steps"><slot /></div>
+
+<style>
+  .doc-steps :global(ol) {
+    counter-reset: step;
+    list-style: none;
+    padding: 0;
+    margin: 1.5rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+  }
+  .doc-steps :global(ol > li) {
+    counter-increment: step;
+    position: relative;
+    padding-left: 2.8rem;
+    color: var(--color-ink-dim);
+    line-height: 1.6;
+  }
+  .doc-steps :global(ol > li)::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: grid;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--color-kolu-top) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-kolu-top) 42%, transparent);
+    color: var(--color-kolu-top-strong);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+  .doc-steps :global(ol > li > :first-child) {
+    margin-top: 0;
+  }
+</style>

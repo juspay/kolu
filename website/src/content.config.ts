@@ -1,33 +1,35 @@
-import { docsLoader } from "@astrojs/starlight/loaders";
-import { docsSchema } from "@astrojs/starlight/schema";
 import { defineCollection, z } from "astro:content";
 import { glob } from "astro/loaders";
 
-// Starlight's docs collection, mounted at the site root. padi/kaval/architecture
-// live here as src/content/docs/*.mdx and serve at /padi, /kaval, /architecture.
-//
-// The schema is extended with an optional `koluHero` so a page can carry the
-// site's bespoke hero (eyebrow · big headline with an accent word · right-side
-// product mark) — rendered by the KoluHero PageTitle override. It's OPTIONAL by
-// design: a plain doc with only `title` still renders a kolu-styled title, so a
-// new .md inherits the theme with zero per-page work.
+// The docs collection, mounted at the site ROOT: src/content/docs/<slug>.mdx is
+// rendered by src/pages/[slug].astro at /<slug>, so padi/kaval/architecture keep
+// their exact URLs. Same glob-loader shape as the blog collection — the docs are
+// the site's own design language by construction (rendered through DocsLayout),
+// with no separate docs framework.
 const docs = defineCollection({
-  loader: docsLoader(),
-  schema: docsSchema({
-    extend: z.object({
-      koluHero: z
-        .object({
-          // Mono uppercase kicker above the headline.
-          eyebrow: z.string().optional(),
-          // The big display headline. Wrap a word in {curly braces} to paint it
-          // in the accent colour; use line breaks for multi-line headlines.
-          headline: z.string(),
-          // Optional product mark shown glowing on the right (e.g. a logo svg).
-          image: z.string().optional(),
-          imageAlt: z.string().optional(),
-        })
-        .optional(),
-    }),
+  loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/docs" }),
+  schema: z.object({
+    title: z.string(),
+    description: z.string().optional(),
+    // Sidebar ordering (ascending; ties broken by title).
+    order: z.number().default(0),
+    // Optional grouping label for the sidebar. The mechanism supports future
+    // Diátaxis quadrants (tutorials / how-to / reference / explanation) — but we
+    // ship no empty sections: a group appears only once a page opts into it.
+    section: z.string().optional(),
+    // Optional bespoke hero (eyebrow · accent-word headline · product mark),
+    // rendered by KoluHero. OPTIONAL by design: a plain page with only `title`
+    // still gets a kolu-styled headline, so a new .md needs zero per-page work.
+    koluHero: z
+      .object({
+        eyebrow: z.string().optional(),
+        // Wrap a word in {curly braces} to paint it in the accent colour; use
+        // line breaks for a multi-line headline.
+        headline: z.string(),
+        image: z.string().optional(),
+        imageAlt: z.string().optional(),
+      })
+      .optional(),
   }),
 });
 
