@@ -1,0 +1,47 @@
+---
+title: The binding, taught — how a browser tab live-switches hosts
+description: A plain-words primer on kolu's client-side binding layer — what a binding is, why switching hosts is hard, and the three bugs the design had to eat (the yank, the misroute, the toast leak) — ending at the framework primitives W4 extracted.
+parents: [pedagogy, padi]
+maturity: seedling
+updated: 2026-07-06
+---
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import swap from "../../diagrams/binding-101-swap.svg?raw";
+
+This is the companion to [the hosting side, taught](surface-hosting-101.html). That note taught the **server** half — how a surface crosses a machine and how kolu-server holds a session per host. This one teaches the **browser** half: what happens in your tab when you switch which host you're looking at, live, with no page reload. It ends where the last one did — at real primitives and the real bugs that shaped them — so you can read it cold and then judge the design.
+
+The one-line orientation: **the server holds N warm connections; the browser holds N too, with exactly one active — and "switch host" means swap which one is active without the page ever reloading.** Everything below is what that swap has to get right.
+
+## A binding is one tab's live wire to one host
+
+When your browser talks to a host's padi, a bundle of live things rides one websocket: the mirrored surface (terminals, cells), the streams (your terminal's screen), the connection status. Pre-switch, that bundle was a **module global** — created once when the page loaded, pinned to `window.location.host`, and it lived exactly as long as the page. That buried assumption — *the wire lives as long as the tab* — is the thing the whole switch had to break.
+
+A **binding** is that bundle, made first-class and *plural*: one per host (`?host=zest` on the same kolu-server), each with its own socket, its own status, its own teardown. A signal — `activeHost` — picks which one your tab is currently looking at. Switching is: point the signal at a different binding.<Footnote>Bindings are per-*tab*, deliberately: your laptop tab can sit on `zest` while your phone sits on `sincereintent` against the same kolu-server, neither disturbing the other. That's why the active host lives in `sessionStorage` (per browsing context), not `localStorage` (shared across tabs).</Footnote>
+
+## Why switching is genuinely hard (three ways to get it wrong)
+
+"Point a signal at a different binding" sounds trivial. It isn't, because three things happen *concurrently* and each has a failure mode a naive swap walks straight into:
+
+<Svg svg={swap} wide caption="One host switch, end to end. The epoch guards the pick against a slow warm; retirement makes a late call fail loudly instead of landing on the wrong host; owner-tied disposal makes every subscription tear down and re-key. The three bugs named at the bottom are the ones this shape had to eat." />
+
+**Bug 1 — the yank (a slow pick committing late).** Warming a new host means an ssh provision that can take *seconds*. If you pick `zest` (slow), then change your mind and pick `local`, a naive `await hosts.add(zest); setActive(zest)` will — seconds later, when zest's warm finally resolves — **yank your tab to zest**, overriding the newer pick. The fix is a **pick epoch**: bump a counter as the *very first* statement of `switchHost` (before even the "already on this host?" early-return, so that re-picking your current host *cancels* an in-flight pick), and after every `await`, bail if `myPick !== pickEpoch`. Last pick wins, always.<Footnote>The subtlety that made this a real bug and not a textbook one: an in-flight ssh warm can resolve *after* you've moved on, and the naive guard (retire-on-commit) covers the common ordering but not the "re-pick the current host to cancel" gesture — which commits nothing, so nothing retires, so the stale pick sails through. The epoch, bumped before the early-return, is what closes that hole.</Footnote>
+
+**Bug 2 — the misroute (a call landing on the wrong host).** When you switch away, the old binding's socket is still open for a moment, and a call already in flight on it could resolve against the *old* host while your UI now shows the new one — a silent wrong answer. The fix is **retirement**: switching *retires* the old binding — closes its socket and stubs its `send` to throw a **typed "retired by this client" error**. A late call now fails loudly at a dead transport instead of misrouting. (Crucially, the error is *typed and honest* — early versions threw a generic "server restarted — reload" error, which was a lie for an intentional switch and fired three red toasts every time; see Bug 3.)
+
+**Bug 3 — the toast leak (a subscription that outlives its binding).** This one is the deepest, and it hid behind the other two. Every readout in your tab (memory, host inventory, daemon status) is a *subscription* on the active binding. When you switch, those subscriptions must tear down and re-open against the new binding — otherwise a subscription still listening on the *retired* socket catches the retirement error and reports it (three red "server restarted" toasts on every switch, which is exactly what a user first hit). The naive assumption was "the reactive owner disposes them." It didn't: the subscriptions were wrapped in a *detached* reactive root whose disposer was **discarded** — so switching disposed the per-key owner but never the subscription, which **leaked live** past the switch. Every switch leaked all three. The fix realizes one invariant: **a disposed subscription cannot report anything** — tie the detached root's disposer to the caller's owner so disposal actually reaches the subscription's abort, and pass the abort signal all the way into the stream so a pending read cancels at once.<Footnote>The honest debugging story: the first instinct was to *filter* the retirement error at the subscribe site (a band-aid — suppress the symptom). The question "why isn't the abort signal already catching this?" is what exposed the real defect: the sub was never disposed at all. The band-aid would have left a live subscription leaking on every switch, invisibly. Naming the invariant — *disposed means silent* — is what turned a symptom-suppression into a structural fix.</Footnote>
+
+## The primitives (what the framework now owns)
+
+Those three fixes generalized. Rather than live as kolu-specific cleverness, they were **extracted into `@kolu/surface-app`** — because the volatility they tame (a set of live connections where the active one swaps at runtime) is not padi-specific; it is exactly what any multi-connection client faces (drishti's fleet view is the same shape). Three receptacles resulted:
+
+- **`createActiveConnectionManager<K, C>`** — the **client-side twin of `buildHostRegistry`** (which the [hosting note](surface-hosting-101.html) taught as the server's session-per-host map). It owns the keyed cache, the one-active rule, retire-on-switch (Bug 2), the pick-epoch (Bug 1), and the "server rejected this host" fallback. kolu plugs in only *policy*: how to make a connection, how to warm it (`hosts.add`), what to toast, where to fall back.
+- **`connectionScoped`** — a subscription factory keyed to a swappable connection: it re-runs with full teardown when the active connection changes, is populated synchronously (so the first render never sees `undefined`), and is owner-safe (Bug 3). This is the general form of the client's old `bindingScoped`.
+- **`createKeyedRoot<K, T>`** — the tiny primitive under both: dispose-and-recreate a reactive root when a key's identity changes. It had been hand-rolled *twice* (once in the binding layer, once in the surface-app provider's build-info swap); extracting it gave the swap-teardown guarantee one tested home.
+
+The payoff for kolu: its `binding/` module shrinks to **pure policy** — which host, the picker, recents, `sessionStorage`. All the *mechanism* — the cache, the epoch, the retirement, the re-keying, the leak-proof disposal — lives in the framework, tested once, where the next multi-connection client inherits it for free.
+
+## The through-line, if you read both notes
+
+The [hosting note](surface-hosting-101.html) ended on a rule: *when your thing won't fit a framework slot, ask what the slot's code actually does — if the behavior fits, widen the slot; if it genuinely differs, build your own.* This note is the mirror image on the client: *when you build app-local machinery that tames a hard volatility (here: connection lifetime racing user intent), name the receptacle it wants and graduate it* — even at a population of one, because the review's job is to make the candidate visible, not to force the extraction. The server grew `buildHostRegistry`; the client grew `createActiveConnectionManager`; together the framework now owns both halves of "a changing set of live connections," and both apps write only policy on top.
