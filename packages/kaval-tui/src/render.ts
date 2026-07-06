@@ -133,25 +133,22 @@ export function formatListJson(entries: PtyHostListEntry[]): string {
   return JSON.stringify(entries, null, 2);
 }
 
-/** The human one-liner (stderr trailer) for `send` — `sent 14 bytes to a1b2c3d4
- *  · pasted · keys: Enter`, or `… · submitted (grace 250ms)` under `--submit`.
- *  The `· pasted` / `· keys: …` / `· submitted …` marks appear only when those
- *  happened, so the line never claims an action `send` didn't take. `keys` and
- *  `submitted` never co-occur (`--submit` owns the Enter). Lives here with the
- *  other formatters (and `shortId`); `send.ts` owns only the encode/plan logic. */
+/** The human one-liner (stderr trailer) for `send` — a text send reads `sent 14
+ *  bytes to a1b2c3d4 · pasted`, a keys-only send reads `sent 1 byte to a1b2c3d4 ·
+ *  keys: Enter`. The `· pasted` / `· keys: …` marks appear only when those
+ *  happened, so the line never claims an action `send` didn't take; a send carries
+ *  text OR keys, never both (the caller forbids the mix), so the two marks never
+ *  co-occur. Lives here with the other formatters (and `shortId`); `send.ts` owns
+ *  only the encode/plan logic. */
 export function formatSend(result: {
   id: string;
   bytes: number;
   paste: boolean;
   keys: readonly string[];
-  submit: { graceMs: number } | null;
 }): string {
   const base = `sent ${result.bytes} byte${result.bytes === 1 ? "" : "s"} to ${shortId(result.id)}`;
   const pasteMark = result.paste ? " · pasted" : "";
   const keysMark =
     result.keys.length > 0 ? ` · keys: ${result.keys.join(", ")}` : "";
-  const submitMark = result.submit
-    ? ` · submitted (grace ${result.submit.graceMs}ms)`
-    : "";
-  return `${base}${pasteMark}${keysMark}${submitMark}`;
+  return `${base}${pasteMark}${keysMark}`;
 }
