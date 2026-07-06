@@ -103,8 +103,8 @@ unspellable, not merely discouraged.
 > kaval-tui send "$id" "the follow-up"
 > # A timeout (exit 2) is the "target busy" signal — proceed. Any OTHER failure is
 > # real (terminal gone = 3, link/usage = 1): surface it, don't send into the void.
-> if ! kaval-tui wait "$id" --until idle:300 --timeout 3000; then
->   rc=$?; [ "$rc" -eq 2 ] || exit "$rc"
+> if kaval-tui wait "$id" --until idle:300 --timeout 3000; then :  # settled — proceed
+> else rc=$?; [ "$rc" -eq 2 ] || exit "$rc"                        # exit 2 = busy; else real, surface it
 > fi
 > kaval-tui send "$id" --key Enter                               # submit anyway
 > ```
