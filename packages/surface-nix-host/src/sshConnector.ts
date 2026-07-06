@@ -16,7 +16,6 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import { buildAgentCommand, forEachLine, ResolveDrvError } from "./host";
@@ -26,6 +25,7 @@ import {
   ConnectError,
   type Connection,
   type Connector,
+  surfaceLiveProbe,
 } from "./session";
 
 /** The typed RPC client an ssh agent yields — a contract-router client carrying the
@@ -149,7 +149,7 @@ export function sshConnector<C extends AnyContractRouter>(
       // The framework-reserved `system.live` round-trip — contract-agnostic, so no
       // consumer probe is needed. A rejection still counts as alive (the round-trip
       // completed); only a true non-answer (the loop's watchdog timeout) cycles.
-      isAlive: () => probeSurfaceLive(client).then(() => undefined),
+      isAlive: surfaceLiveProbe(client),
       teardown: () => {
         try {
           child.kill("SIGTERM");
