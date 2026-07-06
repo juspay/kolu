@@ -193,6 +193,7 @@ async function bootReServedPadi(stateRoot: string): Promise<{
     drainBoundPadi: () => session.renew(),
     // W4 pool deps — inert here (this test drives only the padi splice).
     defaultHost: "local",
+    host: "local",
     hosts: { add: async () => {}, remove: async () => {} },
   });
   // `directLink` internally; drive the assembled router in-process and walk it

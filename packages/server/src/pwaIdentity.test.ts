@@ -1,5 +1,8 @@
+import { createRouterClient } from "@orpc/server";
 import { describe, expect, it } from "vitest";
+import { serverHostname } from "./hostname";
 import { appName, pwaIdentityForHostname } from "./pwaIdentity";
+import { buildAppRouter } from "./router";
 
 describe("pwaIdentityForHostname", () => {
   it("derives stable PWA identity from hostname", () => {
@@ -53,5 +56,32 @@ describe("pwaIdentityForHostname", () => {
     expect(
       pwaIdentityForHostname("pureintent", "sincereintent").themeColor,
     ).toBe(pwaIdentityForHostname("pureintent", undefined).themeColor);
+  });
+});
+
+describe("server.info labels the identity from THIS router's host (A2)", () => {
+  async function infoName(host: string): Promise<string> {
+    const router = buildAppRouter({
+      surfaceRouter: { surface: {} },
+      drainBoundPadi: async () => {},
+      defaultHost: "local",
+      host,
+      hosts: { add: async () => {}, remove: async () => {} },
+    });
+    const client = createRouterClient(
+      router as Parameters<typeof createRouterClient>[0],
+      // biome-ignore lint/suspicious/noExplicitAny: structural dial of the assembled router.
+    ) as any;
+    return (await client.server.info()).identity.name;
+  }
+
+  it("a REMOTE host's router titles per-host — not the boot default", async () => {
+    // Before A2 every per-host router folded the boot `remotePadiHost()`, so a tab on
+    // host "zest" could read the default host's name. It must read its OWN host.
+    expect(await infoName("zest")).toBe(`Kolu [${serverHostname} → zest]`);
+  });
+
+  it("the LOCAL host's router stays byte-identical (no arrow)", async () => {
+    expect(await infoName("local")).toBe(`Kolu [${serverHostname}]`);
   });
 });

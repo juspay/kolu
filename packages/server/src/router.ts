@@ -19,6 +19,7 @@
  * padi that OWNS kaval.
  */
 
+import { LOCAL_HOST } from "kolu-common/contract";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -34,6 +35,10 @@ export interface BuildAppRouterDeps {
   /** The host a tab binds when it names none (`KOLU_PADI_HOST` ?? local) — served
    *  on `server.info` so a tab picks its initial binding at boot (W4). */
   defaultHost: string;
+  /** THIS router's host (A2). `server.info`'s identity is labelled from it — so a
+   *  tab on host A titles itself `Kolu [<srv> → A]`, not the boot default's name.
+   *  Local → no arrow (`Kolu [<srv>]`). Each per-host router carries its own. */
+  host: string;
   /** The warm-pool control plane (W4). `add`/`remove` operate on the SHARED pool
    *  — every per-host handler serves the same two verbs, so a tab on any host can
    *  add another before switching to it. */
@@ -59,11 +64,15 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
       // `surface.ts`. The kaval identities ride padi's `status` cell + `daemonStatus`
       // collection (re-served off the bound padi).
       info: t.server.info.handler(async () => ({
-        // `pwaIdentityForHostname` folds the bound remote host (`remotePadiHost()`)
-        // into the name by default, so the browser tab title + About dialog read
-        // `Kolu [<serverHost> → <remoteHost>]` under a remote binding (byte-identical
-        // `Kolu [<host>]` when local).
-        identity: pwaIdentityForHostname(serverHostname),
+        // A2 — label the identity from THIS router's host, not the boot default's
+        // `remotePadiHost()`: a tab on host A reads `Kolu [<serverHost> → A]`, a tab
+        // on local reads the byte-identical `Kolu [<serverHost>]` (no arrow). Passing
+        // the host explicitly overrides `pwaIdentityForHostname`'s `remotePadiHost()`
+        // default, which would otherwise stamp every host's tab with the boot default.
+        identity: pwaIdentityForHostname(
+          serverHostname,
+          deps.host === LOCAL_HOST ? undefined : deps.host,
+        ),
         defaultHost: deps.defaultHost,
       })),
     },

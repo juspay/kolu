@@ -370,6 +370,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       surfaceRouter: { surface: {} },
       drainBoundPadi: async () => {},
       defaultHost: "local",
+      host: "local",
       hosts: { add: async () => {}, remove: async () => {} },
     }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();

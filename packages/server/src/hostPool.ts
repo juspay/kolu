@@ -231,6 +231,7 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
         },
         drainBoundPadi: () => session.renew(),
         defaultHost,
+        host,
         hosts,
       });
       // Every host needs its OWN `appRouter` for the WS handler below, but the
