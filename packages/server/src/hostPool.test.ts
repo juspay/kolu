@@ -164,4 +164,17 @@ describe("buildHostPool — the warm pool", () => {
     await pool.hosts.remove(LOCAL_HOST);
     expect(pool.registry.has(LOCAL_HOST)).toBe(true);
   });
+
+  it("never removes the DEFAULT host — even a REMOTE one (A3 brick guard)", async () => {
+    // KOLU_PADI_HOST may be remote, and its session/mirror/router are boot-captured
+    // by the HTTP `/rpc` handler + samplers. Removing it (via the picker's forget
+    // list OR the raw RPC) would brick the server permanently — so `hosts.remove`
+    // must no-op on the default, exactly as it does on local.
+    const pool = makePool({ bootHost: "zest", recentHosts: ["zest"] });
+    expect(pool.defaultHost).toBe("zest");
+    const zestSession = pool.registry.getSession("zest");
+    await pool.hosts.remove("zest");
+    expect(pool.registry.has("zest")).toBe(true); // still warm — not bricked
+    expect(zestSession?.destroy).not.toHaveBeenCalled();
+  });
 });

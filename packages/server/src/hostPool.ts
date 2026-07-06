@@ -144,6 +144,13 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
     },
     remove: async (host: string): Promise<void> => {
       if (host === LOCAL_HOST) return; // never remove the local host.
+      // A3 — never remove the DEFAULT host either. `KOLU_PADI_HOST` may be remote,
+      // and its session/mirror/router are boot-captured by the HTTP `/rpc` handler +
+      // the memory/identity/inventory samplers (index.ts) — destroying it under those
+      // captures bricks the server permanently (no re-add heals a captured ref). The
+      // local guard above already covers the local-default case; this covers a remote
+      // default. Reachable both via the picker's forget list and the raw RPC.
+      if (host === defaultHost) return;
       if (!registry.has(host)) return;
       // Lifecycle log (retired) — the per-host padi binding is a long-lived,
       // add/remove-able resource; log its teardown in a greppable format.
