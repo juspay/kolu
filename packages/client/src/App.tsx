@@ -275,6 +275,10 @@ const App: Component = () => {
       // canvas instead of falling back to the empty state. Today === terminal
       // count.
       terminalCount: () => tileStore.tileCount(),
+      // How many listed terminals' records haven't composed yet — lets the pure
+      // resolver hold `connecting` over `empty` while a reload's live terminals are
+      // still in flight, so the restore card can't flash before they appear.
+      recordsAwaited: () => store.recordPhases().awaited,
     }),
   );
   // Narrow the tagged union for the down/warming arms. Plain functions, not

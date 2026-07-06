@@ -12,6 +12,10 @@ const h = vi.hoisted(() => ({
   listPending: true,
   list: undefined as TerminalInfo[] | undefined,
   terminalIds: [] as TerminalId[],
+  // How many listed terminals' records haven't composed yet — the `awaited` arm of
+  // the metadata census the gate now reads instead of the session cell as a timing
+  // proxy. Non-zero while a reload's live records are in flight.
+  awaited: 0,
   sessionPending: true,
   savedSession: null as unknown,
 }));
@@ -87,6 +91,7 @@ function makeStore(): TerminalStore {
   return {
     listSub,
     terminalIds: () => h.terminalIds,
+    recordPhases: () => ({ awaited: h.awaited, parked: 0, live: 0 }),
     getMetadata: () => undefined,
     setActiveSilently: () => {},
     activeId: () => null,
@@ -102,6 +107,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
       h.listPending = true;
       h.list = undefined;
       h.terminalIds = [];
+      h.awaited = 0; // empty list → no records to await
       h.sessionPending = true;
       const session = mount();
 
@@ -119,6 +125,32 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
 
       // Session cell reports → an honest empty-vs-restore decision can be made.
       h.sessionPending = false;
+      expect(session.isLoading()).toBe(false);
+
+      dispose();
+    });
+  });
+
+  it("holds loading while a reload's records are still awaited, even after the session cell resolves", () => {
+    // The restore-card-flash fix at the gate level. On a browser reload the list
+    // yields its ids and the session cell resolves, but the per-terminal records
+    // haven't composed yet — `terminalIds()` is transiently 0 while `awaited` is
+    // non-zero. The OLD gate keyed the wait on `savedSessionSub.pending()` (which
+    // resolves first), so it dropped here and flashed the restore card. The census
+    // term must hold loading until the records settle.
+    createRoot((dispose) => {
+      h.listPending = false;
+      h.list = [{ id: "t1" } as TerminalInfo, { id: "t2" } as TerminalInfo];
+      h.terminalIds = []; // records not composed yet
+      h.awaited = 2; // ...both still in flight
+      h.sessionPending = false; // session cell already resolved (the old trap)
+      const session = mount();
+
+      expect(session.isLoading()).toBe(true);
+
+      // Records compose live → tiles appear, gate drops. No card was ever shown.
+      h.terminalIds = ["t1" as TerminalId, "t2" as TerminalId];
+      h.awaited = 0;
       expect(session.isLoading()).toBe(false);
 
       dispose();
@@ -154,6 +186,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
             h.listPending = false;
             h.list = [{ id: "p0" } as TerminalInfo]; // parked entry in the raw list
             h.terminalIds = []; // ...excluded from the real (canvas) set
+            h.awaited = 0; // parked record has ARRIVED (settled) — not awaited
             h.sessionPending = false;
             h.savedSession = {
               terminals: [

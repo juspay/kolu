@@ -39,6 +39,14 @@ export interface CanvasFacts {
   warmingLabel: string;
   daemonState: DaemonState | undefined;
   terminalCount: number;
+  /** How many listed terminals' composed records have NOT arrived yet (the
+   *  `awaited` arm of the metadata census). Non-zero means the key list resolved
+   *  but per-terminal metadata is still in flight — the reload window where
+   *  `terminalCount` is transiently 0 because records haven't composed. Gating
+   *  `empty` on this (below) is what stops the restore card from flashing before a
+   *  reload's live terminals appear; a genuine reboot arrives with records PARKED
+   *  (awaited 0, count 0), so it falls through to `empty` as it should. */
+  recordsAwaited: number;
   /** The watchdog-backed liveness of the ws delivering daemonStatus. The `down`
    *  and `warming` facts arrive ALREADY floored on this at their source accessors
    *  (`downState`/`daemonWarming` → `liveDownState`/`liveWarming`); this fact floors
@@ -76,5 +84,12 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
   // new-terminal affordances. The post-grace TransportOverlay owns the disconnect
   // messaging.
   if (facts.terminalCount > 0) return { kind: "workspace" };
+  // Records still arriving after the key list resolved → a reload's live terminals
+  // are mid-compose, so `terminalCount === 0` is a NOT-YET-settled claim, not "no
+  // terminals". Hold the neutral connecting surface instead of flashing `empty`'s
+  // restore card — ordered ABOVE `empty` for the same reason `down`/`warming` are.
+  // A genuine reboot's records arrive PARKED (awaited hits 0 with no live tile), so
+  // this falls through to `empty` and the restore card, exactly as intended.
+  if (facts.recordsAwaited > 0) return { kind: "connecting" };
   return facts.transportLive ? { kind: "empty" } : { kind: "connecting" };
 }
