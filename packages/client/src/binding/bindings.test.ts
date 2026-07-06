@@ -24,16 +24,28 @@ vi.stubGlobal("sessionStorage", {
 });
 
 // Each `connectSurfaces` call is a DISTINCT bundle (so two hosts' bindings are
-// distinct objects). `link.hosts.add`/`remove` resolve immediately. The ws captures
-// its `close` listeners so a test can fire the server's `close(1008)` rejection.
+// distinct objects). `link.hosts.add`/`remove` resolve immediately unless the epoch
+// test opts into `deferAdds` — then each add parks until manually released, so two
+// picks can be in flight at once. The ws captures its `close` listeners so a test can
+// fire the server's `close(1008)` rejection.
 let connectCount = 0;
+let deferAdds = false;
+const addReleasers: Array<() => void> = [];
+function makeAdd() {
+  return vi.fn(
+    (): Promise<void> =>
+      deferAdds
+        ? new Promise<void>((resolve) => addReleasers.push(resolve))
+        : Promise.resolve(),
+  );
+}
 const connectSurfaces = vi.fn(() => {
   connectCount += 1;
   const listeners: Record<string, ((ev: unknown) => void)[]> = {};
   return {
     clients: { kolu: {}, surfaceApp: {}, padi: {} },
     link: {
-      hosts: { add: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
+      hosts: { add: makeAdd(), remove: vi.fn(async () => {}) },
     },
     ws: {
       close: vi.fn(),
@@ -172,5 +184,37 @@ describe("a removed host falls the tab back to local (close 1008)", () => {
     // abandon the host it's viewing on every blip.
     fireClose(activeBinding(), { code: 1006 });
     expect(activeHost()).toBe("box2");
+  });
+});
+
+describe("the switch epoch guard (C1)", () => {
+  beforeEach(async () => {
+    deferAdds = false;
+    addReleasers.length = 0;
+    await switchHost(LOCAL_HOST); // reset to a known host between tests
+  });
+
+  it("re-picking the CURRENT host cancels an in-flight add — no yank (hole 1)", async () => {
+    expect(activeHost()).toBe(LOCAL_HOST);
+    deferAdds = true;
+    // Pick a remote host — its add PARKS (adds take seconds over ssh).
+    const pickA = switchHost("A");
+    // Re-pick the current host (local) as a cancel gesture — bumps the epoch even
+    // though it early-returns (that placement is the fix).
+    await switchHost(LOCAL_HOST);
+    // A's add now resolves — but its pick is stale, so it must NOT yank the tab.
+    for (const release of addReleasers) release();
+    await pickA;
+    expect(activeHost()).toBe(LOCAL_HOST);
+  });
+
+  it("two overlapping picks: the LAST pick wins, not the first to resolve (hole 2)", async () => {
+    deferAdds = true;
+    const pickB = switchHost("B"); // parks
+    const pickC = switchHost("C"); // parks — the later pick
+    // Release both; B parked first, so B's add resolves first — yet C must win.
+    for (const release of addReleasers) release();
+    await Promise.all([pickB, pickC]);
+    expect(activeHost()).toBe("C");
   });
 });

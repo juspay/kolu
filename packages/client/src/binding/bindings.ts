@@ -266,7 +266,17 @@ export function restoreStoredHost(): void {
  *  holds `host` first (a deliberate add-then-connect — never a side-effectful GET),
  *  then swaps the active binding. Loud states (connecting / degraded) ride the new
  *  binding's `connection` cell; creating a terminal is refused until it is ready. */
+// C1 — the switch epoch. `hosts.add` takes seconds over ssh, so picks can overlap.
+// Every `switchHost` claims an epoch as its FIRST act (before the same-host early
+// return — that placement is what lets re-picking the CURRENT host act as a CANCEL:
+// it bumps the epoch, so an in-flight add for a different host is stale when it
+// resolves). After each await, a pick that is no longer the latest bows out instead
+// of yanking the tab — so last-pick-wins (not first-resolve-wins), and a superseded
+// pick's failure doesn't toast over a host the user already moved on from.
+let pickEpoch = 0;
+
 export async function switchHost(host: string): Promise<void> {
+  const myPick = ++pickEpoch;
   if (host === activeHost()) return;
   if (host !== LOCAL_HOST) {
     // Warm the binding server-side BEFORE opening a socket to it. Routed through
@@ -274,12 +284,14 @@ export async function switchHost(host: string): Promise<void> {
     try {
       await activeBinding().link.hosts.add({ host });
     } catch (err) {
+      if (myPick !== pickEpoch) return; // superseded — the user re-picked; stay quiet
       toast.error(
         `Couldn't reach host "${host}": ${err instanceof Error ? err.message : String(err)}`,
       );
       return;
     }
   }
+  if (myPick !== pickEpoch) return; // a newer pick won — don't yank the tab back
   setActiveHostInternal(host);
 }
 
