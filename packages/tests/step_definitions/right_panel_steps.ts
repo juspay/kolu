@@ -45,7 +45,80 @@ When(
   },
 );
 
+When(
+  "I type {string} in the compose box",
+  async function (this: KoluWorld, text: string) {
+    const box = this.page.locator('[data-testid="compose-input"]');
+    await box.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // `.fill` sets the value and fires an `input` event, which drives the
+    // SolidJS `onInput` → `setDraft` (and its localStorage write).
+    await box.fill(text);
+    // Remember it so a follow-up step can assert it reached the terminal.
+    this.composedDraft = text;
+    await this.waitForFrame();
+  },
+);
+
+When("I click the compose Send button", async function (this: KoluWorld) {
+  const send = this.page.locator('[data-testid="compose-send"]');
+  await send.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await send.click();
+  await this.waitForFrame();
+});
+
 // ── Assertions ──
+
+Then(
+  "the terminal should contain the composed draft",
+  async function (this: KoluWorld) {
+    const draft = this.composedDraft;
+    assert.ok(
+      draft,
+      "No composed draft — was 'I type … in the compose box' called first?",
+    );
+    // The draft was inserted (not submitted), so it sits on the shell's current
+    // input line. Poll the focused terminal's xterm buffer until any visible
+    // line carries it — the send → PTY → attach-stream → xterm round-trip is
+    // async, so a bare snapshot would race the echo.
+    await this.page.waitForFunction(
+      (expected) => {
+        // Same `__xterm`-on-the-tile-div access `readFirstVisibleLine` uses;
+        // the type augmentation rides in via the support side-effect import.
+        const container = document.querySelector<HTMLDivElement>(
+          "[data-visible][data-terminal-id]",
+        );
+        const term = container?.__xterm;
+        if (!term) return false;
+        const buf = term.buffer.active;
+        for (let y = 0; y < term.rows; y++) {
+          const line = buf.getLine(buf.viewportY + y)?.translateToString(true);
+          if (line?.includes(expected)) return true;
+        }
+        return false;
+      },
+      draft,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the compose box should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    const box = this.page.locator('[data-testid="compose-input"]');
+    await box.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      ({ exp }) => {
+        const el = document.querySelector<HTMLTextAreaElement>(
+          '[data-testid="compose-input"]',
+        );
+        return el?.value === exp;
+      },
+      { exp: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 Then("the right panel should be visible", async function (this: KoluWorld) {
   // "Visible" means the tab content area exists — assert one of its

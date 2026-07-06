@@ -77,6 +77,32 @@ Feature: Right panel (Code + Inspector)
     Then the inspector should show the send command and agent-driving guidance
     And there should be no page errors
 
+  Scenario: Compose box inserts a drafted prompt into the terminal
+    # The Inspector's Compose box is the in-app `kaval-tui send`: type a draft,
+    # hit Send, and it's written into the active terminal's input line WITHOUT
+    # pressing Enter (the honest-send contract — the user submits themselves).
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    When I type "echo compose-draft-landed" in the compose box
+    And I click the compose Send button
+    Then the terminal should contain the composed draft
+    And there should be no page errors
+
+  Scenario: Compose draft persists across a page refresh
+    # The draft is saved per-terminal in localStorage, so a half-written prompt
+    # survives a reload (the terminal is restored under the same id).
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    When I type "draft that survives a reload" in the compose box
+    When I refresh the page
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the compose box should contain "draft that survives a reload"
+    And there should be no page errors
+
   Scenario: Inspector covers split terminals and the snapshot command
     # The tile's main pane and every split each get their own attach + snapshot
     # command pair, since each split is its own PTY in the daemon.
