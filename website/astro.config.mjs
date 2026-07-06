@@ -55,11 +55,23 @@ export default defineConfig({
       // tokens the migrated diagrams reference; starlight.css maps Starlight's
       // --sl-* variables onto them and styles the ported figures.
       customCss: ["./src/styles/starlight.css"],
-      // Make the docs pages wear the site's own top bar — the shared <NavBar />
-      // rendered inside Starlight's fixed header shell — so the header is
-      // identical across Starlight and the file-based pages.
+      // Component overrides that make the docs wear kolu.dev's design language:
+      //  - Header: the site's own top bar (shared <NavBar />), so the landing
+      //    pages and docs share ONE header.
+      //  - PageTitle: the bespoke hero (eyebrow · accent-word headline · product
+      //    mark) from frontmatter, with a kolu-styled fallback for plain docs.
+      //  - ThemeProvider: dark by default, matching the rest of the site.
+      // The rest of the kolu look (dotted-grid dark background, accent-bar
+      // section headings, dark cards/asides, site typography) is the customCss
+      // layer above — so a new .md inherits the theme with no per-page work.
       components: {
         Header: "./src/components/StarlightHeader.astro",
+        PageTitle: "./src/components/KoluHero.astro",
+        ThemeProvider: "./src/components/KoluThemeProvider.astro",
+        // Drop Starlight's own theme <select>: the shared NavBar carries the one
+        // toggle, and the stock select's on-load script stores "auto" and forces
+        // the OS colour scheme, overriding our dark-by-default.
+        ThemeSelect: "./src/components/Empty.astro",
       },
       social: [
         {

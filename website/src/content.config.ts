@@ -5,7 +5,31 @@ import { glob } from "astro/loaders";
 
 // Starlight's docs collection, mounted at the site root. padi/kaval/architecture
 // live here as src/content/docs/*.mdx and serve at /padi, /kaval, /architecture.
-const docs = defineCollection({ loader: docsLoader(), schema: docsSchema() });
+//
+// The schema is extended with an optional `koluHero` so a page can carry the
+// site's bespoke hero (eyebrow · big headline with an accent word · right-side
+// product mark) — rendered by the KoluHero PageTitle override. It's OPTIONAL by
+// design: a plain doc with only `title` still renders a kolu-styled title, so a
+// new .md inherits the theme with zero per-page work.
+const docs = defineCollection({
+  loader: docsLoader(),
+  schema: docsSchema({
+    extend: z.object({
+      koluHero: z
+        .object({
+          // Mono uppercase kicker above the headline.
+          eyebrow: z.string().optional(),
+          // The big display headline. Wrap a word in {curly braces} to paint it
+          // in the accent colour; use line breaks for multi-line headlines.
+          headline: z.string(),
+          // Optional product mark shown glowing on the right (e.g. a logo svg).
+          image: z.string().optional(),
+          imageAlt: z.string().optional(),
+        })
+        .optional(),
+    }),
+  }),
+});
 
 const blog = defineCollection({
   loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/blog" }),

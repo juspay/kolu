@@ -1,27 +1,34 @@
-/* Starlight theme bridge — make Starlight's docs shell wear the kolu palette.
+/* Starlight → kolu.dev theme. Makes the docs pages read as kolu.dev (dark,
+ * dotted-grid, the logo palette, the site's type) rather than stock Starlight,
+ * using only Starlight's supported seams: design tokens (this file, via
+ * `customCss`) + component overrides (Header / PageTitle / ThemeProvider in
+ * astro.config.mjs). Everything here is page-agnostic, so a brand-new .md
+ * inherits the whole look with zero per-page work.
  *
- * global.css is the single source of truth for the design tokens
- * (--color-kolu-* / --color-ink* / --color-void* / --color-rule*, plus the
- * --font-* stacks and the light/dark [data-theme] switch). We import it here so
- * the ported figures resolve their var(--color-…) references, then map
- * Starlight's own --sl-* variables onto those tokens. Because the kolu tokens
- * already flip on [data-theme="light"], a single mapping tracks both themes —
- * and Starlight drives the same data-theme attribute the rest of the site uses,
- * so the light/dark toggle stays consistent across Starlight and the
- * file-based pages. Accent = the kolu primary (middle logo step).
- *
- * Light-touch by intent: we remap accent, surfaces, text, hairlines, and fonts
- * so the shell reads as kolu, not a pixel-for-pixel rebuild of the marketing
- * chrome. */
+ * global.css is the single source of the design tokens (--color-kolu-* /
+ * --color-ink* / --color-void* / --color-rule*, the --font-* stacks, and the
+ * light/dark [data-theme] switch + the dotted-grid background on <html>). We
+ * import it, then map Starlight's --sl-* variables onto those tokens. Because
+ * the kolu tokens already flip on [data-theme], one mapping tracks both modes —
+ * we just declare it at the same specificity Starlight uses for its own light
+ * overrides ([data-theme='…']) and rely on customCss load order to win. Dark is
+ * the default (KoluThemeProvider); light stays fully working. */
 
 @import "./global.css";
 @import "./docs.css";
 
-:root {
+/* ── Token mapping — accent = the kolu primary (middle logo step) ─────────── */
+:root,
+:root[data-theme="dark"],
+:root[data-theme="light"] {
   --sl-font: var(--font-sans);
   --sl-font-mono: var(--font-mono);
 
-  /* Accent — links, active sidebar entry, focus rings, the primary logo step. */
+  /* Header height = the site bar's h-14 (3.5rem) at every width. */
+  --sl-nav-height: 3.5rem;
+  --sl-content-width: 50rem;
+
+  /* Accent — links, active sidebar entry, focus rings. */
   --sl-color-accent-low: color-mix(
     in srgb,
     var(--color-kolu-primary) 22%,
@@ -43,32 +50,171 @@
   --sl-color-black: var(--color-void);
   --sl-color-text: var(--color-ink-dim);
 
-  /* Surfaces — the void shell, raised sidebar/nav, hairline rules. */
-  --sl-color-bg: var(--color-void);
-  --sl-color-bg-nav: color-mix(in srgb, var(--color-void) 82%, transparent);
-  --sl-color-bg-sidebar: var(--color-void-raised);
+  /* Surfaces — content sits on the <html> dotted-grid void; sidebar/nav are
+     raised; hairlines are the rule token. */
+  --sl-color-bg: transparent;
+  --sl-color-bg-nav: transparent;
+  --sl-color-bg-sidebar: color-mix(
+    in srgb,
+    var(--color-void-raised) 70%,
+    transparent
+  );
   --sl-color-bg-inline-code: var(--color-void-raised);
   --sl-color-hairline: var(--color-rule);
   --sl-color-hairline-light: var(--color-rule);
   --sl-color-hairline-shade: var(--color-rule);
 
-  /* Pin the header height to the site bar's h-14 (3.5rem) at every width, so
-     the ported <NavBar /> lines up and the docs content offset stays correct.
-     (Starlight otherwise grows this to 4rem ≥50rem.) */
-  --sl-nav-height: 3.5rem;
+  /* Aside / Card hues → the logo roles. Starlight derives every callout and
+     card colour from these, so mapping them here themes all of them at once:
+     caution = top step (amber), tip = bottom step (teal/lime), note/default =
+     the primary. */
+  --sl-color-orange: var(--color-kolu-top);
+  --sl-color-orange-low: color-mix(
+    in srgb,
+    var(--color-kolu-top) 12%,
+    var(--color-void-raised)
+  );
+  --sl-color-orange-high: var(--color-kolu-top-strong);
+  --sl-color-green: var(--color-kolu-bottom-strong);
+  --sl-color-green-low: color-mix(
+    in srgb,
+    var(--color-kolu-bottom-strong) 12%,
+    var(--color-void-raised)
+  );
+  --sl-color-green-high: var(--color-kolu-bottom-strong);
+  --sl-color-blue: var(--color-kolu-primary);
+  --sl-color-blue-low: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 12%,
+    var(--color-void-raised)
+  );
+  --sl-color-blue-high: var(--color-kolu-primary-hover);
+  --sl-color-purple: var(--color-kolu-primary);
+  --sl-color-purple-low: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 12%,
+    var(--color-void-raised)
+  );
+  --sl-color-purple-high: var(--color-kolu-primary-hover);
+  --sl-color-red: var(--color-kolu-primary);
+  --sl-color-red-low: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 12%,
+    var(--color-void-raised)
+  );
+  --sl-color-red-high: var(--color-kolu-primary-hover);
 }
 
-/* The shared NavBar owns its own inner padding + max-width centering, so strip
-   Starlight's header-shell padding and grid and let NavBar fill the bar edge to
-   edge. The shell keeps its themed background + hairline (bg-nav / hairline). */
+/* ── One shared header ────────────────────────────────────────────────────
+   The shared NavBar owns its own inner padding + max-width, so strip
+   Starlight's header-shell padding/grid and match the file-based site header
+   exactly (Header.astro: `border-b border-rule backdrop-blur-xs bg-void/80`). */
 .page > .header {
   display: block;
   padding: 0;
+  background: color-mix(in oklab, var(--color-void) 80%, transparent);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  border-bottom: 1px solid var(--color-rule);
 }
 
-/* The site paints a faint character-cell lattice on <html> (global.css). Let it
-   show through Starlight's transparent page background so the docs sit on the
-   same textured void as the rest of kolu.dev. */
-.sl-markdown-content {
-  --sl-content-width: 50rem;
+/* Sidebar + main content share the dotted-grid void; give the sidebar a
+   hairline and the raised tint from its token. */
+.sidebar-pane {
+  border-inline-end: 1px solid var(--color-rule);
+}
+
+/* ── The kolu hero (KoluHero → PageTitle override) ────────────────────────── */
+.kolu-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-top: 0.5rem;
+}
+.kolu-hero__eyebrow {
+  margin-bottom: 1rem;
+}
+.kolu-hero__title {
+  font-size: clamp(2.6rem, 1.6rem + 4vw, 4.2rem);
+  color: var(--color-ink);
+  margin: 0;
+}
+.kolu-hero__accent {
+  color: var(--color-kolu-primary);
+}
+.kolu-hero__mark {
+  flex: none;
+  width: clamp(5.5rem, 4rem + 6vw, 9rem);
+  height: auto;
+  filter: drop-shadow(
+    0 16px 38px color-mix(in srgb, var(--color-kolu-primary) 34%, transparent)
+  );
+}
+@media (max-width: 40rem) {
+  .kolu-hero__mark {
+    display: none;
+  }
+}
+
+/* ── Section headings — the pink accent-bar treatment from the original pages,
+   applied to every markdown h2/h3 so all docs (incl. a new .md) get it. ────── */
+.sl-markdown-content h2:not(:where(.not-content *)) {
+  position: relative;
+  margin-top: 2.6rem;
+  margin-bottom: 1.4rem;
+  padding-left: 1.15rem;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: clamp(1.7rem, 1.05rem + 2.1vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  color: var(--color-ink);
+  text-wrap: balance;
+}
+.sl-markdown-content h2:not(:where(.not-content *))::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.16em;
+  bottom: 0.16em;
+  width: 5px;
+  border-radius: 3px;
+  background: var(--color-kolu-primary);
+  box-shadow: 0 0 14px -1px
+    color-mix(in srgb, var(--color-kolu-primary) 60%, transparent);
+}
+.sl-markdown-content h3:not(:where(.not-content *)) {
+  font-family: var(--font-sans);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+
+/* Inline code in docs prose → the site's top-step formatting channel, matching
+   the file-based pages (global.css). */
+.sl-markdown-content :not(pre) > code:not(:where(.not-content *)) {
+  font-family: var(--font-mono);
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  padding: 0.08rem 0.38rem;
+  font-size: 0.88em;
+  color: var(--color-kolu-top-strong);
+  font-weight: 500;
+}
+
+/* Links in docs prose — primary with an underline that lifts on hover. */
+.sl-markdown-content a:not(:where(.not-content *)) {
+  color: var(--color-kolu-primary);
+  text-decoration-color: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 40%,
+    transparent
+  );
+}
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  color: var(--color-kolu-primary-hover);
+  text-decoration-color: var(--color-kolu-primary);
 }

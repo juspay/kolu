@@ -1,0 +1,29 @@
+---
+/**
+ * Starlight `ThemeProvider` override — same FOUC-safe inline init as Starlight's
+ * default, but the fallback is **dark** (not the OS preference), to match the
+ * rest of kolu.dev, which is dark-first. A stored choice (`starlight-theme`,
+ * written by the shared NavBar toggle) still wins, so light mode keeps working.
+ * We keep the `StarlightThemeProvider.updatePickers` shim so any Starlight code
+ * that calls it stays happy even though we render our own toggle.
+ */
+---
+
+{/* Intentionally inlined to avoid FOUC. */}
+<script is:inline>
+  window.StarlightThemeProvider = (() => {
+    const storedTheme =
+      typeof localStorage !== "undefined" && localStorage.getItem("starlight-theme");
+    // Dark by default — mirror the site. Only a stored light choice flips it.
+    const theme = storedTheme === "light" ? "light" : "dark";
+    document.documentElement.dataset.theme = theme;
+    return {
+      updatePickers(theme = storedTheme || "dark") {
+        document.querySelectorAll("starlight-theme-select").forEach((picker) => {
+          const select = picker.querySelector("select");
+          if (select) select.value = theme;
+        });
+      },
+    };
+  })();
+</script>

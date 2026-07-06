@@ -36,6 +36,9 @@ importers:
       '@astrojs/sitemap':
         specifier: ^3.7.3
         version: 3.7.3
+      '@pagefind/default-ui':
+        specifier: ^1.5.2
+        version: 1.5.2
       '@tailwindcss/typography':
         specifier: ^0.5.16
         version: 0.5.19(tailwindcss@4.3.1)

@@ -1,0 +1,66 @@
+---
+/**
+ * Starlight `PageTitle` override — gives every docs page the kolu.dev hero
+ * treatment instead of a stock <h1>.
+ *
+ * Two modes, both kolu-themed:
+ *   - A page with `koluHero` frontmatter gets the full bespoke hero: a mono
+ *     eyebrow, a huge display headline with one accent-coloured word, and an
+ *     optional glowing product mark on the right — the same shape the original
+ *     /padi and /kaval pages had.
+ *   - A plain page (only `title`) falls back to the same display headline
+ *     styling driven by its title. So a brand-new .md dropped into the docs
+ *     inherits the look with zero per-page work — the whole point of the theme.
+ *
+ * The headline keeps Starlight's title anchor id ("_top") so the "Overview"
+ * entry in the on-this-page panel still targets it.
+ */
+const { entry } = Astro.locals.starlightRoute;
+const hero = entry.data.koluHero;
+const headline = hero?.headline ?? entry.data.title;
+
+// Split a headline into lines, and each line into plain vs. {accent} segments,
+// so the accent word renders in the kolu primary and multi-line headlines break
+// where the author wrote a newline.
+const lines = headline.replace(/\n+$/, "").split("\n").map((line) =>
+  line.split(/(\{[^}]+\})/).map((part) =>
+    part.startsWith("{") && part.endsWith("}")
+      ? { text: part.slice(1, -1), accent: true }
+      : { text: part, accent: false },
+  ),
+);
+---
+
+<div class="kolu-hero">
+  <div class="kolu-hero__text">
+    {hero?.eyebrow && <p class="kolu-hero__eyebrow eyebrow">{hero.eyebrow}</p>}
+    <h1 id="_top" class="kolu-hero__title display">
+      {
+        lines.map((line, i) => (
+          <>
+            {i > 0 && <br />}
+            {line.map((seg) =>
+              seg.accent ? (
+                <span class="kolu-hero__accent">{seg.text}</span>
+              ) : (
+                seg.text
+              ),
+            )}
+          </>
+        ))
+      }
+    </h1>
+  </div>
+  {
+    hero?.image && (
+      <img
+        class="kolu-hero__mark"
+        src={hero.image}
+        alt={hero.imageAlt ?? ""}
+        width="120"
+        height="120"
+        loading="eager"
+      />
+    )
+  }
+</div>
