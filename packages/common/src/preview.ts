@@ -153,13 +153,19 @@ export const previewPathCodec: {
 export const TERMINAL_FILE_ROUTE_BASE = "/api/terminals";
 export const TERMINAL_FILE_ROUTE_FILE_SEGMENT = "file";
 
-/** Build the per-terminal file-route URL for a repo-relative path (no cache
- *  key). The client appends `?v=<mtime>` (from `fs.statFileMtimeMs`, in
- *  `BrowseFileDispatcher`) for the iframe surface; the rendered-Markdown image
- *  path uses the bare URL to point at the actual repo file it references. */
+/** Build the per-terminal file-route URL for a repo-relative path, tagged with the
+ *  active `host` so the server preview route reads the bytes through THAT host's
+ *  bound padi (W4) — a tab viewing a non-default host must not fetch a same-id file
+ *  off the default host. `host` is REQUIRED (no silent default-host fallback): every
+ *  caller names the host it is looking at. The client appends `&v=<mtime>` (from
+ *  `fs.statFileMtimeMs`, in `BrowseFileDispatcher`) for the iframe surface; the
+ *  rendered-Markdown image path uses this URL as-is to point at the real repo file.
+ *  The `?host=` query is stripped by `pathFromPreviewPathname`'s `split("?")` when
+ *  inverting an in-iframe navigation, so it never leaks into the decoded path. */
 export function buildTerminalFileUrl(
   terminalId: string,
   repoRelPath: string,
+  host: string,
 ): string {
-  return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodePreviewPath(repoRelPath)}`;
+  return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodePreviewPath(repoRelPath)}?host=${encodeURIComponent(host)}`;
 }

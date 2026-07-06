@@ -440,8 +440,10 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 // `padi` sibling kolu-server adds locally (`server/src/surface.ts`):
 //
 //   - `koluSurface` — the primitives kolu OWNS that are NOT part of the terminal
-//     domain: the `preferences` + `processMemory` + `padiLink` + `processStartedAt`
-//     cells. Served under the `kolu` key. Every terminal-DERIVED member (`activityFeed`, `session`,
+//     domain: the `preferences` + `processMemory` + `processStartedAt` +
+//     `daemonInventory` cells (the `padiLink` cell was RETIRED at W4 — per-host
+//     readiness rides the padi `connection` cell now). Served under the `kolu` key.
+//     Every terminal-DERIVED member (`activityFeed`, `session`,
 //     the `terminalExit` event, the per-terminal record, urgency, daemon status,
 //     the expected-kaval axis) relocated to `@kolu/padi` (the package-boundary
 //     seal) — so koluSurface has NO collections and NO events, and the terminal
@@ -468,9 +470,13 @@ export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
 
 /** The primitives kolu OWNS that are NOT part of the terminal domain —
  *  `preferences` (local-authority user prefs), `processMemory` (the live
- *  server+kaval RSS rail metric), `padiLink` (kolu-server's live view of its
- *  binding to padi — a #1034 canvas-honesty leg), and `processStartedAt` (the
- *  server + padi boot times the rail renders as uptime). Every terminal-DERIVED wire member —
+ *  server+kaval RSS rail metric), `processStartedAt` (the server + padi boot times
+ *  the rail renders as uptime), and `daemonInventory` (the per-host kaval+padi
+ *  diagnostic readout). The `padiLink` cell that once sat here — kolu-server's live
+ *  view of its single binding to padi (a #1034 canvas-honesty leg) — was RETIRED at
+ *  W4: a single server-wide fact can't carry a warm pool of N bound hosts, so
+ *  per-host readiness now rides the padi `connection` cell (the framework mirror the
+ *  re-serve adds, one per host). Every terminal-DERIVED wire member —
  *  `activityFeed`, `session`, the `terminalExit` event, the terminal record,
  *  urgency, daemon status — now rides `padiSurface` (the package-boundary seal):
  *  only the conf-store STORAGE for session/activityFeed stays kolu-server-side

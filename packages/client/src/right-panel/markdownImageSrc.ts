@@ -14,14 +14,16 @@ import { resolveRelativePath } from "@kolu/solid-browser";
 import { buildTerminalFileUrl } from "kolu-common/preview";
 
 /** Resolve a repo-relative image `src` to a per-terminal file-route URL the
- *  browser can fetch. Returns `undefined` when `src` carries its own
- *  origin/scheme or escapes the repo root. */
+ *  browser can fetch, tagged with the ACTIVE `host` so the read routes through that
+ *  host's bound padi (W4) rather than the default host. Returns `undefined` when
+ *  `src` carries its own origin/scheme or escapes the repo root. */
 export function resolveMarkdownImageSrc(
   terminalId: string,
   markdownFilePath: string,
   src: string,
+  host: string,
 ): string | undefined {
   const repoRel = resolveRelativePath(markdownFilePath, src);
   if (repoRel === null) return undefined;
-  return buildTerminalFileUrl(terminalId, repoRel);
+  return buildTerminalFileUrl(terminalId, repoRel, host);
 }

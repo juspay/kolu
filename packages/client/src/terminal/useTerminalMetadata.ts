@@ -22,7 +22,7 @@ import type {
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { padi } from "../wire";
+import { bindingScoped } from "../binding/bindings";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -85,10 +85,22 @@ export function useTerminalMetadata(deps: {
   const keys = createMemo<TerminalId[]>(
     () => deps.list()?.map((t) => t.id) ?? [],
   );
-  const terminals = padi.collections.terminals.use({
-    keys,
-    onError: (err) => toast.error(`Metadata error: ${err.message}`),
-  });
+  // W4 "the switch": the metadata collection must follow the ACTIVE host, not pin
+  // the boot host's client. Reading the `padi` proxy directly
+  // (`padi.collections.terminals.use(...)`) resolves it ONCE at call time, so after a
+  // switch the collection keeps querying the OLD (now-retired) host's client even as
+  // the re-keyed `keys` — derived from `terminalListSub`, itself `bindingScoped` —
+  // start naming the NEW host's terminals, rendering missing/wrong tile metadata.
+  // `bindingScoped` re-creates the collection against the active binding on every
+  // switch (disposing the prior one), so keys and records always come from ONE host.
+  // Runs under `useTerminalStore`'s `createSharedRoot` owner, which `bindingScoped`
+  // requires.
+  const terminals = bindingScoped((b) =>
+    b.clients.padi.collections.terminals.use({
+      keys,
+      onError: (err) => toast.error(`Metadata error: ${err.message}`),
+    }),
+  );
 
   // padi's `terminals` collection is typed `PadiTerminal` — a 3-arm union:
   // `active | sleeping | PARKED`, each carrying the reserved cross-host `host` axis
@@ -109,7 +121,7 @@ export function useTerminalMetadata(deps: {
    *  `parentId`: presence (a real tile record arrived) is the gate that excludes a
    *  still-loading OR parked terminal from the order. */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    const record = terminals.byKey(id)?.();
+    const record = terminals().byKey(id)?.();
     return record === undefined || isParked(record) ? undefined : record;
   }
 

@@ -14,24 +14,35 @@
 
 import type { RunningKaval, RunningPadi } from "kolu-common/surface";
 import { toast } from "solid-sonner";
+import { bindingScoped } from "../binding/bindings";
+import { createSharedRoot } from "../createSharedRoot";
 import { daemonTransportLive, padiLinkState } from "../kaval/useDaemonStatus";
-import { padi } from "../wire";
 import { hostInventoryLive } from "./hostInventoryLive";
 
-const sub = padi.cells.hostInventory.use({
-  onError: (err) => toast.error(`Host inventory error: ${err.message}`),
-});
+// W4 "the switch": `hostInventory` is a PADI cell — it describes the BOUND host, so
+// it is genuinely per-host and MUST follow the active binding (an unfixed
+// module-level `padi.cells.hostInventory.use(...)` pinned the boot host's inventory
+// AND, after a switch-away, its now-closed socket). `bindingScoped` re-keys it onto
+// the active host; `createSharedRoot` gives it an app-lifetime reactive owner.
+const hostInventory = createSharedRoot(() =>
+  bindingScoped((b) =>
+    b.clients.padi.cells.hostInventory.use({
+      onError: (err) => toast.error(`Host inventory error: ${err.message}`),
+    }),
+  ),
+);
+const sub = () => hostInventory()();
 
 /** Every running kaval daemon on the BOUND host, each marked `active` when that host's
  *  padi owns it (empty before the first scan). */
 export function boundHostKavals(): RunningKaval[] {
-  return sub.value()?.kavals ?? [];
+  return sub().value()?.kavals ?? [];
 }
 
 /** Every running padi daemon on the BOUND host, each marked `active` when it is the one
  *  kolu is bound to (empty before the first scan). */
 export function boundHostPadis(): RunningPadi[] {
-  return sub.value()?.padis ?? [];
+  return sub().value()?.padis ?? [];
 }
 
 /** Whether the bound host's inventory is a TRUSTWORTHY live reading the dialog may render

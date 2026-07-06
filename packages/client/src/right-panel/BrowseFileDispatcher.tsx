@@ -62,6 +62,7 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
+import { activeHost } from "../binding/bindings";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
@@ -150,7 +151,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         );
         return {
           kind: "binary",
-          url: `${buildTerminalFileUrl(i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
+          // `?host=` (baked into `buildTerminalFileUrl`) routes the read through the
+          // ACTIVE host's padi; `&v=<mtime>` is the save-bumped cache key.
+          url: `${buildTerminalFileUrl(i.terminalId, i.filePath, activeHost())}&v=${Math.floor(mtimeMs)}`,
         };
       }
       const { content, truncated } = await padiRpc(padi).surface.fs.readFile(
@@ -446,7 +449,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             <MarkdownRenderer
               markdown={file.source?.content ?? ""}
               resolveImageSrc={(src) =>
-                resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
+                resolveMarkdownImageSrc(
+                  props.terminalId,
+                  props.filePath,
+                  src,
+                  activeHost(),
+                )
               }
               onNavigateRelative={onNavigateRelative}
               onNavigateWikilink={onNavigateWikilink}

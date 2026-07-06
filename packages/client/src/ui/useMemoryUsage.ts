@@ -16,23 +16,35 @@
 
 import type { ProcessRss } from "kolu-common/surface";
 import { toast } from "solid-sonner";
+import { bindingScoped } from "../binding/bindings";
+import { createSharedRoot } from "../createSharedRoot";
 import {
   daemonTransportLive,
   localDaemonStatus,
 } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
-import { app } from "../wire";
 import { readJsHeapUsedBytes } from "./memory";
 
-const sub = app.cells.processMemory.use({
-  onError: (err) => toast.error(`Memory readout error: ${err.message}`),
-});
+// W4 "the switch": `bindingScoped` so the sub re-keys onto the ACTIVE host's socket.
+// The `processMemory` cell is kolu-server's own (host-independent) surface, served
+// on every per-host socket — but the SOCKET the sub reads through is per-binding, and
+// switching away RETIRES (closes) the old binding's socket. `bindingScoped` re-opens
+// the sub against the live active binding, so the rail never reads a dead socket.
+// `createSharedRoot` gives `bindingScoped` its app-lifetime reactive owner.
+const memory = createSharedRoot(() =>
+  bindingScoped((b) =>
+    b.clients.kolu.cells.processMemory.use({
+      onError: (err) => toast.error(`Memory readout error: ${err.message}`),
+    }),
+  ),
+);
+const sub = () => memory()();
 
 /** The kolu-server process's RSS in bytes, or `null` before the first server
  *  yield (it's always a real number once a sample lands — the server measures
  *  itself). */
 export function serverRssBytes(): number | null {
-  return sub.value()?.serverRssBytes ?? null;
+  return sub().value()?.serverRssBytes ?? null;
 }
 
 /** A per-process RSS reading projected for DISPLAY — `{ kind: "ok", rssBytes }`,
@@ -59,7 +71,7 @@ export function padiMemoryDisplay():
   | { kind: "ok"; rssBytes: number }
   | { kind: "error" }
   | null {
-  return displayRss(sub.value()?.padi);
+  return displayRss(sub().value()?.padi);
 }
 
 /** The kaval daemon's memory projected for display (see {@link displayRss}), with
@@ -72,7 +84,7 @@ export function kavalMemoryDisplay():
   | { kind: "error" }
   | null {
   if (localDaemonStatus()?.state !== "connected") return null;
-  return displayRss(sub.value()?.kaval);
+  return displayRss(sub().value()?.kaval);
 }
 
 /** This browser's used JS heap in bytes, refreshed every second off the shared

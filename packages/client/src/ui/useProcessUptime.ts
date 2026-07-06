@@ -15,17 +15,28 @@
  */
 
 import { toast } from "solid-sonner";
-import { app } from "../wire";
+import { bindingScoped } from "../binding/bindings";
+import { createSharedRoot } from "../createSharedRoot";
 
-const sub = app.cells.processStartedAt.use({
-  onError: (err) => toast.error(`Uptime readout error: ${err.message}`),
-});
+// W4 "the switch": `bindingScoped` re-keys the sub onto the ACTIVE host's socket, so
+// the uptime rail never reads a boot-binding socket that a switch-away retired
+// (closed). The `processStartedAt` cell is kolu-server's own host-independent
+// surface, served on every per-host socket; only the socket is per-binding.
+// `createSharedRoot` gives `bindingScoped` its app-lifetime reactive owner.
+const uptime = createSharedRoot(() =>
+  bindingScoped((b) =>
+    b.clients.kolu.cells.processStartedAt.use({
+      onError: (err) => toast.error(`Uptime readout error: ${err.message}`),
+    }),
+  ),
+);
+const sub = () => uptime()();
 
 /** kolu-server's boot time (ms epoch), or `null` before the first server yield (the
  *  `0` seed maps to `null` so a consumer never renders `now − 0` as an uptime). The
  *  KoluInfoDialog renders `now − this` as the server's uptime. */
 export function serverStartedAt(): number | null {
-  const t = sub.value()?.server;
+  const t = sub().value()?.server;
   return t ? t : null;
 }
 
@@ -33,5 +44,5 @@ export function serverStartedAt(): number | null {
  *  first yield — the PadiInfoDialog renders `now − this` as padi's uptime, mirroring
  *  the Kaval dialog's uptime off kaval's `startedAt`. */
 export function padiStartedAt(): number | null {
-  return sub.value()?.padi ?? null;
+  return sub().value()?.padi ?? null;
 }

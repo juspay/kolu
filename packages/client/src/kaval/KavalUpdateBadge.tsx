@@ -17,17 +17,28 @@
 import type { PadiStatus } from "@kolu/padi/surface";
 import type { Component } from "solid-js";
 import { toast } from "solid-sonner";
-import { padi } from "../wire";
+import { bindingScoped } from "../binding/bindings";
+import { createSharedRoot } from "../createSharedRoot";
 import { kavalStale } from "./kavalCurrency";
 import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
 
-// A module-level standing subscription to padi's `status` cell (the same pattern
+// A standing subscription to the ACTIVE host's padi `status` cell (the same pattern
 // useDaemonStatus uses for the daemonStatus collection). The `expectedKaval` axis
 // rides HERE now — it left the surface-app `buildInfo` cell in W1.R7 so a kaval
 // read no longer crosses `packages/server`. Read-only; padi seeds it once at boot.
-const padiStatus = padi.cells.status.use({
-  onError: (err) => toast.error(`Kaval status error: ${err.message}`),
-});
+//
+// W4 "the switch": `bindingScoped` re-keys the sub against the new host on a switch
+// (disposing the old one), so the currency verdict follows the tab to whichever host
+// it views — never pinning the boot host's `expectedKaval`. It lives in an
+// app-lifetime `createSharedRoot` so `bindingScoped` has a reactive owner; the old
+// module-level `padi.cells.status.use(...)` had none AND pinned the boot binding.
+const kavalStatus = createSharedRoot(() =>
+  bindingScoped((b) =>
+    b.clients.padi.cells.status.use({
+      onError: (err) => toast.error(`Kaval status error: ${err.message}`),
+    }),
+  ),
+);
 
 /** The *expected* kaval identity — the build padi would spawn
  *  (`padi.cells.status.expectedKaval`: closure `staleKey` + git `navigableCommit`).
@@ -35,7 +46,7 @@ const padiStatus = padi.cells.status.use({
  *  dialog's running-vs-expected commit links + "what changed" history link) joins
  *  the surface path through one accessor. */
 export const expectedKaval = (): PadiStatus["expectedKaval"] =>
-  padiStatus.value()?.expectedKaval;
+  kavalStatus()().value()?.expectedKaval;
 
 /** True when the running kaval daemon is provably a build behind the server's
  *  expected build. Reads padi's `status` cell (`status.expectedKaval`) and the

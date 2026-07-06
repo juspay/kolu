@@ -16,12 +16,15 @@
  * The MISROUTE GUARD lives here and is NOT deferred to L11: its teeth are the
  * `retired` flag plus separate sockets. Because each host is a SEPARATE socket, a
  * call can never cross to another host's server handler by construction; switching
- * retires the old binding (closing its socket), so an in-flight or late call minted
- * on the old host's client REJECTS loudly (`assertLive`) rather than silently
- * landing on a dead — or stale — host.
+ * RETIRES the old binding — tearing down its lifecycle root AND closing its socket
+ * (`retireSocket`, which also stubs `send` to throw) — so an in-flight or late call
+ * minted on the old host's client throws at the now-dead transport rather than
+ * silently reconnecting to (and landing on) a stale host. `assertLive(binding)` is
+ * the programmatic assertion of that `retired` flag (pinned by `bindings.test.ts`);
+ * a fresh `padi()`/`app()` accessor never sees a retired binding at all, because
+ * `activeBinding()` rebuilds one the moment the cached entry is retired.
  */
 
-import { padiRpc } from "@kolu/padi/surface";
 import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
 import {
   type ConnectionStatus,
@@ -88,15 +91,30 @@ function makeBinding(targetHost: string): Binding {
   // socket), so this lifecycle opts its own out (`heartbeat: false`). It needs only
   // `conn` (never the Binding), so derive it FIRST and assemble the Binding once
   // with the real accessors — no placeholder-then-repatch dance.
-  const { lifecycle, serverProcessId, status } = createServerLifecycle({
-    ws: conn.ws,
-    probe: () => surfaceAppProbe(conn.clients.surfaceApp),
-    heartbeat: false,
-    onProcessId: conn.echo.remember,
-    onProbeError: (err) =>
-      console.error(`surfaceApp.info probe failed (host ${targetHost}):`, err),
-    restartCloseCode: STALE_PROCESS_CLOSE_CODE,
-    onStaleRestart: () => retireSocket(conn.ws),
+  //
+  // OWN the lifecycle under a DEDICATED root so its transport listeners are torn
+  // down by THIS binding's dispose() — never by whatever incidental Solid owner
+  // first read `activeBinding()`. Without the wrapper `createServerLifecycle`'s
+  // `onCleanup` binds to that caller's owner: an app-lifetime owner would leak it
+  // across every switch, and a short-lived component owner would free it EARLY
+  // (killing status updates on a still-active binding). The root makes the
+  // lifecycle's lifetime exactly the binding's.
+  let disposeLifecycle!: () => void;
+  const { lifecycle, serverProcessId, status } = createRoot((dispose) => {
+    disposeLifecycle = dispose;
+    return createServerLifecycle({
+      ws: conn.ws,
+      probe: () => surfaceAppProbe(conn.clients.surfaceApp),
+      heartbeat: false,
+      onProcessId: conn.echo.remember,
+      onProbeError: (err) =>
+        console.error(
+          `surfaceApp.info probe failed (host ${targetHost}):`,
+          err,
+        ),
+      restartCloseCode: STALE_PROCESS_CLOSE_CODE,
+      onStaleRestart: () => retireSocket(conn.ws),
+    });
   });
 
   const binding: Binding = {
@@ -108,9 +126,17 @@ function makeBinding(targetHost: string): Binding {
     status,
     lifecycle,
     serverProcessId,
+    // Idempotent: a switch disposes the old binding, and its own lifecycle root
+    // could dispose it a second time — the `retired` guard makes the re-entry a
+    // no-op. Tear down the lifecycle root, the clients/transport, THEN retire the
+    // socket (close it + stub `send` to throw) so a late call on this dead binding
+    // throws at the transport instead of re-dialing this host after the tab moved.
     dispose: () => {
+      if (binding.retired) return;
       binding.retired = true;
+      disposeLifecycle();
       conn.dispose();
+      retireSocket(conn.ws);
     },
   };
 
@@ -167,25 +193,33 @@ export function seedDefaultHost(defaultHost: string): void {
 }
 
 // ── Per-tab persistence of the active host ──────────────────────────────
+//
+// `sessionStorage`, NOT `localStorage`: the active host is genuinely PER-TAB
+// (each tab holds its own sockets and views one host). sessionStorage survives a
+// reload of THIS tab — so a refresh lands back on the host it was viewing — while
+// staying scoped to this browsing context: switching host in one tab never changes
+// what another tab restores, and a brand-new tab starts clean (no stored host →
+// `seedDefaultHost` falls to the server default). localStorage would leak the pick
+// across every tab on the origin, contradicting the per-tab model.
 
 const ACTIVE_HOST_KEY = "kolu-active-host";
 function hasStoredHost(): boolean {
   try {
-    return localStorage.getItem(ACTIVE_HOST_KEY) !== null;
+    return sessionStorage.getItem(ACTIVE_HOST_KEY) !== null;
   } catch {
     return false;
   }
 }
 function storeHost(h: string): void {
   try {
-    localStorage.setItem(ACTIVE_HOST_KEY, h);
+    sessionStorage.setItem(ACTIVE_HOST_KEY, h);
   } catch {
-    // localStorage unavailable (private mode) — the switch still works in-memory.
+    // sessionStorage unavailable (private mode) — the switch still works in-memory.
   }
 }
 function readStoredHost(): string | undefined {
   try {
-    return localStorage.getItem(ACTIVE_HOST_KEY) ?? undefined;
+    return sessionStorage.getItem(ACTIVE_HOST_KEY) ?? undefined;
   } catch {
     return undefined;
   }
@@ -278,14 +312,6 @@ export function bindingScoped<T>(
   );
   onCleanup(() => disposePrev?.());
   return value as Accessor<T>;
-}
-
-/** A padi RPC client bound to the ACTIVE host, guarded so a stale reference throws
- *  rather than misrouting. Use in place of the old `padiRpc(padi)`. */
-export function activePadiRpc(): ReturnType<typeof padiRpc> {
-  const binding = activeBinding();
-  assertLive(binding);
-  return padiRpc(binding.clients.padi);
 }
 
 // Restore the per-tab host BEFORE the first binding is built (this module is

@@ -434,7 +434,9 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     // `decodeURIComponent` then throws on the bare `% ` → a spurious 400. The raw
     // tail keeps it encoded so serve-dir's single decode recovers the real name.
     const filePath = "100% done.mp4";
-    const url = `http://host${buildTerminalFileUrl(terminalId, filePath)}`;
+    // The `?host=` query `buildTerminalFileUrl` appends is stripped by
+    // `previewTailFromRawUrl`'s `rawPathname`, so the extracted tail is unaffected.
+    const url = `http://host${buildTerminalFileUrl(terminalId, filePath, "local")}`;
     const tail = previewTailFromRawUrl(url, terminalId);
     expect(tail).toBe("100%25%20done.mp4");
 

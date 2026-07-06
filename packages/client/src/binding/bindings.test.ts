@@ -8,13 +8,15 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// bindings.ts reads `window.location` + `localStorage` at module load — stub them
-// (the client vitest env is `node`).
+// bindings.ts reads `window.location` + `sessionStorage` at module load — stub them
+// (the client vitest env is `node`). The active host is PER-TAB, so it persists in
+// `sessionStorage` (survives a reload of this tab, scoped to this browsing context),
+// not `localStorage` (which would leak the pick across every tab on the origin).
 vi.stubGlobal("window", {
   location: { protocol: "http:", host: "kolu.test:8080" },
 });
 const store = new Map<string, string>();
-vi.stubGlobal("localStorage", {
+vi.stubGlobal("sessionStorage", {
   getItem: (k: string) => store.get(k) ?? null,
   setItem: (k: string, v: string) => store.set(k, v),
   removeItem: (k: string) => store.delete(k),
@@ -37,6 +39,10 @@ const connectSurfaces = vi.fn(() => {
   };
 });
 
+// The real `retireSocket` closes the socket + stubs `send` to throw; spy on it so
+// the test can prove a switch actually retires the old host's socket (the misroute
+// guard's real teeth), not just flips the `retired` flag.
+const retireSocketMock = vi.fn();
 vi.mock("@kolu/surface-app/solid", () => ({
   connectSurfaces,
   createServerLifecycle: vi.fn(() => ({
@@ -45,7 +51,7 @@ vi.mock("@kolu/surface-app/solid", () => ({
     status: () => "live",
   })),
   surfaceAppProbe: vi.fn(),
-  retireSocket: vi.fn(),
+  retireSocket: retireSocketMock,
 }));
 vi.mock("@kolu/surface-app", () => ({ STALE_PROCESS_CLOSE_CODE: 4001 }));
 vi.mock("kolu-common/surfacesWithPadi", () => ({ surfacesWithPadi: {} }));
@@ -88,8 +94,10 @@ describe("the misroute guard (condition 3a)", () => {
     // The OLD (local) binding is retired + its socket torn down — the misroute
     // guard's teeth: a call still holding the local binding now throws, instead of
     // silently landing on the wrong (or dead) host. `retired === true` is set inside
-    // the dispose closure, so it proves the teardown ran (which closes the socket).
+    // the dispose closure, AND the dispose retires (closes + poisons) the socket, so
+    // a late call on it throws at the transport rather than re-dialing this host.
     expect(local.retired).toBe(true);
+    expect(retireSocketMock).toHaveBeenCalledWith(local.ws);
     expect(() => assertLive(local)).toThrow(/stale binding for host "local"/);
 
     // The NEW active binding is a DISTINCT, live object for the switched-to host.

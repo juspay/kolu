@@ -25,8 +25,19 @@ export const useServerIdentity = createSharedRoot(() => {
       seedDefaultHost(info.defaultHost);
     })
     .catch((err) => {
-      // Server info is cosmetic — safe to ignore on failure.
-      console.warn("Server info fetch failed:", err);
+      // The identity half (name / theme-color) is cosmetic and safely defaults.
+      // But this one fetch ALSO carries the functional default-host (`KOLU_PADI_HOST`)
+      // seed — there is no independent channel for it — so a failure means a
+      // remote-default startup silently stays on local. Surface it LOUDLY (error, not
+      // a cosmetic warn) naming that consequence, rather than letting the functional
+      // decision collapse silently. The tab still boots on local and the picker still
+      // switches freely; the fetch is one-shot over the (buffered) live socket, so a
+      // reject here is a genuine server-side failure, not a not-yet-connected blip.
+      console.error(
+        "server.info() failed — default host (KOLU_PADI_HOST) not applied; " +
+          "this tab stays on local until reloaded or switched via the picker:",
+        err,
+      );
     });
 
   // Expose only the named projections, not the raw `identity()` signal: a

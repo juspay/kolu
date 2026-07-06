@@ -3,15 +3,16 @@ import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
-// `useTerminalMetadata` pulls `padi` (a live surface socket) and `solid-sonner`
-// (a toast DOM) at import time. Stub both so the hook loads under Node, and drive
-// the ONE per-key collection it reads — `padi.collections.terminals` — through one
-// hoisted, signal-backed bag. W1.R1 moved the reader-join server-side, so the
-// collection serves the ALREADY-COMPOSED record; a test supplies a flat `TestMeta`
-// and the mock hands it back whole (with the `state: "active"` discriminant the
-// composed active arm always carries). Flipping a field or the id set re-runs the
-// real `terminalIds` memo the way a server delta would, so a test observes its
-// `equals` gate.
+// `useTerminalMetadata` pulls `bindingScoped` (whose module reads `window` at load)
+// and `solid-sonner` (a toast DOM) at import time. Stub both so the hook loads under
+// Node, and drive the ONE per-key collection it reads —
+// `binding.clients.padi.collections.terminals` (W4: re-keyed per active host through
+// `bindingScoped`) — through one hoisted, signal-backed bag. W1.R1 moved the
+// reader-join server-side, so the collection serves the ALREADY-COMPOSED record; a
+// test supplies a flat `TestMeta` and the mock hands it back whole (with the
+// `state: "active"` discriminant the composed active arm always carries). Flipping a
+// field or the id set re-runs the real `terminalIds` memo the way a server delta
+// would, so a test observes its `equals` gate.
 type TestMeta = Partial<TerminalMetadata>;
 const bag = vi.hoisted(() => {
   return {
@@ -22,7 +23,7 @@ const bag = vi.hoisted(() => {
   };
 });
 
-vi.mock("../wire", () => {
+vi.mock("../binding/bindings", () => {
   // Surface `{ keys, byKey }` shape (see useCollection.ts). `byKey` returns an
   // accessor when the id has metadata, else undefined — and reads `bag.metaOf`
   // INSIDE the accessor so the read stays reactive to the composed record.
@@ -35,8 +36,16 @@ vi.mock("../wire", () => {
           : undefined,
     }),
   };
+  // `bindingScoped(factory)` in prod defers the factory to a reactive effect keyed
+  // to the active host; these unit tests never switch host, so run the factory once
+  // against a fake binding exposing the mocked collection and return a static
+  // accessor. The signal-backed reactivity lives inside `.use()`, not the wrapper.
+  const fakeBinding = { clients: { padi: { collections: { terminals } } } };
   return {
-    padi: { collections: { terminals } },
+    bindingScoped: <T>(factory: (b: unknown) => T): (() => T) => {
+      const value = factory(fakeBinding);
+      return () => value;
+    },
   };
 });
 vi.mock("solid-sonner", () => ({
