@@ -312,6 +312,13 @@ record name="": install
 smoke:
     {{ nix_shell }} bash ci/smoke.sh
 
+# Typing-echo latency baseline (padi W1 / #1652). Boots a private nix-built
+# kolu, measures keystroke→echo p50/p95/p99 over kolu-server's /rpc/ws, tears
+# down. W2.2 re-runs this to prove < 5ms added p99. See the Atlas note
+# `padi-latency-baseline`. Env: KOLU_BENCH_* (SAMPLES, TERMINALS, OUT, ...).
+bench-typing-echo: install
+    {{ nix_shell }} bash packages/server/bench/run.sh
+
 # Remove all gitignored files (node_modules, build artifacts, etc.)
 clean:
     git clean -fdX
