@@ -55,7 +55,7 @@ import {
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
-import type { AnyContractRouter } from "@orpc/contract";
+import type { SurfaceClientLike } from "@kolu/surface/project";
 import { implement } from "@orpc/server";
 import { mirroredSurface, type WithConnection } from "./connection";
 import { seedConnectionCell } from "./connectionPipe";
@@ -64,7 +64,7 @@ import {
   observableHolder,
   pumpRemoteSurface,
 } from "./hostFanout";
-import type { AgentClient, RemoteMirrorSession } from "./hostSession";
+import type { Session } from "./session";
 import {
   failThroughStreamCore,
   type ForwardableStream,
@@ -72,10 +72,7 @@ import {
   type RelayPolicy,
 } from "./relayStream";
 
-export interface ReServeSurfaceOptions<
-  S extends SurfaceSpec,
-  C extends AnyContractRouter,
-> {
+export interface ReServeSurfaceOptions<S extends SurfaceSpec> {
   /** The surface the remote agent serves and this parent re-serves. */
   source: Surface<S>;
   /** The forwarding policy for the surface's input-keyed STREAMING members
@@ -88,13 +85,12 @@ export interface ReServeSurfaceOptions<
    *  classification W1 pinned. Every stream / event must be classified or the
    *  assembly fails loud (no silent-skip default). */
   policy: RelayPolicy;
-  /** The long-lived host session whose successive spawns are mirrored. Typed to
-   *  the {@link RemoteMirrorSession} ROLE — not a concrete class — so both the ssh
-   *  `HostSession` and kolu-server's `PadiBindingSession` plug in through the type
-   *  system (no `as unknown as HostSession` cast). `C` is the agent's contract; a
-   *  caller whose session value has type `HostSession<C>` (a class, not directly
-   *  `RemoteMirrorSession<C>`) pins `C` by passing it explicitly. */
-  session: RemoteMirrorSession<C>;
+  /** The long-lived session whose successive spawns are mirrored. Typed to the
+   *  loose {@link Session} ROLE — not a concrete class — so both an ssh `makeSession`
+   *  and kolu-server's padi arms plug in through the type system (no cast). The
+   *  mirror forwards the client structurally, so the contract type is not needed
+   *  here. */
+  session: Session;
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
 }
@@ -125,10 +121,9 @@ type ProcedureFn = (
  *  pathologically-behind consumer trips the drop-oldest eviction. */
 const RESERVE_CHANNEL_HIGH_WATER_MARK = 4096;
 
-export function reServeSurface<
-  S extends SurfaceSpec,
-  C extends AnyContractRouter,
->(opts: ReServeSurfaceOptions<S, C>): ReServedSurface<S> {
+export function reServeSurface<S extends SurfaceSpec>(
+  opts: ReServeSurfaceOptions<S>,
+): ReServedSurface<S> {
   const log = opts.log ?? (() => {});
   const { source, policy, session } = opts;
   const spec = source.spec;
@@ -181,7 +176,7 @@ export function reServeSurface<
   // Live-spawn holders the pump drives; the relays read `liveClient` and the
   // procedure forwarders read `liveProcedures`. `observableHolder` gives the
   // hold-open relays a `whenChanged` to rebind on.
-  const liveClient = observableHolder<AgentClient<C>>();
+  const liveClient = observableHolder<SurfaceClientLike>();
   const liveProcedures: LiveSpawnHolder<ProcedureForwarders<S>> = {
     current: null,
   };
@@ -294,7 +289,7 @@ export function reServeSurface<
     // The live client is an opaque oRPC proxy; reach its member namespace
     // structurally (`client.surface.<member>`), the shape every relay reads.
     const select = (
-      client: AgentClient<C>,
+      client: SurfaceClientLike,
     ): ForwardableStream<unknown, unknown> =>
       (
         client as unknown as {
@@ -469,7 +464,7 @@ export function reServeSurface<
     return { cells, collections } as unknown as SurfaceSink<S>;
   };
 
-  const done = pumpRemoteSurface<S, C>({
+  const done = pumpRemoteSurface<S>({
     source,
     session,
     makeSink,

@@ -3,19 +3,20 @@
  * recycle → reattach/park) must NOT lose the session — the zest regression.
  *
  * The trace from the deployed diagnostic build: the drain (`killAllTerminals` → the
- * PTYs exit → `emitTerminalsDirty`) arms the 500 ms autosave; it fires in the
+ * PTYs exit → `notifyDirty`) arms the 500 ms autosave; it fires in the
  * drain→park GAP (the daemon recycle), when the registry is empty AND no parked
  * entries exist yet — so the `hasParkedTerminals()` guard is inert and
  * `saveSession([])` nulls the just-captured session before park runs; park then reads
  * null and no-ops. Session lost.
  *
  * This drives the REAL `restartLocalDaemon` (via `__setEndpointForTest`, a fake
- * daemon standing in for the recycle) with the REAL `initSessionAutoSave` loop and
+ * daemon standing in for the recycle) with the REAL `AutosaveGate` loop and
  * the REAL `terminals:dirty` channel, and lets the autosave timer actually fire in
  * the drain→park window. The interleave is the whole bug, so it is pinned
  * explicitly (the recycle gap outlasts the 500 ms autosave).
  */
 
+import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
 import {
   afterAll,
   afterEach,
@@ -25,6 +26,11 @@ import {
   expect,
   it,
 } from "vitest";
+import {
+  cancelPendingAutosave,
+  initAutosaveGate,
+  unfreezeAutosave,
+} from "../autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -32,23 +38,17 @@ import {
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import {
-  cancelPendingAutosave,
-  getSavedSession,
-  initSessionAutoSave,
-  setSavedSession,
-  unfreezeSessionForRestart,
-} from "../session.ts";
+import { getSavedSession, saveSession, setSavedSession } from "../session.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
+  hasParkedTerminals,
   registerTerminal,
   terminalEntries,
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { snapshotSession } from "../terminals.ts";
-import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
 import type {
   AuthoredActiveTerminal,
   SavedActiveTerminal,
@@ -167,10 +167,14 @@ beforeAll(() => {
   // One real autosave loop for the whole file (module-level subscription). The
   // callback calls this every time it fires (for its diagnostic log), BEFORE the
   // freeze/parked guards, so recording here observes the fire regardless of skip.
-  initSessionAutoSave(() => {
-    const s = snapshotSession();
-    if (autosaveEvals) autosaveEvals.push(s.terminals.length);
-    return s;
+  initAutosaveGate({
+    snapshot: () => {
+      const s = snapshotSession();
+      if (autosaveEvals) autosaveEvals.push(s.terminals.length);
+      return s;
+    },
+    isRestorePending: hasParkedTerminals,
+    persist: saveSession,
   });
 });
 
@@ -184,7 +188,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  unfreezeSessionForRestart();
+  unfreezeAutosave();
   cancelPendingAutosave();
   await delay(0);
   for (const [id] of [...terminalEntries()]) unregisterTerminal(id);

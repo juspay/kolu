@@ -19,11 +19,12 @@ import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
+import type { SurfaceClientLike } from "@kolu/surface/project";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { AgentClient } from "./hostSession";
-import { HostSession } from "./hostSession";
 import { provisionAgent } from "./nixCopy";
+import { type Session, makeSession } from "./session";
+import { type AgentClient, sshConnector } from "./sshConnector";
 import { makeClientCursor } from "./waitForNextClient";
 
 vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
@@ -68,7 +69,7 @@ function flakyChild(liveMs: number) {
 }
 
 describe("reconnect bridge loop", () => {
-  let session: HostSession<typeof contract>;
+  let session: Session<AgentClient<typeof contract>>;
 
   beforeEach(() => {
     vi.mocked(provisionAgent).mockResolvedValue({
@@ -83,11 +84,14 @@ describe("reconnect bridge loop", () => {
   });
 
   it("does not busy-spin after a connected link drops", async () => {
-    session = new HostSession<typeof contract>({
-      host: "testhost",
-      resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
-      binary: "agent",
+    session = makeSession<AgentClient<typeof contract>>({
+      connectOnce: sshConnector<typeof contract>({
+        host: "testhost",
+        binary: "agent",
+        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+      }),
       reconnectDelayMs: 50,
+      label: "testhost",
     });
     session.pin().catch(() => {});
 
@@ -95,11 +99,15 @@ describe("reconnect bridge loop", () => {
     // the exact shape a real consumer writes. If the fix regressed (comparing
     // the thenable client instead of the clientPromise), `next()` would
     // resolve every iteration and the count would explode into the thousands.
-    const cursor = makeClientCursor<typeof contract>(session);
+    // The bare `{ tick }` test contract's client isn't surface-shaped, so the
+    // cursor (which consumes the loose `Session<SurfaceClientLike>` role) takes
+    // it via the role — runtime is untouched; only the client's static shape
+    // differs from a real surface's.
+    const cursor = makeClientCursor(session as unknown as Session);
     let iterations = 0;
     const deadline = Date.now() + 500;
     while (!session.isDestroyed() && Date.now() < deadline) {
-      let client: AgentClient<typeof contract>;
+      let client: SurfaceClientLike;
       try {
         client = await cursor.next();
       } catch {
@@ -131,17 +139,24 @@ describe("reconnect bridge loop", () => {
     // parked `next()` rejects and the pump loop can exit.
     vi.mocked(spawn).mockImplementation(() => flakyChild(40) as never);
 
-    session = new HostSession<typeof contract>({
-      host: "destroyhost",
-      resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
-      binary: "agent",
+    session = makeSession<AgentClient<typeof contract>>({
+      connectOnce: sshConnector<typeof contract>({
+        host: "destroyhost",
+        binary: "agent",
+        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+      }),
       // Long backoff so the second next() is genuinely parked, not racing a fast
       // respawn.
       reconnectDelayMs: 30_000,
+      label: "destroyhost",
     });
     session.pin().catch(() => {});
 
-    const cursor = makeClientCursor<typeof contract>(session);
+    // The bare `{ tick }` test contract's client isn't surface-shaped, so the
+    // cursor (which consumes the loose `Session<SurfaceClientLike>` role) takes
+    // it via the role — runtime is untouched; only the client's static shape
+    // differs from a real surface's.
+    const cursor = makeClientCursor(session as unknown as Session);
     // Advance past the first spawn's live client and drain its stream until the
     // link dies — exactly what a real pump loop does. This leaves the session in
     // backoff with `clientPromise` cleared.

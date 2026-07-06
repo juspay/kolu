@@ -3,71 +3,17 @@
  *
  * Owns the `session` key of the shared conf store. Writers publish on the
  * `session:changed` channel so the client's `session.get` live query stays
- * current. The autosave loop is driven by the `terminals:dirty` control-flow
- * channel (distinct from the `session:changed` *content* channel) — every
- * terminal/meta mutation fires `terminals:dirty`, this module throttles and
- * then persists.
+ * current. WHEN to auto-persist (the throttle, the restart freeze, the parked
+ * suppression) is the {@link AutosaveGate}'s concern (`autosaveGate.ts`), which
+ * drives `saveSession` from the `terminals:dirty` pulse; this module owns only the
+ * blob read/write, and the named writers cancel a pending autosave through the gate.
  */
 
+import { cancelPendingAutosave } from "./autosaveGate.ts";
 import { log } from "./log.ts";
 import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
-import { terminalsDirtyChannel } from "./publisher.ts";
 import { hasParkedTerminals } from "./terminal-registry.ts";
 import type { SavedSession, SavedTerminal } from "./vocab.ts";
-
-/** Pending autosave timer — declared at module top so `setSavedSession`
- *  and the surface cell's `store.set` adapter can cancel it (see comment
- *  on `cancelPendingAutosave` for the race). */
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-
-/** Cancel any pending `saveSession([])` autosave callback that's been
- *  armed by a recent `terminalsDirtyChannel` event but hasn't fired yet.
- *
- *  Called both from the named `setSavedSession` and from padi's session
- *  cell `onWrite` hook (see `servePadi.ts`). Wiring it into
- *  the cell adapter is what extends the cancel to the surface's
- *  `test__set` verb — which the e2e harness uses to seed scenarios,
- *  and which would otherwise be clobbered ~500 ms later by a stale
- *  killAll-time dirty event.
- *
- *  Harmless on the autosave loop's own write path: by the time the
- *  loop's callback reaches `cells.session.set`, the callback has
- *  already cleared `saveTimer` itself (see `initSessionAutoSave`), so
- *  this is a no-op. Subsequent dirty events received after the callback
- *  exits arm a fresh timer that is *not* cancelled — autosave keeps
- *  working as designed.
- *
- *  See `initSessionAutoSave` for the autosave loop, and the original
- *  e2e race description on `setSavedSession` (#320 / cycle 6 of
- *  `docs/flaky-tests-ralph-report-2.md`). */
-export function cancelPendingAutosave(): void {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = undefined;
-  }
-}
-
-/** True while a daemon RESTART is in its critical section (capture→drain→park). The
- *  autosave callback bails on it, so a `terminals:dirty` the drain fires (the PTYs
- *  exiting as the daemon is killed) can't arm a save that runs in the drain→park GAP
- *  — the window where the registry is empty AND no parked entries exist yet, so the
- *  `hasParkedTerminals()` guard is inert and `saveSession([])` would null the
- *  just-captured session before park runs (the zest restart-path clobber). Park then
- *  seeds the parked entries and `hasParkedTerminals()` takes over. */
-let restartInFlight = false;
-
-/** Freeze the autosave for a restart's critical section — set at `capture` (before
- *  the drain can arm anything), lifted after `park` (see `restartLocalDaemon`). */
-export function freezeSessionForRestart(): void {
-  restartInFlight = true;
-}
-
-/** Lift the restart freeze. Safe to call on the restart's success OR failure path;
- *  a failed restart pairs it with `cancelPendingAutosave` so a drain-armed timer
- *  can't clobber the captured session after the freeze lifts. */
-export function unfreezeSessionForRestart(): void {
-  restartInFlight = false;
-}
 
 /** Write the session blob (or clear it). The surface owns persist+publish. */
 function writeSession(next: SavedSession | null): void {
@@ -89,8 +35,8 @@ function writeSession(next: SavedSession | null): void {
 
 /** A live snapshot of the terminal set — the shape autosave persists. Exported
  *  so the producer (`snapshotSession` in terminals.ts) and the consumers
- *  (`saveSession` / `initSessionAutoSave`) reference one nominal contract
- *  instead of each re-spelling the inline shape. */
+ *  (`saveSession` / the `AutosaveGate`) reference one nominal contract instead of
+ *  each re-spelling the inline shape. */
 export interface SessionSnapshot {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
@@ -247,67 +193,4 @@ export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
     `session-trace capture: snapshot=${snapshot.terminals.length} → persisting`,
   );
   saveSession(snapshot);
-}
-
-// --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
-
-/** Wire up throttled session save from terminal change events. Called once at startup.
- *
- *  Leading-edge throttle: the first dirty event in a quiet period schedules
- *  a save 500ms later; subsequent events during that window are absorbed
- *  into the same upcoming snapshot (because `snapshot()` runs inside the
- *  callback, not at schedule time). A trailing-edge debounce — the obvious
- *  alternative — starves under bursty inputs: the Claude transcript
- *  watcher fires every 150ms while an agent is streaming, which would
- *  reset the timer indefinitely and the save would never fire.
- *
- *  Assumes `saveSession` is synchronous (it is — `writeSession` does sync
- *  `store.set` + sync publish). If anyone makes it async, add an in-flight
- *  guard so a new schedule can't race an unfinished write. */
-export function initSessionAutoSave(snapshot: () => SessionSnapshot): void {
-  void (async () => {
-    try {
-      for await (const _ of terminalsDirtyChannel.subscribe(undefined)) {
-        if (saveTimer) continue;
-        saveTimer = setTimeout(() => {
-          saveTimer = undefined;
-          // A restore PENDING (parked entries stand in for the saved session on
-          // disk) freezes the blob: `snapshot()` excludes parked records
-          // (`snapshotSession` skips them), so persisting it here would SHRINK the
-          // saved session — destroying the restore source of truth while the user
-          // still has terminal activity (creating/closing a fresh terminal, agent
-          // churn) that arms this autosave (PATH B). The parked entries ARE the
-          // "restore pending" marker; the blob stays put until `session.restore`
-          // consumes it or the user forfeits. Once resolved (no parked left), the
-          // autosave resumes and a genuine user close still clears normally.
-          const restart = restartInFlight;
-          const parked = hasParkedTerminals();
-          const snap = snapshot();
-          log.info(
-            { restart, parked, snapshot: snap.terminals.length },
-            `session-trace autosave: restart=${restart} parked=${parked} snapshot=${snap.terminals.length}`,
-          );
-          // A restart in flight freezes the blob across its drain→park gap (the
-          // registry is transiently empty there and no parked entries exist yet, so
-          // the parked guard is still inert). Checked FIRST — this is the window a
-          // plain `hasParkedTerminals()` misses.
-          if (restart) {
-            log.info({}, "session-trace autosave: skipped (restart in flight)");
-            return;
-          }
-          if (parked) {
-            log.info({}, "session-trace autosave: skipped (parked)");
-            return;
-          }
-          log.info(
-            { terminals: snap.terminals.length },
-            `session-trace autosave: writing ${snap.terminals.length}`,
-          );
-          saveSession(snap);
-        }, 500);
-      }
-    } catch (err) {
-      log.error({ err }, "session auto-save subscription failed");
-    }
-  })();
 }

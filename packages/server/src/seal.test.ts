@@ -65,7 +65,11 @@ const WEB_SHELL_FILES = [
   // the SAME `reServeSurface` seam. Web-shell code (it runs no terminal domain — it
   // re-serves a remote padi's), so it lives beside the shell, not in @kolu/padi.
   "remotePadiBinding",
-  // The pure `HostSessionState.connection` → koluSurface `padiLink` mapping — the web
+  // The padi SESSION shape both arms return (post-S9): a base `Session` from
+  // `makeSession` + the daemon-supervision members by spread — no `BoundPadi`, no
+  // wrapper class. Web-shell glue (the arms' shared session type + spread helper).
+  "padiSession",
+  // The pure `SessionState.connection` → koluSurface `padiLink` mapping — the web
   // shell's own honest view of its binding to padi (#1034), driven off the binding
   // session. Shell code (a projection of the binder's state onto kolu-server's OWN
   // surface), not terminal domain.

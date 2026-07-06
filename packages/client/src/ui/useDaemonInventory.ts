@@ -74,7 +74,8 @@ export function boundPadiBuildCommit(): string | null {
  *  drain-failure / link-failure), or `null` when converged/healthy. The Padi dialog reads
  *  it to show a degraded bind as a visible banner (running vs expected build, the reason) —
  *  the whole point of the dialog: nothing swallowed behind the scenes. Remote arm only; the
- *  local arm reports `null` today (see `BoundPadi.padiConvergence`). */
+ *  local arm's `convergence()` reports `null` today (see `ensurePadiBinding` in
+ *  `padiBinding.ts`). */
 export function boundPadiConvergence(): PadiConvergence | null {
   return sub.value()?.boundPadi?.convergence ?? null;
 }

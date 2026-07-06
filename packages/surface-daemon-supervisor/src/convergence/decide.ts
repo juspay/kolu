@@ -12,18 +12,18 @@
  *   - contract skew                 → the `onContractSkew` policy (recycle / refuse /
  *                                     ordered drain-newer-else-refuse).
  *   - contract compatible, then:
- *     - baked buildId `""`          → adopt (off-nix supervisor can't judge builds).
- *     - build ids match             → adopt (provably our build).
- *     - build ids differ OR running
- *       buildId absent `""`         → the `onBuildMismatch` policy. An absent running id
- *                                     is a MISMATCH: a survivor predating the field is by
- *                                     definition an older build than this nix supervisor.
+ *     - baked build `off-nix`      → adopt (off-nix supervisor can't judge builds).
+ *     - builds match               → adopt (provably our build).
+ *     - builds differ OR running
+ *       build `off-nix`            → the `onBuildMismatch` policy. An `off-nix` running
+ *                                     build is a MISMATCH: a survivor predating the field
+ *                                     is by definition an older build than this supervisor.
  *       - nudge-human               → report-mismatch (no supervisor action; caller surfaces).
  *       - drain-and-replace         → drain once (fenced); a spent fence → adopt.
  */
 
 import {
-  buildIdMatches,
+  buildsMatch,
   type ConvergenceIdentity,
   contractIsCompatible,
   contractIsNewer,
@@ -75,12 +75,13 @@ export function decide(
   }
 
   // ── Axis 2 — BUILD (match-only). Contract compatible → would adopt; check the build. ──
-  // Off-nix supervisor (no baked id) can't judge builds → adopt (never drain on build grounds).
-  if (baked.buildId === "") return { kind: "adopt" };
+  // Off-nix supervisor (no baked build) can't judge builds → adopt (never drain on build
+  // grounds). A typed `off-nix` KIND, not the `""` sentinel the null-free identity removes.
+  if (baked.build.kind === "off-nix") return { kind: "adopt" };
   // Provably the same build → adopt.
-  if (buildIdMatches(baked.buildId, running.buildId)) return { kind: "adopt" };
-  // Different id, OR an ABSENT running id (a survivor predating the field is, by definition,
-  // an older build than this nix supervisor) → a build MISMATCH.
+  if (buildsMatch(baked.build, running.build)) return { kind: "adopt" };
+  // Different id, OR an `off-nix` running build (a survivor predating the field is, by
+  // definition, an older build than this nix supervisor) → a build MISMATCH.
   switch (policy.onBuildMismatch.kind) {
     case "nudge-human":
       // No supervisor action — the caller surfaces the mismatch (the currency nudge).

@@ -21,6 +21,7 @@ import {
   converge,
   createBuildDrainFence,
   createEndpoint,
+  daemonBuild,
   type Endpoint,
   type EndpointStatus,
   outcomeAdopted,
@@ -191,7 +192,15 @@ export function __setEndpointForTest(
  *  Resolves whether or not the daemon came up — a boot failure reports `dead`
  *  via `onStatus` and leaves `ptyHostClient` throwing, so the server can still
  *  listen and the UI honestly shows the dead/degraded state (never a crash, never
- *  an import-time throw). */
+ *  an import-time throw).
+ *
+ *  This boot is NOT re-cast as a typed pipeline (unlike `runPadiDaemon`, L16): its
+ *  step order is already enforced by DATA FLOW, not prose. `ep = createEndpoint(...)`
+ *  produces the value `converge({ endpoint: ep })` and the `onAdopted`/`onNotAdopted`
+ *  branches consume — you cannot converge or reconcile before the endpoint exists,
+ *  because there is no `ep` to pass. There is no side-effecting "must run before X"
+ *  ordering here for a token to guard, so the same shape read as a latent hazard in
+ *  `runPadiDaemon` (setters with no data edge between them) is a non-issue here. */
 export async function ensureLocalEndpoint(opts: {
   /** The exact socket this endpoint's kaval serves and is dialed on — resolved by
    *  the caller. The padi process passes its digest-keyed
@@ -285,7 +294,7 @@ export async function ensureLocalEndpoint(opts: {
       endpoint: ep,
       baked: {
         contractVersion: PTY_HOST_CONTRACT_VERSION,
-        buildId: currentPtyHostIdentity().staleKey,
+        build: daemonBuild(currentPtyHostIdentity().staleKey),
       },
       probe: () => probeKavalForConvergence(socketPath),
       policy: KAVAL_CONVERGENCE_POLICY,

@@ -10,7 +10,7 @@ import {
   type WithConnection,
 } from "./connection";
 import { projectConnection } from "./connectionPipe";
-import type { HostSessionState } from "./hostSession";
+import type { SessionState } from "./session";
 
 /** A minimal base surface to mirror — one cell, one collection. */
 const baseSurface = defineSurface({
@@ -77,7 +77,7 @@ describe("connection cell", () => {
   });
 
   it("projectConnection keeps the browser-facing four, dropping the remote-only field", () => {
-    const s: HostSessionState = {
+    const s: SessionState = {
       connection: "failed",
       progressLines: ["[local] gave up", "[remote] kaval 3.2 vs pulam 3.3"],
       remoteProgressLines: ["kaval 3.2 vs pulam 3.3"],

@@ -52,56 +52,78 @@ driving a program in a PTY. Its headline use is handing a prompt to an agent
 (Claude Code, Codex, opencode) running in a terminal, so one agent can drive
 another: `create` it, `send` it a task, `snapshot` its reply, `send` the next.
 
-```sh
-kaval-tui send a1b2 "refactor the parser to use a lexer" --submit   # type AND submit
-```
-
-`--submit` delivers a prompt in **one command**: it writes the text (paste rules
-below unchanged), waits a fixed grace, **then** sends Enter. The grace is the
-point — an Enter written in the same breath as the text _raced Claude Code's
-bracketed-paste / debounced input and was silently dropped_, leaving the prompt
-staged while `send` reported success. `--submit` schedules the Enter *past* that
-debounce. Bare `--submit` waits **250ms**; `--submit=<ms>` tunes it. It's a blind
-delay — no screen read, no idle-detection — so it returns after the grace
-regardless of what the agent is doing: bare `--submit` in well under a second, a
-tuned `--submit=<ms>` after that many ms. `wait` + `snapshot` afterward to read
-the reply.
-
-Without `--submit`, `send` writes **exactly what you pass — the literal text and
-any `--key`s, with no implicit Enter** — the raw channel for menus, partial
-input, or control keys. To submit by hand, send Enter as its own later step:
-`send <id> --key Enter` (a separate follow-up lands after the text settles).
-`--submit` owns the Enter, so it is **mutually exclusive with `--key`**.
-
-**Multiline text is sent as one bracketed paste**, so it lands in the agent's
-input box as a block instead of submitting line-by-line (each `\n` would
-otherwise fire a half-written prompt). Paste is automatic for multiline or piped
-text; `--no-paste` forces literal, `--paste` forces a wrap. Text comes from the
-positional words or, when you give none, from **stdin** — so large prompts skip
-shell quoting:
+Submitting a **normal-size** prompt is **three commands**, because `send` writes
+exactly what you pass and bakes in no timing magic:
 
 ```sh
-cat prompt.md | kaval-tui send a1b2 --submit   # big prompt → paste, then submit
+kaval-tui send a1b2 "fix the failing test"   # 1. the text (no Enter)
+kaval-tui wait a1b2 --until idle:300         # 2. OBSERVE the TUI settle (a signal, not a sleep)
+kaval-tui send a1b2 --key Enter              # 3. submit
 ```
 
-`--key` sends named or control keys **after** the text, in order — the manual
-submit channel (`--key Enter`) and the channel for interrupting or steering an
-agent rather than typing at it:
+An Enter written in the same breath as the text _races Claude Code's
+bracketed-paste / debounced input and is silently dropped_, leaving the prompt
+staged while `send` reports success. `kaval` **cannot observe** when the TUI
+settled, so any grace baked into `send` would just be a race to tune. Instead the
+**caller** observes it: `wait --until idle:<ms>` (no output for `<ms>`) is the
+settle signal, and only then do you submit with a separate `send --key Enter`.
+`send "text" --key Enter` in **one** call is a **hard error** — the dropped-Enter
+trap is unspellable, not merely discouraged.
+
+> **⚠️ Large pastes don't reliably submit — a known-open limitation
+> ([#1702](https://github.com/juspay/kolu/issues/1702)).** The flow above is
+> verified for **normal-size** prompts. A **large** paste (multi-KB — enough that
+> Claude Code folds it into a `[Pasted text +N lines]` placeholder) does **not**
+> submit: `wait --until idle` fires (Claude finished *folding* the paste, not that
+> Enter submits it), yet the Enter leaves it **staged**, and the Enter write can
+> stall against the placeholder (the bounded write deadline turns that stall into a
+> loud failure, not a hang — but it still doesn't submit). For a big brief, write
+> it to a file and send a **short** prompt pointing the agent at it
+> (`send a1b2 "read /tmp/brief.md and do it"`), rather than pasting the whole thing.
+
+Step 2's `wait --until idle` fires cleanly only when the agent is **at the
+prompt** (awaiting input — the normal case; `idle:300` returns in well under a
+second). Against an agent that's **mid-turn and busy** (streaming output
+continuously) there's no idle gap, so `wait --until idle` never fires — **bound
+it** with `--timeout` and treat a timeout as _"target busy"_: send the Enter
+anyway (it lands in the agent's input buffer and submits when the turn ends), then
+`snapshot` to confirm.
+
+`send` writes **exactly what you pass — the literal text OR the `--key`s, never
+both, with no implicit Enter.** A send carries text or keys, not a mix.
+
+**`--file <path>`** reads the payload straight from a file — byte-exact, no shell
+in the loop, so backticks / `$(...)` in a prompt aren't mangled the way
+`"$(cat file)"` mangles them. Mutually exclusive with positional text and piped
+stdin. It doesn't change the wire bytes (still a bracketed paste) — it fixes the
+**shell** hazard **only**, and a *large* `--file` payload still hits the
+large-paste limitation above.
+
+**Multiline text, `--file`, and piped stdin are sent as one bracketed paste**, so
+they land in the agent's input box as a block instead of submitting line-by-line
+(each `\n` would otherwise fire a half-written prompt). `--no-paste` forces
+literal, `--paste` forces a wrap.
+
+`--key` sends named or control keys — how you submit (`--key Enter`, step 3
+above), and the channel for interrupting or steering an agent:
 
 ```sh
 kaval-tui send a1b2 --key Escape           # interrupt the agent mid-stream
 kaval-tui send a1b2 --key C-c              # SIGINT to whatever's running
-kaval-tui send a1b2 --key Enter            # submit a staged prompt by hand
+kaval-tui send a1b2 --key Enter            # submit a staged prompt
 ```
 
 Names: `Enter`, `Escape`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Home`, `End`,
 `Backspace`, `Space`; chords: `C-<char>` (control), `M-<char>` (meta/alt).
 
+A `send` whose write can't complete — the target isn't draining its input (a
+program that stopped reading stdin) — **fails loud in seconds**, naming the
+stalled terminal, instead of hanging forever.
+
 `send` is **blind** — it writes whether or not the program is ready for input —
 so pair it with `snapshot` to look before (or after) you write. `--json` prints
-`{ id, bytes, paste, keys }` for scripts (plus `submitted` + `graceMs` under
-`--submit`); the human one-line confirmation goes to stderr, so stdout stays
-empty unless you ask for JSON.
+`{ id, bytes, paste, keys }` for scripts; the human one-line confirmation goes to
+stderr, so stdout stays empty unless you ask for JSON.
 
 ## Waiting for a turn to end
 
@@ -113,7 +135,9 @@ agent went quiet" is exact and works the same for `claude` / `codex` / `grok` /
 `opencode`:
 
 ```sh
-kaval-tui send a1b2 "refactor the parser" --submit
+kaval-tui send a1b2 "refactor the parser"               # the text
+kaval-tui wait a1b2 --until idle:300                    # observe the settle
+kaval-tui send a1b2 --key Enter                         # submit
 kaval-tui wait a1b2 --until idle:800 --timeout 600000   # block until the turn ends
 kaval-tui snapshot a1b2 --viewport                      # read the reply
 ```

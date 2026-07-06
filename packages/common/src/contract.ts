@@ -22,12 +22,12 @@ import { surfaces } from "./surface";
 
 // ── Raw oRPC procedure I/O schemas ────────────────────────────────────
 
-export const ServerIdentitySchema = z.object({
+export const PwaIdentitySchema = z.object({
   hostname: z.string(),
   name: z.string(),
   themeColor: z.string(),
 });
-export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
+export type PwaIdentity = z.infer<typeof PwaIdentitySchema>;
 
 // The `processId` (restart axis) and `commit` (build-identity / skew axis) that
 // used to ride this probe now live on the surface, owned by @kolu/surface-app:
@@ -38,7 +38,7 @@ export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
 // per-host BRANDING the shell needs synchronously at boot (document title,
 // watermark, PWA theme).
 export const ServerInfoSchema = z.object({
-  identity: ServerIdentitySchema,
+  identity: PwaIdentitySchema,
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 

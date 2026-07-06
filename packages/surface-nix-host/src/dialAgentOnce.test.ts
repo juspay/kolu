@@ -1,16 +1,17 @@
 /**
  * Unit tests for `dialAgentOnce` — the one-shot CLI dial composition. No ssh, no
- * nix: `HostSession` (the ssh/provision machinery) and `resolveSystem` (the arch
- * probe) are mocked, so the test proves the composition the primitive owns:
+ * nix: `makeSession` (the reconnect loop) + `sshConnector` (the ssh/provision
+ * transport) and `resolveSystem` (the arch probe) are mocked, so the test proves the
+ * composition the primitive owns:
  *
  *   - eager drv-map parse + shape guard (missing / non-string-valued / array),
  *     thrown synchronously BEFORE a session is constructed,
  *   - the deferred resolver: arch probe → map lookup → "no <noun> derivation
- *     baked" error,
+ *     baked" error (now handed to `sshConnector` as `resolveDrvPath`),
  *   - the pin → probe → markConnected → leak-safe-destroy lifecycle,
- *   - per-dial session isolation: each dial constructs its OWN unpooled
- *     `HostSession`, so repeated and concurrent same-host/binary dials never
- *     share state or cross-dispose (the F1 regression).
+ *   - per-dial session isolation: each dial builds its OWN `makeSession`
+ *     (no shared pool — S10 deleted it), so repeated and concurrent same-host/binary
+ *     dials never share state or cross-dispose (the F1 regression).
  *
  * The CLI wrappers (kaval-tui / pulam-tui) supply only their binary, env-var
  * name + value, drvNoun, fatalPrefix, and probe; those thin seams are tested in
@@ -19,14 +20,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  pin: vi.fn(),
   markConnected: vi.fn(),
   destroy: vi.fn(),
   resolveSystem: vi.fn(),
-  // `dialAgentOnce` constructs an UNPOOLED `new HostSession(...)` per dial (see
-  // its F1 comment), so the mock is the constructor, not the pool getter. Each
-  // `new` call records its `opts` and returns a fresh fake instance.
-  HostSession: vi.fn(),
+  // `dialAgentOnce` composes `makeSession({ connectOnce: sshConnector(opts) })` per
+  // dial (S10 deleted the pool). `sshConnector` captures its transport opts (host /
+  // binary / extraArgs / resolveDrvPath); `makeSession` mints a fresh fake session.
+  sshConnector: vi.fn(),
+  makeSession: vi.fn(),
   // Every fake session instance handed out, in construction order — lets the
   // repeated/concurrent-dial tests assert each dial gets its OWN session.
   sessions: [] as Array<{
@@ -35,9 +36,11 @@ const h = vi.hoisted(() => ({
     markConnected: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
   }>,
-  // What `session.current()` returns — the failure-surfacing path reads it on a
-  // dial rejection. Default: a benign "connecting" state (no agent-quit), so the
-  // raw probe error is preserved; a test can swap in a `"remote"` quit + stderr.
+  // The `SessionState` the fake session's `onState` delivers — the failure-surfacing
+  // path reads `remoteProgressLines` off it (via a live `onState` mirror; the role
+  // has no synchronous `current()` snapshot). Default: a benign "connecting" state
+  // (no agent-quit), so the raw probe error is preserved; a test swaps in a stderr
+  // tail.
   state: {
     connection: "connecting",
     progressLines: [] as string[],
@@ -48,35 +51,51 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("./arch", () => ({ resolveSystem: h.resolveSystem }));
-vi.mock("./hostSession", () => ({ HostSession: h.HostSession }));
+vi.mock("./session", () => ({ makeSession: h.makeSession }));
+vi.mock("./sshConnector", () => ({ sshConnector: h.sshConnector }));
 
 import { dialAgentOnce } from "./dialAgentOnce";
 
-/** Make `new HostSession(opts)` mint a fresh fake whose `pin()` resolves to
- *  `client`, recording its `opts` so tests can assert per-dial isolation. The
- *  default-export `pin`/`markConnected`/`destroy` mocks alias the LATEST
- *  instance for the single-dial tests; `h.sessions` holds them all. */
+/** Wire the mocks: `sshConnector(opts)` records its transport opts and returns a
+ *  dummy connector; `makeSession(opts)` mints a fresh fake session whose `pin()`
+ *  resolves to `client` and whose `onState` delivers `h.state`. The default-export
+ *  `markConnected`/`destroy` mocks alias the LATEST instance for the single-dial
+ *  tests; `h.sessions` holds them all. */
 function fakeSession(client: unknown) {
-  // A `function` (not an arrow) so the mock is `new`-constructable —
-  // `dialAgentOnce` does `new HostSession(...)`, and an arrow has no
-  // `[[Construct]]` slot. Returning an object makes that object the instance.
-  h.HostSession.mockImplementation(function (this: unknown, opts: unknown) {
+  h.sshConnector.mockImplementation((opts: unknown) => {
+    // The returned connector is never invoked (makeSession is mocked); it only has
+    // to be a value makeSession's `connectOnce` slot accepts.
+    const connector = async (): Promise<never> => {
+      throw new Error("mock connector should not run");
+    };
+    (connector as unknown as { opts: unknown }).opts = opts;
+    return connector;
+  });
+  h.makeSession.mockImplementation((opts: unknown) => {
     const session = {
       opts,
       pin: vi.fn().mockResolvedValue(client),
       markConnected: vi.fn(),
       destroy: vi.fn(),
-      onState: () => () => {},
-      current: () => h.state,
+      // snapshot-then-delta: fire the current state synchronously on subscribe (the
+      // real cell-backed `onState` does), so `dialAgentOnce`'s captured
+      // `latestRemoteLines` mirror is populated before the probe runs.
+      onState: (cb: (s: unknown) => void) => {
+        cb(h.state);
+        return () => {};
+      },
+      isDestroyed: () => false,
     };
     h.sessions.push(session);
-    h.pin = session.pin;
     h.markConnected = session.markConnected;
     h.destroy = session.destroy;
     return session;
   });
-  return { onConstruct: h.HostSession };
+  return { onConstruct: h.makeSession };
 }
+
+/** The transport opts `dialAgentOnce` hands to `sshConnector` for the first dial. */
+const sshOpts = () => h.sshConnector.mock.calls[0]?.[0];
 
 const VALID_MAP = JSON.stringify({
   "x86_64-linux": "/nix/store/aaa-agent.drv",
@@ -111,7 +130,7 @@ describe("dialAgentOnce: eager drv-map validation", () => {
     await expect(
       dialAgentOnce({ ...base, agentDrvsJson: undefined }),
     ).rejects.toThrow(/AGENT_DRVS_JSON is not set/);
-    expect(h.HostSession).not.toHaveBeenCalled();
+    expect(h.makeSession).not.toHaveBeenCalled();
   });
 
   it("names the caller's env var in the error, not a hardcoded literal", async () => {
@@ -128,7 +147,7 @@ describe("dialAgentOnce: eager drv-map validation", () => {
     await expect(
       dialAgentOnce({ ...base, agentDrvsJson: "{not json" }),
     ).rejects.toThrow(/AGENT_DRVS_JSON is not valid JSON/);
-    expect(h.HostSession).not.toHaveBeenCalled();
+    expect(h.makeSession).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed (non-string-valued) map", async () => {
@@ -138,7 +157,7 @@ describe("dialAgentOnce: eager drv-map validation", () => {
         agentDrvsJson: JSON.stringify({ "x86_64-linux": 7 }),
       }),
     ).rejects.toThrow(/must be a JSON object of \{ system: drvPath \} strings/);
-    expect(h.HostSession).not.toHaveBeenCalled();
+    expect(h.makeSession).not.toHaveBeenCalled();
   });
 
   it("rejects a JSON array (an object whose string values would slip the shape check)", async () => {
@@ -148,7 +167,7 @@ describe("dialAgentOnce: eager drv-map validation", () => {
         agentDrvsJson: JSON.stringify(["/nix/store/x.drv"]),
       }),
     ).rejects.toThrow(/must be a JSON object of \{ system: drvPath \} strings/);
-    expect(h.HostSession).not.toHaveBeenCalled();
+    expect(h.makeSession).not.toHaveBeenCalled();
   });
 });
 
@@ -168,11 +187,11 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       fatalPrefix: "agent:",
       probe: async () => undefined,
     });
-    const resolveDrvPath = h.HostSession.mock.calls[0]?.[0]?.resolveDrvPath;
+    const resolveDrvPath = sshOpts()?.resolveDrvPath;
     await expect(resolveDrvPath()).resolves.toBe("/nix/store/aaa-agent.drv");
   });
 
-  it("threads extraArgs to the session (the --kaval passthrough)", async () => {
+  it("threads extraArgs to the connector (the --kaval passthrough)", async () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
@@ -184,7 +203,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       probe: async () => undefined,
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
-    expect(h.HostSession.mock.calls[0]?.[0]).toMatchObject({
+    expect(sshOpts()).toMatchObject({
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
   });
@@ -200,7 +219,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       fatalPrefix: "pulam:",
       probe: async () => undefined,
     });
-    expect(h.HostSession.mock.calls[0]?.[0]?.extraArgs).toBeUndefined();
+    expect(sshOpts()?.extraArgs).toBeUndefined();
   });
 
   it("fails clearly when no derivation is baked for the host's system", async () => {
@@ -217,7 +236,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       fatalPrefix: "widget:",
       probe: async () => undefined,
     });
-    const resolveDrvPath = h.HostSession.mock.calls[0]?.[0]?.resolveDrvPath;
+    const resolveDrvPath = sshOpts()?.resolveDrvPath;
     // The drvNoun is interpolated into the error — not the env var name.
     await expect(resolveDrvPath()).rejects.toThrow(
       /no widget derivation baked for system=x86_64-linux/,
@@ -241,7 +260,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       probe,
     });
 
-    expect(h.HostSession).toHaveBeenCalledWith(
+    expect(h.sshConnector).toHaveBeenCalledWith(
       expect.objectContaining({ host: "nix@prod", binary: "agent" }),
     );
     expect(probe).toHaveBeenCalledWith(client);
@@ -274,11 +293,11 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
   it("surfaces the agent's own MULTI-LINE fatal block over the transport error when the agent quit", async () => {
     // The agent exited before serving (the documented "several kavals on the
     // host" ambiguity) → the probe rejects with a transport "stream closed"
-    // error, but the session captured the agent's stderr tail + a `"remote"`
-    // quit. dialAgentOnce must surface THAT — and the WHOLE block, not just the
-    // prefixed first line: pulam's ambiguity error lists each `--kaval <socket>`
-    // candidate the user needs to recover, and `forEachLine` split those onto
-    // their own `remoteProgressLines` entries (only the first carries `pulam:`).
+    // error, but the session captured the agent's stderr tail. dialAgentOnce must
+    // surface THAT — and the WHOLE block, not just the prefixed first line: pulam's
+    // ambiguity error lists each `--kaval <socket>` candidate the user needs to
+    // recover, and `forEachLine` split those onto their own `remoteProgressLines`
+    // entries (only the first carries `pulam:`).
     fakeSession({});
     h.state = {
       connection: "disconnected",
@@ -303,9 +322,6 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         "(e.g. pulam-tui --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
       ],
       lastError: "agent exited (code=1, signal=null)",
-      // null on purpose: the child-`exit` event that sets `failureCause` races
-      // the probe's rejection and may NOT have landed yet — the agent's stderr
-      // line is captured regardless, so surfacing must not gate on it.
       failureCause: null,
     };
     let msg = "";
@@ -375,8 +391,9 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
   });
 
   it("keeps the raw error for a transport fault (agent did not quit)", async () => {
-    // failureCause stays null (the default state) — a transport hiccup, not the
-    // agent exiting — so the original error is the better signal, not overridden.
+    // No agent stderr on `remoteProgressLines` (the default state) — a transport
+    // hiccup, not the agent exiting — so the original error is the better signal,
+    // not overridden.
     fakeSession({});
     await expect(
       dialAgentOnce({
@@ -395,11 +412,10 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
 });
 
 describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
-  // The F1 regression: `dialAgentOnce` builds a fresh `new HostSession(...)`
-  // rather than the pooled `getHostSession`. The pool keys only on
-  // `(host, binary)`, never evicts a destroyed session, and lets the first
-  // caller's opts win — so a one-shot dial sharing it could be handed a prior
-  // dial's destroyed/foreign session. These tests pin "one session per dial".
+  // The F1 regression: `dialAgentOnce` builds a fresh `makeSession(...)` per dial
+  // rather than a shared pool (S10 deleted the pool). Two dials of the same
+  // host/binary get two INDEPENDENT sessions, so one dial's `dispose()` never
+  // cross-destroys the other. These tests pin "one session per dial".
   const dialArgs = {
     host: "nix@prod",
     binary: "agent",
@@ -418,7 +434,7 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
     const second = await dialAgentOnce({ ...dialArgs });
 
     // Two distinct sessions were constructed — not one pooled, reused instance.
-    expect(h.HostSession).toHaveBeenCalledTimes(2);
+    expect(h.makeSession).toHaveBeenCalledTimes(2);
     expect(h.sessions).toHaveLength(2);
     expect(h.sessions[0]).not.toBe(h.sessions[1]);
     // Disposing the first destroyed only the first; the second is untouched and
@@ -440,7 +456,7 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
       dialAgentOnce({ ...dialArgs }),
     ]);
 
-    expect(h.HostSession).toHaveBeenCalledTimes(2);
+    expect(h.makeSession).toHaveBeenCalledTimes(2);
     expect(h.sessions).toHaveLength(2);
     expect(h.sessions[0]).not.toBe(h.sessions[1]);
 

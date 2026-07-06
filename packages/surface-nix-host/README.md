@@ -13,14 +13,22 @@ The reference consumer is [`packages/surface/example/remote-process-monitor/`](.
 ## What it gives you
 
 ```ts
-import { getHostSession, type HostSession } from "@kolu/surface-nix-host";
+import {
+  makeSession, sshConnector,
+  type Session, type AgentClient,
+} from "@kolu/surface-nix-host";
 import { contract } from "./your-surface";  // your typed @kolu/surface contract
 
-const session: HostSession<typeof contract> = getHostSession<typeof contract>({
-  host: "alice@bob.example",                 // any ssh target; "localhost" short-circuits
-  resolveDrvPath: () =>                       // resolve the agent's .drv for the *target*
-    Promise.resolve(process.env.MY_AGENT_DRV!),//   arch; called inside each spawn (see below)
-  binary: "my-agent",                        // exe name inside the realised closure
+// A "session over ssh" is `makeSession` (the transport-agnostic reconnect/backoff/
+// give-up/watchdog loop) plugged with `sshConnector` (the ssh transport). You OWN the
+// session you get — there is no shared pool; key your own map and tear it down yourself.
+const session: Session<AgentClient<typeof contract>> = makeSession({
+  connectOnce: sshConnector<typeof contract>({
+    host: "alice@bob.example",                 // any ssh target; "localhost" short-circuits
+    resolveDrvPath: () =>                       // resolve the agent's .drv for the *target*
+      Promise.resolve(process.env.MY_AGENT_DRV!),//   arch; called inside each spawn (see below)
+    binary: "my-agent",                        // exe name inside the realised closure
+  }),
 });
 
 // Subscribe to lifecycle state (snapshot-then-delta).
@@ -76,14 +84,14 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 
 | Export | Role |
 |---|---|
-| `HostSession<C>` | One ssh subprocess per `(host, binary)`. Ref-counted. State machine. Survives drops via `scheduleReconnect`. Snapshot-then-delta `onState`. Generic over the contract type `C`. |
-| `getHostSession<C>(opts)` | Pool lookup — repeated calls with the same `(host, binary)` return the same session (first call's `opts` win). A pooled session that's already been `destroy()`-ed is treated as **absent**: a fresh one is built and replaces it, so a remove-then-re-add of the same host (e.g. via `buildHostRegistry`) never hands back an inert, never-reconnecting session. |
-| `evictHostSession(host, binary)` | Drop a `(host, binary)` from the pool **without** destroying it — the caller owns the destroy. Pairs with `getHostSession`'s destroyed-as-absent guard; use it from a registry's `remove` path to free the key for a clean re-add. No-op for an unknown key. |
-| `dialAgentOnce<C>(opts)` | **One-shot CLI dial.** The composition every `--host` CLI needs but no single export owned: parse + validate the baked `{ system → drv }` env map (fail-fast, *before* any session), construct an **unpooled** `HostSession`, then `pin → probe → markConnected → return { client, dispose }` with the link already proven live. Caller brings only its volatile values — `binary`, the env-var name + value, a `drvNoun` for errors, the remote agent's exact stderr `fatalPrefix` (so a remote fatal surfaces verbatim; differs from `drvNoun` when the front writes e.g. `kaval --stdio:`), and a one-RPC `probe` closure. Unpooled by design: a one-shot dial is independent, so its `dispose()` tears down only its own session (no cross-dial sharing, no destroyed-session reuse). Used by `kaval-tui --host` and `pulam-tui --host`. |
-| `destroyAllSessions()` | Tear down every pooled session. Call on parent shutdown. |
+| `makeSession<C>(opts)` | **The reconnect-mirror session appliance.** The transport-agnostic ELECTRICITY, extracted once: ref-count (`pin`), exponential backoff, bounded give-up on *remote* faults, the connect + liveness watchdogs, `reconnect`/`recheck`, the snapshot-then-delta state cell, and the reserved `system.identity` poll. It owns none of the transport — you hand it a `connectOnce` {@link `Connector`} (and an optional `admit` supervision hook). Returns the loose {@link `Session`} role (a plain object of closures — no wrapper class), so a daemon flavour is derived by object-spreading extra members onto it. You OWN each session (no shared pool); key your own map and `destroy()` them yourself. |
+| `sshConnector<C>(opts)` | **The ssh transport plug** for `makeSession`. Per dial it resolves the agent's `.drv` (typically an ssh arch probe via `resolveSystem`), Nix-provisions the closure onto the host, spawns `ssh <host> <binary> --stdio`, and wires the stdio byte channel to a contract-typed `AgentClient<C>` — handing the loop ONE `Connection`. A resolve/provision failure REJECTS with a classified `ConnectError` (`network` = retry forever, `remote` = bounded → terminal). This is the kept primitive; "a session over ssh" is just `makeSession({ connectOnce: sshConnector(opts) })`. |
+| `Connector<Client>` / `Connection<Client>` / `ConnectContext` / `ConnectError` | The transport SEAM. A `Connector` dials once and returns a `Connection` (`{ client, closed, isAlive, teardown }`) or rejects with a classified `ConnectError`; `makeSession` owns everything after. Supply your own connector for a non-ssh transport (kolu-server's local padi arm plugs a unix-socket endpoint connector), or `sshConnector` for the ssh case. `surfaceLiveProbe(client)` is the default `isAlive` (the reserved `system.live` round-trip). |
+| `Admit<Client>` / `AdmitVerdict` | The optional SUPERVISION hook run once per dial after the transport is up — a daemon session's convergence (contract-skew / build decision + drain). Returns `adopt` \| `refuse(state)` \| `replaced(reason)`. Omit it and every connection is adopted (the plain ssh/agent case). |
+| `dialAgentOnce<C>(opts)` | **One-shot CLI dial.** The composition every `--host` CLI needs but no single export owned: parse + validate the baked `{ system → drv }` env map (fail-fast, *before* any session), construct an unshared `makeSession` over `sshConnector`, then `pin → probe → markConnected → return { client, dispose }` with the link already proven live. Caller brings only its volatile values — `binary`, the env-var name + value, a `drvNoun` for errors, the remote agent's exact stderr `fatalPrefix` (so a remote fatal surfaces verbatim; differs from `drvNoun` when the front writes e.g. `kaval --stdio:`), and a one-RPC `probe` closure. Independent by design: a one-shot dial's `dispose()` tears down only its own session. Used by `kaval-tui --host` and `pulam-tui --host`. |
 | `provisionAgent({ host, drvPath, onProgress })` | Ship the `.drv` to the host (skipped for localhost), `nix-store --realise` it there, pin the output behind a per-agent GC root (`agentGcRootPath`), and return the realised output path. An already-provisioned remote skips the copy via a single realise-probe (the *warm fast-path* in [Why Nix](#why-nix-locked-in)). Progress lines forwarded to `onProgress`. |
 | `makeClientCursor(session)` | A stateful cursor over the session's spawn lifecycle: `cursor.next()` blocks until the session produces a *fresh* `AgentClient<C>` (post-reconnect). Owns the spawn-identity comparison so a consumer's reconnect-loop can't busy-spin. |
-| `pumpRemoteSurface(session, makeSink)` | **The reconnect-mirror loop, packaged.** Pins the session, loops over each successive client (`makeClientCursor`), and runs ONE `mirrorRemoteSurface` per spawn — folding the agent's frames into the caller's `makeSink` (built per spawn, so per-client state resets on reconnect) until the link dies, then awaits the next spawn. Optional `liveProcedures` / `liveClient` holders re-serve the mirror's procedures + input-parameterized streams; the optional `onLinkDown` hook fires on each link death (after the holders clear), the cue to drop any per-link local fold (e.g. a re-serve's awareness cache) so the next spawn rebuilds from the fresh snapshot rather than inherit a stale row across the reconnect. The consume-side companion to `getHostSession` — what every parent that re-serves a remote surface needs. |
+| `pumpRemoteSurface(session, makeSink)` | **The reconnect-mirror loop, packaged.** Pins the session, loops over each successive client (`makeClientCursor`), and runs ONE `mirrorRemoteSurface` per spawn — folding the agent's frames into the caller's `makeSink` (built per spawn, so per-client state resets on reconnect) until the link dies, then awaits the next spawn. Optional `liveProcedures` / `liveClient` holders re-serve the mirror's procedures + input-parameterized streams; the optional `onLinkDown` hook fires on each link death (after the holders clear), the cue to drop any per-link local fold (e.g. a re-serve's awareness cache) so the next spawn rebuilds from the fresh snapshot rather than inherit a stale row across the reconnect. The consume-side companion to `makeSession` — what every parent that re-serves a remote surface needs. |
 | `buildHostRegistry({ buildEntry })` | **The N-host fan-out.** A keyed `Map<host, { session, handler }>` a `?host=` upgrade dispatcher reads, with `add`/`remove`/`reconnect`/`recheckAll` + per-host socket eviction. The app supplies `buildEntry(host) → { session, handler }` (provisioning + its oRPC handler) and an optional `persist` hook; the registry is generic over the handler type (no `@orpc/server/ws` dep). |
 | `LiveSpawnHolder<T>` / `ObservableHolder<T>` (`observableHolder()`) | A `{ current: T \| null }` cell `pumpRemoteSurface` sets on each connect and clears on link death — the receptacle a re-serve forwards through (procedure stubs or the live client), so a forward in the gap between a dropped link and the next spawn fails honestly rather than relaying into a dead client. `ObservableHolder` adds `whenChanged(signal)` so a held-open forwarder can `await` the next spawn instead of polling. |
 | `reServeSurface({ source, policy, session })` | **The policy-driven re-serve, packaged.** Wires the whole three-hop re-serve for ONE binding — `mirroredSurface(source)` + `implementSurface` deps derived from the per-member forwarding `policy`, owning `pumpRemoteSurface` internally — and returns `{ surface, router, done }`. VALUE members (cells / collections / value pulses) are held open and REPLAYED across an upstream drop (no healthy-but-empty flash); DELTA members (byte / liveness streams) FAIL THROUGH (an upstream drop ends the downstream stream so the client re-subscribes end-to-end and a snapshot only ever leads a FRESH stream). Each call mints its OWN store set + router, so a parent fronting N hosts calls it once per host (through `buildHostRegistry.buildEntry`, keyed by the connection's declared host) — **per-binding scope, no module-level router shared across connections.** Generalizes pulam-web's retired `buildReServe`; its consumers are its own tests + the paired drishti run. |
@@ -92,14 +100,12 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 | `buildAgentCommand({ host, agentPath, binary })` | Compute the spawn argv for an agent binary on a given host. Used internally; exported for consumers that need to invoke the agent directly (e.g. one-shot subprocess tests). The argv ends ssh's option parsing with `--` before the host, so an attacker-influenced `host` (`-oProxyCommand=…`) can never be read by ssh as an *option* — it is always a destination. |
 | `resolveSystem(host)` | Ask `host`'s own Nix for `builtins.currentSystem` (`nix-instantiate --eval`, locally for `isLocalHost`, over `ssh` otherwise) and return the nix-system string. No `uname` table to maintain — the host's Nix is the source of truth, and it's already reachable since `provisionAgent` shells `nix-store` on the same PATH. Pairs with a per-system `.drv` map the caller builds at its own build time. **Memoized per host for the process** (a host's nix-system is stable), so repeat dials don't re-probe; a *failed* probe isn't cached, so a transient-unreachable host re-probes on the next dial. |
 | `runCapture(cmd, args, onProgress)`, `runProgress(cmd, args, onProgress)` | Spawn-and-await helpers with consistent close-event-flush semantics. Used internally by `provisionAgent` and `resolveSystem`; exported so consumers can avoid re-rolling the same event-wiring dance. |
-| `isLocalHost(host)`, `forEachLine(chunk, cb)` | Small utilities shared by `nixCopy` and `HostSession`. |
+| `isLocalHost(host)`, `forEachLine(chunk, cb)` | Small utilities shared by `nixCopy` and `sshConnector`. |
 
 ## Lifecycle invariants
 
 - **Snapshot-then-delta on `onState`**: a listener attached at any point sees the current state synchronously before any subsequent transitions. Matches the contract `@kolu/surface`'s `useCell` consumers expect.
-- **`pin()` vs `acquire()`**:
-  - `pin()` is the parent-lifetime intent — bumps `refCount` unconditionally so the session keeps trying to reconnect even if the first spawn fails.
-  - `acquire()` is scoped — bumps `refCount` only on successful spawn. A failed provisioning leaves `refCount` untouched (no `try/finally` leak in the caller).
+- **`pin()`**: the parent-lifetime intent — bumps `refCount` unconditionally so the session keeps trying to reconnect even if the first spawn fails, and resolves with the first client. A parent pins once for the session's life; `destroy()` drops it regardless of the count (server shutdown).
 - **Reconnect terminates only for *remote* faults**: each failure carries a `failureCause` (`"network"` | `"remote"`). A `"remote"` fault — the host answered but rejected the closure (e.g. the parent's user isn't in `trusted-users`) — is bounded by `MAX_CONSECUTIVE_FAILURES` (currently 5); after that the session surfaces the terminal `"failed"` state with the last error, so a misconfigured target fails loudly instead of spamming forever. A `"network"` fault — the host was unreachable (asleep, roaming between Wi-Fi networks, VPN down) — is **never** terminal: the session keeps retrying at the capped backoff indefinitely, so a laptop that closes its lid at home and reopens at a café reconnects on its own with no manual intervention.
 - **`recheck()` vs `reconnect()`**: `reconnect()` is the manual "Reconnect" button — it re-arms a `"failed"`/idle session and deliberately won't disturb a live link. `recheck()` is the wake / network-change companion: it force-cycles *whatever* is there, including a `"connected"` link, because after a sleep that link is often stale (the far end dropped the socket but the local ssh child won't notice until its keepalive fails ~30s later). A long-running parent calls `recheck()` on every session when it observes the machine wake or regain connectivity.
 - **Periodic liveness watchdog (default-on)**: while `connected`, the session probes the framework-reserved `system.live` round-trip (`@kolu/surface/liveness`) on an interval (default 15s / 10s timeout — the **shared `DEFAULT_HEARTBEAT_*` constants** from `@kolu/surface/heartbeat`, so the cadence is pinned to the browser leg by structure, not a comment). A probe that **times out** means the remote is *silently wedged* — the process is alive and the stdio link is open (so no EOF fires, and ssh keepalive won't notice for ~30s), but the agent has stopped answering — so the watchdog force-cycles the child through `recheck()`'s path. This catches exactly the case `recheck()` (which needs an external wake/network signal) and the child-exit handler (which needs an actual EOF) both miss. A probe **rejection** still counts as alive (the round-trip completed — an agent too old to answer `system.live` simply degrades to the prior no-watchdog behaviour), so only a true non-answer cycles. It is built on the SAME lifted `@kolu/surface/heartbeat` watchdog primitive the browser leg wraps — one algorithm, two legs, parameterized only on the live gate (`connected` here, `readyState === OPEN` in the browser) and the on-stale action (`recheck()` here, `ws.reconnect()` in the browser). Born at the first `markConnected` (so it never probes before the first RPC) and gated on `connected` (so the minutes-long copying/connecting window is never disturbed); opt out with `liveness: false`.
@@ -129,7 +135,7 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 
   When the link dies, the pumps' `for await` loops settle, the loop re-enters, and `cursor.next()` blocks until the session's `scheduleReconnect` produces a new client.
 
-- **Fan out over N hosts**: a parent that dials *many* hosts (a browser fleet view) keeps them in `buildHostRegistry` — one `{ session, handler }` per host, with `add`/`remove`/`reconnect`/`recheckAll` + socket eviction — and dispatches a `?host=<id>` WebSocket upgrade to the right handler. Each host's `buildEntry` wires `getHostSession` + a `pumpRemoteSurface`-fed re-serve + its oRPC handler. The two consumers today are [`drishti`](https://github.com/srid/drishti)'s process monitor and `@kolu/pulam-web`'s terminal fleet — both consume one shared copy rather than re-rolling the loop + registry.
+- **Fan out over N hosts**: a parent that dials *many* hosts (a browser fleet view) keeps them in `buildHostRegistry` — one `{ session, handler }` per host, with `add`/`remove`/`reconnect`/`recheckAll` + socket eviction — and dispatches a `?host=<id>` WebSocket upgrade to the right handler. Each host's `buildEntry` wires `makeSession({ connectOnce: sshConnector(...) })` + a `pumpRemoteSurface`-fed re-serve + its oRPC handler. The two consumers today are [`drishti`](https://github.com/srid/drishti)'s process monitor and `@kolu/pulam-web`'s terminal fleet — both consume one shared copy rather than re-rolling the loop + registry.
 
 - **Policy-driven re-serve (per-binding)**: when the source surface classifies each member with a forwarding **`policy`** (`value` = hold-open vs `delta` = fail-through), a re-serve reaches for **`reServeSurface`** instead of hand-wiring `implementSurface` deps + the pump per member. It routes each member by policy — value members held open and replayed across an upstream drop, delta byte streams failed through — and owns the pump, returning `{ surface, router, done }`. Fanning out is then `buildEntry(host) → reServeSurface(...)`: **one store set + router per bound host** (keyed by the connection's declared host), replacing a single module-level router shared by every connection. The assembly routes each member by reading its policy at **runtime** (`requirePolicy`) — a byte stream can't reach the hold-open path — while the direct-use relays make the same split a **compile error**; W1's set-equality contract test pins which members are `delta`. A cell READS from the mirror; a cell WRITE throws (the re-serve is read-only until W2.2 forwards writes), and a collection's departed-while-down keys are reconciled on the fresh snapshot (no stale rows, no empty flash). (`reServeSurface` generalizes pulam-web's retired per-host `buildReServe` + `forwardInputStream` into the shared stack, adding the per-member policy the old code lacked and correcting the hold-open forwarder to fail-through for byte streams.)
 
@@ -166,7 +172,7 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 The package solves the probe half of this — `resolveSystem(host)` asks the host's own Nix for `builtins.currentSystem` (locally or over `ssh`) and returns the nix-system string. The caller owns the policy of mapping that system to a derivation path; the typical shape is a JSON map baked at build time and looked up at runtime:
 
 ```ts
-import { resolveSystem, getHostSession } from "@kolu/surface-nix-host";
+import { resolveSystem, makeSession, sshConnector } from "@kolu/surface-nix-host";
 
 // drvBySystem usually comes from a build-time env var or flake attr:
 //   { "x86_64-linux": "/nix/store/…-my-agent.drv",
@@ -192,10 +198,12 @@ async function resolveDrv(host: string): Promise<string> {
 // fault that flows through `disconnected → backoff → disconnected → …`,
 // retrying indefinitely until it's reachable again (never terminal — see
 // the reconnect-terminates note above), instead of crashing the caller.
-const session = getHostSession({
-  host,
-  resolveDrvPath: () => resolveDrv(host),
-  binary: "my-agent",
+const session = makeSession({
+  connectOnce: sshConnector({
+    host,
+    resolveDrvPath: () => resolveDrv(host),
+    binary: "my-agent",
+  }),
 });
 ```
 

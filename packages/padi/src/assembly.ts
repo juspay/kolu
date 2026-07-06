@@ -14,14 +14,31 @@
  * INJECTED via `setDaemonProcessId` / `setSpawnServerVersion`, not imported.
  */
 
-// The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
-// inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
-export type { PairedDaemon } from "./pairedDaemon.ts";
+// ── session persistence ─────────────────────────────────────────────────
+export {
+  cancelPendingAutosave,
+  freezeAutosave,
+  initAutosaveGate,
+  unfreezeAutosave,
+} from "./autosaveGate.ts";
 // padi's staleKey read — the binder's build-convergence key (#1670). Re-exported
 // through this barrel (not a deep `@kolu/padi/buildId` import) so the binder honors
 // the package-boundary seal: on boot it compares its own baked `PADI_BUILD_ID`
 // against the running padi's `hello.buildId` and drains a same-contract build change.
 export { currentPadiBuildId } from "./buildId.ts";
+// ── host-daemon inventory scanner (the "Running daemons" leak diagnostic) ─
+// The ONE scanner both padi (its `hostInventory` member) and kolu-server's web shell
+// (its local-machine `daemonInventory.localScan` under a remote binding) reuse. Padi
+// owns the daemon domain, so the scan homes here; kolu-server imports it through this
+// barrel for its local arm (the package-boundary seal's allowed direction).
+export {
+  assembleKavalInventory,
+  assemblePadiInventory,
+  enumerateHostDaemons,
+  type HostDaemonScanDeps,
+  type KavalProbe,
+  probeKavalStatus,
+} from "./hostInventory.ts";
 // ── scratch / roots ─────────────────────────────────────────────────────
 export {
   ensureKoluRoot,
@@ -33,6 +50,9 @@ export {
   padiSurfaceCtx,
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
+// The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
+// inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
+export type { PairedDaemon } from "./pairedDaemon.ts";
 // The range-capable serve-dir read kolu-server's re-backed Hono preview route
 // calls — the STREAMING form (`previewFile`, bounded heap), the same read
 // `preview.read` serves through its base64 wire-wrapper (`readPreview`).
@@ -49,6 +69,22 @@ export {
   ptyHostClient,
   setSpawnServerVersion,
 } from "./ptyHost/index.ts";
+// ── publisher / surface ctx holder ──────────────────────────────────────
+export {
+  notifyDirty,
+  publisher,
+  publisherSize,
+  terminalsDirtyChannel,
+} from "./publisher.ts";
+// ── native serving (W1.R0) ──────────────────────────────────────────────
+export { buildPadiSurfaceDeps } from "./servePadi.ts";
+export {
+  clearSavedSession,
+  getSavedSession,
+  saveSession,
+  setSavedSession,
+  setSavedSessionFromSnapshot,
+} from "./session.ts";
 // ── padi process rendezvous (W2.2 binder) ───────────────────────────────
 // kolu-server's padi BINDER (`server/src/padiBinding.ts`) resolves the SAME
 // state-root → socket/gate paths padi computes for itself, so the supervisor and
@@ -56,8 +92,8 @@ export {
 // binder reaches the terminal domain only through @kolu/padi's published entry
 // points (the package-boundary seal), not a deep `@kolu/padi/stateRoot` import.
 export {
-  type PadiDaemon,
   discoverPadiDaemons,
+  type PadiDaemon,
   padiDigest,
   padiGatePath,
   padiKavalSocketPath,
@@ -66,38 +102,6 @@ export {
   padiStderrLogPath,
   resolvePadiStateRoot,
 } from "./stateRoot.ts";
-// ── publisher / surface ctx holder ──────────────────────────────────────
-export {
-  publisher,
-  publisherSize,
-  terminalsDirtyChannel,
-} from "./publisher.ts";
-
-// ── host-daemon inventory scanner (the "Running daemons" leak diagnostic) ─
-// The ONE scanner both padi (its `hostInventory` member) and kolu-server's web shell
-// (its local-machine `daemonInventory.localScan` under a remote binding) reuse. Padi
-// owns the daemon domain, so the scan homes here; kolu-server imports it through this
-// barrel for its local arm (the package-boundary seal's allowed direction).
-export {
-  type HostDaemonScanDeps,
-  type KavalProbe,
-  assembleKavalInventory,
-  assemblePadiInventory,
-  enumerateHostDaemons,
-  probeKavalStatus,
-} from "./hostInventory.ts";
-// ── native serving (W1.R0) ──────────────────────────────────────────────
-export { buildPadiSurfaceDeps } from "./servePadi.ts";
-// ── session persistence ─────────────────────────────────────────────────
-export {
-  cancelPendingAutosave,
-  clearSavedSession,
-  getSavedSession,
-  initSessionAutoSave,
-  saveSession,
-  setSavedSession,
-  setSavedSessionFromSnapshot,
-} from "./session.ts";
 export type {
   ActiveTerminalProcess,
   TerminalProcess,

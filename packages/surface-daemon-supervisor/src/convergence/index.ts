@@ -18,10 +18,13 @@
 // supervisor's zero-@kolu/surface boundary; see convergenceIdentity.ts) — re-exported
 // here so a consumer gets the whole kit from @kolu/surface-daemon-supervisor.
 export {
-  buildIdMatches,
-  type ConvergenceIdentity,
+  buildLabel,
+  buildsMatch,
   contractIsCompatible,
   contractIsNewer,
+  type ConvergenceIdentity,
+  type DaemonBuild,
+  daemonBuild,
 } from "@kolu/surface-daemon";
 export {
   type ConvergenceEndpoint,

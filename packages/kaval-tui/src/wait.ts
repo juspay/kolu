@@ -56,10 +56,10 @@ export function isValidTimerMs(ms: number): boolean {
 }
 
 /** A promise that resolves after `ms` — the package's one `setTimeout` wrapper,
- *  reused by `attach`'s reconnect backoff and `executeSendPlan`'s `--submit`
- *  grace. Lives beside {@link MAX_TIMER_MS}/{@link isValidTimerMs}, the module
- *  that already owns this package's timer vocabulary, so the sleep isn't
- *  re-typed at each call site. */
+ *  reused by `attach`'s reconnect backoff and the send acceptance test's
+ *  observed-settle wait. Lives beside {@link MAX_TIMER_MS}/{@link isValidTimerMs},
+ *  the module that already owns this package's timer vocabulary, so the sleep
+ *  isn't re-typed at each call site. */
 export const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
