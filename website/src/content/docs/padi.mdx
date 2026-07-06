@@ -1,0 +1,155 @@
+---
+title: Padi
+description: "padi — the per-host workspace daemon behind kolu. It remembers sessions, terminal records, repo context, restore state, and agent awareness while kaval owns the live PTYs underneath."
+koluHero:
+  eyebrow: "the workspace daemon & its CLI · alpha"
+  headline: |
+    the memory
+    under {kolu}.
+  image: /padi-logo.svg
+  imageAlt: "padi — the per-host workspace daemon"
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+<Aside type="caution" title="alpha">
+  `padi` and `padi-tui` are an early preview. Commands, flags, and output
+  formats **will change** before they're finalized for production use; don't
+  script against them yet.
+</Aside>
+
+`padi` is the per-host daemon that remembers the memory under kolu — what a Kolu
+workspace _is_: terminals, sessions, restore state, repo context, the code tree,
+git status, diffs, and agent awareness. It sits above [`kaval`](/kaval), which
+owns the live PTYs. The split is simple: kaval keeps shells alive; padi keeps the
+workspace legible.
+
+## Where it sits
+
+The browser talks to `kolu-server`, the server binds `padi`, and padi supervises
+its own `kaval`. Restart the web shell and padi still has the workspace. Restart
+padi and kaval still has the PTYs. The layers recover on different clocks because
+they own different state.
+
+<figure class="doc-figure">
+  <svg viewBox="0 0 760 324" role="img" aria-labelledby="pd-stack-title">
+    <title id="pd-stack-title">kolu-server binds padi, padi supervises kaval, and kaval owns PTYs. padi holds the workspace record while kaval holds the live shells.</title>
+    <defs>
+      <marker id="pd-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="pd-d-arrow"></path>
+      </marker>
+    </defs>
+
+    <text x="120" y="38" text-anchor="middle" class="pd-d-cap">FACE</text>
+    <text x="380" y="38" text-anchor="middle" class="pd-d-cap">WORKSPACE</text>
+    <text x="640" y="38" text-anchor="middle" class="pd-d-cap">PTY OWNER</text>
+
+    <rect x="44" y="64" width="152" height="104" rx="10" class="pd-d-box"></rect>
+    <image href="/favicon.svg" x="102" y="80" width="36" height="36"></image>
+    <text x="120" y="137" text-anchor="middle" class="pd-d-label">kolu</text>
+    <text x="120" y="157" text-anchor="middle" class="pd-d-sub">browser + server</text>
+
+    <rect x="284" y="52" width="192" height="136" rx="12" class="pd-d-daemon"></rect>
+    <image href="/padi-logo.svg" x="360" y="74" width="40" height="40"></image>
+    <text x="380" y="136" text-anchor="middle" class="pd-d-daemon-label">padi</text>
+    <text x="380" y="158" text-anchor="middle" class="pd-d-sub">session · registry · agents</text>
+    <text x="380" y="176" text-anchor="middle" class="pd-d-sub2">the workspace record</text>
+
+    <rect x="570" y="64" width="152" height="104" rx="10" class="pd-d-box"></rect>
+    <image href="/kaval-logo.svg" x="628" y="80" width="36" height="36"></image>
+    <text x="646" y="137" text-anchor="middle" class="pd-d-label">kaval</text>
+    <text x="646" y="157" text-anchor="middle" class="pd-d-sub">PTYs + screens</text>
+
+    <path d="M196,116 H276" class="pd-d-flow" marker-start="url(#pd-arrow)" marker-end="url(#pd-arrow)"></path>
+    <text x="236" y="105" text-anchor="middle" class="pd-d-tlabel">surface</text>
+    <path d="M476,116 H562" class="pd-d-flow" marker-start="url(#pd-arrow)" marker-end="url(#pd-arrow)"></path>
+    <text x="519" y="105" text-anchor="middle" class="pd-d-tlabel">unix socket</text>
+
+    <path d="M326,218 H434" class="pd-d-store"></path>
+    <path d="M380,188 V238" class="pd-d-store" marker-end="url(#pd-arrow)"></path>
+    <rect x="274" y="238" width="212" height="38" rx="7" class="pd-d-store-box"></rect>
+    <text x="380" y="262" text-anchor="middle" class="pd-d-store-text">state-root on disk</text>
+  </svg>
+</figure>
+
+## What padi knows
+
+kaval only knows terminals. padi is where terminal observations become a
+workspace: repo-aware, agent-aware, resumable, and readable from more than one
+face.
+
+<CardGrid>
+  <Card title="terminal registry">
+    which terminals exist, where they belong, and how to re-open them after the
+    web layer moves.
+  </Card>
+  <Card title="workspace memory">
+    the session record, activity feed, restore target, and durable state-root
+    for one host.
+  </Card>
+  <Card title="repo context">
+    repo, branch, pull request, checks, cwd, foreground command, file browsing,
+    git status, and diffs.
+  </Card>
+  <Card title="agent state">
+    whether a terminal's agent is working, waiting, or asking for you, folded
+    into one live surface.
+  </Card>
+</CardGrid>
+
+## The thin shell face — `padi-tui`
+
+`padi-tui` reads the same workspace surface kolu uses. Where `kaval-tui` shows
+what's running in each PTY, padi-tui shows what each terminal is in: repo, PR,
+checks, foreground command, live byte activity, and agent state.
+
+```sh
+padi-tui status
+padi-tui watch
+padi-tui wait a3f10000 --until awaiting,waiting
+padi-tui create -- claude
+```
+
+```text
+ID        REPO·BRANCH         PR        AGENT             FOREGROUND        IDLE
+a3f10000  kolu·feat/dial-ssh  #1412 ✓   claude · working  node              2s
+b7c20000  kolu·master         —         codex · waiting   codex             1m
+c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim              5m
+```
+
+**Usually no flag.** padi keys its socket by a digest of its state-root, so
+inside a kolu terminal `$PADI_SOCKET` makes `padi-tui` flag-less — an agent
+driving its siblings never guesses a path. Elsewhere it autodiscovers the running
+padi; `--socket <path>` or `--state-root <dir>` point it elsewhere. Remote padi
+over ssh is a later phase; today padi-tui is local.
+
+`wait <id> --until awaiting,waiting` blocks until a terminal's agent finishes its
+turn — a done-signal read from real padi state, not guessed from terminal
+silence. For a robust driver, wait in two phases: `--until working` for pickup,
+then `--until awaiting,waiting` for turn-end, so a stale previous-turn state
+cannot satisfy the wait early. `--timeout <ms>` fails loud (exit 2), a terminal
+that exits first exits 3, and `--json` prints `{ id, agent }`. The deeper design
+notes live in the [padi atlas note](https://kolu.dev/atlas/padi.html).
+
+| Command | What it does |
+| --- | --- |
+| `padi-tui status` · `--json` | Print a one-shot workspace snapshot: terminals, repos, agent state, foreground process, and recency. |
+| `padi-tui watch` · `--json` | Follow the workspace live, including state changes and activity indicators. |
+| `padi-tui wait <id> --until awaiting,waiting` · `--timeout <ms>` · `--json` | Block until an agent turn ends using padi's real agent-state fold, not a guess from terminal silence. |
+| `padi-tui create -- claude` · `--parent <id>` · `--worktree <branch>` · `--repo <path>` · `--json` | Create a kolu terminal from the shell: a new tile, a split tile, or a worktree'd agent that appears live on the canvas. |
+
+## Why it is not inside kolu-server
+
+The web server is a face: HTTP, assets, websocket transport. The workspace is a
+daemon: durable folder, terminal registry, session restore, agent awareness.
+Keeping those apart means a deploy can replace the web shell without making the
+workspace disappear.
+
+<CardGrid>
+  <LinkCard title="architecture" href="/architecture" description="the full stack and survival story" />
+  <LinkCard title="kaval" href="/kaval" description="the PTY daemon under padi" />
+  <LinkCard title="padi atlas note" href="https://kolu.dev/atlas/padi.html" description="design notes and phase history" />
+</CardGrid>

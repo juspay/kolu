@@ -87,9 +87,10 @@ const ogImageUrl = new URL(
     {/* FOUC-safe theme bootstrap — runs before any CSS/body paint. */}
     <script is:inline>
       (() => {
+        // Dark by default — kolu.dev is dark-first. Only a stored light choice
+        // flips it. Runs before any paint, so there's no flash.
         const stored = localStorage.getItem("theme");
-        const prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
-        const theme = stored ?? (prefersDark ? "dark" : "light");
+        const theme = stored === "light" ? "light" : "dark";
         document.documentElement.dataset.theme = theme;
       })();
     </script>

@@ -1,0 +1,82 @@
+---
+/**
+ * The docs layout — a small, hand-rolled shell built from the site's OWN
+ * components (BaseLayout for the head/header/footer, KoluHero for the title,
+ * plus a sidebar and an on-this-page TOC). The docs ARE the site's design
+ * language by construction: there is no docs framework and no theme-adaptation
+ * layer. A three-column grid on wide viewports (sidebar · content · TOC) that
+ * collapses gracefully as width drops.
+ */
+import type { MarkdownHeading } from "astro";
+import type { CollectionEntry } from "astro:content";
+import KoluHero from "../components/KoluHero.astro";
+import Sidebar from "../components/docs/Sidebar.astro";
+import Toc from "../components/docs/Toc.astro";
+import BaseLayout from "./BaseLayout.astro";
+import "../styles/docs.css";
+
+interface Props {
+  entry: CollectionEntry<"docs">;
+  headings: MarkdownHeading[];
+}
+const { entry, headings } = Astro.props;
+---
+
+<BaseLayout
+  title={entry.data.title}
+  description={entry.data.description}
+  ogImageRoute="site"
+>
+  <div class="docs-shell">
+    <aside class="docs-shell__sidebar">
+      <Sidebar current={entry.id} currentTitle={entry.data.title} />
+    </aside>
+    <article class="docs-shell__main" data-pagefind-body>
+      <KoluHero hero={entry.data.koluHero} title={entry.data.title} />
+      <div class="docs-prose"><slot /></div>
+    </article>
+    <div class="docs-shell__toc">
+      <Toc headings={headings} />
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .docs-shell {
+    max-width: 82rem;
+    margin: 0 auto;
+    padding: 2.75rem 1.5rem 5rem;
+    display: grid;
+    gap: 2.5rem;
+    grid-template-columns: 13rem minmax(0, 1fr) 14rem;
+    align-items: start;
+  }
+  .docs-shell__sidebar {
+    position: sticky;
+    top: 4.5rem;
+  }
+  .docs-shell__main {
+    min-width: 0;
+  }
+
+  /* Drop the TOC first (wide-but-not-huge), then fold the sidebar into its
+     mobile disclosure and go single-column. */
+  @media (max-width: 72rem) {
+    .docs-shell {
+      grid-template-columns: 13rem minmax(0, 1fr);
+    }
+    .docs-shell__toc {
+      display: none;
+    }
+  }
+  @media (max-width: 60rem) {
+    .docs-shell {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+      padding-top: 1.75rem;
+    }
+    .docs-shell__sidebar {
+      position: static;
+    }
+  }
+</style>

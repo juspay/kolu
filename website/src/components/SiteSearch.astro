@@ -1,0 +1,266 @@
+---
+/**
+ * Site-wide search — one control rendered in the shared <NavBar />, so the same
+ * search button appears in the header on every page. It drives the Pagefind UI
+ * (@pagefind/default-ui) directly, loading the /pagefind/ index the postbuild
+ * step emits (see package.json `build`). Pagefind indexes the docs pages (they
+ * carry data-pagefind-body on the DocsLayout content), so this searches the
+ * documentation from anywhere on the site.
+ *
+ * The trigger and modal are themed with the site's own --color-* tokens so the
+ * button sits flush with the mono nav and the toggle beside it.
+ */
+---
+
+<nav-search class="nav-search">
+  <button data-open-modal disabled aria-label="Search" aria-keyshortcuts="Control+K">
+    <svg class="nav-search-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.5"></circle>
+      <path d="m11 11 3.5 3.5" stroke-linecap="round"></path>
+    </svg>
+    <span class="nav-search-label">Search</span>
+    <kbd class="nav-search-kbd" style="display: none;"><kbd>Ctrl</kbd><kbd>K</kbd></kbd>
+  </button>
+
+  <dialog aria-label="Search">
+    <div class="nav-search-frame">
+      <button data-close-modal class="nav-search-cancel">Cancel</button>
+      {
+        import.meta.env.DEV ? (
+          <div class="nav-search-dev">
+            <p>Search is powered by an index built at production build time, so it is unavailable in dev. Run a production build (or preview) to try it.</p>
+          </div>
+        ) : (
+          <div class="nav-search-container">
+            <div id="nav-search__pagefind" />
+          </div>
+        )
+      }
+    </div>
+  </dialog>
+</nav-search>
+
+<script is:inline>
+  // Show ⌘ on Apple platforms — inlined so the shortcut hint never flashes wrong.
+  (() => {
+    const openBtn = document.querySelector("nav-search button[data-open-modal]");
+    const shortcut = openBtn?.querySelector("kbd");
+    if (!openBtn || !(shortcut instanceof HTMLElement)) return;
+    const platformKey = shortcut.querySelector("kbd");
+    if (platformKey && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
+      platformKey.textContent = "⌘";
+      openBtn.setAttribute("aria-keyshortcuts", "Meta+K");
+    }
+    shortcut.style.display = "";
+  })();
+</script>
+
+<script>
+  class NavSearch extends HTMLElement {
+    constructor() {
+      super();
+      const openBtn = this.querySelector<HTMLButtonElement>("button[data-open-modal]")!;
+      const closeBtn = this.querySelector<HTMLButtonElement>("button[data-close-modal]")!;
+      const dialog = this.querySelector("dialog")!;
+      const dialogFrame = this.querySelector(".nav-search-frame")!;
+
+      const onClick = (event: MouseEvent) => {
+        const isLink = "href" in (event.target || {});
+        if (
+          isLink ||
+          (document.body.contains(event.target as Node) &&
+            !dialogFrame.contains(event.target as Node))
+        ) {
+          closeModal();
+        }
+      };
+
+      const openModal = (event?: MouseEvent) => {
+        dialog.showModal();
+        document.body.toggleAttribute("data-search-modal-open", true);
+        this.querySelector("input")?.focus();
+        event?.stopPropagation();
+        window.addEventListener("click", onClick);
+      };
+      const closeModal = () => dialog.close();
+
+      openBtn.addEventListener("click", openModal);
+      openBtn.disabled = false;
+      closeBtn.addEventListener("click", closeModal);
+      dialog.addEventListener("close", () => {
+        document.body.toggleAttribute("data-search-modal-open", false);
+        window.removeEventListener("click", onClick);
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if ((e.metaKey === true || e.ctrlKey === true) && e.key === "k") {
+          dialog.open ? closeModal() : openModal();
+          e.preventDefault();
+        }
+      });
+
+      window.addEventListener("DOMContentLoaded", () => {
+        if (import.meta.env.DEV) return;
+        const onIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1));
+        onIdle(async () => {
+          // @ts-expect-error — no types for @pagefind/default-ui.
+          const { PagefindUI } = await import("@pagefind/default-ui");
+          new PagefindUI({
+            element: "#nav-search__pagefind",
+            baseUrl: import.meta.env.BASE_URL,
+            bundlePath: import.meta.env.BASE_URL.replace(/\/$/, "") + "/pagefind/",
+            showImages: false,
+            showSubResults: true,
+          });
+        });
+      });
+    }
+  }
+  customElements.define("nav-search", NavSearch);
+</script>
+
+<style>
+  .nav-search {
+    display: contents;
+  }
+  button[data-open-modal] {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 1.75rem;
+    padding: 0 0.4rem;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--color-ink-dim);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition:
+      color 0.15s,
+      border-color 0.15s,
+      background 0.15s;
+  }
+  button[data-open-modal]:hover {
+    color: var(--color-kolu-primary);
+    border-color: var(--color-rule);
+  }
+  .nav-search-icon {
+    width: 0.95rem;
+    height: 0.95rem;
+    flex: none;
+  }
+  /* Below `sm` the bar is tight — show just the magnifier, like the other
+     hide-on-mobile nav items. */
+  .nav-search-label,
+  .nav-search-kbd {
+    display: none;
+  }
+  @media (min-width: 40rem) {
+    button[data-open-modal] {
+      border-color: var(--color-rule);
+      background: var(--color-void-raised);
+    }
+    .nav-search-label {
+      display: inline;
+    }
+    .nav-search-kbd {
+      display: inline-flex;
+      gap: 0.15rem;
+      margin-inline-start: 0.15rem;
+      color: var(--color-ink-muted);
+    }
+    .nav-search-kbd kbd {
+      font-family: var(--font-mono);
+      font-size: 0.64rem;
+      line-height: 1;
+      padding: 0.1rem 0.25rem;
+      border-radius: 0.2rem;
+      background: var(--color-void-sunk);
+      border: 1px solid var(--color-rule);
+    }
+  }
+
+  dialog {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    background: var(--color-void-raised);
+    border: 1px solid var(--color-rule);
+    color: var(--color-ink);
+  }
+  dialog[open] {
+    display: flex;
+  }
+  dialog::backdrop {
+    background: color-mix(in srgb, var(--color-void-sunk) 70%, transparent);
+    -webkit-backdrop-filter: blur(0.25rem);
+    backdrop-filter: blur(0.25rem);
+  }
+  .nav-search-frame {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    gap: 1rem;
+    padding: 1rem;
+    overflow: auto;
+  }
+  .nav-search-cancel {
+    position: absolute;
+    z-index: 1;
+    align-self: flex-end;
+    padding: 0.25rem 0.5rem;
+    border: 0;
+    background: transparent;
+    color: var(--color-kolu-primary);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .nav-search-dev {
+    margin: auto;
+    max-width: 24rem;
+    text-align: center;
+    color: var(--color-ink-dim);
+    line-height: 1.6;
+  }
+  @media (min-width: 50rem) {
+    dialog {
+      margin: 4rem auto auto;
+      border-radius: 0.5rem;
+      width: 90%;
+      max-width: 40rem;
+      height: max-content;
+      min-height: 12rem;
+      max-height: calc(100% - 8rem);
+    }
+    .nav-search-cancel {
+      display: none;
+    }
+    .nav-search-frame {
+      padding: 1.5rem;
+    }
+  }
+</style>
+
+<style is:global>
+  @import url("@pagefind/default-ui/css/ui.css");
+
+  [data-search-modal-open] {
+    overflow: hidden;
+  }
+  /* Theme the Pagefind UI onto the kolu palette so results match the site. */
+  #nav-search__pagefind {
+    --pagefind-ui-primary: var(--color-kolu-primary);
+    --pagefind-ui-text: var(--color-ink-dim);
+    --pagefind-ui-background: var(--color-void-raised);
+    --pagefind-ui-border: var(--color-rule);
+    --pagefind-ui-tag: var(--color-void-sunk);
+    --pagefind-ui-border-width: 1px;
+    --pagefind-ui-font: var(--font-sans);
+  }
+</style>

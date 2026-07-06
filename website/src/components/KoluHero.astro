@@ -1,0 +1,109 @@
+---
+/**
+ * The docs page hero — used directly by DocsLayout.
+ *
+ * Two modes, both the site's design language:
+ *   - With a `hero` (the page's `koluHero` frontmatter): the full bespoke hero —
+ *     a mono eyebrow, a huge display headline with one accent-coloured word, and
+ *     an optional glowing product mark on the right (the shape /padi and /kaval
+ *     have always had).
+ *   - Without one: the same display headline styling driven by the page `title`.
+ *     So a brand-new .md dropped into the docs gets the look with zero per-page
+ *     work.
+ */
+interface Props {
+  hero?: {
+    eyebrow?: string;
+    headline: string;
+    image?: string;
+    imageAlt?: string;
+  };
+  title: string;
+}
+const { hero, title } = Astro.props;
+const headline = hero?.headline ?? title;
+
+// Split the headline into lines, and each line into plain vs. {accent} segments,
+// so the accent word renders in the kolu primary and multi-line headlines break
+// where the author wrote a newline.
+const lines = headline
+  .replace(/\n+$/, "")
+  .split("\n")
+  .map((line) =>
+    line
+      .split(/(\{[^}]+\})/)
+      .map((part) =>
+        part.startsWith("{") && part.endsWith("}")
+          ? { text: part.slice(1, -1), accent: true }
+          : { text: part, accent: false },
+      ),
+  );
+---
+
+<header class="kolu-hero">
+  <div class="kolu-hero__text">
+    {hero?.eyebrow && <p class="kolu-hero__eyebrow eyebrow">{hero.eyebrow}</p>}
+    <h1 class="kolu-hero__title display">
+      {
+        lines.map((line, i) => (
+          <>
+            {i > 0 && <br />}
+            {line.map((seg) =>
+              seg.accent ? (
+                <span class="kolu-hero__accent">{seg.text}</span>
+              ) : (
+                seg.text
+              ),
+            )}
+          </>
+        ))
+      }
+    </h1>
+  </div>
+  {
+    hero?.image && (
+      <img
+        class="kolu-hero__mark"
+        src={hero.image}
+        alt={hero.imageAlt ?? ""}
+        width="120"
+        height="120"
+        loading="eager"
+      />
+    )
+  }
+</header>
+
+<style>
+  .kolu-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+  .kolu-hero__eyebrow {
+    margin-bottom: 1rem;
+  }
+  .kolu-hero__title {
+    font-size: clamp(2.6rem, 1.6rem + 4vw, 4.2rem);
+    color: var(--color-ink);
+    margin: 0;
+  }
+  .kolu-hero__accent {
+    color: var(--color-kolu-primary);
+  }
+  .kolu-hero__mark {
+    flex: none;
+    width: clamp(5.5rem, 4rem + 6vw, 9rem);
+    height: auto;
+    filter: drop-shadow(
+      0 16px 38px color-mix(in srgb, var(--color-kolu-primary) 34%, transparent)
+    );
+  }
+  @media (max-width: 40rem) {
+    .kolu-hero__mark {
+      display: none;
+    }
+  }
+</style>
