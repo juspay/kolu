@@ -13,7 +13,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -22,8 +22,10 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
-import { afterEach, describe, expect, it } from "vitest";
+import { gatePid } from "@kolu/surface-daemon";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { runContractCorpus, spawnInput } from "./contractCorpus.testlib.ts";
+import { KAVAL_GATE_FILE } from "./socketPath.ts";
 import type { ptyHostSurface } from "./ptyHostSurface.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -92,26 +94,88 @@ interface Daemon {
 // own `dispose`. (An earlier version reaped a single global list after every
 // test in the file, which killed the corpus daemon after its first test.)
 const trackedChildren: ChildProcess[] = [];
-function track<T extends { child: ChildProcess } | ChildProcess>(x: T): T {
-  trackedChildren.push("child" in x ? x.child : x);
+// The rendezvous dirs of the daemon-only block's spawns — reaped BY GATE PID
+// after each of ITS tests (below). A child handle alone is not enough: the
+// tsx-CLI launcher guard forks a GRANDCHILD daemon, and SIGKILL-ing the tracked
+// wrapper never reaches the fork — only its gate pid does. (Same scoping as
+// `trackedChildren`: the corpus daemon is not tracked here.)
+const trackedRendezvous: string[] = [];
+// EVERY rendezvous any spawn (corpus + daemon-only) ever claimed — never spliced,
+// so the file-level `afterAll` can assert the whole suite left NO live kaval
+// behind and sweep every dir regardless of pass/fail.
+const allRendezvous: string[] = [];
+
+/** The rendezvous dir a socket lives in, and its gate file within it. */
+function rendezvousDir(socketPath: string): string {
+  return dirname(socketPath);
+}
+
+/** SIGKILL whatever pid holds this rendezvous' gate (the daemon, INCLUDING a
+ *  forked grandchild), then remove the dir. ESRCH-safe — a cleanly-exited daemon
+ *  left a dead/absent gate, so there's simply nothing to kill. */
+function reapRendezvous(dir: string): void {
+  const pid = gatePid(join(dir, KAVAL_GATE_FILE));
+  if (pid !== undefined) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Already gone — nothing to reap.
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+}
+
+/** Is a pid still alive? `kill(pid, 0)` sends no signal — it only probes. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function track<T extends Daemon | ChildProcess>(x: T): T {
+  if ("child" in x) {
+    trackedChildren.push(x.child);
+    trackedRendezvous.push(rendezvousDir(x.socketPath));
+  } else {
+    trackedChildren.push(x);
+  }
   return x;
 }
 
 /** Spawn `kaval --socket <path>` as a real process (under tsx). Does NOT wait
  *  for readiness — callers that need it call `waitForSocket`. NOT auto-tracked;
- *  the caller decides its lifetime (corpus dispose vs the daemon-only backstop). */
+ *  the caller decides its lifetime (corpus dispose vs the daemon-only backstop),
+ *  but its rendezvous IS recorded for the file-level leak sweep. */
 function launch(socketPath: string): Daemon {
   const child = spawnTs(KAVAL_BIN, ["--socket", socketPath], "ignore");
   const exited = new Promise<number | null>((res) => {
     child.on("exit", (code) => res(code));
   });
+  allRendezvous.push(rendezvousDir(socketPath));
   return {
     child,
     exited,
     socketPath,
-    gatePath: join(dirname(socketPath), "kaval.pid"),
+    gatePath: join(dirname(socketPath), KAVAL_GATE_FILE),
   };
 }
+
+// The whole-suite leak assertion (Part 3's pin): after every test has run and
+// every block has reaped its own, NO kaval the suite spawned may still hold a
+// gate. Compute the verdict first, then sweep every rendezvous unconditionally,
+// so a green OR a red run leaves the box clean (a failing test can't strand a
+// daemon), and finally assert.
+afterAll(() => {
+  const leaked = allRendezvous.filter((dir) => {
+    const pid = gatePid(join(dir, KAVAL_GATE_FILE));
+    return pid !== undefined && isAlive(pid);
+  });
+  for (const dir of allRendezvous.splice(0)) reapRendezvous(dir);
+  expect(leaked).toEqual([]);
+});
 
 function connect(socketPath: string): Promise<Conn> {
   return unixSocketLink<typeof ptyHostSurface.contract>({ socketPath });
@@ -138,7 +202,14 @@ function socketIn(): string {
   return join(mkdtempSync(join(tmpdir(), "kaval-e2e-")), "pty-host.sock");
 }
 
-const makeCwd = (): string => mkdtempSync(join(tmpdir(), "kaval-e2e-cwd-"));
+const makeCwd = (): string => {
+  // A cwd for a spawned shell — recorded in `allRendezvous` so the file-level
+  // sweep removes it too (it has no gate, so `reapRendezvous` just `rmSync`s it).
+  // Without this the harness leaked an empty `kaval-e2e-cwd-*` dir per spawn.
+  const dir = mkdtempSync(join(tmpdir(), "kaval-e2e-cwd-"));
+  allRendezvous.push(dir);
+  return dir;
+};
 
 /** Start a daemon and wait until it serves. */
 async function startDaemon(): Promise<Daemon> {
@@ -201,13 +272,16 @@ runContractCorpus({
 
 // ── Daemon-only scenarios ───────────────────────────────────────────────────
 describe("kaval daemon — process-boundary behaviour", () => {
-  // Backstop: SIGKILL any daemon/tui this block spawned that a failing test
-  // left alive. Scoped to THIS describe, so it never touches the corpus's
-  // shared daemon (which lives under a different describe's lifecycle).
+  // Backstop: reap every daemon/tui this block spawned that a failing test left
+  // alive — SIGKILL the tracked child handles AND reap each rendezvous by its
+  // gate pid (which reaches a forked GRANDCHILD the child handle can't). Runs
+  // after EVERY test, pass or fail, so a failing assertion can't strand a daemon.
+  // Scoped to THIS describe, so it never touches the corpus's shared daemon.
   afterEach(() => {
     for (const c of trackedChildren.splice(0)) {
       if (c.exitCode === null) c.kill("SIGKILL");
     }
+    for (const dir of trackedRendezvous.splice(0)) reapRendezvous(dir);
   });
 
   it("single-instance gate: a second kaval yields (exit 0); a SIGKILL'd one leaves a stale gate the next reaps", async () => {
@@ -263,7 +337,12 @@ describe("kaval daemon — process-boundary behaviour", () => {
     }> =>
       (async () => {
         const socketPath = socketIn();
-        const gatePath = join(dirname(socketPath), "kaval.pid");
+        const gatePath = join(dirname(socketPath), KAVAL_GATE_FILE);
+        // The tsx-CLI shape FORKS a grandchild daemon that outlives the tracked
+        // wrapper (the leak this guard demonstrates). Register the rendezvous so
+        // the afterEach reaps that fork BY GATE PID; the wrapper alone can't.
+        trackedRendezvous.push(rendezvousDir(socketPath));
+        allRendezvous.push(rendezvousDir(socketPath));
         const child = track(spawnFn(KAVAL_BIN, ["--socket", socketPath]));
         const exited = new Promise<number | null>((res) =>
           child.on("exit", (code) => res(code)),
