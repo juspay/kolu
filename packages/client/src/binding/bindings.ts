@@ -13,12 +13,12 @@
  * ACCESSORS (`padi()`, `app()`, …) that `wire.ts` re-exports, because the pool +
  * picker land here first and the full de-globalization is a mechanical follow-up.
  *
- * The MISROUTE GUARD lives here and is NOT deferred to L11: each binding carries a
- * unique id and a `retired` flag; switching retires the old binding (closing its
- * socket), so an in-flight or late call minted on the old host's client REJECTS
- * loudly (`assertLive`) rather than silently landing on the wrong — or a dead —
- * host. Because each host is a SEPARATE socket, a call can never cross to another
- * host's server handler; the guard makes a STALE reference fail fast too.
+ * The MISROUTE GUARD lives here and is NOT deferred to L11: its teeth are the
+ * `retired` flag plus separate sockets. Because each host is a SEPARATE socket, a
+ * call can never cross to another host's server handler by construction; switching
+ * retires the old binding (closing its socket), so an in-flight or late call minted
+ * on the old host's client REJECTS loudly (`assertLive`) rather than silently
+ * landing on a dead — or stale — host.
  */
 
 import { padiRpc } from "@kolu/padi/surface";
@@ -53,8 +53,6 @@ const wsBase = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
  *  socket, its own lifecycle (status), and the misroute-guard state. */
 export interface Binding {
   readonly host: string;
-  /** Unique per (re)creation — the misroute guard's identity. */
-  readonly id: number;
   readonly clients: ReturnType<
     typeof connectSurfaces<typeof contract, typeof surfacesWithPadi>
   >["clients"];
@@ -73,10 +71,7 @@ export interface Binding {
   dispose(): void;
 }
 
-let nextBindingId = 0;
-
 function makeBinding(targetHost: string): Binding {
-  const id = ++nextBindingId;
   // The `?host=` param the server dispatches on. The local host is passed
   // explicitly too, so a single-host tab's URL is `?host=local` — the server
   // treats a missing `?host` as its default, so this stays correct either way.
@@ -92,7 +87,6 @@ function makeBinding(targetHost: string): Binding {
   // socket), so this lifecycle opts its own out (`heartbeat: false`).
   const binding: Binding = {
     host: targetHost,
-    id,
     clients: conn.clients,
     link: conn.link,
     ws: conn.ws as unknown as WebSocket,
