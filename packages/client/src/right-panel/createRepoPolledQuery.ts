@@ -15,9 +15,11 @@
  */
 
 import { padiRpc } from "@kolu/padi/surface";
+// NOTE: the `padi` in `pulse: (padi) => …` below is the ACTIVE binding's client
+// passed by `createPolledQuery` — not the module-global wire proxy (removed here so
+// the pulse can't accidentally pin the boot host).
 import type { Subscription } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
-import { padi } from "../wire";
 import { createPolledQuery } from "./createPolledQuery";
 
 export function createRepoPolledQuery<
@@ -35,8 +37,7 @@ export function createRepoPolledQuery<
 }): Subscription<Result> {
   return createPolledQuery({
     ...config,
-    client: padi,
-    pulseProc: padiRpc(padi).surface.subscribeRepoChange.get,
+    pulse: (padi) => padiRpc(padi).surface.subscribeRepoChange.get,
     pulseInput: (i) => ({ repoPath: i.repoPath }),
   });
 }

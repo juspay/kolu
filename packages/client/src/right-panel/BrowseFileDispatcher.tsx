@@ -139,9 +139,8 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       repoPath: props.repoPath,
       filePath: props.filePath,
     }),
-    client: padi,
     pulseName: "Code tab: file content pulse",
-    pulseProc: padiRpc(padi).surface.subscribeFileChange.get,
+    pulse: (padi) => padiRpc(padi).surface.subscribeFileChange.get,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: async (i, signal): Promise<BrowseFileContent> => {
       if (isBinaryPreviewable(i.filePath)) {

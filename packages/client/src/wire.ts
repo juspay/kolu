@@ -61,15 +61,34 @@ function activeProxy<T extends object>(pick: (b: Binding) => T): T {
 
 type Clients = Binding["clients"];
 
-/** kolu's OWN surface client for the active host (`app.cells.preferences.use`,
- *  `.processMemory`, `app.health()` — folding the padi `connection` cell's
- *  readiness in by construction). */
-export const app: Clients["kolu"] = activeProxy((b) => b.clients.kolu);
+// B0 — the structural backstop. A persistent subscription (`.use()`) opened on the
+// module-global active-binding PROXY pins whichever host was active at the CALL site's
+// evaluation and never re-keys on a switch (the #1687 stale-binding class). Strip
+// `.use()` off the proxy exports at the TYPE level, so opening a sub outside
+// `bindingScoped` is a COMPILE ERROR, not a review catch — the compiler enumerates
+// every violating site. Subs go through `bindingScoped((b) => b.clients.X.<m>.use(...))`
+// (re-keys per host); mutations (`.patch`), one-shot `.get`, `padiRpc(...)`, and
+// `.health()` stay on the proxy (call-time correct — they resolve the active binding
+// each call and don't retain a subscription).
+type Subscriptionless<C> = {
+  [G in keyof C]: G extends "cells" | "collections" | "streams" | "events"
+    ? { [M in keyof C[G]]: Omit<C[G][M], "use"> }
+    : C[G];
+};
+
+/** kolu's OWN surface client for the active host (`app.cells.preferences.patch`,
+ *  `app.health()` — folding the padi `connection` cell's readiness in by
+ *  construction). `.use()` is stripped (B0) — open subs via `bindingScoped`. */
+export const app: Subscriptionless<Clients["kolu"]> = activeProxy(
+  (b) => b.clients.kolu,
+);
 
 /** The `@kolu/padi` surface client for the active host — the PRIMARY source of
- *  every terminal-derived member and every lifecycle/chrome/screen/fs/git/session
- *  procedure via `padiRpc(padi)`. */
-export const padi: Clients["padi"] = activeProxy((b) => b.clients.padi);
+ *  every lifecycle/chrome/screen/fs/git/session procedure via `padiRpc(padi)`.
+ *  `.use()` is stripped (B0) — open subs via `bindingScoped`. */
+export const padi: Subscriptionless<Clients["padi"]> = activeProxy(
+  (b) => b.clients.padi,
+);
 
 /** The FULL combined link for the active host — `client.server.info(...)`,
  *  `client.daemon.restart(...)`, `client.hosts.add(...)`. */

@@ -47,17 +47,20 @@ import {
   onCleanup,
 } from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
+import { activeBinding, activeHost } from "../binding/bindings";
 
 export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   /** The query input; `null` = idle (no pulse subscription, no query). */
   input: Accessor<Input | null>;
-  /** The padi surface client (`padi` from `wire.ts`) — its `.rawStream` drives
-   *  the pulse subscription and enrols it into padi's `health()`. */
-  client: SurfaceClient<PadiSurfaceSpec>;
   /** Health-registry label for the pulse subscription. */
   pulseName: string;
-  /** The raw pulse streaming procedure — `padiRpc(padi).surface.<pulse>.get`. */
-  pulseProc: StreamingProcedure<PulseInput, Pulse>;
+  /** Select the raw pulse streaming procedure from the ACTIVE host's padi client
+   *  (`(padi) => padiRpc(padi).surface.<pulse>.get`). Re-resolved on every host
+   *  switch — the pulse subscription follows the tab to the new host rather than
+   *  pinning the mount-time binding (B1/B2, the #1687 stale-binding class). */
+  pulse: (
+    padi: SurfaceClient<PadiSurfaceSpec>,
+  ) => StreamingProcedure<PulseInput, Pulse>;
   /** Derive the pulse key from the query input. Kept separate so the pulse
    *  subscribes to only the change signal it needs (a repo, or a repo+file). */
   pulseInput: (input: Input) => PulseInput;
@@ -96,16 +99,8 @@ function writeValue<T>(
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
 ): Subscription<Result> {
-  const {
-    input,
-    client,
-    pulseName,
-    pulseProc,
-    pulseInput,
-    query,
-    onError,
-    swallowError,
-  } = config;
+  const { input, pulseName, pulse, pulseInput, query, onError, swallowError } =
+    config;
 
   const [store, setStore] = createStore<{ v: Result | undefined }>({
     v: undefined,
@@ -127,7 +122,8 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     // Reconnect-window blip: `rawStream`'s STREAM_RETRY re-subscribes and the
     // pulse re-fires `{seq:0}`, so a genuine persistent failure re-surfaces on
     // the next LIVE read — swallow here to keep a spurious flash off reconnect.
-    if (!client.health().live) return;
+    // Read the ACTIVE binding's health (the pulse rides the active host's client).
+    if (!activeBinding().clients.padi.health().live) return;
     // Caller-classified benign transient (e.g. the viewed file was deleted).
     if (swallowError?.(err)) return;
     setError(err);
@@ -155,9 +151,14 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   onCleanup(() => controller?.abort());
 
   createEffect(
-    on(input, (i) => {
-      // Reset for the new input: blank + pending until the fresh read lands, and
-      // abort any in-flight read from the prior input. `rawStream`'s own
+    // Keyed on `input` AND `activeHost` (W4): a host switch re-runs this effect,
+    // disposing the old host's pulse subscription and re-opening it against the
+    // new host's client — the pulse follows the tab instead of pinning the
+    // mount-time binding (B1/B2). A switch blanks + goes pending like an input
+    // change, then the new host's first pulse frame requeries — correct.
+    on([input, activeHost], ([i]) => {
+      // Reset for the new input/host: blank + pending until the fresh read lands,
+      // and abort any in-flight read from the prior input. `rawStream`'s own
       // onCleanup (registered on this effect's run) tears down the previous
       // pulse subscription before this re-run.
       controller?.abort();
@@ -166,12 +167,14 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       setError(undefined);
       setPending(true);
       if (i === null) return;
-      // `rawStream` runs inside this effect's reactive owner (required) and
-      // auto-disposes on the next input change; `onItem` fires per pulse frame,
-      // each one a requery of the padi procedure.
-      const pulseSource = client.rawStream(
+      // Resolve the pulse client + procedure from the ACTIVE binding (never a
+      // captured mount-time reference). `rawStream` runs inside this effect's
+      // reactive owner (required) and auto-disposes on the next input/host change;
+      // `onItem` fires per pulse frame, each one a requery of the padi procedure.
+      const padi = activeBinding().clients.padi;
+      const pulseSource = padi.rawStream(
         pulseName,
-        pulseProc,
+        pulse(padi),
         pulseInput(i),
         {
           onItem: () => runQuery(i),

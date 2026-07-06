@@ -8,8 +8,21 @@
 import type { PadiSurfaceSpec } from "@kolu/padi/surface";
 import type { StreamingProcedure, SurfaceClient } from "@kolu/surface/solid";
 import { createRoot, createSignal } from "solid-js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createPolledQuery } from "./createPolledQuery";
+
+// createPolledQuery now reads the ACTIVE binding's padi client + `activeHost`
+// (W4 B1/B2 — the pulse follows the tab, never pinning the mount-time binding).
+// Mock the binding module: `activeBinding` yields whatever client the test
+// registered; `activeHost` is a settable accessor so a test can drive a switch.
+const store = vi.hoisted(() => ({
+  getClient: (() => undefined) as () => unknown,
+  getHost: (() => "local") as () => string,
+}));
+vi.mock("../binding/bindings", () => ({
+  activeBinding: () => ({ clients: { padi: store.getClient() } }),
+  activeHost: () => store.getHost(),
+}));
 
 async function flush(ticks = 4): Promise<void> {
   for (let i = 0; i < ticks; i++) {
@@ -23,6 +36,7 @@ async function flush(ticks = 4): Promise<void> {
 function fakeClient() {
   let onItem: (() => void) | null = null;
   let live = true;
+  let subscribed = 0;
   // The pulse stream's own error() — a reactive signal so a test can fail the
   // WATCHER (as opposed to the query) and assert how the primitive routes it.
   const [pulseErr, setPulseErr] = createSignal<Error | undefined>();
@@ -33,6 +47,7 @@ function fakeClient() {
       _input: unknown,
       opts: { onItem: (item: unknown) => void },
     ) => {
+      subscribed += 1;
       onItem = () => opts.onItem(undefined);
       return { pending: () => false, error: () => pulseErr() };
     },
@@ -44,10 +59,16 @@ function fakeClient() {
     { repoPath: string },
     { seq: number }
   >;
+  // Register this fake as the ACTIVE binding's padi client (what `activeBinding()`
+  // resolves to inside createPolledQuery). A switch test overrides `store.getClient`
+  // afterwards to make it host-reactive.
+  store.getClient = () => client;
   return {
     client,
     pulseProc,
     pulse: () => onItem?.(),
+    /** How many times this client's pulse stream was (re)opened. */
+    subscribed: () => subscribed,
     setLive: (v: boolean) => {
       live = v;
     },
@@ -61,12 +82,11 @@ describe("createPolledQuery", () => {
     const result = await new Promise<{ v: unknown; pending: boolean }>(
       (resolve) => {
         createRoot(async (dispose) => {
-          const { client, pulseProc, pulse } = fakeClient();
+          const { pulseProc, pulse } = fakeClient();
           const q = createPolledQuery({
             input: () => null,
-            client,
             pulseName: "test",
-            pulseProc,
+            pulse: () => pulseProc,
             pulseInput: (i: { repoPath: string }) => ({ repoPath: i.repoPath }),
             query: async () => {
               calls += 1;
@@ -91,12 +111,11 @@ describe("createPolledQuery", () => {
       (resolve) => {
         createRoot(async (dispose) => {
           let calls = 0;
-          const { client, pulseProc, pulse } = fakeClient();
+          const { pulseProc, pulse } = fakeClient();
           const q = createPolledQuery({
             input: () => ({ repoPath: "A" }),
-            client,
             pulseName: "test",
-            pulseProc,
+            pulse: () => pulseProc,
             pulseInput: (i) => ({ repoPath: i.repoPath }),
             query: async (i) => {
               calls += 1;
@@ -121,12 +140,11 @@ describe("createPolledQuery", () => {
       (resolve) => {
         createRoot(async (dispose) => {
           let calls = 0;
-          const { client, pulseProc, pulse } = fakeClient();
+          const { pulseProc, pulse } = fakeClient();
           const q = createPolledQuery({
             input: () => ({ repoPath: "A" }),
-            client,
             pulseName: "test",
-            pulseProc,
+            pulse: () => pulseProc,
             pulseInput: (i) => ({ repoPath: i.repoPath }),
             query: async (i) => {
               calls += 1;
@@ -158,12 +176,11 @@ describe("createPolledQuery", () => {
       createRoot(async (dispose) => {
         let calls = 0;
         const [repo, setRepo] = createSignal("A");
-        const { client, pulseProc, pulse } = fakeClient();
+        const { pulseProc, pulse } = fakeClient();
         const q = createPolledQuery({
           input: () => ({ repoPath: repo() }),
-          client,
           pulseName: "test",
-          pulseProc,
+          pulse: () => pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async (i) => {
             calls += 1;
@@ -194,12 +211,11 @@ describe("createPolledQuery", () => {
     const seen: string[] = [];
     const result = await new Promise<string>((resolve) => {
       createRoot(async (dispose) => {
-        const { client, pulseProc, pulse } = fakeClient();
+        const { pulseProc, pulse } = fakeClient();
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
-          client,
           pulseName: "test",
-          pulseProc,
+          pulse: () => pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {
             throw new Error("boom");
@@ -225,13 +241,12 @@ describe("createPolledQuery", () => {
     const seen: string[] = [];
     const errMsg = await new Promise<string | undefined>((resolve) => {
       createRoot(async (dispose) => {
-        const { client, pulseProc, pulse, setLive } = fakeClient();
+        const { pulseProc, pulse, setLive } = fakeClient();
         setLive(false);
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
-          client,
           pulseName: "test",
-          pulseProc,
+          pulse: () => pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {
             throw new Error("boom");
@@ -260,12 +275,11 @@ describe("createPolledQuery", () => {
       pending: boolean;
     }>((resolve) => {
       createRoot(async (dispose) => {
-        const { client, pulseProc, failPulse } = fakeClient();
+        const { pulseProc, failPulse } = fakeClient();
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
-          client,
           pulseName: "test",
-          pulseProc,
+          pulse: () => pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => "unused", // no frame fires; pending stays true until the pulse errors
           onError: (err) => seen.push(err.message),
@@ -295,12 +309,11 @@ describe("createPolledQuery", () => {
     }>((resolve) => {
       createRoot(async (dispose) => {
         let calls = 0;
-        const { client, pulseProc, pulse } = fakeClient();
+        const { pulseProc, pulse } = fakeClient();
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
-          client,
           pulseName: "test",
-          pulseProc,
+          pulse: () => pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {
             calls += 1;
@@ -322,5 +335,38 @@ describe("createPolledQuery", () => {
     expect(res.err).toBeUndefined(); // swallowed — no error panel
     expect(res.v).toBe("content"); // last content retained
     expect(res.seen).toEqual([]); // no toast
+  });
+
+  it("re-keys the pulse onto the NEW host's client after a switch (B1/B2)", async () => {
+    // The #1687 stale-binding class: before the fix the pulse (client.rawStream +
+    // the captured pulseProc) pinned the mount-time binding, so after a host switch
+    // the Code tab / preview pulsed the RETIRED host forever. The pulse must re-open
+    // against the ACTIVE host's client on a switch.
+    await new Promise<void>((resolve) => {
+      createRoot(async (dispose) => {
+        const [host, setHost] = createSignal("A");
+        const a = fakeClient();
+        const b = fakeClient();
+        // activeBinding + activeHost follow the switchable host signal.
+        store.getHost = host;
+        store.getClient = () => (host() === "B" ? b.client : a.client);
+        createPolledQuery({
+          input: () => ({ repoPath: "R" }),
+          pulseName: "test",
+          pulse: () => a.pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async (i) => i.repoPath,
+        });
+        await flush();
+        expect(a.subscribed()).toBe(1); // pulse opened on host A
+        expect(b.subscribed()).toBe(0);
+
+        setHost("B"); // THE SWITCH
+        await flush();
+        expect(b.subscribed()).toBe(1); // pulse RE-OPENED on host B — it followed the tab
+        dispose();
+        resolve();
+      });
+    });
   });
 });
