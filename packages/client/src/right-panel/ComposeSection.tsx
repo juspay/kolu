@@ -32,7 +32,14 @@ import { planComposeSend } from "./composeSend";
  *  `kolu:<feature>-by-terminal:<id>` shape the comments store uses. */
 const DRAFT_STORAGE_PREFIX = "kolu:compose-draft-by-terminal:";
 
-const ComposeSection: Component<{ terminalId: TerminalId }> = (props) => {
+const ComposeSection: Component<{
+  terminalId: TerminalId;
+  /** Is the target still an active (PTY-holding) terminal? Passed down from the
+   *  parent's `activeArm(meta())` — symmetric with `deliverScratchPaste`
+   *  receiving `isActive` as a dep — so `send` can re-check liveness AFTER the
+   *  write resolves and refuse to clear the draft on an unconfirmed delivery. */
+  isActive: () => boolean;
+}> = (props) => {
   // The draft IS a raw string, so `parse`/`serialize` are identity — there is
   // no shape to validate and an empty string is the natural never-drafted
   // fallback. `persistedPref`'s `parse` can never throw here, so the fallback
@@ -56,9 +63,18 @@ const ComposeSection: Component<{ terminalId: TerminalId }> = (props) => {
         id: props.terminalId,
         data,
       });
-      // Sent — clear the draft. The text now lives in the agent's (unsubmitted)
-      // input line, which the server-side PTY holds across reloads, so nothing
-      // is lost by dropping our copy.
+      // `sendInput` is `getActiveTerminal(id)?.handle.write(...)` server-side —
+      // the `?.` QUIET-DROPS (resolves, no throw) if the arm slept between the
+      // click and this resolve, so an awaited success does NOT confirm delivery.
+      // Re-check liveness and throw into the catch below, exactly as
+      // `deliverScratchPaste` does, so an unconfirmed write preserves the draft
+      // and toasts instead of erasing text that never arrived.
+      if (!props.isActive()) {
+        throw new Error("terminal no longer active — draft not sent");
+      }
+      // Confirmed live — clear the draft. The text now lives in the agent's
+      // (unsubmitted) input line, which the server-side PTY holds across
+      // reloads, so nothing is lost by dropping our copy.
       setDraft("");
     } catch (err) {
       toast.error(`Failed to send to terminal: ${(err as Error).message}`);
