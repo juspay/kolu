@@ -34,12 +34,14 @@ export function hostPickerCommand(): PaletteGroup {
       const active = activeHost();
       const recents = preferences().recentHosts;
       // Local always; the server default (if it's a remote host); then each recent.
-      // De-duped, first-seen order.
+      // De-duped, first-seen order (a `Set` preserves insertion order).
       const known = [
-        LOCAL_HOST,
-        ...(serverDefaultHost() !== LOCAL_HOST ? [serverDefaultHost()] : []),
-        ...recents,
-      ].filter((h, i, arr) => arr.indexOf(h) === i);
+        ...new Set([
+          LOCAL_HOST,
+          ...(serverDefaultHost() !== LOCAL_HOST ? [serverDefaultHost()] : []),
+          ...recents,
+        ]),
+      ];
 
       const hostAction = (host: string): PaletteItem => ({
         kind: "action",

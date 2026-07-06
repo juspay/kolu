@@ -36,9 +36,14 @@ import {
   type PreferencesPatch,
   type TerminalId,
 } from "kolu-common/surface";
-import { type Accessor, createRoot } from "solid-js";
+import { type Accessor, createEffect, createRoot, on } from "solid-js";
 import { toast } from "solid-sonner";
-import { activeBinding, type Binding, bindingScoped } from "./binding/bindings";
+import {
+  activeBinding,
+  activeHost,
+  type Binding,
+  bindingScoped,
+} from "./binding/bindings";
 
 // ── The active binding's sibling clients + link, as PROXIES ─────────────
 //
@@ -71,12 +76,16 @@ export const padi: Clients["padi"] = activeProxy((b) => b.clients.padi);
 export const client: Binding["link"] = activeProxy((b) => b.link);
 
 // Keep `window.__koluWs` pointed at the ACTIVE binding's socket for the reconnect
-// e2e (which drops/restores it). Re-points on every switch.
+// e2e (which drops/restores it). A plain re-pointing effect — this opens no
+// disposable subscription, so it needs none of `bindingScoped`'s per-switch
+// root/dispose machinery; it just re-assigns on every host change.
 createRoot(() => {
-  bindingScoped((b) => {
-    (window as Window & { __koluWs?: WebSocket }).__koluWs = b.ws;
-    return b.ws;
-  });
+  createEffect(
+    on(activeHost, () => {
+      (window as Window & { __koluWs?: WebSocket }).__koluWs =
+        activeBinding().ws;
+    }),
+  );
 });
 
 // ── App-lifetime singleton subscriptions, re-keyed per host ─────────────
@@ -134,15 +143,25 @@ createRoot(() => {
 export const preferences = (): Preferences =>
   _preferences().value() ?? DEFAULT_PREFERENCES;
 
-/** The preferences subscription handle — for `.pending()` / `.error()` boot gating.
- *  Forwards to the ACTIVE binding's sub so consumers keep the `Subscription` shape. */
-export const preferencesSub: Subscription<Preferences> = Object.assign(
-  () => _preferences().sub(),
-  {
-    pending: () => _preferences().sub.pending(),
-    error: () => _preferences().sub.error(),
-  },
-) as Subscription<Preferences>;
+/** Re-key a `Subscription` handle onto whatever the ACTIVE binding currently
+ *  exposes: `active()` yields the current host's sub each read, so `()`/`.pending`/
+ *  `.error` all follow a host switch. `map` reshapes the value (e.g. terminal ids →
+ *  `{ id }` rows). One helper so the three forwarders below aren't hand-repeated. */
+function reSub<T, U = T>(
+  active: Accessor<Subscription<T>>,
+  map: (v: T | undefined) => U = (v) => v as unknown as U,
+): Subscription<U> {
+  return Object.assign(() => map(active()()), {
+    pending: () => active().pending(),
+    error: () => active().error(),
+  }) as Subscription<U>;
+}
+
+/** The preferences subscription handle — for `.pending()` / `.error()` boot gating,
+ *  forwarding to the ACTIVE binding's sub so consumers keep the `Subscription` shape. */
+export const preferencesSub: Subscription<Preferences> = reSub(
+  () => _preferences().sub,
+);
 
 /** Patch user preferences; reports failures via `toast`. Pass `{ coalesce: true }`
  *  for high-frequency writes (panel-size drags). */
@@ -165,18 +184,13 @@ export const recentAgents = (): RecentAgent[] =>
 /** The persisted saved-session for the active host, or null when none / no yield. */
 export const savedSession = (): SavedSession | null =>
   _savedSession().value() ?? null;
-export const savedSessionSub: Subscription<SavedSession | null> = Object.assign(
-  () => _savedSession().sub(),
-  {
-    pending: () => _savedSession().sub.pending(),
-    error: () => _savedSession().sub.error(),
-  },
-) as Subscription<SavedSession | null>;
+export const savedSessionSub: Subscription<SavedSession | null> = reSub(
+  () => _savedSession().sub,
+);
 
 /** Subscription handle for the live terminal list — `{ id }` rows in server order,
  *  re-keyed per host. */
-export const terminalListSub: Subscription<{ id: TerminalId }[]> =
-  Object.assign(() => _terminalKeys()()?.map((id) => ({ id })), {
-    pending: () => _terminalKeys().pending(),
-    error: () => _terminalKeys().error(),
-  }) as Subscription<{ id: TerminalId }[]>;
+export const terminalListSub: Subscription<{ id: TerminalId }[]> = reSub(
+  _terminalKeys,
+  (ids) => ids?.map((id) => ({ id })) ?? [],
+);

@@ -187,7 +187,13 @@ export const serverDefaultHost = knownDefaultHost;
  *  switches freely. Called once after `server.info` resolves; never overrides a pick. */
 export function seedDefaultHost(defaultHost: string): void {
   if (defaultHost) setKnownDefaultHost(defaultHost);
-  if (!hasStoredHost() && activeHost() === LOCAL_HOST && defaultHost) {
+  // A fresh tab (nothing stored) still on local → fall to the server default.
+  // `readStoredHost() === undefined` IS the presence check, so no separate helper.
+  if (
+    readStoredHost() === undefined &&
+    activeHost() === LOCAL_HOST &&
+    defaultHost
+  ) {
     setActiveHostInternal(defaultHost);
   }
 }
@@ -203,13 +209,6 @@ export function seedDefaultHost(defaultHost: string): void {
 // across every tab on the origin, contradicting the per-tab model.
 
 const ACTIVE_HOST_KEY = "kolu-active-host";
-function hasStoredHost(): boolean {
-  try {
-    return sessionStorage.getItem(ACTIVE_HOST_KEY) !== null;
-  } catch {
-    return false;
-  }
-}
 function storeHost(h: string): void {
   try {
     sessionStorage.setItem(ACTIVE_HOST_KEY, h);
