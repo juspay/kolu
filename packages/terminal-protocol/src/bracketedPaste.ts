@@ -11,3 +11,13 @@
  */
 export const BRACKETED_PASTE_START = "\x1b[200~";
 export const BRACKETED_PASTE_END = "\x1b[201~";
+
+/**
+ * Wrap a string as ONE bracketed-paste block: `START + text + END`. The marker
+ * pair and their ordering are a single concept — this owns it so consumers
+ * don't each re-derive the sandwich (the CLI `send`, the rich client's own
+ * paste path, the compose box). WHETHER to wrap stays the caller's decision.
+ */
+export function wrapBracketedPaste(text: string): string {
+  return `${BRACKETED_PASTE_START}${text}${BRACKETED_PASTE_END}`;
+}

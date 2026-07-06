@@ -36,11 +36,10 @@
  * field of the result makes it visible, never silent.
  */
 import {
-  BRACKETED_PASTE_END,
-  BRACKETED_PASTE_START,
   controlByte,
   metaByte,
   NAMED_KEY_BYTES,
+  wrapBracketedPaste,
 } from "@kolu/terminal-protocol";
 
 /** The named keys `send` accepts, as one human string for the command help, the
@@ -289,9 +288,7 @@ export function planSend(content: SendContent): SendPlan {
   const paste =
     content.paste ?? (content.fromStream || content.text.includes("\n"));
 
-  const write = paste
-    ? `${BRACKETED_PASTE_START}${content.text}${BRACKETED_PASTE_END}`
-    : content.text;
+  const write = paste ? wrapBracketedPaste(content.text) : content.text;
 
   return { write, bytes: Buffer.byteLength(write, "utf8"), paste };
 }

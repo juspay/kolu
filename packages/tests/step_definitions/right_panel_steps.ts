@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { waitForBufferContains } from "../support/buffer.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 // ── Actions ──
@@ -45,7 +46,63 @@ When(
   },
 );
 
+When(
+  "I type {string} in the compose box",
+  async function (this: KoluWorld, text: string) {
+    const box = this.page.locator('[data-testid="compose-input"]');
+    await box.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // `.fill` sets the value and fires an `input` event, which drives the
+    // SolidJS `onInput` → `setDraft` (and its localStorage write).
+    await box.fill(text);
+    // Remember it so a follow-up step can assert it reached the terminal.
+    this.composedDraft = text;
+    await this.waitForFrame();
+  },
+);
+
+When("I click the compose Send button", async function (this: KoluWorld) {
+  const send = this.page.locator('[data-testid="compose-send"]');
+  await send.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await send.click();
+  await this.waitForFrame();
+});
+
 // ── Assertions ──
+
+Then(
+  "the terminal should contain the composed draft",
+  async function (this: KoluWorld) {
+    const draft = this.composedDraft;
+    assert.ok(
+      draft,
+      "No composed draft — was 'I type … in the compose box' called first?",
+    );
+    // The draft was inserted (not submitted), so it sits on the active
+    // terminal's current input line. `waitForBufferContains` polls the
+    // focused terminal's xterm buffer (timer-based, not rAF) until it carries
+    // the text — the send → PTY → attach-stream → xterm round-trip is async, so
+    // a bare snapshot would race the echo.
+    await waitForBufferContains(this.page, draft);
+  },
+);
+
+Then(
+  "the compose box should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    const box = this.page.locator('[data-testid="compose-input"]');
+    await box.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      ({ exp }) => {
+        const el = document.querySelector<HTMLTextAreaElement>(
+          '[data-testid="compose-input"]',
+        );
+        return el?.value === exp;
+      },
+      { exp: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 Then("the right panel should be visible", async function (this: KoluWorld) {
   // "Visible" means the tab content area exists — assert one of its
