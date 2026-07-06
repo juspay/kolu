@@ -120,15 +120,33 @@ function dedupe(hosts: readonly string[]): string[] {
   return [...new Set(hosts)];
 }
 
+/** A `hosts.remove` refused because the host is STRUCTURAL (the always-present local
+ *  host, or the server's default host, whose session backs the HTTP `/rpc` handler +
+ *  the samplers). Thrown so the RPC fails LOUD — the client toasts `.message` — instead
+ *  of the old silent no-op that resolved as if the removal succeeded. */
+export class UnremovableHostError extends Error {
+  constructor(
+    readonly host: string,
+    reason: string,
+  ) {
+    super(`cannot remove host "${host}": ${reason}`);
+    this.name = "UnremovableHostError";
+  }
+}
+
 export function buildHostPool(deps: HostPoolDeps): HostPool {
   const defaultHost = deps.bootHost ?? LOCAL_HOST;
-  // Only the DEFAULT host's mirror + router are ever read (the samplers + the
-  // single HTTP `/rpc/*` handler), so capture just those two — no per-host store
-  // to orphan on `registry.remove`. Set inside `buildEntry` when it runs for the
-  // default host (always present in `initialHosts`, so both are non-undefined by
-  // the time the pool is returned; index.ts fail-fast-guards that).
-  let defaultMirror: MirrorClient | undefined;
-  let defaultRouter: unknown;
+  // The per-host re-serve artifacts NOT owned by the registry (which holds only
+  // `{ session, handler, cells }`): each host's assembled oRPC router, and — for the
+  // DEFAULT host alone — the in-process mirror client the samplers read (a mirror for
+  // any other host is pure waste). `getMirror`/`getRouter` read THROUGH this map at call
+  // time keyed by `defaultHost`, rather than a boot-captured `let`: the registry stays
+  // the single source of truth for what's in the pool, and there is no stale const to go
+  // wrong if the default entry ever changed. `buildEntry` populates it; `remove` prunes.
+  const entryExtras = new Map<
+    string,
+    { router: unknown; mirror?: MirrorClient }
+  >();
 
   // Late-bound so the per-host routers' `hosts.add`/`remove` can reach the
   // registry that owns them (the entries are built DURING `buildHostRegistry`,
@@ -156,21 +174,30 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
       return p;
     },
     remove: async (host: string): Promise<void> => {
-      if (host === LOCAL_HOST) return; // never remove the local host.
-      // A3 — never remove the DEFAULT host either. `KOLU_PADI_HOST` may be remote,
-      // and its session/mirror/router are boot-captured by the HTTP `/rpc` handler +
-      // the memory/identity/inventory samplers (index.ts) — destroying it under those
-      // captures bricks the server permanently (no re-add heals a captured ref). The
-      // local guard above already covers the local-default case; this covers a remote
-      // default. Reachable both via the picker's forget list and the raw RPC.
-      if (host === defaultHost) return;
-      if (!registry.has(host)) return;
+      // A3 — the local host and the DEFAULT host are STRUCTURAL and can't be removed: the
+      // local host is always present; the default (`KOLU_PADI_HOST`, possibly remote)
+      // backs the HTTP `/rpc` handler + the samplers. REJECT loudly rather than the old
+      // silent no-op that resolved as if the removal succeeded — the picker filters both
+      // out of its forget list up front, but the raw RPC can still reach here and
+      // deserves an honest failure (the client toasts it).
+      if (host === LOCAL_HOST || host === defaultHost) {
+        throw new UnremovableHostError(
+          host,
+          host === LOCAL_HOST
+            ? "the local host is always present"
+            : "it is the server's default host",
+        );
+      }
+      if (!registry.has(host)) return; // idempotent — already gone.
       // Lifecycle log (retired) — the per-host padi binding is a long-lived,
       // add/remove-able resource; log its teardown in a greppable format.
       log.info({ host }, `hostPool: ${host} binding retired`);
       // `registry.remove` disposes the entry's `cells` (the per-host samplers) beside
       // destroying its session — the entry-scoped surface fragment's teardown.
       await registry.remove(host);
+      // Prune this host's re-serve artifacts (its router; a guest never has a mirror) so
+      // the call-time lookup map tracks pool membership exactly.
+      entryExtras.delete(host);
     },
   };
 
@@ -204,32 +231,55 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
       });
 
       // The pump must never float — it settles on a clean destroy or REJECTS on a
-      // terminal mirror fault. C2 — containment is scoped to the binding:
-      //  - the DEFAULT/local binding is load-bearing (the server is useless without
-      //    it), so its fault is fatal (fail-fast; the supervisor restarts clean);
-      //  - a GUEST host's fault must NOT take the whole server (and every other
-      //    device) down — W4 lets users add arbitrary hosts, so a divergent-build
-      //    adopt-loudly fault is a plausible per-guest event. Contain it: log at
-      //    error and RETIRE the binding from the pool (`hosts.remove`), so its `?host`
-      //    sockets close, the picker drops it, and each viewing tab falls back to
-      //    local (its reconnect is rejected 1008 → the client's fall-to-local guard).
+      // terminal mirror fault. C2 — containment is scoped to the binding, and the two
+      // STRUCTURAL hosts (which `hosts.remove` rejects) are handled without retiring:
+      //  - the DEFAULT binding is load-bearing (the samplers + HTTP `/rpc` arm are built
+      //    from it), so its terminal fault is fatal (fail-fast; the supervisor restarts
+      //    clean);
+      //  - the LOCAL binding, when it is NOT the default, is always in the pool but not
+      //    load-bearing (a remote default still serves) and not retirable — so its fault
+      //    is LOGGED and LEFT (a tab on local sees the degraded connection cell), never
+      //    a `hosts.remove(local)` (which would reject) and never a global exit;
+      //  - a GUEST host's fault must NOT take the whole server (and every other device)
+      //    down — W4 lets users add arbitrary hosts, so a divergent-build adopt-loudly
+      //    fault is a plausible per-guest event. Contain it: log at error and RETIRE the
+      //    binding from the pool (`hosts.remove`), so its `?host` sockets close, the
+      //    picker drops it, and each viewing tab falls back to local (its reconnect is
+      //    rejected 1008 → the client's fall-to-local guard).
       reServed.done
         .then(() =>
           log.info({ host }, "padi re-serve pump exited (session destroyed)"),
         )
         .catch((err) => {
-          if (host === defaultHost) {
-            log.fatal(
+          // A GUEST (neither the default nor the always-present local): contain it —
+          // retire the binding (no global exit). Ordered FIRST so the fatal
+          // `process.exit` (which TS types `never`, so nothing may follow it) is last.
+          if (host !== defaultHost && host !== LOCAL_HOST) {
+            log.error(
               { err, host },
-              "default-host padi re-serve pump died — binding is unrecoverable",
+              "guest-host padi re-serve pump died — retiring the binding (no global exit)",
             );
-            process.exit(1);
+            void hosts.remove(host);
+            return;
           }
-          log.error(
+          // The structural LOCAL binding when it is NOT the default: always in the pool,
+          // not load-bearing (a remote default still serves), not retirable
+          // (`hosts.remove(local)` rejects) — so log + LEAVE it (a tab on local sees the
+          // degraded connection cell), never a global exit.
+          if (host !== defaultHost) {
+            log.error(
+              { err, host },
+              "local padi re-serve pump died — leaving the structural local binding in place (degraded; a remote default still serves)",
+            );
+            return;
+          }
+          // The DEFAULT binding (possibly local): load-bearing — the samplers + HTTP
+          // `/rpc` arm are built from it — so a terminal fault is fatal (fail-fast).
+          log.fatal(
             { err, host },
-            "guest-host padi re-serve pump died — retiring the binding (no global exit)",
+            "default-host padi re-serve pump died — binding is unrecoverable",
           );
-          void hosts.remove(host);
+          process.exit(1);
         });
 
       // The in-process mirror client the memory sampler reads. Only the DEFAULT
@@ -239,12 +289,13 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
       // `MirrorClient` (which pins the padi spec); the `as unknown as` sidesteps the
       // deep structural comparison of that superset client, which TS can't represent
       // (TS2590).
-      if (host === defaultHost) {
-        defaultMirror = surfaceClientRef(
-          reServed.surface,
-          reServed.router as Parameters<typeof surfaceClientRef>[1],
-        ) as unknown as MirrorClient;
-      }
+      const mirror: MirrorClient | undefined =
+        host === defaultHost
+          ? (surfaceClientRef(
+              reServed.surface,
+              reServed.router as Parameters<typeof surfaceClientRef>[1],
+            ) as unknown as MirrorClient)
+          : undefined;
 
       // The per-host router: the SHARED kolu+surfaceApp fragment spliced with THIS
       // host's re-served padi, plus the raw RPCs. `daemon.restart` drains THIS
@@ -280,10 +331,12 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
         host,
         hosts,
       });
-      // Every host needs its OWN `appRouter` for the WS handler below, but the
-      // non-streaming HTTP `/rpc/*` handler is built from the DEFAULT host's router
-      // only (a single host; e2e reset POSTs land there), so capture just that one.
-      if (host === defaultHost) defaultRouter = appRouter;
+      // Every host needs its OWN `appRouter` for the WS handler below; the non-streaming
+      // HTTP `/rpc/*` handler is built from the DEFAULT host's router only (a single host;
+      // e2e reset POSTs land there). Record this host's router (+ default's mirror) so
+      // `getRouter`/`getMirror` read them THROUGH the map at call time keyed by the
+      // default host, not a boot-captured const.
+      entryExtras.set(host, { router: appRouter, mirror });
 
       // biome-ignore lint/suspicious/noExplicitAny: buildAppRouter mixes implementSurface's Lazy<Router> spread with hand-listed namespaces; RPCHandler's input type doesn't accept that union though the runtime shape is a valid router.
       const handler: PadiWsHandler = new WsRPCHandler(appRouter as any, {
@@ -304,8 +357,8 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
 
   return {
     registry,
-    getMirror: () => defaultMirror,
-    getRouter: () => defaultRouter,
+    getMirror: () => entryExtras.get(defaultHost)?.mirror,
+    getRouter: () => entryExtras.get(defaultHost)?.router,
     hosts,
     defaultHost,
   };

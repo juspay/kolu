@@ -270,6 +270,15 @@ const pool = buildHostPool({
 // (the shared kolu surface is host-independent; per-host readiness rides the re-served
 // padi `connection` cell, folded into `padi.health().live` on the client). The default
 // binding is built at pool construction, so this is present — a fail-fast guard if not.
+//
+// This captures the default SESSION as a stable reference to subscribe to (the memory
+// sampler pins `.onState`). That is sound ONLY because the default host is UNREMOVABLE:
+// `hosts.remove(defaultHost)` throws `UnremovableHostError` (hostPool), the registry
+// never reassigns `entry.session`, and `renew()` drains in-place on the SAME object — so
+// this reference stays identical to `registry.getSession(defaultHost)` for the process's
+// life. If anyone ever makes the default removable, `hostPool.test`'s reference-identity
+// pin fails loudly rather than this sampler going silently stale. (`getMirror`/`getRouter`
+// read through the pool's call-time map for the same reason.)
 const defaultSession = pool.registry.getSession(pool.defaultHost);
 const defaultMirror = pool.getMirror();
 if (!defaultSession || !defaultMirror) {

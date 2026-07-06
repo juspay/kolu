@@ -57,9 +57,10 @@ export function hostPickerCommand(): PaletteGroup {
       // A recent host can be forgotten (dropped from the pool + recentHosts) via a
       // nested action, so the list doesn't grow forever. Local is never in `recents`
       // (the server never persists it); the DEFAULT host (`KOLU_PADI_HOST`) CAN land
-      // in recents but must NOT be forgettable — removing it bricks the boot-captured
-      // HTTP `/rpc` handler + samplers (A3), and the server rejects the RPC anyway —
-      // so filter it out here rather than offer a dead action.
+      // in recents but is NOT forgettable — it is STRUCTURAL (its session backs the HTTP
+      // `/rpc` handler + the samplers), so `hosts.remove(default)` REJECTS with a typed
+      // `UnremovableHostError` server-side (A3). Filtering it out of this list is the UX
+      // layer over that real server guard — no dead action offered — not the guard itself.
       const forgettable = recents.filter((h) => h !== serverDefaultHost());
       const forgetGroup: PaletteItem | undefined =
         forgettable.length > 0

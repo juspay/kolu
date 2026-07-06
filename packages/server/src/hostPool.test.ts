@@ -73,7 +73,9 @@ vi.mock("@kolu/surface-nix-host", async (importActual) => {
   };
 });
 
-const { buildHostPool, LOCAL_HOST } = await import("./hostPool.ts");
+const { buildHostPool, LOCAL_HOST, UnremovableHostError } = await import(
+  "./hostPool.ts"
+);
 
 function makePool(opts?: {
   bootHost?: string;
@@ -182,22 +184,42 @@ describe("buildHostPool — the warm pool", () => {
     expect(pool.registry.has("a")).toBe(false);
     expect(aSession?.destroy).toHaveBeenCalled();
     expect(persisted.at(-1)).toEqual(["b"]);
-    // The local host can never be removed.
-    await pool.hosts.remove(LOCAL_HOST);
+    // The local host can never be removed — `hosts.remove` REJECTS loudly (not the old
+    // silent no-op), so a raw RPC fails honestly and the client toasts it.
+    await expect(pool.hosts.remove(LOCAL_HOST)).rejects.toBeInstanceOf(
+      UnremovableHostError,
+    );
     expect(pool.registry.has(LOCAL_HOST)).toBe(true);
   });
 
-  it("never removes the DEFAULT host — even a REMOTE one (A3 brick guard)", async () => {
-    // KOLU_PADI_HOST may be remote, and its session/mirror/router are boot-captured
-    // by the HTTP `/rpc` handler + samplers. Removing it (via the picker's forget
-    // list OR the raw RPC) would brick the server permanently — so `hosts.remove`
-    // must no-op on the default, exactly as it does on local.
+  it("REJECTS removing the DEFAULT host — even a REMOTE one (A3 brick guard: loud, not a silent no-op)", async () => {
+    // KOLU_PADI_HOST may be remote, and its session backs the HTTP `/rpc` handler +
+    // the samplers. Removing it (via the picker's forget list OR the raw RPC) would
+    // brick the server — so `hosts.remove(default)` REJECTS with a typed
+    // `UnremovableHostError` (the client toasts it), never the old silent success.
     const pool = makePool({ bootHost: "zest", recentHosts: ["zest"] });
     expect(pool.defaultHost).toBe("zest");
     const zestSession = pool.registry.getSession("zest");
-    await pool.hosts.remove("zest");
+    await expect(pool.hosts.remove("zest")).rejects.toThrow(
+      /cannot remove host "zest": it is the server's default host/,
+    );
     expect(pool.registry.has("zest")).toBe(true); // still warm — not bricked
     expect(zestSession?.destroy).not.toHaveBeenCalled();
+  });
+
+  it("getSession(defaultHost) stays REFERENCE-IDENTICAL across a renew() — the boot-captured sampler session is sound ONLY because the default is unremovable (1b(ii))", async () => {
+    const pool = makePool({ bootHost: "zest", recentHosts: ["zest"] });
+    // index.ts captures this ONCE at boot + subscribes to its `onState`.
+    const captured = pool.registry.getSession(pool.defaultHost);
+    expect(captured).toBeDefined();
+    // A "restart" drains + respawns padi IN-PLACE — `renew()` never replaces the
+    // session object (padi's PTYs survive in kaval).
+    await captured?.renew();
+    // So the registry still hands back the SAME object — the captured ref can't go
+    // stale. This pin is the tripwire: if anyone ever makes the default removable (and
+    // the remove-rejects pins above are relaxed), the boot-capture could drift, and THIS
+    // reference-identity assertion fails loudly first.
+    expect(pool.registry.getSession(pool.defaultHost)).toBe(captured);
   });
 
   it("a GUEST host's pump fault RETIRES the binding — never exits the whole server (C2)", async () => {
@@ -226,6 +248,24 @@ describe("buildHostPool — the warm pool", () => {
     faultPump(0, new Error("default pump died")); // the default/local binding
     await new Promise((r) => setTimeout(r, 0));
     expect(exitSpy).toHaveBeenCalledWith(1); // load-bearing — the server can't serve without it
+    exitSpy.mockRestore();
+  });
+
+  it("the LOCAL host's pump fault, when local is NOT the default, is LOGGED + LEFT — never a remove-reject, never a global exit (structural)", async () => {
+    // bootHost="zest" → default=zest → initialHosts=[local, zest] → rejecters[0]=local.
+    const pool = makePool({ bootHost: "zest", recentHosts: ["zest"] });
+    expect(pool.defaultHost).toBe("zest");
+    const localSession = pool.registry.getSession(LOCAL_HOST);
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+    // Fault the LOCAL (non-default) re-serve pump.
+    faultPump(0, new Error("local endpoint terminally faulted"));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(exitSpy).not.toHaveBeenCalled(); // NOT fatal — a remote default still serves
+    expect(pool.registry.has(LOCAL_HOST)).toBe(true); // left in place (structural)
+    expect(localSession?.destroy).not.toHaveBeenCalled(); // not retired — no remove(local)
     exitSpy.mockRestore();
   });
 });

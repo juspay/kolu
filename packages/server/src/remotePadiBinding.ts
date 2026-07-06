@@ -85,23 +85,29 @@ export function remotePadiHost(): string | undefined {
   return host ? host : undefined;
 }
 
-/** Parse + validate the baked `{ system → padi .drv }` map EAGERLY — a missing /
- *  malformed map is a BUILD defect (kolu-server was not run from its Nix wrapper), so
- *  it throws a PLAIN loud Error that crashes boot, NOT a deferred `ResolveDrvError` the
- *  session would retry-then-fail. Fail-fast per conventions.md. */
+/** Parse + validate the baked `{ system → padi .drv }` map. Called LAZILY inside
+ *  {@link makeResolvePadiDrv}'s dial thunk — NOT at bind time — so a missing / malformed
+ *  map is THIS host's per-entry connection failure (a `ResolveDrvError` with cause
+ *  `"remote"`, surfaced loudly in the picker / connection cell), never a boot crash. The
+ *  map is baked by kolu-server's Nix wrapper; a from-source run has none, so with a
+ *  remembered remote host in `recentHosts` the server must still BOOT and serve local —
+ *  that host's entry alone fails. (The eager fail-fast was written for the single
+ *  `KOLU_PADI_HOST` era; the warm pool now dials this per persisted host at boot.) */
 function parsePadiDrvMap(): Record<string, string> {
   const raw = process.env[PADI_AGENT_DRVS_ENV]?.trim();
   if (!raw || raw === "{}") {
-    throw new Error(
-      `${PADI_AGENT_DRVS_ENV} is not baked — a remote padi binding (${KOLU_PADI_HOST_ENV}) needs kolu-server run from its Nix wrapper, which bakes the arch-keyed padi drv map. Unset ${KOLU_PADI_HOST_ENV} to bind the local padi.`,
+    throw new ResolveDrvError(
+      `${PADI_AGENT_DRVS_ENV} is not baked — remote hosts need kolu-server run from its Nix wrapper, which bakes the arch-keyed padi drv map.`,
+      "remote",
     );
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    throw new Error(
+    throw new ResolveDrvError(
       `${PADI_AGENT_DRVS_ENV} is not a valid { system → drv } JSON map: ${(err as Error).message}`,
+      "remote",
     );
   }
   if (
@@ -110,23 +116,23 @@ function parsePadiDrvMap(): Record<string, string> {
     Array.isArray(parsed) ||
     Object.values(parsed).some((v) => typeof v !== "string")
   ) {
-    throw new Error(
+    throw new ResolveDrvError(
       `${PADI_AGENT_DRVS_ENV} is not a { system → drv string } JSON object`,
+      "remote",
     );
   }
   return parsed as Record<string, string>;
 }
 
-/** Build the `resolveDrvPath` thunk `sshConnector` runs at the top of EVERY dial:
- *  probe the remote arch (`resolveSystem`, an ssh round-trip) and pick the baked padi
- *  `.drv` for it. A host whose arch has no baked drv is a TERMINAL config fault
- *  (`ResolveDrvError` with `"remote"`); an unreachable host makes `resolveSystem`
- *  reject plainly → `"network"` (retry). */
-function makeResolvePadiDrv(
-  host: string,
-  map: Record<string, string>,
-): () => Promise<string> {
+/** Build the `resolveDrvPath` thunk `sshConnector` runs at the top of EVERY dial: parse
+ *  the baked drv map (LAZILY — a missing map is THIS host's `"remote"` fault, surfaced as
+ *  its connection failure, not a boot crash), probe the remote arch (`resolveSystem`, an
+ *  ssh round-trip), and pick the baked padi `.drv` for it. A host whose arch has no baked
+ *  drv is a TERMINAL config fault (`ResolveDrvError` with `"remote"`); an unreachable host
+ *  makes `resolveSystem` reject plainly → `"network"` (retry). */
+function makeResolvePadiDrv(host: string): () => Promise<string> {
   return async () => {
+    const map = parsePadiDrvMap();
     const system = await resolveSystem(host);
     const drv = map[system];
     if (!drv) {
@@ -186,13 +192,7 @@ export function ensureRemotePadiBinding(
   deps: RemotePadiSessionDeps = {},
 ): PadiSession {
   const { host } = opts;
-  log.info(
-    { host },
-    `binding a REMOTE padi over ssh (${KOLU_PADI_HOST_ENV} set) — the whole canvas is this host`,
-  );
-  // The STATIC-config axis, decided ONCE here: a missing/malformed BAKED map crashes
-  // boot loudly (fail-fast) instead of degrading the canvas through a retry loop.
-  const drvMap = parsePadiDrvMap();
+  log.info({ host }, `binding a REMOTE padi over ssh: ${host}`);
   const extraArgs = composePadiExtraArgs(opts.spawnVersion);
 
   const binderVersion = deps.binderVersion ?? PADI_SURFACE_VERSION;
@@ -227,7 +227,7 @@ export function ensureRemotePadiBinding(
     host,
     binary: "padi",
     extraArgs,
-    resolveDrvPath: makeResolvePadiDrv(host, drvMap),
+    resolveDrvPath: makeResolvePadiDrv(host),
   });
   const rawConnector: Connector<PadiSurfaceClient> = async (ctx) => {
     const conn = await inner(ctx);
