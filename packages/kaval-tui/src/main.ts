@@ -546,14 +546,22 @@ async function cmdSend(
     keyData += bytes;
   }
 
-  const plan = planSend({
-    text,
-    paste: flags.paste,
-    // A --file or piped-stdin payload is a block, so it auto-pastes even when
-    // single-line (a file is one payload, not a line typed at a prompt).
-    fromStream: sourceIsStream(flags.input),
-    keyData,
-  });
+  // The resolved source already settled text-vs-keys (a `none` source is a
+  // keys-only send; anything else is a text send — `resolveSendInput` forbids the
+  // mix), so pick the plan arm from it rather than re-sniffing `text.length`. That
+  // keeps the single source of truth for "text vs keys" in `resolveSendInput` and
+  // makes text+keys unspellable at the plan boundary.
+  const plan =
+    flags.input.kind === "none"
+      ? planSend({ kind: "keys", keyData })
+      : planSend({
+          kind: "text",
+          text,
+          paste: flags.paste,
+          // A --file or piped-stdin payload is a block, so it auto-pastes even
+          // when single-line (a file is one payload, not a line typed at a prompt).
+          fromStream: sourceIsStream(flags.input),
+        });
   // Drive the plan through the shared executor: it issues each write in order
   // (backpressure preserved) under a bounded write deadline, so a terminal that
   // isn't draining fails loud instead of hanging. The acceptance test runs this

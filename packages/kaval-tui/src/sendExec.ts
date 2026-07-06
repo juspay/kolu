@@ -26,19 +26,16 @@ import type { SendPlan } from "./send.ts";
 export const SEND_WRITE_DEADLINE_MS = 8_000;
 
 /** Drive a {@link SendPlan} to a terminal via the injected `write` sink: issue
- *  each planned write in order (awaiting in turn preserves order and applies
- *  natural backpressure), each bounded by {@link SEND_WRITE_DEADLINE_MS}. A
- *  write that doesn't complete in time throws a loud error naming `target` (the
- *  stalled terminal) — the caller surfaces it as `kaval-tui: <msg>` and exits
- *  non-zero, so `send` never hangs on a terminal that isn't consuming input. */
+ *  the plan's single write, bounded by {@link SEND_WRITE_DEADLINE_MS}. A write
+ *  that doesn't complete in time throws a loud error naming `target` (the stalled
+ *  terminal) — the caller surfaces it as `kaval-tui: <msg>` and exits non-zero,
+ *  so `send` never hangs on a terminal that isn't consuming input. */
 export async function executeSendPlan(
   plan: SendPlan,
   write: (data: string) => Promise<void>,
   target: string,
 ): Promise<void> {
-  for (const data of plan.writes) {
-    await writeWithDeadline(write, data, target);
-  }
+  await writeWithDeadline(write, plan.write, target);
 }
 
 /** Race one write against the deadline. On timeout, reject loud; the pending

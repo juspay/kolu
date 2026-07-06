@@ -397,19 +397,14 @@ describe("send — over the same real unix socket", () => {
     // really ran the input (not that the bytes were merely echoed). Both go
     // through the shipped executor, covering the write round-trip.
     const textPlan = planSend({
+      kind: "text",
       text: "echo SENDMARK-$((6 * 7))",
       paste: undefined,
       fromStream: false,
-      keyData: "",
     });
-    const enterPlan = planSend({
-      text: "",
-      paste: undefined,
-      fromStream: false,
-      keyData: "\r", // a standalone `--key Enter`
-    });
-    expect(textPlan.writes).toEqual(["echo SENDMARK-$((6 * 7))"]);
-    expect(enterPlan.writes).toEqual(["\r"]);
+    const enterPlan = planSend({ kind: "keys", keyData: "\r" }); // a standalone `--key Enter`
+    expect(textPlan.write).toBe("echo SENDMARK-$((6 * 7))");
+    expect(enterPlan.write).toBe("\r");
     await executeSendPlan(
       textPlan,
       (data) => conn.client.surface.terminal.write({ id, data }).then(() => {}),
@@ -520,19 +515,11 @@ describe("send — canonical two-command submit against a real paste-debounce TU
 
   /** Send just the text (a bracketed paste, no Enter) — step 1 of the flow. */
   const sendText = (id: string, text: string, fromStream = false) =>
-    runPlan(id, planSend({ text, paste: undefined, fromStream, keyData: "" }));
+    runPlan(id, planSend({ kind: "text", text, paste: undefined, fromStream }));
 
   /** Submit as its OWN command — step 3, after the observed settle. */
   const sendEnter = (id: string) =>
-    runPlan(
-      id,
-      planSend({
-        text: "",
-        paste: undefined,
-        fromStream: false,
-        keyData: "\r",
-      }),
-    );
+    runPlan(id, planSend({ kind: "keys", keyData: "\r" }));
 
   it("CONTROL: a same-breath paste+Enter is DROPPED — the exact combination the CLI now forbids", {
     timeout: 30_000,
@@ -541,14 +528,19 @@ describe("send — canonical two-command submit against a real paste-debounce TU
     // The raw bytes of `send <id> "text" --key Enter` — paste then Enter written
     // back-to-back, no gap. The Enter races into the debounce and is dropped,
     // leaving the prompt staged. `resolveSendInput` makes this UNSPELLABLE at the
-    // CLI (text + --key is a hard error); this proves WHY, at the byte level.
-    const plan = planSend({
+    // CLI (text + --key is a hard error), and `planSend` now makes it unspellable
+    // at the plan boundary too — so we compose the two writes the old combined
+    // plan emitted (the bracketed paste, then the Enter) to reproduce the
+    // forbidden same-breath byte sequence at the wire and prove WHY it's dropped.
+    const pastePlan = planSend({
+      kind: "text",
       text: "start the turn",
       paste: true,
       fromStream: false,
-      keyData: "\r", // paste + Enter in the same breath — the forbidden shape
     });
-    await runPlan(id, plan);
+    const enterPlan = planSend({ kind: "keys", keyData: "\r" });
+    await runPlan(id, pastePlan);
+    await runPlan(id, enterPlan);
     const screen = await untilScreen(
       id,
       (s) => s.includes("DROPPED"),

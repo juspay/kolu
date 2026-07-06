@@ -202,15 +202,15 @@ describe("sourceIsStream — --file / stdin auto-paste as a block", () => {
   });
 });
 
-describe("planSend — building the ordered writes", () => {
+describe("planSend — building the single write", () => {
   it("a single-line argument is written literally — NO implicit Enter", () => {
     const plan = planSend({
+      kind: "text",
       text: "fix the parser",
       paste: undefined,
       fromStream: false,
-      keyData: "",
     });
-    expect(plan.writes).toEqual(["fix the parser"]);
+    expect(plan.write).toBe("fix the parser");
     expect(plan.paste).toBe(false);
     expect(plan.bytes).toBe(Buffer.byteLength("fix the parser"));
   });
@@ -218,57 +218,52 @@ describe("planSend — building the ordered writes", () => {
   it("multiline text auto-pastes as one block, NO trailing Enter", () => {
     const text = "line one\nline two";
     const plan = planSend({
+      kind: "text",
       text,
       paste: undefined,
       fromStream: false,
-      keyData: "",
     });
-    expect(plan.writes).toEqual([`${START}${text}${END}`]);
+    expect(plan.write).toBe(`${START}${text}${END}`);
     expect(plan.paste).toBe(true);
   });
 
   it("a stream payload (--file / piped stdin) auto-pastes even when single-line", () => {
     const plan = planSend({
+      kind: "text",
       text: "do the thing",
       paste: undefined,
       fromStream: true,
-      keyData: "",
     });
-    expect(plan.writes).toEqual([`${START}do the thing${END}`]);
+    expect(plan.write).toBe(`${START}do the thing${END}`);
     expect(plan.paste).toBe(true);
   });
 
   it("--no-paste forces literal even for multiline", () => {
     const text = "a\nb";
     const plan = planSend({
+      kind: "text",
       text,
       paste: false,
       fromStream: false,
-      keyData: "",
     });
-    expect(plan.writes).toEqual([text]);
+    expect(plan.write).toBe(text);
     expect(plan.paste).toBe(false);
   });
 
   it("--paste forces a bracket wrap for a single-line argument", () => {
     const plan = planSend({
+      kind: "text",
       text: "hi",
       paste: true,
       fromStream: false,
-      keyData: "",
     });
-    expect(plan.writes).toEqual([`${START}hi${END}`]);
+    expect(plan.write).toBe(`${START}hi${END}`);
     expect(plan.paste).toBe(true);
   });
 
   it("keys-only (no text) sends just the key bytes", () => {
-    const plan = planSend({
-      text: "",
-      paste: undefined,
-      fromStream: false,
-      keyData: "\x03",
-    });
-    expect(plan.writes).toEqual(["\x03"]);
+    const plan = planSend({ kind: "keys", keyData: "\x03" });
+    expect(plan.write).toBe("\x03");
     expect(plan.paste).toBe(false);
     expect(plan.bytes).toBe(1);
   });
@@ -276,10 +271,10 @@ describe("planSend — building the ordered writes", () => {
   it("counts total UTF-8 bytes of the write", () => {
     const text = "café\nlatte"; // é is 2 bytes, the \n forces paste
     const plan = planSend({
+      kind: "text",
       text,
       paste: undefined,
       fromStream: false,
-      keyData: "",
     });
     expect(plan.bytes).toBe(Buffer.byteLength(`${START}${text}${END}`));
   });

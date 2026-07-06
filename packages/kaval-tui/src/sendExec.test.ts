@@ -12,10 +12,10 @@ describe("executeSendPlan — ordered writes", () => {
   it("issues each planned write in order via the sink", async () => {
     const captured: string[] = [];
     const plan = planSend({
+      kind: "text",
       text: "hello world",
       paste: undefined,
       fromStream: false,
-      keyData: "",
     });
     await executeSendPlan(
       plan,
@@ -42,10 +42,10 @@ describe("executeSendPlan — bounded write deadline (Bug C: no hang)", () => {
 
   it("fails loud when a write stalls past the deadline, instead of hanging", async () => {
     const plan = planSend({
+      kind: "text",
       text: "a 6KB brief that the terminal never reads",
       paste: undefined,
       fromStream: true,
-      keyData: "",
     });
     // Capture the outcome up front so the rejection is always handled while we
     // advance the fake clock.
@@ -61,10 +61,10 @@ describe("executeSendPlan — bounded write deadline (Bug C: no hang)", () => {
 
   it("the loud message names the stalled terminal and the deadline", async () => {
     const plan = planSend({
+      kind: "text",
       text: "x",
       paste: undefined,
       fromStream: false,
-      keyData: "",
     });
     const outcome = executeSendPlan(plan, neverDrains, "cat9f3a").then(
       () => "resolved",
@@ -78,10 +78,10 @@ describe("executeSendPlan — bounded write deadline (Bug C: no hang)", () => {
 
   it("does NOT fire for a write that completes before the deadline", async () => {
     const plan = planSend({
+      kind: "text",
       text: "quick",
       paste: undefined,
       fromStream: false,
-      keyData: "",
     });
     const captured: string[] = [];
     // Resolves on a microtask, well inside the deadline — advancing the clock a
@@ -115,10 +115,10 @@ describe("--file payload path — byte-exact, no shell mangling", () => {
     try {
       const text = readFileSync(file, "utf8");
       const plan = planSend({
+        kind: "text",
         text,
         paste: undefined,
         fromStream: true,
-        keyData: "",
       });
       const captured: string[] = [];
       await executeSendPlan(

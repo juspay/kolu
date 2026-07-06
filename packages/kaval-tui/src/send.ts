@@ -211,49 +211,61 @@ export function resolveSendInput(opts: {
  *  human/JSON line). `paste` is the EFFECTIVE value — text-gated and
  *  paste-auto-resolved — not the raw flag. */
 export interface SendPlan {
-  /** Each element is one `terminal.write` payload, issued back-to-back in order.
-   *  A send carries EITHER the text OR the keys (never both — the caller rejects
-   *  the mix), so this holds exactly one element for a non-empty send. */
-  writes: string[];
-  /** Total UTF-8 bytes across every byte this send writes (paste markers
-   *  included) — the honest CR/byte total for `--json`. */
+  /** The single `terminal.write` payload this send issues — EITHER the (optionally
+   *  bracketed) text OR the encoded keys, never both. The text-XOR-keys invariant
+   *  is a TYPE here, not a comment: {@link planSend} takes a discriminated content
+   *  input, so the `[text, keys]` pair is unspellable rather than merely
+   *  convention. */
+  write: string;
+  /** Total UTF-8 bytes of the write (paste markers included) — the honest
+   *  CR/byte total for `--json`. */
   bytes: number;
   paste: boolean;
 }
 
-/** Plan the writes for a send. Pure: the text, the paste flag, whether the text
- *  came from a stream (`--file` or piped stdin), and the already-encoded
- *  `keyData` are passed in. Paste is resolved here (auto unless `paste` is set);
- *  the text goes first, then the keys verbatim. No submit Enter is ever
+/** The content a send carries — EITHER text (optionally a stream block, with the
+ *  paste tristate) OR encoded keys, never both. A discriminated union so the
+ *  forbidden text+keys pair is unspellable at the plan boundary; the caller picks
+ *  the arm from the already-resolved {@link SendInput}, not by re-sniffing text. */
+export type SendContent =
+  | {
+      kind: "text";
+      text: string;
+      paste: boolean | undefined;
+      /** The text arrived as a BLOCK from a stream — piped stdin or `--file` —
+       *  not as a literal single-line argument, so it auto-pastes even when
+       *  single-line (a file/heredoc is one payload, not a line typed at a
+       *  prompt). */
+      fromStream: boolean;
+    }
+  | { kind: "keys"; keyData: string };
+
+/** Plan the single write for a send. Pure and TOTAL over its legal input: a
+ *  discriminated {@link SendContent} makes text+keys unspellable, so there is no
+ *  precedence branch to guess at. For the text arm, paste is resolved here (auto
+ *  unless `paste` is set) and the text is bracketed accordingly; the keys arm
+ *  writes the encoded bytes verbatim (never pasted). No submit Enter is ever
  *  synthesized — the caller submits with an explicit, separate `--key Enter`. */
-export function planSend(opts: {
-  text: string;
-  paste: boolean | undefined;
-  /** The text arrived as a BLOCK from a stream — piped stdin or `--file` — not
-   *  as a literal single-line argument, so it auto-pastes even when single-line
-   *  (a file/heredoc is one payload, not a line typed at a prompt). */
-  fromStream: boolean;
-  keyData: string;
-}): SendPlan {
-  const hasText = opts.text.length > 0;
+export function planSend(content: SendContent): SendPlan {
+  if (content.kind === "keys") {
+    return {
+      write: content.keyData,
+      bytes: Buffer.byteLength(content.keyData, "utf8"),
+      paste: false,
+    };
+  }
+
+  const hasText = content.text.length > 0;
   // Auto-paste: a single-line argument types literally, but multiline OR a
   // stream payload (--file / piped stdin) is bracketed so it lands as one block.
   // An explicit flag overrides.
   const paste =
-    hasText && (opts.paste ?? (opts.fromStream || opts.text.includes("\n")));
+    hasText &&
+    (content.paste ?? (content.fromStream || content.text.includes("\n")));
 
-  const writes: string[] = [];
-  if (hasText) {
-    writes.push(
-      paste
-        ? `${BRACKETED_PASTE_START}${opts.text}${BRACKETED_PASTE_END}`
-        : opts.text,
-    );
-  }
-  // Keys are their own write, after the text — but the caller forbids text+key,
-  // so in practice a send carries one or the other.
-  if (opts.keyData.length > 0) writes.push(opts.keyData);
+  const write = paste
+    ? `${BRACKETED_PASTE_START}${content.text}${BRACKETED_PASTE_END}`
+    : content.text;
 
-  const bytes = writes.reduce((n, s) => n + Buffer.byteLength(s, "utf8"), 0);
-  return { writes, bytes, paste };
+  return { write, bytes: Buffer.byteLength(write, "utf8"), paste };
 }
