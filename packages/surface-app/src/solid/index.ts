@@ -650,6 +650,31 @@ export function createKeyedRoot<K, T>(
   return cell;
 }
 
+/** A subscription factory keyed to a SWAPPABLE connection — the client-side
+ *  "connection-scoped" primitive. `factory(connection())` re-runs whenever the active
+ *  connection changes (`connectionKey` flips), the prior root disposed synchronously
+ *  first (no stale sub leaks across the swap — the #1687 gray-chip class), the value
+ *  populated on the first read. Rides {@link createKeyedRoot}, inheriting its
+ *  sync-populate, owner-safety, and dispose-then-rebuild fence.
+ *
+ *  TWO accessors, deliberately: `connectionKey` is the STABLE identity of the active
+ *  connection (a host name, a socket id); `connection` is the current connection VALUE —
+ *  often a FRESH object each swap (a retired binding is rebuilt), so keying on the value
+ *  would re-run on every incidental rebuild. Key on identity; read the value inside.
+ *
+ *  This is the framework endpoint kolu's app-lifetime singleton subscriptions re-key
+ *  through when a tab live-switches which host it views — without a per-consumer
+ *  scope-through-context port (ledger L11): they call
+ *  `connectionScoped(activeKey, activeConnection, factory)` and the framework owns the
+ *  swap. Must run under a reactive owner. */
+export function connectionScoped<K, C, T>(
+  connectionKey: Accessor<K>,
+  connection: Accessor<C>,
+  factory: (connection: C) => T,
+): Accessor<T> {
+  return createKeyedRoot(connectionKey, () => factory(connection()));
+}
+
 /** Provide the headless app-shell model to the tree. Render your chrome from
  *  `useSurfaceApp()` underneath it. */
 export function SurfaceAppProvider<

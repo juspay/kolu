@@ -6,7 +6,7 @@
 
 import { createRoot, createSignal, onCleanup } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { createKeyedRoot } from "./index";
+import { connectionScoped, createKeyedRoot } from "./index";
 
 describe("createKeyedRoot", () => {
   it("re-derives under a fresh root per key change, disposing the prior root", () => {
@@ -41,6 +41,41 @@ describe("createKeyedRoot", () => {
       const [key] = createSignal(1);
       const value = createKeyedRoot(key, (k) => ({ n: k }));
       expect(value()).toEqual({ n: 1 });
+      dispose();
+    });
+  });
+});
+
+describe("connectionScoped", () => {
+  it("re-runs the factory on a KEY change, but NOT when the connection VALUE rebuilds under the same key", () => {
+    createRoot((dispose) => {
+      const [key, setKey] = createSignal("a");
+      // The connection VALUE can be a fresh object without a key change (a retired
+      // binding is rebuilt) — keying on it would re-run on every incidental rebuild.
+      let conn = { id: "a", n: 1 };
+      const built: string[] = [];
+      const value = connectionScoped(
+        key,
+        () => conn,
+        (c) => {
+          built.push(`${key()}:${c.n}`);
+          return c.n;
+        },
+      );
+
+      expect(value()).toBe(1);
+      expect(built).toEqual(["a:1"]);
+
+      // Rebuild the connection VALUE under the SAME key → factory must NOT re-run.
+      conn = { id: "a", n: 2 };
+      expect(value()).toBe(1); // still the first build (keyed on identity, not value)
+      expect(built).toEqual(["a:1"]);
+
+      // Change the KEY → factory re-runs and reads the CURRENT connection value.
+      setKey("b");
+      expect(built).toEqual(["a:1", "b:2"]);
+      expect(value()).toBe(2);
+
       dispose();
     });
   });

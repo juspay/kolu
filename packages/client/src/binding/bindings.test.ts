@@ -73,7 +73,7 @@ function fireClose(binding: { ws: unknown }, ev: { code: number }): void {
 // guard's real teeth), not just flips the `retired` flag.
 const retireSocketMock = vi.fn();
 vi.mock("@kolu/surface-app/solid", async (importActual) => {
-  // Keep the REAL `createKeyedRoot` (bindingScoped delegates to it) + `retireSocket`
+  // Keep the REAL `connectionScoped` (bindingScoped delegates to it) + `retireSocket`
   // (F-b drives the real one via importActual, but the module export must exist);
   // stub only the socket/probe/lifecycle seams the tests control.
   const actual = await importActual<typeof import("@kolu/surface-app/solid")>();
@@ -86,7 +86,7 @@ vi.mock("@kolu/surface-app/solid", async (importActual) => {
     })),
     surfaceAppProbe: vi.fn(),
     retireSocket: retireSocketMock,
-    createKeyedRoot: actual.createKeyedRoot,
+    connectionScoped: actual.connectionScoped,
   };
 });
 vi.mock("@kolu/surface-app", () => ({ STALE_PROCESS_CLOSE_CODE: 4001 }));

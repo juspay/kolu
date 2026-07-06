@@ -28,8 +28,8 @@
 import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
 import {
   type ConnectionStatus,
+  connectionScoped,
   connectSurfaces,
-  createKeyedRoot,
   createServerLifecycle,
   retireSocket,
   type ServerLifecycleEvent,
@@ -335,13 +335,13 @@ export async function forgetHost(host: string): Promise<void> {
 export function bindingScoped<T>(
   factory: (binding: Binding) => T,
 ): Accessor<T> {
-  // Keyed on `activeHost` (H1): `createKeyedRoot` re-runs the factory under a fresh root
-  // per host, disposing the prior one on a switch — no stale sub leaks (#1687). It uses a
-  // RENDER effect, so the value is populated SYNCHRONOUSLY on first read (a deferred
-  // effect would leave it undefined until the effect phase, and a consumer reading
-  // `X()().byKey(...)`/`.value()` on the first synchronous render would hit
-  // `undefined.<member>` — the pre-W4 direct sub was never undefined; this keeps that).
-  return createKeyedRoot(activeHost, () => factory(activeBinding()));
+  // Kolu's POLICY binding of the framework's `connectionScoped` (L11 endpoint): the
+  // swappable connection is `activeHost` (its stable identity) → `activeBinding` (the
+  // value). `connectionScoped` owns every guarantee — re-run the factory under a fresh
+  // root per host, dispose the prior one on a switch (no stale-sub leak, #1687), and a
+  // RENDER effect so the value is populated SYNCHRONOUSLY on first read (never
+  // `undefined.<member>` on the first render).
+  return connectionScoped(activeHost, activeBinding, factory);
 }
 
 /** The app-lifetime singleton form of {@link bindingScoped}: wrap the re-keying
