@@ -2,10 +2,11 @@
  * The host picker — W4 "the switch".
  *
  * DELIBERATELY HIDDEN: it lives ONLY as a nested group under the command palette's
- * Debug section — no ChromeBar slot, no keybinding, no discoverability tip. Together
- * with `KOLU_PADI_HOST` (the default host only), the palette item is the sole way to
- * reach remote terminals until the feature stabilizes; the ChromeBar switcher
- * graduates later. Typing "switch"/"host" finds it (the palette flattens on query).
+ * "Labs" section (beta features that work but aren't stable) — no ChromeBar slot, no
+ * keybinding, no discoverability tip. Together with `KOLU_PADI_HOST` (the default host
+ * only), the palette item is the sole way to reach remote terminals until the feature
+ * stabilizes; the ChromeBar switcher graduates later. Typing "switch"/"host" finds it
+ * (the palette flattens on query). Its description carries the beta known-issues link.
  *
  * The picker offers the known hosts as ACTIONS (local, the server default, and each
  * server-persisted recent host — shared across your devices) and a free-typed value
@@ -29,7 +30,10 @@ export function hostPickerCommand(): PaletteGroup {
     kind: "group",
     name: "Switch host",
     section: "help",
-    description: "Pick which machine this tab views (Debug — dogfood only)",
+    // Beta — surfaces the known-issues link so a finder gets the "unsupported" signal.
+    // (Plain URL text: the palette's description is secondary text, not a live link.)
+    description:
+      "Beta · known issues: https://kolu.dev/atlas/remote-bind-parity.html",
     children: (): PaletteItem[] => {
       const active = activeHost();
       const recents = recentHosts();

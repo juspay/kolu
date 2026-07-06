@@ -32,7 +32,7 @@ import { daemonWarming } from "./kaval/useDaemonStatus";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
-import { TerminalIcon } from "./ui/Icons";
+import { FlaskIcon, TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
 import { recentAgents, recentRepos } from "./wire";
 
@@ -457,6 +457,19 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       section: "help",
       onSelect: () => aboutDialog.openDialog(),
     },
+    // "Labs" — drill-in group under Help for beta features that WORK but aren't
+    // stable yet: the truthful home Debug (diagnostics only) never conveyed. Same
+    // hidden posture as before — palette-only, undocumented — but the flask icon and
+    // the picker entry's known-issues link now give a finder the "beta, unsupported"
+    // signal. The host picker (W4 "the switch") lives here until it graduates.
+    {
+      kind: "group",
+      name: "Labs",
+      section: "help",
+      description: "Beta features — work in progress, unsupported",
+      icon: FlaskIcon,
+      children: (): PaletteItem[] => [hostPickerCommand()],
+    },
     // "Debug" — drill-in group under Help. The handful of internal
     // hatches don't warrant their own top-level section; nesting under
     // Help signals "advanced reference / introspection."
@@ -466,10 +479,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       section: "help",
       description: "Internal diagnostics and scaffolding",
       children: (): PaletteItem[] => [
-        // W4 "the switch" — the HIDDEN host picker. Debug-only, undocumented: the
-        // sole discoverable way to reach remote terminals until the feature
-        // stabilizes (the ChromeBar switcher graduates later).
-        hostPickerCommand(),
         {
           kind: "action",
           name: "Diagnostic info",

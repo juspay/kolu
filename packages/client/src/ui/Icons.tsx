@@ -225,6 +225,37 @@ export const GridIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Conical flask (lucide `flask-conical`) — marks the "Labs" command group: beta
+ *  features that work but aren't stable yet (the industry idiom for experiments). */
+export const FlaskIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-4 h-4"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"
+    />
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      d="M6.453 15h11.094"
+    />
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      d="M8.5 2h7"
+    />
+  </svg>
+);
+
 /** Crescent-moon glyph — represents the "parked" / sleeping state of stale
  *  terminals. Used as the minimap toggle for hiding parked tiles. */
 export const MoonIcon: Component<{ class?: string }> = (props) => (
