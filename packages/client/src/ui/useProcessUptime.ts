@@ -15,8 +15,7 @@
  * climbing off a made-up boot time.
  */
 
-import { toast } from "solid-sonner";
-import { useBindingScopedSub } from "../binding/bindings";
+import { subErrorToast, useBindingScopedSub } from "../binding/bindings";
 
 // W4 "the switch": the `processStartedAt` cell is now built PER HOST (A1) — each host's
 // router serves `{ server, padi }` where `padi` is THAT host's padi boot time (from the
@@ -25,7 +24,7 @@ import { useBindingScopedSub } from "../binding/bindings";
 // switch, so `padiStartedAt()` shows the host you're viewing, not the boot default's.
 const uptime = useBindingScopedSub((b) =>
   b.clients.kolu.cells.processStartedAt.use({
-    onError: (err) => toast.error(`Uptime readout error: ${err.message}`),
+    onError: subErrorToast("Uptime readout error"),
   }),
 );
 const sub = () => uptime();

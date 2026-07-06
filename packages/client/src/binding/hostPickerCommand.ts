@@ -85,7 +85,18 @@ export function hostPickerCommand(): PaletteGroup {
           description: "Type an ssh host (from ~/.ssh/config, or user@host)",
           prefill: () => "",
           placeholder: "user@host or host",
-          validate: (v: string) => (v.trim() ? null : "Enter a hostname"),
+          // Reject the literal `local` sentinel: it is an IN-BAND value in the ssh
+          // keyspace (now user-typable), not a real ssh host, so free-typing it would
+          // dial `?host=local` as if it were remote. Local is already the first action
+          // above. (The structural tagged-union that would make this unrepresentable is a
+          // deliberate deferral.)
+          validate: (v: string) => {
+            const h = v.trim();
+            if (!h) return "Enter a hostname";
+            if (h === LOCAL_HOST)
+              return `"${LOCAL_HOST}" is this machine — it's already at the top of this list; type an ssh host to add a remote.`;
+            return null;
+          },
           onSubmit: (value: string) => void switchHost(value.trim()),
           children: () => [
             {

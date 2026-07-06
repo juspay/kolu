@@ -33,18 +33,23 @@ export default function RunningDaemonsSection<T>(props: {
     props.noun.charAt(0).toUpperCase() + props.noun.slice(1);
   return (
     <>
-      {/* The BOUND host's running daemons — active one badged — so a LEAKED daemon is
-          diagnosable at a glance, on the machine you're ACTUALLY using. Rides padiSurface's
-          `hostInventory` member (padi scans its own host), so it works identically local
-          and remote. */}
+      {/* The BOUND host's running daemons — the ACTIVE set that serves your terminals.
+          Given the ACCENT treatment (border + a `● bound` heading marker + a badge) so it
+          reads unmistakably as the one in use, tying together the three signals of the same
+          fact: the dialog's `socket ssh·<host>`, this `daemons on <host>` heading, and each
+          row's `in use by kolu` badge. Rides padiSurface's `hostInventory` member (padi
+          scans its own host), so it works identically local and remote. */}
       <div
-        class="space-y-2"
+        class="space-y-2 rounded-lg border border-accent/40 bg-accent/5 p-2.5"
         data-testid={`${props.testidPrefix}-bound-host-daemons`}
       >
-        <h3 class="text-xs font-medium text-fg">
+        <h3 class="flex items-center gap-1.5 text-xs font-medium text-fg">
+          <span class="text-accent" aria-hidden="true">
+            ●
+          </span>
           <Show
             when={props.boundHost}
-            fallback={`Running ${props.noun} daemons`}
+            fallback={<>Running {props.noun} daemons</>}
           >
             {(host) => (
               <>
@@ -52,6 +57,9 @@ export default function RunningDaemonsSection<T>(props: {
               </>
             )}
           </Show>
+          <span class="ml-auto shrink-0 rounded-full border border-accent/40 bg-accent/10 px-1.5 text-[9px] font-medium leading-4 text-accent">
+            bound · serving your terminals
+          </span>
         </h3>
         {/* Honest degradation (#1034): only a LIVE reading is trusted to say "none".
             Otherwise — bind warming, ssh link dropped, or a padi too old to serve
@@ -83,24 +91,26 @@ export default function RunningDaemonsSection<T>(props: {
         </Show>
       </div>
 
-      {/* Bound remotely: a SEPARATE scan of THIS machine — the machine kolu-server runs
-          on is NOT the bound host, so a leak here would otherwise be invisible. Fenced
-          off so the two hosts' truths can't read as one. Absent under a local binding
-          (the list above already IS this machine). */}
+      {/* Bound remotely: a SEPARATE, DEMOTED scan of THIS machine — the machine kolu-server
+          runs on is NOT the bound host, so a leak here would otherwise be invisible. Dimmed
+          (dashed border + muted) and explicitly labelled a diagnostic so it can't be
+          mistaken for the accent-badged list above that serves your terminals. Absent under
+          a local binding (the list above already IS this machine). */}
       <Show when={props.boundHost}>
         {(host) => (
           <div
-            class="space-y-2 rounded-lg border border-edge bg-surface-2/50 p-2.5"
+            class="space-y-2 rounded-lg border border-dashed border-edge/60 bg-surface-2/30 p-2.5 opacity-80"
             data-testid={`${props.testidPrefix}-local-scan-daemons`}
           >
-            <h3 class="text-xs font-medium text-fg">
-              Local daemons — this machine, not the bound host
+            <h3 class="text-xs font-medium text-fg-3">
+              Diagnostic only — not your terminals
             </h3>
             <p class="text-[11px] leading-relaxed text-fg-3">
-              kolu-server is bound to padi on{" "}
-              <span class="text-fg-2">{host()}</span> over ssh — the list above
-              is that host's. These are daemons discovered on THIS machine (a
-              leak diagnostic), not the bound host's.
+              These are {props.noun} daemons discovered on THIS machine (a leak
+              diagnostic). kolu-server is bound to padi on{" "}
+              <span class="text-fg-2">{host()}</span> over ssh — the list above,
+              badged <span class="text-accent">bound</span>, is the one serving
+              your terminals.
             </p>
             <Show
               when={props.localScanRows.length > 0}

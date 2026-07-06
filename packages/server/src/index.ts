@@ -45,6 +45,7 @@ import {
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
+import { startSharedLocalDaemonScan } from "./daemonInventory.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { wirePerHostKoluCells } from "./perHostKoluCells.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -227,6 +228,16 @@ const bootHost = remotePadiHost();
 // picks age out of the picker (and stop being auto-warmed), mirroring padi's own
 // `MAX_RECENT_REPOS`/`MAX_RECENT_AGENTS` MRU caps.
 const MAX_RECENT_HOSTS = 20;
+
+// ONE shared read-only scan of kolu-server's OWN machine (5a) — host-independent, so every
+// remote pool entry reads its cached result instead of each re-scanning the same box every
+// 10s (N writers of one fact). `unref`'d; per-host `daemonInventory` cells subscribe.
+const sharedLocalScan = startSharedLocalDaemonScan({
+  discoverKavals: discoverKavalDaemons,
+  discoverPadis: discoverPadiDaemons,
+  probe: probeKavalStatus,
+});
+
 const pool = buildHostPool({
   bootHost,
   recentHosts: store.get("recentHosts").slice(-MAX_RECENT_HOSTS),
@@ -259,9 +270,8 @@ const pool = buildHostPool({
     wirePerHostKoluCells({
       host,
       session,
-      discoverKavals: discoverKavalDaemons,
-      discoverPadis: discoverPadiDaemons,
-      probe: probeKavalStatus,
+      getLocalScan: sharedLocalScan.get,
+      subscribeLocalScan: sharedLocalScan.subscribe,
     }),
   rpcPlugins,
 });

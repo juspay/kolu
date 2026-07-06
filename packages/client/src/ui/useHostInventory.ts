@@ -13,8 +13,7 @@
  */
 
 import type { RunningKaval, RunningPadi } from "kolu-common/surface";
-import { toast } from "solid-sonner";
-import { useBindingScopedSub } from "../binding/bindings";
+import { subErrorToast, useBindingScopedSub } from "../binding/bindings";
 import { daemonTransportLive, padiLinkState } from "../kaval/useDaemonStatus";
 import { hostInventoryLive } from "./hostInventoryLive";
 
@@ -25,7 +24,7 @@ import { hostInventoryLive } from "./hostInventoryLive";
 // the active host; `createSharedRoot` gives it an app-lifetime reactive owner.
 const hostInventory = useBindingScopedSub((b) =>
   b.clients.padi.cells.hostInventory.use({
-    onError: (err) => toast.error(`Host inventory error: ${err.message}`),
+    onError: subErrorToast("Host inventory error"),
   }),
 );
 const sub = () => hostInventory();

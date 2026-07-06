@@ -46,6 +46,9 @@ vi.mock("../binding/bindings", () => {
       const value = factory(fakeBinding);
       return () => value;
     },
+    // The onError handler factory — these tests never drive a sub error, so a no-op
+    // handler suffices (prod's `subErrorToast` toasts `label: err.message`).
+    subErrorToast: (_label: string) => (_err: Error) => {},
   };
 });
 vi.mock("solid-sonner", () => ({

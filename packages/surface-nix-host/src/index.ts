@@ -6,7 +6,7 @@
  * public API.
  */
 
-export { resolveSystem } from "./arch";
+export { evictArch, resolveSystem } from "./arch";
 // The connection-health cell + its node-side pump. The cell fragment
 // (`connectionCell`, schema, default) is ALSO exported from the browser-safe
 // `@kolu/surface-nix-host/connection` subpath — a surface composes it from

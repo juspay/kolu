@@ -42,6 +42,7 @@ import {
   activeBinding,
   activeHost,
   type Binding,
+  subErrorToast,
   useBindingScopedSub,
 } from "./binding/bindings";
 
@@ -121,7 +122,7 @@ const usePreferences = useBindingScopedSub((b) =>
     initial: DEFAULT_PREFERENCES,
     // Debounce window for size writes that opt in via `{ coalesce: true }` (#1041).
     coalesceMs: 150,
-    onError: (err) => toast.error(`Preferences error: ${err.message}`),
+    onError: subErrorToast("Preferences error"),
   }),
 );
 // D1 — the picker's "recents" ride their OWN server-authority cell (NOT preferences),
@@ -129,19 +130,17 @@ const usePreferences = useBindingScopedSub((b) =>
 // `authority: "local"` — the default honors the server's pushes.
 const useRecentHosts = useBindingScopedSub((b) =>
   b.clients.kolu.cells.recentHosts.use({
-    onError: (err) => toast.error(`Recent hosts error: ${err.message}`),
+    onError: subErrorToast("Recent hosts error"),
   }),
 );
 const useActivityFeed = useBindingScopedSub((b) =>
   b.clients.padi.cells.activityFeed.use({
-    onError: (err) =>
-      toast.error(`Activity feed subscription error: ${err.message}`),
+    onError: subErrorToast("Activity feed subscription error"),
   }),
 );
 const useSavedSession = useBindingScopedSub((b) =>
   b.clients.padi.cells.session.use({
-    onError: (err) =>
-      toast.error(`Saved-session subscription error: ${err.message}`),
+    onError: subErrorToast("Saved-session subscription error"),
   }),
 );
 // The live terminal list — DERIVED from padi's `terminals` keys stream, re-keyed
@@ -154,7 +153,7 @@ const useTerminalKeys = useBindingScopedSub((b) =>
         padiRpc(b.clients.padi).surface.terminals.keys,
         undefined,
       ),
-    { onError: (err) => toast.error(`Terminal list error: ${err.message}`) },
+    { onError: subErrorToast("Terminal list error") },
   ),
 );
 

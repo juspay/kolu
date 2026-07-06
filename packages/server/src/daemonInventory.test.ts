@@ -1,21 +1,29 @@
 /**
- * The web shell's host-daemon-inventory PUBLISHER — the combine step over injected seams.
- * No filesystem, no socket: it drives `enumerateDaemonInventoryOnce` / the sampler and
- * asserts the reshaped `daemonInventory` cell (binding · boundPadi).
+ * The web shell's host-daemon-inventory PUBLISHER — the combine step over injected reads.
+ * No filesystem, no socket: it drives `enumerateDaemonInventoryOnce` (the SYNC assembly)
+ * and `startSharedLocalDaemonScan` (the shared read-only scan), asserting the reshaped
+ * `daemonInventory` cell (binding · boundPadi).
  *
  * The bound host's daemons are NOT the shell's concern anymore — padi serves them on
  * `padiSurface.hostInventory` (tested in @kolu/padi's `hostInventory.test.ts`). Here the
  * shell publishes the LOCAL-machine scan (only under a remote binding) + the binding host
- * + the bound padi's honest identity/convergence.
+ * + the bound padi's honest identity/convergence. 5a: the local scan is a SHARED single
+ * writer (`startSharedLocalDaemonScan`), and the per-host assembly READS its cached result
+ * — it no longer runs the scan itself.
  */
 
-import type { KavalProbe, PadiDaemon } from "@kolu/padi/assembly";
+import {
+  enumerateHostDaemons,
+  type KavalProbe,
+  type PadiDaemon,
+} from "@kolu/padi/assembly";
+import type { HostDaemonInventory } from "@kolu/padi/surface";
 import type { KavalDaemon } from "kaval";
 import type { DaemonInventory } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import {
   enumerateDaemonInventoryOnce,
-  startDaemonInventorySampler,
+  startSharedLocalDaemonScan,
 } from "./daemonInventory.ts";
 
 const KAVAL = "/run/user/1000/kaval-abc123/pty-host.sock";
@@ -43,12 +51,24 @@ const probe = (over: Partial<KavalProbe> = {}): KavalProbe => ({
   ...over,
 });
 
+/** Build a realistic local-machine scan the way the SHARED scan does (via the real
+ *  `enumerateHostDaemons` transform, marking NONE active), so the assembly tests feed the
+ *  exact shape prod's `getLocalScan` returns. */
+function buildLocalScan(): Promise<HostDaemonInventory> {
+  return enumerateHostDaemons({
+    discoverKavals: () => [kaval()],
+    discoverPadis: () => [padi()],
+    probe: async () => probe(),
+    activeKavalSocket: null,
+    activeKavalAtLegacy: false,
+    activePadiSocket: null,
+  });
+}
+
 type Deps = Parameters<typeof enumerateDaemonInventoryOnce>[0];
 
 const deps = (over: Partial<Deps> = {}): Deps => ({
-  discoverKavals: () => [kaval()],
-  discoverPadis: () => [padi()],
-  probe: async () => probe(),
+  getLocalScan: () => null,
   activePadiSurfaceVersion: () => "1.2",
   activePadiBuildCommit: () => "localcommit",
   activePadiConvergence: () => null,
@@ -58,31 +78,29 @@ const deps = (over: Partial<Deps> = {}): Deps => ({
 });
 
 describe("enumerateDaemonInventoryOnce — local binding", () => {
-  it("does NOT scan the local machine (the bound padi's member already covers it): localScan is null", async () => {
+  it("does NOT read the shared scan (the bound padi's member already covers this machine): localScan is null", () => {
     let published: DaemonInventory | undefined;
-    // A discovery that would THROW if called — proving the local scan is skipped entirely
-    // under a local binding, not merely emptied.
-    await enumerateDaemonInventoryOnce(
+    // A getLocalScan that would THROW if called — proving a local binding never even reads
+    // the shared scan, not merely that the result is emptied.
+    const getLocalScan = vi.fn((): HostDaemonInventory | null => {
+      throw new Error("local binding must not read the shared scan");
+    });
+    enumerateDaemonInventoryOnce(
       deps({
-        discoverKavals: () => {
-          throw new Error("local scan must not run under a local binding");
-        },
-        discoverPadis: () => {
-          throw new Error("local scan must not run under a local binding");
-        },
+        getLocalScan,
         publish: (inv) => {
           published = inv;
         },
       }),
     );
-    // The union makes a local binding carry NO scan by construction — not merely a null
-    // one — so `{ kind: "local" }` is the whole binding.
+    // The union makes a local binding carry NO scan by construction.
     expect(published?.binding).toEqual({ kind: "local" });
+    expect(getLocalScan).not.toHaveBeenCalled();
   });
 
-  it("publishes the bound padi's honest identity on boundPadi (works over ssh; no local active row needed)", async () => {
+  it("publishes the bound padi's honest identity on boundPadi (works over ssh; no local active row needed)", () => {
     let published: DaemonInventory | undefined;
-    await enumerateDaemonInventoryOnce(
+    enumerateDaemonInventoryOnce(
       deps({
         publish: (inv) => {
           published = inv;
@@ -96,9 +114,9 @@ describe("enumerateDaemonInventoryOnce — local binding", () => {
     });
   });
 
-  it("boundPadi is null only when there is NOTHING to say (no identity AND no convergence)", async () => {
+  it("boundPadi is null only when there is NOTHING to say (no identity AND no convergence)", () => {
     let published: DaemonInventory | undefined;
-    await enumerateDaemonInventoryOnce(
+    enumerateDaemonInventoryOnce(
       deps({
         activePadiSurfaceVersion: () => null,
         activePadiBuildCommit: () => null,
@@ -113,13 +131,14 @@ describe("enumerateDaemonInventoryOnce — local binding", () => {
 });
 
 describe("enumerateDaemonInventoryOnce — remote binding", () => {
-  it("scans the LOCAL machine into localScan, marking NONE active — a leak stays visible, never 'in use by kolu'", async () => {
+  it("carries the SHARED local-machine scan into localScan, marking NONE active — a leak stays visible, never 'in use by kolu'", async () => {
+    const localScan = await buildLocalScan();
     let published: DaemonInventory | undefined;
-    await enumerateDaemonInventoryOnce(
+    enumerateDaemonInventoryOnce(
       deps({
         boundHost: "nix@remote.example",
-        // The bound padi is REMOTE — its honest identity rides boundPadi, and must NOT land
-        // on any local row.
+        getLocalScan: () => localScan,
+        // The bound padi is REMOTE — its honest identity rides boundPadi, never a local row.
         activePadiSurfaceVersion: () => "9.9",
         activePadiBuildCommit: () => "remotecommit",
         publish: (inv) => {
@@ -134,17 +153,35 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
     // visible) …
     expect(binding.localScan.kavals).toHaveLength(1);
     expect(binding.localScan.padis).toHaveLength(1);
-    // … but NONE is kolu's active one (no "in use by kolu" lie on a local socket). The
-    // remote padi's version/commit ride boundPadi, never a local row.
+    // … but NONE is kolu's active one (no "in use by kolu" lie on a local socket).
     expect(binding.localScan.kavals[0]?.held.active).toBe(false);
     expect(binding.localScan.padis[0]?.active).toBe(false);
   });
 
-  it("publishes boundHost = the remote host so the dialog labels the local scan 'not the bound host'", async () => {
+  it("before the first shared scan lands (getLocalScan null), localScan is EMPTY — a transient filled in by the next scan-update re-publish", () => {
     let published: DaemonInventory | undefined;
-    await enumerateDaemonInventoryOnce(
+    enumerateDaemonInventoryOnce(
+      deps({
+        boundHost: "nix@remote.example",
+        getLocalScan: () => null,
+        publish: (inv) => {
+          published = inv;
+        },
+      }),
+    );
+    const binding = published?.binding;
+    if (binding?.kind !== "remote")
+      throw new Error("expected a remote binding");
+    expect(binding.localScan).toEqual({ kavals: [], padis: [] });
+  });
+
+  it("publishes boundHost = the remote host so the dialog labels the local scan 'not the bound host'", async () => {
+    const localScan = await buildLocalScan();
+    let published: DaemonInventory | undefined;
+    enumerateDaemonInventoryOnce(
       deps({
         boundHost: "nix@prod.example",
+        getLocalScan: () => localScan,
         publish: (inv) => {
           published = inv;
         },
@@ -164,10 +201,12 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
   });
 
   it("a degraded bind with NO adopted identity (skew/link-failed) still publishes boundPadi carrying the convergence reason", async () => {
+    const localScan = await buildLocalScan();
     let published: DaemonInventory | undefined;
-    await enumerateDaemonInventoryOnce(
+    enumerateDaemonInventoryOnce(
       deps({
         boundHost: "nix@prod.example",
+        getLocalScan: () => localScan,
         // A REFUSED / FAILED bind: no adopted identity, but a standing convergence reason.
         activePadiSurfaceVersion: () => null,
         activePadiBuildCommit: () => null,
@@ -199,60 +238,51 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
   });
 });
 
-describe("startDaemonInventorySampler", () => {
-  it("P4: COALESCES a resample landing mid-tick — one re-run, never dropped, never doubled", async () => {
-    const until = async (cond: () => boolean): Promise<void> => {
-      const deadline = Date.now() + 2000;
-      while (!cond()) {
-        if (Date.now() > deadline) throw new Error("timed out");
-        await new Promise((r) => setTimeout(r, 5));
-      }
-    };
-    let publishCount = 0;
-    let gates: Array<() => void> = [];
-    // Drain whatever probes the current tick issued (a tick issues its probes synchronously).
-    const releaseTick = (): void => {
-      const g = gates;
-      gates = [];
-      for (const fn of g) fn();
-    };
-    // A REMOTE binding so the sampler runs the local scan (and thus the gated probe) each
-    // tick — a local binding would skip the scan and never gate.
-    const sampled = deps({
-      boundHost: "nix@remote.example",
-      probe: () => new Promise((resolve) => gates.push(() => resolve(probe()))),
-      publish: () => {
-        publishCount += 1;
+describe("startSharedLocalDaemonScan (5a — the shared single-writer scan)", () => {
+  const until = async (cond: () => boolean): Promise<void> => {
+    const deadline = Date.now() + 2000;
+    while (!cond()) {
+      if (Date.now() > deadline) throw new Error("timed out");
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  };
+
+  it("scans ONCE at T+0, caches the result, and notifies subscribers — one owner for a host-independent fact", async () => {
+    let discoverCount = 0;
+    const scan = startSharedLocalDaemonScan({
+      discoverKavals: () => {
+        discoverCount += 1;
+        return [kaval()];
       },
+      discoverPadis: () => [padi()],
+      probe: async () => probe(),
     });
-    let resample: (() => void) | undefined;
-    startDaemonInventorySampler(sampled, (fn) => {
-      resample = fn;
-    });
-    // The boot tick is in-flight (its probe gated). Fire TWO resamples mid-tick → coalesced.
-    await until(() => gates.length > 0);
-    resample?.();
-    resample?.();
-    // Release the boot tick → it publishes (1), then the ONE coalesced re-run issues its probe.
-    releaseTick();
-    await until(() => publishCount === 1 && gates.length > 0);
-    // Release the re-run → publishes (2). No further pending → no third tick.
-    releaseTick();
-    await until(() => publishCount === 2);
-    await new Promise((r) => setTimeout(r, 20));
-    expect(publishCount).toBe(2); // boot + ONE coalesced re-run (not 1 dropped, not 3 doubled)
-    expect(gates.length).toBe(0);
+    try {
+      // A subscriber attached before the T+0 scan completes is notified when it lands.
+      const onScan = vi.fn();
+      scan.subscribe(onScan);
+      await until(() => scan.get() !== null);
+      expect(discoverCount).toBe(1); // ONE scan for the whole process, not one per entry
+      expect(scan.get()?.kavals).toHaveLength(1);
+      expect(scan.get()?.kavals[0]?.held.active).toBe(false); // kolu is bound elsewhere
+      expect(onScan).toHaveBeenCalled();
+    } finally {
+      scan.dispose();
+    }
   });
 
-  it("W4: the returned disposer unsubscribes the resample (per-host teardown — no leaked onState closure)", () => {
-    // A1 runs one sampler PER pool host; a removed guest's sampler must be torn down, or
-    // it leaks an unref'd 10s scan + a held `session.onState` closure on a destroyed
-    // session. `dispose()` unsubscribes the resample the pool wired to `session.onState`.
-    const sampled = deps({ boundHost: null, publish: () => {} });
-    const offResample = vi.fn();
-    const dispose = startDaemonInventorySampler(sampled, () => offResample);
-    expect(offResample).not.toHaveBeenCalled();
-    dispose();
-    expect(offResample).toHaveBeenCalledTimes(1);
+  it("an unsubscribed callback is not notified, and dispose() is safe/idempotent (per-host teardown / shutdown)", async () => {
+    const scan = startSharedLocalDaemonScan({
+      discoverKavals: () => [kaval()],
+      discoverPadis: () => [padi()],
+      probe: async () => probe(),
+    });
+    await until(() => scan.get() !== null); // let the T+0 scan settle
+    const onScan = vi.fn();
+    const off = scan.subscribe(onScan);
+    off(); // unsubscribed — a later scan must not call it
+    scan.dispose();
+    expect(() => scan.dispose()).not.toThrow(); // idempotent
+    expect(onScan).not.toHaveBeenCalled();
   });
 });

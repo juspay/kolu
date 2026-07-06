@@ -19,18 +19,18 @@
  * The facts are ssh-FREE: `session.identity()` is a cached read (the async probe writes
  * it once per connect and republishes `onState`, so the subscription below refreshes
  * padi's uptime/version/commit the moment it lands) and `session.convergence()` is a
- * closure read. The only added periodic work is the daemon-inventory 10s scan per host
- * — read-only, `unref`'d, and torn down with the host via the returned `dispose`.
+ * closure read. This adds NO periodic work per host (5a): the `daemonInventory` cell is
+ * EVENT-DRIVEN — it re-publishes on a bind-state change + on the SHARED local-machine
+ * scan's refresh, reading that scan's cached result rather than scanning per entry.
  */
 
-import type { KavalProbe, PadiDaemon } from "@kolu/padi/assembly";
+import type { HostDaemonInventory } from "@kolu/padi/surface";
 import { defineSurface } from "@kolu/surface/define";
 import {
   implementSurfaces,
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
-import type { KavalDaemon } from "kaval";
 import { LOCAL_HOST } from "kolu-common/contract";
 import {
   type DaemonInventory,
@@ -38,7 +38,7 @@ import {
   koluSurface,
   type ProcessStartedAt,
 } from "kolu-common/surface";
-import { startDaemonInventorySampler } from "./daemonInventory.ts";
+import { enumerateDaemonInventoryOnce } from "./daemonInventory.ts";
 import { serverStartedAt } from "./hostname.ts";
 import { log } from "./log.ts";
 import type { PadiSession } from "./padiSession.ts";
@@ -75,10 +75,12 @@ export interface PerHostKoluCellsDeps {
   host: string;
   /** THIS entry's bound padi session — the source of the per-host identity/convergence. */
   session: PadiSession;
-  /** kolu-server's OWN-machine daemon scan seams (host-independent; describe the box). */
-  discoverKavals: () => KavalDaemon[];
-  discoverPadis: () => PadiDaemon[];
-  probe: (socket: string) => Promise<KavalProbe>;
+  /** The SHARED local-machine daemon scan (host-INDEPENDENT — kolu-server's own box is the
+   *  same for every remote entry). Read here for the remote-binding `localScan`; ONE owner
+   *  scans, every per-host cell reads its cached result (5a). */
+  getLocalScan: () => HostDaemonInventory | null;
+  /** Subscribe to shared-scan updates so this cell re-publishes when the scan refreshes. */
+  subscribeLocalScan: (onScan: () => void) => () => void;
 }
 
 export interface PerHostKoluCells {
@@ -140,24 +142,37 @@ export function wirePerHostKoluCells(
     }),
   );
 
-  // daemonInventory: reuse the read-only sampler, fed THIS host's binding + identity.
-  // `boundHost = null` for the local entry (its own `hostInventory` already covers this
-  // machine — no duplicate scan); a remote entry scans kolu-server's own machine into
-  // `localScan` ("this machine, not the bound host").
-  const disposeInventory = startDaemonInventorySampler(
-    {
-      discoverKavals: deps.discoverKavals,
-      discoverPadis: deps.discoverPadis,
-      probe: deps.probe,
-      activePadiSurfaceVersion: () => padiSurfaceVersion(session),
-      activePadiBuildCommit: () => padiBuildCommit(session),
-      activePadiConvergence: () => session.convergence(),
-      boundHost: host === LOCAL_HOST ? null : host,
-      // biome-ignore lint/suspicious/noExplicitAny: cell writer walked structurally.
-      publish: (inv) => (cells.daemonInventory as any).set(inv),
-    },
-    (resample) => session.onState(() => resample()),
-  );
+  // daemonInventory: EVENT-DRIVEN (5a) — no per-host interval or scan. The only per-host
+  // work is assembling `{ binding, boundPadi }` from cached reads (THIS entry's identity +
+  // the SHARED local-machine scan) and publishing it. Re-publish on a bind-state change
+  // (`session.onState` — a (re)bind / adopt-stale / skew) AND on a shared-scan refresh, so
+  // the cell stays live without owning a timer. `boundHost = null` for the local entry (no
+  // `localScan`); a remote entry carries the shared scan as "this machine, not the bound
+  // host".
+  const publishInventory = (): void => {
+    try {
+      enumerateDaemonInventoryOnce({
+        getLocalScan: deps.getLocalScan,
+        activePadiSurfaceVersion: () => padiSurfaceVersion(session),
+        activePadiBuildCommit: () => padiBuildCommit(session),
+        activePadiConvergence: () => session.convergence(),
+        boundHost: host === LOCAL_HOST ? null : host,
+        // biome-ignore lint/suspicious/noExplicitAny: cell writer walked structurally.
+        publish: (inv) => (cells.daemonInventory as any).set(inv),
+      });
+    } catch (err) {
+      // The `publish` schema-validate is the only throw here (the scan is cached); keep the
+      // cell's last value, log, and let the next event retry — matching the old sampler.
+      log.error({ err, host }, "per-host daemon-inventory publish failed");
+    }
+  };
+  publishInventory(); // T+0 anchor so the cell has a value before the first dialog open
+  const offInventoryState = session.onState(publishInventory);
+  const offSharedScan = deps.subscribeLocalScan(publishInventory);
+  const disposeInventory = (): void => {
+    offInventoryState();
+    offSharedScan();
+  };
 
   // biome-ignore lint/suspicious/noExplicitAny: router walked structurally by wire path.
   const koluNs = (router as any).surface.kolu;

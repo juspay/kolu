@@ -28,6 +28,7 @@
 
 import type { KavalProbe, PadiDaemon } from "@kolu/padi/assembly";
 import { enumerateHostDaemons } from "@kolu/padi/assembly";
+import type { HostDaemonInventory } from "@kolu/padi/surface";
 import type { KavalDaemon } from "kaval";
 import type {
   DaemonBinding,
@@ -36,22 +37,22 @@ import type {
 } from "kolu-common/surface";
 import { log } from "./log.ts";
 
-/** The seams the publisher reads/writes through — injected so the wiring is one call
- *  and a test can drive it without a real host. `discover*`/`probe` are the read-only
- *  scan seams (used only for the LOCAL scan under a remote binding); the `activePadi*`
- *  readouts are the bound session's honest identity; `publish` sets the cell. */
+/** The reads the publisher assembles through — injected so the wiring is one call and a
+ *  test can drive it without a real host. `getLocalScan` reads the SHARED local-machine
+ *  scan (only under a remote binding); the `activePadi*` readouts are the bound session's
+ *  honest identity; `publish` sets the cell. All reads are cached/sync — no scan here. */
 export interface DaemonInventoryDeps {
-  /** Read-only discovery of every running kaval daemon (`discoverKavalDaemons`). */
-  discoverKavals: () => KavalDaemon[];
-  /** Read-only discovery of every running padi daemon (`discoverPadiDaemons`). */
-  discoverPadis: () => PadiDaemon[];
-  /** Best-effort read-only status probe of a kaval socket. */
-  probe: (socket: string) => Promise<KavalProbe>;
+  /** The SHARED local-machine daemon scan (kolu-server's OWN box) — READ, not run, here:
+   *  the box is the same for every remote entry, so one {@link startSharedLocalDaemonScan}
+   *  owns the scan and every per-host cell reads its cached result. `null` before the
+   *  first shared scan lands (then the shared scan's subscribers re-publish). Consulted
+   *  ONLY under a remote binding. */
+  getLocalScan: () => HostDaemonInventory | null;
   /** The ssh host the bound padi lives on (`KOLU_PADI_HOST`), or `null` for a LOCAL
    *  binding — the SINGLE source for both "is this a remote bind?" and the dialog label.
-   *  When non-null the bound padi lives on ANOTHER host, so kolu-server scans its OWN
-   *  machine into `localScan`; when null the bound padi's `hostInventory` member already
-   *  covers this machine, so `localScan` stays null (no duplicate list). */
+   *  When non-null the bound padi lives on ANOTHER host, so the cell carries the shared
+   *  local-machine scan as `localScan`; when null the bound padi's `hostInventory` member
+   *  already covers this machine, so `localScan` stays null (no duplicate list). */
   boundHost: string | null;
   /** The bound padi's honest `surfaceVersion` off its control-core `hello`, or `null`
    *  while unbound — read fresh each tick so a (re)bind updates it. */
@@ -69,35 +70,31 @@ export interface DaemonInventoryDeps {
   publish: (inv: DaemonInventory) => void;
 }
 
-/** Take one read-only reading and publish it: under a REMOTE binding, scan the local
- *  machine (marking nothing active) into `localScan`; always read the bound padi's honest
- *  identity + convergence into `boundPadi`; set the cell. Each PROBE folds its own failure
- *  to the empty probe, but this is NOT total — a discovery fs-walk, a session readout, or
- *  the `publish` schema-validate can throw; the sampler's `.catch` makes that legible. */
-export async function enumerateDaemonInventoryOnce(
-  deps: DaemonInventoryDeps,
-): Promise<void> {
+/** The EMPTY local scan a remote entry carries before the shared scan's first tick lands
+ *  (then a subscriber re-publish fills it in). Never active — a remote binding owns no
+ *  local daemon. */
+const EMPTY_LOCAL_SCAN: HostDaemonInventory = { kavals: [], padis: [] };
+
+/** Assemble + publish one reading: under a REMOTE binding, carry the SHARED local-machine
+ *  scan (read from cache, never run here) as `localScan`; always read the bound padi's
+ *  honest identity + convergence into `boundPadi`; set the cell. SYNC — the only work is
+ *  reading cached values; the `publish` schema-validate can still throw, which the caller
+ *  handles. */
+export function enumerateDaemonInventoryOnce(deps: DaemonInventoryDeps): void {
   // The binding + (remote-only) own-machine scan, as ONE discriminated value so the
   // coupling is a type, not a convention: a LOCAL binding carries no scan (the bound
   // padi's `hostInventory` member already describes this machine — a second copy would
   // duplicate it), and a REMOTE binding ALWAYS carries both its host and the scan. The
-  // scan runs ONLY in the remote branch, marking NONE active (a remote binding owns no
-  // local daemon, so a stray local kaval/padi is listed — leak visible — but never
-  // labelled "in use by kolu"). `boundHost === null` is the sole local/remote signal.
+  // scan is the SHARED reading (marking NONE active — a remote binding owns no local
+  // daemon, so a stray local kaval/padi is listed — leak visible — but never labelled
+  // "in use by kolu"). `boundHost === null` is the sole local/remote signal.
   const binding: DaemonBinding =
     deps.boundHost === null
       ? { kind: "local" }
       : {
           kind: "remote",
           host: deps.boundHost,
-          localScan: await enumerateHostDaemons({
-            discoverKavals: deps.discoverKavals,
-            discoverPadis: deps.discoverPadis,
-            probe: deps.probe,
-            activeKavalSocket: null,
-            activeKavalAtLegacy: false,
-            activePadiSocket: null,
-          }),
+          localScan: deps.getLocalScan() ?? EMPTY_LOCAL_SCAN,
         };
   // The BOUND padi's honest identity (both arms) — read ONCE off the session's hello
   // readouts (works over ssh: no local padi is `active` under a remote binding).
@@ -130,59 +127,69 @@ export async function enumerateDaemonInventoryOnce(
  *  so a 10s poll is plenty live without chattering. */
 export const DAEMON_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
 
-/** Start the periodic inventory publisher. Fires once immediately (a T+0 anchor so the
- *  cell has a value before the first dialog open), then every {@link
- *  DAEMON_INVENTORY_SAMPLE_INTERVAL_MS}. Non-overlapping (a slow tick never doubles up)
- *  and `unref`'d so the interval never holds the process open on its own. An optional
- *  `subscribeResample` force-samples on a signal (padi (re)bind), so the bound padi's
- *  `surfaceVersion` and convergence banner refresh at once. */
-export function startDaemonInventorySampler(
-  deps: DaemonInventoryDeps,
-  // Returns an unsubscribe fn (e.g. `session.onState`'s) so the sampler's disposer can
-  // release it; a resampler that returns nothing is fine too.
-  // biome-ignore lint/suspicious/noConfusingVoidType: the resampler may return an unsub OR nothing — void is the honest union member.
-  subscribeResample?: (resample: () => void) => (() => void) | void,
-): () => void {
+/** The shared local-machine daemon scan (5a): kolu-server's OWN box is the same for every
+ *  remote pool entry, so scanning it once and sharing the result is the single-writer
+ *  shape — N per-host samplers each re-scanning it is N writers of one fact (a P3
+ *  violation, not just waste). One owner runs the read-only scan (marking NONE active —
+ *  kolu is bound elsewhere), caches the latest, and notifies subscribers so each per-host
+ *  cell re-publishes with the fresh scan. */
+export interface SharedLocalDaemonScan {
+  /** The latest cached scan, or `null` before the first completes. */
+  get(): HostDaemonInventory | null;
+  /** Subscribe to scan updates; the returned fn unsubscribes. */
+  subscribe(onScan: () => void): () => void;
+  /** Stop the interval + drop subscribers (server shutdown / no remote entries). */
+  dispose(): void;
+}
+
+/** Start the shared local-machine scan. Fires once immediately (a T+0 anchor), then every
+ *  {@link DAEMON_INVENTORY_SAMPLE_INTERVAL_MS}. Non-overlapping (a slow scan never doubles
+ *  up) and `unref`'d so it never holds the process open on its own. */
+export function startSharedLocalDaemonScan(deps: {
+  discoverKavals: () => KavalDaemon[];
+  discoverPadis: () => PadiDaemon[];
+  probe: (socket: string) => Promise<KavalProbe>;
+}): SharedLocalDaemonScan {
+  let latest: HostDaemonInventory | null = null;
+  const subscribers = new Set<() => void>();
   let inFlight = false;
-  let pending = false;
-  const tick = (): void => {
-    // A resample that lands while a prior enumeration is in flight (a bind-state transition
-    // firing `padiSession.onState` mid-tick — e.g. an adopt-stale / skew / link-failure) must
-    // NOT be dropped, else the fresh `boundPadi.convergence` banner waits for the next COARSE
-    // interval. Coalesce it: mark pending, and re-run ONCE when the in-flight tick settles.
-    if (inFlight) {
-      pending = true;
-      return;
-    }
+  const tick = async (): Promise<void> => {
+    if (inFlight) return; // non-overlapping — a slow scan never doubles up
     inFlight = true;
-    void enumerateDaemonInventoryOnce(deps)
-      .catch((err) => {
-        // Each PROBE folds its own failure, but the surrounding readout is NOT total — a
-        // remote-arm discovery fs-walk, a `publish` schema-validate, or a session readout
-        // can throw. That surprise must be LEGIBLE, not an unlogged unhandled rejection
-        // that silently reverts the cell to its local default (and drops the local-scan
-        // leak diagnostic). The cell keeps its last value; the next tick retries. Mirrors
-        // the padi sampler's own `.catch` (`@kolu/padi`'s `hostInventory.ts`).
-        log.error({ err }, "daemon-inventory sample failed");
-      })
-      .finally(() => {
-        inFlight = false;
-        if (pending) {
-          pending = false;
-          tick();
-        }
+    try {
+      latest = await enumerateHostDaemons({
+        discoverKavals: deps.discoverKavals,
+        discoverPadis: deps.discoverPadis,
+        probe: deps.probe,
+        activeKavalSocket: null,
+        activeKavalAtLegacy: false,
+        activePadiSocket: null,
       });
+      for (const cb of [...subscribers]) cb();
+    } catch (err) {
+      // A discovery fs-walk / probe can throw; keep the last scan, log, retry next tick.
+      log.error({ err }, "shared local daemon scan failed");
+    } finally {
+      inFlight = false;
+    }
   };
-  tick();
-  const interval = setInterval(tick, DAEMON_INVENTORY_SAMPLE_INTERVAL_MS);
+  void tick();
+  const interval = setInterval(
+    () => void tick(),
+    DAEMON_INVENTORY_SAMPLE_INTERVAL_MS,
+  );
   interval.unref();
-  // W4 — the per-host sampler is torn down when its host is removed from the pool
-  // (`hosts.remove` / a C2 guest-fault retire), so return a disposer that stops the
-  // interval AND unsubscribes the resample (a `subscribeResample` that returns an
-  // unsub — `session.onState` does — is unwired here; a `void` return is fine too).
-  const offResample = subscribeResample?.(tick);
-  return () => {
-    clearInterval(interval);
-    offResample?.();
+  return {
+    get: () => latest,
+    subscribe: (onScan) => {
+      subscribers.add(onScan);
+      return () => {
+        subscribers.delete(onScan);
+      };
+    },
+    dispose: () => {
+      clearInterval(interval);
+      subscribers.clear();
+    },
   };
 }

@@ -21,8 +21,7 @@ import type {
 } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
-import { toast } from "solid-sonner";
-import { bindingScoped } from "../binding/bindings";
+import { bindingScoped, subErrorToast } from "../binding/bindings";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -98,7 +97,7 @@ export function useTerminalMetadata(deps: {
   const terminals = bindingScoped((b) =>
     b.clients.padi.collections.terminals.use({
       keys,
-      onError: (err) => toast.error(`Metadata error: ${err.message}`),
+      onError: subErrorToast("Metadata error"),
     }),
   );
 

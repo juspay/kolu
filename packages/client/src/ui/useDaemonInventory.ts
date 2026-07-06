@@ -23,8 +23,7 @@ import type {
   RunningKaval,
   RunningPadi,
 } from "kolu-common/surface";
-import { toast } from "solid-sonner";
-import { useBindingScopedSub } from "../binding/bindings";
+import { subErrorToast, useBindingScopedSub } from "../binding/bindings";
 
 // W4 "the switch": the `daemonInventory` cell is now built PER HOST (A1) — each host's
 // router serves its OWN binding + bound-padi identity/convergence, sampled from THAT
@@ -34,7 +33,7 @@ import { useBindingScopedSub } from "../binding/bindings";
 // same box for every host — but are now scoped per entry, so the label is the host's own.)
 const inventory = useBindingScopedSub((b) =>
   b.clients.kolu.cells.daemonInventory.use({
-    onError: (err) => toast.error(`Daemon inventory error: ${err.message}`),
+    onError: subErrorToast("Daemon inventory error"),
   }),
 );
 const sub = () => inventory();
@@ -44,7 +43,7 @@ const sub = () => inventory();
 // readout, so the rail chip's "contract v<x.y>" is the padi's authoritative declaration.
 const padiVersion = useBindingScopedSub((b) =>
   b.clients.padi.cells.version.use({
-    onError: (err) => toast.error(`Padi version error: ${err.message}`),
+    onError: subErrorToast("Padi version error"),
   }),
 );
 

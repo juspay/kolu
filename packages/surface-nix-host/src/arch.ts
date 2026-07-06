@@ -86,6 +86,16 @@ export async function resolveSystem(host: string): Promise<string> {
   return probe;
 }
 
+/** Drop `host`'s cached nix-system so a later probe re-detects it. Called when a host
+ *  LEAVES the pool: the per-process cache would otherwise outlive pool membership, and a
+ *  forgotten-then-re-added host may have been reimaged, or its hostname/alias reused for a
+ *  DIFFERENT machine — a stale cached arch would then realise the wrong `.drv`. A cold
+ *  re-probe is always correct (the same reasoning `archCache` gives for staying in-memory).
+ *  A no-op for a host that was never probed (e.g. a local binding). */
+export function evictArch(host: string): void {
+  archCache.delete(host);
+}
+
 /** The actual ssh arch probe, un-memoized — `resolveSystem` wraps it with
  *  the per-host cache. */
 async function probeSystem(host: string): Promise<string> {

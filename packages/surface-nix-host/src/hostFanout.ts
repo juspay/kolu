@@ -30,6 +30,7 @@
 
 import { EventEmitter, once } from "node:events";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import { evictArch } from "./arch";
 import {
   mirrorRemoteSurface,
   type ProcedureForwarders,
@@ -432,6 +433,10 @@ export function buildHostRegistry<S extends DestroyableSession, H>(
       entry.cells?.dispose();
       entry.session.destroy();
       entries.delete(host);
+      // Drop the host's cached nix-system (5b): the per-process arch cache would otherwise
+      // outlive pool membership, so a forgotten-then-re-added host (possibly reimaged, or
+      // its alias reused for a different machine) re-probes instead of serving a stale arch.
+      evictArch(host);
       log(`removed host: ${host} (total ${entries.size})`);
     },
 

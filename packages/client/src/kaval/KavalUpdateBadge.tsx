@@ -16,8 +16,7 @@
 
 import type { PadiStatus } from "@kolu/padi/surface";
 import type { Component } from "solid-js";
-import { toast } from "solid-sonner";
-import { useBindingScopedSub } from "../binding/bindings";
+import { subErrorToast, useBindingScopedSub } from "../binding/bindings";
 import { kavalStale } from "./kavalCurrency";
 import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
 
@@ -33,7 +32,7 @@ import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
 // module-level `padi.cells.status.use(...)` had none AND pinned the boot binding.
 const kavalStatus = useBindingScopedSub((b) =>
   b.clients.padi.cells.status.use({
-    onError: (err) => toast.error(`Kaval status error: ${err.message}`),
+    onError: subErrorToast("Kaval status error"),
   }),
 );
 

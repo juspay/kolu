@@ -15,8 +15,7 @@
  */
 
 import type { ProcessRss } from "kolu-common/surface";
-import { toast } from "solid-sonner";
-import { useBindingScopedSub } from "../binding/bindings";
+import { subErrorToast, useBindingScopedSub } from "../binding/bindings";
 import {
   daemonTransportLive,
   localDaemonStatus,
@@ -33,12 +32,12 @@ import { readJsHeapUsedBytes } from "./memory";
 //    rail shows the host you're viewing — not the boot default's memory.
 const koluMemory = useBindingScopedSub((b) =>
   b.clients.kolu.cells.processMemory.use({
-    onError: (err) => toast.error(`Memory readout error: ${err.message}`),
+    onError: subErrorToast("Memory readout error"),
   }),
 );
 const padiMemory = useBindingScopedSub((b) =>
   b.clients.padi.cells.processMemory.use({
-    onError: (err) => toast.error(`Padi memory readout error: ${err.message}`),
+    onError: subErrorToast("Padi memory readout error"),
   }),
 );
 

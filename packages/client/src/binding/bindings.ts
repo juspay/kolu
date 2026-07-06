@@ -265,3 +265,11 @@ export function useBindingScopedSub<T>(pick: (binding: Binding) => T): () => T {
     return scoped();
   };
 }
+
+/** The `onError` handler every `useBindingScopedSub` / `.use(...)` site repeats — toast
+ *  the labelled subscription error with the server's message. Collapses the
+ *  `(err) => toast.error(\`<label>: ${err.message}\`)` lambda to `subErrorToast("<label>")`,
+ *  so each site names only its varying `label`. */
+export function subErrorToast(label: string): (err: Error) => void {
+  return (err) => toast.error(`${label}: ${err.message}`);
+}

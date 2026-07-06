@@ -19,7 +19,7 @@ import { LOCAL_HOST } from "kolu-common/contract";
 import type { PadiLink } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { useBindingScopedSub } from "../binding/bindings";
+import { subErrorToast, useBindingScopedSub } from "../binding/bindings";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
 import { app } from "../wire";
@@ -88,12 +88,12 @@ export function daemonTransportLive(): boolean {
 const daemonStatusSub = useBindingScopedSub((b) =>
   b.clients.padi.collections.daemonStatus.use({
     keys: () => [LOCAL_HOST],
-    onError: (err) => toast.error(`Daemon status error: ${err.message}`),
+    onError: subErrorToast("Daemon status error"),
   }),
 );
 const connectionSub = useBindingScopedSub((b) =>
   b.clients.padi.cells.connection.use({
-    onError: (err) => toast.error(`padi link status error: ${err.message}`),
+    onError: subErrorToast("padi link status error"),
   }),
 );
 
