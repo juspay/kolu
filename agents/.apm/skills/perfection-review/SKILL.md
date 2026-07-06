@@ -69,9 +69,9 @@ patch and the defect just relocates — give the property, and if you must show 
 give a few from different angles and call it one costume of many. Separate "the product is
 fine" from "the claim isn't yet true". Post to the PR only when asked (`--post`).
 
-Alongside the defects, report **structural opportunities** — the receptacles the change
-*wants* (the electricity angle): each new app-local mechanism that hides a hard volatility
-(transport, connection lifetime, reconnection, multiplicity racing user intent) gets NAMED
-with the volatility it encapsulates and the home it wants, **even at a population of one**.
-These are non-blocking findings for the ledger, never gates: prove-then-extract still
-governs *when* to extract; this review's job is that candidates are recorded, not invisible.
+Alongside the defects, RUN the `architecture-first-principles` skill's checks (C1–C7) as part of
+the fan-out — ecosystem duplicates, consumer ergonomics, the graduation sweep (the
+electricity angle, even at population one), the one-hop depends-on audit, fresh-eyes, state-and-time, and
+project conventions. The checks are executable prompts, not advice: include
+them as hunters in this review's own Workflow rather than paraphrasing them. Their
+confirmed findings report as non-blocking structural opportunities beside the defects.

@@ -1,7 +1,7 @@
 ---
 name: be-review
-description: Run /be's review gauntlet SERIALLY — /lens-debate (lowy ⇄ hickey), then /codex-debate, then /simplify, then code-police, each editing and committing on the live branch in turn. Use from /be §4, or when the user asks to "run the review gauntlet". Requires Claude Code's Skill tool.
-argument-hint: "[--base <branch>] [--rationale <note>] [--context <note>] [--tracks lens,codex,simplify,police]"
+description: Run /be's review gauntlet SERIALLY — architecture-first-principles FIRST (framework/structure diffs), then /lens-debate (lowy ⇄ hickey), then /codex-debate, then /simplify, then code-police, each editing and committing on the live branch in turn. Use from /be §4, or when the user asks to "run the review gauntlet". Requires Claude Code's Skill tool.
+argument-hint: "[--base <branch>] [--rationale <note>] [--context <note>] [--tracks checks,lens,codex,simplify,police]"
 ---
 
 # Review gauntlet (serial)
@@ -13,20 +13,28 @@ that impossible without any snapshot machinery — when a step starts, the previ
 step has already committed, so every reviewer reads a clean, settled tree and
 applies its own fixes directly:
 
-1. **`/lens-debate`** — lowy + hickey debate boundaries/simplicity to consensus,
+1. **architecture-first-principles** — FIRST, for a diff touching framework packages
+   (`@kolu/surface*`) or adding/reshaping module structure: run the named checks per their SKILL (Workflow fan-out, adversarial verify, scope = diff +
+   one hop down its imports). It runs before the lenses so architecture-level
+   findings (wrong library, wrong layer, dead API surface) are fixed BEFORE the
+   structural/code debates polish details that were about to change shape. Skip
+   ONLY for pure-docs or trivially-local diffs, and say so. Its confirmed
+   findings are dispositioned like any stage's — fix now or record where, never
+   "acceptable for scope".
+2. **`/lens-debate`** — lowy + hickey debate boundaries/simplicity to consensus,
    then **apply** the agreed fixes (each its own commit). Pass the change
    **`rationale`** so the lenses don't flag deliberate decisions.
-2. **`/codex-debate`** — codex (`xhigh`) ⇄ claude author, debating to consensus.
+3. **`/codex-debate`** — codex (`xhigh`) ⇄ claude author, debating to consensus.
    Its author rounds edit and each round auto-commits `fix(…)` on the branch.
-3. **`/simplify`** — the self-applying reuse / simplification / efficiency pass
+4. **`/simplify`** — the self-applying reuse / simplification / efficiency pass
    over the changed code. Now that nothing runs concurrently, it runs as itself
    (it could not against the old read-only snapshot).
-4. **code-police** — its rule-checklist and fact-check passes, applying their
+5. **code-police** — its rule-checklist and fact-check passes, applying their
    fixes. Run with `--no-elegance` so its elegance pass is skipped: that pass
-   re-invokes `/simplify`, which step 3 already ran over this same tree.
+   re-invokes `/simplify`, which step 4 already ran over this same tree.
 
 Each step runs to completion before the next begins. Wall-clock is
-`lens + codex + simplify + police` — slower than the old parallel form, but with
+`checks + lens + codex + simplify + police` — slower than the old parallel form, but with
 no snapshot, no change-request handoff, and no separate apply pass: every step is
 its own editor and commits its own work.
 
@@ -79,7 +87,7 @@ commit.
 
 ## Run the steps in order
 
-`--tracks lens,codex,simplify,police` selects which steps run (default all four),
+`--tracks checks,lens,codex,simplify,police` selects which steps run (default all four),
 in the listed order. Run each to completion, then move to the next. Preflight
 already ran `git fetch origin` and resolved the base, so pass `MB` straight into
 each step and **skip the per-skill step-1 fetch / base resolution** — don't redo
