@@ -169,6 +169,12 @@ export const PreferencesSchema = z.object({
    *  rendering shift on focus swap at the cost of WebGL throughput. */
   terminalRenderer: z.enum(["auto", "webgl", "dom"]),
   rightPanel: RightPanelPrefsSchema,
+  /** Hosts the warm pool has been asked to hold, most-recent last — the source
+   *  the (Debug-only, W4) host picker offers as "recents". Server-persisted so
+   *  every device sharing this kolu sees the same list; the local host is never
+   *  listed (it is always reachable). Kept in `preferences` because it is a
+   *  user-scoped shell fact, not per-host terminal state (which lives on padi). */
+  recentHosts: z.array(z.string()),
 });
 
 /** Preference patch — top-level fields are optional; nested objects are deep-partial. */
@@ -228,6 +234,7 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
+  recentHosts: [],
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`

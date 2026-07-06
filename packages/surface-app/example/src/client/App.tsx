@@ -139,7 +139,9 @@ function Shell() {
 export default function App() {
   return (
     <SurfaceAppProvider<ExampleBuildInfo>
-      controlPlane={clients.surfaceApp}
+      // `controlPlane` is an accessor (a live host-switch swaps it); this single-
+      // host example never swaps, so it passes a thunk over the static client.
+      controlPlane={() => clients.surfaceApp}
       clientCommit={shellCommit()}
       buildInfo={buildInfo}
       ws={ws}

@@ -349,22 +349,26 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     expect(padiSpecs.length).toBeGreaterThan(0);
   });
 
-  it("(c) the root terminal.* / git.* namespaces are gone — only server + daemon beside surface", () => {
+  it("(c) the root terminal.* / git.* namespaces are gone — only server + daemon + hosts beside surface", () => {
     const c = contract as Record<string, unknown>;
     expect(c.terminal).toBeUndefined();
     expect(c.git).toBeUndefined();
+    // `hosts` joined `server`/`daemon` at W4 (the warm-pool control plane); still
+    // no terminal/git root namespace (those moved onto padiSurface at W1.R7).
     expect(
       Object.keys(contract)
         .filter((k) => k !== "surface")
         .sort(),
-    ).toEqual(["daemon", "server"]);
+    ).toEqual(["daemon", "hosts", "server"]);
 
     // `appRouter` is assembled in `index.ts`'s async boot now (the padi sibling is
     // an `await`ed re-serve), so build it here with stub deps to assert the same
-    // fact: no terminal/git root namespace survives beside surface/server/daemon.
+    // fact: no terminal/git root namespace survives beside surface/server/daemon/hosts.
     const r = buildAppRouter({
       surfaceRouter: { surface: {} },
       drainBoundPadi: async () => {},
+      defaultHost: "local",
+      hosts: { add: async () => {}, remove: async () => {} },
     }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();

@@ -39,8 +39,20 @@ export type PwaIdentity = z.infer<typeof PwaIdentitySchema>;
 // watermark, PWA theme).
 export const ServerInfoSchema = z.object({
   identity: PwaIdentitySchema,
+  /** The host a tab binds when it names none — `KOLU_PADI_HOST` if set, else the
+   *  local host (W4). A tab reads this at boot to pick its initial binding, so a
+   *  CI run booted through `KOLU_PADI_HOST` lands on that remote host by default
+   *  while the picker still switches freely away. Server-wide (same on every
+   *  per-host handler). */
+  defaultHost: z.string(),
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
+
+/** A host the warm pool holds a binding to — an ssh destination string (or the
+ *  sentinel local host). Named separately so `hosts.add`/`hosts.remove` share
+ *  one input shape. */
+export const HostInputSchema = z.object({ host: z.string() });
+export type HostInput = z.infer<typeof HostInputSchema>;
 
 // ── The contract ──────────────────────────────────────────────────────
 
@@ -76,5 +88,21 @@ export const contract = oc.router({
      *  running or degraded daemon) or the DegradedCanvas (a dead one). No input:
      *  one local host today, host-count-agnostic shapes deferred to R-2. */
     restart: oc.output(z.void()),
+  },
+  // W4 "the switch": the warm-pool control plane. A tab picks a host from the
+  // (Debug-only) palette, which `add`s it to the pool BEFORE opening a
+  // `?host=<host>` socket to it — deliberate two-step intent, never a
+  // side-effectful GET that provisions ssh from a stray query param (an
+  // unknown-host upgrade is rejected loud). `remove` forgets a host (closes its
+  // sockets, tears the binding down, drops it from `recentHosts`).
+  hosts: {
+    /** Warm a binding to `host` and add it to the pool + `recentHosts` (idempotent
+     *  — a no-op if already held). Resolves once the entry exists; the binding
+     *  itself warms lazily (the browser then opens `?host=<host>` and watches the
+     *  connection cell go connecting → connected). */
+    add: oc.input(HostInputSchema).output(z.void()),
+    /** Drop `host` from the pool: close its live sockets, destroy its session,
+     *  remove it from `recentHosts`. The local host cannot be removed. */
+    remove: oc.input(HostInputSchema).output(z.void()),
   },
 });

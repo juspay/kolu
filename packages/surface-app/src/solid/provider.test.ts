@@ -14,6 +14,8 @@ import {
   createComponent,
   createRoot,
   createSignal,
+  getOwner,
+  onCleanup,
 } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -77,19 +79,31 @@ function fakeWs() {
   };
 }
 
-/** A `controlPlane` whose `buildInfo` cell yields a fixed server commit. */
-function fakeControlPlane(serverCommit: string): ControlPlane {
+/** A `controlPlane` whose `buildInfo` cell yields a fixed server commit.
+ *  Optionally records subscription open/dispose into a shared log — the
+ *  `controlPlane` is now an accessor, so a host swap must dispose the prior
+ *  subscription and open a fresh one; the log makes that observable. */
+function fakeControlPlane(
+  serverCommit: string,
+  log?: { opened: string[]; disposed: string[] },
+): ControlPlane {
   return {
     cells: {
       buildInfo: {
-        use: () => ({ value: () => ({ commit: serverCommit }) }),
+        use: () => {
+          log?.opened.push(serverCommit);
+          if (getOwner()) onCleanup(() => log?.disposed.push(serverCommit));
+          return { value: () => ({ commit: serverCommit }) };
+        },
       },
     },
   };
 }
 
 /** Mount the provider with a caller-supplied `status` accessor and capture the
- *  model a child reads back out of context. */
+ *  model a child reads back out of context. `controlPlane` is a stable accessor
+ *  (a single fake, returned as-is) — a fresh object per call would churn the
+ *  provider's per-identity subscription memo. */
 function mountModel(opts: {
   serverCommit: string;
   clientCommit: string;
@@ -97,8 +111,9 @@ function mountModel(opts: {
   dispose: () => void;
 }): SurfaceAppModel {
   let captured!: SurfaceAppModel;
+  const cp = fakeControlPlane(opts.serverCommit);
   createComponent(SurfaceAppProvider, {
-    controlPlane: fakeControlPlane(opts.serverCommit),
+    controlPlane: () => cp,
     clientCommit: opts.clientCommit,
     status: opts.status,
     get children() {
@@ -133,10 +148,11 @@ describe("SurfaceAppProvider — updateReady", () => {
 
   it("forwards `restartCloseCode` through the turnkey `{ ws, probe }` source", async () => {
     const t = fakeWs();
+    const cp = fakeControlPlane("0784979");
     await createRoot(async (dispose) => {
       let captured!: SurfaceAppModel;
       createComponent(SurfaceAppProvider, {
-        controlPlane: fakeControlPlane("0784979"),
+        controlPlane: () => cp,
         clientCommit: "0784979",
         ws: t.ws,
         probe: () => Promise.resolve({ processId: "p1" }),
@@ -171,9 +187,10 @@ describe("SurfaceAppProvider — updateReady", () => {
   it("forwards `onProcessId` through the turnkey `{ ws, probe }` source", async () => {
     const t = fakeWs();
     const seen: string[] = [];
+    const cp = fakeControlPlane("0784979");
     await createRoot(async (dispose) => {
       createComponent(SurfaceAppProvider, {
-        controlPlane: fakeControlPlane("0784979"),
+        controlPlane: () => cp,
         clientCommit: "0784979",
         ws: t.ws,
         probe: () => Promise.resolve({ processId: "p1" }),
@@ -206,8 +223,9 @@ describe("SurfaceAppProvider — updateReady", () => {
             ? Promise.resolve({ processId: "p1" })
             : new Promise<{ processId: string }>(() => {});
         };
+        const cp = fakeControlPlane("0784979");
         createComponent(SurfaceAppProvider, {
-          controlPlane: fakeControlPlane("0784979"),
+          controlPlane: () => cp,
           clientCommit: "0784979",
           ws: t.ws,
           probe,
@@ -229,6 +247,47 @@ describe("SurfaceAppProvider — updateReady", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("tears down the prior buildInfo subscription and re-subscribes when the control plane swaps (the W4 host-switch framework guarantee)", () => {
+    createRoot((dispose) => {
+      // The switch: a browser tab live-switches which host it views, rebuilding
+      // its per-binding client bundle. `controlPlane` is an accessor, so the
+      // provider must dispose host A's build-identity stream and open host B's —
+      // with no remount — or the old host's stream leaks (the gray-chip #1687
+      // class of bug). This is the ONE place that guarantee is pinned.
+      const log = { opened: [] as string[], disposed: [] as string[] };
+      const cpA = fakeControlPlane("aaaaaaa", log);
+      const cpB = fakeControlPlane("bbbbbbb", log);
+      const [cp, setCp] = createSignal<ControlPlane>(cpA);
+      let captured!: SurfaceAppModel;
+      createComponent(SurfaceAppProvider, {
+        controlPlane: cp,
+        clientCommit: "aaaaaaa",
+        status: (): ConnectionStatus => "live",
+        get children() {
+          captured = useSurfaceApp();
+          return null;
+        },
+      });
+
+      // A is subscribed eagerly, its value flows, nothing disposed yet.
+      expect(log.opened).toEqual(["aaaaaaa"]);
+      expect(log.disposed).toEqual([]);
+      expect(captured.server()).toEqual({ commit: "aaaaaaa" });
+
+      // Swap the control plane (the live host switch): A's stream is torn down,
+      // B's opens, and the model re-points to B with no remount.
+      setCp(cpB);
+      expect(log.disposed).toEqual(["aaaaaaa"]);
+      expect(log.opened).toEqual(["aaaaaaa", "bbbbbbb"]);
+      expect(captured.server()).toEqual({ commit: "bbbbbbb" });
+
+      // Disposing the provider tears down the final (B) subscription too — no
+      // binding is left streaming after the tree unmounts.
+      dispose();
+      expect(log.disposed).toEqual(["aaaaaaa", "bbbbbbb"]);
+    });
   });
 
   it("flips on staleness (cached old bundle) while the link is otherwise live", () => {

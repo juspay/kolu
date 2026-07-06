@@ -15,10 +15,14 @@ import {
   type Accessor,
   createComponent,
   createContext,
+  createMemo,
+  createRenderEffect,
+  createRoot,
   createSignal,
   getOwner,
   type JSX,
   onCleanup,
+  untrack,
   useContext,
 } from "solid-js";
 import {
@@ -551,11 +555,19 @@ export type SurfaceAppProviderProps<
   T extends { commit: string } = { commit: string },
   P extends ServerProbe = ServerProbe,
 > = {
-  /** Your control-plane surface client (the one carrying the global buildInfo
-   *  cell — for a many-client app, not a per-entity client). Constrained to a
-   *  client whose surface carries `buildInfo`, so the wrong client is a compile
-   *  error rather than a silent runtime read. */
-  controlPlane: ControlPlane<T>;
+  /** Your control-plane surface client, as an ACCESSOR (the one carrying the
+   *  global buildInfo cell — for a many-client app, not a per-entity client).
+   *  Constrained to a client whose surface carries `buildInfo`, so the wrong
+   *  client is a compile error rather than a silent runtime read.
+   *
+   *  It is an accessor, not a value, so the provider can follow an app that
+   *  SWAPS which control plane it watches at runtime (kolu's W4 "the switch":
+   *  each browser tab live-switches which host it views, rebuilding the whole
+   *  per-binding client bundle with no page reload). Every swap tears down the
+   *  prior buildInfo subscription and re-subscribes against the new client — a
+   *  framework guarantee, so a consumer can't leak the old host's stream. A
+   *  static caller passes `() => yourClient`. */
+  controlPlane: Accessor<ControlPlane<T>>;
   /** This client's build commit — read off the shell global the build injected
    *  (`shellCommit()` from `@kolu/surface-app/lifecycle`, reading
    *  `window.__SURFACE_APP_COMMIT__`). It rides the `no-store` shell, never a
@@ -611,11 +623,42 @@ export function SurfaceAppProvider<
   // `buildInfo` is a server cell — read it with `{ authority: "server" }`, not
   // the `{ initial }` (local-authority) shape. Pass `onError` so a dead stream
   // surfaces instead of silently collapsing `stale()` to the default.
-  const cell = props.controlPlane.cells.buildInfo.use({
-    authority: "server",
-    onError: props.onError,
+  //
+  // `controlPlane` is an ACCESSOR: when the app swaps which host it views, it
+  // yields a NEW client, and every swap must tear down the prior buildInfo
+  // subscription and open a fresh one — the framework guarantee that makes an
+  // in-place host switch (no reload) safe, and where the gray-chip class of
+  // bug (#1687) is designed out. `buildInfo.use` is created inside
+  // `@kolu/surface`'s detached `createRoot` (its disposer discarded), so
+  // re-running it alone would LEAK the old stream; we own a `createRoot` per
+  // control-plane identity and dispose it on swap. `createMemo` keeps the read
+  // synchronous (the value is live on first read, not one tick late), and
+  // `untrack` fences the subscription's own reactive reads out of the memo so
+  // only a control-plane swap — never a buildInfo yield — re-runs it.
+  let disposePrevCell: (() => void) | undefined;
+  if (getOwner()) onCleanup(() => disposePrevCell?.());
+  const buildInfoCell = createMemo(() => {
+    const controlPlane = props.controlPlane();
+    return untrack(() => {
+      disposePrevCell?.();
+      let cell!: { value: Accessor<T | undefined> };
+      disposePrevCell = createRoot((dispose) => {
+        cell = controlPlane.cells.buildInfo.use({
+          authority: "server",
+          onError: props.onError,
+        });
+        return dispose;
+      });
+      return cell;
+    });
   });
-  const server = () => cell.value();
+  // Keep the subscription eager (open at mount, re-derived the instant the
+  // control plane swaps) rather than lazy-on-first-read — matching the
+  // pre-accessor behavior and guaranteeing the old host's stream is torn down
+  // synchronously on the switch, not whenever a consumer next reads. A render
+  // effect is a synchronous standing observer, so the memo can't go dormant.
+  if (getOwner()) createRenderEffect(() => void buildInfoCell());
+  const server = () => buildInfoCell().value();
   // The connection status. Prefer a caller-supplied `status` accessor (the app
   // already derived the lifecycle once — read it, don't re-derive it: a second
   // `createServerLifecycle` would double the `identity.info` probe per reconnect

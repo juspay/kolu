@@ -74,7 +74,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.31.0";
+const SCHEMA_VERSION = "1.32.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -490,6 +490,16 @@ export const store = new Conf<PersistedState>({
     // `preferences` now. BACKUP-FIRST (see `stripLegacyStateKeys_1_31_0`).
     "1.31.0": (store: Conf<PersistedState>) =>
       stripLegacyStateKeys_1_31_0(store),
+    // `recentHosts` added to preferences (W4 "the switch"): the warm pool's host
+    // list, shared across a user's devices, offered as the picker's recents.
+    // Backfill an empty array so an existing user's `preferences` validates
+    // against the widened schema (no host is remembered until one is picked).
+    "1.32.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences");
+      if ((current as Record<string, unknown>).recentHosts === undefined) {
+        store.set("preferences", { ...current, recentHosts: [] });
+      }
+    },
   },
 });
 
