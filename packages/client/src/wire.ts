@@ -61,12 +61,6 @@ type Clients = Binding["clients"];
  *  readiness in by construction). */
 export const app: Clients["kolu"] = activeProxy((b) => b.clients.kolu);
 
-/** surface-app's surface client for the active host — the build-identity
- *  `buildInfo` cell + the `identity.info` restart probe. */
-export const surfaceApp: Clients["surfaceApp"] = activeProxy(
-  (b) => b.clients.surfaceApp,
-);
-
 /** The `@kolu/padi` surface client for the active host — the PRIMARY source of
  *  every terminal-derived member and every lifecycle/chrome/screen/fs/git/session
  *  procedure via `padiRpc(padi)`. */
