@@ -1,0 +1,219 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>remoteSurfaces — a keyed family of remote surfaces (W4, redesigned) · the kolu Atlas</title><meta name="description" content="The switch rebuilt on a first-class surface notion — a dynamic keyed family of re-served remote surfaces, N-active by construction — replacing the client-side active-connection manager, its wrappers, and every convention they leaned on. Two PRs, each user-facing."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/remote-surfaces.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="remoteSurfaces — a keyed family of remote surfaces (W4, redesigned) · the kolu Atlas"><meta property="og:description" content="The switch rebuilt on a first-class surface notion — a dynamic keyed family of re-served remote surfaces, N-active by construction — replacing the client-side active-connection manager, its wrappers, and every convention they leaned on. Two PRs, each user-facing."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/remote-surfaces.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-06T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="remoteSurfaces — a keyed family of remote surfaces (W4, redesigned) · the kolu Atlas"><meta name="twitter:description" content="The switch rebuilt on a first-class surface notion — a dynamic keyed family of re-served remote surfaces, N-active by construction — replacing the client-side active-connection manager, its wrappers, and every convention they leaned on. Two PRs, each user-facing."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">remoteSurfaces — a keyed family of remote surfaces (W4, redesigned)</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-07-06T00:00:00.000Z">JUL 06, 2026</time></div><p class="note-sub">The switch rebuilt on a first-class surface notion — a dynamic keyed family of re-served remote surfaces, N-active by construction — replacing the client-side active-connection manager, its wrappers, and every convention they leaned on. Two PRs, each user-facing.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#user-facing-description" data-astro-cid-rda6bqd5>User-facing description</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#architecture-level-changes" data-astro-cid-rda6bqd5>Architecture-level changes</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-invariant-table-perfection-bar-each-defect-class-inexpressible" data-astro-cid-rda6bqd5>The invariant table (perfection bar: each defect class inexpressible)</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#implementation-details" data-astro-cid-rda6bqd5>Implementation details</a></li></ul></nav></header><div class="prose"><p><strong>What this note is.</strong> The redesign of W4 under srid’s constraints: no facade over the swap — the framework gains a <em>notion</em>; consumers reach a host’s cells <strong>through the client object itself</strong> (<code>app.remoteSurfaces.get(&quot;zest&quot;).padi.cells.daemonStatus.use(…)</code>); multi-host <strong>multiplexing is in scope now</strong>, not a future relaxation; nothing deferred; every invariant held to <a href="#the-invariant-table">/architecture-first-principles</a> and the perfection bar (the defect class becomes <em>inexpressible</em>, not guarded). Grounded in the code, not memory: a surface is a typed oRPC router <strong>already stream-multiplexed over one socket</strong>; the client is <strong>type-generated from the contract</strong>; <code>buildHostRegistry</code> + <code>reServeSurface</code> already hold and re-serve one warm session per host. Those three facts are what make this design small.</p>
+<h2 id="user-facing-description">User-facing description</h2>
+<p><strong>PR1 ships a visible fleet demo</strong> (<code>examples/fleet</code> — a new tiny surface app, per the “demonstrate outside kolu” constraint): a browser page listing daemon hosts. Type a hostname → a card appears <em>immediately</em> in a <code>warming</code> state → flips to <code>connected</code> with its clock and memory cells ticking <strong>live</strong>. Add a second and third host — all tick concurrently on one socket. Remove a host mid-tick → its card’s subscriptions end with a <em>typed</em> “entry removed” reason (rendered honestly, not as an error toast). Add a bogus host → its card shows <code>failed(reason)</code> — a value on the card, never a crash, never a toast about some <em>other</em> host.</p>
+<p><strong>PR2 ships the kolu switch, plus the first real multi-active feature.</strong> The Labs host picker as before (per-tab active host, live switch, no reload) — but switching is now <em>instant</em>: picking a host repaints the canvas into that host’s <code>warming</code>/<code>connected</code> state at once, because selection is a signal write, not an awaited connect. And the switcher itself becomes the multi-active proof: <strong>every host’s chip shows its live status and agent-urgency count simultaneously</strong> — N hosts consumed concurrently in one kolu tab. That’s a real feature (the W5 attention story’s first slice), not a tech demo.</p>
+<h2 id="architecture-level-changes">Architecture-level changes</h2>
+<figure class="diagram wide" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 470" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">
+  <rect width="880" height="470" fill="#101014" rx="12"/>
+
+  <!-- SERVER SIDE -->
+  <rect x="24" y="28" width="300" height="404" fill="#16161d" stroke="#2e2e3a" rx="10"/>
+  <text x="174" y="52" text-anchor="middle" fill="#8b8b9e" font-size="11" letter-spacing="2">KOLU-SERVER</text>
+
+  <rect x="44" y="66" width="260" height="120" fill="#1c1c26" stroke="#3d3d4d" rx="8"/>
+  <text x="174" y="88" text-anchor="middle" fill="#e6e6f0" font-weight="bold">buildHostRegistry</text>
+  <text x="174" y="106" text-anchor="middle" fill="#8b8b9e" font-size="11">one warm DaemonSession per host</text>
+  <rect x="58" y="118" width="70" height="26" fill="#242433" stroke="#4a4a5e" rx="5"/>
+  <text x="93" y="135" text-anchor="middle" fill="#c9c9d9" font-size="11">local</text>
+  <rect x="138" y="118" width="70" height="26" fill="#242433" stroke="#4a4a5e" rx="5"/>
+  <text x="173" y="135" text-anchor="middle" fill="#c9c9d9" font-size="11">zest</text>
+  <rect x="218" y="118" width="70" height="26" fill="#242433" stroke="#4a4a5e" rx="5"/>
+  <text x="253" y="135" text-anchor="middle" fill="#c9c9d9" font-size="11">pu</text>
+  <text x="174" y="172" text-anchor="middle" fill="#6e6e80" font-size="10">(ssh warm · drv resolve · entry cells — survives #1708)</text>
+
+  <rect x="44" y="206" width="260" height="130" fill="#1f2a24" stroke="#3fae6a" rx="8"/>
+  <text x="174" y="228" text-anchor="middle" fill="#7be0a3" font-weight="bold">serveSurfaceFamily  (NEW)</text>
+  <text x="174" y="248" text-anchor="middle" fill="#b9e8cb" font-size="11">entry router × key — key folded into</text>
+  <text x="174" y="264" text-anchor="middle" fill="#b9e8cb" font-size="11">every proc's INPUT; membership gates it</text>
+  <text x="174" y="288" text-anchor="middle" fill="#8fceaa" font-size="11">keys collection · per-entry status cell</text>
+  <text x="174" y="304" text-anchor="middle" fill="#8fceaa" font-size="11">warming | connected | failed(reason)</text>
+  <text x="174" y="320" text-anchor="middle" fill="#8fceaa" font-size="11">removal ⇒ typed END of that key's subs</text>
+
+  <text x="174" y="368" text-anchor="middle" fill="#6e6e80" font-size="11">unknown key ⇒ typed rejection (fail-fast)</text>
+  <text x="174" y="386" text-anchor="middle" fill="#6e6e80" font-size="11">per-entry fault = a status VALUE,</text>
+  <text x="174" y="402" text-anchor="middle" fill="#6e6e80" font-size="11">never a boot crash</text>
+
+  <!-- WIRE -->
+  <line x1="324" y1="230" x2="424" y2="230" stroke="#e0b04a" stroke-width="2.5"/>
+  <text x="374" y="216" text-anchor="middle" fill="#e0b04a" font-size="11" font-weight="bold">ONE socket</text>
+  <text x="374" y="248" text-anchor="middle" fill="#a8853a" font-size="10">already stream-muxed;</text>
+  <text x="374" y="262" text-anchor="middle" fill="#a8853a" font-size="10">key rides in input —</text>
+  <text x="374" y="276" text-anchor="middle" fill="#a8853a" font-size="10">no new frames, no</text>
+  <text x="374" y="290" text-anchor="middle" fill="#a8853a" font-size="10">per-host sockets</text>
+
+  <!-- CLIENT SIDE -->
+  <rect x="424" y="28" width="432" height="404" fill="#16161d" stroke="#2e2e3a" rx="10"/>
+  <text x="640" y="52" text-anchor="middle" fill="#8b8b9e" font-size="11" letter-spacing="2">BROWSER CLIENT</text>
+
+  <rect x="444" y="66" width="392" height="150" fill="#241f2e" stroke="#a56de2" rx="8"/>
+  <text x="640" y="88" text-anchor="middle" fill="#cfa9f5" font-weight="bold">app.remoteSurfaces  (NEW — typed family client)</text>
+  <text x="640" y="112" text-anchor="middle" fill="#e6e6f0" font-family="ui-monospace, monospace" font-size="12">.get(key).padi.cells.daemonStatus.use(…)</text>
+  <text x="640" y="134" text-anchor="middle" fill="#b9a3d6" font-size="11">entry-typed once, keyed at runtime — key may be reactive:</text>
+  <text x="640" y="150" text-anchor="middle" fill="#b9a3d6" font-size="11">key change ⇒ dispose-and-rebuild (the keyedRoot atom, inside)</text>
+  <text x="640" y="174" text-anchor="middle" fill="#9d84c0" font-size="11">sub DEDUP by (key · proc · input), ref-counted —</text>
+  <text x="640" y="190" text-anchor="middle" fill="#9d84c0" font-size="11">sharing by construction, no module-const convention</text>
+
+  <rect x="444" y="236" width="188" height="90" fill="#1c1c26" stroke="#3d3d4d" rx="8"/>
+  <text x="538" y="258" text-anchor="middle" fill="#e6e6f0" font-weight="bold">activeHost signal</text>
+  <text x="538" y="278" text-anchor="middle" fill="#8b8b9e" font-size="11">app POLICY — a plain value;</text>
+  <text x="538" y="294" text-anchor="middle" fill="#8b8b9e" font-size="11">switching = writing it (sync).</text>
+  <text x="538" y="310" text-anchor="middle" fill="#8b8b9e" font-size="11">No await ⇒ no pick-epoch.</text>
+
+  <rect x="648" y="236" width="188" height="90" fill="#1c1c26" stroke="#3d3d4d" rx="8"/>
+  <text x="742" y="258" text-anchor="middle" fill="#e6e6f0" font-weight="bold">multi-active = N keys</text>
+  <text x="742" y="278" text-anchor="middle" fill="#8b8b9e" font-size="11">switcher chips read every</text>
+  <text x="742" y="294" text-anchor="middle" fill="#8b8b9e" font-size="11">host's status + urgency LIVE</text>
+  <text x="742" y="310" text-anchor="middle" fill="#8b8b9e" font-size="11">— concurrently, one socket.</text>
+
+  <text x="640" y="360" text-anchor="middle" fill="#6e6e80" font-size="11">canvas reads .get(activeHost()) — one derived accessor;</text>
+  <text x="640" y="378" text-anchor="middle" fill="#6e6e80" font-size="11">dead: ActiveConnectionManager · connectionScoped-as-API · useBindingScopedSub</text>
+  <text x="640" y="396" text-anchor="middle" fill="#6e6e80" font-size="11">· reSub · per-host sockets · retire-stubbing · pick-epoch</text>
+
+  <line x1="632" y1="216" x2="538" y2="236" stroke="#4a4a5e" stroke-width="1.5"/>
+  <line x1="648" y1="216" x2="742" y2="236" stroke="#4a4a5e" stroke-width="1.5"/>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>The family, end to end: the server folds the key into every entry proc&#39;s input and gates it on membership (one socket, already muxed); the typed client family partial-applies the key; activeness is an app-owned signal; multi-active is just N keys. The client-side manager and every wrapper die.</figcaption></figure>
+<p><strong>The new notion — <code>SurfaceFamily</code>: a dynamic keyed set of surfaces served as one.</strong> Today a surface’s shape is static in the contract. The family adds the one honest dynamic axis: <em>entry spec typed once, entries keyed at runtime</em>. Server-side, <code>serveSurfaceFamily(entrySpec, registry)</code> is a <strong>router transform, not a transport change</strong>: every entry proc gets the <code>key</code> folded into its <em>input</em>, the handler resolves <code>registry.getSession(key)</code> at call time, and membership gates every call — unknown key is a typed rejection. Alongside the entries: a <code>keys</code> collection (membership, live) and a per-entry <code>status</code> cell (<code>warming | connected | failed(reason)</code>). Removing an entry <strong>ends that key’s live subscriptions with a typed reason</strong> — the mirrored session’s teardown already ends its streams; the family maps that into a typed completion instead of a socket error.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Why key-as-input and not per-key sockets or new frame tags: the oRPC peer already multiplexes many concurrent streams over one connection — that is how N cells coexist today. Key-as-input reuses the existing dispatch and typing wholesale; the misroute guard stops being retire-stubbing machinery and becomes a property of the data — a subscription <em>carries its key in every frame by construction</em>, so a call can’t cross hosts any more than it can cross procs. W4’s per-host sockets existed to make misroute structurally impossible; key-in-input achieves the same impossibility one layer up, with zero socket lifecycle to manage.</span></span></span></p>
+<p><strong>The client half — <code>app.remoteSurfaces</code>, a typed family client.</strong> <code>.get(key)</code> partial-applies the key and returns the <em>entry-typed</em> client subtree — so <code>remoteSurfaces.get(&quot;zest&quot;).padi.cells.daemonStatus.use(…)</code> is the API, exactly the spelling asked for. Two properties do all the work the old wrappers did:</p>
+<ul>
+<li><strong>Reactive keys are native.</strong> <code>.get()</code> accepts a plain key or an accessor; with an accessor, a key change disposes the old entry scope and rebuilds synchronously — the <code>createKeyedRoot</code>/<code>mapArray</code> atom from the current PR survives <em>as the internal mechanism</em> (it was always right; exposing wrappers around it was the mistake). Ownerless use throws, as it now does.</li>
+<li><strong>Subscription dedup by construction.</strong> The family client keeps one wire subscription per <code>(key, proc, input)</code>, ref-counted; ten components reading the same cell share one sub <em>structurally</em>. This deletes the module-level-const convention, <code>createSharedRoot</code>-as-sharing, <code>useBindingScopedSub</code>, <code>bindingScoped</code>, <code>reSub</code>, and wire.ts’s adapter layer — the whole tower srid called, correctly, a hack. Decided here, not deferred: dedup applies to <strong>static-input</strong> subs (every real kolu case today — 15/15); a sub whose input is itself reactive keys per call site (documented on the API; it is the honest semantics, since two distinct input accessors are two distinct subscriptions). Warmth is policy: an app that wants a standing sub kept hot across UI churn pins one reader at app scope — one deliberate line in kolu’s <code>wire.ts</code>, not a framework knob.</li>
+</ul>
+<p><strong>Activeness is app policy — a value, and that kills two machines.</strong> The framework holds the <em>set</em>; “which host(s) this tab looks at” is a plain signal in kolu. Switching = writing the signal — <strong>synchronous</strong>, so there is nothing to race: the pick-epoch machinery (built because selection awaited a warm) has no reason to exist. Warming stays real but becomes a <em>server-side observable</em> (<code>status</code> cell) the UI renders honestly — the W6 “honest connect” note lands here for free. Retirement stubbing (<code>send</code>-throws-typed-error) likewise dies: a switched-away key’s subs just keep running if something still reads them (multi-active is <em>allowed</em>), and end typed when the entry is actually removed. One-active is a <em>policy</em> the app enforces by construction of its own signal — precisely the “multiplicity as policy, not physics” line the old plan’s footnote promised, now made literal.</p>
+<p><strong>What survives from #1708, honestly.</strong> The server half survives nearly whole: <code>buildHostRegistry</code> + sessions, ssh warm, lazy drv resolution + typed per-host faults (Group 1), <code>UnremovableHostError</code>, entry cells (they become the family’s <code>status</code>/identity cells), the shared local scan, the dialog work, Labs UI (repointed). The batch’s framework <em>atoms</em> survive (<code>createKeyedRoot</code>-over-<code>mapArray</code> in <code>@kolu/surface/solid</code>, <code>createSubRoot</code> in <code>useCell</code>, the manager-honesty lessons as test cases). What is discarded is the client-side composite: <code>createActiveConnectionManager</code>, <code>connectionScoped</code> as consumer API, per-host browser sockets, retirement stubbing, pick-epoch, and kolu’s wrapper tower. Adoption path: PR2 cherry-picks the surviving server commits from #1708’s branch; the client layer is rewritten. Rejecting the PR discards <em>shape</em>, not work.</p>
+<h3 id="the-invariant-table-perfection-bar-each-defect-class-inexpressible">The invariant table (perfection bar: each defect class inexpressible)</h3>
+<table>
+<thead>
+<tr>
+<th>defect class (all real, all hit this cycle)</th>
+<th>killed by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>misroute — a call resolves against the wrong host</td>
+<td>key in every frame’s input, by construction (P4)</td>
+</tr>
+<tr>
+<td>yank — a slow warm commits a stale pick</td>
+<td>selection is a synchronous value; nothing awaits (P1/P2)</td>
+</tr>
+<tr>
+<td>leak-on-swap — old sub outlives the switch</td>
+<td>entry scope owns subs; disposal is <code>mapArray</code>’s, not convention (P1)</td>
+</tr>
+<tr>
+<td>sharing-by-convention — module-const singletons</td>
+<td>dedup keyed <code>(key, proc, input)</code>, ref-counted, in the family client (P4)</td>
+</tr>
+<tr>
+<td>signal-of-signals at call sites</td>
+<td><code>.get(key)</code> returns the entry client; nesting internal to the atom (C2)</td>
+</tr>
+<tr>
+<td>boot-brick — a persisted host crashes startup</td>
+<td>per-entry <code>failed(reason)</code> status value; boot never parses per-host config eagerly (P4, kept from Group 1)</td>
+</tr>
+<tr>
+<td>dishonest teardown — “server restarted” lie</td>
+<td>removal ends subs with a typed reason; no stub errors (P4/P5)</td>
+</tr>
+<tr>
+<td>silent no-op — <code>remove(default)</code> “succeeds”</td>
+<td>typed <code>UnremovableHostError</code> (kept)</td>
+</tr>
+<tr>
+<td>foreign clock — cross-host timestamps</td>
+<td>per-entry <code>clockNow</code> offset lives ON the entry’s status cell — in PR1’s contract from day one, consumed by PR2’s chips (P3; no deferred honest-clocks item)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="implementation-details">Implementation details</h2>
+<p><strong>Two PRs — the split is forced by the two audiences, and each demonstrates a user-facing feature</strong> (the constraint): PR1 proves the <em>framework</em> with an app that isn’t kolu; PR2 ships kolu’s <em>product</em> on it. One PR would couple a framework redesign’s review to a product rewrite’s review — the exact coupling the gauntlet exists to avoid; three would split mechanism from its first demo, which the atlas rules forbid (a proof phase must pin its path).</p>
+<p><strong>PR1 — <code>@kolu/surface</code>: the family, with <code>examples/fleet</code> as the living demo.</strong></p>
+<ol>
+<li><code>defineSurfaceFamily(entrySpec)</code> in <code>packages/surface/src/define.ts</code> territory: the entry-router transform (key into input, zod-validated), <code>keys</code> collection, <code>status</code> cell contract (including <code>clockNow</code> offset). Serve side: <code>serveSurfaceFamily(family, resolve: (key) =&gt; EntrySession | EntryFault)</code> — resolver-backed so surface stays registry-agnostic (lowy: the registry is nix-host volatility).</li>
+<li>Client: <code>FamilyClient&lt;S&gt;</code> with <code>get(key | Accessor&lt;key&gt;)</code> → entry-typed subtree; the dedup registry (<code>(key, proc, stable-input-hash)</code> → ref-counted sub); typed end reason on membership loss. Solid layer rides the existing <code>createKeyedRoot</code>.</li>
+<li><code>@kolu/surface-nix-host</code>: <code>serveHostFamily(buildHostRegistry(...))</code> — the resolver over sessions; entry faults from the lazy drv/ssh path as <code>failed(reason)</code> values.</li>
+<li><code>examples/fleet</code>: ~200-line surface app (server: family over 1 local + N configurable ssh hosts; client: the cards page). <strong>Done-criterion pins the path, not the pixels</strong>: over a real ws socket (not loopback), (a) an entry REMOVED mid-subscription ends the demo card’s sub with the typed reason; (b) two browser tabs’ identical cells share one upstream sub per tab process (dedup observable in server sub-count); (c) an unreachable host renders <code>failed</code> while its siblings keep ticking. Plus contract tests for key-gating (unknown key typed-rejects) and the membership⇄end linkage.</li>
+<li>drishti pin PR (surface.md gate) rides as usual.</li>
+</ol>
+<p><strong>PR2 — kolu: the switch + live multi-host chips, on the family.</strong></p>
+<ol>
+<li>Server: kolu-server serves the padi family via <code>serveHostFamily</code>; <code>hosts.add/remove</code> stay root RPCs writing the registry (single writer — P3); cherry-pick #1708’s surviving server commits (Group 1, 5a/5b, dialog).</li>
+<li>Client: <code>wire.ts</code> consumes <code>remoteSurfaces.get(activeHost())</code>; <code>activeHost</code> = per-tab signal + <code>sessionStorage</code> (decided: per-tab stays, it’s the feature); the 15 standing readouts become plain family reads (pinned at app scope where warmth matters — one place). Labs picker writes the signal; rejection fallback is <strong>app policy on the <code>status</code> cell</strong> (status flips to <code>failed</code>/removed → picker falls back to local + toast) — policy reading a value, no callback reaching into mechanism.</li>
+<li>The chips: switcher entries subscribe <code>status</code> + urgency-count for <strong>every</strong> pool host concurrently — the multi-active, user-facing proof. Wire cost stays urgency-count-sized (the W5 rule, honored).</li>
+<li>Deletions as acceptance: <code>activeConnectionManager.ts</code>, <code>useBindingScopedSub</code>/<code>bindingScoped</code>/<code>reSub</code>, the <code>?host</code> socket keying, and their tests — <code>grep</code>-proof zero wrappers between components and <code>remoteSurfaces</code>.</li>
+<li><strong>Done-criteria naming the paths</strong>: switch mid-stream (old key’s canvas subs release, new key’s populate synchronously — the flicker class pinned at the resolver as already designed); boot with a persisted dead host (chip <code>failed</code>, canvas fine — the Group-1 brick, re-pinned on the new path); remove-active-host from another tab (typed end → fallback policy fires); two hosts’ chips update from two hosts’ clocks with per-entry offsets (the P3 pin).</li>
+<li>Risks, named with mitigations: <em>dedup input-hashing</em> — stable-stringify only zod-validated static inputs, throw on functions (mitigation: the type split above); <em>end-vs-error ordering on removal</em> — the family must complete streams before the registry destroys the session (pin: a test asserting no socket-error frame follows a typed end); <em>N-host chip fan-out cost</em> — bounded by pool size and the urgency-count wire rule (measured in PR, budget in the PR description).</li>
+</ol>
+<p>Both PRs run the full gauntlet — the C1–C7 checks first (C2 reads every new export from the consumer’s chair; this design exists because that chair was empty last time), then lens/codex/simplify/police, then <code>/perfection-review</code> against the invariant table above: for each row, either cite the structural mechanism or construct the defect — no “acceptable for scope”.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+<script>
+  (function () {
+    var fns = Array.prototype.slice.call(
+      document.querySelectorAll(".fn[data-fn]"),
+    );
+    if (!fns.length) return;
+
+    // Position an open popover: reset, measure, then pull it back inside the
+    // viewport horizontally and flip it above the marker if it overflows below.
+    function place(fn) {
+      var pop = fn.querySelector(".fn-pop");
+      if (!pop) return;
+      pop.style.setProperty("--fn-x", "0px");
+      pop.classList.remove("fn-pop-above");
+      var r = pop.getBoundingClientRect();
+      var pad = 8;
+      var dx = 0;
+      if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
+      else if (r.left < pad) dx = pad - r.left;
+      if (dx) pop.style.setProperty("--fn-x", dx + "px");
+      if (r.bottom > window.innerHeight - pad) pop.classList.add("fn-pop-above");
+    }
+
+    function setPinned(fn, on) {
+      fn.classList.toggle("is-pinned", on);
+      var btn = fn.querySelector(".fn-ref");
+      if (btn) btn.setAttribute("aria-expanded", on ? "true" : "false");
+    }
+
+    function unpinAll(except) {
+      fns.forEach(function (fn) {
+        if (fn !== except) setPinned(fn, false);
+      });
+    }
+
+    fns.forEach(function (fn) {
+      var btn = fn.querySelector(".fn-ref");
+      if (!btn) return;
+      // Place on reveal so the CSS-shown popover lands in the right spot.
+      btn.addEventListener("pointerenter", function () {
+        place(fn);
+      });
+      btn.addEventListener("focus", function () {
+        place(fn);
+      });
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pin = !fn.classList.contains("is-pinned");
+        unpinAll(fn);
+        setPinned(fn, pin);
+        if (pin) place(fn);
+      });
+    });
+
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (!t || !t.closest || !t.closest(".fn[data-fn]")) unpinAll(null);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") unpinAll(null);
+    });
+    window.addEventListener("resize", function () {
+      fns.forEach(function (fn) {
+        if (fn.classList.contains("is-pinned")) place(fn);
+      });
+    });
+  })();
+</script></body></html>

@@ -1,0 +1,70 @@
+---
+title: remoteSurfaces — a keyed family of remote surfaces (W4, redesigned)
+description: The switch rebuilt on a first-class surface notion — a dynamic keyed family of re-served remote surfaces, N-active by construction — replacing the client-side active-connection manager, its wrappers, and every convention they leaned on. Two PRs, each user-facing.
+parents: [padi, feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-06
+---
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import family from "../../diagrams/remote-surfaces-family.svg?raw";
+
+**What this note is.** The redesign of W4 under srid's constraints: no facade over the swap — the framework gains a *notion*; consumers reach a host's cells **through the client object itself** (`app.remoteSurfaces.get("zest").padi.cells.daemonStatus.use(…)`); multi-host **multiplexing is in scope now**, not a future relaxation; nothing deferred; every invariant held to [/architecture-first-principles](#the-invariant-table) and the perfection bar (the defect class becomes *inexpressible*, not guarded). Grounded in the code, not memory: a surface is a typed oRPC router **already stream-multiplexed over one socket**; the client is **type-generated from the contract**; `buildHostRegistry` + `reServeSurface` already hold and re-serve one warm session per host. Those three facts are what make this design small.
+
+## User-facing description
+
+**PR1 ships a visible fleet demo** (`examples/fleet` — a new tiny surface app, per the "demonstrate outside kolu" constraint): a browser page listing daemon hosts. Type a hostname → a card appears *immediately* in a `warming` state → flips to `connected` with its clock and memory cells ticking **live**. Add a second and third host — all tick concurrently on one socket. Remove a host mid-tick → its card's subscriptions end with a *typed* "entry removed" reason (rendered honestly, not as an error toast). Add a bogus host → its card shows `failed(reason)` — a value on the card, never a crash, never a toast about some *other* host.
+
+**PR2 ships the kolu switch, plus the first real multi-active feature.** The Labs host picker as before (per-tab active host, live switch, no reload) — but switching is now *instant*: picking a host repaints the canvas into that host's `warming`/`connected` state at once, because selection is a signal write, not an awaited connect. And the switcher itself becomes the multi-active proof: **every host's chip shows its live status and agent-urgency count simultaneously** — N hosts consumed concurrently in one kolu tab. That's a real feature (the W5 attention story's first slice), not a tech demo.
+
+## Architecture-level changes
+
+<Svg svg={family} wide caption="The family, end to end: the server folds the key into every entry proc's input and gates it on membership (one socket, already muxed); the typed client family partial-applies the key; activeness is an app-owned signal; multi-active is just N keys. The client-side manager and every wrapper die." />
+
+**The new notion — `SurfaceFamily`: a dynamic keyed set of surfaces served as one.** Today a surface's shape is static in the contract. The family adds the one honest dynamic axis: *entry spec typed once, entries keyed at runtime*. Server-side, `serveSurfaceFamily(entrySpec, registry)` is a **router transform, not a transport change**: every entry proc gets the `key` folded into its *input*, the handler resolves `registry.getSession(key)` at call time, and membership gates every call — unknown key is a typed rejection. Alongside the entries: a `keys` collection (membership, live) and a per-entry `status` cell (`warming | connected | failed(reason)`). Removing an entry **ends that key's live subscriptions with a typed reason** — the mirrored session's teardown already ends its streams; the family maps that into a typed completion instead of a socket error.<Footnote>Why key-as-input and not per-key sockets or new frame tags: the oRPC peer already multiplexes many concurrent streams over one connection — that is how N cells coexist today. Key-as-input reuses the existing dispatch and typing wholesale; the misroute guard stops being retire-stubbing machinery and becomes a property of the data — a subscription *carries its key in every frame by construction*, so a call can't cross hosts any more than it can cross procs. W4's per-host sockets existed to make misroute structurally impossible; key-in-input achieves the same impossibility one layer up, with zero socket lifecycle to manage.</Footnote>
+
+**The client half — `app.remoteSurfaces`, a typed family client.** `.get(key)` partial-applies the key and returns the *entry-typed* client subtree — so `remoteSurfaces.get("zest").padi.cells.daemonStatus.use(…)` is the API, exactly the spelling asked for. Two properties do all the work the old wrappers did:
+
+- **Reactive keys are native.** `.get()` accepts a plain key or an accessor; with an accessor, a key change disposes the old entry scope and rebuilds synchronously — the `createKeyedRoot`/`mapArray` atom from the current PR survives *as the internal mechanism* (it was always right; exposing wrappers around it was the mistake). Ownerless use throws, as it now does.
+- **Subscription dedup by construction.** The family client keeps one wire subscription per `(key, proc, input)`, ref-counted; ten components reading the same cell share one sub *structurally*. This deletes the module-level-const convention, `createSharedRoot`-as-sharing, `useBindingScopedSub`, `bindingScoped`, `reSub`, and wire.ts's adapter layer — the whole tower srid called, correctly, a hack. Decided here, not deferred: dedup applies to **static-input** subs (every real kolu case today — 15/15); a sub whose input is itself reactive keys per call site (documented on the API; it is the honest semantics, since two distinct input accessors are two distinct subscriptions). Warmth is policy: an app that wants a standing sub kept hot across UI churn pins one reader at app scope — one deliberate line in kolu's `wire.ts`, not a framework knob.
+
+**Activeness is app policy — a value, and that kills two machines.** The framework holds the *set*; "which host(s) this tab looks at" is a plain signal in kolu. Switching = writing the signal — **synchronous**, so there is nothing to race: the pick-epoch machinery (built because selection awaited a warm) has no reason to exist. Warming stays real but becomes a *server-side observable* (`status` cell) the UI renders honestly — the W6 "honest connect" note lands here for free. Retirement stubbing (`send`-throws-typed-error) likewise dies: a switched-away key's subs just keep running if something still reads them (multi-active is *allowed*), and end typed when the entry is actually removed. One-active is a *policy* the app enforces by construction of its own signal — precisely the "multiplicity as policy, not physics" line the old plan's footnote promised, now made literal.
+
+**What survives from #1708, honestly.** The server half survives nearly whole: `buildHostRegistry` + sessions, ssh warm, lazy drv resolution + typed per-host faults (Group 1), `UnremovableHostError`, entry cells (they become the family's `status`/identity cells), the shared local scan, the dialog work, Labs UI (repointed). The batch's framework *atoms* survive (`createKeyedRoot`-over-`mapArray` in `@kolu/surface/solid`, `createSubRoot` in `useCell`, the manager-honesty lessons as test cases). What is discarded is the client-side composite: `createActiveConnectionManager`, `connectionScoped` as consumer API, per-host browser sockets, retirement stubbing, pick-epoch, and kolu's wrapper tower. Adoption path: PR2 cherry-picks the surviving server commits from #1708's branch; the client layer is rewritten. Rejecting the PR discards *shape*, not work.
+
+### The invariant table (perfection bar: each defect class inexpressible)
+
+| defect class (all real, all hit this cycle) | killed by |
+| --- | --- |
+| misroute — a call resolves against the wrong host | key in every frame's input, by construction (P4) |
+| yank — a slow warm commits a stale pick | selection is a synchronous value; nothing awaits (P1/P2) |
+| leak-on-swap — old sub outlives the switch | entry scope owns subs; disposal is `mapArray`'s, not convention (P1) |
+| sharing-by-convention — module-const singletons | dedup keyed `(key, proc, input)`, ref-counted, in the family client (P4) |
+| signal-of-signals at call sites | `.get(key)` returns the entry client; nesting internal to the atom (C2) |
+| boot-brick — a persisted host crashes startup | per-entry `failed(reason)` status value; boot never parses per-host config eagerly (P4, kept from Group 1) |
+| dishonest teardown — "server restarted" lie | removal ends subs with a typed reason; no stub errors (P4/P5) |
+| silent no-op — `remove(default)` "succeeds" | typed `UnremovableHostError` (kept) |
+| foreign clock — cross-host timestamps | per-entry `clockNow` offset lives ON the entry's status cell — in PR1's contract from day one, consumed by PR2's chips (P3; no deferred honest-clocks item) |
+
+## Implementation details
+
+**Two PRs — the split is forced by the two audiences, and each demonstrates a user-facing feature** (the constraint): PR1 proves the *framework* with an app that isn't kolu; PR2 ships kolu's *product* on it. One PR would couple a framework redesign's review to a product rewrite's review — the exact coupling the gauntlet exists to avoid; three would split mechanism from its first demo, which the atlas rules forbid (a proof phase must pin its path).
+
+**PR1 — `@kolu/surface`: the family, with `examples/fleet` as the living demo.**
+1. `defineSurfaceFamily(entrySpec)` in `packages/surface/src/define.ts` territory: the entry-router transform (key into input, zod-validated), `keys` collection, `status` cell contract (including `clockNow` offset). Serve side: `serveSurfaceFamily(family, resolve: (key) => EntrySession | EntryFault)` — resolver-backed so surface stays registry-agnostic (lowy: the registry is nix-host volatility).
+2. Client: `FamilyClient<S>` with `get(key | Accessor<key>)` → entry-typed subtree; the dedup registry (`(key, proc, stable-input-hash)` → ref-counted sub); typed end reason on membership loss. Solid layer rides the existing `createKeyedRoot`.
+3. `@kolu/surface-nix-host`: `serveHostFamily(buildHostRegistry(...))` — the resolver over sessions; entry faults from the lazy drv/ssh path as `failed(reason)` values.
+4. `examples/fleet`: ~200-line surface app (server: family over 1 local + N configurable ssh hosts; client: the cards page). **Done-criterion pins the path, not the pixels**: over a real ws socket (not loopback), (a) an entry REMOVED mid-subscription ends the demo card's sub with the typed reason; (b) two browser tabs' identical cells share one upstream sub per tab process (dedup observable in server sub-count); (c) an unreachable host renders `failed` while its siblings keep ticking. Plus contract tests for key-gating (unknown key typed-rejects) and the membership⇄end linkage.
+5. drishti pin PR (surface.md gate) rides as usual.
+
+**PR2 — kolu: the switch + live multi-host chips, on the family.**
+1. Server: kolu-server serves the padi family via `serveHostFamily`; `hosts.add/remove` stay root RPCs writing the registry (single writer — P3); cherry-pick #1708's surviving server commits (Group 1, 5a/5b, dialog).
+2. Client: `wire.ts` consumes `remoteSurfaces.get(activeHost())`; `activeHost` = per-tab signal + `sessionStorage` (decided: per-tab stays, it's the feature); the 15 standing readouts become plain family reads (pinned at app scope where warmth matters — one place). Labs picker writes the signal; rejection fallback is **app policy on the `status` cell** (status flips to `failed`/removed → picker falls back to local + toast) — policy reading a value, no callback reaching into mechanism.
+3. The chips: switcher entries subscribe `status` + urgency-count for **every** pool host concurrently — the multi-active, user-facing proof. Wire cost stays urgency-count-sized (the W5 rule, honored).
+4. Deletions as acceptance: `activeConnectionManager.ts`, `useBindingScopedSub`/`bindingScoped`/`reSub`, the `?host` socket keying, and their tests — `grep`-proof zero wrappers between components and `remoteSurfaces`.
+5. **Done-criteria naming the paths**: switch mid-stream (old key's canvas subs release, new key's populate synchronously — the flicker class pinned at the resolver as already designed); boot with a persisted dead host (chip `failed`, canvas fine — the Group-1 brick, re-pinned on the new path); remove-active-host from another tab (typed end → fallback policy fires); two hosts' chips update from two hosts' clocks with per-entry offsets (the P3 pin).
+6. Risks, named with mitigations: *dedup input-hashing* — stable-stringify only zod-validated static inputs, throw on functions (mitigation: the type split above); *end-vs-error ordering on removal* — the family must complete streams before the registry destroys the session (pin: a test asserting no socket-error frame follows a typed end); *N-host chip fan-out cost* — bounded by pool size and the urgency-count wire rule (measured in PR, budget in the PR description).
+
+Both PRs run the full gauntlet — the C1–C7 checks first (C2 reads every new export from the consumer's chair; this design exists because that chair was empty last time), then lens/codex/simplify/police, then `/perfection-review` against the invariant table above: for each row, either cite the structural mechanism or construct the defect — no "acceptable for scope".
