@@ -52,7 +52,10 @@ import type { PadiConvergence } from "kolu-common/surface";
 import { log } from "./log.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
 // feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
-import { PADI_CONVERGENCE_POLICY } from "./padiConvergence.ts";
+import {
+  drainAndAwaitExit,
+  PADI_CONVERGENCE_POLICY,
+} from "./padiConvergence.ts";
 import { asPadiSession, type PadiSession } from "./padiSession.ts";
 
 /** How long the build/contract-mismatch drain waits for the ssh-bridged link to die
@@ -240,37 +243,36 @@ export function ensureRemotePadiBinding(
     };
   };
 
-  // ── Drain plumbing (ssh-transport twin of drainViaControlCore's socket-close) ──
+  // ── Drain plumbing: the ssh arm's plug into the shared drainAndAwaitExit ──────
   /** Drain the combined client over the frozen control core, then confirm the daemon
-   *  exited by POLLING `hello` until it rejects (ssh has no socket-close event). Returns
+   *  exited. The shared {@link drainAndAwaitExit} skeleton owns the arm-before-drain,
+   *  fire-and-forget, and ceiling race; this arm supplies only the ssh exit signal —
+   *  a `hello` POLL until it rejects (ssh has no socket-close event). Returns
    *  `took: true` if the link died within the window (drain took → reconnect respawns),
    *  `false` if the daemon kept answering (drain did not take — adopt/refuse, NEVER a
    *  kill). */
-  async function drainAndAwaitClose(
+  function drainAndAwaitClose(
     c: PadiDaemonClient,
   ): Promise<{ took: boolean; drainRejection: string | null }> {
-    let drainRejection: string | null = null;
-    void c.surface.control.core.drain().catch((e) => {
-      drainRejection = String(e);
-    });
-    const deadline = Date.now() + drainCeilingMs;
-    while (true) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) return { took: false, drainRejection };
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const probe = c.surface.control.core
-        .hello()
-        .then(() => "answered" as const)
-        .catch(() => "dead" as const);
-      const ceiling = new Promise<"ceiling">((resolve) => {
-        timer = setTimeout(() => resolve("ceiling"), remaining);
-      });
-      const outcome = await Promise.race([probe, ceiling]);
-      clearTimeout(timer);
-      if (outcome === "dead") return { took: true, drainRejection };
-      if (outcome === "ceiling") return { took: false, drainRejection };
-      await sleep(drainPollMs);
-    }
+    return drainAndAwaitExit(
+      c,
+      // The ssh exit signal: keep pinging the frozen control core until `hello`
+      // rejects (the daemon is gone). The abort signal — raised the instant the
+      // skeleton's ceiling wins — stops the poll so a not-taken drain never leaks
+      // an ssh hello every tick after it returns.
+      async (signal) => {
+        while (!signal.aborted) {
+          try {
+            await c.surface.control.core.hello();
+          } catch {
+            return; // hello rejected — the daemon exited, drain took
+          }
+          if (signal.aborted) return;
+          await sleep(drainPollMs);
+        }
+      },
+      { ceilingMs: drainCeilingMs },
+    );
   }
 
   /** Instance-keyed drain ADMISSION — shared by both convergence axes. Re-draining the

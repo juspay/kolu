@@ -17,8 +17,11 @@
  *     else-refuse on contract skew; drain-and-replace on build mismatch).
  *   - {@link probePadiForConvergence} — the kit's identity probe for padi: dial the FROZEN
  *     control core, read identity, expose a `drain`.
- *   - {@link drainViaControlCore} — the ONE drain mechanism, shared by BOTH the probe's
- *     `drain` and the user-facing "restart" (`PadiBindingSession.drainBoundPadi`).
+ *   - {@link drainAndAwaitExit} — the ONE drain-and-confirm-exit skeleton, shared by
+ *     BOTH bound-padi arms (this file's endpoint {@link drainViaControlCore} and the
+ *     remote ssh arm's hello-poll); the transport's exit signal is the only variable.
+ *   - {@link drainViaControlCore} — the endpoint arm's use of that skeleton, shared by
+ *     BOTH the probe's `drain` and the user-facing "restart" (`PadiBindingSession.drainBoundPadi`).
  */
 
 import {
@@ -61,59 +64,91 @@ export type DrainableConn = {
 };
 
 /**
- * DRAIN a padi over the FROZEN control core, then confirm it actually exited by
- * the SOCKET CLOSING within the teardown window. The one drain mechanism, shared
- * by BOTH the user-facing "restart" (`PadiBindingSession.drainBoundPadi`) and the
- * shared kit's convergence drain (through {@link probePadiForConvergence}'s `drain`)
- * — never re-rolled.
+ * The SHARED drain-and-confirm-exit skeleton, transport-agnostic. Arm the exit
+ * signal, fire the FROZEN-control-core drain fire-and-forget (remembering a
+ * rejection only to enrich a not-taken outcome), then race the exit against a
+ * ceiling. Both arms of a bound padi reach for this: the LOCAL/endpoint arm's
+ * socket-close (via {@link drainViaControlCore}) and the REMOTE ssh arm's
+ * hello-poll — they differ ONLY in the `awaitExit` plug and in what a not-taken
+ * outcome MEANS (a throw vs a boolean), which stays with the caller.
  *
- * GROUND TRUTH is the SOCKET CLOSE (padi actually exited), NOT the drain call's
- * resolve/reject. padi's `onDrain` persists, REPLIES, then triggers the exit that
- * closes the socket — so `drain()` can RESOLVE with padi still momentarily alive
- * (a reply beats the exit), or REJECT (the reply lost as the socket died mid-write),
- * and neither is the completion signal. Waiting only for the resolve would let the
- * convergence pre-flight race `adoptOrSpawnOrRefuse` in and RE-ADOPT the still-live,
- * about-to-exit padi (its gate pid unchanged) — the bug the newer-drain arm exists
- * to avoid. So we ALWAYS wait for the socket to close (the same signal the endpoint
- * reads to flip to `degraded`), and FAIL-FAST if it does not close within the
- * teardown window (a wedged `onDrain`, or a stale link the drain never reached) —
- * so no caller reports success on a drain that did not happen, and the pre-flight
- * never spawns over a padi that did not exit.
+ * GROUND TRUTH is the EXIT (padi actually gone), NOT the drain call's
+ * resolve/reject. padi's `onDrain` persists, REPLIES, then triggers the exit — so
+ * `drain()` can RESOLVE with padi still momentarily alive (a reply beats the
+ * exit), or REJECT (the reply lost as the link died mid-write), and neither is the
+ * completion signal. Waiting only for the resolve would let a convergence
+ * pre-flight RE-ADOPT the still-live, about-to-exit padi — the bug the newer-drain
+ * arm exists to avoid. So we ALWAYS wait for the transport's exit signal, bounded
+ * by the ceiling.
+ *
+ * `awaitExit` is armed BEFORE the drain is fired, so a fast exit that fires before
+ * `drain()` even settles is never missed. It resolves when the exit is observed and
+ * MUST NOT reject — it observes its own {@link AbortSignal} (aborted the instant the
+ * ceiling wins) to stop cleanly, so a poll-based plug never leaks a probe every tick
+ * after the primitive returns.
+ *
+ * @returns `took: true` when the exit was observed within `ceilingMs` (the drain
+ * took), `false` when the ceiling won first (the daemon kept answering).
+ * `drainRejection` carries a mid-write `drain()` rejection, if any, for the caller
+ * to fold into its not-taken message.
  */
-export async function drainViaControlCore(conn: DrainableConn): Promise<void> {
-  // Arm the close wait BEFORE the drain, so a fast exit that closes the socket
-  // before `drain()` even settles is never missed.
-  let onClosed!: () => void;
-  const closed = new Promise<void>((resolve) => {
-    onClosed = resolve;
-  });
-  conn.onClose(onClosed);
+export async function drainAndAwaitExit(
+  drainClient: PadiDaemonClient,
+  awaitExit: (signal: AbortSignal) => Promise<void>,
+  { ceilingMs }: { ceilingMs: number },
+): Promise<{ took: boolean; drainRejection: string | null }> {
+  // Arm the exit wait BEFORE the drain, so a fast exit is never missed. The abort
+  // lets a poll-based `awaitExit` stop the moment the ceiling wins.
+  const abort = new AbortController();
+  const exited = awaitExit(abort.signal);
+  exited.catch(() => {}); // defensive: a mis-behaving plug must not crash the process
 
   // Kick the drain. `.catch` keeps a mid-write rejection from going unhandled and
-  // remembers it only to enrich a timeout failure — the call's outcome does not
-  // decide completion (the socket close does).
-  let drainErr: unknown;
-  void conn.client.surface.control.core.drain().catch((e) => {
-    drainErr = e;
+  // remembers it only to enrich a not-taken outcome — the call's outcome does not
+  // decide completion (the exit signal does).
+  let drainRejection: string | null = null;
+  void drainClient.surface.control.core.drain().catch((e) => {
+    drainRejection = String(e);
   });
 
   let timer!: ReturnType<typeof setTimeout>;
   const timedOut = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), DRAIN_TEARDOWN_CEILING_MS);
+    timer = setTimeout(() => resolve("timeout"), ceilingMs);
   });
   try {
     const outcome = await Promise.race([
-      closed.then(() => "closed" as const),
+      exited.then(() => "exited" as const),
       timedOut,
     ]);
-    if (outcome === "timeout") {
-      throw new Error(
-        `padi drain did not complete — its socket did not close within ${DRAIN_TEARDOWN_CEILING_MS}ms (padi did not exit)` +
-          (drainErr ? `; drain call rejected: ${String(drainErr)}` : ""),
-      );
-    }
+    return { took: outcome === "exited", drainRejection };
   } finally {
     clearTimeout(timer);
+    abort.abort();
+  }
+}
+
+/**
+ * DRAIN a padi over the FROZEN control core, then confirm it actually exited by
+ * the SOCKET CLOSING within the teardown window — the endpoint/local arm's use of
+ * the shared {@link drainAndAwaitExit} skeleton, shared by BOTH the user-facing
+ * "restart" (`PadiBindingSession.drainBoundPadi`) and the kit's convergence drain
+ * (through {@link probePadiForConvergence}'s `drain`). THROWS when the drain does
+ * not take — its renew/probe callers want a failure, never a silent no-op — so no
+ * caller reports success on a drain that did not happen.
+ */
+export async function drainViaControlCore(conn: DrainableConn): Promise<void> {
+  const { took, drainRejection } = await drainAndAwaitExit(
+    conn.client,
+    // The endpoint's exit signal is the SOCKET CLOSE (the same signal the endpoint
+    // reads to flip to `degraded`). It fires once; there is no poll to abort.
+    () => new Promise<void>((resolve) => conn.onClose(resolve)),
+    { ceilingMs: DRAIN_TEARDOWN_CEILING_MS },
+  );
+  if (!took) {
+    throw new Error(
+      `padi drain did not complete — its socket did not close within ${DRAIN_TEARDOWN_CEILING_MS}ms (padi did not exit)` +
+        (drainRejection ? `; drain call rejected: ${drainRejection}` : ""),
+    );
   }
 }
 
