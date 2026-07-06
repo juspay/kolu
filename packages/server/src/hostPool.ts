@@ -189,18 +189,32 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
       });
 
       // The pump must never float — it settles on a clean destroy or REJECTS on a
-      // terminal mirror fault, freezing this binding at a stale-but-healthy value.
-      // Fail LOUD (fail-fast); the supervisor restarts kolu-server clean.
+      // terminal mirror fault. C2 — containment is scoped to the binding:
+      //  - the DEFAULT/local binding is load-bearing (the server is useless without
+      //    it), so its fault is fatal (fail-fast; the supervisor restarts clean);
+      //  - a GUEST host's fault must NOT take the whole server (and every other
+      //    device) down — W4 lets users add arbitrary hosts, so a divergent-build
+      //    adopt-loudly fault is a plausible per-guest event. Contain it: log at
+      //    error and RETIRE the binding from the pool (`hosts.remove`), so its `?host`
+      //    sockets close, the picker drops it, and each viewing tab falls back to
+      //    local (its reconnect is rejected 1008 → the client's fall-to-local guard).
       reServed.done
         .then(() =>
           log.info({ host }, "padi re-serve pump exited (session destroyed)"),
         )
         .catch((err) => {
-          log.fatal(
+          if (host === defaultHost) {
+            log.fatal(
+              { err, host },
+              "default-host padi re-serve pump died — binding is unrecoverable",
+            );
+            process.exit(1);
+          }
+          log.error(
             { err, host },
-            "padi re-serve pump died — binding is unrecoverable",
+            "guest-host padi re-serve pump died — retiring the binding (no global exit)",
           );
-          process.exit(1);
+          void hosts.remove(host);
         });
 
       // The in-process mirror client the memory sampler reads. Only the DEFAULT

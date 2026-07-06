@@ -39,21 +39,37 @@ vi.mock("@orpc/server/ws", () => ({
   }),
 }));
 vi.mock("./log.ts", () => ({
-  log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+  log: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+  },
 }));
 // Keep the REAL `buildHostRegistry` (the framework map under test) and mock only
-// `reServeSurface` — which returns a spliced router + a NEVER-settling `done` (so
-// the pool's fail-loud `.then/.catch`, which would `process.exit(1)` on reject,
-// never fires in the test).
+// `reServeSurface`. `done` is normally never-settling (so the fail-loud `.catch`
+// stays dormant), but each call's rejecter is captured in `reServeRejecters` (in
+// buildEntry order) so a C2 test can fault ONE host's pump and assert containment.
+const reServeRejecters: Array<(err: Error) => void> = [];
+/** Fault the re-serve pump of the Nth built host entry (buildEntry order). */
+function faultPump(index: number, err: Error): void {
+  const reject = reServeRejecters[index];
+  if (!reject) throw new Error(`test setup: no re-serve pump #${index}`);
+  reject(err);
+}
 vi.mock("@kolu/surface-nix-host", async (importActual) => {
   const actual = await importActual<typeof import("@kolu/surface-nix-host")>();
   return {
     ...actual,
-    reServeSurface: vi.fn(() => ({
-      surface: {},
-      router: { surface: {} },
-      done: new Promise<void>(() => {}),
-    })),
+    reServeSurface: vi.fn(() => {
+      let reject!: (err: Error) => void;
+      const done = new Promise<void>((_resolve, rej) => {
+        reject = rej;
+      });
+      reServeRejecters.push(reject);
+      return { surface: {}, router: { surface: {} }, done };
+    }),
   };
 });
 
@@ -79,6 +95,7 @@ beforeEach(() => {
   ensurePadiBinding.mockClear();
   ensureRemotePadiBinding.mockClear();
   buildAppRouter.mockClear();
+  reServeRejecters.length = 0;
 });
 
 describe("buildHostPool — the warm pool", () => {
@@ -176,5 +193,34 @@ describe("buildHostPool — the warm pool", () => {
     await pool.hosts.remove("zest");
     expect(pool.registry.has("zest")).toBe(true); // still warm — not bricked
     expect(zestSession?.destroy).not.toHaveBeenCalled();
+  });
+
+  it("a GUEST host's pump fault RETIRES the binding — never exits the whole server (C2)", async () => {
+    // initialHosts = [local, "g"] → reServeRejecters[0]=local, [1]="g".
+    const pool = makePool({ recentHosts: ["g"] });
+    const gSession = pool.registry.getSession("g");
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+    // Fault the GUEST's re-serve pump.
+    faultPump(1, new Error("adopt-loudly: divergent same-contract build"));
+    await new Promise((r) => setTimeout(r, 0)); // let the .catch + hosts.remove settle
+    await new Promise((r) => setTimeout(r, 0));
+    expect(exitSpy).not.toHaveBeenCalled(); // NO global exit for a guest's fault
+    expect(pool.registry.has("g")).toBe(false); // retired from the pool
+    expect(gSession?.destroy).toHaveBeenCalled();
+    exitSpy.mockRestore();
+  });
+
+  it("the DEFAULT host's pump fault is FATAL — fail-fast (C2)", async () => {
+    const pool = makePool(); // defaultHost = local
+    expect(pool.defaultHost).toBe(LOCAL_HOST);
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+    faultPump(0, new Error("default pump died")); // the default/local binding
+    await new Promise((r) => setTimeout(r, 0));
+    expect(exitSpy).toHaveBeenCalledWith(1); // load-bearing — the server can't serve without it
+    exitSpy.mockRestore();
   });
 });
