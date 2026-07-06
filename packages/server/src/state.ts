@@ -79,6 +79,24 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  *  this is a no-op (the key defaults to `[]`); for a branch-runner who stored it under
  *  preferences, migrate the value out and strip the stale field. Exported so
  *  `stateMigration.test.ts` can exercise it directly without a `Conf` under KOLU_STATE_DIR. */
+/** Validate the persisted state by reading EVERY top-level key the schema declares (not a
+ *  hand-listed subset). A key must be picked up here automatically — a new one like
+ *  `recentHosts` (D1) omitted from a hand-built parse object makes the widened schema always
+ *  see `undefined` and reds this validation on first boot for a state file that is actually
+ *  fine (misleading a user into deleting it). `read` returns each key's value or, when it's
+ *  absent on disk, its conf default. Exported so `stateMigration.test.ts` can prove a store
+ *  whose `recentHosts` exists only via that default still validates. */
+export function validatePersistedState(
+  read: (key: keyof PersistedState) => unknown,
+): ReturnType<typeof PersistedStateSchema.safeParse> {
+  const persisted = Object.fromEntries(
+    (Object.keys(PersistedStateSchema.shape) as (keyof PersistedState)[]).map(
+      (key) => [key, read(key)],
+    ),
+  );
+  return PersistedStateSchema.safeParse(persisted);
+}
+
 export function moveRecentHostsOutOfPreferences_1_32_0(store: {
   get(key: "preferences"): Record<string, unknown>;
   set(key: "recentHosts" | "preferences", value: unknown): void;
@@ -527,9 +545,7 @@ export const store = new Conf<PersistedState>({
 // Early validation so corrupt state shows up in journalctl immediately at
 // startup, not only when the first client connects. Validates the on-disk
 // shape — `preferences.ts` trusts the validated store thereafter.
-const result = PersistedStateSchema.safeParse({
-  preferences: store.get("preferences"),
-});
+const result = validatePersistedState((key) => store.get(key));
 if (!result.success) {
   const summary = result.error.issues
     .map((i) => `${i.path.join(".")}: ${i.message}`)

@@ -22,6 +22,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   moveRecentHostsOutOfPreferences_1_32_0,
   stripLegacyStateKeys_1_31_0,
+  validatePersistedState,
 } from "./state.ts";
 
 const dirs: string[] = [];
@@ -156,5 +157,24 @@ describe("moveRecentHostsOutOfPreferences_1_32_0 (D1)", () => {
     moveRecentHostsOutOfPreferences_1_32_0(store);
     expect(store.data.recentHosts).toBeUndefined(); // untouched → defaults to [] via conf
     expect(store.data.preferences).toEqual({ seenTips: [] });
+  });
+});
+
+describe("validatePersistedState (D1 — no schema key silently omitted)", () => {
+  it("validates a store whose recentHosts exists only via the conf default (no top-level key on disk)", () => {
+    // A pre-D1 state file: preferences on disk, NO top-level recentHosts. The conf
+    // default supplies `[]` for the absent key. A hand-built parse object that omitted
+    // recentHosts (the bug this guards) would red here instead of reading the default.
+    const disk: Partial<Record<"preferences" | "recentHosts", unknown>> = {
+      preferences: DEFAULT_PREFERENCES,
+    };
+    const confDefaults: Record<"preferences" | "recentHosts", unknown> = {
+      preferences: DEFAULT_PREFERENCES,
+      recentHosts: [],
+    };
+    const result = validatePersistedState((key) =>
+      key in disk ? disk[key] : confDefaults[key],
+    );
+    expect(result.success).toBe(true);
   });
 });
