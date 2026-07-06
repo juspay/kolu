@@ -28,6 +28,7 @@
  * knowledge stays in the app's `makeSink` / `buildEntry`.
  */
 
+import { EventEmitter, once } from "node:events";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import {
   mirrorRemoteSurface,
@@ -76,35 +77,23 @@ export interface ObservableHolder<T> extends LiveSpawnHolder<T> {
   whenChanged(signal?: AbortSignal): Promise<void>;
 }
 
-/** Build an {@link ObservableHolder}. The `onChange` the pump fires wakes every
- *  pending `whenChanged()` waiter exactly once; an aborted waiter rejects with
- *  the signal's reason and detaches, so a torn-down subscription never leaks a
- *  listener. */
+/** Build an {@link ObservableHolder}. Backed by a private `EventEmitter`: the `onChange`
+ *  the pump fires emits `"change"`, which `node:events` `once(..., { signal })` awaits —
+ *  it wakes every pending `whenChanged()` waiter exactly once, and an aborted waiter
+ *  rejects with the signal's reason and detaches its listener, so a torn-down subscription
+ *  never leaks (no hand-rolled waiter set + abort plumbing). */
 export function observableHolder<T>(): ObservableHolder<T> {
-  const waiters = new Set<() => void>();
+  const emitter = new EventEmitter();
+  // Waiters are legitimately unbounded (one per re-served input-keyed stream across N
+  // hosts), not a leak — lift Node's default 10-listener warning cap.
+  emitter.setMaxListeners(0);
   return {
     current: null,
     onChange() {
-      for (const wake of [...waiters]) wake();
+      emitter.emit("change");
     },
     whenChanged(signal) {
-      return new Promise<void>((resolve, reject) => {
-        if (signal?.aborted) {
-          reject(signal.reason);
-          return;
-        }
-        const wake = (): void => {
-          waiters.delete(wake);
-          signal?.removeEventListener("abort", onAbort);
-          resolve();
-        };
-        const onAbort = (): void => {
-          waiters.delete(wake);
-          reject(signal?.reason);
-        };
-        waiters.add(wake);
-        signal?.addEventListener("abort", onAbort, { once: true });
-      });
+      return once(emitter, "change", { signal }).then(() => {});
     },
   };
 }

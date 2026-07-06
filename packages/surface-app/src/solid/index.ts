@@ -45,10 +45,10 @@ import {
   normalizeHeartbeat,
 } from "../connect";
 import { reloadForUpdate, retireSocket } from "../lifecycle";
-// The keyed-root swap lives in its own module so the active-connection manager can
-// compose `connectionScoped` without an import cycle through this barrel. `createKeyedRoot`
-// is imported for the provider's buildInfo cell below; both are re-exported for consumers.
-import { createKeyedRoot } from "./keyedRoot";
+// The keyed-root swap now lives in the base `@kolu/surface/solid` layer (pure
+// solid-generic). `createKeyedRoot` is imported for the provider's buildInfo cell below;
+// both it and `connectionScoped` are re-exported (below) for compat.
+import { createKeyedRoot } from "@kolu/surface/solid";
 
 // The single, UNFORGEABLE minter of a `LiveSignal` — wires the half-open watchdog
 // AND brands the liveness accessor in one call — now lives in `@kolu/surface`
@@ -92,9 +92,9 @@ export {
   type SurfacesConnection,
 } from "./connectSurfaces";
 // The keyed-root swap + the connection-scoped subscription primitive it powers (L11
-// endpoint) — re-exported from their own module (see the import above; kept there to
-// break the manager↔barrel import cycle).
-export { connectionScoped, createKeyedRoot } from "./keyedRoot";
+// endpoint) — re-exported for compat from the base `@kolu/surface/solid` layer, where
+// they now live (pure solid-generic).
+export { connectionScoped, createKeyedRoot } from "@kolu/surface/solid";
 
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";

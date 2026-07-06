@@ -20,6 +20,10 @@ export {
   type Subscription,
   type SubscriptionOptions,
 } from "./createSubscription";
+// The keyed-root swap + the connection-scoped subscription primitive it powers — pure
+// solid-generic; `@kolu/surface-app` re-exports both for compat (its active-connection
+// manager + `<SurfaceAppProvider>` compose them).
+export { connectionScoped, createKeyedRoot } from "./keyedRoot";
 // The grace-windowed boolean view — delays a predicate's rising edge, instant on
 // the fall. `@kolu/surface-app`'s `SurfaceAppProvider` derives its "show the
 // Disconnected overlay" signal from the transport's instantaneous `down` status

@@ -22,7 +22,7 @@
  */
 
 import { type Accessor, createRoot, createSignal } from "solid-js";
-import { connectionScoped } from "./keyedRoot";
+import { connectionScoped } from "@kolu/surface/solid";
 
 /** A connection the manager owns. Consumers' richer connection types (kolu's `Binding`,
  *  with clients/link/socket/status) extend this. Retirement is the MANAGER's own

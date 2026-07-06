@@ -24,16 +24,26 @@ describe("createKeyedRoot", () => {
       expect(log.opened).toEqual(["a"]);
       expect(log.disposed).toEqual([]);
 
-      // Key change: the old root is torn down, a fresh one built.
+      // Key change: EAGER — the standing render effect re-runs the memo SYNCHRONOUSLY on
+      // the key flip, so the old root is disposed + the new one built BEFORE any read of
+      // `value()`. This ordering is load-bearing: on a host switch the outgoing sub must
+      // abort before the socket is retired (the switch-toast fix), not lazily on next read.
       setKey("b");
-      expect(value()).toBe("built:b");
+      expect(log.disposed).toEqual(["a"]); // disposed synchronously, before the read below
       expect(log.opened).toEqual(["a", "b"]);
-      expect(log.disposed).toEqual(["a"]); // the prior key's root disposed — no leak
+      expect(value()).toBe("built:b");
 
       // Disposing the outer owner tears down the final key's root too.
       dispose();
       expect(log.disposed).toEqual(["a", "b"]);
     });
+  });
+
+  it("throws when called OUTSIDE a reactive owner (the documented contract, not a silent degrade)", () => {
+    const [key] = createSignal("a");
+    expect(() => createKeyedRoot(key, (k) => k)).toThrow(
+      /must run under a reactive owner/,
+    );
   });
 
   it("populates synchronously — the value is present on the FIRST read (no undefined-first-render)", () => {
