@@ -1,69 +1,65 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 470" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">
-  <rect width="880" height="470" fill="#101014" rx="12"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 560" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">
+  <rect width="880" height="560" fill="#101014" rx="12"/>
 
-  <!-- SERVER SIDE -->
-  <rect x="24" y="28" width="300" height="404" fill="#16161d" stroke="#2e2e3a" rx="10"/>
-  <text x="174" y="52" text-anchor="middle" fill="#8b8b9e" font-size="11" letter-spacing="2">KOLU-SERVER</text>
+  <!-- THE NOTION -->
+  <rect x="140" y="24" width="600" height="150" fill="#1f2a24" stroke="#3fae6a" stroke-width="1.5" rx="10"/>
+  <text x="440" y="48" text-anchor="middle" fill="#7be0a3" font-weight="bold" font-size="15">@kolu/surface-family — the notion (NEW package)</text>
+  <text x="440" y="72" text-anchor="middle" fill="#b9e8cb" font-size="11.5">entry spec typed ONCE · branded key folded into every proc's INPUT (one already-muxed socket)</text>
+  <text x="440" y="90" text-anchor="middle" fill="#b9e8cb" font-size="11.5">ONE authority: entries — Collection&lt;Key, warming | connected | failed(reason) + clockOffset&gt;</text>
+  <text x="440" y="108" text-anchor="middle" fill="#b9e8cb" font-size="11.5">absence = not in the collection · removal ⇒ typed END of that key's subs</text>
+  <text x="440" y="126" text-anchor="middle" fill="#8fceaa" font-size="11.5">client: pure entry(key) · Solid useEntry(accessor) — swap = dispose-and-rebuild, sync first value</text>
+  <text x="440" y="144" text-anchor="middle" fill="#8fceaa" font-size="11.5">base @kolu/surface: sub-dedup = keyed map of createSingletonRoot slots (lifetime tied to entries)</text>
+  <text x="440" y="164" text-anchor="middle" fill="#6e6e80" font-size="10.5">rides @kolu/surface only · serveSurfaceFamily(family, { resolve }) — resolver-backed, registry-agnostic</text>
 
-  <rect x="44" y="66" width="260" height="120" fill="#1c1c26" stroke="#3d3d4d" rx="8"/>
-  <text x="174" y="88" text-anchor="middle" fill="#e6e6f0" font-weight="bold">buildHostRegistry</text>
-  <text x="174" y="106" text-anchor="middle" fill="#8b8b9e" font-size="11">one warm DaemonSession per host</text>
-  <rect x="58" y="118" width="70" height="26" fill="#242433" stroke="#4a4a5e" rx="5"/>
-  <text x="93" y="135" text-anchor="middle" fill="#c9c9d9" font-size="11">local</text>
-  <rect x="138" y="118" width="70" height="26" fill="#242433" stroke="#4a4a5e" rx="5"/>
-  <text x="173" y="135" text-anchor="middle" fill="#c9c9d9" font-size="11">zest</text>
-  <rect x="218" y="118" width="70" height="26" fill="#242433" stroke="#4a4a5e" rx="5"/>
-  <text x="253" y="135" text-anchor="middle" fill="#c9c9d9" font-size="11">pu</text>
-  <text x="174" y="172" text-anchor="middle" fill="#6e6e80" font-size="10">(ssh warm · drv resolve · entry cells — survives #1708)</text>
+  <!-- unification banner -->
+  <text x="440" y="204" text-anchor="middle" fill="#e0b04a" font-size="12" font-weight="bold">the UNIFICATION of two independent hand-rollings (prove-then-extract: met by archaeology)</text>
+  <line x1="340" y1="176" x2="240" y2="230" stroke="#3fae6a" stroke-width="2"/>
+  <line x1="540" y1="176" x2="640" y2="230" stroke="#3fae6a" stroke-width="2"/>
 
-  <rect x="44" y="206" width="260" height="130" fill="#1f2a24" stroke="#3fae6a" rx="8"/>
-  <text x="174" y="228" text-anchor="middle" fill="#7be0a3" font-weight="bold">serveSurfaceFamily  (NEW)</text>
-  <text x="174" y="248" text-anchor="middle" fill="#b9e8cb" font-size="11">entry router × key — key folded into</text>
-  <text x="174" y="264" text-anchor="middle" fill="#b9e8cb" font-size="11">every proc's INPUT; membership gates it</text>
-  <text x="174" y="288" text-anchor="middle" fill="#8fceaa" font-size="11">keys collection · per-entry status cell</text>
-  <text x="174" y="304" text-anchor="middle" fill="#8fceaa" font-size="11">warming | connected | failed(reason)</text>
-  <text x="174" y="320" text-anchor="middle" fill="#8fceaa" font-size="11">removal ⇒ typed END of that key's subs</text>
+  <!-- CONSUMER 1: KOLU -->
+  <rect x="24" y="230" width="410" height="300" fill="#16161d" stroke="#2e2e3a" rx="10"/>
+  <text x="229" y="254" text-anchor="middle" fill="#8b8b9e" font-size="11" letter-spacing="2">CONSUMER 1 · KOLU (the one kolu PR)</text>
 
-  <text x="174" y="368" text-anchor="middle" fill="#6e6e80" font-size="11">unknown key ⇒ typed rejection (fail-fast)</text>
-  <text x="174" y="386" text-anchor="middle" fill="#6e6e80" font-size="11">per-entry fault = a status VALUE,</text>
-  <text x="174" y="402" text-anchor="middle" fill="#6e6e80" font-size="11">never a boot crash</text>
+  <rect x="44" y="268" width="370" height="82" fill="#1c1c26" stroke="#3d3d4d" rx="8"/>
+  <text x="229" y="288" text-anchor="middle" fill="#e6e6f0" font-weight="bold" font-size="12">kolu-server: serveHostFamily(buildHostRegistry)</text>
+  <text x="229" y="306" text-anchor="middle" fill="#8b8b9e" font-size="11">warm ssh sessions · lazy drv faults → failed(reason)</text>
+  <text x="229" y="322" text-anchor="middle" fill="#8b8b9e" font-size="11">hosts.add/remove = root RPCs writing the registry (P3)</text>
+  <text x="229" y="340" text-anchor="middle" fill="#6e6e80" font-size="10.5">#1708 lessons re-land clean-room (pins as checklist)</text>
 
-  <!-- WIRE -->
-  <line x1="324" y1="230" x2="424" y2="230" stroke="#e0b04a" stroke-width="2.5"/>
-  <text x="374" y="216" text-anchor="middle" fill="#e0b04a" font-size="11" font-weight="bold">ONE socket</text>
-  <text x="374" y="248" text-anchor="middle" fill="#a8853a" font-size="10">already stream-muxed;</text>
-  <text x="374" y="262" text-anchor="middle" fill="#a8853a" font-size="10">key rides in input —</text>
-  <text x="374" y="276" text-anchor="middle" fill="#a8853a" font-size="10">no new frames, no</text>
-  <text x="374" y="290" text-anchor="middle" fill="#a8853a" font-size="10">per-host sockets</text>
+  <line x1="229" y1="350" x2="229" y2="372" stroke="#e0b04a" stroke-width="2"/>
+  <text x="300" y="366" text-anchor="middle" fill="#a8853a" font-size="10">one socket (ops gate: measured)</text>
 
-  <!-- CLIENT SIDE -->
-  <rect x="424" y="28" width="432" height="404" fill="#16161d" stroke="#2e2e3a" rx="10"/>
-  <text x="640" y="52" text-anchor="middle" fill="#8b8b9e" font-size="11" letter-spacing="2">BROWSER CLIENT</text>
+  <rect x="44" y="372" width="370" height="112" fill="#241f2e" stroke="#a56de2" rx="8"/>
+  <text x="229" y="392" text-anchor="middle" fill="#cfa9f5" font-weight="bold" font-size="12">kolu browser</text>
+  <text x="229" y="410" text-anchor="middle" fill="#b9a3d6" font-size="11">canvas = useEntry(activeHost) — switch = a signal write</text>
+  <text x="229" y="426" text-anchor="middle" fill="#b9a3d6" font-size="11">switcher chips (MAIN chrome): every host's status +</text>
+  <text x="229" y="442" text-anchor="middle" fill="#b9a3d6" font-size="11">urgency LIVE — multi-active = N keys, one tab</text>
+  <text x="229" y="462" text-anchor="middle" fill="#9d84c0" font-size="10.5">fallback policy reads entries — a value, not a callback</text>
+  <text x="229" y="478" text-anchor="middle" fill="#9d84c0" font-size="10.5">Labs keeps only free-type host add</text>
 
-  <rect x="444" y="66" width="392" height="150" fill="#241f2e" stroke="#a56de2" rx="8"/>
-  <text x="640" y="88" text-anchor="middle" fill="#cfa9f5" font-weight="bold">app.remoteSurfaces  (NEW — typed family client)</text>
-  <text x="640" y="112" text-anchor="middle" fill="#e6e6f0" font-family="ui-monospace, monospace" font-size="12">.get(key).padi.cells.daemonStatus.use(…)</text>
-  <text x="640" y="134" text-anchor="middle" fill="#b9a3d6" font-size="11">entry-typed once, keyed at runtime — key may be reactive:</text>
-  <text x="640" y="150" text-anchor="middle" fill="#b9a3d6" font-size="11">key change ⇒ dispose-and-rebuild (the keyedRoot atom, inside)</text>
-  <text x="640" y="174" text-anchor="middle" fill="#9d84c0" font-size="11">sub DEDUP by (key · proc · input), ref-counted —</text>
-  <text x="640" y="190" text-anchor="middle" fill="#9d84c0" font-size="11">sharing by construction, no module-const convention</text>
+  <text x="229" y="506" text-anchor="middle" fill="#6e6e80" font-size="10.5">DEAD: activeConnectionManager · per-host sockets · pick-epoch</text>
+  <text x="229" y="521" text-anchor="middle" fill="#6e6e80" font-size="10.5">retire-stubbing · useBindingScopedSub/bindingScoped/reSub tower</text>
 
-  <rect x="444" y="236" width="188" height="90" fill="#1c1c26" stroke="#3d3d4d" rx="8"/>
-  <text x="538" y="258" text-anchor="middle" fill="#e6e6f0" font-weight="bold">activeHost signal</text>
-  <text x="538" y="278" text-anchor="middle" fill="#8b8b9e" font-size="11">app POLICY — a plain value;</text>
-  <text x="538" y="294" text-anchor="middle" fill="#8b8b9e" font-size="11">switching = writing it (sync).</text>
-  <text x="538" y="310" text-anchor="middle" fill="#8b8b9e" font-size="11">No await ⇒ no pick-epoch.</text>
+  <!-- CONSUMER 2: DRISHTI -->
+  <rect x="446" y="230" width="410" height="300" fill="#16161d" stroke="#2e2e3a" rx="10"/>
+  <text x="651" y="254" text-anchor="middle" fill="#8b8b9e" font-size="11" letter-spacing="2">CONSUMER 2 · DRISHTI (the paired adoption PR)</text>
 
-  <rect x="648" y="236" width="188" height="90" fill="#1c1c26" stroke="#3d3d4d" rx="8"/>
-  <text x="742" y="258" text-anchor="middle" fill="#e6e6f0" font-weight="bold">multi-active = N keys</text>
-  <text x="742" y="278" text-anchor="middle" fill="#8b8b9e" font-size="11">switcher chips read every</text>
-  <text x="742" y="294" text-anchor="middle" fill="#8b8b9e" font-size="11">host's status + urgency LIVE</text>
-  <text x="742" y="310" text-anchor="middle" fill="#8b8b9e" font-size="11">— concurrently, one socket.</text>
+  <rect x="466" y="268" width="370" height="82" fill="#1c1c26" stroke="#3d3d4d" rx="8"/>
+  <text x="651" y="288" text-anchor="middle" fill="#e6e6f0" font-weight="bold" font-size="12">parent server: hostRegistry → serveHostFamily</text>
+  <text x="651" y="306" text-anchor="middle" fill="#8b8b9e" font-size="11">agent shipped over ssh stdio · per-host sessions kept</text>
+  <text x="651" y="322" text-anchor="middle" fill="#8b8b9e" font-size="11">admin hosts.add/remove/reconnect → registry writes</text>
+  <text x="651" y="340" text-anchor="middle" fill="#6e6e80" font-size="10.5">its hand-rolled admin-surface host plumbing: adopted away</text>
 
-  <text x="640" y="360" text-anchor="middle" fill="#6e6e80" font-size="11">canvas reads .get(activeHost()) — one derived accessor;</text>
-  <text x="640" y="378" text-anchor="middle" fill="#6e6e80" font-size="11">dead: ActiveConnectionManager · connectionScoped-as-API · useBindingScopedSub</text>
-  <text x="640" y="396" text-anchor="middle" fill="#6e6e80" font-size="11">· reSub · per-host sockets · retire-stubbing · pick-epoch</text>
+  <line x1="651" y1="350" x2="651" y2="372" stroke="#e0b04a" stroke-width="2"/>
 
-  <line x1="632" y1="216" x2="538" y2="236" stroke="#4a4a5e" stroke-width="1.5"/>
-  <line x1="648" y1="216" x2="742" y2="236" stroke="#4a4a5e" stroke-width="1.5"/>
+  <rect x="466" y="372" width="370" height="112" fill="#241f2e" stroke="#a56de2" rx="8"/>
+  <text x="651" y="392" text-anchor="middle" fill="#cfa9f5" font-weight="bold" font-size="12">drishti browser (fleet view — behavior parity)</text>
+  <text x="651" y="410" text-anchor="middle" fill="#b9a3d6" font-size="11">fleet cards + tab strip = entries.use() (one authority)</text>
+  <text x="651" y="426" text-anchor="middle" fill="#b9a3d6" font-size="11">drill-down = useEntry(selectedHost) · ?host= deep links</text>
+  <text x="651" y="442" text-anchor="middle" fill="#b9a3d6" font-size="11">connection dots read EntryStatus values</text>
+  <text x="651" y="462" text-anchor="middle" fill="#9d84c0" font-size="10.5">acceptance = the DELETION diff + parity screenshots —</text>
+  <text x="651" y="478" text-anchor="middle" fill="#9d84c0" font-size="10.5">the framework proves itself by shrinking a real product</text>
+
+  <text x="651" y="506" text-anchor="middle" fill="#6e6e80" font-size="10.5">DEAD: hand-rolled hostRegistry membership glue +</text>
+  <text x="651" y="521" text-anchor="middle" fill="#6e6e80" font-size="10.5">admin-surface hosts collection/status plumbing</text>
 </svg>
