@@ -256,7 +256,7 @@ const pool = buildHostPool({
 // padi `connection` cell, folded into `padi.health().live` on the client). The default
 // binding is built at pool construction, so this is present — a fail-fast guard if not.
 const defaultSession = pool.registry.getSession(pool.defaultHost);
-const defaultMirror = pool.getMirror(pool.defaultHost);
+const defaultMirror = pool.getMirror();
 if (!defaultSession || !defaultMirror) {
   throw new Error(
     `default host binding "${pool.defaultHost}" missing from the pool`,
@@ -280,7 +280,7 @@ await localSession?.pin().catch((err: unknown) => {
 // which targets the default host. WS (streaming, the client's real transport) is
 // per-host, dispatched from the pool at upgrade (below).
 // biome-ignore lint/suspicious/noExplicitAny: dynamic surface-router splice; runtime shape is a valid router.
-const rpcHandler = new RPCHandler(pool.getRouter(pool.defaultHost) as any, {
+const rpcHandler = new RPCHandler(pool.getRouter() as any, {
   plugins: rpcPlugins,
 });
 

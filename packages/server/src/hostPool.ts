@@ -87,11 +87,11 @@ export interface HostPool {
   /** The framework registry — `getHandler(host)` for ws dispatch, `getSession(host)`
    *  for the preview route + the local-binding samplers, `has`/`hosts` for the pool. */
   registry: HostRegistry<PadiSession, PadiWsHandler>;
-  /** The re-serve mirror client for a host (the samplers read the default one). */
-  getMirror(host: string): MirrorClient | undefined;
-  /** A host's assembled oRPC router — the non-streaming HTTP `/rpc/*` handler is
-   *  built from the DEFAULT host's router (a single host; e2e reset POSTs land there). */
-  getRouter(host: string): unknown;
+  /** The re-serve mirror client for the DEFAULT host (the samplers read it). */
+  getMirror(): MirrorClient | undefined;
+  /** The DEFAULT host's assembled oRPC router — the non-streaming HTTP `/rpc/*`
+   *  handler is built from it (a single host; e2e reset POSTs land there). */
+  getRouter(): unknown;
   /** The `hosts.add` / `hosts.remove` control plane the per-host routers serve. */
   hosts: {
     add: (host: string) => Promise<void>;
@@ -109,8 +109,13 @@ function dedupe(hosts: readonly string[]): string[] {
 
 export function buildHostPool(deps: HostPoolDeps): HostPool {
   const defaultHost = deps.bootHost ?? LOCAL_HOST;
-  const mirrors = new Map<string, MirrorClient>();
-  const routers = new Map<string, unknown>();
+  // Only the DEFAULT host's mirror + router are ever read (the samplers + the
+  // single HTTP `/rpc/*` handler), so capture just those two — no per-host store
+  // to orphan on `registry.remove`. Set inside `buildEntry` when it runs for the
+  // default host (always present in `initialHosts`, so both are non-undefined by
+  // the time the pool is returned; index.ts fail-fast-guards that).
+  let defaultMirror: MirrorClient | undefined;
+  let defaultRouter: unknown;
 
   // Late-bound so the per-host routers' `hosts.add`/`remove` can reach the
   // registry that owns them (the entries are built DURING `buildHostRegistry`,
@@ -171,18 +176,19 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
           process.exit(1);
         });
 
-      // The in-process mirror client the memory sampler reads (default host only,
-      // but stashed for every host uniformly). The client is built over the mirror's
-      // `WithConnection<padiSurface>` surface — a superset of `MirrorClient` (which
-      // pins the padi spec); the `as unknown as` sidesteps the deep structural
-      // comparison of that superset client, which TS can't represent (TS2590).
-      mirrors.set(
-        host,
-        surfaceClientRef(
+      // The in-process mirror client the memory sampler reads. Only the DEFAULT
+      // host's is ever consulted, so build it for that host alone — a mirror client
+      // for any other host is pure waste (nothing reads it). The client is built over
+      // the mirror's `WithConnection<padiSurface>` surface — a superset of
+      // `MirrorClient` (which pins the padi spec); the `as unknown as` sidesteps the
+      // deep structural comparison of that superset client, which TS can't represent
+      // (TS2590).
+      if (host === defaultHost) {
+        defaultMirror = surfaceClientRef(
           reServed.surface,
           reServed.router as Parameters<typeof surfaceClientRef>[1],
-        ) as unknown as MirrorClient,
-      );
+        ) as unknown as MirrorClient;
+      }
 
       // The per-host router: the SHARED kolu+surfaceApp fragment spliced with THIS
       // host's re-served padi, plus the raw RPCs. `daemon.restart` drains THIS
@@ -200,7 +206,10 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
         defaultHost,
         hosts,
       });
-      routers.set(host, appRouter);
+      // Every host needs its OWN `appRouter` for the WS handler below, but the
+      // non-streaming HTTP `/rpc/*` handler is built from the DEFAULT host's router
+      // only (a single host; e2e reset POSTs land there), so capture just that one.
+      if (host === defaultHost) defaultRouter = appRouter;
 
       // biome-ignore lint/suspicious/noExplicitAny: buildAppRouter mixes implementSurface's Lazy<Router> spread with hand-listed namespaces; RPCHandler's input type doesn't accept that union though the runtime shape is a valid router.
       const handler: PadiWsHandler = new WsRPCHandler(appRouter as any, {
@@ -217,8 +226,8 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
 
   return {
     registry,
-    getMirror: (host) => mirrors.get(host),
-    getRouter: (host) => routers.get(host),
+    getMirror: () => defaultMirror,
+    getRouter: () => defaultRouter,
     hosts,
     defaultHost,
   };
