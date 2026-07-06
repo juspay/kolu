@@ -38,7 +38,7 @@ import { type contract, LOCAL_HOST } from "kolu-common/contract";
 import { surfacesWithPadi } from "kolu-common/surfacesWithPadi";
 import {
   type Accessor,
-  createEffect,
+  createRenderEffect,
   createRoot,
   createSignal,
   on,
@@ -314,7 +314,13 @@ export function bindingScoped<T>(
 ): Accessor<T> {
   const [value, setValue] = createSignal<T>();
   let disposePrev: (() => void) | undefined;
-  createEffect(
+  // A RENDER effect, not a plain effect: it runs SYNCHRONOUSLY on creation, so the
+  // first `factory(activeBinding())` result is in `value` before any consumer reads
+  // it. A deferred `createEffect` would leave `value` undefined until the effect
+  // phase, so a consumer that reads `X()().byKey(...)` / `X()().value()` during the
+  // first synchronous render would hit `undefined.<member>` — the pre-W4 direct sub
+  // (`app.collections.X.use(...)`) was never undefined, and this keeps that invariant.
+  createRenderEffect(
     on(activeHost, () => {
       disposePrev?.();
       disposePrev = createRoot((dispose) => {

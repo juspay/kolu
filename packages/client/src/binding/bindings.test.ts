@@ -6,6 +6,7 @@
  * transport (never silently routed to the wrong — or a dead — host).
  */
 
+import { createRoot } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // bindings.ts reads `window.location` + `sessionStorage` at module load — stub them
@@ -86,12 +87,22 @@ vi.mock("solid-sonner", () => ({
   toast: { error: vi.fn(), warning: vi.fn() },
 }));
 
-const { activeBinding, activeHost, LOCAL_HOST, switchHost } = await import(
-  "./bindings"
-);
+const { activeBinding, activeHost, bindingScoped, LOCAL_HOST, switchHost } =
+  await import("./bindings");
 
 beforeEach(() => {
   store.clear();
+});
+
+describe("bindingScoped populates synchronously (no undefined-first-render)", () => {
+  it("has the factory result on the FIRST read, before any effect phase", () => {
+    const marker = { kind: "sub" } as const;
+    // A render effect (not a deferred createEffect) must have set the value by the
+    // time bindingScoped returns — else a consumer reading `X()().byKey(...)` /
+    // `X()().value()` on the first synchronous render hits `undefined.<member>`.
+    const value = createRoot(() => bindingScoped(() => marker)());
+    expect(value).toBe(marker);
+  });
 });
 
 describe("the misroute guard (condition 3a)", () => {
