@@ -18,10 +18,7 @@
  *  come from `@kolu/terminal-protocol` — the one source of truth the CLI, the
  *  rich client's own paste path, and the mobile key bar all share. */
 
-import {
-  BRACKETED_PASTE_END,
-  BRACKETED_PASTE_START,
-} from "@kolu/terminal-protocol";
+import { wrapBracketedPaste } from "@kolu/terminal-protocol";
 
 /** Plan the single PTY write for a composed draft, or `null` when there's
  *  nothing to send (an empty or whitespace-only draft — a 0-byte write is a
@@ -32,7 +29,5 @@ import {
  *  whitespace-only guard. */
 export function planComposeSend(text: string): string | null {
   if (text.trim().length === 0) return null;
-  return text.includes("\n")
-    ? `${BRACKETED_PASTE_START}${text}${BRACKETED_PASTE_END}`
-    : text;
+  return text.includes("\n") ? wrapBracketedPaste(text) : text;
 }
