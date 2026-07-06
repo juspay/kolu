@@ -261,6 +261,18 @@ describe("planSend — building the single write", () => {
     expect(plan.paste).toBe(true);
   });
 
+  it("refuses an empty text arm — a 0-byte write is a no-op, not a submit", () => {
+    // A direct caller can't mint a no-op plan from an empty --file / empty pipe /
+    // empty positional; the plan boundary rejects it (cmdSend catches it first
+    // with a source-named error).
+    expect(() =>
+      planSend({ kind: "text", text: "", paste: undefined, fromStream: false }),
+    ).toThrow(/empty text send/);
+    expect(() =>
+      planSend({ kind: "text", text: "", paste: true, fromStream: true }),
+    ).toThrow(/empty text send/);
+  });
+
   it("keys-only (no text) sends just the key bytes", () => {
     const plan = planSend({ kind: "keys", keyData: "\x03" });
     expect(plan.write).toBe("\x03");

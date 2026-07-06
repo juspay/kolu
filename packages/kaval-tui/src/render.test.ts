@@ -127,15 +127,17 @@ describe("formatListJson", () => {
 });
 
 describe("formatSend — the human trailer", () => {
-  it("shows byte count, short id, and the marks that applied", () => {
+  it("shows byte count, short id, and the pasted mark for a text send", () => {
+    // A text send carries NO keys (text + --key is a hard error), so the pasted
+    // mark stands alone — the two marks never co-occur.
     expect(
       formatSend({
         id: "a1b2c3d4-1111-2222-3333-444455556666",
         bytes: 14,
         paste: true,
-        keys: ["Enter"],
+        keys: [],
       }),
-    ).toBe("sent 14 bytes to a1b2c3d4 · pasted · keys: Enter");
+    ).toBe("sent 14 bytes to a1b2c3d4 · pasted");
   });
 
   it("lists multiple keys in order", () => {

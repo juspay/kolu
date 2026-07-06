@@ -101,7 +101,11 @@ unspellable, not merely discouraged.
 >
 > ```sh
 > kaval-tui send "$id" "the follow-up"
-> kaval-tui wait "$id" --until idle:300 --timeout 3000 || true   # busy? time out and proceed
+> # A timeout (exit 2) is the "target busy" signal — proceed. Any OTHER failure is
+> # real (terminal gone = 3, link/usage = 1): surface it, don't send into the void.
+> if ! kaval-tui wait "$id" --until idle:300 --timeout 3000; then
+>   rc=$?; [ "$rc" -eq 2 ] || exit "$rc"
+> fi
 > kaval-tui send "$id" --key Enter                               # submit anyway
 > ```
 

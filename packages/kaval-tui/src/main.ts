@@ -533,6 +533,24 @@ async function cmdSend(
 ): Promise<void> {
   const text = await readSendText(flags.input, textArgs);
 
+  // A text source that reads back EMPTY (an empty --file, an empty pipe/heredoc,
+  // or a literal `send <id> ""`) has nothing to submit — fail loud instead of a
+  // silent 0-byte "sent" that would mask the upstream failure that produced the
+  // empty payload. `none` (a keys-only send) has no text and is exempt. Emptiness
+  // is a property of the READ content, so it's caught here (post-read) rather than
+  // in `resolveSendInput` (which validates the flag combination, pre-read).
+  if (flags.input.kind !== "none" && text.length === 0) {
+    const emptySource =
+      flags.input.kind === "file"
+        ? `--file ${JSON.stringify(flags.input.path)} is empty`
+        : flags.input.kind === "stdin"
+          ? "the piped stdin is empty"
+          : "the text is empty";
+    fail(
+      `nothing to send — ${emptySource}. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use --key to send a key.`,
+    );
+  }
+
   // Encode the named/control keys up front so an unknown key fails loud BEFORE
   // any byte reaches the terminal (no half-send). Order is preserved.
   let keyData = "";

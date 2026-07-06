@@ -255,13 +255,22 @@ export function planSend(content: SendContent): SendPlan {
     };
   }
 
-  const hasText = content.text.length > 0;
+  // A zero-length text arm is a no-op write — reject it rather than plan a
+  // 0-byte send, so a direct caller can't mint a no-op plan (the empty positional
+  // / empty --file / empty pipe that `cmdSend` catches with a source-named error
+  // first). Fail-fast: a silent 0-byte "success" would mask the upstream failure
+  // that produced the empty payload.
+  if (content.text.length === 0) {
+    throw new Error(
+      "planSend: refusing an empty text send — a 0-byte write is a no-op, not a submit.",
+    );
+  }
+
   // Auto-paste: a single-line argument types literally, but multiline OR a
   // stream payload (--file / piped stdin) is bracketed so it lands as one block.
   // An explicit flag overrides.
   const paste =
-    hasText &&
-    (content.paste ?? (content.fromStream || content.text.includes("\n")));
+    content.paste ?? (content.fromStream || content.text.includes("\n"));
 
   const write = paste
     ? `${BRACKETED_PASTE_START}${content.text}${BRACKETED_PASTE_END}`

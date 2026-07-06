@@ -81,8 +81,9 @@ process.stdin.on("data", (chunk) => {
   }
 
   // Then handle any Enter bytes left in the stream. An Enter within DEBOUNCE_MS
-  // of the paste end is dropped (the bug); a later one submits (what --submit's
-  // grace guarantees).
+  // of the paste end is dropped (the bug); a later one submits — which is what the
+  // separate, post-settle Enter (sent as its own command after `wait --until idle`)
+  // guarantees.
   for (;;) {
     const cr = buf.indexOf("\r");
     if (cr === -1) break;
