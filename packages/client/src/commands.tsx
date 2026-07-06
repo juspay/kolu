@@ -209,8 +209,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
               placeholder: "Worktree name",
               validate: validateWorktreeName,
               onSubmit: (name, selected) => {
+                // `selected` is always present here — this input's children
+                // include the "Plain shell" default label — but the type now
+                // admits `undefined` (free-typed inputs with no options), so
+                // read it defensively.
                 const agentCmd =
-                  typeof selected.data === "string" ? selected.data : undefined;
+                  typeof selected?.data === "string"
+                    ? selected.data
+                    : undefined;
                 deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd);
               },
               children: (): (PaletteLabel | PaletteHint)[] =>

@@ -132,8 +132,11 @@ export interface PaletteBodyGroup extends PaletteBase {
  *
  *  Children are restricted to labels and hints — the type rules out
  *  actions or nested groups, so the "labels live inside value groups"
- *  invariant is enforced at compile time. `onSubmit` receives the
- *  highlighted child narrowed to `PaletteLabel`.
+ *  invariant is enforced at compile time. A value input may legitimately
+ *  offer NO label options — a purely free-typed field (the host picker's
+ *  "Connect to a host…", whose only child is a hint). Enter then submits
+ *  with the typed value and `undefined` for `selected`, so `onSubmit`
+ *  must not assume a highlighted label exists.
  *
  *  `validate` runs on every keystroke; returning a non-null message
  *  paints the input red, renders the message under the input, and
@@ -143,7 +146,7 @@ export interface PaletteValueInput extends PaletteBase {
   prefill: () => string;
   placeholder?: string;
   validate?: (value: string) => string | null;
-  onSubmit: (value: string, selected: PaletteLabel) => void;
+  onSubmit: (value: string, selected: PaletteLabel | undefined) => void;
   /** Static array or accessor for dynamic lists. */
   children:
     | (PaletteLabel | PaletteHint)[]
@@ -414,17 +417,25 @@ const CommandPalette: Component<{
     props.onOpenChange(false);
   }
 
+  /** Submit the current value-input query, optionally with a highlighted label.
+   *  `selected` is `undefined` for a free-typed input that offers no label
+   *  options (the host picker) — Enter still submits. Blocked while the value
+   *  is invalid (the inline error row already says what to fix). */
+  function submitValue(selected: PaletteLabel | undefined) {
+    const m = mode();
+    if (m.kind !== "value") return;
+    if (valueError()) return;
+    closeForSelection();
+    m.leaf.onSubmit(query(), selected);
+  }
+
   function execute(cmd: PaletteCommand | PaletteLabel) {
     const m = mode();
     if (m.kind === "value") {
       // Structural invariant: value-input children are PaletteLabel —
       // anything else here is a caller bug.
       if (cmd.kind !== "label") return;
-      // Block submit while the typed value is invalid; the inline error
-      // row already tells the user what to fix.
-      if (valueError()) return;
-      closeForSelection();
-      m.leaf.onSubmit(query(), cmd);
+      submitValue(cmd);
       return;
     }
     // Filter mode — labels never appear at the top level (enforced by
@@ -488,7 +499,13 @@ const CommandPalette: Component<{
         // and immediately confirm the first item.
         if (e.metaKey || e.ctrlKey || e.altKey) return;
         const selected = items[selectedIndex()];
-        if (selected) execute(selected);
+        // In value mode, Enter submits the typed value even when no label is
+        // highlighted — a free-typed input (the host picker) has only a hint
+        // child, so `items` is empty and there's nothing to "select". Routing
+        // through `submitValue` is the ONLY submit path for that input.
+        if (mode().kind === "value")
+          submitValue(selected as PaletteLabel | undefined);
+        else if (selected) execute(selected);
         break;
       }
       default:
