@@ -74,6 +74,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "The Inspector tab's Attach section copies `kaval-tui attach`, `snapshot`, and `send` commands for the main terminal and each split, plus a kaval-tui/padi-tui reference — drive (and even prompt) any pane from any shell",
   },
   {
+    id: "amb-inspector-compose",
+    text: "The Inspector tab's Compose box lets you draft a multiline prompt and send it into the active terminal (⌘/Ctrl+Enter) — it lands in the agent's input box for you to review and submit, and each terminal keeps its own draft across reloads",
+  },
+  {
     id: "amb-canvas-zoom",
     text: "Pinch or Ctrl+scroll to zoom the canvas. Two-finger scroll to pan.",
   },

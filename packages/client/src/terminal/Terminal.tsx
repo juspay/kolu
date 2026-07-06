@@ -35,9 +35,8 @@ import { activeArm, padiRpc } from "@kolu/padi/surface";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
-  BRACKETED_PASTE_END,
-  BRACKETED_PASTE_START,
   isTerminalQueryResponse,
+  wrapBracketedPaste,
 } from "@kolu/terminal-protocol";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
@@ -977,8 +976,7 @@ const Terminal: Component<{
                 undefined,
               sendInput: (args) =>
                 padiRpc(padi).surface.lifecycle.sendInput(args),
-              wrapPath: (path) =>
-                `${BRACKETED_PASTE_START}${path}${BRACKETED_PASTE_END}`,
+              wrapPath: wrapBracketedPaste,
             });
           }
 
