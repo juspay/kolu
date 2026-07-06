@@ -1,0 +1,90 @@
+/**
+ * The host picker — W4 "the switch".
+ *
+ * DELIBERATELY HIDDEN: it lives ONLY as a nested group under the command palette's
+ * Debug section — no ChromeBar slot, no keybinding, no discoverability tip. Together
+ * with `KOLU_PADI_HOST` (the default host only), the palette item is the sole way to
+ * reach remote terminals until the feature stabilizes; the ChromeBar switcher
+ * graduates later. Typing "switch"/"host" finds it (the palette flattens on query).
+ *
+ * The picker offers the known hosts as ACTIONS (local, the server default, and each
+ * server-persisted recent host — shared across your devices) and a free-typed value
+ * input for a new ssh host. Picking one calls `switchHost`, which adds the host to
+ * the server pool (a deliberate two-step add-then-connect) before swapping the tab's
+ * binding in place — no page reload.
+ */
+
+import type { PaletteGroup, PaletteItem } from "../CommandPalette";
+import { preferences } from "../wire";
+import {
+  activeHost,
+  forgetHost,
+  LOCAL_HOST,
+  serverDefaultHost,
+  switchHost,
+} from "./bindings";
+
+export function hostPickerCommand(): PaletteGroup {
+  return {
+    kind: "group",
+    name: "Switch host",
+    section: "help",
+    description: "Pick which machine this tab views (Debug — dogfood only)",
+    children: (): PaletteItem[] => {
+      const active = activeHost();
+      const recents = preferences().recentHosts;
+      // Local always; the server default (if it's a remote host); then each recent.
+      // De-duped, first-seen order.
+      const known = [
+        LOCAL_HOST,
+        ...(serverDefaultHost() !== LOCAL_HOST ? [serverDefaultHost()] : []),
+        ...recents,
+      ].filter((h, i, arr) => arr.indexOf(h) === i);
+
+      const hostAction = (host: string): PaletteItem => ({
+        kind: "action",
+        name: host === LOCAL_HOST ? "local (this machine)" : host,
+        description: host === active ? "current" : undefined,
+        onSelect: () => void switchHost(host),
+      });
+
+      // A recent host can be forgotten (dropped from the pool + recentHosts) via a
+      // nested action, so the list doesn't grow forever. Local + the default are
+      // never forgettable.
+      const forgetGroup: PaletteItem | undefined =
+        recents.length > 0
+          ? {
+              kind: "group",
+              name: "Forget a host…",
+              description: "Drop a remembered host from the pool + recents",
+              children: (): PaletteItem[] =>
+                recents.map((host) => ({
+                  kind: "action",
+                  name: host,
+                  onSelect: () => void forgetHost(host),
+                })),
+            }
+          : undefined;
+
+      return [
+        ...known.map(hostAction),
+        {
+          kind: "value",
+          name: "Connect to a host…",
+          description: "Type an ssh host (from ~/.ssh/config, or user@host)",
+          prefill: () => "",
+          placeholder: "user@host or host",
+          validate: (v: string) => (v.trim() ? null : "Enter a hostname"),
+          onSubmit: (value: string) => void switchHost(value.trim()),
+          children: () => [
+            {
+              kind: "hint",
+              text: "The host is added to the pool, then this tab switches to it — loud connecting/degraded states show while it warms.",
+            },
+          ],
+        },
+        ...(forgetGroup ? [forgetGroup] : []),
+      ];
+    },
+  };
+}

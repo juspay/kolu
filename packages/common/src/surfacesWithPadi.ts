@@ -19,9 +19,19 @@
  */
 
 import { padiSurface } from "@kolu/padi/surface";
+import { mirroredSurface } from "@kolu/surface-nix-host/connection";
 import { surfaces } from "./surface.ts";
 
+// The padi sibling the client dials is the MIRRORED surface — `padiSurface` plus
+// the framework `connection` cell kolu-server's re-serve already adds (W2.1). It
+// declares `liveWhen: state === "connected"`, so a bound host's readiness (server↔
+// padi connected-ness) folds into `padi.health().live` BY CONSTRUCTION, per
+// binding — the per-host readiness signal the W4 switch reads (the shared,
+// single-host `padiLink` cell it replaces could never carry N hosts). The server
+// splices this exact `WithConnection<padiSurface>` router off each host's re-serve,
+// so client and server specs match; a single-host tab is byte-identical (the cell
+// just reads `connected`).
 export const surfacesWithPadi = {
   ...surfaces,
-  padi: padiSurface,
+  padi: mirroredSurface(padiSurface),
 } as const;

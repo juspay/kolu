@@ -48,10 +48,8 @@ import {
   padiDot,
 } from "../padi/padiPresentation";
 import type { WsStatus } from "../rpc/rpc";
-import {
-  activePadiSurfaceVersion,
-  daemonScanBoundHost,
-} from "./useDaemonInventory";
+import { activeHost, LOCAL_HOST } from "../binding/bindings";
+import { activePadiSurfaceVersion } from "./useDaemonInventory";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { formatMBCompact, mbText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
@@ -181,10 +179,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
     activePadiSurfaceVersion() ?? undefined;
 
   // WHERE padi is: the `ssh · <host>` segment for a REMOTE binding, or null when
-  // local (no host noise). Read from the same `daemonScanBoundHost()` the Padi
-  // dialog uses, rendered through the pure `padiBoundHostSegment` source of truth.
+  // local (no host noise). W4 names the host THIS TAB is viewing (`activeHost()`),
+  // not the server's default binding — so after a switch the chip reads the host you
+  // actually see, and a per-host degraded state names the right machine. Rendered
+  // through the pure `padiBoundHostSegment` source of truth.
   const padiHostSegment = (): string | null =>
-    padiBoundHostSegment(daemonScanBoundHost());
+    padiBoundHostSegment(activeHost() === LOCAL_HOST ? null : activeHost());
 
   const padiTip = createMemo((): string =>
     joinTip(

@@ -100,6 +100,9 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../surface-app
+      '@kolu/surface-nix-host':
+        specifier: workspace:*
+        version: link:../surface-nix-host
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
@@ -245,6 +248,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
+      '@kolu/surface-nix-host':
+        specifier: workspace:*
+        version: link:../surface-nix-host
       '@kolu/terminal-workspace':
         specifier: workspace:*
         version: link:../terminal-workspace

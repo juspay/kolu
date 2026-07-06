@@ -53,7 +53,6 @@ import { installRouteErrorLogging } from "./routeErrors.ts";
 import { startDaemonInventorySampler } from "./daemonInventory.ts";
 import { buildHostPool, LOCAL_HOST } from "./hostPool.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { mapConnectionToPadiLink } from "./padiLink.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { remotePadiHost } from "./remotePadiBinding.ts";
 import { store } from "./state.ts";
@@ -592,13 +591,13 @@ const padiBuildCommit = (): string | null => {
     : null;
 };
 
-defaultSession.onState((s) => {
-  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection));
-  // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
-  // time (constant) plus the bound padi's honest boot time (`null` while unbound). A
-  // padi (re)connect refreshes padi's uptime and a drop clears it to the honest
-  // "unknown" at once — never a stale age. The cell's `equals` dedups a transition
-  // that moves neither boot time. kaval's uptime is NOT here (it rides `daemonStatus`).
+// Publish the rail's uptime source off the DEFAULT host's session state: kolu-server's
+// own boot time (constant) plus the bound padi's honest boot time (`null` while
+// unbound). A padi (re)connect refreshes padi's uptime and a drop clears it to the
+// honest "unknown" at once — never a stale age. The `padiLink` cell that once rode this
+// same `onState` retired at W4 (per-host readiness moved to the padi `connection` cell);
+// only the uptime publish remains here, bound to the default host.
+defaultSession.onState(() => {
   koluSurfaceCtx.cells.processStartedAt.set({
     server: serverStartedAt,
     padi: padiStartedAt(),

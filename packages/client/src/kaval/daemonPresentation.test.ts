@@ -1,6 +1,8 @@
 import type { DaemonState } from "@kolu/padi/surface";
+import type { ConnectionState } from "@kolu/surface-nix-host/connection";
 import { describe, expect, it } from "vitest";
 import {
+  connectionToPadiLink,
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
   kavalDot,
@@ -11,6 +13,33 @@ import {
   serverDot,
   toneDot,
 } from "./daemonPresentation";
+
+describe("connectionToPadiLink — the ACTIVE binding's connection state → the PadiLink display (W4)", () => {
+  it("collapses the five connection phases onto the three padiLink states", () => {
+    // The per-host `connection` cell that replaced the retired single-host
+    // `kolu.padiLink` cell — the client twin of the deleted server-side mapper.
+    expect(connectionToPadiLink("connected")).toBe("connected");
+    expect(connectionToPadiLink("connecting")).toBe("connecting");
+    expect(connectionToPadiLink("copying")).toBe("connecting");
+    expect(connectionToPadiLink("disconnected")).toBe("degraded");
+    expect(connectionToPadiLink("failed")).toBe("degraded");
+  });
+
+  it("is total over every ConnectionState (a new phase is a compile error, exhaustive here)", () => {
+    const ALL: ConnectionState[] = [
+      "copying",
+      "connecting",
+      "connected",
+      "disconnected",
+      "failed",
+    ];
+    for (const state of ALL) {
+      expect(["connecting", "connected", "degraded"]).toContain(
+        connectionToPadiLink(state),
+      );
+    }
+  });
+});
 
 describe("kavalDot — the kaval dot's tone is FLOORED on transport liveness (#1568 green-dot class)", () => {
   it("paints the daemon-state tone only when the transport is LIVE", () => {

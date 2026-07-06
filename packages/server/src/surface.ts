@@ -46,7 +46,6 @@ import { contract } from "kolu-common/contract";
 import type {
   DaemonInventory,
   KoluBuildInfo,
-  PadiLink,
   Preferences,
   ProcessMemory,
   ProcessRss,
@@ -150,20 +149,11 @@ const memoryCellStore = {
   },
 };
 
-// ── padiLink cell: kolu-server's live view of its binding to padi ────────
-//
-// Server-authored (kolu-server drives it off `padiSession.onState` in `index.ts`);
-// the client folds it into the warming/degraded canvas so a padi drop shows an honest
-// connecting state, never a frozen re-served daemonStatus (#1034). A live signal, so
-// the backing is in-memory (no on-disk slot); a fresh subscription reads the latest via
-// `get`, seeded at the gate-closed `connecting` before the first transition.
-let currentPadiLink: PadiLink = "connecting";
-const padiLinkCellStore = {
-  get: (): PadiLink => currentPadiLink,
-  set: (value: PadiLink): void => {
-    currentPadiLink = value;
-  },
-};
+// The `padiLink` cell + its store RETIRED at W4 ("the switch"): a single server-wide
+// binding fact can't carry a warm POOL of N padis. Per-host readiness now rides the
+// padi `connection` cell (the framework mirror the re-serve adds per host), read on the
+// client via `useDaemonStatus.padiLinkState`. The uptime `onState` driver below stays,
+// bound to the DEFAULT host's session (`index.ts`).
 
 // ── processStartedAt cell: kolu-server + padi boot times for the rail's uptime ──
 //
@@ -238,15 +228,6 @@ const koluDeps: Omit<
       // RSS wobble never re-publishes to every connected client.
       store: memoryCellStore,
       equals: processMemoryMbEqual,
-    },
-    padiLink: {
-      // Live signal; the in-memory store has no persistent slot. The bound-padi
-      // `onState` subscription (`index.ts`) is the sole writer via
-      // `koluSurfaceCtx.cells.padiLink.set`. `equals` dedups so a repeated
-      // same-state transition (onState fires once per endpoint status, and several
-      // map to the same padiLink) never re-publishes to every connected client.
-      store: padiLinkCellStore,
-      equals: (a, b) => a === b,
     },
     processStartedAt: {
       // Live signal; the in-memory store has no persistent slot. The bound-padi

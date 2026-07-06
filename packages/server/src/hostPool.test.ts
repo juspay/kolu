@@ -1,0 +1,147 @@
+/**
+ * The W4 warm host pool — `?host` dispatch, `recentHosts` persistence, and the
+ * `hosts.add`/`hosts.remove` control plane. Drives the REAL `buildHostRegistry`
+ * (the framework map) through `buildHostPool`, mocking only the leaf binders +
+ * re-serve so no socket/ssh/router is stood up.
+ */
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// A minimal `PadiSession` — only `destroy` (the registry's `DestroyableSession`
+// slot) and `renew` (drainBoundPadi) are ever touched here.
+function fakeSession() {
+  return { destroy: vi.fn(), renew: vi.fn(async () => {}) };
+}
+
+const ensurePadiBinding = vi.fn(() => fakeSession());
+const ensureRemotePadiBinding = vi.fn(() => fakeSession());
+const buildAppRouter = vi.fn(() => ({ router: true }));
+const surfaceClientRef = vi.fn(() => ({ surface: {} }));
+
+vi.mock("./padiBinding.ts", () => ({ ensurePadiBinding }));
+vi.mock("./remotePadiBinding.ts", () => ({ ensureRemotePadiBinding }));
+vi.mock("./router.ts", () => ({ buildAppRouter }));
+vi.mock("@kolu/surface/project", () => ({ surfaceClientRef }));
+vi.mock("@kolu/padi/surface", () => ({
+  PADI_FORWARDING_POLICY: {},
+  padiSurface: { spec: {} },
+}));
+vi.mock("@orpc/server/ws", () => ({
+  // The handler is opaque to the pool — a distinct object per host is enough to
+  // assert `getHandler` returns the right one.
+  RPCHandler: vi.fn(function (this: { router: unknown }, router: unknown) {
+    this.router = router;
+  }),
+}));
+vi.mock("./log.ts", () => ({
+  log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+}));
+// Keep the REAL `buildHostRegistry` (the framework map under test) and mock only
+// `reServeSurface` — which returns a spliced router + a NEVER-settling `done` (so
+// the pool's fail-loud `.then/.catch`, which would `process.exit(1)` on reject,
+// never fires in the test).
+vi.mock("@kolu/surface-nix-host", async (importActual) => {
+  const actual = await importActual<typeof import("@kolu/surface-nix-host")>();
+  return {
+    ...actual,
+    reServeSurface: vi.fn(() => ({
+      surface: {},
+      router: { surface: {} },
+      done: new Promise<void>(() => {}),
+    })),
+  };
+});
+
+const { buildHostPool, LOCAL_HOST } = await import("./hostPool.ts");
+
+function makePool(opts?: {
+  bootHost?: string;
+  recentHosts?: string[];
+  persistRecentHosts?: (hosts: string[]) => void;
+}) {
+  return buildHostPool({
+    bootHost: opts?.bootHost,
+    recentHosts: opts?.recentHosts ?? [],
+    persistRecentHosts: opts?.persistRecentHosts ?? (() => {}),
+    localArmOpts: {},
+    remoteSpawnVersion: "1.0.0",
+    koluSurfaceRouter: { surface: {} },
+    rpcPlugins: [],
+  });
+}
+
+beforeEach(() => {
+  ensurePadiBinding.mockClear();
+  ensureRemotePadiBinding.mockClear();
+  buildAppRouter.mockClear();
+});
+
+describe("buildHostPool — the warm pool", () => {
+  it("seeds LOCAL + the boot default + every recent host, deduped", () => {
+    const pool = makePool({
+      bootHost: "zest",
+      recentHosts: ["zest", "oldbox"],
+    });
+    expect(pool.defaultHost).toBe("zest");
+    // local (endpoint arm) + zest + oldbox — zest de-duped between bootHost and recents.
+    expect(ensurePadiBinding).toHaveBeenCalledTimes(1); // only the local arm
+    expect(ensureRemotePadiBinding).toHaveBeenCalledTimes(2); // zest + oldbox
+    expect(pool.registry.hosts().sort()).toEqual(["local", "oldbox", "zest"]);
+  });
+
+  it("dispatches getHandler by host; an unknown host is undefined (upgrade rejects it)", () => {
+    const pool = makePool({ bootHost: "zest" });
+    expect(pool.registry.getHandler(LOCAL_HOST)).toBeDefined();
+    expect(pool.registry.getHandler("zest")).toBeDefined();
+    // Distinct handler per host — a call minted on one host's socket can't cross.
+    expect(pool.registry.getHandler(LOCAL_HOST)).not.toBe(
+      pool.registry.getHandler("zest"),
+    );
+    expect(pool.registry.getHandler("never-added")).toBeUndefined();
+  });
+
+  it("defaults to the local host when no bootHost is set", () => {
+    const pool = makePool();
+    expect(pool.defaultHost).toBe(LOCAL_HOST);
+    expect(pool.registry.hosts()).toEqual([LOCAL_HOST]);
+  });
+
+  it("hosts.add warms a NEW host and persists it onto recentHosts (local excluded)", async () => {
+    const persisted: string[][] = [];
+    const pool = makePool({ persistRecentHosts: (h) => persisted.push(h) });
+    await pool.hosts.add("newbox");
+    expect(pool.registry.has("newbox")).toBe(true);
+    expect(ensureRemotePadiBinding).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "newbox" }),
+    );
+    // recentHosts = the pool's host set MINUS the always-present local host.
+    expect(persisted.at(-1)).toEqual(["newbox"]);
+  });
+
+  it("hosts.add is idempotent and never adds the local host", async () => {
+    const persisted: string[][] = [];
+    const pool = makePool({ persistRecentHosts: (h) => persisted.push(h) });
+    await pool.hosts.add("dup");
+    const remoteCalls = ensureRemotePadiBinding.mock.calls.length;
+    await pool.hosts.add("dup"); // already warm — no-op
+    await pool.hosts.add(LOCAL_HOST); // local is always present — no-op
+    expect(ensureRemotePadiBinding.mock.calls.length).toBe(remoteCalls);
+    expect(persisted.length).toBe(1); // only the first, real add persisted
+  });
+
+  it("hosts.remove forgets a host and re-persists recentHosts", async () => {
+    const persisted: string[][] = [];
+    const pool = makePool({
+      recentHosts: ["a", "b"],
+      persistRecentHosts: (h) => persisted.push(h),
+    });
+    const aSession = pool.registry.getSession("a");
+    await pool.hosts.remove("a");
+    expect(pool.registry.has("a")).toBe(false);
+    expect(aSession?.destroy).toHaveBeenCalled();
+    expect(persisted.at(-1)).toEqual(["b"]);
+    // The local host can never be removed.
+    await pool.hosts.remove(LOCAL_HOST);
+    expect(pool.registry.has(LOCAL_HOST)).toBe(true);
+  });
+});

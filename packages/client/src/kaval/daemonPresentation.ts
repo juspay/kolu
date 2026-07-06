@@ -9,9 +9,29 @@
  *  transport-liveness floor be pinned by a unit test without standing up a socket. */
 
 import type { DaemonState } from "@kolu/padi/surface";
+import type { ConnectionState } from "@kolu/surface-nix-host/connection";
 import type { PadiLink } from "kolu-common/surface";
+import { match } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
+
+/** Collapse the ACTIVE binding's five-phase `ConnectionState` (the framework
+ *  `connection` cell, per host, that folds server↔padi readiness into
+ *  `padi.health().live`) onto the three-state `PadiLink` the canvas reads. This
+ *  is the client twin of the retired server-side `padiLink` cell (W4): a single
+ *  server-wide `padiLink` couldn't carry N bound hosts, so the per-binding
+ *  connection cell replaces it, and the display collapses the same way:
+ *    - `connected`               → `connected`  (bound to a live padi);
+ *    - `connecting` / `copying`  → `connecting` (the binding is (re)establishing);
+ *    - `disconnected` / `failed` → `degraded`   (the binding dropped; loop re-dials).
+ *  Total + `.exhaustive()` so a new `ConnectionState` is a compile error here. */
+export function connectionToPadiLink(state: ConnectionState): PadiLink {
+  return match(state)
+    .with("connected", () => "connected" as const)
+    .with("connecting", "copying", () => "connecting" as const)
+    .with("disconnected", "failed", () => "degraded" as const)
+    .exhaustive();
+}
 
 /** A daemon state's coarse tone — the warming-up/up/down bucket every display
  *  site shares. `restarting` and `connecting` are both `warming` (transient,

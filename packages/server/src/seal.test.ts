@@ -44,6 +44,11 @@ const WEB_SHELL_FILES = [
   // kolu's active one. Shell code (it publishes koluSurface's `daemonInventory` cell,
   // runs no terminal domain), not a terminal-domain module.
   "daemonInventory",
+  // The W4 WARM POOL — kolu-server holds one PadiSession per host (local endpoint
+  // arm / ssh arm), re-serves each into a per-host router, and dispatches by `?host`.
+  // Web-shell code (it composes the binders + `reServeSurface` + `buildAppRouter`;
+  // runs no terminal domain), so it lives beside the shell, not in @kolu/padi.
+  "hostPool",
   "hostname",
   "iframePreviewRoute",
   "index",
@@ -69,11 +74,8 @@ const WEB_SHELL_FILES = [
   // `makeSession` + the daemon-supervision members by spread — no `BoundPadi`, no
   // wrapper class. Web-shell glue (the arms' shared session type + spread helper).
   "padiSession",
-  // The pure `SessionState.connection` → koluSurface `padiLink` mapping — the web
-  // shell's own honest view of its binding to padi (#1034), driven off the binding
-  // session. Shell code (a projection of the binder's state onto kolu-server's OWN
-  // surface), not terminal domain.
-  "padiLink",
+  // (`padiLink` retired at W4 — the single server-wide binding→padi cell can't carry
+  //  a warm POOL of N padis; per-host readiness moved to the padi `connection` cell.)
   "pwaIdentity",
   // The web shell's catch-all `app.onError` logger — turns an uncaught route/
   // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview

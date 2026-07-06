@@ -8,6 +8,7 @@ import type { Accessor, Component } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import { aboutDialog } from "./AboutDialog";
+import { hostPickerCommand } from "./binding/hostPickerCommand";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -459,6 +460,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       section: "help",
       description: "Internal diagnostics and scaffolding",
       children: (): PaletteItem[] => [
+        // W4 "the switch" — the HIDDEN host picker. Debug-only, undocumented: the
+        // sole discoverable way to reach remote terminals until the feature
+        // stabilizes (the ChromeBar switcher graduates later).
+        hostPickerCommand(),
         {
           kind: "action",
           name: "Diagnostic info",

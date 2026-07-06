@@ -1,0 +1,306 @@
+/**
+ * The host binding — W4 "the switch".
+ *
+ * Before W4 the client's wire was ONE module-global `connectSurfaces` bundle,
+ * pinned to `window.location.host`, that lived exactly as long as the page. This
+ * module breaks that buried assumption: it holds ONE bundle PER host (each a
+ * `connectSurfaces` to `?host=<host>` on the same kolu-server), and an
+ * `activeHost` signal picks which one the tab is looking at. Picking a host swaps
+ * the accessor IN PLACE — no page reload — and every subscription re-keys off it.
+ *
+ * This is the interim "wire shape" the plan's L11 later sweeps into a proper
+ * scope-through-context (`docs/atlas/.../padi-cleanup`): W4 keeps the module-global
+ * ACCESSORS (`padi()`, `app()`, …) that `wire.ts` re-exports, because the pool +
+ * picker land here first and the full de-globalization is a mechanical follow-up.
+ *
+ * The MISROUTE GUARD lives here and is NOT deferred to L11: each binding carries a
+ * unique id and a `retired` flag; switching retires the old binding (closing its
+ * socket), so an in-flight or late call minted on the old host's client REJECTS
+ * loudly (`assertLive`) rather than silently landing on the wrong — or a dead —
+ * host. Because each host is a SEPARATE socket, a call can never cross to another
+ * host's server handler; the guard makes a STALE reference fail fast too.
+ */
+
+import { padiRpc } from "@kolu/padi/surface";
+import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
+import {
+  type ConnectionStatus,
+  connectSurfaces,
+  createServerLifecycle,
+  retireSocket,
+  type ServerLifecycleEvent,
+  surfaceAppProbe,
+} from "@kolu/surface-app/solid";
+import type { contract } from "kolu-common/contract";
+import { surfacesWithPadi } from "kolu-common/surfacesWithPadi";
+import {
+  type Accessor,
+  createEffect,
+  createRoot,
+  createSignal,
+  on,
+  onCleanup,
+} from "solid-js";
+import { toast } from "solid-sonner";
+
+/** The sentinel id for THIS machine's padi — matches the server `LOCAL_HOST`. */
+export const LOCAL_HOST = "local";
+
+const { protocol, host } = window.location;
+const wsBase = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
+
+/** The wire for one host: the `connectSurfaces` bundle over a `?host=<host>`
+ *  socket, its own lifecycle (status), and the misroute-guard state. */
+export interface Binding {
+  readonly host: string;
+  /** Unique per (re)creation — the misroute guard's identity. */
+  readonly id: number;
+  readonly clients: ReturnType<
+    typeof connectSurfaces<typeof contract, typeof surfacesWithPadi>
+  >["clients"];
+  readonly link: ReturnType<
+    typeof connectSurfaces<typeof contract, typeof surfacesWithPadi>
+  >["link"];
+  readonly ws: WebSocket;
+  /** The surface-app connection status for THIS host's socket. */
+  readonly status: Accessor<ConnectionStatus>;
+  readonly lifecycle: Accessor<ServerLifecycleEvent>;
+  readonly serverProcessId: Accessor<string | undefined>;
+  /** True once this binding has been retired (switched away from + torn down). A
+   *  call routed through a retired binding is a misroute — reject it. */
+  retired: boolean;
+  /** Close this host's socket + tear down its clients (the misroute-guard teardown). */
+  dispose(): void;
+}
+
+let nextBindingId = 0;
+
+function makeBinding(targetHost: string): Binding {
+  const id = ++nextBindingId;
+  // The `?host=` param the server dispatches on. The local host is passed
+  // explicitly too, so a single-host tab's URL is `?host=local` — the server
+  // treats a missing `?host` as its default, so this stays correct either way.
+  const url = `${wsBase}?host=${encodeURIComponent(targetHost)}`;
+  const conn = connectSurfaces<typeof contract, typeof surfacesWithPadi>({
+    surfaces: surfacesWithPadi,
+    url,
+  });
+
+  // Each host's socket owns its OWN lifecycle (status + stale-restart handling),
+  // the per-binding twin of the pre-W4 module-level `rpc.ts` lifecycle. The
+  // half-open watchdog lives in `connectSurfaces`' `createLiveSignal` (one per
+  // socket), so this lifecycle opts its own out (`heartbeat: false`).
+  const binding: Binding = {
+    host: targetHost,
+    id,
+    clients: conn.clients,
+    link: conn.link,
+    ws: conn.ws as unknown as WebSocket,
+    retired: false,
+    // Assigned below (the lifecycle needs `binding` for `onStaleRestart`).
+    status: () => "live",
+    lifecycle: () => ({ kind: "connecting" }) as ServerLifecycleEvent,
+    serverProcessId: () => undefined,
+    dispose: () => {
+      binding.retired = true;
+      conn.dispose();
+    },
+  };
+
+  const { lifecycle, serverProcessId, status } = createServerLifecycle({
+    ws: conn.ws,
+    probe: () => surfaceAppProbe(conn.clients.surfaceApp),
+    heartbeat: false,
+    onProcessId: conn.echo.remember,
+    onProbeError: (err) =>
+      console.error(`surfaceApp.info probe failed (host ${targetHost}):`, err),
+    restartCloseCode: STALE_PROCESS_CLOSE_CODE,
+    onStaleRestart: () => retireSocket(conn.ws),
+  });
+  // Re-point the three lifecycle accessors (the object is `const`, its fields are
+  // reassigned here now that the lifecycle exists).
+  (binding as { status: Accessor<ConnectionStatus> }).status = status;
+  (binding as { lifecycle: Accessor<ServerLifecycleEvent> }).lifecycle =
+    lifecycle;
+  (
+    binding as { serverProcessId: Accessor<string | undefined> }
+  ).serverProcessId = serverProcessId;
+
+  return binding;
+}
+
+// ── The active binding + the warm client-side cache ─────────────────────
+
+const [activeHostSignal, setActiveHostSignal] =
+  createSignal<string>(LOCAL_HOST);
+/** The host this tab is currently looking at. */
+export const activeHost = activeHostSignal;
+
+const cache = new Map<string, Binding>();
+
+/** The active host's binding — lazily built + cached. Reactive on `activeHost`,
+ *  so every accessor that reads it (`padi()`, `app()`, the `bindingScoped` subs)
+ *  re-derives the instant the tab switches host. */
+export function activeBinding(): Binding {
+  const h = activeHost();
+  let b = cache.get(h);
+  if (!b || b.retired) {
+    b = makeBinding(h);
+    cache.set(h, b);
+  }
+  return b;
+}
+
+/** Reject a call routed through a stale (retired) binding — the misroute guard's
+ *  teeth. A call minted on host A's client, still referenced after switching to
+ *  B, throws instead of silently hitting A's (still-warm) server handler. */
+export function assertLive(binding: Binding): void {
+  if (binding.retired) {
+    throw new Error(
+      `stale binding for host "${binding.host}" (retired on host switch) — call rejected to prevent a misroute`,
+    );
+  }
+}
+
+const [knownDefaultHost, setKnownDefaultHost] =
+  createSignal<string>(LOCAL_HOST);
+/** The server's default host (`KOLU_PADI_HOST` ?? local), learned from
+ *  `server.info` — offered by the picker even when it isn't yet a "recent". */
+export const serverDefaultHost = knownDefaultHost;
+
+/** Remember the server's default host and, on a FRESH tab (no stored host), fall to
+ *  it — so a CI run booted through `KOLU_PADI_HOST` lands there while the picker still
+ *  switches freely. Called once after `server.info` resolves; never overrides a pick. */
+export function seedDefaultHost(defaultHost: string): void {
+  if (defaultHost) setKnownDefaultHost(defaultHost);
+  if (!hasStoredHost() && activeHost() === LOCAL_HOST && defaultHost) {
+    setActiveHostInternal(defaultHost);
+  }
+}
+
+// ── Per-tab persistence of the active host ──────────────────────────────
+
+const ACTIVE_HOST_KEY = "kolu-active-host";
+function hasStoredHost(): boolean {
+  try {
+    return localStorage.getItem(ACTIVE_HOST_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+function storeHost(h: string): void {
+  try {
+    localStorage.setItem(ACTIVE_HOST_KEY, h);
+  } catch {
+    // localStorage unavailable (private mode) — the switch still works in-memory.
+  }
+}
+function readStoredHost(): string | undefined {
+  try {
+    return localStorage.getItem(ACTIVE_HOST_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function setActiveHostInternal(h: string): void {
+  const prev = activeHost();
+  if (h === prev) return;
+  setActiveHostSignal(h);
+  storeHost(h);
+  // Retire the PREVIOUS binding: close its socket, tear down its subs. The server
+  // keeps it warm in the pool, so switching BACK is instant; this only ends THIS
+  // tab's view of it — never disturbing another device (each device/tab holds its
+  // own sockets). Retiring is the misroute guard: any in-flight call on the old
+  // socket now rejects instead of resolving against the wrong host.
+  const old = cache.get(prev);
+  if (old) {
+    cache.delete(prev);
+    old.dispose();
+  }
+}
+
+/** Restore the per-tab host at boot (before the first binding is built), so a
+ *  reload lands back on the host the tab was viewing. */
+export function restoreStoredHost(): void {
+  const stored = readStoredHost();
+  if (stored) setActiveHostSignal(stored);
+}
+
+/** Switch this tab to `host`, live, with no page reload. Ensures the server pool
+ *  holds `host` first (a deliberate add-then-connect — never a side-effectful GET),
+ *  then swaps the active binding. Loud states (connecting / degraded) ride the new
+ *  binding's `connection` cell; creating a terminal is refused until it is ready. */
+export async function switchHost(host: string): Promise<void> {
+  if (host === activeHost()) return;
+  if (host !== LOCAL_HOST) {
+    // Warm the binding server-side BEFORE opening a socket to it. Routed through
+    // the CURRENT (live) binding's link — its host set is the shared pool.
+    try {
+      await activeBinding().link.hosts.add({ host });
+    } catch (err) {
+      toast.error(
+        `Couldn't reach host "${host}": ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+  }
+  setActiveHostInternal(host);
+}
+
+/** Forget a host: drop it from the server pool + `recentHosts`, and (if it is the
+ *  active one) fall back to local. */
+export async function forgetHost(host: string): Promise<void> {
+  if (host === LOCAL_HOST) return;
+  if (host === activeHost()) setActiveHostInternal(LOCAL_HOST);
+  try {
+    await activeBinding().link.hosts.remove({ host });
+  } catch (err) {
+    toast.error(
+      `Couldn't forget host "${host}": ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+// ── The re-key helper ───────────────────────────────────────────────────
+
+/**
+ * Open a subscription against the ACTIVE binding, re-opening it (and disposing the
+ * prior one) whenever the tab switches host. Returns an accessor to the current
+ * subscription. This is how the client's app-lifetime singletons (which used to
+ * open one sub against the one module-global wire) re-key on a switch WITHOUT the
+ * full L11 scope-through-context port: the factory reads `activeBinding()` and is
+ * re-run per host, its prior root disposed — so no stale sub leaks across a switch
+ * (the gray-chip #1687 class). Must be called under a reactive owner (a
+ * `createSharedRoot` factory, a component, or `createRoot`).
+ */
+export function bindingScoped<T>(
+  factory: (binding: Binding) => T,
+): Accessor<T> {
+  const [value, setValue] = createSignal<T>();
+  let disposePrev: (() => void) | undefined;
+  createEffect(
+    on(activeHost, () => {
+      disposePrev?.();
+      disposePrev = createRoot((dispose) => {
+        setValue(() => factory(activeBinding()));
+        return dispose;
+      });
+    }),
+  );
+  onCleanup(() => disposePrev?.());
+  return value as Accessor<T>;
+}
+
+/** A padi RPC client bound to the ACTIVE host, guarded so a stale reference throws
+ *  rather than misrouting. Use in place of the old `padiRpc(padi)`. */
+export function activePadiRpc(): ReturnType<typeof padiRpc> {
+  const binding = activeBinding();
+  assertLive(binding);
+  return padiRpc(binding.clients.padi);
+}
+
+// Restore the per-tab host BEFORE the first binding is built (this module is
+// imported before `wire.ts` opens its subs), so a reload lands back on the host the
+// tab was viewing rather than always starting on local.
+restoreStoredHost();

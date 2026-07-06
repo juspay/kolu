@@ -10,8 +10,8 @@ import { koluBuildInfo } from "kolu-common/surface";
 import { render } from "solid-js/web";
 import { toast } from "solid-sonner";
 import App from "./App";
+import { activeBinding } from "./binding/bindings";
 import { status } from "./rpc/rpc";
-import { surfaceApp } from "./wire";
 import "./index.css";
 
 // Register the fetch-less notification worker (served at `/sw.js` by surface-app's
@@ -46,7 +46,14 @@ render(
     // `useSurfaceApp()` and renders its own tailwind chrome (IdentityRail,
     // StaleBadge, TransportOverlay, the mobile sheet).
     <SurfaceAppProvider
-      controlPlane={surfaceApp}
+      // The ACTIVE binding's surface-app client, as an accessor — a live host
+      // switch yields a NEW client, so the provider tears down the old host's
+      // build-identity stream and re-subscribes (the framework guarantee). The
+      // build identity itself is kolu-server's, unchanged across hosts; the swap
+      // just keeps the subscription honest and leak-free. (The proxy `surfaceApp`
+      // in wire.ts is stable-identity, so it would never trip the swap — the
+      // provider needs the real per-binding client here.)
+      controlPlane={() => activeBinding().clients.surfaceApp}
       clientCommit={shellCommit()}
       buildInfo={koluBuildInfo}
       status={status}

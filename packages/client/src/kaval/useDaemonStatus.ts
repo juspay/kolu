@@ -18,10 +18,12 @@ import type { DaemonStatus } from "@kolu/padi/surface";
 import type { PadiLink } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
+import { bindingScoped } from "../binding/bindings";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
-import { app, padi } from "../wire";
+import { app } from "../wire";
 import {
+  connectionToPadiLink,
   DAEMON_STATE_PRESENTATION,
   liveDownStateWithPadiLink,
   liveWarmingWithPadiLink,
@@ -32,6 +34,7 @@ import { announceReattach } from "./reattachAnnounce";
 // (the rail, the kaval dialog, App.tsx's canvas, useDaemonRestart) keep resolving
 // here even though the tables physically moved to a wire-free module.
 export {
+  connectionToPadiLink,
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
   type DaemonTone,
@@ -73,37 +76,43 @@ export function daemonTransportLive(): boolean {
   return sharedDaemonTransportLive()();
 }
 
-// The daemon-liveness collection rides padi now (W1.R7 — padi supervises its
-// kaval, so it serves `daemonStatus`; it left koluSurface). Transport liveness
-// (`daemonTransportLive`, `app.health().live`) is unchanged: padi and kolu are
-// siblings over the ONE socket, so the ws that delivers this is the same one
-// `app.health()` watches.
-const sub = padi.collections.daemonStatus.use({
-  keys: () => [LOCAL_HOST],
-  onError: (err) => toast.error(`Daemon status error: ${err.message}`),
-});
+// W4 "the switch": the daemon-status collection AND the per-host binding readiness
+// re-key off the ACTIVE binding. `bindingScoped` re-opens each sub against the new
+// host on a switch and disposes the old one (no leak across the swap), so
+// `localDaemonStatus()`/`padiLinkState()` follow the tab to whichever host it views.
+// The `daemonStatus` collection rides padi (W1.R7); "the binding is (re)connecting"
+// now rides the padi `connection` cell (the framework mirror cell, per host) — the
+// replacement for the retired single-host `kolu.padiLink` cell, which could not carry
+// N bound hosts. Both live in one app-lifetime `createSharedRoot` so `bindingScoped`
+// has a reactive owner.
+const hostSubs = createSharedRoot(() => ({
+  daemonStatus: bindingScoped((b) =>
+    b.clients.padi.collections.daemonStatus.use({
+      keys: () => [LOCAL_HOST],
+      onError: (err) => toast.error(`Daemon status error: ${err.message}`),
+    }),
+  ),
+  connection: bindingScoped((b) =>
+    b.clients.padi.cells.connection.use({
+      onError: (err) => toast.error(`padi link status error: ${err.message}`),
+    }),
+  ),
+}));
 
-/** The local daemon's status, or undefined before the first server yield. */
+/** The active host's local daemon status, or undefined before the first server yield. */
 export function localDaemonStatus(): DaemonStatus | undefined {
-  return sub.byKey(LOCAL_HOST)?.();
+  return hostSubs().daemonStatus().byKey(LOCAL_HOST)?.();
 }
 
-// kolu-server's live view of its binding to the local padi, off koluSurface's server-
-// authored `padiLink` cell. koluSurface is served DIRECTLY by kolu-server, so this value
-// is never held STALE by the re-serve value-fold that freezes padi's OWN members
-// (including the kaval `daemonStatus` above) while padi is unbound. The canvas folds
-// this in as the SECOND liveness leg on the re-served daemonStatus, so a padi drop shows
-// an honest connecting state instead of a frozen re-served status (#1034). Same singleton
-// `app.cells.X.use(...)` pattern as `processMemory` (ui/useMemoryUsage.ts).
-const padiLinkSub = app.cells.padiLink.use({
-  onError: (err) => toast.error(`padi link status error: ${err.message}`),
-});
-
-/** kolu-server's live binding-to-padi state, or `undefined` before the first server
- *  yield (treated as not-`connected` — the honest "coming up" — by the canvas folds). A
- *  reactive accessor; read it inside a tracking scope. */
+/** The active binding's live binding-to-padi state, or `undefined` before the first
+ *  yield (treated as not-`connected` — the honest "coming up" — by the canvas folds).
+ *  Sourced from the padi `connection` cell (the mirror the re-serve adds, per host), so
+ *  a padi drop on THIS host shows an honest connecting/degraded state, never a frozen
+ *  re-served kaval `daemonStatus` (#1034). A reactive accessor; read it inside a
+ *  tracking scope. */
 export function padiLinkState(): PadiLink | undefined {
-  return padiLinkSub.value();
+  const state = hostSubs().connection().value()?.state;
+  return state === undefined ? undefined : connectionToPadiLink(state);
 }
 
 /** True until the daemon-status stream has produced its FIRST value — i.e. the
@@ -115,7 +124,7 @@ export function padiLinkState(): PadiLink | undefined {
  *  subscription, which is itself the pre-first-value state, so treat that as
  *  pending too. */
 export function daemonStatusPending(): boolean {
-  return sub.byKey(LOCAL_HOST)?.pending() ?? true;
+  return hostSubs().daemonStatus().byKey(LOCAL_HOST)?.pending() ?? true;
 }
 
 /** The single projection of "is the daemon down, and which kind" — `dead`

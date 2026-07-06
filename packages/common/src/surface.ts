@@ -508,19 +508,14 @@ export const koluSurface = defineSurface({
       verbs: ["get"],
     },
 
-    /** kolu-server's live view of its binding to the local padi (see
-     *  {@link PadiLinkSchema}). Server-authored — kolu-server is the sole writer,
-     *  driving it off the bound padi session's connection state
-     *  (`server/src/index.ts` via `koluSurfaceCtx.cells.padiLink.set`); clients
-     *  read-only. The client folds it into the warming/degraded canvas so a padi drop
-     *  shows an honest connecting state, never a frozen-but-live-looking world (#1034).
-     *  Gate-closed default `connecting`, so a fresh subscription reads "coming up"
-     *  before the first transition rather than a premature `connected`. */
-    padiLink: {
-      schema: PadiLinkSchema,
-      default: "connecting" satisfies PadiLink,
-      verbs: ["get"],
-    },
+    // The `padiLink` cell RETIRED at W4 ("the switch"): it was a SINGLE server-wide
+    // fact ("kolu-server's binding to THE padi"), and once kolu-server holds a warm
+    // pool of N padis it can't carry them all. The per-host readiness the client folds
+    // into the warming/degraded canvas now rides the padi `connection` cell (the
+    // framework mirror the re-serve adds, one per bound host) — see
+    // `client/kaval/useDaemonStatus.padiLinkState` + `connectionToPadiLink`. The
+    // `PadiLink` enum survives as the client's display vocabulary (the connection
+    // cell's five states collapse onto it), not a wire cell.
 
     /** Live boot-time readout (kolu-server + padi) for the rail's uptime (see
      *  {@link ProcessStartedAtSchema}). Server-authored — kolu-server drives it off

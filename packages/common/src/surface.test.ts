@@ -12,7 +12,7 @@ import { shuffleMode, surfaces } from "./surface.ts";
 import { surfacesWithPadi } from "./surfacesWithPadi.ts";
 
 describe("surfacesWithPadi — the app composes its registry FROM padi", () => {
-  it("adds exactly the `padi` sibling to the padi-less `surfaces` map", () => {
+  it("adds exactly the `padi` sibling (the MIRRORED surface) to the padi-less map", () => {
     // The padi-less `surfaces` (what `kolu-common/contract` + the client consume)
     // is unchanged; the composed map kolu-server serves adds exactly `padi`,
     // pulling `padiSurface` from @kolu/padi — the post-flip arrow (app→padi).
@@ -21,7 +21,14 @@ describe("surfacesWithPadi — the app composes its registry FROM padi", () => {
       ...Object.keys(surfaces),
       "padi",
     ]);
-    expect(surfacesWithPadi.padi).toBe(padiSurface);
+    // W4: the padi sibling is the MIRRORED surface — `padiSurface` PLUS the
+    // framework `connection` cell the re-serve adds per host (so per-host readiness
+    // folds into `padi.health().live`). So it carries every padi member AND
+    // `connection`, which the bare `padiSurface` lacks.
+    expect(surfacesWithPadi.padi.spec.cells).toHaveProperty("connection");
+    for (const cell of Object.keys(padiSurface.spec.cells ?? {})) {
+      expect(surfacesWithPadi.padi.spec.cells).toHaveProperty(cell);
+    }
   });
 });
 

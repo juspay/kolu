@@ -9,6 +9,7 @@
 
 import type { PwaIdentity } from "kolu-common/contract";
 import { createSignal } from "solid-js";
+import { seedDefaultHost } from "./binding/bindings";
 import { createSharedRoot } from "./createSharedRoot";
 import { client } from "./wire";
 
@@ -16,7 +17,13 @@ export const useServerIdentity = createSharedRoot(() => {
   const [identity, setIdentity] = createSignal<PwaIdentity>();
   void client.server
     .info()
-    .then((info) => setIdentity(info.identity))
+    .then((info) => {
+      setIdentity(info.identity);
+      // W4: on a FRESH tab (no stored host), fall to the server's default host
+      // (`KOLU_PADI_HOST` ?? local) so a CI run booted through it lands there while
+      // the picker still switches freely. Never overrides a per-tab pick.
+      seedDefaultHost(info.defaultHost);
+    })
     .catch((err) => {
       // Server info is cosmetic — safe to ignore on failure.
       console.warn("Server info fetch failed:", err);

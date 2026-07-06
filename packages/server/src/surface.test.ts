@@ -31,15 +31,14 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // Every terminal-derived wire member — `session`, `activityFeed`, `terminalList`,
     // and the `terminalExit` event — relocated onto `padiSurface` (the W1 padi
     // seam). koluSurface keeps only kolu-server's OWN cells: `preferences`,
-    // `processMemory`, `padiLink` (kolu-server's live view of its binding to padi
-    // — a #1034 honesty leg, server-authored, NOT a terminal member),
-    // `processStartedAt` (the server + padi boot times the rail renders as uptime),
-    // and `daemonInventory` (the read-only host-daemon enumeration the Kaval/Padi
-    // dialogs list — presentation/diagnostic data, NOT a terminal member). No
-    // collections, no events.
+    // `processMemory`, `processStartedAt` (the server + padi boot times the rail
+    // renders as uptime), and `daemonInventory` (the read-only host-daemon
+    // enumeration the Kaval/Padi dialogs list). The `padiLink` cell RETIRED at W4
+    // ("the switch"): a single server-wide binding fact can't carry a warm POOL of N
+    // padis, so per-host readiness moved to the padi `connection` cell (per bound
+    // host). No collections, no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "daemonInventory",
-      "padiLink",
       "preferences",
       "processMemory",
       "processStartedAt",
