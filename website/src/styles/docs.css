@@ -1,0 +1,386 @@
+/* Ported figure styling for the migrated docs pages (padi · kaval ·
+ * architecture). The hand-authored inline SVG diagrams and the tmux/zellij
+ * comparison table came across from the old .astro pages; their prose,
+ * warnings, card grids, steps, and command blocks are now Starlight idioms
+ * (Aside / Card / CardGrid / LinkCard / Steps / fenced code), so only the
+ * pieces Starlight has no equivalent for live here.
+ *
+ * Every colour pulls from the global --color-* tokens, so all three figures
+ * track the light/dark theme automatically — no hard-coded hex. */
+
+/* Horizontal-scroll wrapper for a wide block (the comparison table) so the
+   page body never scrolls sideways on a narrow viewport. */
+.doc-scroll {
+  overflow-x: auto;
+}
+
+/* Bordered frame around each diagram — the old `figure` shell. */
+.doc-figure {
+  margin: 1.75rem 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.75rem;
+  padding: 1.5rem 1.25rem;
+  overflow-x: auto;
+}
+.doc-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.doc-figure text {
+  font-family: var(--font-mono);
+}
+
+/* ── padi stack diagram ─────────────────────────────────────────────── */
+.pd-d-box {
+  fill: var(--color-void-raised);
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.4;
+}
+.pd-d-daemon {
+  fill: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 12%,
+    var(--color-void-raised)
+  );
+  stroke: var(--color-kolu-primary);
+  stroke-width: 1.5;
+}
+.pd-d-flow {
+  fill: none;
+  stroke: var(--color-kolu-top);
+  stroke-width: 1.5;
+}
+.pd-d-arrow {
+  fill: var(--color-kolu-top);
+}
+.pd-d-store {
+  fill: none;
+  stroke: var(--color-kolu-bottom);
+  stroke-width: 1.4;
+}
+.pd-d-store-box {
+  fill: color-mix(
+    in srgb,
+    var(--color-kolu-bottom) 8%,
+    var(--color-void-raised)
+  );
+  stroke: color-mix(
+    in srgb,
+    var(--color-kolu-bottom) 40%,
+    var(--color-rule-strong)
+  );
+  stroke-width: 1.2;
+}
+.pd-d-cap {
+  fill: var(--color-kolu-primary);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+}
+.pd-d-label {
+  fill: var(--color-ink);
+  font-size: 16.5px;
+  font-weight: 650;
+}
+.pd-d-daemon-label {
+  fill: var(--color-kolu-primary-hover);
+  font-size: 22px;
+  font-weight: 700;
+}
+.pd-d-sub,
+.pd-d-tlabel {
+  fill: var(--color-ink-dim);
+  font-size: 11px;
+}
+.pd-d-sub2 {
+  fill: var(--color-ink-muted);
+  font-size: 10px;
+}
+.pd-d-store-text {
+  fill: var(--color-kolu-bottom);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* ── kaval "how it fits" diagram ────────────────────────────────────── */
+.kv-d-logo {
+  filter: drop-shadow(
+    0 5px 10px color-mix(in srgb, var(--color-void-sunk) 70%, transparent)
+  );
+}
+.kv-d-box {
+  fill: var(--color-void-raised);
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.5;
+}
+.kv-d-daemon {
+  fill: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 12%,
+    var(--color-void-raised)
+  );
+  stroke: var(--color-kolu-primary);
+  stroke-width: 1.5;
+}
+.kv-d-pty {
+  fill: var(--color-void-sunk);
+  stroke: color-mix(
+    in srgb,
+    var(--color-kolu-bottom) 34%,
+    var(--color-rule-strong)
+  );
+  stroke-width: 1.25;
+}
+.kv-d-flow {
+  fill: none;
+  stroke: var(--color-kolu-top);
+  stroke-width: 1.5;
+}
+.kv-d-arrow {
+  fill: var(--color-kolu-top);
+}
+.kv-d-socket {
+  fill: none;
+  stroke: var(--color-ink-muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 4;
+}
+.kv-d-cap {
+  fill: var(--color-kolu-primary);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+}
+.kv-d-label {
+  fill: var(--color-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+.kv-d-daemon-label {
+  fill: var(--color-kolu-primary-hover);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+.kv-d-sub {
+  fill: var(--color-ink-dim);
+  font-size: 11px;
+}
+.kv-d-pty-text {
+  fill: var(--color-ink-dim);
+  font-size: 12.5px;
+}
+.kv-d-socket-label {
+  fill: var(--color-ink-muted);
+  font-size: 10.5px;
+  letter-spacing: 1px;
+}
+.kv-d-sub2 {
+  fill: var(--color-ink-muted);
+  font-size: 10px;
+}
+
+/* ── architecture stack + survival diagrams ─────────────────────────── */
+.ax-d-logo {
+  filter: drop-shadow(
+    0 5px 10px color-mix(in srgb, var(--color-void-sunk) 70%, transparent)
+  );
+}
+.ax-d-box {
+  fill: var(--color-void-raised);
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.5;
+}
+.ax-d-daemon {
+  fill: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 12%,
+    var(--color-void-raised)
+  );
+  stroke: var(--color-kolu-primary);
+  stroke-width: 1.5;
+}
+.ax-d-pty {
+  fill: var(--color-void-sunk);
+  stroke: color-mix(
+    in srgb,
+    var(--color-kolu-bottom) 34%,
+    var(--color-rule-strong)
+  );
+  stroke-width: 1.25;
+}
+.ax-d-flow {
+  fill: none;
+  stroke: var(--color-kolu-top);
+  stroke-width: 1.5;
+}
+.ax-d-stream {
+  fill: none;
+  stroke: var(--color-kolu-bottom);
+  stroke-width: 2;
+}
+.ax-d-arrow {
+  fill: var(--color-kolu-top);
+}
+.ax-d-bracket {
+  fill: none;
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.25;
+}
+.ax-d-socket {
+  fill: none;
+  stroke: var(--color-ink-muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 4;
+}
+.ax-d-cap {
+  fill: var(--color-kolu-primary);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+}
+.ax-d-tlabel {
+  fill: var(--color-ink-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+}
+.ax-d-label {
+  fill: var(--color-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+.ax-d-label2 {
+  fill: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+.ax-d-daemon-label {
+  fill: var(--color-kolu-primary-hover);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+.ax-d-daemon-label2 {
+  fill: var(--color-kolu-primary-hover);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+.ax-d-sub {
+  fill: var(--color-ink-dim);
+  font-size: 11px;
+}
+.ax-d-sub2 {
+  fill: var(--color-ink-muted);
+  font-size: 10px;
+}
+.ax-d-pty-text {
+  fill: var(--color-ink-dim);
+  font-size: 11px;
+}
+.ax-d-tick {
+  fill: var(--color-kolu-bottom);
+  font-size: 13px;
+  text-anchor: middle;
+}
+
+/* ── tmux / zellij / kolu comparison table ──────────────────────────── */
+/* Kept as a hand-authored table (not a Markdown one) because each outcome
+   cell is colour- AND glyph-coded by result — a semantic layer a plain
+   Markdown table can't carry. */
+.ax-cmp {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  min-width: 40rem;
+}
+.ax-cmp th,
+.ax-cmp td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid var(--color-rule);
+  line-height: 1.5;
+}
+.ax-cmp thead th {
+  border-top: none;
+  border-bottom: 1px solid var(--color-rule-strong);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+.ax-cmp thead th:last-child {
+  color: var(--color-kolu-primary);
+}
+.ax-cmp td:first-child {
+  white-space: normal;
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.ax-cmp td:last-child {
+  color: var(--color-ink);
+}
+/* Semantic cell coding — by OUTCOME, uniform across columns. Each class carries
+   a shape glyph as well as a tint, so meaning survives without colour.
+   ✓ win · ~ partial/conditional · ✕ none/no · – not applicable. */
+.ax-cmp td.c-yes {
+  background: color-mix(in srgb, var(--color-live-lime) 9%, transparent);
+}
+.ax-cmp td.c-mid {
+  background: color-mix(in srgb, var(--color-kolu-top) 10%, transparent);
+}
+.ax-cmp td.c-no {
+  background: color-mix(in srgb, var(--color-live-alert) 9%, transparent);
+}
+.ax-cmp td.c-na {
+  background: color-mix(in srgb, var(--color-ink-muted) 8%, transparent);
+}
+.ax-cmp td.c-yes::before {
+  content: "✓  ";
+  color: var(--color-live-lime);
+  font-weight: 700;
+}
+.ax-cmp td.c-mid::before {
+  content: "~  ";
+  color: var(--color-kolu-top);
+  font-weight: 700;
+}
+.ax-cmp td.c-no::before {
+  content: "✕  ";
+  color: var(--color-live-alert);
+  font-weight: 700;
+}
+.ax-cmp td.c-na::before {
+  content: "–  ";
+  color: var(--color-ink-muted);
+  font-weight: 700;
+}
+
+/* Identity path block on the architecture page — the durable-vs-address pair.
+   A small sunk terminal panel; comments muted, paths in ink. */
+.doc-term {
+  margin: 1.1rem 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.7rem;
+  background: var(--color-void-sunk);
+  padding: 0.95rem 1.1rem;
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-size: 0.85rem;
+  line-height: 1.9;
+  overflow-x: auto;
+}
+.doc-term .cmd {
+  display: block;
+  white-space: pre;
+  color: var(--color-ink);
+}
+.doc-term .note {
+  display: block;
+  white-space: pre;
+  color: var(--color-ink-muted);
+}

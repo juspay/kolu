@@ -1,0 +1,136 @@
+---
+/**
+ * The site's top navigation bar — brand mark, primary nav, and the light/dark
+ * toggle. Extracted from Header.astro so the exact same bar can be rendered in
+ * two places without divergence:
+ *   - Header.astro wraps it in the site's sticky <header> for the file-based
+ *     pages (landing, blog, changelog).
+ *   - StarlightHeader.astro renders it bare inside Starlight's own fixed header
+ *     slot, so the docs pages wear the identical bar. (A <header> can't nest
+ *     inside Starlight's <header>, which is why the wrapper lives one level up.)
+ *
+ * The theme toggle writes BOTH persistence keys — the site's own `theme` and
+ * Starlight's `starlight-theme` — so a choice made on either kind of page is
+ * honoured before first paint on the other. Both surfaces key their palette on
+ * the same `data-theme` attribute, so the toggle is genuinely one control.
+ */
+const { pathname } = Astro.url;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => `${base}${p}` || '/';
+
+// Astro's pathname always starts with the configured `base`; strip it before
+// comparing so "/kolu/blog" still matches as "/blog".
+const normalized = pathname.replace(new RegExp(`^${base}`), '') || '/';
+const isActive = (p: string) =>
+  p === '/' ? normalized === '/' : normalized.startsWith(p);
+
+// `hideOnMobile` drops the longest, most-redundant labels below `sm` so the
+// single-row nav fits narrow phones without overflowing. The brand logo already
+// links home, and architecture is linked prominently from the system sections.
+const nav = [
+  { label: 'Get started', href: `${href('/')}#quickstart`, path: '/', hideOnMobile: true },
+  // Docs entry point — architecture is the broad overview and the docs front
+  // door; padi/kaval/architecture now live in Starlight, so landing on any of
+  // them reveals the full docs sidebar.
+  { label: 'Docs', href: href('/architecture'), path: '/architecture', hideOnMobile: true },
+  { label: 'Padi', href: href('/padi'), path: '/padi' },
+  { label: 'Kaval', href: href('/kaval'), path: '/kaval' },
+  { label: 'Changelog', href: href('/changelog'), path: '/changelog', hideOnMobile: true },
+  { label: 'Blog', href: href('/blog'), path: '/blog' },
+  { label: 'Discord', href: 'https://discord.com/invite/9acjNV8nmS', external: true, hideOnMobile: true },
+  { label: 'GitHub', href: 'https://github.com/juspay/kolu', external: true },
+];
+---
+
+<div class="mx-auto max-w-[68rem] px-4 sm:px-6 h-14 flex items-center justify-between">
+  <a
+    href={href('/')}
+    class="flex items-center gap-2.5 group"
+    aria-label="kolu home"
+  >
+    <img
+      src={href('/favicon.svg')}
+      alt=""
+      class="size-5 transition-transform group-hover:-translate-y-px"
+    />
+    <span class="mono text-[0.95rem] font-semibold tracking-tight leading-none">
+      kolu
+    </span>
+  </a>
+
+  <nav class="flex items-center gap-3 sm:gap-7 mono text-[0.78rem]">
+    {
+      nav.map((item) =>
+        'external' in item ? (
+          <a
+            href={item.href}
+            rel="noopener"
+            class:list={[
+              'text-ink-dim hover:text-kolu-primary transition-colors flex items-center gap-1.5',
+              'hideOnMobile' in item && 'hidden sm:flex',
+            ]}
+          >
+            <span>{item.label}</span>
+            <span class="text-ink-faint" aria-hidden="true">↗</span>
+          </a>
+        ) : (
+          <a
+            href={item.href}
+            class:list={[
+              'transition-colors',
+              'hideOnMobile' in item && 'hidden sm:inline-block',
+              isActive(item.path) ? 'text-kolu-primary' : 'text-ink-dim hover:text-ink',
+            ]}
+          >
+            {item.label}
+          </a>
+        ),
+      )
+    }
+
+    <button
+      id="theme-toggle"
+      type="button"
+      aria-label="Toggle light/dark theme"
+      class="relative size-7 rounded-sm border border-transparent hover:border-rule text-ink-dim hover:text-kolu-primary transition-colors flex items-center justify-center"
+    >
+      {/* Sun — shown in dark mode (click to go light) */}
+      <svg
+        class="theme-icon-sun absolute size-4 transition-all"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <circle cx="8" cy="8" r="3" />
+        <path d="M8 1v2M8 13v2M15 8h-2M3 8H1M13 3l-1.4 1.4M4.4 11.6L3 13M13 13l-1.4-1.4M4.4 4.4L3 3" />
+      </svg>
+      {/* Moon — shown in light mode (click to go dark) */}
+      <svg
+        class="theme-icon-moon absolute size-4 transition-all"
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path d="M13.8 9.4a5.5 5.5 0 0 1-7.2-7.2.6.6 0 0 0-.8-.8 7 7 0 1 0 8.8 8.8.6.6 0 0 0-.8-.8Z" />
+      </svg>
+    </button>
+  </nav>
+</div>
+
+<script>
+  const btn = document.getElementById("theme-toggle");
+  btn?.addEventListener("click", () => {
+    const html = document.documentElement;
+    const next = html.dataset.theme === "dark" ? "light" : "dark";
+    html.dataset.theme = next;
+    // Write both persistence keys so the choice carries between the site's
+    // file-based pages (read `theme`) and the Starlight docs pages (Starlight
+    // reads `starlight-theme` before first paint).
+    localStorage.setItem("theme", next);
+    localStorage.setItem("starlight-theme", next);
+  });
+</script>

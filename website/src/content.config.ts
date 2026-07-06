@@ -1,5 +1,11 @@
+import { docsLoader } from "@astrojs/starlight/loaders";
+import { docsSchema } from "@astrojs/starlight/schema";
 import { defineCollection, z } from "astro:content";
 import { glob } from "astro/loaders";
+
+// Starlight's docs collection, mounted at the site root. padi/kaval/architecture
+// live here as src/content/docs/*.mdx and serve at /padi, /kaval, /architecture.
+const docs = defineCollection({ loader: docsLoader(), schema: docsSchema() });
 
 const blog = defineCollection({
   loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/blog" }),
@@ -34,4 +40,4 @@ const changelog = defineCollection({
   }),
 });
 
-export const collections = { blog, changelog };
+export const collections = { docs, blog, changelog };

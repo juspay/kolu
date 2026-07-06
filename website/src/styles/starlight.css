@@ -1,0 +1,74 @@
+/* Starlight theme bridge — make Starlight's docs shell wear the kolu palette.
+ *
+ * global.css is the single source of truth for the design tokens
+ * (--color-kolu-* / --color-ink* / --color-void* / --color-rule*, plus the
+ * --font-* stacks and the light/dark [data-theme] switch). We import it here so
+ * the ported figures resolve their var(--color-…) references, then map
+ * Starlight's own --sl-* variables onto those tokens. Because the kolu tokens
+ * already flip on [data-theme="light"], a single mapping tracks both themes —
+ * and Starlight drives the same data-theme attribute the rest of the site uses,
+ * so the light/dark toggle stays consistent across Starlight and the
+ * file-based pages. Accent = the kolu primary (middle logo step).
+ *
+ * Light-touch by intent: we remap accent, surfaces, text, hairlines, and fonts
+ * so the shell reads as kolu, not a pixel-for-pixel rebuild of the marketing
+ * chrome. */
+
+@import "./global.css";
+@import "./docs.css";
+
+:root {
+  --sl-font: var(--font-sans);
+  --sl-font-mono: var(--font-mono);
+
+  /* Accent — links, active sidebar entry, focus rings, the primary logo step. */
+  --sl-color-accent-low: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 22%,
+    var(--color-void)
+  );
+  --sl-color-accent: var(--color-kolu-primary);
+  --sl-color-accent-high: var(--color-kolu-primary-hover);
+  --sl-color-text-accent: var(--color-kolu-primary);
+
+  /* Text ramp — headings brightest, body dimmed, captions muted. */
+  --sl-color-white: var(--color-ink);
+  --sl-color-gray-1: var(--color-ink);
+  --sl-color-gray-2: var(--color-ink-dim);
+  --sl-color-gray-3: var(--color-ink-muted);
+  --sl-color-gray-4: var(--color-ink-muted);
+  --sl-color-gray-5: var(--color-rule-strong);
+  --sl-color-gray-6: var(--color-rule);
+  --sl-color-gray-7: var(--color-void-raised);
+  --sl-color-black: var(--color-void);
+  --sl-color-text: var(--color-ink-dim);
+
+  /* Surfaces — the void shell, raised sidebar/nav, hairline rules. */
+  --sl-color-bg: var(--color-void);
+  --sl-color-bg-nav: color-mix(in srgb, var(--color-void) 82%, transparent);
+  --sl-color-bg-sidebar: var(--color-void-raised);
+  --sl-color-bg-inline-code: var(--color-void-raised);
+  --sl-color-hairline: var(--color-rule);
+  --sl-color-hairline-light: var(--color-rule);
+  --sl-color-hairline-shade: var(--color-rule);
+
+  /* Pin the header height to the site bar's h-14 (3.5rem) at every width, so
+     the ported <NavBar /> lines up and the docs content offset stays correct.
+     (Starlight otherwise grows this to 4rem ≥50rem.) */
+  --sl-nav-height: 3.5rem;
+}
+
+/* The shared NavBar owns its own inner padding + max-width centering, so strip
+   Starlight's header-shell padding and grid and let NavBar fill the bar edge to
+   edge. The shell keeps its themed background + hairline (bg-nav / hairline). */
+.page > .header {
+  display: block;
+  padding: 0;
+}
+
+/* The site paints a faint character-cell lattice on <html> (global.css). Let it
+   show through Starlight's transparent page background so the docs sit on the
+   same textured void as the rest of kolu.dev. */
+.sl-markdown-content {
+  --sl-content-width: 50rem;
+}

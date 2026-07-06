@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import mdx from "@astrojs/mdx";
 import sitemap from "@astrojs/sitemap";
+import starlight from "@astrojs/starlight";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 
@@ -41,6 +42,46 @@ export default defineConfig({
   // `kaval-tui` were named apart) — keep the URL working, send it to /kaval.
   redirects: { "/tui": "/kaval" },
   integrations: [
+    // Starlight docs system, mounted at the site ROOT: it routes
+    // src/content/docs/<slug>.mdx to /<slug>, so padi/kaval/architecture keep
+    // their pre-Starlight URLs by construction (no /docs prefix, no redirects).
+    // The existing src/pages routes (/, /blog, /changelog, /open-graph)
+    // coexist as file-based pages — only the three migrated .astro pages were
+    // deleted to avoid a route collision.
+    starlight({
+      title: "Kolu",
+      // Theme Starlight with the site's own palette + fonts (accent = the kolu
+      // primary). global.css carries the --color-kolu-* / --color-ink / etc.
+      // tokens the migrated diagrams reference; starlight.css maps Starlight's
+      // --sl-* variables onto them and styles the ported figures.
+      customCss: ["./src/styles/starlight.css"],
+      // Make the docs pages wear the site's own top bar — the shared <NavBar />
+      // rendered inside Starlight's fixed header shell — so the header is
+      // identical across Starlight and the file-based pages.
+      components: {
+        Header: "./src/components/StarlightHeader.astro",
+      },
+      social: [
+        {
+          icon: "github",
+          label: "GitHub",
+          href: "https://github.com/juspay/kolu",
+        },
+      ],
+      // Starlight owns the light/dark switch on its pages via the same
+      // data-theme attribute the rest of the site uses, so the toggle is
+      // consistent across Starlight and file-based pages.
+      sidebar: [
+        {
+          label: "Documentation",
+          items: [
+            { label: "Architecture", link: "/architecture" },
+            { label: "Padi", link: "/padi" },
+            { label: "Kaval", link: "/kaval" },
+          ],
+        },
+      ],
+    }),
     mdx(),
     // /kaval graduated — it's now a listed, indexable page. Only /tui stays out
     // of the sitemap: it's a redirect to /kaval, so advertising it would double
