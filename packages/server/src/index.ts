@@ -359,9 +359,21 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
 
   // Which host's padi owns this terminal — the tab that opened this preview appends
-  // its bound host as `?host` (W4). Default to the boot default when absent (a tab that
-  // names none). An unknown host is a loud 404, never a silent wrong-host read.
-  const host = c.req.query("host") ?? pool.defaultHost;
+  // its bound host as `?host` (W4). An unknown host is a loud 404, never a silent
+  // wrong-host read. H4 — the client ALWAYS appends `?host` now (`buildTerminalFileUrl`),
+  // so a request WITHOUT it is a RELATIVE SUBRESOURCE inside a preview iframe (an HTML/
+  // markdown preview's `<img src="./x">`) whose request drops the parent's query. It
+  // falls to the default host — which is the WRONG host's fs for a tab viewing a remote
+  // host. Make that visible rather than silent; the full per-subresource host-threading
+  // (a `<base>` carrying `?host`, or path-based host routing) rides A1's shape.
+  const hostParam = c.req.query("host");
+  if (hostParam === undefined) {
+    log.warn(
+      { terminalId },
+      "preview subresource without ?host — falling to the default host (may read the wrong host's fs); per-subresource host routing is a known follow-up",
+    );
+  }
+  const host = hostParam ?? pool.defaultHost;
   const previewSession = pool.registry.getSession(host);
   if (!previewSession) return c.text(`unknown host: ${host}`, 404);
   // Which directory this terminal serves (its git repo root) — RE-SOURCED from padi's

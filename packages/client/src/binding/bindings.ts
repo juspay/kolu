@@ -141,27 +141,36 @@ function makeBinding(targetHost: string): Binding {
     },
   };
 
-  // If the server rejects this host as UNKNOWN (close 1008 — the host was removed
-  // from the shared pool by another device, or this is a stale tab whose host is
-  // gone), stop the pointless reconnect loop and fall back to local. Without this a
-  // PartySocket (maxRetries: Infinity) would re-dial `?host=<gone>` forever while the
-  // server rejects each attempt, leaving the tab stuck on a misleading "Reconnecting…".
-  // Guarded so it fires once — for the CURRENT host only, before this binding retires.
-  conn.ws.addEventListener("close", (ev: { code?: number }) => {
+  installUnknownHostFallback(binding, conn.ws);
+
+  return binding;
+}
+
+/** If the server rejects this host as UNKNOWN (close 1008 — the host was removed from
+ *  the shared pool by another device, or this is a stale tab whose host is gone), stop
+ *  the pointless reconnect loop and fall back to local. Without this a PartySocket
+ *  (`maxRetries: Infinity`) would re-dial `?host=<gone>` forever while the server rejects
+ *  each attempt, leaving the tab stuck on a misleading "Reconnecting…". Guarded to fire
+ *  once — for the CURRENT host only, before this binding retires. */
+function installUnknownHostFallback(
+  binding: Binding,
+  ws: {
+    addEventListener: (t: "close", cb: (ev: { code?: number }) => void) => void;
+  },
+): void {
+  ws.addEventListener("close", (ev) => {
     if (
       ev.code === 1008 &&
       !binding.retired &&
-      targetHost !== LOCAL_HOST &&
-      activeHost() === targetHost
+      binding.host !== LOCAL_HOST &&
+      activeHost() === binding.host
     ) {
       toast.error(
-        `Host "${targetHost}" is no longer available — switched to local.`,
+        `Host "${binding.host}" is no longer available — switched to local.`,
       );
       void switchHost(LOCAL_HOST);
     }
   });
-
-  return binding;
 }
 
 // ── The active binding + the warm client-side cache ─────────────────────
