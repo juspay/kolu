@@ -38,33 +38,37 @@ import family from "../../diagrams/remote-surfaces-family.svg?raw";
 
 The family spans contract, server, and client — inside `@kolu/surface` it would *smear* across `define.ts`/`server.ts`/`client.ts` as edits to each. It is also its own volatility axis (lowy): **membership dynamics** ("the set of surfaces changes at runtime") can change independently of stream mechanics — you could swap how membership works (config, discovery) without touching how a cell streams, and vice versa. So it gets its own receptacle, **`packages/surface-family`** (`-family` over `-multi`: it names the notion — an indexed family — where "multi" names nothing), depending only on `@kolu/surface`, with its own define/serve/client/solid entrypoints. Layering: `@kolu/surface` gains only the generic sub-dedup (universal, see above) · `@kolu/surface-family` owns the keyed axis · `@kolu/surface-nix-host` composes `serveHostFamily = family over buildHostRegistry` · `padi-dashboard` and kolu consume. Location *is* structure: the notion is first-class in the workspace, with its own README and tests. And the extraction bar is not speculative — **the two consumers already exist as hand-rollings**: kolu's `activeConnectionManager` + `hostPool` admin plumbing (#1708, closed) and drishti's `hostRegistry` + `admin-surface`. The package's job is their unification; prove-then-extract is satisfied by archaeology, not promises (the debate's evidence-gate demand, answered).
 
-### Hello world (the whole notion in ~20 lines; signatures indicative — this is the proposed API)
+### The notion in ~25 lines — kolu's ACTUAL usage, not a toy (family API indicative; the padi cells are real code)
 
 ```ts
-// 1 · CONTRACT (shared) — the entry spec, typed ONCE; real defineSurface syntax
-const clockEntry = defineSurface({
-  cells: {
-    now:  { schema: z.number(), default: 0 },   // host-stamped ms epoch
-    load: { schema: z.number(), default: 0 },
-  },
-});
-export const hosts = defineSurfaceFamily(hostKeySchema, clockEntry); // keySchema BRANDS the key
-// ↑ brings `entries: Collection<HostKey, EntryStatus>` for free — the ONE membership authority
-//   (EntryStatus = warming | connected | failed(reason), + clockOffset; absence = not in it)
+// 1 · CONTRACT — no new spec invented: the family is built over kolu's REAL padi surface
+//     (packages/padi/src/surface.ts — its `urgency` cell {awaiting, awaitingIds} and
+//      `terminals` collection already exist and already stream today)
+import { padiSurface } from "@kolu/padi/surface";
+export const padiHosts = defineSurfaceFamily(HostKeySchema, padiSurface);
+// ↑ HostKeySchema BRANDS the key; brings `entries: Collection<HostKey, EntryStatus>` free —
+//   the ONE membership authority (warming | connected | failed(reason), + clockOffset;
+//   absence = not in the collection)
 
-// 2 · SERVER — a resolver, not a registry coupling
-serveSurfaceFamily(hosts, { resolve: (key) => pool.getSession(key) });
-// membership WRITES stay ordinary RPCs on your own surface (hosts.add → the pool: one writer)
+// 2 · SERVER (kolu-server) — the warm ssh pool IS the resolver; env seeds membership
+const registry = buildHostRegistry({ seed: parseKoluPadiHost() /* "localhost,srid@zest" */ });
+serveSurfaceFamily(padiHosts, { resolve: (host) => registry.getSession(host) });
+// hosts.add/remove stay root RPCs writing the registry — one writer, runtime-ephemeral
 
-// 3 · CLIENT — total lens; existence is a value (a client fold over `entries`)
-const zest = app.hosts.entry("zest");       // FamilyEntry — pure, no I/O, never undefined
-zest.state();                               // EntryStatus | { kind: "not-a-member" }
-zest.cells.now.use();                       // live while member; ends typed on removal/absence
+// 3 · CLIENT — the switcher chips: every host's agent urgency, LIVE, one loop
+<For each={app.padiHosts.entries.use().keys()}>{(host) => (
+  <HostChip
+    status={app.padiHosts.entry(host).state()}            // EntryStatus | not-a-member — a VALUE
+    awaiting={app.padiHosts.entry(host).cells.urgency.use().value()?.awaiting}
+  />
+)}</For>
 
-// 4 · SOLID — the swap is a signal write; multi-active is a loop
-const active = app.hosts.useEntry(activeHost); // Solid-only: owner required, owns swap disposal
-active.cells.now.use();                        // re-keys on switch, synchronous first value
-<For each={app.hosts.entries.use().keys()}>{(k) => <Chip status={app.hosts.entry(k).state()} />}</For>
+// 4 · CLIENT — the canvas follows the picked host; switching = writing a signal
+const [activeHost, setActiveHost] = createSignal(LOCAL_HOST);   // per-tab, sessionStorage-backed
+const active = app.padiHosts.useEntry(activeHost);              // Solid-only: owns swap disposal
+active.cells.terminals.use();  // re-keys on switch, synchronous first value; a removed host's
+                               // subs end typed {reason:"removed"} — the fallback policy reads
+                               // entry(host).state() and falls back to local: a value, no callback
 ```
 
 **What survives from #1708, honestly.** The server half survives nearly whole: `buildHostRegistry` + sessions, ssh warm, lazy drv resolution + typed per-host faults (Group 1), `UnremovableHostError`, entry cells (they become the family's `status`/identity cells), the shared local scan, the dialog work, Labs UI (repointed). The batch's framework *atoms* survive (`createKeyedRoot`-over-`mapArray` in `@kolu/surface/solid`, `createSubRoot` in `useCell`, the manager-honesty lessons as test cases). What is discarded is the client-side composite: `createActiveConnectionManager`, `connectionScoped` as consumer API, per-host browser sockets, retirement stubbing, pick-epoch, and kolu's wrapper tower. **Adoption path — clean-room, no cherry-pick (anti-regurgitation rule):** PR1 starts from a fresh branch off master with this note as the only spec and the old client design explicitly out of bounds; in PR2 the #1708 branch serves as a *lessons reference* — its pins and test cases become checklists the new code must also satisfy (the toast ordering, the drv-map boot, the remove-default rejection) — but code is **re-derived against the family shape**, and anything copied verbatim must individually justify itself against the new design. Rejecting the PR discards *shape*, not knowledge.
