@@ -156,9 +156,9 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
     );
   });
 
-  // padi's connection state (from koluSurface's `padiLink` cell) for the Padi chip
-  // — floored on transport liveness like the dot: a dead ws leaves the retained link
-  // stale, so read "unknown" rather than a frozen definite state.
+  // padi's connection state (from the padi `connection` cell, via `padiLinkState()`)
+  // for the Padi chip — floored on transport liveness like the dot: a dead ws leaves
+  // the retained link stale, so read "unknown" rather than a frozen definite state.
   const padiStateText = (): string => {
     if (!daemonLive()) return "unknown";
     const link = padiLinkState();

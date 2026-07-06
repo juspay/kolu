@@ -561,14 +561,6 @@ startMemorySampler(
   (resample) => defaultSession.onState(() => resample()),
 );
 
-// Drive koluSurface's `padiLink` cell off the bound padi's connection state. koluSurface
-// is served DIRECTLY by kolu-server — never through the re-serve value-fold that HOLDS
-// STALE while padi is unbound — so its value is never a frozen-but-live-looking read.
-// The client folds `padiLink` into the warming/degraded canvas so a padi drop (the
-// re-targeted "restart kaval" drains padi) shows an honest connecting state over the
-// WHOLE drain window instead of a frozen re-served daemonStatus (#1034). `onState` fires
-// the current state synchronously on subscribe, so the cell is seeded before the first
-// transition.
 // Map the base `session.identity()` sum onto the three daemon-inventory readouts the
 // dialog reads (uptime · contract version · navigable commit). `identity()` is TOTAL
 // (disconnected | anonymous | identified); padi always DECLARES its build, so a bound

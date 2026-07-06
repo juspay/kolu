@@ -31,8 +31,9 @@ export const PADI_LINK_PRESENTATION: Record<
 };
 
 /** The `padi` status dot's tone class, FLOORED on transport liveness — the
- *  `padiLink` sibling of {@link kavalDot}. `link` is kolu-server's binding-to-padi
- *  state off koluSurface's `padiLink` cell; `live` is the watchdog-backed liveness
+ *  `padiLink` sibling of {@link kavalDot}. `link` is the active host's binding-to-padi
+ *  state, projected from the padi `connection` cell through
+ *  `padiLinkState()`/`connectionToPadiLink`; `live` is the watchdog-backed liveness
  *  of the ws that delivers it. When `live` is false (transport dead / silently
  *  half-open) the retained link value is STALE — the channel that would refresh it
  *  is gone — so the dot reads the grey "unknown" tone, NEVER a definite verdict off
