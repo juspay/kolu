@@ -224,11 +224,12 @@ const rpcPlugins = [
 // The host-selection knob (W3.1): `KOLU_PADI_HOST=<ssh host>` binds a REMOTE padi
 // over ssh — the whole canvas becomes that host — while UNSET keeps today's LOCAL
 // binding byte-identical. OFF by default, no UI (the picker + per-view bindings are
-// W3.2). Both arms return a `BoundPadi`, so `reServeSurface` and the router below
-// are identical; only the session's front (local Endpoint vs ssh HostSession)
-// differs. The remote arm does NOT await first-connect — provisioning a closure
-// over ssh can take seconds, and the binding is fail-open (the connection cell
-// reports copying/connecting/degraded while it warms).
+// W3.2). Both arms return a `PadiSession` (a `DaemonSession` — `makeSession` + the
+// daemon members by spread), so `reServeSurface` and the router below are identical;
+// only the transport connector (local `endpointConnector` vs ssh `sshConnector`)
+// differs. The remote arm does NOT boot-await first-connect — provisioning a closure
+// over ssh can take seconds, and the binding is fail-open (the connection cell reports
+// copying/connecting/degraded while it warms); the LOCAL arm IS boot-awaited below.
 const remoteHost = remotePadiHost();
 const padiSession: PadiSession = remoteHost
   ? ensureRemotePadiBinding({

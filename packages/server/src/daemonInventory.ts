@@ -61,7 +61,8 @@ export interface DaemonInventoryDeps {
   activePadiBuildCommit: () => string | null;
   /** The bound padi's STANDING convergence anomaly (adopted-stale build / contract skew /
    *  drain-failure / link-failure), or `null` when converged/healthy — read fresh each tick
-   *  off the bound session's `padiConvergence()`. Published onto `boundPadi.convergence` so
+   *  off the bound session's `convergence()` (the `DaemonSession` member). Published onto
+   *  `boundPadi.convergence` so
    *  the Padi dialog surfaces a degraded bind as a visible state, not a swallowed log. */
   activePadiConvergence: () => PadiConvergence | null;
   /** Publish the assembled inventory — `koluSurfaceCtx.cells.daemonInventory.set`. */

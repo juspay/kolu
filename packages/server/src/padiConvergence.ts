@@ -21,7 +21,8 @@
  *     BOTH bound-padi arms (this file's endpoint {@link drainViaControlCore} and the
  *     remote ssh arm's hello-poll); the transport's exit signal is the only variable.
  *   - {@link drainViaControlCore} — the endpoint arm's use of that skeleton, shared by
- *     BOTH the probe's `drain` and the user-facing "restart" (`PadiBindingSession.drainBoundPadi`).
+ *     BOTH the probe's `drain` and the user-facing "restart" (the local padi session's
+ *     `renew()`, added to the base session by spread in `padiBinding.ts`).
  */
 
 import {
