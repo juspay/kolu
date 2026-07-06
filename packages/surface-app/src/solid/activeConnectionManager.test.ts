@@ -29,9 +29,7 @@ function fakeConns() {
     const cbs: ((ev: { code?: number }) => void)[] = [];
     const conn: FakeConn = {
       key,
-      retired: false,
       dispose() {
-        conn.retired = true;
         disposed.push(key);
       },
       ws: {
@@ -63,7 +61,7 @@ const base = (f: ReturnType<typeof fakeConns>) => ({
 });
 
 describe("createActiveConnectionManager", () => {
-  it("caches the active connection and rebuilds it once retired", () => {
+  it("caches the active connection, and rebuilds a fresh one after a switch retired it", () => {
     createRoot((dispose) => {
       const f = fakeConns();
       const m = createActiveConnectionManager({
@@ -71,28 +69,27 @@ describe("createActiveConnectionManager", () => {
         onServerRejected: vi.fn(),
       });
       const c1 = m.activeConnection();
-      expect(f.built).toEqual(["local"]);
-      expect(m.activeConnection()).toBe(c1); // cached
-      c1.dispose(); // retire it
+      expect(m.activeConnection()).toBe(c1); // cached (same key → same connection)
+      m.setActive("zest"); // retires local (disposed + evicted; retirement is manager-internal now)
+      expect(f.disposed).toContain("local");
+      m.setActive("local"); // switch back
       const c2 = m.activeConnection();
-      expect(c2).not.toBe(c1); // rebuilt
-      expect(f.built).toEqual(["local", "local"]);
+      expect(c2).not.toBe(c1); // rebuilt fresh — the retired connection is never reused
       dispose();
     });
   });
 
-  it("setActive flips the key and retires the outgoing connection", () => {
+  it("setActive flips the key and retires (disposes) the outgoing connection", () => {
     createRoot((dispose) => {
       const f = fakeConns();
       const m = createActiveConnectionManager({
         ...base(f),
         onServerRejected: vi.fn(),
       });
-      const local = m.activeConnection();
+      m.activeConnection(); // build local
       m.setActive("zest");
       expect(m.activeKey()).toBe("zest");
-      expect(local.retired).toBe(true);
-      expect(f.disposed).toEqual(["local"]);
+      expect(f.disposed).toEqual(["local"]); // retirement is internal — observed via dispose
       dispose();
     });
   });
@@ -169,7 +166,7 @@ describe("createActiveConnectionManager", () => {
     });
   });
 
-  it("fires onServerRejected only for the active, non-fallback key on the rejection close code", () => {
+  it("on the rejection close code, NOTIFIES for the active non-fallback key AND enacts the fallback itself", () => {
     createRoot((dispose) => {
       const f = fakeConns();
       const onServerRejected = vi.fn();
@@ -181,29 +178,25 @@ describe("createActiveConnectionManager", () => {
       const zest = m.activeConnection(); // builds zest + installs its close listener
       f.fireClose(zest, 1000); // wrong code — ignored
       expect(onServerRejected).not.toHaveBeenCalled();
+      expect(m.activeKey()).toBe("zest");
       f.fireClose(zest, 1008); // the rejection code, active + non-fallback
-      expect(onServerRejected).toHaveBeenCalledWith("zest");
+      expect(onServerRejected).toHaveBeenCalledWith("zest"); // notify (kolu: toast)
+      // The MANAGER enacts the fallback itself — no forward-reference to it needed.
+      expect(m.activeKey()).toBe("local");
       dispose();
     });
   });
 
-  it("restore re-reads persistence and adopts a differing key", () => {
+  it("restores the persisted key at CONSTRUCTION (no separate restore() — it would skip the retire guard)", () => {
     createRoot((dispose) => {
       const f = fakeConns();
-      let stored: string | undefined;
+      // A prior session left "box5" in persistence; the manager adopts it as the initial
+      // key when it is built — the boot restore, through the same seed as `initialKey`.
       const m = createActiveConnectionManager({
         ...base(f),
         onServerRejected: vi.fn(),
-        persistence: {
-          read: () => stored,
-          store: (k) => {
-            stored = k;
-          },
-        },
+        persistence: { read: () => "box5", store: () => {} },
       });
-      expect(m.activeKey()).toBe("local"); // nothing stored at construction
-      stored = "box5";
-      m.restore();
       expect(m.activeKey()).toBe("box5");
       dispose();
     });

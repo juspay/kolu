@@ -107,14 +107,8 @@ vi.mock("solid-sonner", () => ({
   toast: { error: vi.fn(), warning: vi.fn() },
 }));
 
-const {
-  activeBinding,
-  activeHost,
-  bindingScoped,
-  LOCAL_HOST,
-  restoreStoredHost,
-  switchHost,
-} = await import("./bindings");
+const { activeBinding, activeHost, bindingScoped, LOCAL_HOST, switchHost } =
+  await import("./bindings");
 
 beforeEach(() => {
   store.clear();
@@ -136,25 +130,22 @@ describe("the misroute guard (condition 3a)", () => {
     // Start on the local host.
     const local = activeBinding();
     expect(local.host).toBe(LOCAL_HOST);
-    expect(local.retired).toBe(false);
 
     // Switch to a remote host: it is added to the pool first (add-then-connect),
     // then the tab's binding swaps.
     await switchHost("zest");
     expect(local.link.hosts.add).toHaveBeenCalledWith({ host: "zest" });
 
-    // The OLD (local) binding is retired + its socket torn down — the misroute
-    // guard's teeth: the dispose closure sets `retired` AND retires (closes +
-    // poisons `send`) the socket, so a late call on it throws at the now-dead
+    // The OLD (local) binding is retired + its socket torn down. Retirement is the
+    // MANAGER's internal bookkeeping now; the observable teeth are the socket retire —
+    // `retireSocket` (close + poison `send`) — so a late call on it throws at the now-dead
     // transport rather than silently re-dialing this host after the tab moved on.
-    expect(local.retired).toBe(true);
     expect(retireSocketMock).toHaveBeenCalledWith(local.ws);
 
     // The NEW active binding is a DISTINCT, live object for the switched-to host.
     const remote = activeBinding();
     expect(remote).not.toBe(local);
     expect(remote.host).toBe("zest");
-    expect(remote.retired).toBe(false);
   });
 
   it("switching back to a previously-retired host builds a fresh binding (never reuses the retired one)", async () => {
@@ -165,7 +156,6 @@ describe("the misroute guard (condition 3a)", () => {
     expect(local2.host).toBe(LOCAL_HOST);
     // A brand-new binding for local — the retired one is never resurrected.
     expect(local2).not.toBe(local1);
-    expect(local2.retired).toBe(false);
   });
 
   it("switching to the SAME host is a no-op (no re-add, no re-dial)", async () => {
@@ -248,12 +238,11 @@ describe("per-tab host persistence (F-c: two-tabs independence)", () => {
     expect(store.get("kolu-active-host")).toBe("box2");
   });
 
-  it("restoreStoredHost re-reads sessionStorage so a reload lands on the viewed host", () => {
-    // Model a fresh tab load whose sessionStorage carries a prior pick.
-    store.set("kolu-active-host", "box5");
-    restoreStoredHost();
-    expect(activeHost()).toBe("box5");
-  });
+  // The per-tab boot RESTORE (reading `kolu-active-host` back) is the manager's
+  // construction-time `persistence.read()` — pinned generically in
+  // `activeConnectionManager.test` ("restores the persisted key at CONSTRUCTION"). There
+  // is no `restoreStoredHost` to re-read post-boot: a late restore would skip the retire
+  // guard, so it was deleted (a late-restore consumer must go through `switchHost`).
 });
 
 describe("stale-call rejection — the misroute guard's REAL teeth (F-b)", () => {
