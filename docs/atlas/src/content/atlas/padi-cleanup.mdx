@@ -280,9 +280,7 @@ W2.2's h2 bounded the **re-serve's** per-subscriber channels (HWM 4096, loud ove
 
 W4 (the switch) rebuilds the client's module-level wire singletons (`wire.ts`, `useTerminalStore`, the `createSharedRoot` family) to be per-binding. Transitions of that shape leave scaffolding: compatibility shims, dual paths, "temporarily still global" markers. This entry is the post-landing sweep — inventory every switch-tagged interim in the client, delete each or convert it to the final shape.
 
-**Two additions from post-switch review (srid, 2026-07-06):** (a) the interim shape exports its plumbing as API — consumers write `useX()()` (an accessor returning an accessor; Solid treats that as internal dynamic-source shape, and idiomatic libraries flatten before the consumer) — the context port must flatten hooks to single calls, dissolving `useBindingScopedSub`; (b) `createSharedRoot` hand-rolls `@solid-primitives/rootless`'s `createSingletonRoot` (kolu already depends on four @solid-primitives packages; the conventions say prefer them) — adopt the ref-counted ecosystem primitive, auditing the never-dispose factories first (`getNowTicker`, dock order — anything relying on never-teardown; note the discarded-disposer design is the same shape that caused the useCell toast leak, deliberate here but weaker than ref-counting).
-
-**Where:** `packages/client/src/wire.ts` and every `createSharedRoot` consumer (the switch PR's own diff is the inventory's seed). **Done when:** no transition-tagged code survives; hooks are single-call (no `()()` API); `createSharedRoot` is replaced by (or a documented thin veneer over) `createSingletonRoot`; the switch e2e stays green.
+**Where:** `packages/client/src/wire.ts` and every `createSharedRoot` consumer (the switch PR's own diff is the inventory's seed). **Done when:** no transition-tagged code survives; the switch e2e stays green.
 
 ## The deletions and hygiene
 
