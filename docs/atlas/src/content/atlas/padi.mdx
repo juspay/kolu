@@ -36,6 +36,7 @@ export const ROADMAP = [
   { d: 1, g: "▶", c: "prog", l: "W3.4 · remote e2e parity in CI — machinery DONE; gate parked on the parity tail", m: "#1689 parked → remote-bind-parity note", h: "#w34" },
   { d: 0, g: "○", c: "prog", l: "W4 · the switch — 2 PRs: pick-your-host (reload-apply) → switch-without-reload", m: "READY after L23 merges", h: "#w4" },
   { d: 0, g: "○", c: "prog", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W4", h: "#w5" },
+  { d: 0, g: "○", c: "prog", l: "W6 · the honest connect — surface the copying phase + live build progress (no more mute 'Connecting…')", m: "data already flows; client-only", h: "#w6" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "L6 L14 in flight · → the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -346,6 +347,24 @@ The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios t
 
 kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
 - **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
+
+<a id="w6"></a>
+
+### W6 — the honest connect *(client-only; the data already flows — a small, high-value UX phase)*
+
+**In simple words:** connecting to a remote host can compile+copy padi onto that machine over ssh — on a first connect to a fresh host that Nix build takes **minutes**. Today the whole canvas shows one dead word, **"Connecting…"**, indistinguishable from a hang (srid hit exactly this, live). After this phase the overlay tells the truth: *which* phase it's in (provisioning vs connecting), a live tail of the actual build output, and an elapsed timer — so "it's working, first-time setup takes a moment" is unmistakable, and a real failure shows the real reason.
+
+**The reason this is cheap — the signal already exists and already reaches the browser; only the UI discards it.** The session lifecycle has a **distinct `copying` state** separate from `connecting` (`CONNECTION_STATES` in `packages/surface-nix-host/src/connection.ts`), and the `ConnectionInfo` cell already carries **`progressLines`** — the live `nix copy` / realise stderr, forwarded by `nixCopy.ts`'s `onProgress` and piped to the browser by `connectionPipe.ts` ("copying → … → failed reaches the browser instead of dying on the backend"). It also already distinguishes **`failureCause`** — `network` (host unreachable, retries forever) vs `remote` (reached, rejected, terminal `failed`). W4's per-binding `connection` cell carries all of it per host. The bug is purely that the connect overlay collapses this rich state into `"Connecting…"`.
+
+**The work (client-only, no daemon change):** the connect overlay reads the active binding's `connection` cell and renders honestly —
+- **`copying`** → a distinct message naming the host and the act ("Provisioning padi on `zest`… first connect builds it, this can take a few minutes"), with a **live tail** of the last N `progressLines` (dimmed monospace) and an **elapsed timer** so long-but-progressing never reads as hung;
+- **`connecting`** → the brief post-copy handshake, distinct from copying;
+- **`failed`** → the real `lastError` + the `progressLines` tail (the actual "why"), with `network` ("`zest` unreachable — retrying") read differently from `remote` ("`zest` rejected the connection");
+- the **fast path stays calm** — a warm reconnect (no copy) shows `connected` immediately with no alarming build UI; the heavy provisioning treatment appears only when `copying` actually fires.
+
+**Design care:** show a *tail* (last few lines) + elapsed, not a firehose of the whole Nix log, and **not** a fake percentage bar (a Nix build has no honest progress %); the reassurance is "named phase + real output + elapsed + 'first-time setup'", which is truthful where a progress bar would lie.
+
+- **Done:** connect to a fresh remote host (cold Nix build) → the overlay names the provisioning phase, streams live build lines, and shows elapsed — never a mute "Connecting…"; a warm reconnect connects fast with no build UI; a genuine failure shows the real error tail, and unreachable reads differently from rejected.
 
 <a id="cleanup"></a>
 
