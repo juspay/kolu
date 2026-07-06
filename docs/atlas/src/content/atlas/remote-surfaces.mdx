@@ -67,7 +67,11 @@ export const padiHosts = defineSurfaceMap(HostKeySchema, padiSurface);
 //     the e2e harness's mock subprocesses).
 import { buildRemotePool } from "@kolu/surface-remote"; // né buildHostRegistry / surface-nix-host
 const pool = buildRemotePool({ seed: parseKoluPadiHost() /* "localhost,srid@zest" */ });
-serveSurfaceMap(padiHosts, { resolve: (host) => pool.getSession(host) });
+serveSurfaceMap(padiHosts, poolAsMapRegistry(pool));
+// MapRegistry = { members(), subscribe(onChange), has(key), resolve(key) => EntrySession | EntryFault }
+// — membership as a first-class SUBSCRIBABLE fact (it must DRIVE the entries collection; a fused
+// resolve-only seam can't observe changes). onChange fires only AFTER members()/has() reflect the
+// change; status is DERIVED from the resolved session's state (projection, not a second writer).
 // hosts.add/remove stay root RPCs writing the pool — one writer, runtime-ephemeral
 
 // 3 · CLIENT — construct the typed map client ONCE from the contract + the app's link
@@ -114,7 +118,7 @@ active.cells.terminals.use();  // re-keys on switch, synchronous first value; a 
 
 **The kolu PR — `@kolu/surface-map` + base dedup + the switch + chips.**
 1. `@kolu/surface` (base): sub-dedup as a keyed map of `createSingletonRoot` slots per `(proc, stable-input-hash)`, with the membership-tied lifetime contract (typed end evicts; absent-at-subscribe never cached; pinned).
-2. `packages/surface-map` (new): `defineSurfaceMap(keySchema, entrySpec)` — branded key, entry-router transform (key into input, zod-validated), the `entries` collection contract (status + clockOffset, one writer); `serveSurfaceMap(map, { resolve })` — resolver-backed, registry-agnostic; `SurfaceMapClient` with pure `entry(key)` + Solid `useEntry(accessor)`; typed end on membership loss. README hello-world + a mock-entry e2e harness (subprocess entries through the same resolver seam) are the package's example — no demo app.
+2. `packages/surface-map` (new): `defineSurfaceMap(keySchema, entrySpec)` — branded key, entry-router transform (key into input, zod-validated), the `entries` collection contract (status + clockOffset, one writer); `serveSurfaceMap(map, mapRegistry)` — `MapRegistry` = `{ members, subscribe, has, resolve => EntrySession | EntryFault }`: membership as a first-class subscribable fact (it drives `entries`; ruled at the Phase-1 consult — a fused resolve-only seam cannot observe membership changes), source-agnostic (pool adapter, mock harness); `SurfaceMapClient` with pure `entry(key)` + Solid `useEntry(accessor)`; typed end on membership loss. README hello-world + a mock-entry e2e harness (subprocess entries through the same resolver seam) are the package's example — no demo app.
 3. `@kolu/surface-remote` — the rename of `surface-nix-host` + the naming sweep land here, same PR: `serveHostMap(buildRemotePool(...))`; entry faults from the lazy drv/ssh path land as `failed(reason)` values.
 4. kolu: server parses `KOLU_PADI_HOST` as a comma-separated seed list (validated per entry; local always the implicit unremovable default, deduped if listed); serves the padi map; `hosts.add/remove` stay root RPCs writing the pool (P3), runtime-ephemeral like drishti's. Client: `wire.ts` consumes `useEntry(activeHost)` (per-tab signal + `sessionStorage`); the selector strip + urgency chips + add/remove buttons render **only when the gate cell says the env is set** (server publishes the gate as a cell — the client never reads env); rejection/removal fallback is app policy reading `entries`. No Labs entry; no persisted `recentHosts`.
 5. **The #1708 lessons re-land clean-room** (no cherry-pick — the anti-regurgitation rule): its pins are the checklist (lazy drv boot, `UnremovableHostError`, shared local scan, dialog clarity, toast ordering), the code re-derived against the map shape; anything copied verbatim must individually justify itself.
