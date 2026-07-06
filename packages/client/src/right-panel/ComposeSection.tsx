@@ -20,11 +20,12 @@
  *  command in that section. The parent gates this on the ACTIVE arm, so the
  *  target is always a live PTY — `sendInput` would otherwise quiet-drop. */
 
-import { padiRpc } from "@kolu/padi/surface";
+import { activeArm, padiRpc } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import { padi } from "../wire";
 import { planComposeSend } from "./composeSend";
 
@@ -34,12 +35,17 @@ const DRAFT_STORAGE_PREFIX = "kolu:compose-draft-by-terminal:";
 
 const ComposeSection: Component<{
   terminalId: TerminalId;
-  /** Is the target still an active (PTY-holding) terminal? Passed down from the
-   *  parent's `activeArm(meta())` — symmetric with `deliverScratchPaste`
-   *  receiving `isActive` as a dep — so `send` can re-check liveness AFTER the
-   *  write resolves and refuse to clear the draft on an unconfirmed delivery. */
-  isActive: () => boolean;
 }> = (props) => {
+  const store = useTerminalStore();
+  // Is the SEND TARGET (`props.terminalId`) still an active, PTY-holding
+  // terminal? Resolved from the store BY THAT id — exactly as `Terminal.tsx`
+  // gates `deliverScratchPaste` (`activeArm(terminalStore.getMetadata(props
+  // .terminalId))`) — so an in-flight send re-checks the terminal it wrote to,
+  // NOT whichever tile the inspector happens to show when the RPC resolves. A
+  // parent closure over the inspector's current `meta()` would read the wrong
+  // terminal the moment the user switches tiles mid-send.
+  const isActive = () =>
+    activeArm(store.getMetadata(props.terminalId)) !== undefined;
   // The draft IS a raw string, so `parse`/`serialize` are identity — there is
   // no shape to validate and an empty string is the natural never-drafted
   // fallback. `persistedPref`'s `parse` can never throw here, so the fallback
@@ -55,8 +61,16 @@ const ComposeSection: Component<{
   const canSend = () => planComposeSend(draft()) !== null;
 
   async function send(): Promise<void> {
+    // Re-entry guard: ⌘/Ctrl+Enter fires on the textarea even while a send is
+    // pending (the disabled BUTTON blocks the click path, not the key path), so
+    // without this a fast double-chord would dispatch two writes.
+    if (sending()) return;
     const data = planComposeSend(draft());
     if (data === null) return;
+    // Capture the exact text being sent, so the success path clears ONLY this
+    // draft — if the user keeps typing during the in-flight RPC, their newer
+    // text must survive rather than be wiped by a stale send's completion.
+    const sent = draft();
     setSending(true);
     try {
       await padiRpc(padi).surface.lifecycle.sendInput({
@@ -69,15 +83,17 @@ const ComposeSection: Component<{
       // Re-check liveness and throw into the catch below, exactly as
       // `deliverScratchPaste` does, so an unconfirmed write preserves the draft
       // and toasts instead of erasing text that never arrived.
-      if (!props.isActive()) {
+      if (!isActive()) {
         throw new Error("terminal no longer active — draft not sent");
       }
-      // Confirmed live — clear the draft. The text now lives in the agent's
-      // (unsubmitted) input line, which the server-side PTY holds across
-      // reloads, so nothing is lost by dropping our copy.
-      setDraft("");
+      // Confirmed live — clear the draft, but only if it still holds exactly
+      // what we sent (an edit landed during the await keeps the newer text).
+      // The sent text now lives in the agent's (unsubmitted) input line, which
+      // the server-side PTY holds across reloads, so nothing is lost.
+      if (draft() === sent) setDraft("");
     } catch (err) {
-      toast.error(`Failed to send to terminal: ${(err as Error).message}`);
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to send to terminal: ${message}`);
     } finally {
       setSending(false);
     }

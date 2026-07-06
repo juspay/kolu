@@ -54,10 +54,7 @@ const MetadataInspector: Component<{
           <Show when={activeArm(meta()) && props.terminalId} keyed>
             {(id) => (
               <Section title="Compose">
-                <ComposeSection
-                  terminalId={id}
-                  isActive={() => activeArm(meta()) !== undefined}
-                />
+                <ComposeSection terminalId={id} />
               </Section>
             )}
           </Show>

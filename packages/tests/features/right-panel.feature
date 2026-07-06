@@ -91,13 +91,15 @@ Feature: Right panel (Code + Inspector)
 
   Scenario: Compose draft persists across a page refresh
     # The draft is saved per-terminal in localStorage, so a half-written prompt
-    # survives a reload (the terminal is restored under the same id).
+    # survives a reload (the terminal is restored under the same id). Right-panel
+    # visibility is itself persisted (see "Right panel state persists across
+    # refresh"), so after the reload the panel is already open — do NOT re-toggle
+    # it (that would collapse it) — just re-select Inspector and assert the draft.
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
     When I type "draft that survives a reload" in the compose box
     When I refresh the page
-    When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
     Then the compose box should contain "draft that survives a reload"
