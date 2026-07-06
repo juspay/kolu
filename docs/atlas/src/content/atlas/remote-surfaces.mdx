@@ -41,6 +41,11 @@ The family spans contract, server, and client — inside `@kolu/surface` it woul
 ### The notion in ~25 lines — kolu's ACTUAL usage, not a toy (family API indicative; the padi cells are real code)
 
 ```ts
+// 0 · THE PACKAGE UNDER PROPOSAL — every family API below comes from it
+import { defineSurfaceFamily } from "@kolu/surface-family";          // contract half
+import { serveSurfaceFamily } from "@kolu/surface-family/server";    // server half
+import { connectSurfaceFamily } from "@kolu/surface-family/client";  // client half (+ /solid: useEntry)
+
 // 1 · CONTRACT — no new spec invented: the family is built over kolu's REAL padi surface
 //     (packages/padi/src/surface.ts — its `urgency` cell {awaiting, awaitingIds} and
 //      `terminals` collection already exist and already stream today)
@@ -55,7 +60,11 @@ const registry = buildHostRegistry({ seed: parseKoluPadiHost() /* "localhost,sri
 serveSurfaceFamily(padiHosts, { resolve: (host) => registry.getSession(host) });
 // hosts.add/remove stay root RPCs writing the registry — one writer, runtime-ephemeral
 
-// 3 · CLIENT — the switcher chips: every host's agent urgency, LIVE, one loop
+// 3 · CLIENT — construct the typed family client ONCE from the contract + the app's link
+//     (this is where `app.padiHosts` comes from — nothing ambient)
+const app = { padiHosts: connectSurfaceFamily(padiHosts, link) };
+
+//     the switcher chips: every host's agent urgency, LIVE, one loop
 <For each={app.padiHosts.entries.use().keys()}>{(host) => (
   <HostChip
     status={app.padiHosts.entry(host).state()}            // EntryStatus | not-a-member — a VALUE
