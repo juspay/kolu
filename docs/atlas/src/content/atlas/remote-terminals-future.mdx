@@ -1,0 +1,49 @@
+---
+title: Remote terminals — the future work
+description: What to build on top of the multi-host switch — candidate features crossed from ecosystem research (17 source-grounded capabilities) with kolu's shipped primitives, each with its mechanism, demand proof, and honest gates.
+parents: [padi, analysis]
+status: proposed
+maturity: seedling
+updated: 2026-07-06
+---
+
+**What this note is.** The switch (W4) makes kolu multi-host. This note is the researched answer to "what next?" — built from two ground-up passes, not memory: an inventory of every shipped primitive and already-named future item in this repo, and a source-grounded survey of what tmux/mosh/Eternal Terminal/Zellij/VS Code Remote/Coder/Gitpod/Tailscale/Warp/tmate/Blink/Wave actually prove users want. Each candidate below names its demand proof, the shipped mechanism it rides, and its gates. Nothing here is committed work — this is the menu for the next planning pass.
+
+## The unfair advantage — why kolu can do what none of them can
+
+Every surveyed product solves one slice: tmux owns persistence, mosh owns roaming, tmate owns sharing, Coder owns fleet cost, Omnara/Warp-Remote own agent notification. Kolu's three primitives — **a daemon on every host that owns the PTYs**, **a warm multi-host pool**, and **typed per-terminal agent urgency** — cover all the slices at once, and enable one thing structurally impossible elsewhere: *products that know what an agent is waiting for*. No surveyed tool can rank a fleet by "which agent needs a human," because none of them know what an agent is. That is the axis to build along; everything below is ordered by how directly it exploits it.
+
+## Tier 1 — the attention products (build on W5's wire, exploit the advantage directly)
+
+**F1 · W5 cross-host attention** *(already planned — the ecosystem research now validates it hard).* PWA badge summed across bindings, per-host switcher-chip counts, OS notification whose click = switch + focus. Whole products exist doing *only* this for single machines (Omnara, Happy Coder, Warp Remote Control, Claude Code's own agent view) — proof the pain is real and monetizable; kolu gets the cross-*host* version from one urgency subscription per warm binding. Deliberately urgency-count-only on the wire (bounded cost, and immune to the clock-skew gap). *Gate: W4 merged. Size: small — the wire member and the fold exist.*
+
+**F2 · The cross-host dock (B-lite)** *(already named as the first escalation; the research renames its category: a fleet dashboard ranked by what matters).* Foreign hosts' agents listed in your dock, urgency-ranked, click = switch + focus. Coder's workspace dashboard and Termius host groups prove fleet-view demand; none can rank by agent attention. The terminals contract has reserved the host axis since W1. *Gate: demand — "if switching proves insufficient" (the plan's own bar). Size: medium, pure aggregation layer, zero daemon changes.*
+
+**F3 · Agent-aware idle suspension** *(new — the sharpest differentiated idea the research surfaced).* Coder/Gitpod/DevPod all auto-stop idle environments to save money, and their users file the same gap: the tools can't tell "human stepped away" from "agent mid-task" (a cited Coder discussion asks for exactly this). Kolu *knows* — padi distinguishes an awaiting agent from a working one per terminal. Feature: for suspendable hosts (cloud boxes, pu-style), suspend when no agent is mid-task AND nothing is awaiting input, wake on demand through the warm pool. *Gates: W4; a host-lifecycle verb kolu deliberately doesn't have today (the registry has no controls — this feature is the first honest consumer for one, per prove-then-extract); real demand from someone running cloud hosts. Size: medium-large.*
+
+## Tier 2 — the daemon-ownership dividends (persistence beyond what tmux can express)
+
+**F4 · Agent-aware resurrection across host reboots.** tmux-resurrect/continuum are among the most-loved tmux plugins, and their known ceiling is that they can't restore *running programs*. padi already restores terminals from its state-root; the new move is restoring **the agent inside the terminal** — padi knows each terminal ran Claude Code with session X, so post-reboot restore re-launches `claude --resume <session>`. "Your fleet rebooted; your agents came back mid-conversation." *Gate: none structural (capture/park/restore machinery shipped in W2). Size: medium. Design care: resume must be consented/visible, never a silent re-spawn of a live agent.*
+
+**F5 · Auto port-forward with preview URLs.** Codespaces/VS Code prove the demand (detect localhost URLs in terminal output → clickable forwarded links); the agent-era version is sharper: *agents start dev servers constantly and print the URL*. padi watches PTY output (it already has activity sensors), announces detected ports on its surface, kolu-server proxies through the existing bound connection (the preview route already reads through the bound session — same shape, one more route). Click the chip → the remote dev server in a tab. *Gate: W4 for the multi-host version (single-host works today). Size: medium. This is likely the highest delight-per-effort item on the list.*
+
+**F6 · Session recording & replay (agent audit trails).** Tailscale ships SSH session recording for compliance; kolu's angle is stronger: `transcript.exportHtml` already exists for agent transcripts, and the daemon sees all PTY bytes — recording an agent's terminal doubles as an **agent-governance audit trail**, a need the ecosystem is just waking to. *Gate: demand-driven. Size: medium.*
+
+## Tier 3 — already-named, unblocked mechanics (ship when convenient)
+
+**F7 · Honest clocks (the deferred W4 piece 5)** — the named fast-follow: consume `control.core.clockNow` per bind (RTT-halved offset on the session), translate host-stamped times in the client's formatters. *Prerequisite hygiene for any cross-host feature that displays time; W5 was shaped to not need it. Size: small.*
+
+**F8 · padi-tui --host (ledger L24)** — the CLI's remote leg, ready since W3.1. **One correction from the ground-truth pass: L24's text cites `getHostSession`, which S10 deleted** — the implementation composes `makeSession({ connectOnce: sshConnector({ binary: "padi", … }) })`. A tui is a dial; it never converges (#1313). *Size: small.*
+
+**F9 · kolu-tui** — the graduation proof already in Future work: consume padiSurface over socket/ssh *without kolu-server*; done only when that named path renders a live canvas. Unblocks L2. *Gate: demand.*
+
+## Parked with reasons (the research argued against, for now)
+
+- **Latency masking (mosh-style prediction)** — kolu controls both ends so it's *possible*, but the measured typing bench (p99 14.4ms over a real hop) says the pain isn't there; mosh's scrollback complaint doesn't even apply here. Revisit only on real high-latency usage reports.
+- **Session sharing / multiplayer (tmate/Warp-share class)** — the server already brokers N clients per terminal, so mechanically cheap, but it drags in an auth/identity story kolu deliberately doesn't have (the ssh-user caveat is the current trust model). Demand-gated; when it comes, "share an *agent's* session with its urgency state visible" is the differentiated form.
+- **Cross-host file transfer (Taildrop class)** — real demand, cleanly buildable over the pool, but no kolu-specific advantage; park until asked.
+- **Hybrid canvas (model B)** — stays exactly where the plan put it: only if one-window side-by-side proves recurring demand; an aggregation layer, nothing below changes.
+
+## The constraint ledger (what any of this must respect)
+
+The **parity tail** (remote-bind-parity note) gates "kolu fully works over a remote bind" — #1701's watcher fix, the one load-source dig, R3's kill-fault primitive, and the R5 reconcile-poll series are the debts; the watcher genus especially bites anything that adds more remote watchers. The **N-bindings standing cost** stays bounded only if multi-host wires stay urgency-count-sized (the W5 rule — F2 must honor it too). The **ssh-user caveat** is the trust model until a sharing story exists. The **drishti gate** binds every `@kolu/surface*` touch. And the clock gap (F7) silently corrupts any cross-host timestamp display until paid.
