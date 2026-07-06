@@ -55,7 +55,16 @@ export const padiHosts = defineSurfaceFamily(HostKeySchema, padiSurface);
 //   the ONE membership authority (warming | connected | failed(reason), + clockOffset;
 //   absence = not in the collection)
 
-// 2 · SERVER (kolu-server) — the warm ssh pool IS the resolver; env seeds membership
+// 2 · SERVER (kolu-server) — the warm ssh pool IS the resolver; env seeds membership.
+//     buildHostRegistry is NOT family API — it's the EXISTING @kolu/surface-nix-host pool
+//     (one warm DaemonSession per host: ssh dial, nix provisioning, reconnect). Registry ≠
+//     family: the registry owns the UPSTREAM connections (its volatility: ssh/nix/daemon
+//     lifetime); the family owns the DOWNSTREAM serving shape (membership on the wire).
+//     The registry is the single WRITER of membership; the family's `entries` collection is
+//     that truth PUBLISHED — one writer, one projection (P3). The resolver seam is the
+//     boundary: any session source can back a family (this pool, drishti's agent shipper,
+//     the e2e harness's mock subprocesses).
+import { buildHostRegistry } from "@kolu/surface-nix-host";
 const registry = buildHostRegistry({ seed: parseKoluPadiHost() /* "localhost,srid@zest" */ });
 serveSurfaceFamily(padiHosts, { resolve: (host) => registry.getSession(host) });
 // hosts.add/remove stay root RPCs writing the registry — one writer, runtime-ephemeral

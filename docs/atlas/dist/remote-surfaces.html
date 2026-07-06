@@ -95,7 +95,16 @@
 <span class="line"><span style="color:#6A737D">//   the ONE membership authority (warming | connected | failed(reason), + clockOffset;</span></span>
 <span class="line"><span style="color:#6A737D">//   absence = not in the collection)</span></span>
 <span class="line"></span>
-<span class="line"><span style="color:#6A737D">// 2 · SERVER (kolu-server) — the warm ssh pool IS the resolver; env seeds membership</span></span>
+<span class="line"><span style="color:#6A737D">// 2 · SERVER (kolu-server) — the warm ssh pool IS the resolver; env seeds membership.</span></span>
+<span class="line"><span style="color:#6A737D">//     buildHostRegistry is NOT family API — it's the EXISTING @kolu/surface-nix-host pool</span></span>
+<span class="line"><span style="color:#6A737D">//     (one warm DaemonSession per host: ssh dial, nix provisioning, reconnect). Registry ≠</span></span>
+<span class="line"><span style="color:#6A737D">//     family: the registry owns the UPSTREAM connections (its volatility: ssh/nix/daemon</span></span>
+<span class="line"><span style="color:#6A737D">//     lifetime); the family owns the DOWNSTREAM serving shape (membership on the wire).</span></span>
+<span class="line"><span style="color:#6A737D">//     The registry is the single WRITER of membership; the family's `entries` collection is</span></span>
+<span class="line"><span style="color:#6A737D">//     that truth PUBLISHED — one writer, one projection (P3). The resolver seam is the</span></span>
+<span class="line"><span style="color:#6A737D">//     boundary: any session source can back a family (this pool, drishti's agent shipper,</span></span>
+<span class="line"><span style="color:#6A737D">//     the e2e harness's mock subprocesses).</span></span>
+<span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { buildHostRegistry } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/surface-nix-host"</span><span style="color:#24292E">;</span></span>
 <span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> registry</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> buildHostRegistry</span><span style="color:#24292E">({ seed: </span><span style="color:#6F42C1">parseKoluPadiHost</span><span style="color:#24292E">() </span><span style="color:#6A737D">/* "localhost,srid@zest" */</span><span style="color:#24292E"> });</span></span>
 <span class="line"><span style="color:#6F42C1">serveSurfaceFamily</span><span style="color:#24292E">(padiHosts, { </span><span style="color:#6F42C1">resolve</span><span style="color:#24292E">: (</span><span style="color:#E36209">host</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> registry.</span><span style="color:#6F42C1">getSession</span><span style="color:#24292E">(host) });</span></span>
 <span class="line"><span style="color:#6A737D">// hosts.add/remove stay root RPCs writing the registry — one writer, runtime-ephemeral</span></span>
