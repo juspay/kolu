@@ -99,8 +99,14 @@ vi.mock("solid-sonner", () => ({
   toast: { error: vi.fn(), warning: vi.fn() },
 }));
 
-const { activeBinding, activeHost, bindingScoped, LOCAL_HOST, switchHost } =
-  await import("./bindings");
+const {
+  activeBinding,
+  activeHost,
+  bindingScoped,
+  LOCAL_HOST,
+  restoreStoredHost,
+  switchHost,
+} = await import("./bindings");
 
 beforeEach(() => {
   store.clear();
@@ -216,5 +222,49 @@ describe("the switch epoch guard (C1)", () => {
     for (const release of addReleasers) release();
     await Promise.all([pickB, pickC]);
     expect(activeHost()).toBe("C");
+  });
+});
+
+describe("per-tab host persistence (F-c: two-tabs independence)", () => {
+  beforeEach(async () => {
+    deferAdds = false;
+    addReleasers.length = 0;
+    await switchHost(LOCAL_HOST);
+    store.clear(); // start each test with a clean (session)storage
+  });
+
+  it("writes the active host to sessionStorage — per-tab, NOT localStorage", async () => {
+    await switchHost("box2");
+    // The test stubs ONLY sessionStorage (as `store`); a regression to localStorage
+    // would leave `store` empty here (and leak the pick across tabs on the origin).
+    expect(store.get("kolu-active-host")).toBe("box2");
+  });
+
+  it("restoreStoredHost re-reads sessionStorage so a reload lands on the viewed host", () => {
+    // Model a fresh tab load whose sessionStorage carries a prior pick.
+    store.set("kolu-active-host", "box5");
+    restoreStoredHost();
+    expect(activeHost()).toBe("box5");
+  });
+});
+
+describe("stale-call rejection — the misroute guard's REAL teeth (F-b)", () => {
+  it("a call on a retired binding's socket THROWS (not just: retireSocket was called)", async () => {
+    // The rest of this suite mocks `retireSocket`, which proves the wiring (dispose
+    // calls it with the old socket) but NOT that a stale call actually rejects. Drive
+    // the REAL `retireSocket` here to pin the teeth: after a switch retires a binding,
+    // an in-flight call minted on its socket throws at the dead transport rather than
+    // silently reconnecting to (and landing on) the now-wrong host.
+    const { retireSocket } = await vi.importActual<
+      typeof import("@kolu/surface-app/solid")
+    >("@kolu/surface-app/solid");
+    const ws = { close: vi.fn(), send: vi.fn() };
+    ws.send("a live call"); // pre-retirement: the socket sends normally
+    expect(ws.send).toHaveBeenCalledWith("a live call");
+
+    retireSocket(ws); // what makeBinding.dispose() does on a switch
+    expect(ws.close).toHaveBeenCalled();
+    // The stale in-flight call now REJECTS at the transport.
+    expect(() => ws.send("a stale in-flight call")).toThrow();
   });
 });
