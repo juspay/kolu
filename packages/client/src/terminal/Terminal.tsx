@@ -976,7 +976,7 @@ const Terminal: Component<{
                 undefined,
               sendInput: (args) =>
                 padiRpc(padi).surface.lifecycle.sendInput(args),
-              wrapPath: (path) => wrapBracketedPaste(path),
+              wrapPath: wrapBracketedPaste,
             });
           }
 

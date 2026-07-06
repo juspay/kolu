@@ -30,7 +30,15 @@ import { padi } from "../wire";
 import { planComposeSend } from "./composeSend";
 
 /** `localStorage` key prefix for the per-terminal draft — same
- *  `kolu:<feature>-by-terminal:<id>` shape the comments store uses. */
+ *  `kolu:<feature>-by-terminal:<id>` shape the comments store uses.
+ *
+ *  The key is deliberately NOT evicted on terminal close: a terminal that is
+ *  slept and later restored keeps the SAME id (session restore), so its draft
+ *  must survive to be there on return — the same reason `useComments` leaves
+ *  its `kolu:comments-by-terminal:<id>` entry in place. Each draft is a small
+ *  string bounded by the terminals opened in one session, and eager eviction
+ *  would defeat the survives-restore guarantee this feature exists for; the
+ *  compose box does not own the terminal lifecycle to hook a real deletion. */
 const DRAFT_STORAGE_PREFIX = "kolu:compose-draft-by-terminal:";
 
 const ComposeSection: Component<{
