@@ -92,6 +92,13 @@ export type DrainableConn = {
  * `drainRejection` carries a mid-write `drain()` rejection, if any, for the caller
  * to fold into its not-taken message.
  */
+/** The shared "; drain call rejected: …" tail for a drain-did-not-take error — folds
+ *  a mid-write `drain()` rejection into the message, or "" when the call resolved but
+ *  the daemon kept answering. Keeps all four drain-timeout messages byte-identical. */
+export function drainRejectionSuffix(rejection: string | null): string {
+  return rejection ? `; drain call rejected: ${rejection}` : "";
+}
+
 export async function drainAndAwaitExit(
   drainClient: PadiDaemonClient,
   awaitExit: (signal: AbortSignal) => Promise<void>,
@@ -147,7 +154,7 @@ export async function drainViaControlCore(conn: DrainableConn): Promise<void> {
   if (!took) {
     throw new Error(
       `padi drain did not complete — its socket did not close within ${DRAIN_TEARDOWN_CEILING_MS}ms (padi did not exit)` +
-        (drainRejection ? `; drain call rejected: ${drainRejection}` : ""),
+        drainRejectionSuffix(drainRejection),
     );
   }
 }

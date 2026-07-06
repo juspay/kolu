@@ -632,8 +632,7 @@ export function makeSession<Client = SurfaceClientLike>(
   const session: Session<Client> = {
     pin() {
       refCount += 1;
-      const p = ensureSpawned();
-      return p;
+      return ensureSpawned();
     },
     currentClient() {
       return destroyed ? null : clientPromise;

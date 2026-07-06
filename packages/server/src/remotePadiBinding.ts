@@ -33,11 +33,7 @@ import {
   PADI_SURFACE_VERSION,
   type PadiDaemonContract,
 } from "@kolu/padi/surface";
-import {
-  DaemonContractSkewError,
-  daemonBuild,
-  decide,
-} from "@kolu/surface-daemon-supervisor";
+import { daemonBuild, decide } from "@kolu/surface-daemon-supervisor";
 import {
   type Admit,
   type AdmitVerdict,
@@ -54,6 +50,7 @@ import { log } from "./log.ts";
 // feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
 import {
   drainAndAwaitExit,
+  drainRejectionSuffix,
   PADI_CONVERGENCE_POLICY,
 } from "./padiConvergence.ts";
 import { asPadiSession, type PadiSession } from "./padiSession.ts";
@@ -235,12 +232,7 @@ export function ensureRemotePadiBinding(
   const rawConnector: Connector<PadiSurfaceClient> = async (ctx) => {
     const conn = await inner(ctx);
     combined = conn.client;
-    return {
-      client: scopePadiSurface(conn.client),
-      closed: conn.closed,
-      isAlive: conn.isAlive,
-      teardown: conn.teardown,
-    };
+    return { ...conn, client: scopePadiSurface(conn.client) };
   };
 
   // ── Drain plumbing: the ssh arm's plug into the shared drainAndAwaitExit ──────
@@ -394,9 +386,7 @@ export function ensureRemotePadiBinding(
     }
     return unconverged(
       `newer-binder drain did not take within ${drainCeilingMs}ms — the skewed padi kept answering (serves ${running}, kolu-server needs ${binderVersion})` +
-        (drain.drainRejection
-          ? `; drain call rejected: ${drain.drainRejection}`
-          : ""),
+        drainRejectionSuffix(drain.drainRejection),
     );
   }
 
@@ -444,9 +434,7 @@ export function ensureRemotePadiBinding(
     return adoptStale(
       runningBuild,
       `remote padi drain did not take within ${drainCeilingMs}ms — the daemon kept answering (running=${runningBuild} expected=${binderBuildId})` +
-        (drain.drainRejection
-          ? `; drain call rejected: ${drain.drainRejection}`
-          : ""),
+        drainRejectionSuffix(drain.drainRejection),
     );
   }
 
@@ -536,13 +524,9 @@ export function ensureRemotePadiBinding(
       if (!took) {
         throw new Error(
           `remote padi drain did not complete — it did not exit within ${drainCeilingMs}ms (padi did not exit)` +
-            (drainRejection ? `; drain call rejected: ${drainRejection}` : ""),
+            drainRejectionSuffix(drainRejection),
         );
       }
     },
   });
 }
-
-// Re-export for the error type a refusal throws (kept for the skew-error identity in
-// tests), even though the admit verdict path no longer throws it directly.
-export { DaemonContractSkewError };
