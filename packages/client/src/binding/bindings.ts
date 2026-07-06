@@ -1,36 +1,32 @@
 /**
- * The host binding — W4 "the switch".
+ * The host binding — W4 "the switch" — now kolu's PADI POLICY over the framework's
+ * active-connection manager (`@kolu/surface-app`, the client-side twin of
+ * `buildHostRegistry`). The manager owns the machinery — a keyed cache of live
+ * connections with ONE active, retire-on-switch, pick-epoch last-intent-wins over slow
+ * async warms, and the server-rejected-key (1008) fallback. This module supplies only the
+ * padi-specific policy: how to build a host binding (`connectSurfaces` + lifecycle), how
+ * to warm a host (`hosts.add`), the toasts, and `LOCAL` as the fallback. This is the L11
+ * end-state — the module-global binding machinery graduated into the framework, kolu a
+ * pure-policy consumer.
  *
- * Before W4 the client's wire was ONE module-global `connectSurfaces` bundle,
- * pinned to `window.location.host`, that lived exactly as long as the page. This
- * module breaks that buried assumption: it holds ONE bundle PER host (each a
- * `connectSurfaces` to `?host=<host>` on the same kolu-server), and an
- * `activeHost` signal picks which one the tab is looking at. Picking a host swaps
- * the accessor IN PLACE — no page reload — and every subscription re-keys off it.
- *
- * This is the interim "wire shape" the plan's L11 later sweeps into a proper
- * scope-through-context (`docs/atlas/.../padi-cleanup`): W4 keeps the module-global
- * ACCESSORS (`padi()`, `app()`, …) that `wire.ts` re-exports, because the pool +
- * picker land here first and the full de-globalization is a mechanical follow-up.
- *
- * The MISROUTE GUARD lives here and is NOT deferred to L11: its teeth are the
- * `retired` flag plus separate sockets. Because each host is a SEPARATE socket, a
- * call can never cross to another host's server handler by construction; switching
- * RETIRES the old binding — tearing down its lifecycle root AND closing its socket
- * (`retireSocket`, which also stubs `send` to throw) — so an in-flight or late call
- * minted on the old host's client throws at the now-dead transport rather than
- * silently reconnecting to (and landing on) a stale host. A fresh `padi()`/`app()`
- * accessor never sees a retired binding at all, because `activeBinding()` rebuilds
- * one the moment the cached entry is retired. (`bindings.test.ts` pins that
- * switching retires the old binding and closes its socket.)
+ * The MISROUTE GUARD is intact and NOT deferred: its teeth are the manager retiring the
+ * outgoing connection — tearing down its lifecycle root AND closing its socket
+ * (`retireSocket`, which stubs `send` to throw a typed retired-transport error) — plus a
+ * SEPARATE socket per host, so a call can never cross to another host's server handler by
+ * construction; and `Binding.retired` rejecting a call routed through a retired binding.
+ * A fresh `padi()`/`app()` accessor never sees a retired binding — `activeBinding()`
+ * rebuilds one the moment the cached entry is retired. (`bindings.test.ts` pins the
+ * padi-policy wiring; the machinery lives in `activeConnectionManager.test.ts`.)
  */
 
 import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
 import {
+  type ActiveConnectionManager,
   type ConnectionStatus,
-  connectionScoped,
   connectSurfaces,
+  createActiveConnectionManager,
   createServerLifecycle,
+  type ManagedConnection,
   retireSocket,
   type ServerLifecycleEvent,
   surfaceAppProbe,
@@ -48,9 +44,10 @@ export { LOCAL_HOST };
 const { protocol, host } = window.location;
 const wsBase = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 
-/** The wire for one host: the `connectSurfaces` bundle over a `?host=<host>`
- *  socket, its own lifecycle (status), and the misroute-guard state. */
-export interface Binding {
+/** The wire for one host: the `connectSurfaces` bundle over a `?host=<host>` socket, its
+ *  own lifecycle (status), and the misroute-guard state. A `ManagedConnection`, so the
+ *  active-connection manager retires it (close + typed throwing stub) on a switch. */
+export interface Binding extends ManagedConnection {
   readonly host: string;
   readonly clients: ReturnType<
     typeof connectSurfaces<typeof contract, typeof surfacesWithPadi>
@@ -63,13 +60,12 @@ export interface Binding {
   readonly status: Accessor<ConnectionStatus>;
   readonly lifecycle: Accessor<ServerLifecycleEvent>;
   readonly serverProcessId: Accessor<string | undefined>;
-  /** True once this binding has been retired (switched away from + torn down). A
-   *  call routed through a retired binding is a misroute — reject it. */
-  retired: boolean;
-  /** Close this host's socket + tear down its clients (the misroute-guard teardown). */
-  dispose(): void;
 }
 
+/** POLICY: build a live binding for a host — the `connectSurfaces` bundle over its own
+ *  `?host=<host>` socket + its own lifecycle. The server-rejected-close (1008) fallback
+ *  is NOT installed here: the manager owns that predicate (via `socketOf`), so this stays
+ *  a pure connection factory. */
 function makeBinding(targetHost: string): Binding {
   // The `?host=` param the server dispatches on. The local host is passed
   // explicitly too, so a single-host tab's URL is `?host=local` — the server
@@ -135,80 +131,7 @@ function makeBinding(targetHost: string): Binding {
     },
   };
 
-  installUnknownHostFallback(binding, conn.ws);
-
   return binding;
-}
-
-/** If the server rejects this host as UNKNOWN (close 1008 — the host was removed from
- *  the shared pool by another device, or this is a stale tab whose host is gone), stop
- *  the pointless reconnect loop and fall back to local. Without this a PartySocket
- *  (`maxRetries: Infinity`) would re-dial `?host=<gone>` forever while the server rejects
- *  each attempt, leaving the tab stuck on a misleading "Reconnecting…". Guarded to fire
- *  once — for the CURRENT host only, before this binding retires. */
-function installUnknownHostFallback(
-  binding: Binding,
-  ws: {
-    addEventListener: (t: "close", cb: (ev: { code?: number }) => void) => void;
-  },
-): void {
-  ws.addEventListener("close", (ev) => {
-    if (
-      ev.code === 1008 &&
-      !binding.retired &&
-      binding.host !== LOCAL_HOST &&
-      activeHost() === binding.host
-    ) {
-      toast.error(
-        `Host "${binding.host}" is no longer available — switched to local.`,
-      );
-      void switchHost(LOCAL_HOST);
-    }
-  });
-}
-
-// ── The active binding + the warm client-side cache ─────────────────────
-
-const [activeHostSignal, setActiveHostSignal] =
-  createSignal<string>(LOCAL_HOST);
-/** The host this tab is currently looking at. */
-export const activeHost = activeHostSignal;
-
-const cache = new Map<string, Binding>();
-
-/** The active host's binding — lazily built + cached. Reactive on `activeHost`,
- *  so every accessor that reads it (`padi()`, `app()`, the `bindingScoped` subs)
- *  re-derives the instant the tab switches host. */
-export function activeBinding(): Binding {
-  const h = activeHost();
-  let b = cache.get(h);
-  if (!b || b.retired) {
-    b = makeBinding(h);
-    cache.set(h, b);
-  }
-  return b;
-}
-
-const [knownDefaultHost, setKnownDefaultHost] =
-  createSignal<string>(LOCAL_HOST);
-/** The server's default host (`KOLU_PADI_HOST` ?? local), learned from
- *  `server.info` — offered by the picker even when it isn't yet a "recent". */
-export const serverDefaultHost = knownDefaultHost;
-
-/** Remember the server's default host and, on a FRESH tab (no stored host), fall to
- *  it — so a CI run booted through `KOLU_PADI_HOST` lands there while the picker still
- *  switches freely. Called once after `server.info` resolves; never overrides a pick. */
-export function seedDefaultHost(defaultHost: string): void {
-  if (defaultHost) setKnownDefaultHost(defaultHost);
-  // A fresh tab (nothing stored) still on local → fall to the server default.
-  // `readStoredHost() === undefined` IS the presence check, so no separate helper.
-  if (
-    readStoredHost() === undefined &&
-    activeHost() === LOCAL_HOST &&
-    defaultHost
-  ) {
-    setActiveHostInternal(defaultHost);
-  }
 }
 
 // ── Per-tab persistence of the active host ──────────────────────────────
@@ -241,76 +164,88 @@ function readStoredHost(): string | undefined {
   }
 }
 
-function setActiveHostInternal(h: string): void {
-  const prev = activeHost();
-  if (h === prev) return;
-  // Flip `activeHost` FIRST: this re-keys every app-lifetime `bindingScoped` sub off
-  // the outgoing binding (createKeyedRoot disposes the old per-key root synchronously)
-  // — and now that `useCell` ties its detached subscription root to that owner, the
-  // dispose ABORTS the outgoing cell subs BEFORE we retire their socket below. That
-  // abort is the guarantee a disposed sub can't report the retired socket's error (the
-  // switch-toast bug was the visible edge of those subs LEAKING past the switch); the
-  // abort signal is also threaded into the stream so the pending `next()` cancels at
-  // once, not lingering until the socket errors. This ordering just keeps that tight.
-  setActiveHostSignal(h);
-  storeHost(h);
-  // Retire the PREVIOUS binding: close its socket, tear down its subs. The server
-  // keeps it warm in the pool, so switching BACK is instant; this only ends THIS
-  // tab's view of it — never disturbing another device (each device/tab holds its
-  // own sockets). Retiring is the misroute guard: any in-flight call on the old
-  // socket now rejects instead of resolving against the wrong host.
-  const old = cache.get(prev);
-  if (old) {
-    cache.delete(prev);
-    old.dispose();
+// ── The active-connection manager, wired with padi policy ───────────────
+//
+// `let` (not `const`) so `onServerRejected` can close over `manager` to switch to the
+// fallback — the closure only runs on a later 1008 close, well after assignment.
+let manager: ActiveConnectionManager<string, Binding>;
+manager = createActiveConnectionManager<string, Binding>({
+  initialKey: LOCAL_HOST,
+  makeConnection: makeBinding,
+  socketOf: (b) => b.ws,
+  isFallbackKey: (h) => h === LOCAL_HOST,
+  fallbackKey: LOCAL_HOST,
+  serverRejectedCloseCode: 1008,
+  // Warm the host server-side BEFORE opening a socket to it (a deliberate
+  // add-then-connect — never a side-effectful GET), routed through the CURRENT (live)
+  // binding's link — its host set is the shared pool.
+  warm: async (h, active) => {
+    await active.link.hosts.add({ host: h });
+  },
+  // A superseded warm (the user re-picked while `hosts.add` was in flight over ssh)
+  // stays quiet — don't toast over a host the user already moved on from.
+  onWarmError: (h, err, superseded) => {
+    if (superseded) return;
+    toast.error(
+      `Couldn't reach host "${h}": ${err instanceof Error ? err.message : String(err)}`,
+    );
+  },
+  // The server rejected this host as UNKNOWN (close 1008 — removed from the shared pool
+  // by another device, or a stale tab whose host is gone). Stop the pointless reconnect
+  // loop and fall back to local.
+  onServerRejected: (h) => {
+    toast.error(`Host "${h}" is no longer available — switched to local.`);
+    void manager.switchTo(LOCAL_HOST);
+  },
+  persistence: { read: readStoredHost, store: storeHost },
+});
+
+/** The host this tab is currently looking at. */
+export const activeHost = manager.activeKey;
+
+/** The active host's binding — lazily built + cached, rebuilt if retired. Reactive on
+ *  `activeHost`, so every accessor that reads it (`padi()`, `app()`, the `bindingScoped`
+ *  subs) re-derives the instant the tab switches host. */
+export const activeBinding = manager.activeConnection;
+
+/** Switch this tab to `host`, live, with no page reload — warm the pool first
+ *  (add-then-connect), last-intent-wins over overlapping picks, then swap the binding. */
+export const switchHost = manager.switchTo;
+
+/** Restore the per-tab host at boot (re-read sessionStorage), so a reload lands back on
+ *  the host the tab was viewing. The manager already restores at construction; this
+ *  re-read is for an explicit boot after the module already loaded. */
+export const restoreStoredHost = manager.restore;
+
+// ── Kolu policy: the server default host, forget, the re-key alias ───────
+
+const [knownDefaultHost, setKnownDefaultHost] =
+  createSignal<string>(LOCAL_HOST);
+/** The server's default host (`KOLU_PADI_HOST` ?? local), learned from
+ *  `server.info` — offered by the picker even when it isn't yet a "recent". */
+export const serverDefaultHost = knownDefaultHost;
+
+/** Remember the server's default host and, on a FRESH tab (no stored host), fall to
+ *  it — so a CI run booted through `KOLU_PADI_HOST` lands there while the picker still
+ *  switches freely. Called once after `server.info` resolves; never overrides a pick. */
+export function seedDefaultHost(defaultHost: string): void {
+  if (defaultHost) setKnownDefaultHost(defaultHost);
+  // A fresh tab (nothing stored) still on local → fall to the server default.
+  // `readStoredHost() === undefined` IS the presence check, so no separate helper.
+  if (
+    readStoredHost() === undefined &&
+    activeHost() === LOCAL_HOST &&
+    defaultHost
+  ) {
+    manager.setActive(defaultHost);
   }
-}
-
-/** Restore the per-tab host at boot (before the first binding is built), so a
- *  reload lands back on the host the tab was viewing. */
-export function restoreStoredHost(): void {
-  const stored = readStoredHost();
-  if (stored) setActiveHostSignal(stored);
-}
-
-/** Switch this tab to `host`, live, with no page reload. Ensures the server pool
- *  holds `host` first (a deliberate add-then-connect — never a side-effectful GET),
- *  then swaps the active binding. Loud states (connecting / degraded) ride the new
- *  binding's `connection` cell; creating a terminal is refused until it is ready. */
-// C1 — the switch epoch. `hosts.add` takes seconds over ssh, so picks can overlap.
-// Every `switchHost` claims an epoch as its FIRST act (before the same-host early
-// return — that placement is what lets re-picking the CURRENT host act as a CANCEL:
-// it bumps the epoch, so an in-flight add for a different host is stale when it
-// resolves). After each await, a pick that is no longer the latest bows out instead
-// of yanking the tab — so last-pick-wins (not first-resolve-wins), and a superseded
-// pick's failure doesn't toast over a host the user already moved on from.
-let pickEpoch = 0;
-
-export async function switchHost(host: string): Promise<void> {
-  const myPick = ++pickEpoch;
-  if (host === activeHost()) return;
-  if (host !== LOCAL_HOST) {
-    // Warm the binding server-side BEFORE opening a socket to it. Routed through
-    // the CURRENT (live) binding's link — its host set is the shared pool.
-    try {
-      await activeBinding().link.hosts.add({ host });
-    } catch (err) {
-      if (myPick !== pickEpoch) return; // superseded — the user re-picked; stay quiet
-      toast.error(
-        `Couldn't reach host "${host}": ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return;
-    }
-  }
-  if (myPick !== pickEpoch) return; // a newer pick won — don't yank the tab back
-  setActiveHostInternal(host);
 }
 
 /** Forget a host: drop it from the server pool + `recentHosts`, and (if it is the
  *  active one) fall back to local. */
 export async function forgetHost(host: string): Promise<void> {
   if (host === LOCAL_HOST) return;
-  if (host === activeHost()) setActiveHostInternal(LOCAL_HOST);
+  if (host === activeHost()) manager.setActive(LOCAL_HOST);
   try {
     await activeBinding().link.hosts.remove({ host });
   } catch (err) {
@@ -320,29 +255,15 @@ export async function forgetHost(host: string): Promise<void> {
   }
 }
 
-// ── The re-key helper ───────────────────────────────────────────────────
-
 /**
- * Open a subscription against the ACTIVE binding, re-opening it (and disposing the
- * prior one) whenever the tab switches host. Returns an accessor to the current
- * subscription. This is how the client's app-lifetime singletons (which used to
- * open one sub against the one module-global wire) re-key on a switch WITHOUT the
- * full L11 scope-through-context port: the factory reads `activeBinding()` and is
- * re-run per host, its prior root disposed — so no stale sub leaks across a switch
- * (the gray-chip #1687 class). Must be called under a reactive owner (a
- * `createSharedRoot` factory, a component, or `createRoot`).
+ * Open a subscription against the ACTIVE binding, re-keyed per host — kolu's POLICY
+ * alias of the manager's `connectionScoped` (the framework's L11 endpoint). The factory
+ * reads the active binding and is re-run per host, its prior root disposed first (no
+ * stale sub leaks across a switch, #1687) and the value populated synchronously on first
+ * read. Must be called under a reactive owner (a `createSharedRoot` factory, a component,
+ * or `createRoot`).
  */
-export function bindingScoped<T>(
-  factory: (binding: Binding) => T,
-): Accessor<T> {
-  // Kolu's POLICY binding of the framework's `connectionScoped` (L11 endpoint): the
-  // swappable connection is `activeHost` (its stable identity) → `activeBinding` (the
-  // value). `connectionScoped` owns every guarantee — re-run the factory under a fresh
-  // root per host, dispose the prior one on a switch (no stale-sub leak, #1687), and a
-  // RENDER effect so the value is populated SYNCHRONOUSLY on first read (never
-  // `undefined.<member>` on the first render).
-  return connectionScoped(activeHost, activeBinding, factory);
-}
+export const bindingScoped = manager.connectionScoped;
 
 /** The app-lifetime singleton form of {@link bindingScoped}: wrap the re-keying
  *  sub in a `createSharedRoot` so it has ONE app-owned reactive owner shared by
@@ -356,8 +277,3 @@ export function useBindingScopedSub<T>(
 ): () => Accessor<T> {
   return createSharedRoot(() => bindingScoped(pick));
 }
-
-// Restore the per-tab host BEFORE the first binding is built (this module is
-// imported before `wire.ts` opens its subs), so a reload lands back on the host the
-// tab was viewing rather than always starting on local.
-restoreStoredHost();

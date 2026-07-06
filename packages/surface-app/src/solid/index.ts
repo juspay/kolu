@@ -15,14 +15,10 @@ import {
   type Accessor,
   createComponent,
   createContext,
-  createMemo,
-  createRenderEffect,
-  createRoot,
   createSignal,
   getOwner,
   type JSX,
   onCleanup,
-  untrack,
   useContext,
 } from "solid-js";
 import {
@@ -49,6 +45,10 @@ import {
   normalizeHeartbeat,
 } from "../connect";
 import { reloadForUpdate, retireSocket } from "../lifecycle";
+// The keyed-root swap lives in its own module so the active-connection manager can
+// compose `connectionScoped` without an import cycle through this barrel. `createKeyedRoot`
+// is imported for the provider's buildInfo cell below; both are re-exported for consumers.
+import { createKeyedRoot } from "./keyedRoot";
 
 // The single, UNFORGEABLE minter of a `LiveSignal` — wires the half-open watchdog
 // AND brands the liveness accessor in one call — now lives in `@kolu/surface`
@@ -66,6 +66,16 @@ export {
   type SurfaceConnectionStatus,
   type WatchableSocket,
 } from "@kolu/surface/solid";
+// The active-connection manager — the client twin of `buildHostRegistry`: a keyed cache
+// of live connections with ONE active, retire-on-switch, last-intent-wins warms, and a
+// server-rejected-key fallback hook. The consumer plugs in policy (kolu: padi hosts).
+export {
+  type ActiveConnectionManager,
+  type ActiveConnectionManagerOptions,
+  createActiveConnectionManager,
+  type ManagedConnection,
+  type RejectableSocket,
+} from "./activeConnectionManager";
 // The turnkey single-surface connect seam (socket + client + default-on
 // heartbeat). It builds a Solid `surfaceClient`, so it lives in this `/solid`
 // subpath, not the framework-free `/connect`.
@@ -81,6 +91,10 @@ export {
   connectSurfaces,
   type SurfacesConnection,
 } from "./connectSurfaces";
+// The keyed-root swap + the connection-scoped subscription primitive it powers (L11
+// endpoint) — re-exported from their own module (see the import above; kept there to
+// break the manager↔barrel import cycle).
+export { connectionScoped, createKeyedRoot } from "./keyedRoot";
 
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";
@@ -611,68 +625,6 @@ function setAttention(count: number): void {
     const base = document.title.replace(ATTENTION_PREFIX, "");
     document.title = count > 0 ? `(${count}) ${base}` : base;
   }
-}
-
-/** A reactive value re-derived under a FRESH `createRoot` each time `key` changes,
- *  disposing the prior root on the swap. The factory's subscriptions/effects are OWNED
- *  by that per-`key` root, so a swap tears the old one down synchronously — no stream
- *  leaks across the change (the #1687 gray-chip class). Eager: it opens at creation and
- *  stays a standing observer (`createRenderEffect`), so the old root is disposed the
- *  INSTANT `key` changes, not lazily on the next read. `createRoot` here is a nested
- *  child of the caller's owner (unlike `@kolu/surface`'s detached root whose disposer is
- *  discarded), so we can and do dispose it. Two hand-rolled copies collapse into this:
- *  the host-scoped client subscriptions (kolu's `bindingScoped`) and this provider's
- *  own per-control-plane buildInfo cell. Must run under a reactive owner. */
-export function createKeyedRoot<K, T>(
-  key: Accessor<K>,
-  factory: (key: K) => T,
-): Accessor<T> {
-  let disposePrev: (() => void) | undefined;
-  if (getOwner()) onCleanup(() => disposePrev?.());
-  const cell = createMemo(() => {
-    const k = key(); // TRACKED — a change re-runs the memo (disposes + rebuilds)
-    return untrack(() => {
-      // `untrack` fences the factory's OWN reactive reads out of the memo, so only a
-      // `key` change — never a value the factory's subscription yields — re-runs it.
-      disposePrev?.();
-      let result!: T;
-      disposePrev = createRoot((dispose) => {
-        result = factory(k);
-        return dispose;
-      });
-      return result;
-    });
-  });
-  // Keep the memo EAGER — a render effect is a synchronous standing observer, so the old
-  // root is disposed + the new one built the INSTANT `key` changes (not lazily on the
-  // next read), and the value is live on the first read (never one tick late).
-  if (getOwner()) createRenderEffect(() => void cell());
-  return cell;
-}
-
-/** A subscription factory keyed to a SWAPPABLE connection — the client-side
- *  "connection-scoped" primitive. `factory(connection())` re-runs whenever the active
- *  connection changes (`connectionKey` flips), the prior root disposed synchronously
- *  first (no stale sub leaks across the swap — the #1687 gray-chip class), the value
- *  populated on the first read. Rides {@link createKeyedRoot}, inheriting its
- *  sync-populate, owner-safety, and dispose-then-rebuild fence.
- *
- *  TWO accessors, deliberately: `connectionKey` is the STABLE identity of the active
- *  connection (a host name, a socket id); `connection` is the current connection VALUE —
- *  often a FRESH object each swap (a retired binding is rebuilt), so keying on the value
- *  would re-run on every incidental rebuild. Key on identity; read the value inside.
- *
- *  This is the framework endpoint kolu's app-lifetime singleton subscriptions re-key
- *  through when a tab live-switches which host it views — without a per-consumer
- *  scope-through-context port (ledger L11): they call
- *  `connectionScoped(activeKey, activeConnection, factory)` and the framework owns the
- *  swap. Must run under a reactive owner. */
-export function connectionScoped<K, C, T>(
-  connectionKey: Accessor<K>,
-  connection: Accessor<C>,
-  factory: (connection: C) => T,
-): Accessor<T> {
-  return createKeyedRoot(connectionKey, () => factory(connection()));
 }
 
 /** Provide the headless app-shell model to the tree. Render your chrome from
