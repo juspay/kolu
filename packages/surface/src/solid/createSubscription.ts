@@ -56,18 +56,18 @@ export interface SubscriptionOptions<T, R = T> {
 
 /** Convert an async stream into a SolidJS signal. */
 export function createSubscription<T>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
 ): Subscription<T>;
 export function createSubscription<T>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
   options: Omit<SubscriptionOptions<T>, "reduce" | "initial">,
 ): Subscription<T>;
 export function createSubscription<T, R>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
   options: SubscriptionOptions<T, R> & { initial: R },
 ): Subscription<R>;
 export function createSubscription<T, R = T>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
   options?: SubscriptionOptions<T, R>,
 ): Subscription<T | R> {
   const reduce = options?.reduce as
@@ -107,10 +107,15 @@ export function createSubscription<T, R = T>(
       return controller.signal;
     })();
 
-  // Consume the stream
+  // Consume the stream. Thread `abortSignal` INTO `source` so a disposed
+  // subscription's pending `next()` is cancelled at the transport instead of
+  // lingering until the socket happens to error — the sibling
+  // `createReactiveSubscription` already passes its signal to its factory; this
+  // removes that asymmetry so "a disposed subscription cannot report anything"
+  // holds by construction, not by luck of when the transport dies.
   void (async () => {
     try {
-      const iterable = await source();
+      const iterable = await source(abortSignal);
       for await (const item of iterable) {
         if (abortSignal.aborted) break;
         updateValue(reduce ? reduce(store.v as T | R, item) : item);

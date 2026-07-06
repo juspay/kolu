@@ -83,8 +83,11 @@ export function useCollection<Name extends string, K, T, I>(
   // → server stream closes. No manual teardown.
   const perKey = mapArray(keys, (key) => {
     const sub = createSubscription(
-      () =>
-        options.valueSource(options.keyToInput(key), { context: STREAM_RETRY }),
+      (signal) =>
+        options.valueSource(options.keyToInput(key), {
+          signal,
+          context: STREAM_RETRY,
+        }),
       { onError: options.onError },
     );
     // Enrol this per-key sub into the client health registry (when wired). Runs

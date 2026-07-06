@@ -17,11 +17,16 @@ import {
 } from "@kolu/surface/client";
 import { DEV_COMMIT, SHELL_COMMIT_GLOBAL } from "./index";
 
-/** Permanently retire a transport the server rejected as stale (a tab bound to a
- *  previous process). The app's reload affordance is now the only way forward, so
- *  neither a reconnecting wrapper's offline buffer nor oRPC's pending peers may
- *  grow unbounded behind it. Two side-effects, both required for the surface
- *  family's transport (partysocket + oRPC):
+/** Permanently retire a transport THIS client is done with — either because the
+ *  server rejected it as stale (a tab bound to a previous process; reload is the
+ *  only way forward) OR because the tab intentionally switched which host it views
+ *  (W4: the outgoing binding is retired, the new one takes over — no reload). In
+ *  both cases the retirement is a CLIENT-LOCAL fact, so its rejection is thrown as
+ *  a distinct `SURFACE_TRANSPORT_RETIRED` error a subscription treats as an
+ *  expected stop (see the `send` stub) — never a "server restarted" claim. A
+ *  reconnecting wrapper's offline buffer and oRPC's pending peers must not grow
+ *  unbounded behind the dead socket either way. Two side-effects, both required
+ *  for the surface family's transport (partysocket + oRPC):
  *
  *   - `close()` stops auto-reconnect — partysocket flips `_shouldReconnect` to
  *     false, so it won't re-present the same dead `pid` and be re-rejected in a
@@ -51,9 +56,18 @@ import { DEV_COMMIT, SHELL_COMMIT_GLOBAL } from "./index";
 export function retireSocket(ws: { close(): void; send: unknown }): void {
   ws.close();
   ws.send = () => {
+    // A CLIENT-LOCAL teardown fact — THIS client retired THIS socket (a host
+    // switch, or the response to a stale-restart rejection) — NOT a "server
+    // restarted" claim. Those are distinct states: the genuine-restart reload
+    // affordance is the lifecycle-status overlay (`updateReady` on
+    // `status() === "restarted"`), never this transport error. Keeping the honest
+    // wording (and the distinct `SURFACE_TRANSPORT_RETIRED` type) is what lets a
+    // subscription treat the retirement as an expected stop instead of toasting a
+    // false "server restarted — reload required" on every host switch —
+    // `surfaceClient`'s subscribe loop swallows it via `isDeadTransportError`.
     throw deadTransportError(
       SURFACE_TRANSPORT_RETIRED,
-      "surface-app: server restarted — reload required (stale tab)",
+      "surface-app: socket retired by this client (host switch or stale-restart teardown)",
     );
   };
 }

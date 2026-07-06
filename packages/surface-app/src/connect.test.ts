@@ -109,8 +109,12 @@ describe("retireOnStaleClose", () => {
     t.fire(STALE_PROCESS_CLOSE_CODE);
     expect(t.closed()).toBe(1);
     // `retireSocket` replaced `send` with a throwing stub — a post-stale send
-    // rejects instead of buffering forever behind the reload overlay.
-    expect(() => (t.ws.send as (d: string) => void)("x")).toThrow(/stale tab/);
+    // rejects instead of buffering forever behind the reload overlay. The message
+    // is the honest client-local fact ("retired by this client"), not a "server
+    // restarted" claim (the genuine-restart affordance is the lifecycle overlay).
+    expect(() => (t.ws.send as (d: string) => void)("x")).toThrow(
+      /retired by this client/,
+    );
   });
 
   it("ignores ordinary transient close codes (partysocket reconnects through them)", () => {

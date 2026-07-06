@@ -343,10 +343,12 @@ describe("retireSocket", () => {
     };
     retireSocket(ws);
     expect(closed).toBe(1);
-    // The replacement send THROWS — so oRPC's ClientPeer rejects a post-stale
-    // request instead of awaiting a response that never arrives.
+    // The replacement send THROWS — so oRPC's ClientPeer rejects a post-retire
+    // request instead of awaiting a response that never arrives. The message is the
+    // honest client-local fact ("retired by this client") — used for BOTH a host
+    // switch and a stale-restart teardown — not a "server restarted" claim.
     expect(() => (ws.send as (d: string) => void)("anything")).toThrow(
-      /stale tab/,
+      /retired by this client/,
     );
   });
 

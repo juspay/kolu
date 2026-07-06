@@ -244,6 +244,14 @@ function readStoredHost(): string | undefined {
 function setActiveHostInternal(h: string): void {
   const prev = activeHost();
   if (h === prev) return;
+  // Flip `activeHost` FIRST: this re-keys every app-lifetime `bindingScoped` sub off
+  // the outgoing binding (createKeyedRoot disposes the old per-key root synchronously)
+  // — and now that `useCell` ties its detached subscription root to that owner, the
+  // dispose ABORTS the outgoing cell subs BEFORE we retire their socket below. That
+  // abort is the guarantee a disposed sub can't report the retired socket's error (the
+  // switch-toast bug was the visible edge of those subs LEAKING past the switch); the
+  // abort signal is also threaded into the stream so the pending `next()` cancels at
+  // once, not lingering until the socket errors. This ordering just keeps that tight.
   setActiveHostSignal(h);
   storeHost(h);
   // Retire the PREVIOUS binding: close its socket, tear down its subs. The server

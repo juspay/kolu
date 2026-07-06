@@ -27,7 +27,14 @@
  */
 
 import { debounce } from "@solid-primitives/scheduled";
-import { type Accessor, createEffect, createRoot, on } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createRoot,
+  getOwner,
+  on,
+  onCleanup,
+} from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
 import { STREAM_RETRY, type StreamingProcedure } from "../client";
 import type { Cell } from "../index";
@@ -134,19 +141,29 @@ function toError(err: unknown): Error {
  *  transparently. */
 function streamingThunk<T>(
   source: StreamingProcedure<undefined, T>,
-): () => Promise<AsyncIterable<T>> {
-  return () => source(undefined, { context: STREAM_RETRY });
+): (signal: AbortSignal) => Promise<AsyncIterable<T>> {
+  return (signal) => source(undefined, { signal, context: STREAM_RETRY });
 }
 
 function useCellServer<Name extends string, T, P>(
   _cell: Cell<Name, T>,
   options: UseCellServerOptions<T, P>,
 ): UseCellResult<T, P> {
-  const sub = createRoot(() =>
-    createSubscription(streamingThunk(options.source), {
+  let disposeSub!: () => void;
+  const sub = createRoot((dispose) => {
+    disposeSub = dispose;
+    return createSubscription(streamingThunk(options.source), {
       onError: options.onError,
-    }),
-  );
+    });
+  });
+  // The subscription lives in a detached root so it works even when `.use()` is
+  // called OUTSIDE a reactive owner. Tie that root's dispose to the CALLER's owner
+  // when there IS one, so a bindingScoped host switch (which disposes the per-key
+  // root) disposes → aborts this subscription. Without this the sub LEAKS live past
+  // every switch and toasts the retired socket's error — the switch-toast bug was the
+  // visible edge of that leak (three live subs leaked per switch). An ownerless caller
+  // keeps the app-lifetime detached behavior: nothing to tie to, never a crash.
+  if (getOwner()) onCleanup(disposeSub);
 
   async function callMutate(p: P): Promise<void> {
     if (!options.mutate) {
@@ -179,7 +196,9 @@ function useCellLocal<Name extends string, T extends object, P>(
   // unnecessary effects for a one-time transition.
   let initialized = false;
 
-  const sub = createRoot(() => {
+  let disposeSub!: () => void;
+  const sub = createRoot((dispose) => {
+    disposeSub = dispose;
     const s = createSubscription(streamingThunk(options.source), {
       onError: options.onError,
     });
@@ -196,6 +215,9 @@ function useCellLocal<Name extends string, T extends object, P>(
     );
     return s;
   });
+  // Tie the detached root's dispose to the caller's owner so a switch disposes →
+  // aborts the sub (see useCellServer). Ownerless callers stay app-lifetime.
+  if (getOwner()) onCleanup(disposeSub);
 
   function applyLocal(p: P): void {
     if (options.mergeIntoStore) {
