@@ -103,7 +103,7 @@ extension-carrying package would impose.
 | `@kolu/surface-app` | `cacheControlFor`, `isImmutableAssetPath`, `clientIsStale`, `isCleanRef`, `SHELL_COMMIT_GLOBAL`, `shellCommitScript`, `injectShellCommit`, `SW_SOURCE`, `NOTIFICATION_SW_SOURCE`, `SERVER_PROCESS_ID_PARAM`, `STALE_PROCESS_CLOSE_CODE`, `rejectStaleProcess` — the pure, framework-free kernels (incl. the shell-carried commit and the stale-tab handshake wire contract) | core |
 | `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer`, `serverIdentity`, `surfaceAppServer` (Hono; `serverIdentity`/`surfaceAppServer` expose the minted `processId` for the gate), `gateStaleSocket` (the WS-upgrade handshake gate — error-handler-first, `rejectStaleProcess`, close `4001` — in the one correct order), `startWsHeartbeat` (the server-side liveness reaper), `acceptSurfaceSocket` (owns the reaper AND sequences stale-gate → enrol → dispatch in one `accept(...)`, so a socket can't be dispatched un-enrolled) | server |
 | `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo`, `surfaceAppSurface`, `surfaceAppSurfaceWith`, `ServerProbeSchema` — the standalone surface | common |
-| `@kolu/surface-app/solid` | `retireServiceWorker`, `registerServiceWorker`, `registerOrRetireServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider` (turnkey `{ ws, probe }` source handles the whole stale-tab handshake), `useSurfaceApp`, `createServerLifecycle` (derives the lifecycle AND, default-on, runs the half-open liveness heartbeat — `onProcessId` / `onStaleRestart` / `restartCloseCode` / `heartbeat`), `connectSurface` / `connectSurfaces` (the turnkey single- / multi-surface seams: socket + client(s) + default-on heartbeat in one call, for per-host fleet sockets), `createLiveSignal` (re-exported from `@kolu/surface/solid`, where it now lives beside the module-private brand so nothing can forge one — the single, unforgeable minter of a watchdog-backed `LiveSignal`: it wires the half-open heartbeat AND brands the live signal `surfaceClient` requires over a websocket; the seams wrap it, a hand-built client calls it directly), `retireSocket` | client |
+| `@kolu/surface-app/solid` | `retireServiceWorker`, `registerServiceWorker`, `registerOrRetireServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider` (turnkey `{ ws, probe }` source handles the whole stale-tab handshake), `useSurfaceApp`, `createServerLifecycle` (derives the lifecycle AND, default-on, runs the half-open liveness heartbeat — `onProcessId` / `onStaleRestart` / `restartCloseCode` / `heartbeat`), `connectSurface` / `connectSurfaces` (the turnkey single- / multi-surface seams: socket + client(s) + default-on heartbeat in one call, for per-host fleet sockets), `createLiveSignal` (re-exported from `@kolu/surface/solid`, where it now lives beside the module-private brand so nothing can forge one — the single, unforgeable minter of a watchdog-backed `LiveSignal`: it wires the half-open heartbeat AND brands the live signal `surfaceClient` requires over a websocket; the seams wrap it, a hand-built client calls it directly), `retireSocket`, plus the **multi-connection primitives** — `createActiveConnectionManager` (a keyed cache of live connections with ONE active, the client twin of surface-nix-host's `buildHostRegistry`), `connectionScoped` (a subscription re-keyed on the active connection), and `createKeyedRoot` (the keyed-root swap both ride) — see [Multiple connections, one active](#multiple-connections-one-active--the-live-host-switch) | client |
 | `@kolu/surface-app/connect` | `createProcessIdEcho`, `createSurfaceSocket`, `createHeartbeat`, `retireOnStaleClose` — framework-free client transport: the shared `pid`-echo, the `new PartySocket(...)` construction with that echo'd URL thunk, the half-open-socket watchdog, and the per-socket stale-close self-retire. The link + clients + lifecycle stay with the consumer (they differ per app) | client |
 | `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `registerServiceWorker`, `registerOrRetireServiceWorker`, `reloadForUpdate`, `shellCommit`, `retireSocket` — framework-free, for root setup before any component (`registerOrRetireServiceWorker()` is the boot-time register-or-retire policy both kolu and pulam-web call — register the notification worker, fall back to `retireServiceWorker()` if it fails; `shellCommit()` reads the shell-carried build commit; `retireSocket` is the stale-tab transport teardown the `/solid` lifecycle's `onStaleRestart` calls; it lives here because it's pure transport manipulation, no SolidJS) | client |
 | `@kolu/surface-app/vite` | `surfaceApp()` plugin, `resolveCommit()` | build (Vite) |
@@ -298,7 +298,7 @@ const probeIdentity = (): Promise<ServerProbe> =>
 
 // at the root — surface-app derives the connection lifecycle from the transport:
 <SurfaceAppProvider
-  controlPlane={clients.surfaceApp}                // typed: must carry the buildInfo cell
+  controlPlane={() => clients.surfaceApp}          // ACCESSOR (S5): re-read on a host swap → re-derives buildInfo
   clientCommit={shellCommit()}                     // the commit the no-store shell carries
   ws={ws}                                          // open/close → connecting/live/down
   probe={probeIdentity}                            // { processId } → reconnected vs restarted
@@ -334,7 +334,42 @@ const pwa = useSurfaceApp();
 //                         one-click affordance on it, not all install.
 ```
 
-**No styled components ship** — a tailwind app and a different-CSS app render their own chrome from the same model. `controlPlane` takes one client; a many-client app (one per host) passes its *control-plane* client, since the model is global.
+**No styled components ship** — a tailwind app and a different-CSS app render their own chrome from the same model. `controlPlane` is an **`Accessor<ControlPlane<T>>`** (S5), not a bare client: a single-host app passes `() => clients.surfaceApp`; a many-host app that live-switches which host it views passes `() => activeConnection().clients.surfaceApp`, and the provider re-derives its build-identity subscription **per control-plane identity** (via `createKeyedRoot`) — tearing down the old host's `buildInfo` stream and opening the new one on every swap, so an in-place host switch needs no reload and no stale stream leaks (the #1687 gray-chip class, designed out). The model itself stays global.
+
+## Multiple connections, one active — the live host switch
+
+Some surface-app clients hold **several** live server connections and let each browser tab pick — and live-switch, no reload — which one it views. kolu is the first: a warm pool of padi bindings (one per machine), one active per tab. As the **client-side twin of surface-nix-host's server-side [`buildHostRegistry`](../surface-nix-host/#the-pieces)**, three `/solid` primitives own that shape so an app supplies only *policy*.
+
+### `createActiveConnectionManager<K, C>(opts)`
+
+**A keyed cache of live client connections with exactly ONE active.** Switching the active key RETIRES the outgoing connection (its `dispose()` closes the socket + stubs `send` to throw a typed retired-transport error, so a late call can't misroute), warms the incoming one with a slow async step where **last intent wins** over overlapping picks, and falls back when a server rejects the active key at the handshake. Domain-agnostic by construction — it knows nothing about hosts, ssh, or toasts; the app plugs the volatile parts in as POLICY and reads back `activeKey`, `activeConnection`, `connectionScoped`, `switchTo`, and `setActive`.
+
+```ts
+const manager = createActiveConnectionManager<string, Binding>({
+  initialKey: LOCAL,
+  makeConnection: (host) => buildBinding(host),        // connectSurfaces + lifecycle + retire
+  socketOf: (b) => b.ws,                               // which socket carries the rejection
+  isFallbackKey: (h) => h === LOCAL,
+  fallbackKey: LOCAL,
+  serverRejectedCloseCode: 1008,                       // the handshake-rejection predicate
+  warm: (host, active) => active.link.hosts.add({ host }), // slow add-then-connect
+  onWarmError: (host, err, superseded) => { if (!superseded) toast.error(/* … */); },
+  onServerRejected: (host) => { toast.error(/* … */); void manager.switchTo(LOCAL); },
+  persistence: { read: readStoredHost, store: storeHost }, // per-tab (sessionStorage)
+});
+manager.activeKey();          // reactive — every reader re-derives on a switch
+await manager.switchTo(host); // warm (last-intent-wins over overlapping picks), then swap
+```
+
+The 1008 reaction is a POLICY CALLBACK (`onServerRejected`), not a config string: the manager owns the *predicate* (right close code · still active · non-fallback key) but *which* key to land on and how to word the toast are the app's. `onWarmError` carries a `superseded` flag so a pick the user has already moved on from stays silent. Pick-epoch bookkeeping makes re-picking the CURRENT key cancel an in-flight warm for a different one.
+
+### `connectionScoped(connectionKey, connection, factory)`
+
+**A subscription factory keyed to the SWAPPABLE connection.** `factory(connection())` re-runs whenever the active connection changes (`connectionKey` flips), the prior root disposed first (no stale sub leaks across the swap — the #1687 gray-chip class), the value populated synchronously on the first read. Two accessors, deliberately: `connectionKey` is the STABLE identity, `connection` the current VALUE — often a fresh object each swap (a retired binding is rebuilt), so keying on the value would re-run on every incidental rebuild. `manager.connectionScoped(factory)` is the pre-bound form; an app's app-lifetime singleton subs alias it (kolu's `bindingScoped` / `useBindingScopedSub`) so its consumers re-key on a switch without renaming. This is the framework endpoint a client's module-global subs re-key through without a per-consumer scope-through-context port.
+
+### `createKeyedRoot(key, factory)`
+
+**The keyed-root swap the two above ride** (and the provider's own per-control-plane `buildInfo` cell). A value re-derived under a FRESH `createRoot` per `key` change — the prior root, and every subscription/effect it owns, disposed synchronously on the swap — kept eager + synchronous (present on the first read, never a tick late). It is a nested child of the caller's owner, unlike `@kolu/surface`'s detached root whose disposer is discarded, so the swap tears the old root down rather than leaking it. Must run under a reactive owner.
 
 ## Build identity is an interface
 
