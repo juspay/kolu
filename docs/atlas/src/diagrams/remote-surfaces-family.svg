@@ -32,10 +32,10 @@
   <rect x="44" y="372" width="370" height="112" fill="#241f2e" stroke="#a56de2" rx="8"/>
   <text x="229" y="392" text-anchor="middle" fill="#cfa9f5" font-weight="bold" font-size="12">kolu browser</text>
   <text x="229" y="410" text-anchor="middle" fill="#b9a3d6" font-size="11">canvas = useEntry(activeHost) — switch = a signal write</text>
-  <text x="229" y="426" text-anchor="middle" fill="#b9a3d6" font-size="11">switcher chips (MAIN chrome): every host's status +</text>
-  <text x="229" y="442" text-anchor="middle" fill="#b9a3d6" font-size="11">urgency LIVE — multi-active = N keys, one tab</text>
+  <text x="229" y="426" text-anchor="middle" fill="#b9a3d6" font-size="11">selector strip (drishti-like) + add/remove buttons —</text>
+  <text x="229" y="442" text-anchor="middle" fill="#b9a3d6" font-size="11">gated on KOLU_PADI_HOST · chips: status + urgency LIVE</text>
   <text x="229" y="462" text-anchor="middle" fill="#9d84c0" font-size="10.5">fallback policy reads entries — a value, not a callback</text>
-  <text x="229" y="478" text-anchor="middle" fill="#9d84c0" font-size="10.5">Labs keeps only free-type host add</text>
+  <text x="229" y="478" text-anchor="middle" fill="#9d84c0" font-size="10.5">env seeds the pool · runtime add/remove ephemeral · no recentHosts</text>
 
   <text x="229" y="506" text-anchor="middle" fill="#6e6e80" font-size="10.5">DEAD: activeConnectionManager · per-host sockets · pick-epoch</text>
   <text x="229" y="521" text-anchor="middle" fill="#6e6e80" font-size="10.5">retire-stubbing · useBindingScopedSub/bindingScoped/reSub tower</text>
