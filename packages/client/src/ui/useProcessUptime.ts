@@ -17,11 +17,11 @@
 import { toast } from "solid-sonner";
 import { useBindingScopedSub } from "../binding/bindings";
 
-// W4 "the switch": `bindingScoped` re-keys the sub onto the ACTIVE host's socket, so
-// the uptime rail never reads a boot-binding socket that a switch-away retired
-// (closed). The `processStartedAt` cell is kolu-server's own host-independent
-// surface, served on every per-host socket; only the socket is per-binding.
-// `createSharedRoot` gives `bindingScoped` its app-lifetime reactive owner.
+// W4 "the switch": the `processStartedAt` cell is now built PER HOST (A1) — each host's
+// router serves `{ server, padi }` where `padi` is THAT host's padi boot time (from the
+// entry's `session.identity().startedAt`) and `server` is kolu-server's own (host-
+// independent) boot. `useBindingScopedSub` re-keys the sub onto the active binding on a
+// switch, so `padiStartedAt()` shows the host you're viewing, not the boot default's.
 const uptime = useBindingScopedSub((b) =>
   b.clients.kolu.cells.processStartedAt.use({
     onError: (err) => toast.error(`Uptime readout error: ${err.message}`),

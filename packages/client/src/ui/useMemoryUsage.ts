@@ -24,24 +24,29 @@ import {
 import { getClockNow } from "../time/clock";
 import { readJsHeapUsedBytes } from "./memory";
 
-// W4 "the switch": `bindingScoped` so the sub re-keys onto the ACTIVE host's socket.
-// The `processMemory` cell is kolu-server's own (host-independent) surface, served
-// on every per-host socket — but the SOCKET the sub reads through is per-binding, and
-// switching away RETIRES (closes) the old binding's socket. `bindingScoped` re-opens
-// the sub against the live active binding, so the rail never reads a dead socket.
-// `createSharedRoot` gives `bindingScoped` its app-lifetime reactive owner.
-const memory = useBindingScopedSub((b) =>
+// W4 "the switch": two sources, two scopes.
+//  - `serverRssBytes` is kolu-server's OWN RSS — host-INDEPENDENT (one kolu-server), so
+//    it rides the shared `kolu.processMemory` cell; `useBindingScopedSub` still re-keys
+//    the sub onto the active binding so the rail never reads a switched-away dead socket.
+//  - padi + kaval RSS are PER-HOST facts (each host runs its own padi + kaval). They ride
+//    the ACTIVE host's RE-SERVED `padi.processMemory` cell (A1), so after a switch the
+//    rail shows the host you're viewing — not the boot default's memory.
+const koluMemory = useBindingScopedSub((b) =>
   b.clients.kolu.cells.processMemory.use({
     onError: (err) => toast.error(`Memory readout error: ${err.message}`),
   }),
 );
-const sub = () => memory()();
+const padiMemory = useBindingScopedSub((b) =>
+  b.clients.padi.cells.processMemory.use({
+    onError: (err) => toast.error(`Padi memory readout error: ${err.message}`),
+  }),
+);
 
 /** The kolu-server process's RSS in bytes, or `null` before the first server
  *  yield (it's always a real number once a sample lands — the server measures
  *  itself). */
 export function serverRssBytes(): number | null {
-  return sub().value()?.serverRssBytes ?? null;
+  return koluMemory()().value()?.serverRssBytes ?? null;
 }
 
 /** A per-process RSS reading projected for DISPLAY — `{ kind: "ok", rssBytes }`,
@@ -68,7 +73,7 @@ export function padiMemoryDisplay():
   | { kind: "ok"; rssBytes: number }
   | { kind: "error" }
   | null {
-  return displayRss(sub().value()?.padi);
+  return displayRss(padiMemory()().value()?.padi);
 }
 
 /** The kaval daemon's memory projected for display (see {@link displayRss}), with
@@ -81,7 +86,7 @@ export function kavalMemoryDisplay():
   | { kind: "error" }
   | null {
   if (localDaemonStatus()?.state !== "connected") return null;
-  return displayRss(sub().value()?.kaval);
+  return displayRss(padiMemory()().value()?.kaval);
 }
 
 /** This browser's used JS heap in bytes, refreshed every second off the shared

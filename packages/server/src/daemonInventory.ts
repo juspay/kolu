@@ -138,8 +138,11 @@ export const DAEMON_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
  *  `surfaceVersion` and convergence banner refresh at once. */
 export function startDaemonInventorySampler(
   deps: DaemonInventoryDeps,
-  subscribeResample?: (resample: () => void) => void,
-): void {
+  // Returns an unsubscribe fn (e.g. `session.onState`'s) so the sampler's disposer can
+  // release it; a resampler that returns nothing is fine too.
+  // biome-ignore lint/suspicious/noConfusingVoidType: the resampler may return an unsub OR nothing — void is the honest union member.
+  subscribeResample?: (resample: () => void) => (() => void) | void,
+): () => void {
   let inFlight = false;
   let pending = false;
   const tick = (): void => {
@@ -171,6 +174,15 @@ export function startDaemonInventorySampler(
       });
   };
   tick();
-  setInterval(tick, DAEMON_INVENTORY_SAMPLE_INTERVAL_MS).unref();
-  subscribeResample?.(tick);
+  const interval = setInterval(tick, DAEMON_INVENTORY_SAMPLE_INTERVAL_MS);
+  interval.unref();
+  // W4 — the per-host sampler is torn down when its host is removed from the pool
+  // (`hosts.remove` / a C2 guest-fault retire), so return a disposer that stops the
+  // interval AND unsubscribes the resample (a `subscribeResample` that returns an
+  // unsub — `session.onState` does — is unwired here; a `void` return is fine too).
+  const offResample = subscribeResample?.(tick);
+  return () => {
+    clearInterval(interval);
+    offResample?.();
+  };
 }

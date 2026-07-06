@@ -78,6 +78,18 @@ export interface HostPoolDeps {
    *  spliced beside each host's re-served padi. Host-independent — the same
    *  preferences / buildInfo / memory cells on every handler. */
   koluSurfaceRouter: { surface: Record<string, unknown> };
+  /** Build THIS host's per-host `kolu` cell fragment — `processStartedAt` +
+   *  `daemonInventory`, wired to the entry's session (A1). Injected so index.ts owns
+   *  the server-own facts + machine-scan seams and hostPool stays composition-only;
+   *  its `dispose` is called when the host leaves the pool. */
+  buildHostKoluCells: (
+    host: string,
+    session: PadiSession,
+  ) => {
+    processStartedAt: unknown;
+    daemonInventory: unknown;
+    dispose: () => void;
+  };
   /** The oRPC handler plugins (logging, …) — one per-host `WsRPCHandler` each. */
   // biome-ignore lint/suspicious/noExplicitAny: passed straight to WsRPCHandler options; the concrete plugin array is assembled in index.ts.
   rpcPlugins: any;
@@ -132,6 +144,11 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
   // second concurrent add JOINS the first's promise instead of racing it.
   const adding = new Map<string, Promise<void>>();
 
+  // Per-host samplers (the `processStartedAt`/`daemonInventory` cell publishers built in
+  // buildEntry) — torn down when the host leaves the pool, so a removed guest doesn't
+  // leak an unref'd 10s scan + a held `onState` closure on a destroyed session.
+  const koluCellDisposers = new Map<string, () => void>();
+
   const hosts = {
     add: async (host: string): Promise<void> => {
       if (host === LOCAL_HOST) return; // the local host is always present.
@@ -156,6 +173,8 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
       // add/remove-able resource; log its teardown in a greppable format.
       log.info({ host }, `hostPool: ${host} binding retired`);
       await registry.remove(host);
+      koluCellDisposers.get(host)?.();
+      koluCellDisposers.delete(host);
     },
   };
 
@@ -235,10 +254,26 @@ export function buildHostPool(deps: HostPoolDeps): HostPool {
       // host's re-served padi, plus the raw RPCs. `daemon.restart` drains THIS
       // host's padi; `hosts.*` operate on the shared pool; `server.info` carries
       // the server-wide default host.
+      // A1 — THIS host's per-host `kolu` cell fragment (processStartedAt +
+      // daemonInventory, wired to the entry's session). Spliced OVER the shared
+      // `kolu` namespace so a tab reads the ACTIVE host's padi uptime/build/
+      // convergence, not the boot default's. Disposed when the host leaves the pool.
+      const perHostKolu = deps.buildHostKoluCells(host, session);
+      koluCellDisposers.set(host, perHostKolu.dispose);
+
       const appRouter = buildAppRouter({
         surfaceRouter: {
           surface: {
             ...deps.koluSurfaceRouter.surface,
+            kolu: {
+              ...(
+                deps.koluSurfaceRouter.surface as {
+                  kolu: Record<string, unknown>;
+                }
+              ).kolu,
+              processStartedAt: perHostKolu.processStartedAt,
+              daemonInventory: perHostKolu.daemonInventory,
+            },
             padi: (reServed.router as { surface: Record<string, unknown> })
               .surface,
           },

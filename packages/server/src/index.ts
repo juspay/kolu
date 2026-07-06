@@ -37,11 +37,9 @@ import {
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
 import { type WebSocket, WebSocketServer } from "ws";
-import { startDaemonInventorySampler } from "./daemonInventory.ts";
 import {
   serverHostname,
   serverProcessId,
-  serverStartedAt,
   serverVersion,
 } from "./hostname.ts";
 import { buildHostPool, LOCAL_HOST } from "./hostPool.ts";
@@ -52,6 +50,7 @@ import {
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
+import { wirePerHostKoluCells } from "./perHostKoluCells.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { remotePadiHost } from "./remotePadiBinding.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
@@ -257,6 +256,17 @@ const pool = buildHostPool({
   },
   remoteSpawnVersion: serverVersion,
   koluSurfaceRouter,
+  // A1 — each pool entry gets its OWN per-host `kolu` diagnostic cells (padi uptime +
+  // daemon inventory), wired to that entry's session. index.ts owns the server-own
+  // facts (`serverStartedAt`) + the machine-scan seams; hostPool splices the result.
+  buildHostKoluCells: (host, session) =>
+    wirePerHostKoluCells({
+      host,
+      session,
+      discoverKavals: discoverKavalDaemons,
+      discoverPadis: discoverPadiDaemons,
+      probe: probeKavalStatus,
+    }),
   rpcPlugins,
 });
 
@@ -582,71 +592,12 @@ startMemorySampler(
   (resample) => defaultSession.onState(() => resample()),
 );
 
-// Map the base `session.identity()` sum onto the three daemon-inventory readouts the
-// dialog reads (uptime · contract version · navigable commit). `identity()` is TOTAL
-// (disconnected | anonymous | identified); padi always DECLARES its build, so a bound
-// padi is always `identified`, a mid-reconnect gap is `disconnected` (never
-// `anonymous`). This REPLACES the six bespoke `padiStartedAt`/`padiSurfaceVersion`/…
-// readouts with one universal member (S4).
-const padiStartedAt = (): number | null => {
-  const id = defaultSession.identity();
-  return id.kind === "disconnected" ? null : id.startedAt;
-};
-const padiSurfaceVersion = (): string | null => {
-  const id = defaultSession.identity();
-  return id.kind === "identified" ? id.baked.contractVersion : null;
-};
-const padiBuildCommit = (): string | null => {
-  const id = defaultSession.identity();
-  // A navigable commit → its sha; a dev build (or unidentified) → null (honest "—").
-  return id.kind === "identified" && id.baked.commit.kind === "commit"
-    ? id.baked.commit.sha
-    : null;
-};
-
-// Publish the rail's uptime source off the DEFAULT host's session state: kolu-server's
-// own boot time (constant) plus the bound padi's honest boot time (`null` while
-// unbound). A padi (re)connect refreshes padi's uptime and a drop clears it to the
-// honest "unknown" at once — never a stale age. The `padiLink` cell that once rode this
-// same `onState` retired at W4 (per-host readiness moved to the padi `connection` cell);
-// only the uptime publish remains here, bound to the default host.
-defaultSession.onState(() => {
-  koluSurfaceCtx.cells.processStartedAt.set({
-    server: serverStartedAt,
-    padi: padiStartedAt(),
-  });
-});
-
-// Feed the Kaval + Padi dialogs' host-daemon inventory. The BOUND host's daemons now
-// ride padiSurface's `hostInventory` member (padi scans its OWN host — the one scanner,
-// homed in @kolu/padi — and marks the kaval it holds + itself active); that member rides
-// the re-served surface straight to the client, so the dialog's bound-host list works
-// identically local and remote. Here kolu-server publishes only what IT knows on
-// koluSurface's `daemonInventory`: the binding host, its OWN machine's scan (only under a
-// remote binding, where that machine is not the bound host — so a leak on the machine
-// you're actually using stays visible; the SAME `enumerateHostDaemons` the member uses,
-// marking none active), and the bound padi's honest identity + a standing convergence
-// anomaly off its control-core `hello`. A padi (re)bind force-samples so version +
-// convergence refresh at once.
-startDaemonInventorySampler(
-  {
-    discoverKavals: discoverKavalDaemons,
-    discoverPadis: discoverPadiDaemons,
-    probe: probeKavalStatus,
-    activePadiSurfaceVersion: () => padiSurfaceVersion(),
-    activePadiBuildCommit: () => padiBuildCommit(),
-    activePadiConvergence: () => defaultSession.convergence(),
-    // The SINGLE bind knob: the remote host (`KOLU_PADI_HOST`), or null for a local bind
-    // (`|| null` folds an empty KOLU_PADI_HOST to null, matching the `remoteHost ?` bind
-    // decision above). daemonInventory derives `boundLocally = boundHost === null` — under
-    // a local binding the bound padi's `hostInventory` member already covers this machine,
-    // so no `localScan` is published (no duplicate list); under a remote binding kolu-server
-    // scans its own machine into `localScan`, labelled "this machine, not the bound host".
-    boundHost: bootHost ?? null,
-    publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
-  },
-  (resample) => defaultSession.onState(() => resample()),
-);
+// A1 — the padi uptime + daemon-inventory readouts are now built PER HOST in the pool
+// (`perHostKoluCells.ts`, wired per entry to that host's `session.identity()` /
+// `convergence()`), so a tab reads the ACTIVE host's facts, not the boot default's.
+// The default-host `processStartedAt` driver + `startDaemonInventorySampler` block that
+// lived here (pinned to `defaultSession`) moved there. `defaultSession` / `koluSurfaceCtx`
+// remain the memory sampler's + `readPadiMemoryOnce`'s + `persistRecentHosts`' owners.
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);

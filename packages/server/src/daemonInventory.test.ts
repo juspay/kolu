@@ -12,7 +12,7 @@
 import type { KavalProbe, PadiDaemon } from "@kolu/padi/assembly";
 import type { KavalDaemon } from "kaval";
 import type { DaemonInventory } from "kolu-common/surface";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   enumerateDaemonInventoryOnce,
   startDaemonInventorySampler,
@@ -242,5 +242,17 @@ describe("startDaemonInventorySampler", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(publishCount).toBe(2); // boot + ONE coalesced re-run (not 1 dropped, not 3 doubled)
     expect(gates.length).toBe(0);
+  });
+
+  it("W4: the returned disposer unsubscribes the resample (per-host teardown — no leaked onState closure)", () => {
+    // A1 runs one sampler PER pool host; a removed guest's sampler must be torn down, or
+    // it leaks an unref'd 10s scan + a held `session.onState` closure on a destroyed
+    // session. `dispose()` unsubscribes the resample the pool wired to `session.onState`.
+    const sampled = deps({ boundHost: null, publish: () => {} });
+    const offResample = vi.fn();
+    const dispose = startDaemonInventorySampler(sampled, () => offResample);
+    expect(offResample).not.toHaveBeenCalled();
+    dispose();
+    expect(offResample).toHaveBeenCalledTimes(1);
   });
 });

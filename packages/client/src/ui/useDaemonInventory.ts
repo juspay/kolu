@@ -26,18 +26,27 @@ import type {
 import { toast } from "solid-sonner";
 import { useBindingScopedSub } from "../binding/bindings";
 
-// W4 "the switch": `bindingScoped` re-keys the sub onto the ACTIVE host's socket, so
-// the dialogs never read a boot-binding socket that a switch-away retired (closed).
-// The `daemonInventory` cell is kolu-server's own host-independent surface (its
-// data describes kolu-server's own machine + bound host — an acceptable-for-scope
-// default-host diagnostic), served on every per-host socket; only the socket is
-// per-binding. `createSharedRoot` gives `bindingScoped` its reactive owner.
+// W4 "the switch": the `daemonInventory` cell is now built PER HOST (A1) — each host's
+// router serves its OWN binding + bound-padi identity/convergence, sampled from THAT
+// entry's `session.identity()`/`convergence()`. `useBindingScopedSub` re-keys the sub
+// onto the active binding on a switch, so the dialogs read the ACTIVE host's inventory,
+// not the boot default's. (`binding`/`localScan` describe kolu-server's OWN machine — the
+// same box for every host — but are now scoped per entry, so the label is the host's own.)
 const inventory = useBindingScopedSub((b) =>
   b.clients.kolu.cells.daemonInventory.use({
     onError: (err) => toast.error(`Daemon inventory error: ${err.message}`),
   }),
 );
 const sub = () => inventory()();
+
+// The bound padi's own self-declared surface version rides padi's OWN per-host `version`
+// cell (A1) — read it directly rather than through kolu-server's derived daemonInventory
+// readout, so the rail chip's "contract v<x.y>" is the padi's authoritative declaration.
+const padiVersion = useBindingScopedSub((b) =>
+  b.clients.padi.cells.version.use({
+    onError: (err) => toast.error(`Padi version error: ${err.message}`),
+  }),
+);
 
 /** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
  *  LOCAL binding / before the first enumeration. When non-null, the machine kolu-server
@@ -64,12 +73,12 @@ export function localScanPadis(): RunningPadi[] {
   return binding?.kind === "remote" ? binding.localScan.padis : [];
 }
 
-/** The `padiSurface` version the BOUND padi serves — its honest `hello.surfaceVersion`,
- *  or `null` while unbound / before the first sample (an honest "—", never the binder's
- *  build constant). Reads the bound-session readout (`boundPadi`), so it's correct over
- *  ssh too. Read by the Padi dialog + rail chip's "contract v<x.y>" readout. */
+/** The `padiSurface` version the ACTIVE host's bound padi serves — its own per-host
+ *  `version` cell (`contractVersion`), or `null` before the first yield (an honest "—").
+ *  Per-host by construction (padi's own re-served cell), so it's correct over ssh too.
+ *  Read by the Padi dialog + the rail chip's "contract v<x.y>" readout. */
 export function activePadiSurfaceVersion(): string | null {
-  return sub().value()?.boundPadi?.surfaceVersion ?? null;
+  return padiVersion()().value()?.contractVersion ?? null;
 }
 
 /** The BOUND padi's honest navigable git build commit off its `hello`, or `null` while

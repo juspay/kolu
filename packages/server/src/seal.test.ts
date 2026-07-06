@@ -76,6 +76,7 @@ const WEB_SHELL_FILES = [
   "padiSession",
   // (`padiLink` retired at W4 — the single server-wide binding→padi cell can't carry
   //  a warm POOL of N padis; per-host readiness moved to the padi `connection` cell.)
+  "perHostKoluCells",
   "pwaIdentity",
   // The web shell's catch-all `app.onError` logger — turns an uncaught route/
   // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview

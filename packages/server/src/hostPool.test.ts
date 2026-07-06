@@ -86,7 +86,12 @@ function makePool(opts?: {
     persistRecentHosts: opts?.persistRecentHosts ?? (() => {}),
     localArmOpts: {},
     remoteSpawnVersion: "1.0.0",
-    koluSurfaceRouter: { surface: {} },
+    koluSurfaceRouter: { surface: { kolu: {} } },
+    buildHostKoluCells: () => ({
+      processStartedAt: {},
+      daemonInventory: {},
+      dispose: () => {},
+    }),
     rpcPlugins: [],
   });
 }
