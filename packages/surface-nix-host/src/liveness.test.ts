@@ -25,8 +25,9 @@ import {
 import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { HostSession } from "./hostSession";
 import { provisionAgent } from "./nixCopy";
+import { type SessionState, makeSession } from "./session";
+import { type AgentClient, sshConnector } from "./sshConnector";
 
 vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
@@ -38,6 +39,20 @@ const surface = defineSurface({
   cells: { v: { schema: z.object({ n: z.number() }), default: { n: 0 } } },
 });
 type SurfaceContract = typeof surface.contract;
+
+/** Synchronous `SessionState` snapshot — the `.current()` the Session role
+ *  dropped. `onState` delivers the live value synchronously on subscribe, so a
+ *  fresh subscribe/unsubscribe reads the current state without waiting on async
+ *  delta delivery. */
+function snap(session: {
+  onState(cb: (s: SessionState) => void): () => void;
+}): SessionState {
+  let s!: SessionState;
+  session.onState((state) => {
+    s = state;
+  })();
+  return s;
+}
 
 /** A child serving the real surface over a loopback pair — it ANSWERS
  *  `system.live` — and stays alive until killed. */
@@ -83,15 +98,18 @@ function wedgedChild() {
   return { child, kill };
 }
 
-function makeSession(extra: Record<string, unknown> = {}) {
-  return new HostSession<SurfaceContract>({
-    host: "testhost",
-    resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
-    binary: "agent",
+function buildSession(extra: Record<string, unknown> = {}) {
+  return makeSession<AgentClient<SurfaceContract>>({
+    connectOnce: sshConnector<SurfaceContract>({
+      host: "testhost",
+      binary: "agent",
+      resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
+    }),
     reconnectDelayMs: 50,
     // One `liveness` knob: tune the cadence as an object (the same 15s/10s the
     // shared `DEFAULT_HEARTBEAT_*` constants default to), or `false` to disable.
     liveness: { intervalMs: 15_000, timeoutMs: 10_000 },
+    label: "testhost",
     ...extra,
   });
 }
@@ -116,14 +134,14 @@ describe("HostSession liveness watchdog", () => {
       kills.push(kill);
       return child as never;
     });
-    const session = makeSession();
+    const session = buildSession();
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(1);
-    expect(session.current().connection).toBe("connecting");
+    expect(snap(session).connection).toBe("connecting");
     // The bridge marks `connected` after the first RPC — simulate it (the watchdog
     // is born here, so it can never probe before the first connect).
     session.markConnected();
-    expect(session.current().connection).toBe("connected");
+    expect(snap(session).connection).toBe("connected");
     expect(spawn).toHaveBeenCalledTimes(1);
 
     // The watchdog probes at +15s; the wedged remote never answers.
@@ -147,17 +165,17 @@ describe("HostSession liveness watchdog", () => {
       kills.push(kill);
       return child as never;
     });
-    const session = makeSession();
+    const session = buildSession();
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(1);
     session.markConnected();
-    expect(session.current().connection).toBe("connected");
+    expect(snap(session).connection).toBe("connected");
 
     // Two full probe cycles (interval+timeout each). The agent answers every
     // probe, so the link is never force-cycled and the child never respawns.
     await vi.advanceTimersByTimeAsync(50_000);
     expect(kills[0]).not.toHaveBeenCalled();
-    expect(session.current().connection).toBe("connected");
+    expect(snap(session).connection).toBe("connected");
     expect(spawn).toHaveBeenCalledTimes(1);
 
     session.destroy();
@@ -171,22 +189,30 @@ describe("HostSession liveness watchdog", () => {
     // no-op: exactly ONE `connected` transition (so the consecutiveFailures reset +
     // the liveness-watchdog birth happen once, never twice).
     vi.mocked(spawn).mockImplementation(() => healthyChild().child as never);
-    const session = makeSession();
+    const session = buildSession();
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(1);
-    expect(session.current().connection).toBe("connecting");
+    expect(snap(session).connection).toBe("connecting");
 
+    // Count genuine connecting→connected TRANSITIONS (a non-connected prior flipping
+    // to connected), not raw connected frames: the async `system.identity` probe lands
+    // AFTER the first markConnected and republishes the state (a connected→connected
+    // frame, no transition) to wake onState consumers, so a raw connected-frame count
+    // would over-count that republish and mask the idempotence this test pins.
     let connectedTransitions = 0;
+    let prevConnection: string | null = null;
     const unsub = session.onState((s) => {
-      if (s.connection === "connected") connectedTransitions += 1;
+      if (s.connection === "connected" && prevConnection !== "connected")
+        connectedTransitions += 1;
+      prevConnection = s.connection;
     });
 
     session.markConnected(); // site 1 — the hello path: connecting → connected
     await vi.advanceTimersByTimeAsync(0); // flush the state-cell delivery
-    expect(session.current().connection).toBe("connected");
+    expect(snap(session).connection).toBe("connected");
     session.markConnected(); // site 2 — the first-frame call: guard makes it a no-op
     await vi.advanceTimersByTimeAsync(0);
-    expect(session.current().connection).toBe("connected");
+    expect(snap(session).connection).toBe("connected");
 
     expect(connectedTransitions).toBe(1);
     expect(spawn).toHaveBeenCalledTimes(1);
@@ -202,7 +228,7 @@ describe("HostSession liveness watchdog", () => {
       kills.push(kill);
       return child as never;
     });
-    const session = makeSession({ liveness: false });
+    const session = buildSession({ liveness: false });
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(1);
     session.markConnected();

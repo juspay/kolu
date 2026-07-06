@@ -36,7 +36,7 @@ import {
   parseAllowedOrigins,
   type UpgradeSocket,
 } from "@kolu/surface/ws-origin";
-import { destroyAllSessions, getHostSession } from "@kolu/surface-nix-host";
+import { makeSession, sshConnector } from "@kolu/surface-nix-host";
 import { RPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
@@ -67,14 +67,17 @@ async function main(): Promise<void> {
   }
   log(`host=${HOST}, agent drv=${DRV_PATH}`);
 
-  const session = getHostSession<typeof surface.contract>({
-    host: HOST,
-    // This example takes the .drv straight from the environment (no arch
-    // probe), so the resolver is a constant. Consumers that pick the .drv
-    // per host's nix-system pass an async probe here instead — see
-    // `resolveSystem` in @kolu/surface-nix-host.
-    resolveDrvPath: () => Promise.resolve(DRV_PATH),
-    binary: "process-monitor-agent",
+  const session = makeSession({
+    connectOnce: sshConnector<typeof surface.contract>({
+      host: HOST,
+      binary: "process-monitor-agent",
+      // This example takes the .drv straight from the environment (no arch
+      // probe), so the resolver is a constant. Consumers that pick the .drv
+      // per host's nix-system pass an async probe here instead — see
+      // `resolveSystem` in @kolu/surface-nix-host.
+      resolveDrvPath: () => Promise.resolve(DRV_PATH),
+    }),
+    label: `host:${HOST}`,
   });
   const { router } = buildRouter({ session });
 
@@ -167,8 +170,10 @@ async function main(): Promise<void> {
   });
 
   const shutdown = (sig: string) => {
-    log(`${sig}: destroying host sessions`);
-    destroyAllSessions();
+    log(`${sig}: destroying the host session`);
+    // This demo owns exactly ONE session (no shared pool — S10 deleted it), so it
+    // tears down its own on shutdown.
+    session.destroy();
     // `httpServer.close()` waits for in-flight connections to drain.
     // The browser's WebSocket is long-lived — it never closes on its
     // own — so a Ctrl+C hangs forever without forcing connections shut.

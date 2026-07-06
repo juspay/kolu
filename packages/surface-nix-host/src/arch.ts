@@ -27,15 +27,17 @@
  * inside the session's spawn cycle — an unreachable host then degrades to
  * `failed` and retries, instead of throwing before the session exists:
  *
- *   const session = getHostSession({
- *     host,
- *     binary,
- *     resolveDrvPath: async () => {
- *       const sys = await resolveSystem(host);
- *       const drv = myDrvBySystem[sys];
- *       if (!drv) throw new Error(`${host}: no .drv for ${sys}`);
- *       return drv;
- *     },
+ *   const session = makeSession({
+ *     connectOnce: sshConnector({
+ *       host,
+ *       binary,
+ *       resolveDrvPath: async () => {
+ *         const sys = await resolveSystem(host);
+ *         const drv = myDrvBySystem[sys];
+ *         if (!drv) throw new Error(`${host}: no .drv for ${sys}`);
+ *         return drv;
+ *       },
+ *     }),
  *   });
  */
 

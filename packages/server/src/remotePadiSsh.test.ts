@@ -45,7 +45,7 @@ import {
   type PadiHostInventory,
   type PadiTerminal,
 } from "@kolu/padi/surface";
-import { getHostSession, isLocalHost } from "@kolu/surface-nix-host";
+import { isLocalHost, makeSession, sshConnector } from "@kolu/surface-nix-host";
 import type { TerminalId } from "@kolu/terminal-workspace/schema";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -212,13 +212,19 @@ function findByCmdline(needle: string): number | undefined {
 describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
   const sessions: { destroy(): void }[] = [];
   const dial = () => {
-    const s = getHostSession<PadiDaemonContract>({
-      host: SSH_HOST as string,
-      binary: "padi",
-      // `buildAgentCommand` already runs the binary as `padi --stdio` (host.ts) and
-      // appends extraArgs AFTER it — so extraArgs must NOT re-pass `--stdio`.
-      extraArgs: [],
-      resolveDrvPath: async () => PADI_DRV as string,
+    // Post-S9 "a session over ssh" is `makeSession({ connectOnce: sshConnector(...) })`
+    // (the deleted `getHostSession` pool). Each `dial()` OWNS its fresh session — the
+    // convergence test's re-dial after a drain gets a genuinely new one, exactly as the
+    // old pooled `getHostSession` handed back a fresh session once the pooled link died.
+    const s = makeSession<PadiDaemonClient>({
+      connectOnce: sshConnector<PadiDaemonContract>({
+        host: SSH_HOST as string,
+        binary: "padi",
+        // `buildAgentCommand` already runs the binary as `padi --stdio` (host.ts) and
+        // appends extraArgs AFTER it — so extraArgs must NOT re-pass `--stdio`.
+        extraArgs: [],
+        resolveDrvPath: async () => PADI_DRV as string,
+      }),
       onLog: (line) => console.log(`[host] ${line}`),
     });
     sessions.push(s);

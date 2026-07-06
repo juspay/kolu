@@ -7,13 +7,13 @@
  *  fetch the shell still owned) so the layout shell stops carrying a non-layout
  *  fetch and drilling `appTitle` through every consumer. */
 
-import type { ServerIdentity } from "kolu-common/contract";
+import type { PwaIdentity } from "kolu-common/contract";
 import { createSignal } from "solid-js";
 import { createSharedRoot } from "./createSharedRoot";
 import { client } from "./wire";
 
 export const useServerIdentity = createSharedRoot(() => {
-  const [identity, setIdentity] = createSignal<ServerIdentity>();
+  const [identity, setIdentity] = createSignal<PwaIdentity>();
   void client.server
     .info()
     .then((info) => setIdentity(info.identity))
@@ -25,7 +25,7 @@ export const useServerIdentity = createSharedRoot(() => {
   // Expose only the named projections, not the raw `identity()` signal: a
   // consumer reaching past these to read `identity()?.name` would re-scatter the
   // "kolu" default `appTitle` centralizes and couple itself to the
-  // `ServerIdentity` shape. A future field gets its own projection here.
+  // `PwaIdentity` shape. A future field gets its own projection here.
   return {
     /** Document/window title — the server's name, or the "kolu" default. */
     appTitle: () => identity()?.name ?? "kolu",

@@ -65,7 +65,12 @@ import {
   writeStateRootManifest,
 } from "./stateRoot.ts";
 import { openPadiStateStores } from "./stateStore.ts";
-import { padiDaemonContract, padiDaemonSurfaces } from "./surface.ts";
+import { buildCommit } from "@kolu/surface/identity";
+import {
+  padiDaemonContract,
+  padiDaemonSurfaces,
+  PADI_SURFACE_VERSION,
+} from "./surface.ts";
 import { hasParkedTerminals } from "./terminal-registry.ts";
 import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
 import {
@@ -228,6 +233,21 @@ function serveDaemonSurfaces(
       channel: <T>(name: string) => publisherChannel<T>(publisher, name),
       onStreamReadError: (err, info) =>
         log.error({ err, stream: info.stream }, "padi stream read error"),
+      // DECLARE padi's build identity on the `padi` sibling's reserved
+      // `system.identity` — the member kolu-server's `session.identity()` reads for
+      // the daemon-inventory readout (contract version · uptime · build). Same values
+      // padi's control-core `hello` already echoes (the convergence axis reads THAT,
+      // unchanged); this is the READOUT axis via the framework member. The commit is
+      // the null-free `BuildCommit` sum (`""` off-nix → `dev`). padi always declares,
+      // so its served identity is always `identified`, never `anonymous`. (S4 —
+      // declared in the `SurfacesServed` phase, where the surfaces are implemented.)
+      identity: {
+        padi: {
+          contractVersion: PADI_SURFACE_VERSION,
+          buildId: currentPadiBuildId(),
+          commit: buildCommit(currentPadiCommitHash()),
+        },
+      },
     },
     {
       padi: buildPadiSurfaceDeps({ endpoint: localEndpoint, log: padiLog }),

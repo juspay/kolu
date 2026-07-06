@@ -7,10 +7,10 @@
  * unix socket, handshakes the FROZEN control core, and RE-SERVES `padiSurface`
  * to browsers through W2.1's {@link reServeSurface}. This module is the padi twin
  * of `@kolu/padi/ptyHost/{connect,localDriver,index}` (which supervise kaval),
- * but supervising PADI — plus the ONE piece with no kaval analog: a
- * {@link PadiBindingSession} that turns the one-shot supervisor {@link Endpoint}
- * into the reconnect-mirror `HostSession` shape `reServeSurface`'s pump loops
- * over.
+ * but supervising PADI — plus the ONE piece with no kaval analog: an
+ * `endpointConnector` that turns the self-converging supervisor {@link Endpoint}
+ * into the `connectOnce` transport plug `makeSession` loops over (post-S9 there is
+ * no wrapper class — the session is a base `Session` + the daemon members by spread).
  *
  * The DIAL itself (`connectPadi` / `dialPadiHello` — dial + control-core
  * handshake + typed skew refusal) is imported from `@kolu/padi/dial`: W2.3 carved
@@ -21,8 +21,9 @@
  * out because it varies with daemon-lifecycle skew policy, a different volatility than the
  * binder. What stays HERE is the binder proper — the parts that spawn/supervise/re-serve:
  *   1. `localPadiDriver`      — the twin of `localKavalDriver`: how to launch padi.
- *   2. `PadiBindingSession`   — Endpoint → reconnect-mirror `HostSession` (the crux).
- *   3. `ensurePadiBinding`    — the twin of `ensureLocalEndpoint`: boot the binding.
+ *   2. `ensurePadiBinding`    — the twin of `ensureLocalEndpoint`: build the binding
+ *                               (`makeSession` over a self-converging `endpointConnector`,
+ *                               daemon members by spread — the crux, no wrapper class).
  *
  * padi is NEVER kill-9'd. The boot/reconnect convergence DELEGATES to the shared
  * daemon-convergence kit (`@kolu/surface-daemon-supervisor`'s `converge`): {@link
@@ -56,24 +57,24 @@ import {
   type PadiSurfaceClient,
   scopePadiSurface,
 } from "@kolu/padi/dial";
-import { PADI_SURFACE_VERSION, type padiSurface } from "@kolu/padi/surface";
-import type { PadiConvergence } from "kolu-common/surface";
+import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
+  buildLabel,
   converge,
   createBuildDrainFence,
   createEndpoint,
   type DaemonDriver,
-  type Endpoint,
-  type EndpointStatus,
-  outcomeAdopted,
+  daemonBuild,
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import type {
-  HostSessionState,
-  RemoteMirrorSession,
+import {
+  type ClosedInfo,
+  ConnectError,
+  type Connector,
+  makeSession,
+  type Session,
 } from "@kolu/surface-nix-host";
-import { match, P } from "ts-pattern";
 import { log } from "./log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
@@ -84,21 +85,7 @@ import {
   PADI_CONVERGENCE_POLICY,
   probePadiForConvergence,
 } from "./padiConvergence.ts";
-
-// ── Types ──────────────────────────────────────────────────────────────────
-//
-// The connection/identity/client types (`PadiDaemonClient`, `PadiSurfaceClient`,
-// `PadiIdentity`, `PadiConnectionMetadata`, `PadiConnection`, `PadiDial`) moved
-// into `@kolu/padi/dial` with `connectPadi` in W2.3 and are imported above. The
-// SUPERVISION-only endpoint types stay here — they parameterize the supervisor
-// `Endpoint` a binder owns, which a plain dial has no business naming.
-
-type PadiEndpoint = Endpoint<
-  PadiDaemonClient,
-  PadiIdentity,
-  PadiConnectionMetadata
->;
-type PadiEndpointStatus = EndpointStatus<PadiIdentity, PadiConnectionMetadata>;
+import { asPadiSession, type PadiSession } from "./padiSession.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. localPadiDriver — the twin of localKavalDriver (…/ptyHost/localDriver.ts)
@@ -251,317 +238,6 @@ export function localPadiDriver(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. PadiBindingSession — Endpoint → reconnect-mirror `HostSession` adapter.
-//    ⚠️ NO kaval analog. THIS is the crux the cutover adds. `reServeSurface`'s
-//    pump loops on the `currentClient()` promise identity + `onState`; the
-//    supervisor Endpoint holds ONE connection and flips to `degraded` on close
-//    WITHOUT re-dialing. This adapter DRIVES the re-dial loop (`adoptOrSpawnOr-
-//    Refuse` on degraded/dead) and projects endpoint status onto HostSessionState,
-//    so the pump sees a fresh client per (re)bind.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Project an endpoint status onto the browser-facing `HostSessionState` the
- *  connection cell reads (via `pipeSessionStateToCell`). The endpoint's
- *  connecting|connected|degraded|dead|restarting collapse onto the cell's
- *  connecting|connected|disconnected — degraded/dead stays "disconnected" so the
- *  re-serve reads as honestly reconnecting (the loop always re-dials). */
-function projectEndpointStatus(s: PadiEndpointStatus): HostSessionState {
-  const connection = match(s.state)
-    .with("connected", () => "connected" as const)
-    .with(P.union("connecting", "restarting"), () => "connecting" as const)
-    // degraded | dead → disconnected: the loop always re-dials.
-    .with(P.union("degraded", "dead"), () => "disconnected" as const)
-    .exhaustive();
-  return {
-    connection,
-    progressLines: [],
-    remoteProgressLines: [],
-    lastError: null,
-    failureCause: null,
-  };
-}
-
-/**
- * What kolu-server needs from a bound padi, LOCAL or REMOTE: the
- * `RemoteMirrorSession` role `reServeSurface` consumes (pin · currentClient ·
- * onState · markConnected · isDestroyed · destroy) PLUS the four kolu-server-facing
- * readouts/verbs — the bound padi's honest identity (uptime · contract version ·
- * build commit, off the control-core `hello`) and the "restart" drain. index.ts
- * types `padiSession` as this, so the {@link PadiBindingSession} (local Endpoint)
- * and W3.1's `RemotePadiSession` (ssh HostSession) are interchangeable at the
- * composition root — the knob picks one, the re-serve and the router are identical.
- */
-export interface BoundPadi
-  extends RemoteMirrorSession<typeof padiSurface.contract> {
-  /** Narrowed from the role's `Promise<unknown>` to the padi-scoped client: both
-   *  arms yield exactly this, and kolu-server's iframe-preview + memory-sampler
-   *  routes call `.surface.padi.*` on it (a return-type narrowing is legal — the
-   *  role stays satisfied). */
-  pin(): Promise<PadiSurfaceClient>;
-  currentClient(): Promise<PadiSurfaceClient> | null;
-  /** DRAIN the bound padi (the "restart" verb): persist + exit; its kaval + PTYs
-   *  survive; the reconnect loop re-adopts/re-spawns. Never a kill-9. */
-  drainBoundPadi(): Promise<void>;
-  /** The bound padi's boot time (ms epoch), or `null` while unbound — the rail's
-   *  padi uptime. */
-  padiStartedAt(): number | null;
-  /** The bound padi's `padiSurface` version off its control-core `hello`, or `null`
-   *  while unbound — the daemonInventory "contract v<x.y>" readout. */
-  padiSurfaceVersion(): string | null;
-  /** The bound padi's navigable git build commit off its control-core `hello`, or
-   *  `null` while unbound / when a survivor padi predates the field. */
-  padiBuildCommit(): string | null;
-  /** A STANDING convergence anomaly to surface in the Padi dialog (adopted-stale build,
-   *  contract skew, drain-failure, link-failure), or `null` when converged/healthy — so a
-   *  degraded bind is a visible state, not a swallowed log line. The REMOTE arm returns the
-   *  real descriptor; the LOCAL arm returns `null` for now — the shared convergence kit
-   *  collapses a fence-spent adopt to a bare `{kind:"adopted"}` that drops the stale-vs-fresh
-   *  distinction, so local adopt-stale can't be surfaced without a kit change (L23 follow-up;
-   *  the local arm silently adopts today, pre-existing). */
-  padiConvergence(): PadiConvergence | null;
-}
-
-export interface PadiBindingSessionDeps {
-  endpoint: PadiEndpoint;
-  /** Kick the boot/reconnect: `adoptOrSpawnOrRefuse` on boot, and again after a
-   *  degraded close (re-adopt the surviving padi, or spawn fresh if it died). */
-  connectOnce: () => Promise<boolean>;
-  /** Backoff between a degraded close and the next reconnect attempt. */
-  reconnectDelayMs?: number;
-}
-
-/**
- * The bound padi's HONEST identity off its control-core `hello` — the three
- * kolu-server-facing readouts as ONE value, so they can never disagree about
- * whether padi is bound. Present ⇔ padi is bound (a fresh `connected` sets the
- * whole record); `null` ⇔ unbound (a degraded/dead close, or `destroy`, clears
- * the whole record) — the three fields share EXACTLY one lifecycle, so one
- * nullable value makes a partial identity (e.g. an uptime with no version)
- * unrepresentable (illegal-states-unrepresentable; L6, collapsing three parallel
- * nullable fields set/cleared together in four places).
- *
- * Each member is itself nullable for an honest per-field "unknown" WHILE bound:
- *   - `startedAtMs` — boot time (ms epoch), off the connected status's `startedAt`
- *     (`hello.startedAt`). Feeds koluSurface's `processStartedAt` cell (the rail's
- *     padi uptime). `null` while unbound renders as the honest "unknown".
- *   - `surfaceVersion` — the `padiSurface` version the LIVE padi serves, off the
- *     handshake identity (`connectPadi` → `identity.surfaceVersion`; the handshake
- *     proved it compatible). Feeds `daemonInventory` (the Padi dialog + rail chip's
- *     "contract v<x.y>"). Read off the live padi, not the binder's build constant.
- *   - `buildCommit` — the running padi's navigable git commit off the same identity
- *     (`identity.commit`), or `null` when a survivor padi predates the field (off-nix
- *     reads "—", not a blank link). Feeds `daemonInventory`'s "build commit".
- */
-type BoundIdentity = {
-  startedAtMs: number | null;
-  surfaceVersion: string | null;
-  buildCommit: string | null;
-};
-
-/**
- * The reconnect-mirror session over the supervisor Endpoint. Drives:
- *   - boot: `connectOnce()` → `endpoint.current()` holds the live connection.
- *   - reconnect: on the endpoint reporting degraded/dead, wait a backoff then
- *     `connectOnce()` again → a FRESH `currentClient()` promise → the pump rebinds.
- *   - onState: projected from the endpoint's onStatus (wired in ensurePadiBinding).
- *
- * Each successful connect swaps `clientPromise` to a NEW resolved promise so the
- * pump's client cursor advances on identity. `currentClient()`/`pin()` return the
- * padi-SIBLING-scoped client (the dial kit's `scopePadiSurface(combined)`).
- */
-export class PadiBindingSession implements BoundPadi {
-  private clientPromise: Promise<PadiSurfaceClient> | null = null;
-  private destroyed = false;
-  /** The bound padi's HONEST identity (boot time · surface version · build commit)
-   *  as ONE value, or `null` while padi is unbound. Managed on the SAME lifecycle as
-   *  `clientPromise` — the whole record is set on a fresh `connected` (a respawned padi
-   *  is a new process, so its identity is fresh) and cleared on a degraded/dead close —
-   *  so the three readouts report the LIVE padi or an honest "unknown" together, never a
-   *  stale mix from the old process. See {@link BoundIdentity} for each field's cell. */
-  private boundIdentity: BoundIdentity | null = null;
-  /** A reconnect timer is already scheduled — so overlapping degraded/dead events
-   *  (a close, then the endpoint's own `dead` emit) don't STACK timers, each firing
-   *  its own `adoptOrSpawnOrRefuse`. Cleared when the scheduled attempt fires. */
-  private reconnectPending = false;
-  private readonly stateListeners = new Set<(s: HostSessionState) => void>();
-  private state: HostSessionState = projectEndpointStatus({
-    state: "connecting",
-  });
-
-  constructor(private readonly deps: PadiBindingSessionDeps) {}
-
-  /** Called by ensurePadiBinding on each endpoint status. Re-derives the scoped
-   *  client on a fresh `connected`, and schedules a reconnect on degraded/dead. */
-  onEndpointStatus(s: PadiEndpointStatus): void {
-    // Manage the client handle FIRST (so a listener woken by fire() sees the fresh
-    // currentClient()), then project + fire ONCE for every transition.
-    match(s.state)
-      .with("connected", () => {
-        // padi's honest identity as ONE record. Boot time rides the connected STATUS
-        // (`hello.startedAt` → endpoint `startedAt`), read off the status not
-        // `endpoint.current()` so a respawned padi's FRESH boot time lands (never the
-        // old process's); the surface version + build commit ride the held connection's
-        // handshake identity (the version the LIVE padi serves, so the Padi dialog/rail
-        // read it rather than the binder's build constant; commit "" → null, the honest
-        // "unknown", so off-nix reads "—" not a blank link).
-        const conn = this.deps.endpoint.current();
-        this.boundIdentity = {
-          startedAtMs: s.startedAt ?? null,
-          surfaceVersion: conn?.identity?.surfaceVersion ?? null,
-          buildCommit: conn?.identity?.commit || null,
-        };
-        if (conn) {
-          // Scope the COMBINED dialed client down to the padi sibling so the relay's
-          // `client.surface.<member>` resolves at /surface/padi/<member>. The binder
-          // keeps `conn.client` (combined) for supervision (`control.core.drain`) and
-          // uses the dial kit's projection only for the relay's scoped client.
-          const scoped = scopePadiSurface(conn.client);
-          this.clientPromise = Promise.resolve(scoped);
-        }
-      })
-      .with(P.union("degraded", "dead"), () => {
-        // The live link dropped. Clear the client so a forward in the gap fails
-        // honestly, clear padi's identity so its uptime/version/commit read the honest
-        // "unknown" together (never a stale mix), then schedule ONE reconnect (padi
-        // survives its own unit; the re-adopt re-attaches the surviving kaval + PTYs).
-        this.clientPromise = null;
-        this.boundIdentity = null;
-        this.scheduleReconnect();
-      })
-      // connecting | restarting: transient warming — no client-handle change; the
-      // projected state below carries the frame.
-      .with(P.union("connecting", "restarting"), () => {})
-      .exhaustive();
-    this.setState(projectEndpointStatus(s));
-    this.fire();
-  }
-
-  /** Schedule a single reconnect, guarded so overlapping degraded/dead events
-   *  don't stack timers. A fixed backoff is enough — `adoptOrSpawnOrRefuse` is
-   *  itself idempotent (adopt the survivor, or spawn fresh). */
-  private scheduleReconnect(): void {
-    if (this.destroyed || this.reconnectPending) return;
-    this.reconnectPending = true;
-    setTimeout(() => {
-      this.reconnectPending = false;
-      if (this.destroyed) return;
-      void this.deps.connectOnce().catch((err) => {
-        // A failed reconnect leaves the endpoint reporting degraded/dead, which
-        // fires onEndpointStatus again → the next scheduleReconnect keeps trying.
-        log.error({ err }, "padi reconnect attempt failed");
-      });
-    }, this.deps.reconnectDelayMs ?? 2000);
-  }
-
-  pin(): Promise<PadiSurfaceClient> {
-    // The pump pins ONCE. If no client yet, reject harmlessly — the cursor falls
-    // through to currentClient() on the next onState fire.
-    return (
-      this.clientPromise ?? Promise.reject(new Error("padi not connected yet"))
-    );
-  }
-
-  currentClient(): Promise<PadiSurfaceClient> | null {
-    return this.destroyed ? null : this.clientPromise;
-  }
-
-  isDestroyed(): boolean {
-    return this.destroyed;
-  }
-
-  /** The bound padi's boot time (ms epoch), or `null` while padi is unbound (or the
-   *  session is destroyed). kolu-server publishes `now`-relative uptime from this onto
-   *  koluSurface's `processStartedAt` cell; `null` renders as the honest "unknown". */
-  padiStartedAt(): number | null {
-    return this.destroyed ? null : (this.boundIdentity?.startedAtMs ?? null);
-  }
-
-  /** The bound padi's `padiSurface` version off its control-core `hello`, or `null`
-   *  while padi is unbound (or the session is destroyed). koluSurface's
-   *  `daemonInventory` cell carries it as the active padi's `surfaceVersion`; `null`
-   *  renders as the honest "—". */
-  padiSurfaceVersion(): string | null {
-    return this.destroyed ? null : (this.boundIdentity?.surfaceVersion ?? null);
-  }
-
-  /** The bound padi's navigable git commit off its control-core `hello`, or `null`
-   *  while unbound / when a survivor padi predates the field (or the session is
-   *  destroyed). koluSurface's `daemonInventory` cell carries it as the active padi's
-   *  `buildCommit`; `null` renders as the honest "—". */
-  padiBuildCommit(): string | null {
-    return this.destroyed ? null : (this.boundIdentity?.buildCommit ?? null);
-  }
-
-  /** The LOCAL arm surfaces no convergence anomaly today: the shared kit collapses a
-   *  fence-spent build-mismatch adopt to a bare `{kind:"adopted"}` (converge.ts) that drops
-   *  the stale-vs-fresh distinction, so an adopted-old-build here is indistinguishable from a
-   *  clean adopt without a kit change. `null` = "nothing to surface" (pre-existing silent
-   *  adopt). Surfacing local convergence is the L23 both-arms-unification follow-up; W3.1's
-   *  adopt-loudly + degraded surfacing lands on the remote arm (its bindState knows the
-   *  distinction firsthand). */
-  padiConvergence(): PadiConvergence | null {
-    return null;
-  }
-
-  onState(cb: (s: HostSessionState) => void): () => void {
-    this.stateListeners.add(cb);
-    cb(this.state); // snapshot-then-delta, like an inMemoryCell-backed onState.
-    return () => {
-      this.stateListeners.delete(cb);
-    };
-  }
-
-  markConnected(): void {
-    // The pump calls this on the first folded frame. The endpoint already knows
-    // it's connected (the handshake proved the link) and the connection cell is
-    // driven by onState → projectConnection, so this is a no-op hook.
-  }
-
-  destroy(): void {
-    this.destroyed = true;
-    this.clientPromise = null;
-    this.boundIdentity = null;
-    this.deps.endpoint.current()?.dispose();
-    // Re-publish to wake any cursor blocked on the next client so the pump exits.
-    this.fire();
-  }
-
-  /** DRAIN the bound padi (the re-targeted "restart kaval" button, W2.2 gotcha 7):
-   *  invoke the FROZEN control core's `drain` over the COMBINED dialed client —
-   *  padi persists its layout + exits, its kaval + PTYs survive, the socket closes
-   *  → the endpoint flips to degraded → the reconnect loop re-spawns padi onto the
-   *  surviving kaval. NEVER a kill-9. The RPC/socket-close race is handled by the
-   *  shared {@link drainViaControlCore} (the same plumbing the newer-binder
-   *  convergence drain reuses), so the "restart" verb never reports success on a
-   *  drain that did not happen. */
-  async drainBoundPadi(): Promise<void> {
-    const conn = this.deps.endpoint.current();
-    if (!conn) {
-      throw new Error("padi is not bound — cannot drain (the daemon is down)");
-    }
-    await drainViaControlCore(conn);
-  }
-
-  private setState(s: HostSessionState): void {
-    this.state = s;
-  }
-  private fire(): void {
-    // Guard each listener at the funnel: a throwing subscriber must NOT abort the
-    // fan-out and silently drop this transition for the listeners after it. One
-    // registrant exists today (`reServeSurface`'s state→cell pipe), but the public
-    // `onState` Set can hold more. Log the throw (a listener that throws is a real
-    // error, errors-must-log-at-error) and carry on. (callback-fanout-guarded-at-funnel.)
-    for (const cb of [...this.stateListeners]) {
-      try {
-        cb(this.state);
-      } catch (err) {
-        log.error({ err }, "padi binding state listener threw");
-      }
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 3. ensurePadiBinding — the twin of ensureLocalEndpoint (…/ptyHost/index.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -612,18 +288,15 @@ export const PADI_HOST_ID = "padi-local";
  * Fail-open on boot error: the endpoint already reported `dead`; don't crash the
  * server boot (same stance as `ensureLocalEndpoint`).
  */
-export async function ensurePadiBinding(
-  opts: EnsurePadiBindingOptions,
-): Promise<PadiBindingSession> {
+export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   const stateRoot = resolvePadiStateRoot(opts.stateRoot);
   const socketPath = padiSocketPath(stateRoot);
   const gatePath = padiGatePath(socketPath);
 
-  // The session is created after the endpoint (its onStatus drives the session),
-  // but the endpoint's onStatus closure references `session` — assigned before the
-  // first `adoptOrSpawnOrRefuse` await below, so no status can fire before it exists.
-  let session!: PadiBindingSession;
-
+  // The endpoint reports degraded/dead via `onStatus`; the connector routes that to the
+  // CURRENT dial's `closed`, so `makeSession`'s loop reconnects (re-runs converge). The
+  // endpoint holds ONE connection and does NOT self-reconnect — the loop owns that.
+  let currentClosed: ((info: ClosedInfo) => void) | null = null;
   const ep = createEndpoint<
     PadiDaemonClient,
     PadiIdentity,
@@ -642,70 +315,116 @@ export async function ensurePadiBinding(
     connect: () => connectPadi(socketPath),
     log,
     onStatus: (_hostId, status) => {
-      // Drive the reconnect-mirror session; the binder's link health rides the
-      // re-serve `connection` cell, so there is nothing to publish to daemonStatus.
-      session?.onEndpointStatus(status);
+      // A degraded/dead close ends the current dial → resolve its `closed` so the
+      // session loop reconnects. connecting/connected/restarting are transient warmth
+      // the loop's own state covers; the binder's health rides the re-serve `connection`
+      // cell, so there is nothing to publish to daemonStatus.
+      if (status.state === "degraded" || status.state === "dead") {
+        const resolve = currentClosed;
+        currentClosed = null;
+        resolve?.({ kind: "exit", code: null, signal: null });
+      }
     },
   });
 
   // The build axis's once-per-binder-boot fence + this binder's baked expected padi
-  // build id (`PADI_BUILD_ID` — the id of the padi this binder would spawn, off the
-  // koluBin wrapper). Created ONCE here (per server boot) and closed over by
-  // `connectOnce`, so every reconnect shares the SAME fence and the build-mismatch
-  // drain fires at most once across this binder's life (#1670).
+  // build id, created ONCE here (per server boot) and closed over by `convergePadi`, so
+  // the build-mismatch drain fires at most once across this binder's life (#1670).
   const buildDrainFence = createBuildDrainFence();
   const binderBuildId = currentPadiBuildId();
 
-  // One bind attempt under the shared convergence kit: `converge` probes the running
-  // padi's control-core identity (contract version — this binder's `PADI_SURFACE_VERSION`
-  // vs the running padi's; AND build — `binderBuildId` vs its `buildId`), decides per
-  // `PADI_CONVERGENCE_POLICY`, and enacts through the endpoint. Used for BOTH boot and
-  // reconnect — a fresh deploy dialing a running padi is the primary case (a contract skew
-  // drains if newer / refuses if older; a same-contract build change drains once → spawn
-  // our own build); an unchanged redeploy adopts, UNCHANGED.
-  const connectOnce = async (): Promise<boolean> => {
+  // SELF-CONVERGE (pre-connect): `converge` probes the running padi's control-core
+  // identity, decides per `PADI_CONVERGENCE_POLICY`, and ENACTS through the endpoint
+  // (drain-if-newer / refuse-if-older / adopt / build-drain-once). Run at the top of
+  // EVERY dial by the connector — this is why the LOCAL arm needs no post-connect
+  // `admit`: its transport converges at connect (the Endpoint is unchanged).
+  const convergePadi = async (): Promise<void> => {
     const outcome = await converge({
       endpoint: ep,
-      baked: { contractVersion: PADI_SURFACE_VERSION, buildId: binderBuildId },
+      baked: {
+        contractVersion: PADI_SURFACE_VERSION,
+        build: daemonBuild(binderBuildId),
+      },
       probe: () => probePadiForConvergence(socketPath),
       policy: PADI_CONVERGENCE_POLICY,
       buildFence: buildDrainFence,
       log,
     });
-    // Preserve the #1670 build-change breadcrumb — the binder's OWN domain line, logged
-    // from the build-axis drain outcome. The adoption-padi-upgrade VM arm greps exactly
-    // `padi build change on boot: running=<hex> expected=<hex>`.
+    // Preserve the #1670 build-change breadcrumb — the binder's OWN domain line. The
+    // adoption-padi-upgrade VM arm greps `padi build change on boot: running=<hex>`.
     if (outcome.kind === "drained-replacing" && outcome.axis === "build") {
       log.info(
         {
           binderBuildId,
-          runningBuild: outcome.running.buildId,
+          runningBuild: buildLabel(outcome.running.build),
           running: outcome.running,
         },
-        `padi build change on boot: running=${outcome.running.buildId} expected=${binderBuildId}` +
+        `padi build change on boot: running=${buildLabel(outcome.running.build)} expected=${binderBuildId}` +
           " — draining the survivor once (persist + exit; its kaval + PTYs survive) and " +
-          "respawning this binder's own build (drain-on-build-mismatch, #1670; store " +
-          "hashes don't order, so this fires at most once per binder boot)",
+          "respawning this binder's own build (drain-on-build-mismatch, #1670).",
       );
     }
-    return outcomeAdopted(outcome);
   };
 
-  session = new PadiBindingSession({
-    endpoint: ep,
-    // Reconnect = re-run the boot policy: drain-if-newer, then adopt the surviving
-    // padi (its socket + its kaval's PTYs persist), or spawn fresh if it died.
-    // NEVER recycles on skew; older never drains.
-    connectOnce,
+  // The LOCAL transport CONNECTOR (`endpointConnector`, a kolu-server leaf): self-
+  // converge, then hand the loop the endpoint's held connection, scoped to the padi
+  // sibling (the pump mirrors `/surface/padi/*`; `identity()` reads its `system.identity`).
+  const connector: Connector<PadiSurfaceClient> = async (ctx) => {
+    ctx.connecting();
+    await convergePadi();
+    const conn = ep.current();
+    if (conn === undefined) {
+      // converge left padi standing + degraded (a skew refused, or unreachable) —
+      // reconnect (network, retry with backoff) rather than crash, matching the pre-S9
+      // scheduleReconnect. NEVER a kill.
+      throw new ConnectError(
+        "padi did not come up (left degraded / refused)",
+        "network",
+      );
+    }
+    const closed = new Promise<ClosedInfo>((resolve) => {
+      currentClosed = resolve;
+    });
+    return {
+      client: scopePadiSurface(conn.client),
+      closed,
+      // The FROZEN control-core hello round-trip — the liveness probe the watchdog uses.
+      isAlive: () =>
+        conn.client.surface.control.core.hello().then(() => undefined),
+      teardown: () => conn.dispose(),
+    };
+  };
+
+  const base: Session<PadiSurfaceClient> = makeSession<PadiSurfaceClient>({
+    connectOnce: connector,
     reconnectDelayMs: opts.reconnectDelayMs,
+    label: PADI_HOST_ID,
+    onLog: (line) => log.info({ line }, "local padi session"),
   });
 
-  try {
-    await connectOnce(); // newer → drain + spawn; older skew → REFUSE (degraded).
-  } catch (err) {
-    // The endpoint already reported `dead`; don't crash the server boot.
-    log.error({ err }, "padi endpoint failed to come up at boot");
-  }
-
-  return session;
+  // NB: this builds the session but does NOT dial — the loop warms on the first `pin()`.
+  // The composition root (`index.ts`) BOOT-AWAITS that pin for the LOCAL arm before it
+  // serves browsers (the pre-S9 stance), so the first re-served-surface request meets a
+  // live upstream. Keeping `ensurePadiBinding` side-effect-free lets the arm's unit tests
+  // observe `convergence()`/`identity()`/`renew()` with no real padi spawned.
+  return asPadiSession(base, {
+    // The LOCAL arm surfaces no convergence anomaly (parity with the pre-S9
+    // PadiBindingSession, whose `padiConvergence()` returned null): the shared kit
+    // collapses a fence-spent adopt to a bare `{kind:"adopted"}`, so local adopt-stale
+    // can't be surfaced without a kit change (L23 follow-up).
+    convergence: () => null,
+    /** DRAIN the bound padi (the "restart" verb): invoke the FROZEN control core's
+     *  `drain` over the endpoint's held connection — padi persists + exits, its kaval +
+     *  PTYs survive, the socket closes → the loop reconnects. NEVER a kill-9. The
+     *  RPC/socket-close race is handled by the shared {@link drainViaControlCore}. */
+    renew: async () => {
+      const conn = ep.current();
+      if (conn === undefined) {
+        throw new Error(
+          "padi is not bound — cannot drain (the daemon is down)",
+        );
+      }
+      await drainViaControlCore(conn);
+    },
+  });
 }

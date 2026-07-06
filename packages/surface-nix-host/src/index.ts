@@ -11,9 +11,10 @@ export { resolveSystem } from "./arch";
 // (`connectionCell`, schema, default) is ALSO exported from the browser-safe
 // `@kolu/surface-nix-host/connection` subpath — a surface composes it from
 // there; node consumers (the pump) read it from the root.
-// `ConnectionState` / `FailureCause` stay exported via `./hostSession` (which
-// now re-exports them from `./connection`) — re-exporting here too would
-// duplicate. The root surfaces only the NODE-side pump + the `ConnectionInfo`
+// `ConnectionState` / `FailureCause` are re-exported below from `./session` —
+// their single source now that `hostSession.ts` is gone (`./session` in turn
+// re-exports them from `./connection` / `./host`). The root surfaces only the
+// NODE-side pump + the `ConnectionInfo`
 // it produces; the browser-safe cell members (`connectionCell`, schema,
 // `CONNECTION_STATES`, …) live solely on the `@kolu/surface-nix-host/connection`
 // subpath, which is where a surface composes them.
@@ -39,8 +40,10 @@ export {
 export {
   buildHostRegistry,
   type ClosableSocket,
+  type FleetControls,
   type HostEntry,
   type HostRegistry,
+  type HostRegistryControlOptions,
   type HostRegistryOptions,
   type LiveSpawnHolder,
   type ObservableHolder,
@@ -48,18 +51,34 @@ export {
   type PumpRemoteSurfaceOptions,
   pumpRemoteSurface,
 } from "./hostFanout";
+export type {
+  DaemonConvergence,
+  DaemonSession,
+  PreservationStrategy,
+} from "./daemonSession";
+export {
+  type Admit,
+  type AdmitRefusal,
+  type AdmitVerdict,
+  type ClosedInfo,
+  type ConnectContext,
+  type Connection,
+  ConnectError,
+  type Connector,
+  type ConnectionState,
+  type DestroyableSession,
+  type FailureCause,
+  makeSession,
+  type MakeSessionOptions,
+  type Session,
+  type SessionState,
+  surfaceLiveProbe,
+} from "./session";
 export {
   type AgentClient,
-  type ConnectionState,
-  destroyAllSessions,
-  evictHostSession,
-  type FailureCause,
-  getHostSession,
-  HostSession,
-  type HostSessionOptions,
-  type HostSessionState,
-  type RemoteMirrorSession,
-} from "./hostSession";
+  sshConnector,
+  type SshConnectorOptions,
+} from "./sshConnector";
 export {
   type ProvisionOptions,
   type ProvisionResult,

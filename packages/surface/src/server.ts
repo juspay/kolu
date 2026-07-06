@@ -44,8 +44,20 @@ import {
 // server-only consumers that already import from `@kolu/surface/server` keep
 // working.
 export { composeSurfaceContracts };
+import {
+  type BakedIdentity,
+  IDENTITY_NAMESPACE,
+  IDENTITY_VERB,
+  serveIdentity,
+} from "./identity";
 import type { Cell, Collection, Event, Stream } from "./index";
 import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
+
+/** This server process's start time (ms epoch), captured once when the serve path
+ *  module loads — which, for a daemon that imports it at boot, is the process
+ *  start. The reserved `system.identity` stamps it (the uptime source), so a server
+ *  never has to thread its own start time through `implementSurface`. */
+const SERVER_STARTED_AT = Date.now();
 
 // `projectSurface` and its derive helpers are server-side (they import
 // `implementSurface` from here), so they live in `./project` and are imported
@@ -1370,6 +1382,7 @@ function walkSurface<const S extends SurfaceSpec>(
   root: any,
   surface: Surface<S>,
   deps: ImplementSurfaceDeps<S>,
+  identity?: BakedIdentity,
 ): { namespaces: Record<string, Record<string, unknown>>; ctx: SurfaceCtx<S> } {
   const spec = surface.spec;
 
@@ -1773,6 +1786,21 @@ function walkSurface<const S extends SurfaceSpec>(
     ),
   };
 
+  // Auto-answer the framework-reserved identity probe (see @kolu/surface
+  // ./identity), the identity twin of `system.live` in the SAME reserved `system`
+  // namespace. Stamps the server's process start; a server that DECLARED a build
+  // (`identity` arg — only padi does) is served `identified`, else `anonymous`. No
+  // app implements it. The served value is constant for the process lifetime, so
+  // compute it once. (Merged into the same `system` namespace the liveness verb
+  // just wrote — the spread preserves `live`.)
+  const servedIdentity = serveIdentity(SERVER_STARTED_AT, identity);
+  namespaces[IDENTITY_NAMESPACE] = {
+    ...(namespaces[IDENTITY_NAMESPACE] ?? {}),
+    [IDENTITY_VERB]: root[IDENTITY_NAMESPACE][IDENTITY_VERB].handler(
+      () => servedIdentity,
+    ),
+  };
+
   return { namespaces, ctx: ctx as SurfaceCtx<S> };
 }
 
@@ -1800,9 +1828,20 @@ function walkSurface<const S extends SurfaceSpec>(
  *      surface owns the apply+publish chain so direct
  *      `store.set + bus.publish` parallel paths (and their drift risk)
  *      don't exist. */
+/** Optional serve-time knobs for {@link implementSurface}. */
+export interface ImplementSurfaceOptions {
+  /** The server's DECLARED build triple — what the reserved `system.identity` serves
+   *  as its `identified` arm (the framework stamps `startedAt`). Omit and the surface
+   *  is served `anonymous` (connected, no build declared) — the right answer for every
+   *  server whose identity no consumer reads (drishti-agent, odu-runner). Only a
+   *  server with a reader (padi) declares it. */
+  identity?: BakedIdentity;
+}
+
 export function implementSurface<const S extends SurfaceSpec>(
   surface: Surface<S>,
   deps: ImplementSurfaceDeps<S>,
+  opts?: ImplementSurfaceOptions,
 ) {
   // oRPC's typed implement(contract) chain is too dynamic for our walk
   // (we walk the spec at runtime to wire each entry); cast the whole
@@ -1810,7 +1849,12 @@ export function implementSurface<const S extends SurfaceSpec>(
   // call-site safety.
   // biome-ignore lint/suspicious/noExplicitAny: see comment above
   const t = implement(surface.contract as any) as any;
-  const { namespaces, ctx } = walkSurface(t.surface, surface, deps);
+  const { namespaces, ctx } = walkSurface(
+    t.surface,
+    surface,
+    deps,
+    opts?.identity,
+  );
   return {
     // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
     router: { surface: t.router(namespaces) } as any,
@@ -1871,6 +1915,11 @@ export function implementSurfaces<const S extends SurfaceMap>(
   base: {
     channel: <T>(name: string) => Channel<T>;
     onStreamReadError?: (err: unknown, info: { stream: string }) => void;
+    /** Per-key DECLARED build identity — what each sibling's reserved
+     *  `system.identity` serves as its `identified` arm (see `./identity`). Omit a
+     *  key → that sibling serves `anonymous`. Only a sibling whose identity a
+     *  consumer reads (kolu-server reads the `padi` sibling's) needs an entry. */
+    identity?: { [K in keyof S]?: BakedIdentity };
   },
   deps: SurfaceDepsFor<S>,
 ): {
@@ -1897,12 +1946,17 @@ export function implementSurfaces<const S extends SurfaceMap>(
     if (!surfaceDeps) {
       throw new Error(`implementSurfaces: missing deps for surface "${key}"`);
     }
-    const { namespaces, ctx } = walkSurface(t.surface[key], surface, {
-      ...surfaceDeps,
-      channel: keyedChannel,
-      onStreamReadError:
-        surfaceDeps.onStreamReadError ?? base.onStreamReadError,
-    });
+    const { namespaces, ctx } = walkSurface(
+      t.surface[key],
+      surface,
+      {
+        ...surfaceDeps,
+        channel: keyedChannel,
+        onStreamReadError:
+          surfaceDeps.onStreamReadError ?? base.onStreamReadError,
+      },
+      base.identity?.[key as keyof S],
+    );
     byKey[key] = namespaces;
     ctxByKey[key] = ctx;
   }

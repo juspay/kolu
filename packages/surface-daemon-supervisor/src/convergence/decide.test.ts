@@ -7,7 +7,7 @@
  * special-cased branches.
  */
 
-import type { ConvergenceIdentity } from "@kolu/surface-daemon";
+import { type ConvergenceIdentity, daemonBuild } from "@kolu/surface-daemon";
 import { describe, expect, it } from "vitest";
 import { decide } from "./decide.ts";
 import type { AnyConvergencePolicy } from "./policy.ts";
@@ -23,7 +23,7 @@ const PADI: AnyConvergencePolicy = {
 
 const id = (contractVersion: string, buildId: string): ConvergenceIdentity => ({
   contractVersion,
-  buildId,
+  build: daemonBuild(buildId),
 });
 
 describe("decide — no survivor", () => {

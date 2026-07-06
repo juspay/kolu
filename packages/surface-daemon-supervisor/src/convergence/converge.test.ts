@@ -5,7 +5,11 @@
  * and the kit's half of Pin 3 (identity is consumed regardless of contract compatibility).
  */
 
-import type { ConvergenceIdentity, Logger } from "@kolu/surface-daemon";
+import {
+  type ConvergenceIdentity,
+  daemonBuild,
+  type Logger,
+} from "@kolu/surface-daemon";
 import { describe, expect, it } from "vitest";
 import {
   type ConvergenceEndpoint,
@@ -30,7 +34,7 @@ const PADI: ConvergencePolicy<"drainable"> = {
 
 const id = (contractVersion: string, buildId: string): ConvergenceIdentity => ({
   contractVersion,
-  buildId,
+  build: daemonBuild(buildId),
 });
 
 /** An endpoint spy recording which boot method fired. */

@@ -9,9 +9,10 @@
 import { describe, expect, it } from "vitest";
 import * as identity from "./convergenceIdentity.ts";
 import {
-  buildIdMatches,
+  buildsMatch,
   contractIsCompatible,
   contractIsNewer,
+  daemonBuild,
 } from "./convergenceIdentity.ts";
 
 describe("contract version — ORDERED", () => {
@@ -36,21 +37,26 @@ describe("contract version — ORDERED", () => {
   });
 });
 
-describe("build id — MATCH-ONLY, never ordered (Pin 2)", () => {
-  it("buildIdMatches: equal AND both non-empty; an empty id is NEVER a match", () => {
-    expect(buildIdMatches("B", "B")).toBe(true);
-    expect(buildIdMatches("A", "B")).toBe(false);
-    expect(buildIdMatches("", "B")).toBe(false); // absent running — not a match
-    expect(buildIdMatches("B", "")).toBe(false); // off-nix supervisor — not a match
-    expect(buildIdMatches("", "")).toBe(false); // two unknowns are not proven-the-same
+describe("build — MATCH-ONLY, never ordered (Pin 2)", () => {
+  it("buildsMatch: both known AND equal; an off-nix build is NEVER a match", () => {
+    expect(buildsMatch(daemonBuild("B"), daemonBuild("B"))).toBe(true);
+    expect(buildsMatch(daemonBuild("A"), daemonBuild("B"))).toBe(false);
+    expect(buildsMatch(daemonBuild(""), daemonBuild("B"))).toBe(false); // absent running — not a match
+    expect(buildsMatch(daemonBuild("B"), daemonBuild(""))).toBe(false); // off-nix supervisor — not a match
+    expect(buildsMatch(daemonBuild(""), daemonBuild(""))).toBe(false); // two unknowns are not proven-the-same
   });
 
-  it("the module exports NO build-id ordering — a consumer cannot spell one", () => {
+  it("the module exports NO build ordering — a consumer cannot spell one", () => {
     const exported = Object.keys(identity);
-    // The build axis offers exactly one comparator: equality. No newer/older/compare.
-    const buildComparators = exported.filter((k) => /^buildId/.test(k));
-    expect(buildComparators).toEqual(["buildIdMatches"]);
+    // The build axis offers exactly one comparator: equality (`buildsMatch`). No
+    // newer/older/compare — store hashes don't order.
+    expect(exported).toContain("buildsMatch");
     for (const forbidden of [
+      "buildIsNewer",
+      "buildCompare",
+      "buildOrder",
+      "compareBuild",
+      "buildIdMatches",
       "buildIdIsNewer",
       "buildIdCompare",
       "buildIdOrder",
