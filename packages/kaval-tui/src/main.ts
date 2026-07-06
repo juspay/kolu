@@ -60,6 +60,7 @@ import {
   resolveSendInput,
   type SendInput,
   sourceIsStream,
+  sourceLabel,
 } from "./send.ts";
 import { executeSendPlan } from "./sendExec.ts";
 import {
@@ -540,14 +541,8 @@ async function cmdSend(
   // is a property of the READ content, so it's caught here (post-read) rather than
   // in `resolveSendInput` (which validates the flag combination, pre-read).
   if (flags.input.kind !== "none" && text.length === 0) {
-    const emptySource =
-      flags.input.kind === "file"
-        ? `--file ${JSON.stringify(flags.input.path)} is empty`
-        : flags.input.kind === "stdin"
-          ? "the piped stdin is empty"
-          : "the text is empty";
     fail(
-      `nothing to send — ${emptySource}. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use --key to send a key.`,
+      `nothing to send — ${sourceLabel(flags.input)} is empty. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use --key to send a key.`,
     );
   }
 

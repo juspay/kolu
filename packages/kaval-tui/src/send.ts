@@ -132,6 +132,27 @@ export function sourceIsStream(input: SendInput): boolean {
   }
 }
 
+/** The human name of a resolved text source — an EXHAUSTIVE switch over
+ *  `input.kind` (no default, matching {@link sourceIsStream}), so it is the ONE
+ *  home for how each source is named in a user-facing message and a new
+ *  {@link SendInput} variant is compiler-forced to name itself rather than
+ *  defaulting to a wrong label. Consumed by BOTH the two-sources conflict error
+ *  ({@link resolveSendInput}) and the empty-source error (`cmdSend`), so the
+ *  vocabulary is written once. The `--file` label carries its path so both sites
+ *  name the exact file. */
+export function sourceLabel(input: SendInput): string {
+  switch (input.kind) {
+    case "positional":
+      return "positional text";
+    case "file":
+      return `--file ${JSON.stringify(input.path)}`;
+    case "stdin":
+      return "piped stdin";
+    case "none":
+      return "no text source";
+  }
+}
+
 /** Validate a send's WHOLE input combination and resolve the single text source
  *  into a {@link SendInput} descriptor — PURE, so the entire arg-legality matrix
  *  is unit-tested without a socket, a filesystem, or a tty. This is the ONE home
@@ -172,24 +193,20 @@ export function resolveSendInput(opts: {
     );
   }
 
-  const sources = [
-    opts.hasPositional && "positional text",
-    opts.file !== undefined && "--file",
-    opts.stdinIsPayload && "piped stdin",
-  ].filter((s): s is string => s !== false);
-  if (sources.length > 1) {
+  // The text sources present, as descriptors, in precedence order. Enumerated
+  // ONCE: the two-sources error names them via `sourceLabel`, and the resolved
+  // source is just the first (or `none`). `opts.file !== undefined` narrows to
+  // `string`, so the `file` descriptor carries its path with no cast.
+  const present: SendInput[] = [];
+  if (opts.hasPositional) present.push({ kind: "positional" });
+  if (opts.file !== undefined) present.push({ kind: "file", path: opts.file });
+  if (opts.stdinIsPayload) present.push({ kind: "stdin" });
+  if (present.length > 1) {
     throw new Error(
-      `${sources.join(" and ")} each provide the send text — pass exactly one source, not several.`,
+      `${present.map(sourceLabel).join(" and ")} each provide the send text — pass exactly one source, not several.`,
     );
   }
-
-  // `opts.file !== undefined` narrows `file` to `string` in that branch, so the
-  // descriptor carries the path with no cast — the invariant is in the types.
-  let input: SendInput;
-  if (opts.hasPositional) input = { kind: "positional" };
-  else if (opts.file !== undefined) input = { kind: "file", path: opts.file };
-  else if (opts.stdinIsPayload) input = { kind: "stdin" };
-  else input = { kind: "none" };
+  const input: SendInput = present[0] ?? { kind: "none" };
 
   if (input.kind !== "none" && opts.hasKeys) {
     throw new Error(

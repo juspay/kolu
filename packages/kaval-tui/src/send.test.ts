@@ -7,6 +7,7 @@ import {
   rejectUnknownSendFlags,
   resolveSendInput,
   sourceIsStream,
+  sourceLabel,
 } from "./send.ts";
 
 const START = "\x1b[200~";
@@ -199,6 +200,30 @@ describe("sourceIsStream — --file / stdin auto-paste as a block", () => {
     expect(sourceIsStream({ kind: "stdin" })).toBe(true);
     expect(sourceIsStream({ kind: "positional" })).toBe(false);
     expect(sourceIsStream({ kind: "none" })).toBe(false);
+  });
+});
+
+describe("sourceLabel — the one home for each source's human name", () => {
+  it("names each source, and the --file label carries its path", () => {
+    expect(sourceLabel({ kind: "positional" })).toBe("positional text");
+    expect(sourceLabel({ kind: "file", path: "/tmp/brief.md" })).toBe(
+      '--file "/tmp/brief.md"',
+    );
+    expect(sourceLabel({ kind: "stdin" })).toBe("piped stdin");
+    expect(sourceLabel({ kind: "none" })).toBe("no text source");
+  });
+
+  it("the two-sources error is built from it (path included)", () => {
+    expect(() =>
+      resolveSendInput({
+        hasPositional: true,
+        file: "/tmp/x.md",
+        stdinIsPayload: false,
+        hasKeys: false,
+        paste: false,
+        noPaste: false,
+      }),
+    ).toThrow(/positional text and --file "\/tmp\/x.md"/);
   });
 });
 
