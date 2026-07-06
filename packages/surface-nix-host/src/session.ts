@@ -291,6 +291,11 @@ export function makeSession<Client = SurfaceClientLike>(
    *  closed handler reports a bounded `"remote"` timeout (a broken handshake fails
    *  loudly instead of spinning). */
   let connectTimedOut = false;
+  /** Monotonic dial generation, bumped per (re)dial. The async `system.identity` probe
+   *  captures it and refuses to write `cachedIdentity` once superseded — so a slow
+   *  probe from a dead link can't clobber a newer dial's identity if it resolves late
+   *  (rather than rejecting). */
+  let dialEpoch = 0;
   /** The periodic liveness watchdog handle (ONE `@kolu/surface/heartbeat`), or
    *  `null` until first connect / after teardown. */
   let liveness: { dispose: () => void } | null = null;
@@ -337,6 +342,36 @@ export function makeSession<Client = SurfaceClientLike>(
       fn();
     }, delayMs);
   };
+
+  /** Bound the `admit` handshake by the SAME `connectTimeoutMs` the non-admit path's
+   *  connect watchdog uses. `admit` does a control-core `hello()` over the transport; a
+   *  wedged daemon (process up but the first `hello()` never settles) would otherwise
+   *  hang this `await` forever — hanging `pin()` and leaking `conn` with no watchdog to
+   *  trip. On timeout, reject a `"network"` {@link ConnectError} so `attempt`'s
+   *  admit-catch tears `conn` down and reconnects — the admit-path twin of the
+   *  `connecting`-phase watchdog (S9 parity). Clears its own timer on settle (its own
+   *  slot, NOT the shared `pendingTimer` — the phase timer isn't armed yet here). */
+  const withHandshakeTimeout = <T>(p: Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new ConnectError(
+            `admit handshake timed out after ${connectTimeoutMs}ms (transport up, hello never settled)`,
+            "network",
+          ),
+        );
+      }, connectTimeoutMs);
+      p.then(
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      );
+    });
 
   const logTransition = (from: ConnectionState, to: ConnectionState): void => {
     if (from !== to) emit(`[${label} local] connection: ${from} → ${to}`);
@@ -486,6 +521,7 @@ export function makeSession<Client = SurfaceClientLike>(
   };
 
   const attempt = async (): Promise<Client> => {
+    dialEpoch += 1;
     updateState({ connection: "copying", lastError: null, failureCause: null });
     let conn: Connection<Client>;
     try {
@@ -521,10 +557,11 @@ export function makeSession<Client = SurfaceClientLike>(
     if (opts.admit !== undefined) {
       let verdict: AdmitVerdict;
       try {
-        verdict = await opts.admit(conn.client);
+        verdict = await withHandshakeTimeout(opts.admit(conn.client));
       } catch (err) {
-        // The admit handshake RPC itself died (a link blip mid-hello). Treat as a
-        // link failure and reconnect (`network` — recovery, never a give-up spiral).
+        // The admit handshake RPC itself died (a link blip mid-hello) OR timed out (a
+        // wedged daemon — see `withHandshakeTimeout`). Treat as a link failure and
+        // reconnect (`network` — recovery, never a give-up spiral).
         const reason = err instanceof Error ? err.message : String(err);
         conn.teardown();
         updateState({
@@ -608,9 +645,14 @@ export function makeSession<Client = SurfaceClientLike>(
     // Poll the reserved `system.identity` off the fresh client (like the liveness
     // probe reads `system.live`). A rejection (an older server, a link blip) leaves
     // the last-known identity in place — an honest degrade, never a fabricated one.
+    const epoch = dialEpoch; // this dial's generation — a later dial supersedes it
     probeSurfaceIdentity(client)
       .then((id) => {
-        if (destroyed) return;
+        // Drop a probe that resolved AFTER its dial was superseded (a slow probe from a
+        // now-dead link landing after a reconnect) — writing it would clobber the live
+        // dial's identity with a stale one. Usually the dead transport rejects instead,
+        // but nothing guarantees that, so guard the write on the generation.
+        if (destroyed || epoch !== dialEpoch) return;
         cachedIdentity = id;
         // The identity probe resolves on its OWN clock — a separate RPC fired from
         // `markConnected`, decoupled from the `connected` frame that was already
@@ -661,6 +703,11 @@ export function makeSession<Client = SurfaceClientLike>(
         // Clear a stale identity so a respawned server's fresh one lands (never a
         // stale mix from the old process); re-poll off the current client.
         cachedIdentity = null;
+        // `p` already resolved (we only reach `markConnected` once a client is live),
+        // and `pollIdentity` owns its OWN probe-failure catch — so this catch only
+        // absorbs a `p` rejection from a torn-down-mid-microtask link. Dropping it is
+        // safe: that path re-enters the reconnect loop via `handleClosed`, which
+        // re-polls identity on the next connect.
         p.then((client) => pollIdentity(client)).catch(() => {});
       }
     },
