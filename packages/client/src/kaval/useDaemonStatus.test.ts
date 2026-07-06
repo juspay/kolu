@@ -18,10 +18,11 @@ vi.mock("../wire", () => ({
   app: { health: () => ({ live: state.transportLive }) },
 }));
 vi.mock("../binding/bindings", () => ({
-  // `useBindingScopedSub(pick)` returns `() => Accessor<sub>`, so the module reads
-  // `sub()()`. Both the daemonStatus collection sub (read via `.byKey(local)?.()`)
-  // and the connection cell sub (read via `.value()`) resolve through this one fake.
-  useBindingScopedSub: () => () => () => ({
+  // `useBindingScopedSub(pick)` returns `() => sub` (one call — the shared layer derefs
+  // internally), so the module reads `sub()`. Both the daemonStatus collection sub (read
+  // via `.byKey(local)?.()`) and the connection cell sub (read via `.value()`) resolve
+  // through this one fake.
+  useBindingScopedSub: () => () => ({
     byKey: () =>
       state.daemonState === undefined
         ? undefined

@@ -71,7 +71,10 @@ const sharedDaemonTransportLive = createSharedRoot(() =>
  *  the local clock. A reactive accessor (a shared memo); read it inside a tracking
  *  scope. */
 export function daemonTransportLive(): boolean {
-  return sharedDaemonTransportLive()();
+  // `sharedDaemonTransportLive` is a `createSharedRoot` over a shared memo, so it yields
+  // the memo; read it in a second step (never the nested `()()`).
+  const live = sharedDaemonTransportLive();
+  return live();
 }
 
 // W4 "the switch": the daemon-status collection AND the per-host binding readiness
@@ -81,7 +84,7 @@ export function daemonTransportLive(): boolean {
 // The `daemonStatus` collection rides padi (W1.R7); "the binding is (re)connecting"
 // now rides the padi `connection` cell (the framework mirror cell, per host) — the
 // replacement for the retired single-host `kolu.padiLink` cell, which could not carry
-// N bound hosts. Each is an app-lifetime shared root (read as `sub()()`).
+// N bound hosts. Each yields the current host's sub handle in ONE call (`sub()`).
 const daemonStatusSub = useBindingScopedSub((b) =>
   b.clients.padi.collections.daemonStatus.use({
     keys: () => [LOCAL_HOST],
@@ -96,7 +99,7 @@ const connectionSub = useBindingScopedSub((b) =>
 
 /** The active host's local daemon status, or undefined before the first server yield. */
 export function localDaemonStatus(): DaemonStatus | undefined {
-  return daemonStatusSub()().byKey(LOCAL_HOST)?.();
+  return daemonStatusSub().byKey(LOCAL_HOST)?.();
 }
 
 /** The active binding's live binding-to-padi state, or `undefined` before the first
@@ -106,7 +109,7 @@ export function localDaemonStatus(): DaemonStatus | undefined {
  *  re-served kaval `daemonStatus` (#1034). A reactive accessor; read it inside a
  *  tracking scope. */
 export function padiLinkState(): PadiLink | undefined {
-  const state = connectionSub()().value()?.state;
+  const state = connectionSub().value()?.state;
   return state === undefined ? undefined : connectionToPadiLink(state);
 }
 
@@ -119,7 +122,7 @@ export function padiLinkState(): PadiLink | undefined {
  *  subscription, which is itself the pre-first-value state, so treat that as
  *  pending too. */
 export function daemonStatusPending(): boolean {
-  return daemonStatusSub()().byKey(LOCAL_HOST)?.pending() ?? true;
+  return daemonStatusSub().byKey(LOCAL_HOST)?.pending() ?? true;
 }
 
 /** The single projection of "is the daemon down, and which kind" — `dead`

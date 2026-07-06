@@ -1,5 +1,14 @@
 /** Lazy module-scope singleton on top of `createRoot`.
  *
+ *  NOT `@solid-primitives/rootless`'s `createSingletonRoot` — that REF-COUNTS and
+ *  disposes the root when the last listener leaves (dispose-when-idle). Every consumer
+ *  here requires app-lifetime NEVER-teardown (standing intervals, open subscriptions,
+ *  state that must survive a transient unmount / HMR); audited 18/18 on 2026-07-06. The
+ *  two primitives have DIFFERENT semantics, so this is not a duplicate to fold into the
+ *  library — rootless ships no never-dispose singleton, and wrapping `createSingletonRoot`
+ *  with a permanent subscriber would re-introduce this discard-the-disposer pattern on top
+ *  of disposal machinery, for more code and less clarity. Keep it hand-rolled.
+ *
  *  Multiple modules need "build this reactive value once, share it
  *  across every consumer" — `useDockOrder` (one canonical dock tree
  *  for the desktop dock, mobile drawer, and `Cmd+1..9` keyboard

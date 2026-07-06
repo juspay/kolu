@@ -43,7 +43,7 @@ const kavalStatus = useBindingScopedSub((b) =>
  *  dialog's running-vs-expected commit links + "what changed" history link) joins
  *  the surface path through one accessor. */
 export const expectedKaval = (): PadiStatus["expectedKaval"] =>
-  kavalStatus()().value()?.expectedKaval;
+  kavalStatus().value()?.expectedKaval;
 
 /** True when the running kaval daemon is provably a build behind the server's
  *  expected build. Reads padi's `status` cell (`status.expectedKaval`) and the

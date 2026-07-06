@@ -46,7 +46,7 @@ const padiMemory = useBindingScopedSub((b) =>
  *  yield (it's always a real number once a sample lands — the server measures
  *  itself). */
 export function serverRssBytes(): number | null {
-  return koluMemory()().value()?.serverRssBytes ?? null;
+  return koluMemory().value()?.serverRssBytes ?? null;
 }
 
 /** A per-process RSS reading projected for DISPLAY — `{ kind: "ok", rssBytes }`,
@@ -73,7 +73,7 @@ export function padiMemoryDisplay():
   | { kind: "ok"; rssBytes: number }
   | { kind: "error" }
   | null {
-  return displayRss(padiMemory()().value()?.padi);
+  return displayRss(padiMemory().value()?.padi);
 }
 
 /** The kaval daemon's memory projected for display (see {@link displayRss}), with
@@ -86,7 +86,7 @@ export function kavalMemoryDisplay():
   | { kind: "error" }
   | null {
   if (localDaemonStatus()?.state !== "connected") return null;
-  return displayRss(padiMemory()().value()?.kaval);
+  return displayRss(padiMemory().value()?.kaval);
 }
 
 /** This browser's used JS heap in bytes, refreshed every second off the shared
@@ -94,7 +94,10 @@ export function kavalMemoryDisplay():
  *  `performance.memory`). */
 export function clientHeapUsedBytes(): number | null {
   // Re-read on each clock tick — reading the shared `now` signal in a tracking
-  // context (JSX/memo) makes the consumer recompute every second.
-  getClockNow()();
+  // context (JSX/memo) makes the consumer recompute every second. `getClockNow` is a
+  // `createSharedRoot` over the `now` signal, so resolve it then read (never `()()`);
+  // the value is discarded — the read exists only to establish the per-second dep.
+  const clock = getClockNow();
+  clock();
   return readJsHeapUsedBytes();
 }

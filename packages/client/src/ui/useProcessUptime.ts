@@ -7,7 +7,8 @@
  * `../kaval/useDaemonStatus`), which the Kaval dialog reads for its own uptime. This
  * module carries only the two processes that lacked one — kolu-server and padi.
  *
- * The consumer renders `getClockNow()() − startedAt` as the live uptime (the shared
+ * The consumer renders `clockNow − startedAt` off the shared app clock as the live uptime
+ * (the shared
  * app clock ticks it each second). Honesty (#1034): `server` reads `null` until the
  * first server yield (the `0` sentinel) and `padi` reads `null` whenever padi is
  * unbound — both the honest "unknown" the dialogs gate out, never a bogus uptime
@@ -27,7 +28,7 @@ const uptime = useBindingScopedSub((b) =>
     onError: (err) => toast.error(`Uptime readout error: ${err.message}`),
   }),
 );
-const sub = () => uptime()();
+const sub = () => uptime();
 
 /** kolu-server's boot time (ms epoch), or `null` before the first server yield (the
  *  `0` seed maps to `null` so a consumer never renders `now − 0` as an uptime). The

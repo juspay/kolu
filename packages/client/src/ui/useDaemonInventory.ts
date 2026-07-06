@@ -37,7 +37,7 @@ const inventory = useBindingScopedSub((b) =>
     onError: (err) => toast.error(`Daemon inventory error: ${err.message}`),
   }),
 );
-const sub = () => inventory()();
+const sub = () => inventory();
 
 // The bound padi's own self-declared surface version rides padi's OWN per-host `version`
 // cell (A1) — read it directly rather than through kolu-server's derived daemonInventory
@@ -78,7 +78,7 @@ export function localScanPadis(): RunningPadi[] {
  *  Per-host by construction (padi's own re-served cell), so it's correct over ssh too.
  *  Read by the Padi dialog + the rail chip's "contract v<x.y>" readout. */
 export function activePadiSurfaceVersion(): string | null {
-  return padiVersion()().value()?.contractVersion ?? null;
+  return padiVersion().value()?.contractVersion ?? null;
 }
 
 /** The BOUND padi's honest navigable git build commit off its `hello`, or `null` while

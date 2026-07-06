@@ -28,7 +28,7 @@ const hostInventory = useBindingScopedSub((b) =>
     onError: (err) => toast.error(`Host inventory error: ${err.message}`),
   }),
 );
-const sub = () => hostInventory()();
+const sub = () => hostInventory();
 
 /** Every running kaval daemon on the BOUND host, each marked `active` when that host's
  *  padi owns it (empty before the first scan). */

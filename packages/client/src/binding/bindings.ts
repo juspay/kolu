@@ -268,12 +268,18 @@ export const bindingScoped = manager.connectionScoped;
 /** The app-lifetime singleton form of {@link bindingScoped}: wrap the re-keying
  *  sub in a `createSharedRoot` so it has ONE app-owned reactive owner shared by
  *  every consumer (never a component's owner, which fast-refresh/teardown would
- *  dispose out from under the others). Read it as `useX()()` — the outer call
- *  resolves the shared root, the inner reads the current host's sub. Collapses the
+ *  dispose out from under the others), and DEREF that shared accessor internally so a
+ *  consumer gets the current host's sub handle in ONE call — `useX()`, then
+ *  `.value()`/`.byKey()`/… — never a nested double-call. Each `useX()` re-reads the
+ *  re-keying accessor, so it follows a host switch. Collapses the
  *  `createSharedRoot(() => bindingScoped(...))` boilerplate the standing per-host
  *  subscriptions (daemon status, inventory, memory, uptime, kaval status) repeat. */
-export function useBindingScopedSub<T>(
-  pick: (binding: Binding) => T,
-): () => Accessor<T> {
-  return createSharedRoot(() => bindingScoped(pick));
+export function useBindingScopedSub<T>(pick: (binding: Binding) => T): () => T {
+  const shared = createSharedRoot(() => bindingScoped(pick));
+  // Deref in two steps (resolve the shared re-keying accessor, then read it) so this is
+  // the ONLY place the double-read lives — callers get the sub handle in one `useX()`.
+  return () => {
+    const scoped = shared();
+    return scoped();
+  };
 }
