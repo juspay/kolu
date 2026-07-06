@@ -610,7 +610,19 @@ export function makeSession<Client = SurfaceClientLike>(
     // the last-known identity in place — an honest degrade, never a fabricated one.
     probeSurfaceIdentity(client)
       .then((id) => {
-        if (!destroyed) cachedIdentity = id;
+        if (destroyed) return;
+        cachedIdentity = id;
+        // The identity probe resolves on its OWN clock — a separate RPC fired from
+        // `markConnected`, decoupled from the `connected` frame that was already
+        // published (which sampled the pre-probe `disconnected` identity). Republish
+        // the current state (no field change) to wake `onState` listeners, so a
+        // consumer that derives PUBLISHED state from `identity()` inside `onState`
+        // (kolu-server's padi uptime / surface version / build commit) resamples the
+        // now-`identified` value. Without this, that readout would stay stale until an
+        // unrelated transition. The pre-S9 binding set identity SYNCHRONOUSLY on the
+        // `connected` frame (its `onState` fired with identity already in hand), so
+        // this restores that parity across the async-probe boundary.
+        stateCell.set({ ...stateCell.current() });
       })
       .catch(() => {
         /* no identity this cycle — keep the last-known; never fabricate one */

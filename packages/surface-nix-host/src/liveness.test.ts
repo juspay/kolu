@@ -194,9 +194,17 @@ describe("HostSession liveness watchdog", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(snap(session).connection).toBe("connecting");
 
+    // Count genuine connecting→connected TRANSITIONS (a non-connected prior flipping
+    // to connected), not raw connected frames: the async `system.identity` probe lands
+    // AFTER the first markConnected and republishes the state (a connected→connected
+    // frame, no transition) to wake onState consumers, so a raw connected-frame count
+    // would over-count that republish and mask the idempotence this test pins.
     let connectedTransitions = 0;
+    let prevConnection: string | null = null;
     const unsub = session.onState((s) => {
-      if (s.connection === "connected") connectedTransitions += 1;
+      if (s.connection === "connected" && prevConnection !== "connected")
+        connectedTransitions += 1;
+      prevConnection = s.connection;
     });
 
     session.markConnected(); // site 1 — the hello path: connecting → connected
