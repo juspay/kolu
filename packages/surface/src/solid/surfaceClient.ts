@@ -678,11 +678,18 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   // by convention" idiom — every consumer inherits sharing from the base client.
   const subs = createKeyedSubscriptionCache(getOwner());
 
-  // The whole-collection dedup slot bakes exactly ONE `onError` (it shares one set of
-  // upstream streams). This tracks the baked handler per LIVE `coll:` slot so a SECOND
-  // consumer supplying a DIFFERENT `onError` THROWS loudly rather than silently dropping
-  // its handler; the entry is cleared when the slot is evicted (its make's `onCleanup`).
-  const collOnError = new Map<string, { onError?: (e: Error) => void }>();
+  // The whole-collection dedup slot's per-consumer `onError` registry. A STATIC-input
+  // `.use()` (no `keys`) dedups N consumer views onto ONE shared upstream subscription
+  // (the dedup branch below); EVERY registered consumer's handler must fire on a
+  // collection error — dropping one silently was the defect a now-retired THROW used to
+  // guard by refusing a second, divergent handler outright. Keyed by `coll:<key>`; each
+  // live slot maps to a `Map<handler, refcount>` — a refcount, not a bare `Set`, because
+  // two consumers may legitimately share the IDENTICAL handler reference (e.g. one
+  // shared exported const) and each registers/unregisters independently: a `Set` would
+  // drop the shared entry on the FIRST consumer's disposal even though a second consumer
+  // holding the same ref is still live. The whole entry is cleared when the slot itself
+  // is evicted (last consumer left / typed end — its make's `onCleanup`, below).
+  const collOnError = new Map<string, Map<(err: Error) => void, number>>();
 
   // Build-time standing-root disposers for `liveWhen` cells (the readiness legs
   // `bindCell` → `openReadinessLeg` open EAGERLY, not at `.use()` time, so the
@@ -746,31 +753,44 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
         // WHOLE collection (STATIC input — watch every key) → DEDUP the whole result
         // via the keyed cache: N views share ONE set of upstream streams, ref-counted,
         // torn down when the last leaves, evicted on a typed end (a re-served
-        // collection rebuilds). `onError` + enrolment live INSIDE the shared slot: a
-        // whole-collection has no divergent shared options, so the slot bakes exactly ONE
-        // `onError`. A SECOND consumer supplying a DIFFERENT handler cannot be honored
-        // (the shared streams already enrolled the first), so it THROWS LOUDLY here rather
-        // than SILENTLY DROPPING its handler — the silent-drop defect made inexpressible.
-        // A second `.use()` with no `onError`, or the identical handler, shares fine.
-        // Per-consumer collection `onError` is demand-gated behind this throw (zero second
-        // consumers today: 15/15 whole-collection `.use()` are single-consumer).
+        // collection rebuilds). Per-consumer `onError` is wired through `collOnError`
+        // (declared above): every consumer that supplies a handler is registered, and
+        // ALL registered handlers fire on a collection error, in whatever order and
+        // however many consumers there are — the silent-drop defect a now-retired THROW
+        // used to guard is made unreachable by actually building the fan-out, not by
+        // refusing a second handler. The shared subscription (built ONCE, below) is
+        // wired to a STABLE DISPATCHER, built once alongside the slot, that reads the
+        // CURRENT handler registry at CALL time (never a snapshot) — so a late-joining
+        // consumer is covered without rebuilding the upstream streams. Each consumer
+        // registers/unregisters HERE, in the CALLING owner (`.use()` runs inside the
+        // consuming component's reactive scope), so a handler is removed the moment ITS
+        // owner disposes — independent of the shared slot's own lifetime.
         const collKey = `coll:${key}`;
-        const liveColl = collOnError.get(collKey);
-        if (liveColl !== undefined) {
-          if (onError !== undefined && onError !== liveColl.onError) {
-            throw new Error(
-              "whole-collection dedup slot already has an error handler — a second " +
-                "consumer needs per-consumer collection onError wiring (not yet built; " +
-                "see @kolu/surface README 'Whole-collection onError')",
-            );
-          }
-        } else {
-          collOnError.set(collKey, { onError });
+        let existingHandlers = collOnError.get(collKey);
+        if (existingHandlers === undefined) {
+          existingHandlers = new Map<(err: Error) => void, number>();
+          collOnError.set(collKey, existingHandlers);
+        }
+        const handlers = existingHandlers;
+        if (onError !== undefined) {
+          handlers.set(onError, (handlers.get(onError) ?? 0) + 1);
+          onCleanup(() => {
+            const n = handlers.get(onError);
+            if (n === undefined) return; // already unregistered (e.g. slot reset)
+            if (n <= 1) handlers.delete(onError);
+            else handlers.set(onError, n - 1);
+          });
         }
         const view = subs.use(collKey, (onComplete) => {
-          // Clear the baked-onError tracking when the shared slot is evicted (last
-          // consumer left / typed end), so the next first-consumer re-registers.
+          // Clear the handler registry when the shared slot is evicted (last consumer
+          // left / typed end), so the next first-consumer starts a fresh registry.
           onCleanup(() => collOnError.delete(collKey));
+          // Built ONCE per slot; fired on every upstream error. Reads `handlers` (this
+          // slot's live registry, captured by reference — mutated in place by every
+          // consumer's register/unregister above) at call time.
+          const dispatchError = (err: Error): void => {
+            for (const h of handlers.keys()) h(err);
+          };
           return hasDeltas
             ? // ONE coalesced `deltas` stream folded into a per-key store.
               useCollectionDeltas(
@@ -778,7 +798,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
                 (surface.descriptors.collections as any)[key],
                 {
                   source: () => unenrolledStreamCall(ns.deltas, undefined),
-                  onError,
+                  onError: dispatchError,
                   onComplete,
                   enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
                 },
@@ -787,7 +807,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
               (() => {
                 const keysSub = createSubscription<unknown[]>(
                   () => unenrolledStreamCall(ns.keys, undefined),
-                  { onError, onComplete },
+                  { onError: dispatchError, onComplete },
                 );
                 // Leak B: enrol the keys-stream itself. A failing keys stream collapses
                 // `keys()` to `[]` (the `sub() ?? []` fallback), so the collection would
@@ -801,7 +821,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
                     keys,
                     valueSource: ns.get,
                     keyToInput: (k) => ({ key: k }),
-                    onError,
+                    onError: dispatchError,
                     // Enrol each per-key value sub as `<key>[<id>]`; the callback runs in
                     // the `mapArray` per-key owner, so it drops when the key leaves.
                     enroll: (k, sub) =>

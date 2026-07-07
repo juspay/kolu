@@ -59,13 +59,15 @@ A surface is reached through one of several **links**. A link maps "a way to rea
 The surface is opt-in. Reach for it when you're standing up a new app surface or writing a self-contained module; stay manual when an existing wire shape doesn't match the surface's verb-naming defaults (currently `get`/`patch`/`set`/`test__set` for cells, `keys`/`get`/`upsert`/`delete`/`test__set` for collections, plus the opt-in `deltas` — see the example for the full set). `deltas` is a single batched snapshot-then-delta stream for the whole collection (one coalesced `{upserts, removes}` per producer tick), the bulk-friendly counterpart to the per-key `keys`+`get` pair: list it in a collection's `verbs` when every key ticks every frame and a consumer wants the whole set, and the bound client's whole-collection `.use()` (no `keys` filter) folds that one stream into a per-key store instead of opening a value stream per key. The per-key `get` path stays for the "watch one specific key" / narrowed-subset case. The two approaches compose: spread `surface.contract` alongside a sibling `oc.router({...})` of raw procedures, and similarly for `implementSurface`'s output.
 
 **Whole-collection onError.** N whole-collection `.use()` views of one collection share ONE
-set of upstream streams (ref-counted dedup), so the shared slot bakes exactly ONE `onError`
-handler. A second consumer that supplies a *different* `onError` cannot be honored (the
-shared streams already enrolled the first), so it **throws loudly at subscribe time** rather
-than silently dropping its handler — you get your handler or a crash that names the fix. A
-second `.use()` with no `onError`, or the identical handler, shares fine. (Per-consumer
-whole-collection `onError` is demand-gated behind this throw; the narrowed per-key
-`.use({ keys })` path is already per-consumer and unaffected.)
+set of upstream streams (ref-counted dedup), but `onError` is per-consumer: every handler a
+consumer supplies is registered against the shared slot, and **all of them fire** on a
+collection error, regardless of join order or how many consumers there are. Each consumer's
+handler is removed the moment its own reactive owner disposes — independent of the shared
+slot's lifetime — so a component that unmounts stops hearing about errors on a collection
+other components still watch. Two consumers sharing the identical handler reference (e.g. one
+exported const) register/unregister independently without dropping the shared entry early. A
+`.use()` with no `onError` registers nothing. (The narrowed per-key `.use({ keys })` path is
+already per-consumer by construction and unaffected by any of this.)
 
 **Divergent options are two subscriptions (non-plain-JSON options throw).** The dedup slot's
 identity folds the SHARED options (`authority` / `initial` / `coalesceMs` / `applyPatch` …),

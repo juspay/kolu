@@ -621,15 +621,16 @@ describe("surface-map mock-entry e2e harness", () => {
     });
   });
 
-  it("(14) multi-host membership crash — two `entries` consumers must SHARE one onError (strip-first order)", async () => {
+  it("(14) multi-host membership crash — two `entries` consumers, shared or divergent onError, neither crashes nor drops", async () => {
     // kolu's multi-host wiring has TWO whole-collection consumers of the membership authority
     // `entries`: HostSelectorStrip's chip row and wire.ts's reconcile sub. They mount in NO
     // guaranteed order — the GATED strip can register before wire.ts's setup runs — and the
-    // whole-collection dedup slot is order-ASYMMETRIC. The `nix run` runtime crash was a BARE
-    // strip `.use()` baking `undefined` into the slot FIRST, then a handler sibling THROWING
-    // second. The fix is ONE shared handler reference (kolu: `onHostMembershipError`), so the
-    // slot bakes it once and the sibling matches. This is the registration-layer sibling of the
-    // unmocked-boot test: gate-ON, both consumers register, the wiring comes up clean — no DOM.
+    // whole-collection dedup slot used to be order-ASYMMETRIC. The `nix run` runtime crash was
+    // a BARE strip `.use()` baking `undefined` into the slot FIRST, then a handler sibling
+    // THROWING second. The fix is now a per-consumer onError REGISTRY (kolu can keep using ONE
+    // shared `onHostMembershipError` reference, or two distinct ones — either way both fire).
+    // This is the registration-layer sibling of the unmocked-boot test: gate-ON, both consumers
+    // register, the wiring comes up clean — no DOM.
     const onMembershipError = (_err: Error): void => {};
 
     // (a) THE FIX — both consumers SHARE the handler; strip-FIRST (the crash order) is clean.
@@ -648,19 +649,86 @@ describe("surface-map mock-entry e2e harness", () => {
       dispose();
     });
 
-    // (b) THE TRAP it closes — a DIVERGENT pair (bare strip `.use()` first, then a handler)
-    //     still throws LOUDLY on the real membership authority, so a future re-divergence
-    //     re-crashes at boot rather than silently dropping the handler.
-    createRoot((dispose) => {
-      const { client } = setup();
-      client.entries.use(); // strip, BARE (undefined) — registers first
-      expect(() => client.entries.use({ onError: onMembershipError })).toThrow(
-        /already has an error handler/,
+    // (b) THE TRAP it closes — a DIVERGENT pair (bare strip `.use()` first, then a handler) used
+    //     to THROW LOUDLY on the real membership authority (order-asymmetric: handler-first-
+    //     then-bare shared fine, the reverse crashed). Per-consumer wiring makes that order
+    //     irrelevant: both now just REGISTER, and — proven on the real membership authority
+    //     below, not just "didn't throw" — the handler consumer's onError actually FIRES when
+    //     `entries` genuinely faults (a resolve failure on a live member's status stream), while
+    //     the bare strip consumer (no handler) has nothing to drop.
+    await createRoot(async (dispose) => {
+      const { registry, addSession, armResolveThrow } = armableRegistry();
+      const map = defineSurfaceMap(HostKeySchema, entrySurface, identityCodec);
+      const served = serveSurfaceMap(map, registry);
+      const mapLink = directLink<AnyContractRouter>(served.router as never);
+      const client = connectSurfaceMap(map, mapLink);
+      addSession(
+        A,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        connected(0),
       );
+
+      const fires: Error[] = [];
+      const handler = (e: Error) => fires.push(e);
+
+      client.entries.use(); // strip, BARE (undefined) — registers first
+      let view: ReturnType<typeof client.entries.use> | undefined;
+      expect(() => {
+        view = client.entries.use({ onError: handler }); // registers second, DIVERGENT
+      }).not.toThrow();
+
+      await settle();
+      // Arm A's next `resolve()` to throw, then open A's per-key status stream (lazily, on the
+      // first `byKey` read) — its snapshot computation faults for real, through the SAME
+      // whole-collection dedup slot `entries.use()` above shares.
+      armResolveThrow(A);
+      view?.byKey(A);
+      await settle();
+      expect(fires.length).toBe(1);
       dispose();
     });
   });
 });
+
+/** Like {@link makeRegistry}, but `resolve` can be armed to THROW exactly once for a given
+ *  key — the one-shot escape hatch to drive a REAL membership-stream fault (as opposed to a
+ *  `{failed}` status VALUE, which `addFault` already covers) through `entries`' per-key status
+ *  stream, for the divergent-onError-consumers regression test above. */
+function armableRegistry() {
+  const entries = new Map<HostKey, EntrySession>();
+  const listeners = new Set<() => void>();
+  let throwOnResolve: HostKey | null = null;
+  const fire = () => {
+    for (const l of [...listeners]) l();
+  };
+  const registry: MapRegistry<HostKey> = {
+    members: () => [...entries.keys()],
+    has: (k) => entries.has(k),
+    subscribe: (cb) => {
+      listeners.add(cb);
+      return () => {
+        listeners.delete(cb);
+      };
+    },
+    resolve: (k) => {
+      if (throwOnResolve === k) {
+        throwOnResolve = null; // one-shot — never re-arms itself
+        throw new Error("membership resolve boom");
+      }
+      return entries.get(k) ?? { failed: "unknown key" };
+    },
+  };
+  return {
+    registry,
+    addSession(k: HostKey, link: unknown, state: EntryConnectionState) {
+      entries.set(k, { link, state });
+      fire();
+    },
+    armResolveThrow(k: HostKey) {
+      throwOnResolve = k;
+    },
+  };
+}
 
 // The liveness floor `state()`/foldState applies (D3): a per-key chip must never paint
 // green over a dead map transport. The dead-link branch is unreachable through the harness
