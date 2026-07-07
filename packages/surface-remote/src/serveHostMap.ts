@@ -164,7 +164,7 @@ export function serveHostMap<
       const session = sessionOf(k);
       if (session === undefined)
         return { failed: `unknown host: ${String(k)}` };
-      const offset = session.clockOffset() ?? null;
+      const offset = session.clockOffset();
       return {
         link: linkFor(k, session),
         state: projectState(latestState.get(k), offset),

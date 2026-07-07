@@ -345,7 +345,9 @@ pool.subscribe(() => pruneToMembers(reServes, (h) => pool.has(h)));
 // client — a `directLink` over the mirror's own router, no socket/ssh hop. It reads
 // padi's `{ padi, kaval }` off the value the re-serve already folds into its per-binding
 // store, instead of opening a second transport to padi.
-const localReServe = reServeFor(LOCAL_HOST, pool.getSession(LOCAL_HOST)!);
+// `padiSession` (above) already holds the resolved LOCAL/default session — reuse it rather
+// than re-looking it up + re-asserting non-null (defaultHost === LOCAL_HOST by construction).
+const localReServe = reServeFor(LOCAL_HOST, padiSession);
 const reServedPadiClient = surfaceClientRef(
   localReServe.surface,
   localReServe.router as Parameters<typeof surfaceClientRef>[1],
