@@ -43,6 +43,8 @@ export function useViewState() {
    *  the same id still fire the listener. Public reads only; the writer
    *  is private — external callers go through `activate(id)` instead, so
    *  there is no two-call dance to forget. */
+  // HOST-SCOPING: host-INDEPENDENT by design — a momentary write-and-consume
+  // viewport command, not durable per-host state; nothing re-reads it across a switch.
   const [centerActiveRequest, setCenterActiveRequest] =
     createSignal<TerminalId | null>(null, { equals: false });
 

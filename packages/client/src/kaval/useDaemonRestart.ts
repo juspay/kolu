@@ -23,6 +23,9 @@ import { daemonChannelLive, liveWarming } from "./useDaemonStatus";
 // window immediately (before the surface state flips) so a double-click can't
 // fire a second recycle (the server coalesces too). Module-private: the shared
 // `restartInFlight` predicate below is the one every affordance reads.
+// HOST-SCOPING: host-INDEPENDENT by design — a sub-second local click echo; the
+// durable "is this host's daemon restarting" fact rides `liveWarming` off the
+// host-scoped `daemonStatus`, which re-keys correctly on `activeHost`.
 const [restarting, setRestarting] = createSignal(false);
 
 /** The one "a restart is underway, disable the button" predicate, read by every

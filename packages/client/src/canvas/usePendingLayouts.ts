@@ -44,6 +44,9 @@ const [pending, setPending] = createStore<Record<string, TileLayout>>({});
 // the new tile's layout. Correctness depends only on that ordering
 // (armed before the server push, consumed when a new tile appears) — NOT
 // on the relative timing of `setActiveSilently` and the `tileIds` effect.
+// HOST-SCOPING: host-INDEPENDENT by design — a transient write-once/read-once slot
+// scoped to a single create flow (also nulled by `clear()` on canvas unmount), not
+// durable per-host state.
 const [nextDefaultSize, setNextDefaultSize] = createSignal<{
   w: number;
   h: number;

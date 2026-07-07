@@ -35,6 +35,10 @@ export type IntentEditorSession = {
 
 function init() {
   const store = useTerminalStore();
+  // HOST-SCOPING: host-INDEPENDENT by design — ephemeral open-editor session; a
+  // host switch while open doesn't bleed silently, it fails loud (Save routes
+  // through `activePadiRpc` to the now-active host, which rejects the captured
+  // terminal id with a toast, never a silent wrong-host write).
   const [session, setSession] = createSignal<IntentEditorSession | null>(null);
 
   const close = () => setSession(null);

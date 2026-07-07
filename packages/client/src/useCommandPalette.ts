@@ -18,6 +18,8 @@ import { createSignal } from "solid-js";
 import { createSharedRoot } from "./createSharedRoot";
 import { refocusIfNoDialogOpen } from "./ui/ModalDialog";
 
+// HOST-SCOPING: host-INDEPENDENT by design — pure UI chrome (open flag + a command
+// group slug); the palette overlay is identical regardless of active host.
 export const useCommandPalette = createSharedRoot(() => {
   const [open, setOpen] = createSignal(false);
   const [initialGroup, setInitialGroup] = createSignal<string | undefined>();

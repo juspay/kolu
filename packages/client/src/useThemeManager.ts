@@ -32,6 +32,9 @@ function init() {
     return (id !== null && getThemeName(id)) || DEFAULT_THEME_NAME;
   });
 
+  // HOST-SCOPING: host-INDEPENDENT by design — a transient live-preview overlay
+  // (theme is the canonical non-per-host category); writes go to the active host
+  // correctly via `activePadiRpc.surface.chrome.setTheme`.
   const [previewThemeName, setPreviewThemeName] = createSignal<
     string | undefined
   >(undefined);

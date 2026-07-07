@@ -34,6 +34,10 @@ export type ComposerTarget = {
   rect: SelectionRect;
 };
 
+// HOST-SCOPING: host-INDEPENDENT by design — an ephemeral in-flight draft that
+// self-clears on navigation (`CodeTab`'s close effect fires when the active file
+// changes), so a host switch drops the stale draft rather than floating it over
+// the new host.
 const [target, setTarget] = createSignal<ComposerTarget | null>(null);
 
 export function useComposer() {

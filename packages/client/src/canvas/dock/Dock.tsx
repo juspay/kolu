@@ -128,6 +128,8 @@ function dockWidth(mode: DockMode): number {
 // is discarded by design — so these listeners are never removed (no
 // `onCleanup`, which would never run here), exactly like the clock and
 // stale-ticker intervals. The browser reclaims them on page teardown.
+// HOST-SCOPING: host-INDEPENDENT by design — a global browser modifier-held fact,
+// not tied to any host's terminal data.
 const useModHeld = createSharedRoot(() => {
   const [modHeld, setModHeld] = createSignal(false);
   if (typeof window !== "undefined") {

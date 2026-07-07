@@ -55,6 +55,8 @@ export function isStale(
  *  first. App-lifetime by that contract: the ticker runs for the whole
  *  session with no teardown (the shared root's disposer is discarded),
  *  so we do NOT register an `onCleanup` that would never run. */
+// HOST-SCOPING: host-INDEPENDENT by design — deliberately the LOCAL wall clock, not
+// a per-host one; `reprojectClock` handles host skew before the `isStale` comparison.
 const getNowTicker = createSharedRoot<Accessor<number>>(() => {
   const [now, setNow] = createSignal(Date.now());
   setInterval(() => setNow(Date.now()), TICK_MS);
