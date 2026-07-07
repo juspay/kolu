@@ -28,7 +28,6 @@ import type {
   SavedSession,
 } from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
-import { scopeSibling } from "@kolu/surface/define";
 import { createSubscription, type Subscription } from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
@@ -140,15 +139,12 @@ export const surfaceApp = clients.surfaceApp;
 // ── The padi MAP — a keyed map of remote surfaces: ONE entry surface (`padiSurface`)
 //    served N times, keyed by host. `padi` is no longer a single client — every host's
 //    padi rides `padiMap.entry(host)` (a pure point lens) or `padiMap.useEntry(activeHost)`
-//    (a reactive lens that re-keys on switch). The map is dialled over a SCOPED slice of
-//    `conn.link` (`scopeSibling(_, "padi")` → the `/surface/padi/*` runtime paths),
-//    threading conn's already-guarded transport liveness via the `{ live }` seam (the
-//    scoped slice is NOT re-guarded — the parent `connectSurfaces` owns the watchdog).
-export const padiMap = connectSurfaceMap(
-  padiHostMap,
-  scopeSibling(conn.link, "padi"),
-  { live: () => conn.status() === "live" },
-);
+//    (a reactive lens that re-keys on switch). The map is dialled over the `padi` SIBLING
+//    of `conn`'s BRANDED transport handle: `connectSurfaceMap` slices `padi` from it and
+//    recovers the parent `connectSurfaces` watchdog `live` by construction (the handle is
+//    unforgeable), so every chip floors on the real socket — there is no raw `{ live }`
+//    seam to pass a green-over-dead accessor through.
+export const padiMap = connectSurfaceMap(padiHostMap, conn.transport, "padi");
 
 /** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Backed by
  *  `sessionStorage` (per-tab, never shared across tabs), validated + branded on read via

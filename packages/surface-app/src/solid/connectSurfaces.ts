@@ -37,12 +37,12 @@ import {
 } from "@kolu/surface/solid";
 import type { WebSocket as PartySocket } from "partysocket";
 import type { Accessor } from "solid-js";
-import { STALE_PROCESS_CLOSE_CODE } from "../index";
 import {
   createSurfaceSocket,
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
+import { STALE_PROCESS_CLOSE_CODE } from "../index";
 
 export interface ConnectSurfacesOptions<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
@@ -89,6 +89,14 @@ export interface SurfacesConnection<
    *  `connectSurfaces<C>` was called with the combined contract (kolu), else the
    *  loose default. */
   link: LiveSignalHandle<C>["link"];
+  /** The BRANDED transport handle `createLiveSignal` minted (link + watchdog `live` +
+   *  status, paired by construction). Exposed for FRAMEWORK COMPOSITION over a SIBLING
+   *  of this combined socket: `connectSurfaceMap(map, conn.transport, "<siblingKey>")`
+   *  slices that sibling from the handle and recovers THIS socket's watchdog `live` — so
+   *  a keyed map dialled over the sibling floors its chips on the real transport, with NO
+   *  raw-`{ live }` seam to forge. The handle is unforgeable (module-private brand), so
+   *  exposing it invites no green-over-dead lie. */
+  transport: LiveSignalHandle<C>;
   /** Reactive transport status (`connecting`/`live`/`reconnecting`/`down`) from
    *  the one shared socket's open/close. */
   status: Accessor<SurfaceConnectionStatus>;
@@ -144,6 +152,7 @@ export function connectSurfaces<
     ws,
     echo,
     clients,
+    transport,
     // The combined link createLiveSignal built — exposed so a consumer with
     // root-level raw procedures multiplexed at the same socket (kolu) reaches them
     // without re-assembling the socket+watchdog+clients wiring this seam owns.

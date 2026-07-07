@@ -458,4 +458,19 @@ describe("surface-map mock-entry e2e harness", () => {
       dispose();
     });
   });
+
+  it("(9) the { live } override is unspellable — the 3rd arg is a siblingKey string, not a raw liveness accessor", () => {
+    const map = defineSurfaceMap(HostKeySchema, entrySurface);
+    // Liveness comes ONLY from a branded LiveSignalHandle (its watchdog `live`) or a
+    // constant-true in-process directLink; a raw accessor over a bare link (the #1564
+    // green-over-dead lie) cannot be SPELLED — the 3rd arg is a siblingKey string.
+    const bad = () =>
+      connectSurfaceMap(
+        map,
+        {} as unknown,
+        // @ts-expect-error — `{ live }` is not assignable to `siblingKey?: string`.
+        { live: () => true },
+      );
+    expect(bad).toBeDefined();
+  });
 });

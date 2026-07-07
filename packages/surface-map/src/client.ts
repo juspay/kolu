@@ -15,7 +15,7 @@
  */
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
-import { defineSurface } from "@kolu/surface/define";
+import { defineSurface, scopeSibling } from "@kolu/surface/define";
 import {
   buildSurfaceClient,
   createKeyedRoot,
@@ -221,40 +221,33 @@ function rpcDelegate<ES extends SurfaceSpec, K>(
 
 // ── connectSurfaceMap ───────────────────────────────────────────────────
 
-/** Connect a `SurfaceMap` over a link, producing the typed map client. The link's
- *  transport is resolved ONCE (via `resolveTransport`, which applies the half-open
- *  guard): the resolved `live` is threaded into the `entries` client AND every
- *  per-key client (each built over a key-injecting wrapper of the resolved link), so
- *  a per-key chip floors its status on real transport liveness — constant-`true`
- *  only for an in-process `directLink`, a watchdog otherwise. */
-export interface ConnectSurfaceMapOptions {
-  /** An explicit, already-resolved transport-liveness accessor — for FRAMEWORK
-   *  COMPOSITION where `link` is a SCOPED slice of an already-guarded transport
-   *  (e.g. `scopeSibling(conn.link, "padi")`, whose parent `connectSurfaces` already
-   *  applied the half-open guard and owns the watchdog `live`). When given, `link` is
-   *  used as-is with this `live` (the upstream guard is not re-applied); when omitted,
-   *  the transport is resolved via `resolveTransport` (the half-open guard applies). */
-  live?: Accessor<boolean>;
-}
-
+/** Connect a `SurfaceMap` over a transport, producing the typed map client. The
+ *  transport is resolved ONCE (via `resolveTransport`, the ONLY liveness source — there
+ *  is NO `{ live }` override seam): the resolved `live` threads into the `entries` client
+ *  AND every per-key client (each built over a key-injecting wrapper of the resolved
+ *  link), so a per-key chip floors its status on real transport liveness.
+ *
+ *  `transport` is either a BRANDED `LiveSignalHandle` (a websocket's watchdog live — for
+ *  a combined socket, pass the WHOLE handle + `siblingKey` to slice the map's sibling),
+ *  or a bare in-process `directLink` (constant-`true`). A bare half-open wire link THROWS
+ *  — a raw `{ live: () => true }` over a dead transport is unspellable (#1564). */
 export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   map: SurfaceMap<KS, ES>,
-  link: unknown,
-  opts?: ConnectSurfaceMapOptions,
+  transport: unknown,
+  siblingKey?: string,
 ): SurfaceMapClient<KS, ES> {
   type K = z.infer<KS>;
 
-  // Resolve the app transport ONCE → { resolvedLink, live }. Normally via
-  // `resolveTransport` (the half-open guard: a bare wire link throws; a branded handle
-  // yields its watchdog `live`; an in-process link yields constant-`true`). But
-  // `opts.live` OVERRIDES it for framework composition — when `link` is a scoped slice
-  // of an already-guarded transport, `resolveTransport` would wrongly give the bare
-  // slice a constant-`true` leg, so the caller threads the parent's resolved `live`
-  // against the slice directly (the guard already met upstream). The SAME `live`
-  // threads into every client below so the live↔link pairing holds by construction.
-  const { link: baseLink, live } = opts?.live
-    ? { link, live: opts.live }
-    : resolveTransport(link);
+  // Resolve the transport ONCE — the guard is the ONLY way in: a branded
+  // `LiveSignalHandle` yields its watchdog `live` + link; a bare half-open wire link
+  // THROWS; an in-process `directLink` yields constant-`true`. For framework composition
+  // over a SIBLING of a combined transport (kolu's `padi` sibling of `conn.transport`),
+  // pass the whole branded handle + `siblingKey`: the sibling is sliced from the resolved
+  // link AFTER the guard, so it inherits the PARENT's watchdog `live` by construction —
+  // there is no bare slice paired with a fabricated accessor.
+  const { link: fullLink, live } = resolveTransport(transport);
+  const baseLink =
+    siblingKey !== undefined ? scopeSibling(fullLink, siblingKey) : fullLink;
 
   // Capture the STABLE client owner: per-key clients' dedup caches must be
   // client-lifetime, never the transient `.use()`/mapArray owner that first
