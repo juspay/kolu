@@ -39,6 +39,7 @@ import {
   type AdmitVerdict,
   type Connector,
   makeSession,
+  measureClockOffset,
   parseDrvBySystem,
   ResolveDrvError,
   resolveSystem,
@@ -49,7 +50,6 @@ import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
 import type { PadiConvergence } from "kolu-common/surface";
 import { type HostKey, LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { log } from "./log.ts";
-import { measureClockOffset } from "./measureClockOffset.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
 // feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
 import {
@@ -364,8 +364,12 @@ export function ensureRemotePadiBinding(
     }
     const hello = await c.surface.control.core.hello();
     // Sample the far-end clock offset over the same frozen control core (offset-at-hello)
-    // — refreshed every admit, so a reconnect re-measures.
-    clockOffset = await measureClockOffset(c);
+    // — refreshed every admit, so a reconnect re-measures. A probe failure is logged
+    // then rethrown — the admit-catch in `attempt()` (session.ts) turns that into an
+    // honest `disconnected` + reconnect, never a silent eternal `connecting`.
+    clockOffset = await measureClockOffset(c, (line) =>
+      log.warn({ host, line }, "remote padi clock-offset probe"),
+    );
     const running = hello.surfaceVersion;
     const instance = hello.startedAt ?? null;
     const runningBuild = hello.buildId ?? "";

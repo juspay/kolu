@@ -70,13 +70,6 @@ export interface ServeHostMapOptions<K, S> {
    *  injected). Called once per host; the result is cached here and evicted on
    *  removal, so a re-serve mirror is never built twice for a host. */
   linkFor: (host: K, session: S) => unknown;
-  /** The non-provisioning (local/endpoint) key, if this pool has one. A local
-   *  session is a `makeSession<_, never>` arm typed WITHOUT the provisioning phase
-   *  `"copying"` (juspay/kolu#1716), so it can NEVER legitimately project a
-   *  `copying`/`warming` status. This is the runtime BELT for the map's W4-new
-   *  reachability: if the local key ever projects `"copying"`, `resolve` throws LOUD
-   *  rather than paint a lying "warming" chip. Omit when every host provisions. */
-  localKey?: K;
 }
 
 /** The pool surface `serveHostMap` consumes — a slice of {@link RemotePool} (it never
@@ -180,19 +173,18 @@ export function serveHostMap<
       if (session === undefined) return { failed: `unknown host: ${enc}` };
       const offset = session.clockOffset();
       const state = projectState(latestState.get(enc), offset);
-      // BELT (juspay/kolu#1716): the local/endpoint arm is a non-provisioning session
-      // typed WITHOUT "copying", so it can never legitimately reach the provisioning
-      // phase. If the local key ever projects "copying", a non-provisioning session
-      // illegitimately entered it — fail LOUD rather than paint a lying "warming" chip.
-      if (
-        opts.localKey !== undefined &&
-        enc === encode(opts.localKey) &&
-        state.kind === "copying"
-      ) {
+      // BELT (juspay/kolu#1716): a non-provisioning session (`session.provisions ===
+      // false` — a `makeSession<_, never>` arm typed WITHOUT "copying") can NEVER
+      // legitimately reach the provisioning phase. Checked per-SESSION (the runtime
+      // twin of its `Prov` type, not an app-nominated "the local one" key), so a pool
+      // with any number of non-provisioning members is covered, not just one. If it
+      // ever projects "copying" anyway, fail LOUD rather than paint a lying "warming"
+      // chip.
+      if (!session.provisions && state.kind === "copying") {
         throw new Error(
-          `local host "${enc}" projected a provisioning "copying" state it can ` +
-            "never inhabit — a non-provisioning endpoint session must never enter " +
-            "copying (see juspay/kolu#1716)",
+          `host "${enc}" projected a provisioning "copying" state its session can ` +
+            "never inhabit — a non-provisioning session must never enter copying " +
+            "(see juspay/kolu#1716)",
         );
       }
       return {

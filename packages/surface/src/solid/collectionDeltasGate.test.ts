@@ -399,3 +399,113 @@ describe("collection onError — three consumers, three handlers, per-owner unre
     });
   });
 });
+
+/** A `plain` collection's KEYS stream whose FIRST generation yields once then
+ *  completes TYPED (a re-served collection / member removal — the shape that
+ *  evicts the dedup slot from `slots` while a still-mounted consumer keeps its
+ *  singleton root alive), and whose SECOND (and any later) generation is a
+ *  controllable stream the test drives by hand. Reproduces the exact shape the
+ *  generation-torn defect needs: a dead generation's disposal running alongside
+ *  a live generation's registry and dispatcher. */
+function generationalKeysLink() {
+  let call = 0;
+  let liveGen: ReturnType<typeof controllableStream<string[]>> | undefined;
+  return {
+    link: {
+      surface: {
+        plain: {
+          keys: (): Promise<AsyncIterable<string[]>> => {
+            call++;
+            if (call === 1) {
+              // GEN 1: one empty frame, then a TYPED end.
+              return Promise.resolve(
+                (async function* () {
+                  yield [] as string[];
+                })(),
+              );
+            }
+            // GEN 2+: stays open — the test faults it on demand.
+            liveGen = controllableStream<string[]>();
+            return liveGen.source();
+          },
+          // Never invoked: keys stays `[]` throughout (this test only exercises
+          // the keys-stream's OWN error channel, not any per-key value stream).
+          get: (): Promise<AsyncIterable<{ v: number }>> =>
+            new Promise(() => {}),
+          upsert: () => Promise.resolve(),
+          delete: () => Promise.resolve(),
+        },
+      },
+    },
+    failLiveGen: (e: unknown) => liveGen?.fail(e),
+  };
+}
+
+describe("collection onError — generation-torn registry (CONFIRMED fix)", () => {
+  it("a late-joining consumer under a NEW generation still fires, even after the OLD (dead) generation's own disposal", async () => {
+    await createRoot(async (dispose) => {
+      const { link, failLiveGen } = generationalKeysLink();
+      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed wire client.
+      const app = surfaceClient(surface, link as any);
+
+      const fires1: Error[] = [];
+      const fires2: Error[] = [];
+      const fires3: Error[] = [];
+      const onError1 = (e: Error) => fires1.push(e);
+      const onError2 = (e: Error) => fires2.push(e);
+      const onError3 = (e: Error) => fires3.push(e);
+
+      // C1: its OWN root — registers h1, opens GEN 1 (auto-completing keys stream).
+      let disposeC1 = (): void => {};
+      createRoot((d) => {
+        disposeC1 = d;
+        app.collections.plain.use({ onError: onError1 });
+      });
+      // GEN 1's keys stream yields once then completes → TYPED end → the dedup
+      // cache evicts GEN 1 from `slots` — but its singleton root stays alive
+      // (C1 is still mounted; eviction ≠ disposal).
+      await settle();
+
+      // C2: its OWN root — registers h2. `slots.get` is now empty for this
+      // collection key (GEN 1 was evicted), so a NEW slot (GEN 2, the
+      // controllable stream) is built. This is now the LIVE generation.
+      let disposeC2 = (): void => {};
+      createRoot((d) => {
+        disposeC2 = d;
+        app.collections.plain.use({ onError: onError2 });
+      });
+      await settle();
+
+      // C1 disposes. Its OWN per-consumer unregister removes h1 from the
+      // registry. The now-fixed code's slot-level `onCleanup` (GEN 1's, firing
+      // as C1's root tears down) must NOT touch the registry at all — the
+      // registry's lifetime is the CONSUMERS', not a slot generation's. The
+      // bug this pins: the OLD code's GEN-1 `onCleanup` unconditionally ran
+      // `collOnError.delete(collKey)`, silently deleting the registry GEN 2's
+      // dispatcher and every later-joining consumer still depend on.
+      disposeC1();
+      await settle();
+
+      // C3 joins the STILL-LIVE GEN 2 slot (no new slot is built — `slots.get`
+      // already holds it), registering h3 into whatever registry is live NOW.
+      app.collections.plain.use({ onError: onError3 });
+      await settle();
+
+      failLiveGen(new Error("boom"));
+      await settle();
+
+      // h1 must NOT fire — its consumer already unmounted. h2 AND h3 — the two
+      // LIVE consumers of the one live (GEN 2) slot — MUST both fire. Losing h3
+      // is exactly the generation-torn silent-drop defect: under the old code,
+      // GEN 2's dispatcher captured the registry BY REFERENCE at build time,
+      // and GEN 1's stale cleanup had already deleted the KEYED entry a late
+      // joiner (C3) would otherwise have found and shared.
+      expect(fires1.length).toBe(0);
+      expect(fires2.length).toBe(1);
+      expect(fires3.length).toBe(1);
+
+      disposeC2();
+      dispose();
+    });
+  });
+});

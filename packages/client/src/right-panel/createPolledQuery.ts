@@ -34,7 +34,11 @@
  */
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
-import type { StreamingProcedure, Subscription } from "@kolu/surface/solid";
+import {
+  type StreamingProcedure,
+  type Subscription,
+  wireSubscriptionError,
+} from "@kolu/surface/solid";
 import {
   type Accessor,
   createEffect,
@@ -210,19 +214,12 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     pending,
   }) as Subscription<Result>;
 
-  // Drive `onError` off the self-clearing `error()` EDGE (as `createSubscription`
-  // does), so a transient blip fires once per rising transition and clears with
-  // the signal — the two error channels can't disagree.
-  if (onError) {
-    createEffect(
-      on(
-        () => sub.error(),
-        (err) => {
-          if (err) onError(err);
-        },
-      ),
-    );
-  }
+  // Drive `onError` off the self-clearing `error()` EDGE via the shared
+  // `@kolu/surface/solid` helper (the exact wiring `createSubscription` itself
+  // uses internally) — not a hand-rolled copy — so a transient blip fires once
+  // per rising transition and clears with the signal, and this file can't drift
+  // from the framework's one edge-wiring implementation.
+  if (onError) wireSubscriptionError(sub, onError);
 
   return sub;
 }

@@ -43,6 +43,22 @@ describe("parseHostInput vs decodeHostKey — two boundaries, same string, diffe
   it("parseHostInput('local') is the local variant", () => {
     expect(parseHostInput("local")).toEqual({ kind: "local" });
   });
+
+  it("parseHostInput canonicalizes bare loopback spellings to the local variant (dedupes with 'local')", () => {
+    // 'localhost' / '127.0.0.1' / '::1' name the SAME machine `{ kind: "local" }`
+    // already names — a `KOLU_PADI_HOST=localhost,srid@zest` seed used to mint a
+    // SECOND, ssh-bound pool entry for the loopback (three chips instead of two).
+    expect(parseHostInput("localhost")).toEqual({ kind: "local" });
+    expect(parseHostInput("127.0.0.1")).toEqual({ kind: "local" });
+    expect(parseHostInput("::1")).toEqual({ kind: "local" });
+  });
+
+  it("parseHostInput('user@localhost') STAYS remote — ssh as another user is a distinct session", () => {
+    expect(parseHostInput("user@localhost")).toEqual({
+      kind: "remote",
+      target: "user@localhost",
+    });
+  });
 });
 
 describe("encodeHostKey / decodeHostKey — the canonical wire codec round-trips", () => {

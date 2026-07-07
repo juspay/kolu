@@ -28,7 +28,7 @@ import {
 } from "./terminal/stickyModifiers";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { isTouch } from "./useMobile";
-import { activeHost, padiRpcOf } from "./wire";
+import { activePadiRpc } from "./wire";
 
 interface Key {
   label: string;
@@ -100,7 +100,7 @@ const MobileKeyBar: Component = () => {
     const id = store.focusedId();
     if (!id) return;
     tick();
-    void padiRpcOf(activeHost()).surface.lifecycle.sendInput({
+    void activePadiRpc.surface.lifecycle.sendInput({
       id,
       data: applyStickyModifiers(data),
     });

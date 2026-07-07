@@ -1,5 +1,4 @@
 import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
-import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
@@ -35,12 +34,12 @@ const rpc = vi.hoisted(() => ({
 }));
 
 // Spread the REAL (browser-safe) module so every schema kolu-common/surface pulls from
-// here — e.g. `HostDaemonInventorySchema` — stays present; override only `padiRpc`.
+// here — e.g. `HostDaemonInventorySchema` — stays present; override only `activePadiRpc`.
 // Keep the REAL (browser-safe) `@kolu/padi/surface` — its schemas
 // (`HostDaemonInventorySchema`, …) must stay present; the RPC double moved to
-// `../wire`'s `padiRpcOf` (production now calls `padiRpcOf(activeHost()).surface.*`).
+// `../wire`'s `activePadiRpc` (production now calls `activePadiRpc.surface.*`).
 vi.mock("../wire", () => ({
-  padiRpcOf: () => ({
+  activePadiRpc: {
     surface: {
       session: {
         restore: rpc.restore,
@@ -53,8 +52,7 @@ vi.mock("../wire", () => ({
         sendInput: rpc.sendInput,
       },
     },
-  }),
-  activeHost: () => LOCAL_HOST,
+  },
   savedSessionSub: { pending: () => h.sessionPending },
   savedSession: () => h.savedSession,
 }));

@@ -327,4 +327,142 @@ describe("keyed subscription cache — dedup + lifetime", () => {
       outer();
     });
   });
+
+  it('MINOR FIX — omitted and explicit-default `authority: "server"` fold to the SAME slot', async () => {
+    let calls = 0;
+    const link = {
+      surface: {
+        prefs: {
+          get: (..._a: unknown[]): Promise<AsyncIterable<{ n: number }>> => {
+            calls++;
+            return pendingForever<{ n: number }>()();
+          },
+          set: async () => {},
+        },
+      },
+    };
+    await createRoot(async (outer) => {
+      // biome-ignore lint/suspicious/noExplicitAny: stub link.
+      const app = surfaceClient(prefsSurface, link as any);
+      // Omitted `authority` and explicit `authority: "server"` (the documented
+      // default) are the SAME logical site — `useCell` treats them identically —
+      // so both must fold onto ONE upstream subscription, not silently open two.
+      app.cells.prefs.use({});
+      app.cells.prefs.use({ authority: "server" });
+      app.cells.prefs.use(); // no options at all — same default, same slot
+      await settle();
+      expect(calls).toBe(1);
+      outer();
+    });
+  });
+
+  it("PIN — disposing the last consumer of a cached CELL sub ABORTS the upstream source() stream", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const get = (
+      _input: unknown,
+      opts?: { signal?: AbortSignal },
+    ): Promise<AsyncIterable<{ state: string }>> => {
+      capturedSignal = opts?.signal;
+      return pendingForever<{ state: string }>()();
+    };
+    const link = { surface: { conn: { get } } };
+    await createRoot(async (outer) => {
+      // biome-ignore lint/suspicious/noExplicitAny: stub link.
+      const app = surfaceClient(cellSurface, link as any);
+      let disposeConsumer = (): void => {};
+      createRoot((d) => {
+        disposeConsumer = d;
+        app.cells.conn.use();
+      });
+      await settle();
+      // The stream is open and NOT aborted while the (only) consumer is mounted.
+      expect(capturedSignal).toBeDefined();
+      expect(capturedSignal?.aborted).toBe(false);
+
+      disposeConsumer(); // last consumer leaves → the shared slot tears down
+      await settle();
+      // The dedup slot's teardown must reach all the way to the wire call's own
+      // signal — not just stop the local consume loop — so the server-side
+      // subscription actually closes instead of surviving indefinitely.
+      expect(capturedSignal?.aborted).toBe(true);
+      outer();
+    });
+  });
+
+  it("PIN — disposing the last consumer of a cached whole-COLLECTION's keys-stream aborts it too", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const link = {
+      surface: {
+        plain: {
+          keys: (
+            _input: unknown,
+            opts?: { signal?: AbortSignal },
+          ): Promise<AsyncIterable<string[]>> => {
+            capturedSignal = opts?.signal;
+            return pendingForever<string[]>()();
+          },
+          get: () => pendingForever<{ v: number }>()(),
+          upsert: () => Promise.resolve(),
+          delete: () => Promise.resolve(),
+        },
+      },
+    };
+    const surface = defineSurface({
+      collections: {
+        plain: { keySchema: z.string(), schema: z.object({ v: z.number() }) },
+      },
+    });
+    await createRoot(async (outer) => {
+      // biome-ignore lint/suspicious/noExplicitAny: stub link.
+      const app = surfaceClient(surface, link as any);
+      let disposeConsumer = (): void => {};
+      createRoot((d) => {
+        disposeConsumer = d;
+        app.collections.plain.use({});
+      });
+      await settle();
+      expect(capturedSignal?.aborted).toBe(false);
+
+      disposeConsumer();
+      await settle();
+      expect(capturedSignal?.aborted).toBe(true);
+      outer();
+    });
+  });
+
+  it("WEAKENED FIX — an ownerless .use() does not leak the listener count; it tears down instead of standing forever", async () => {
+    let calls = 0;
+    const src = (
+      ..._a: unknown[]
+    ): Promise<AsyncIterable<{ state: string }>> => {
+      calls++;
+      return pendingForever<{ state: string }>()();
+    };
+    const link = { surface: { conn: { get: src } } };
+    // biome-ignore lint/suspicious/noExplicitAny: stub link.
+    const app = surfaceClient(cellSurface, link as any);
+
+    // Call `.use()` completely OWNERLESS — no `createRoot` wrapping, mirroring
+    // kolu's `refuseIfWarming` → `entry(host).state()` called from a DOM handler.
+    // getOwner() is null here (top-level test body, no reactive scope).
+    app.cells.conn.use();
+    await settle();
+    // Without the fix, `onCleanup` outside an owner warns-and-no-ops, so the
+    // singleton root's listener count is incremented and NEVER decremented — the
+    // slot (and its underlying wire subscription) would stand forever, and
+    // `connCount` would stay 1 with no way to ever reach 0. With the fix, the
+    // ownerless call acquires-and-releases in the same tick, so by now it's
+    // already torn back down.
+    expect(connCount(app)).toBe(0);
+
+    // A subsequent REAL, owned consumer re-subscribes cleanly (source called
+    // again) — proof the ownerless call didn't wedge the slot into some
+    // half-registered state that a real consumer could never properly join.
+    createRoot((d) => {
+      app.cells.conn.use();
+      d();
+    });
+    await settle();
+    expect(calls).toBe(2);
+  });
 });

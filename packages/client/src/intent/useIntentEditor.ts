@@ -16,7 +16,7 @@ import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { activeHost, padiRpcOf } from "../wire";
+import { activePadiRpc } from "../wire";
 
 export type IntentEditorSession = {
   title: string;
@@ -33,8 +33,8 @@ function init() {
   const close = () => setSession(null);
 
   const writeIntent = (id: TerminalId, intent: string) => {
-    void padiRpcOf(activeHost())
-      .surface.chrome.setIntent({ id, intent })
+    void activePadiRpc.surface.chrome
+      .setIntent({ id, intent })
       .catch((err: Error) =>
         toast.error(`Failed to save intent: ${err.message}`),
       );

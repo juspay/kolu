@@ -52,7 +52,14 @@ const st = (
 
 type FakeSession = Session & { clockOffset(): number | null };
 
-function fakeSession(initial: SessionState, offset: number | null) {
+/** `provisions` defaults `true` — the ssh arm, per `session.ts`'s own doc ("Prov =
+ *  ProvisioningPhase (the ssh arm, the default)"). Pass `false` to model a
+ *  non-provisioning (local/endpoint) session — the runtime twin of `Prov = never`. */
+function fakeSession(
+  initial: SessionState,
+  offset: number | null,
+  provisions = true,
+) {
   let state = initial;
   let clockOffset = offset;
   const listeners = new Set<(s: SessionState) => void>();
@@ -64,6 +71,7 @@ function fakeSession(initial: SessionState, offset: number | null) {
     },
     clockOffset: () => clockOffset,
     destroy() {},
+    provisions,
   } as unknown as FakeSession;
   return {
     session,
@@ -145,13 +153,12 @@ describe("projectState — SessionState → EntryConnectionState", () => {
   });
 });
 
-describe("serveHostMap belt — a local key can never project 'copying' (juspay/kolu#1716)", () => {
-  it("RUNTIME pin: a non-local key in 'copying' projects 'copying' fine (the remote path warms-via-copy)", async () => {
+describe("serveHostMap belt — a non-provisioning session can never project 'copying' (juspay/kolu#1716)", () => {
+  it("RUNTIME pin: a PROVISIONING session in 'copying' projects 'copying' fine (the remote path warms-via-copy)", async () => {
     const p = fakePool();
-    p.add("remote", fakeSession(st("copying"), 0));
+    p.add("remote", fakeSession(st("copying"), 0, true)); // provisions: true — legitimate
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
-      localKey: "local" as never, // "remote" is NOT the local key → the belt stays silent
     });
     const iter = await entriesGet(
       directLink<AnyContractRouter>(served.router as never),
@@ -164,20 +171,37 @@ describe("serveHostMap belt — a local key can never project 'copying' (juspay/
     served.dispose();
   });
 
-  it("BELT: the localKey's session in 'copying' (an illegal state the endpoint TYPE forbids at construction) throws LOUD instead of a lying 'warming' chip", async () => {
+  it("BELT: a non-provisioning session in 'copying' (an illegal state the endpoint TYPE forbids at construction) throws LOUD instead of a lying 'warming' chip", async () => {
     const p = fakePool();
-    // Force the local key into "copying" — the endpoint arm's type (`makeSession<_,
-    // never>`) makes this UNCONSTRUCTIBLE, so this models a regression / a wrong widening.
-    p.add("local", fakeSession(st("copying"), 0));
+    // Force a non-provisioning session into "copying" — the endpoint arm's type
+    // (`makeSession<_, never>`) makes this UNCONSTRUCTIBLE, so this models a
+    // regression / a wrong widening.
+    p.add("local", fakeSession(st("copying"), 0, false));
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
-      localKey: "local" as never,
     });
     const iter = await entriesGet(
       directLink<AnyContractRouter>(served.router as never),
       "local",
     );
     await expect(iter.next()).rejects.toThrow(/never inhabit|1716/);
+    served.dispose();
+  });
+
+  it("GENERALIZATION: the belt checks EVERY non-provisioning session, not just one nominated key — a second offender is caught too", async () => {
+    const p = fakePool();
+    // Two independent non-provisioning members, both illegally in "copying" — the
+    // old `localKey?: K` option could only ever belt ONE of these.
+    p.add("local-a", fakeSession(st("copying"), 0, false));
+    p.add("local-b", fakeSession(st("copying"), 0, false));
+    const served = serveHostMap(map, p.pool, {
+      linkFor: () => directLink<AnyContractRouter>({} as never),
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    const iterA = await entriesGet(link, "local-a");
+    const iterB = await entriesGet(link, "local-b");
+    await expect(iterA.next()).rejects.toThrow(/never inhabit|1716/);
+    await expect(iterB.next()).rejects.toThrow(/never inhabit|1716/);
     served.dispose();
   });
 });

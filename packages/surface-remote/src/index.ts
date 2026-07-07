@@ -57,6 +57,7 @@ export {
   type RemotePoolControlOptions,
   type RemotePoolOptions,
 } from "./hostFanout";
+export { measureClockOffset } from "./measureClockOffset";
 export {
   type ProvisionOptions,
   type ProvisionResult,

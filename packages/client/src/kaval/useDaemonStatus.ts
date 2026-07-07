@@ -33,6 +33,11 @@ import {
   liveDownState,
   liveWarming,
 } from "./daemonPresentation";
+import {
+  isPendingTimedOut,
+  type PendingWindow,
+  reanchorPendingWindow,
+} from "./pendingWindow";
 import { announceReattach } from "./reattachAnnounce";
 
 // Re-export the pure presentation so existing `from "./useDaemonStatus"` imports
@@ -171,28 +176,44 @@ export function daemonStatusPending(): boolean {
  *  agree on the same order of magnitude. */
 const LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS = 30_000;
 
-/** The wall-clock instant this module loaded — the daemon-status subscription
- *  (`sub`, above) is opened once at module load with a input that never changes
- *  for the local host, so `daemonStatusPending()` can only ever be true from THIS
- *  instant until its first-ever yield (per `createReactiveSubscription`'s own
- *  contract: "pending() is true between the input change and the first new
- *  yield"). A plain (non-reactive) snapshot is exactly what "when did the wait
- *  begin" needs. */
-const daemonStatusSubscribedAtMs = Date.now();
+/** The CURRENT pending run's anchor — re-derived by {@link reanchorPendingWindow}
+ *  every time the ACTIVE HOST changes, not just once at module load. `sub` (above)
+ *  rides `padiMap.useEntry(activeHost)`, which RE-KEYS — tears down and rebuilds —
+ *  on every host switch (W4 "the switch"), so a brand-new remote host's wait for
+ *  its first status genuinely restarts, exactly like boot's. A single
+ *  `Date.now()` snapshot frozen at module load would keep measuring the ORIGINAL
+ *  (boot-time) wait's age forever, so switching to a freshly-connecting remote
+ *  minutes into a session read the 30s ceiling as ALREADY passed the instant the
+ *  switch happened — before the new host's own handshake even began — and
+ *  resolved the terminal `dead`/"kaval didn't start" surface over a daemon that
+ *  was simply warming (the first-connect race this fixes; see `pendingWindow.ts`'s
+ *  header for the full narrative). A `createMemo` reducer: it only recomputes
+ *  when `encodeHostKey(activeHost())` actually changes (the same key `sub`
+ *  re-keys on), so it holds across every OTHER re-render. */
+const daemonStatusPendingWindow = createRoot(() =>
+  createMemo<PendingWindow>((prev) =>
+    reanchorPendingWindow(prev, encodeHostKey(activeHost()), Date.now()),
+  ),
+);
 
-/** True once the daemon-status stream has been pending — no first value, ever —
- *  for longer than the local endpoint's own connect timeout ({@link
+/** True once the daemon-status stream's CURRENT pending run — anchored per
+ *  {@link daemonStatusPendingWindow}, re-anchored on every host switch — has run
+ *  longer than the local endpoint's own connect timeout ({@link
  *  LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS}). Feeds `resolveCanvasMode`'s
- *  `pendingTimedOut` fact: a local padi endpoint that never comes up at boot (a
- *  spawn/adopt failure — the #1713 adopt-path sibling is one cause) would
- *  otherwise leave `daemonStatusPending()` true FOREVER, and the canvas would spin
- *  at "Connecting…" with no way out. Reactive (reads the shared 1s clock), so a
- *  consumer inside a tracking scope re-renders the instant the ceiling passes. */
+ *  `pendingTimedOut` fact: a padi endpoint that never comes up (a spawn/adopt
+ *  failure — the #1713 adopt-path sibling is one cause) would otherwise leave
+ *  `daemonStatusPending()` true FOREVER, and the canvas would spin at
+ *  "Connecting…" with no way out. Reactive (reads the shared 1s clock), so a
+ *  consumer inside a tracking scope re-renders the instant the ceiling passes —
+ *  and re-renders `false` the instant a host switch re-anchors the window, so a
+ *  fresh remote connect gets its own full grace period rather than inheriting a
+ *  stale one. */
 export function daemonStatusPendingTimedOut(): boolean {
-  return (
-    daemonStatusPending() &&
-    getClockNow()() - daemonStatusSubscribedAtMs >
-      LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS
+  return isPendingTimedOut(
+    daemonStatusPending(),
+    daemonStatusPendingWindow(),
+    getClockNow()(),
+    LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS,
   );
 }
 

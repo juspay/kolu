@@ -3,9 +3,9 @@
  *
  * One entry spec typed once, entries keyed at runtime. The default entrypoint is
  * the CONTRACT half (`defineSurfaceMap` + its types); serve it with
- * `@kolu/surface-map/server` and consume it with `@kolu/surface-map/client`
- * (`/solid` re-exports the client for Solid consumers, whose `useEntry` owns
- * swap disposal).
+ * `@kolu/surface-map/server` and consume it with `@kolu/surface-map/client` (its
+ * client is inherently Solid — `useEntry` owns swap disposal — so there is no
+ * separate `/solid` entrypoint to pick between).
  */
 
 export {

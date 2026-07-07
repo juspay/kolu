@@ -632,7 +632,7 @@ export const appRouter = implementSurface(surface, {
 });
 ```
 
-The surface derives publish channel names and they are not configurable: cells use `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:" + String(k)`, events use `"<key>:" + eventChannelKey(input)`. Renaming a surface key thus renames the channel — for cells whose channels back persisted subscriptions, prefer adding a new key and migrating off the old one.
+The surface derives publish channel names and they are not configurable: cells use `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:deltas"` + `"<key>:key:" + String(k)` (see `channelNames.ts` — the sole source of these names), events use `"<key>:" + eventChannelKey(input)`. Renaming a surface key thus renames the channel — for cells whose channels back persisted subscriptions, prefer adding a new key and migrating off the old one.
 
 ### Client
 

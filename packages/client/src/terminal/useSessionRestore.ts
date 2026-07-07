@@ -7,8 +7,7 @@ import { toast } from "solid-sonner";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
-  activeHost,
-  padiRpcOf,
+  activePadiRpc,
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../wire";
@@ -207,7 +206,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       //
       // `resumeIds` is the per-terminal opt-in the restore card builds off its
       // global toggle: the SET of ids to resume (empty when the toggle is off).
-      await padiRpcOf(activeHost()).surface.session.restore({
+      await activePadiRpc.surface.session.restore({
         resumeIds: options.resumeIds ? [...options.resumeIds] : undefined,
       });
       setSavedSession(null);
@@ -248,14 +247,12 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     if (!session) return;
     // Optimistic dismissal: the card is gone the moment the user commits.
     setSavedSession(null);
-    await padiRpcOf(activeHost())
-      .surface.session.forfeit({})
-      .catch((err: Error) => {
-        // Surface the failure and restore the card so the user can retry —
-        // a caught error must not collapse silently to the empty state.
-        setSavedSession(session);
-        toast.error(`Failed to start fresh: ${err.message}`);
-      });
+    await activePadiRpc.surface.session.forfeit({}).catch((err: Error) => {
+      // Surface the failure and restore the card so the user can retry —
+      // a caught error must not collapse silently to the empty state.
+      setSavedSession(session);
+      toast.error(`Failed to start fresh: ${err.message}`);
+    });
   }
 
   return {

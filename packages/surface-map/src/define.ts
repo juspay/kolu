@@ -246,7 +246,24 @@ export type Key<M> =
  *  inverts it. For a `K` that is already a plain string this is the identity
  *  pair; kolu's `HostKey` (a discriminated-sum object) passes its own
  *  `encodeHostKey`/`decodeHostKey`. `decode` is paired with `keySchema.parse` at
- *  every call site (the P5 re-validation gate) — it need not validate on its own. */
+ *  every call site (the P5 re-validation gate) — it need not validate on its own.
+ *
+ *  Considered (and rejected) folding this into zod 4's `z.codec` — a direct dep,
+ *  and the obvious "reuse the ecosystem's own bidirectional-transform primitive"
+ *  move. It doesn't fit here: `z.encode(codec, key)` re-validates `key` against
+ *  `keySchema` on EVERY call (zod4's generic `z.encode`/`z.decode` always
+ *  round-trip through both schemas), but `encode` runs on an ALREADY-validated
+ *  `K` at the hottest, most frequent call sites in this module (the per-key
+ *  client-cache lookup on every `entry(key)`/`clientFor` call, the membership
+ *  fold on every `entries` read, the server's per-tick republish loop over every
+ *  member) — the module's own contract is "`decode` is paired with
+ *  `keySchema.parse`... it need not validate on its own", i.e. encode is meant to
+ *  be a bare, cheap function call. Folding `keySchema` + `codec` into one
+ *  `z.codec` schema would also entangle two orthogonal generics: `KS` alone
+ *  types `Key<M>`/`MapRegistry<K>` today, with no wire concern at all. A `z.codec`
+ *  win only shows up on the DECODE leg (collapsing `keySchema.parse(codec.decode(wire))`
+ *  into one `.parse`) — adopting it there alone would mean maintaining two
+ *  representations of the same transform, which is more surface, not less. */
 export interface KeyCodec<K> {
   encode(key: K): string;
   decode(wire: string): K;

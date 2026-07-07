@@ -77,13 +77,32 @@ export function decodeHostKey(s: string): HostKey {
   );
 }
 
+/** Bare-loopback spellings of "this machine, as the current user" — the SAME host
+ *  `{ kind: "local" }` already names, just three other words for it. Without this,
+ *  `parseHostInput("localhost")` took the word LITERALLY as a remote target and
+ *  `parseKoluPadiHostSeed` (whose dedup compares ENCODED strings) minted a second,
+ *  ssh-bound pool entry for a host already in the pool as the implicit default —
+ *  `KOLU_PADI_HOST=localhost,srid@zest` rendered THREE chips (`local` + `localhost`
+ *  + `srid@zest`) instead of two. Deliberately NOT the machine's own hostname: this
+ *  module is shared with the BROWSER bundle (no `os.hostname()` import belongs
+ *  here) — a consumer that needs that comparison resolves it server-side, outside
+ *  this codec. `user@localhost` is excluded on purpose — ssh-ing to the loopback
+ *  AS ANOTHER USER is a genuinely different session, so only the BARE spelling
+ *  (no `@`) dedupes. */
+const LOOPBACK_SELF_SPELLINGS = new Set(["localhost", "127.0.0.1", "::1"]);
+
 /** PARSE — raw HUMAN/env input (the add-host picker, a `KOLU_PADI_HOST` seed token):
- *  the literal word `"local"` names the local default; EVERYTHING else is taken
+ *  the literal word `"local"`, or a bare loopback spelling ({@link
+ *  LOOPBACK_SELF_SPELLINGS}), names the local default; EVERYTHING else is taken
  *  LITERALLY as a remote target — including a string that happens to start with
  *  `"remote:"` (unlike {@link decodeHostKey}, this codec never interprets that
  *  prefix — a user typing an ssh alias literally named `remote:zest` gets a remote
- *  target of exactly `"remote:zest"`). Total: unlike the old branded-string schema,
- *  there is no reserved-name reject to fail — a bare human string always parses. */
+ *  target of exactly `"remote:zest"`), and including `user@localhost` (ssh as a
+ *  DIFFERENT user to the loopback is a distinct remote target, not the local
+ *  default). Total: unlike the old branded-string schema, there is no reserved-name
+ *  reject to fail — a bare human string always parses. */
 export function parseHostInput(userStr: string): HostKey {
-  return userStr === "local" ? LOCAL_HOST : { kind: "remote", target: userStr };
+  return userStr === "local" || LOOPBACK_SELF_SPELLINGS.has(userStr)
+    ? LOCAL_HOST
+    : { kind: "remote", target: userStr };
 }

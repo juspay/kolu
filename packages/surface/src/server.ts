@@ -838,7 +838,7 @@ export function inMemoryChannel<T>(
  *
  *  Why this exists: `implementSurface`'s `channel:` dep is called *once
  *  per publish/subscribe site* — the surface owns names like
- *  `"<key>:changed"` and `"<key>:<k>"`. The consumer must return the
+ *  `"<key>:changed"` and `"<key>:key:<k>"`. The consumer must return the
  *  *same* `Channel<T>` instance for the same name, or the framework's
  *  publishes go to one channel and the subscribers register on
  *  another. A bare `inMemoryChannel<T>()` factory (`channel: (name) =>

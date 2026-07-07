@@ -49,10 +49,11 @@ import {
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { inMemoryCell } from "@kolu/surface/server";
-import type {
-  ConnectionState,
-  LocalConnectionState,
-  ProvisioningPhase,
+import {
+  type ConnectionState,
+  LOCAL_CONNECTION_STATES,
+  type LocalConnectionState,
+  type ProvisioningPhase,
 } from "./connection";
 import type { FailureCause } from "./host";
 
@@ -146,6 +147,16 @@ export interface Session<
    *  connect / between dials; `anonymous`/`identified` once connected (never
    *  null-forever — every server answers `system.identity`). */
   identity(): SurfaceIdentity;
+  /** Does this session's transport PROVISION (nix-copy a closure) before
+   *  connecting? The runtime twin of the `Prov` TYPE parameter, which is erased at
+   *  runtime: `false` for a non-provisioning arm (`Prov = never`, whose
+   *  `initialConnection` is always a {@link LocalConnectionState} — it can never
+   *  legitimately reach `"copying"`), `true` for a provisioning arm (ssh, `Prov =
+   *  ProvisioningPhase`). Derived once at construction from `initialConnection`, so
+   *  a generic consumer (e.g. `serveHostMap`'s juspay/kolu#1716 belt) can ask ANY
+   *  session directly — no app-nominated "the local one" key required, and a pool
+   *  with more than one non-provisioning member is covered, not just a single key. */
+  readonly provisions: boolean;
 }
 
 /** How a live connection ended — the RAW transport signal the loop classifies (it
@@ -300,6 +311,13 @@ export function makeSession<
   const label = opts.label ?? "session";
   const reconnectDelayMs = opts.reconnectDelayMs ?? 2000;
   const connectTimeoutMs = opts.connectTimeoutMs ?? 30_000;
+  // The runtime twin of `Prov`: a non-provisioning arm's `initialConnection` is
+  // ALWAYS one of the four `LocalConnectionState` values (a provisioning arm's
+  // opens outside that set, e.g. ssh's `"copying"`) — so membership alone tells
+  // the two arms apart without the (erased-at-runtime) `Prov` type parameter.
+  const provisions = !LOCAL_CONNECTION_STATES.includes(
+    opts.initialConnection as LocalConnectionState,
+  );
 
   let refCount = 0;
   let destroyed = false;
@@ -800,6 +818,7 @@ export function makeSession<
         ? { kind: "disconnected" }
         : cachedIdentity;
     },
+    provisions,
   };
 
   return session;

@@ -60,20 +60,31 @@ export interface SubscriptionOptions<T, R = T> {
   onComplete?: () => void;
 }
 
-/** Convert an async stream into a SolidJS signal. */
+/** Convert an async stream into a SolidJS signal. `source` receives the
+ *  subscription's OWN abort signal (the external `options.signal` when supplied,
+ *  else the internal `AbortController` this call creates) — thread it into the
+ *  underlying procedure call (`unenrolledStreamCall(proc, input, { signal })` /
+ *  a `StreamingProcedure`'s `{ signal }` opt) so disposing the subscription
+ *  actually cancels the wire stream, not just the local consume loop. Without
+ *  this, teardown only stops READING the stream — the server-side subscription
+ *  (and its bounded frame queue) stays open until the stream happens to end on
+ *  its own, or forever for a quiet cell/collection that never publishes again.
+ *  A `source` that ignores the signal (a test double, an in-memory iterable
+ *  with nothing to cancel) is unaffected — the loop's own `abortSignal.aborted`
+ *  check still stops consumption either way. */
 export function createSubscription<T>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
 ): Subscription<T>;
 export function createSubscription<T>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
   options: Omit<SubscriptionOptions<T>, "reduce" | "initial">,
 ): Subscription<T>;
 export function createSubscription<T, R>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
   options: SubscriptionOptions<T, R> & { initial: R },
 ): Subscription<R>;
 export function createSubscription<T, R = T>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
   options?: SubscriptionOptions<T, R>,
 ): Subscription<T | R> {
   const reduce = options?.reduce as
@@ -116,7 +127,7 @@ export function createSubscription<T, R = T>(
   // Consume the stream
   void (async () => {
     try {
-      const iterable = await source();
+      const iterable = await source(abortSignal);
       for await (const item of iterable) {
         if (abortSignal.aborted) break;
         updateValue(reduce ? reduce(store.v as T | R, item) : item);
@@ -158,9 +169,16 @@ export function createSubscription<T, R = T>(
  *  transient blip the signal already cleared). Factored out of `createSubscription`
  *  so the keyed subscription cache can share ONE upstream subscription across N
  *  consumers while each consumer still gets its OWN `onError` (a per-call label /
- *  toast), wired under that consumer's own reactive owner. */
-export function wireSubscriptionError<T>(
-  sub: Subscription<T>,
+ *  toast), wired under that consumer's own reactive owner.
+ *
+ *  Takes only `{ error }` (not the whole `Subscription<T>`) — the one field this
+ *  reads — so a shared, ALREADY-DESTRUCTURED result (e.g. a read-only `liveWhen`
+ *  cell's standing view) can wire through it too, instead of every call site
+ *  re-hand-rolling the same edge-effect (which drifts: a hand-rolled version tends
+ *  to run the callback TRACKED, re-subscribing the effect to whatever the handler
+ *  itself reads, where this helper's `on()` runs it untracked). */
+export function wireSubscriptionError(
+  sub: { error: Accessor<Error | undefined> },
   onError: (err: Error) => void,
 ): void {
   createEffect(

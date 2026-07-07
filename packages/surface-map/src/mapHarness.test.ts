@@ -836,3 +836,220 @@ describe("serveSurfaceMap — a member shared by a cell AND a procedure namespac
     });
   });
 });
+
+// ── useEntry(...).streams.<s>.use(...) must be a CALLABLE Subscription ─────────
+// `Entry.streams` is typed as `SurfaceClient<ES>["streams"]`, whose `.use()` returns
+// a `Subscription<T>` DIRECTLY (unlike cells/collections, whose `.use()` result is a
+// plain object with a nested `.sub`). `makeReactiveEntry`'s `reactiveDelegate` used to
+// wrap every `.use()` result the same way (a Proxy over non-callable `{}`), so reading
+// a stream through `useEntry` threw `TypeError: ... is not a function` on the very
+// first read — the primary read path the type promises.
+const streamEntrySurface = defineSurface({
+  streams: {
+    ping: { inputSchema: z.object({}), outputSchema: z.number() },
+  },
+});
+
+/** A mock in-process entry surface whose `ping` stream yields ONE value then
+ *  completes (typed end) — enough to prove the delegate is callable and tracks
+ *  the underlying subscription. */
+function makeStreamEntry(value: number) {
+  const { router } = implementSurface(streamEntrySurface, {
+    channel: inMemoryChannelByName(),
+    streams: {
+      ping: {
+        source: () =>
+          (async function* () {
+            yield value;
+          })(),
+      },
+    },
+  });
+  return { link: directLink<typeof streamEntrySurface.contract>(router) };
+}
+
+describe("useEntry(...).streams.<s>.use(...) — a CALLABLE Subscription, not a non-callable proxy", () => {
+  it("returns a Subscription that reads as a function, with .pending/.error intact — no boot TypeError", async () => {
+    await createRoot(async (dispose) => {
+      const map = defineSurfaceMap(
+        HostKeySchema,
+        streamEntrySurface,
+        identityCodec,
+      );
+      const reg = makeRegistry();
+      const served = serveSurfaceMap(map, reg.registry);
+      const mapLink = directLink<AnyContractRouter>(served.router as never);
+      const client = connectSurfaceMap(map, mapLink);
+      reg.addSession(A, makeStreamEntry(42).link, connected(0));
+
+      const [active] = createSignal<HostKey>(A);
+      const sub = client.useEntry(active).streams.ping.use(() => ({}));
+
+      // The bug: `sub` was a Proxy over non-callable `{}` — calling it threw a
+      // TypeError despite `BoundStream.use()` (the type `Entry.streams` Picks)
+      // promising a callable `Subscription<T>` as its primary read path.
+      expect(typeof sub).toBe("function");
+      expect(() => sub()).not.toThrow();
+      expect(typeof sub.pending).toBe("function");
+      expect(typeof sub.error).toBe("function");
+
+      await settle();
+      expect(sub.pending()).toBe(false);
+      expect(sub.error()).toBeUndefined();
+      expect(sub()).toBe(42);
+      dispose();
+    });
+  });
+});
+
+// ── useEntry key identity — encode-keyed, not object-reference-keyed ───────────
+// The priority finding: `useEntry`'s swap-root (`createKeyedRoot`, keyed by `mapArray`'s
+// `===`) used to re-key whenever the accessor's key VALUE was replaced by a new object,
+// even one that encodes to the SAME wire string — e.g. clicking the already-active host
+// chip, whose `props.host` is a FRESH zod-decoded object each membership read. A plain
+// string key (the harness's `identityCodec` above) can't reproduce this: JS strings
+// compare by VALUE, so `"a" === "a"` regardless of how each was minted. kolu's real
+// `HostKey` is an OBJECT (a discriminated sum) — this describe block uses an
+// object-shaped key + a non-identity codec to reproduce the same reference trap.
+describe("useEntry key identity — encode-keyed, not object-reference-keyed", () => {
+  interface ObjKey {
+    kind: "host";
+    name: string;
+  }
+  const ObjKeySchema = z.object({
+    kind: z.literal("host"),
+    name: z.string(),
+  }) satisfies z.ZodType<ObjKey>;
+  const objCodec: KeyCodec<ObjKey> = {
+    encode: (k) => k.name,
+    decode: (s) => ({ kind: "host", name: s }),
+  };
+  // A FRESH decode always mints a brand-new object — the same shape zod's own
+  // `.parse` does for kolu's real `HostKey` even on an already-valid input.
+  const freshA = (): ObjKey => ObjKeySchema.parse({ kind: "host", name: "a" });
+
+  function objRegistry() {
+    const entries = new Map<
+      string,
+      { link: unknown; state: EntryConnectionState }
+    >();
+    const listeners = new Set<() => void>();
+    const fire = () => {
+      for (const l of [...listeners]) l();
+    };
+    const registry: MapRegistry<ObjKey> = {
+      members: () =>
+        [...entries.keys()].map((name) => ({ kind: "host", name })),
+      has: (k) => entries.has(k.name),
+      subscribe: (cb) => {
+        listeners.add(cb);
+        return () => {
+          listeners.delete(cb);
+        };
+      },
+      resolve: (k) => entries.get(k.name) ?? { failed: "unknown" },
+    };
+    return {
+      registry,
+      addSession(k: ObjKey, link: unknown, state: EntryConnectionState) {
+        entries.set(k.name, { link, state });
+        fire();
+      },
+    };
+  }
+
+  it("a same-key new-reference accessor write does NOT re-key the swap-root — no pending flash, no re-open", async () => {
+    await createRoot(async (dispose) => {
+      const map = defineSurfaceMap(ObjKeySchema, streamEntrySurface, objCodec);
+      const { registry, addSession } = objRegistry();
+      addSession(freshA(), makeStreamEntry(9).link, connected(0));
+      const served = serveSurfaceMap(map, registry);
+      const mapLink = directLink<AnyContractRouter>(served.router as never);
+      const client = connectSurfaceMap(map, mapLink);
+
+      const [active, setActive] = createSignal<ObjKey>(freshA());
+      // A stream's `.use()` is PER-CONSUMER, never deduped through the client-lifetime
+      // cache cells/collections share — so, unlike a cell, a genuine re-key here is
+      // observable synchronously (no grace-period warm-reuse to mask it).
+      const sub = client.useEntry(active).streams.ping.use(() => ({}));
+      await settle();
+      expect(sub()).toBe(9);
+      expect(sub.pending()).toBe(false);
+
+      const anotherA = freshA();
+      expect(anotherA).not.toBe(active()); // a genuinely NEW reference
+      setActive(anotherA);
+
+      // No `await settle()` — `createKeyedRoot`'s disposal is SYNCHRONOUS (an eager
+      // `createRenderEffect`), so a re-key would already have reset `pending`/the value
+      // here, before any microtask runs.
+      expect(sub.pending()).toBe(false); // no flash to pending
+      expect(sub()).toBe(9); // no stale-then-reset gap
+
+      dispose();
+    });
+  });
+
+  it("entries.use().keys() returns REFERENTIALLY-STABLE key objects across calls when membership is unchanged", async () => {
+    await createRoot(async (dispose) => {
+      const map = defineSurfaceMap(ObjKeySchema, streamEntrySurface, objCodec);
+      const { registry, addSession } = objRegistry();
+      addSession(freshA(), makeStreamEntry(0).link, connected(0));
+      const served = serveSurfaceMap(map, registry);
+      const mapLink = directLink<AnyContractRouter>(served.router as never);
+      const client = connectSurfaceMap(map, mapLink);
+
+      const view = client.entries.use();
+      await settle();
+      const keys1 = view.keys();
+      const keys2 = view.keys();
+      expect(keys1).toHaveLength(1);
+      // SAME reference, not just deep-equal — a reference-keyed `<For>` (kolu's
+      // HostSelectorStrip) reconciles only a genuinely changed row, not every row on
+      // every read.
+      expect(keys1[0]).toBe(keys2[0]);
+      dispose();
+    });
+  });
+});
+
+// ── The wire key must be its own canonical encoding ────────────────────────────
+describe("serveSurfaceMap — the wire key must be its own canonical encoding", () => {
+  it("rejects a non-canonical wire key instead of silently splitting subscribe/publish onto two channels", async () => {
+    // A LENIENT codec — `decode` case-folds, but `encode` is the identity of the
+    // already-lowercase form — accepts MORE than one wire spelling for one member.
+    // "A" decodes to the SAME member as "a" (`decode("A") === decode("a") === "a"`),
+    // but "A" is NOT its own canonical encoding (`encode("a") === "a" !== "A"`) — the
+    // exact split-channel trap: `entries.get` would subscribe on the RAW "A" while
+    // the republish loop always publishes on the canonical "a".
+    const lenientCodec: KeyCodec<HostKey> = {
+      encode: (k) => k,
+      decode: (s) => s.toLowerCase() as HostKey,
+    };
+    const map = defineSurfaceMap(HostKeySchema, entrySurface, lenientCodec);
+    const reg = makeRegistry();
+    reg.addSession(
+      A,
+      makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+      connected(0),
+    ); // registers the CANONICAL member "a"
+    const served = serveSurfaceMap(map, reg.registry);
+    const mapLink = directLink<AnyContractRouter>(served.router as never) as {
+      surface: {
+        entries: {
+          get: (
+            input: { key: string },
+            opts: unknown,
+          ) => Promise<AsyncIterable<unknown>>;
+        };
+      };
+    };
+
+    await expect(
+      (async () => {
+        const upstream = await mapLink.surface.entries.get({ key: "A" }, {});
+        for await (const _ of upstream) break;
+      })(),
+    ).rejects.toThrow(/canonical/i);
+  });
+});

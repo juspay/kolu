@@ -137,11 +137,13 @@ function toError(err: unknown): Error {
 
 /** Wrap a streaming procedure ref into the thunk shape `createSubscription`
  *  expects, threading `STREAM_RETRY` context so transport drops re-subscribe
- *  transparently. */
+ *  transparently, AND the subscription's own abort signal — so disposing the
+ *  cell (the last consumer of a shared dedup slot leaving) cancels the wire
+ *  stream instead of leaving it open with nothing left to read it. */
 function streamingThunk<T>(
   source: StreamingProcedure<undefined, T>,
-): () => Promise<AsyncIterable<T>> {
-  return () => source(undefined, { context: STREAM_RETRY });
+): (signal: AbortSignal) => Promise<AsyncIterable<T>> {
+  return (signal) => source(undefined, { signal, context: STREAM_RETRY });
 }
 
 function useCellServer<Name extends string, T, P>(

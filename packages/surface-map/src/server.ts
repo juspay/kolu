@@ -266,9 +266,30 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   // (`define.ts`'s `foldInput` folds `z.string()`, never `keySchema`) — decode it back
   // to `K` through `map.codec`, then re-validate via `keySchema.parse` (P5): a foreign
   // string a client somehow smuggled onto the wire must fail here, not silently become
-  // a trusted `K`.
+  // a trusted `K`. Decoding alone isn't enough: a LENIENT codec (one that trims/case-
+  // folds/aliases on `decode`) could let a NON-canonical wire spelling pass `keySchema`
+  // while still mapping to a real member — and the `entries` collection subscribes its
+  // per-key channel on the caller's RAW wire string (`readOne` below) while the
+  // republish loop always publishes on `codec.encode`'s CANONICAL spelling (below) — two
+  // different channel names for the same member, so a non-canonical spelling's stream
+  // holds open and never receives an update. Assert `encode(decode(wire)) === wire`
+  // here so subscribe and publish can never disagree about a member's channel name.
+  const decodeCanonicalWireKey = (wire: string): K => {
+    const k = keySchema.parse(map.codec.decode(wire)) as K;
+    const canonical = map.codec.encode(k);
+    if (canonical !== wire) {
+      throw new ORPCError("MAP_KEY_NON_CANONICAL", {
+        message:
+          `surface-map: wire key "${wire}" is not its own canonical encoding ` +
+          `(expected "${canonical}") — the codec must be re-encode-stable so ` +
+          "subscribe and publish agree on one channel name",
+      });
+    }
+    return k;
+  };
+
   const parseMapKey = (input: unknown): K =>
-    keySchema.parse(map.codec.decode(unfoldKeyField(input) as string)) as K;
+    decodeCanonicalWireKey(unfoldKeyField(input) as string);
 
   const makeStreamHandler = (path: readonly string[]) =>
     async function* (opts: { input?: unknown }): AsyncGenerator<unknown> {
@@ -349,7 +370,7 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
         ),
       ),
     readOne: (encoded) => {
-      const k = keySchema.parse(map.codec.decode(encoded)) as K;
+      const k = decodeCanonicalWireKey(encoded);
       return has(k) ? statusOf(k) : undefined;
     },
     upsert: () => {}, // read-only on the wire; the registry is the sole writer

@@ -4,7 +4,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
-import { activeHost, padiRpcOf } from "../wire";
+import { activePadiRpc } from "../wire";
 
 interface SubPanelState {
   collapsed: boolean;
@@ -42,8 +42,8 @@ function ensureState(parentId: TerminalId): SubPanelState {
 function reportToServer(parentId: TerminalId) {
   const s = state[parentId];
   if (!s) return;
-  void padiRpcOf(activeHost())
-    .surface.chrome.setSubPanel({
+  void activePadiRpc.surface.chrome
+    .setSubPanel({
       id: parentId,
       collapsed: s.collapsed,
       panelSize: s.panelSize,

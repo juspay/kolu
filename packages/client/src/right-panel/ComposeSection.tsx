@@ -26,7 +26,7 @@ import { type Component, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { activeHost, padiRpcOf } from "../wire";
+import { activePadiRpc } from "../wire";
 import { planComposeSend } from "./composeSend";
 
 /** `localStorage` key prefix for the per-terminal draft — same
@@ -81,7 +81,7 @@ const ComposeSection: Component<{
     const sent = draft();
     setSending(true);
     try {
-      await padiRpcOf(activeHost()).surface.lifecycle.sendInput({
+      await activePadiRpc.surface.lifecycle.sendInput({
         id: props.terminalId,
         data,
       });

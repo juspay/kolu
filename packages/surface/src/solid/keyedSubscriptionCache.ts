@@ -33,7 +33,7 @@
  */
 
 import { createSingletonRoot } from "@solid-primitives/rootless";
-import { type Owner, onCleanup } from "solid-js";
+import { createRoot, getOwner, type Owner, onCleanup } from "solid-js";
 
 export interface KeyedSubscriptionCache {
   /**
@@ -164,7 +164,7 @@ export function createKeyedSubscriptionCache(
     enroll?: (shared: R) => void,
   ): R {
     const existing = slots.get(cacheKey);
-    if (existing) return existing() as R;
+    if (existing) return read(existing) as R;
 
     // Evict this slot from the map. Guarded on identity so a slot rebuilt after a
     // prior eviction (last-listener or typed end) can never be clobbered by a stale
@@ -191,7 +191,35 @@ export function createKeyedSubscriptionCache(
     }, clientOwner);
 
     slots.set(cacheKey, slot as () => unknown);
-    return slot();
+    return read(slot) as R;
+  }
+
+  /** Call a `createSingletonRoot` accessor, registering ITS listener under an
+   *  owner that can actually run its `onCleanup` — never bare. `createSingletonRoot`
+   *  does `listeners++` then `onCleanup(() => listeners--)` under whatever owner is
+   *  ambient when its accessor runs; called with a real reactive owner (a component's
+   *  `.use()`), that `onCleanup` fires on that owner's disposal, exactly the intended
+   *  ref-count. Called OWNERLESS (no `getOwner()` — e.g. kolu's `refuseIfWarming` →
+   *  `entry(host).state()`, invoked from a DOM event handler with no reactive scope),
+   *  Solid's `onCleanup` outside an owner warns and no-ops, so the increment would
+   *  NEVER be paired with a decrement: a PERMANENT refcount leak that keeps the
+   *  shared subscription (and, if this is the first-ever caller, its underlying wire
+   *  stream) open for the rest of the client's life (the WEAKENED finding).
+   *
+   *  Fix: an ownerless call acquires under a throwaway `createRoot` and releases it
+   *  in the SAME tick — a transient increment+decrement that nets to zero, exactly
+   *  like a real consumer that mounts and immediately unmounts. If this is the
+   *  first-ever caller, the underlying subscription opens for one microtask, then
+   *  tears back down — never a standing leak. An owned call is completely
+   *  unaffected (identical to calling `slot()` directly). */
+  function read(slot: () => unknown): unknown {
+    if (getOwner()) return slot();
+    let value: unknown;
+    createRoot((dispose) => {
+      value = slot();
+      dispose();
+    });
+    return value;
   }
 
   return { use };

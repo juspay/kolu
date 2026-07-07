@@ -23,6 +23,7 @@ import {
   isLiveSignalHandle,
   type ReadOnlyBoundCollection,
   resolveTransport,
+  type Subscription,
   type SurfaceClient,
 } from "@kolu/surface/solid";
 import { type Accessor, createEffect, getOwner, runWithOwner } from "solid-js";
@@ -120,8 +121,6 @@ export interface SurfaceMapClient<
    *  a websocket's watchdog otherwise. The per-key clients already fold it into their
    *  own `health().live`; this exposes it for the membership-strip UI. */
   readonly live: Accessor<boolean>;
-  /** Sole producer of a branded key from a raw string (validates + brands). */
-  parseKey(raw: string): z.infer<KS>;
   /** PURE lens — partial application of the key. No owner, no I/O, safe
    *  anywhere. Total. */
   entry(key: z.infer<KS>): Entry<ES>;
@@ -176,6 +175,23 @@ function keyInjectingLink(link: unknown, mapKey: string): unknown {
   };
 }
 
+/** Delegate a reactive result that IS a canonical {@link Subscription} — callable
+ *  (the primary read path) AND carrying `.pending`/`.error` accessor properties.
+ *  Typed AS `Subscription<T>` (not re-spelled by ad-hoc `pending`/`error` string
+ *  literals guessed independently), so a future field the upstream type gains is a
+ *  compile error HERE too, not a silent drop. Shared by `reactiveDelegate`'s `.sub`
+ *  case (a cell/collection's nested Subscription) and a stream's WHOLE `.use()`
+ *  result (`makeReactiveEntry`'s `prim === "streams"` branch below) — the two
+ *  places a `useEntry` consumer can hit a re-keyed Subscription. */
+function delegateSubscription<T>(
+  current: Accessor<Subscription<T>>,
+): Subscription<T> {
+  return Object.assign(() => current()(), {
+    pending: () => current().pending(),
+    error: () => current().error(),
+  }) as Subscription<T>;
+}
+
 /** A reactive object whose every member delegates through `current()` — so a
  *  bound-primitive `.use()` result (all accessors/methods) re-reads the current
  *  key's result after a swap. */
@@ -191,12 +207,9 @@ function reactiveDelegate<R extends object>(current: Accessor<R>): R {
         // Subscription (callable + `.pending`/`.error`) so its full shape survives the
         // re-key, matching the `Entry` type the outer cast promises.
         if (prop === "sub") {
-          // biome-ignore lint/suspicious/noExplicitAny: delegating the current result's Subscription
-          const subOf = () => (current() as any).sub;
-          return Object.assign((...args: unknown[]) => subOf()(...args), {
-            pending: () => subOf().pending(),
-            error: () => subOf().error(),
-          });
+          return delegateSubscription(
+            () => (current() as unknown as { sub: Subscription<unknown> }).sub,
+          );
         }
         return (...args: unknown[]) => {
           // biome-ignore lint/suspicious/noExplicitAny: delegating to the current result's accessor/method
@@ -239,6 +252,17 @@ function makeReactiveEntry<ES extends SurfaceSpec, K>(
                         current();
                       });
                       return undefined;
+                    }
+                    // `BoundStream.use()`'s WHOLE result IS a `Subscription<T>` (unlike
+                    // cells/collections, whose `.use()` result is a plain object with a
+                    // NESTED `.sub` Subscription) — `reactiveDelegate`'s blanket wrapper
+                    // only handles property reads, never making the delegate itself
+                    // callable, so `entry.streams.<s>.use()()` would throw. Delegate the
+                    // top-level result the same way `.sub` is delegated above.
+                    if (prim === "streams") {
+                      return delegateSubscription(
+                        current as unknown as Accessor<Subscription<unknown>>,
+                      );
                     }
                     return reactiveDelegate(current);
                   };
@@ -358,17 +382,37 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   const rawEntries = entriesClient.collections
     .entries as ReadOnlyBoundCollection<string, EntryStatus>;
 
-  /** Decode + re-validate a wire string into `K` — the P5 gate (a foreign string a
-   *  server somehow published must fail here, not silently become a trusted `K`). */
-  const decodeKey = (wire: string): K =>
-    map.keySchema.parse(map.codec.decode(wire)) as K;
+  // A key object has NO reference identity of its own (two independent decodes of
+  // the same wire string are logically equal but never `===` — zod's `.parse`
+  // mints a fresh object even for an already-valid input). Every consumer that
+  // needs IDENTITY-keyed reconciliation (Solid's `<For>` over `entries.use().keys()`,
+  // `useEntry`'s `createKeyedRoot` swap-root, which `mapArray`-keys by `===`) leans
+  // on ONE canonical reference per encoded string instead of re-deriving its own —
+  // so a same-key new-reference write (e.g. re-parsing "local" into a fresh HostKey
+  // object) can never look like a key CHANGE. Evicted alongside the departed-member
+  // prune below so a long-lived client doesn't accumulate one entry per distinct
+  // key ever seen.
+  const keyCache = new Map<string, K>();
+  const canonicalizeKey = (key: K): K => {
+    const enc = map.codec.encode(key);
+    const cached = keyCache.get(enc);
+    if (cached !== undefined) return cached;
+    keyCache.set(enc, key);
+    return key;
+  };
 
-  const parseKey = decodeKey;
+  /** Decode + re-validate a wire string into `K` — the P5 gate (a foreign string a
+   *  server somehow published must fail here, not silently become a trusted `K`) —
+   *  then canonicalize it to the one stable reference for its encoded string. */
+  const decodeKey = (wire: string): K =>
+    canonicalizeKey(map.keySchema.parse(map.codec.decode(wire)) as K);
 
   // The external, OBJECT-keyed membership view (`SurfaceMapClient.entries`) — a thin
   // projection of `rawEntries` that encodes a caller's `keys` override going in and
   // decodes the string keyset coming out, so a consumer (kolu's host-reconcile effect,
-  // the selector strip) can `.kind`-switch the members it reads.
+  // the selector strip) can `.kind`-switch the members it reads. `decodeKey`'s
+  // canonicalization means an UNCHANGED member yields the SAME `K` reference across
+  // calls, so a reference-keyed `<For>` reconciles only a genuinely changed row.
   const entries: ReadOnlyBoundCollection<K, EntryStatus> = {
     use(opts) {
       const rawKeys = opts?.keys
@@ -399,13 +443,15 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     return c;
   };
 
-  // Prune a DEPARTED host's cached per-key client — the client-side twin of the server's
-  // `reServeEviction.pruneToMembers`. A key that LEAVES membership has had its subs typed-ended
-  // by the server, so disposing its cached client is safe cleanup; the next entry(key)/useEntry
-  // rebuilds one on demand. Tracks the PREVIOUS member set (not merely "not a member"), so an
-  // `entry(key)` lens a consumer holds for a never-member key is never touched — only a host that
-  // WAS a member and then left. Runs in the client owner (client-lifetime, like the caches).
-  // Compares the RAW encoded strings (never a decoded `K`) — string equality is exact,
+  // Prune a DEPARTED host's cached per-key client (+ its canonicalized key reference)
+  // — the client-side twin of the server's `reServeEviction.pruneToMembers`. A key
+  // that LEAVES membership has had its subs typed-ended by the server, so disposing
+  // its cached client is safe cleanup; the next entry(key)/useEntry rebuilds one on
+  // demand, and a re-add mints a fresh canonical reference. Tracks the PREVIOUS
+  // member set (not merely "not a member"), so an `entry(key)` lens a consumer holds
+  // for a never-member key is never touched — only a host that WAS a member and then
+  // left. Runs in the client owner (client-lifetime, like the caches). Compares the
+  // RAW encoded strings (never a decoded `K`) — string equality is exact,
   // side-stepping the object-identity trap `K` itself would set.
   build(() => {
     let prevMembers: string[] = [];
@@ -415,6 +461,7 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
         if (!members.includes(enc)) {
           clients.get(enc)?.dispose();
           clients.delete(enc);
+          keyCache.delete(enc);
         }
       }
       prevMembers = members;
@@ -460,7 +507,15 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
           "subscriptions on switch. For a pure, owner-free lens use entry(key).",
       );
     }
-    return makeReactiveEntry(entry, keyAccessor);
+    // Canonicalize the accessor's key by its encoded string BEFORE it reaches
+    // `createKeyedRoot` — `mapArray` keys its single-element array by `===`, so a
+    // same-key new-reference write (a no-op click re-parsing "local" into a fresh
+    // HostKey object) would otherwise dispose and rebuild every subscription under
+    // this swap-root for no membership change at all. `canonicalizeKey` guarantees
+    // one reference per encoded string map-wide, so the read below is a no-op read,
+    // never a key change.
+    const stableKey = () => canonicalizeKey(keyAccessor());
+    return makeReactiveEntry(entry, stableKey);
   };
 
   const dispose = () => {
@@ -469,5 +524,5 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     clients.clear();
   };
 
-  return { entries, live, parseKey, entry, useEntry, dispose };
+  return { entries, live, entry, useEntry, dispose };
 }

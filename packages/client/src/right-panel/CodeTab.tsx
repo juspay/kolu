@@ -64,7 +64,7 @@ import SegmentedControl, {
 } from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { isDesktop, isTouch } from "../useMobile";
-import { activeHost, padiRpcOf } from "../wire";
+import { activePadiRpc } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import { createRepoPolledQuery } from "./createRepoPolledQuery";
@@ -317,8 +317,7 @@ const CodeTab: Component<{
       const p = repoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
-    query: (i, signal) =>
-      padiRpcOf(activeHost()).surface.git.getStatus(i, { signal }),
+    query: (i, signal) => activePadiRpc.surface.git.getStatus(i, { signal }),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
   // Passive branch status — feeds the Branch badge/count, branch base/ref, and
@@ -331,8 +330,7 @@ const CodeTab: Component<{
       const p = repoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
-    query: (i, signal) =>
-      padiRpcOf(activeHost()).surface.git.getStatus(i, { signal }),
+    query: (i, signal) => activePadiRpc.surface.git.getStatus(i, { signal }),
     onError: (err) => {
       if (isUnfetchedBase(err)) return;
       toast.error(`Git status stream: ${err.message}`);
@@ -353,8 +351,7 @@ const CodeTab: Component<{
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    query: (i, signal) =>
-      padiRpcOf(activeHost()).surface.git.getStatus(i, { signal }),
+    query: (i, signal) => activePadiRpc.surface.git.getStatus(i, { signal }),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
   const status = () => activeStatus();
@@ -366,8 +363,7 @@ const CodeTab: Component<{
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
-    query: (i, signal) =>
-      padiRpcOf(activeHost()).surface.fs.listAll(i, { signal }),
+    query: (i, signal) => activePadiRpc.surface.fs.listAll(i, { signal }),
     onError: (err) => toast.error(`File list stream: ${err.message}`),
   });
 
@@ -381,8 +377,7 @@ const CodeTab: Component<{
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    query: (i, signal) =>
-      padiRpcOf(activeHost()).surface.git.getDiff(i, { signal }),
+    query: (i, signal) => activePadiRpc.surface.git.getDiff(i, { signal }),
     onError: (err) => toast.error(`Git diff stream: ${err.message}`),
   });
 

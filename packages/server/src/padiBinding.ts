@@ -75,10 +75,10 @@ import {
   ConnectError,
   type Connector,
   makeSession,
+  measureClockOffset,
   type Session,
 } from "@kolu/surface-remote";
 import { log } from "./log.ts";
-import { measureClockOffset } from "./measureClockOffset.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
 // probe and the "restart" verb share. Carved out of this file in W4 ledger L6: it
@@ -493,8 +493,12 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       throw padiConnectFailure(outcome, stateRoot, socketPath);
     }
     // Sample the local clock offset over the frozen control core (offset-at-connect,
-    // re-measured each dial) before handing the loop the connection.
-    clockOffset = await measureClockOffset(conn.client);
+    // re-measured each dial) before handing the loop the connection. A probe failure
+    // is logged then rethrown — `attempt()` (session.ts) turns that into an honest
+    // `disconnected` + reconnect, never a silent eternal `connecting`.
+    clockOffset = await measureClockOffset(conn.client, (line) =>
+      log.warn({ line }, "local padi clock-offset probe"),
+    );
     const closed = new Promise<ClosedInfo>((resolve) => {
       currentClosed = resolve;
     });

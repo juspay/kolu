@@ -23,13 +23,16 @@ import { connectSurfaceMap } from "@kolu/surface-map/client";  // client (+ Soli
 ```ts
 import { z } from "zod";
 import { defineSurface } from "@kolu/surface/define";
+import type { KeyCodec } from "@kolu/surface-map";
 
-// 1 · CONTRACT — brand the key (zod .brand is the source of truth), then define the
-//     map over an existing entry surface. The map derives a WIRE contract that folds
-//     the branded key into every entry-member call, and brings the `entries`
-//     membership collection for free.
-const HostKey = z.string().brand("HostKey");
-const hosts = defineSurfaceMap(HostKey, padiSurface);   // padiSurface: Surface<…>
+// 1 · CONTRACT — a key schema (a plain string here; needn't be `.brand()`ed — kolu's own
+//     `HostKey` is a discriminated-sum object) + the REQUIRED string codec (the identity
+//     pair for an already-string key), then define the map over an existing entry
+//     surface. The map derives a WIRE contract that folds the key into every entry-member
+//     call, and brings the `entries` membership collection for free.
+const HostKeySchema = z.string();
+const identityCodec: KeyCodec<string> = { encode: (k) => k, decode: (s) => s };
+const hosts = defineSurfaceMap(HostKeySchema, padiSurface, identityCodec); // padiSurface: Surface<…>
 
 // 2 · SERVER — back the map with a MapRegistry: the ONE writer of membership. Any
 //     session source implements it (a warm ssh pool, a mock-subprocess harness).
@@ -38,8 +41,10 @@ const { router, dispose } = serveSurfaceMap(hosts, registry);
 // `router` is a `{ surface: … }` fragment — hand it to directLink, or spread it into
 // a host router for a wire serve path.
 
-// 3 · CLIENT — construct the typed map client once from the contract + a link.
-const app = connectSurfaceMap(hosts, link);
+// 3 · CLIENT — construct the typed map client from the contract + a BRANDED transport
+//     handle (e.g. `conn.transport` from `connectSurfaces`) — never a bare/pre-sliced
+//     wire link, which THROWS (see `connectSurfaceMap` below).
+const app = connectSurfaceMap(hosts, conn.transport);
 
 //     The switcher chips — every host's status, LIVE, one loop:
 <For each={app.entries.use().keys()}>{(host) => (
@@ -50,7 +55,7 @@ const app = connectSurfaceMap(hosts, link);
 )}</For>
 
 //     The canvas follows the picked host — switching is a synchronous signal write:
-const [activeHost, setActiveHost] = createSignal(app.parseKey("localhost"));
+const [activeHost, setActiveHost] = createSignal("localhost");
 const active = app.useEntry(activeHost);                    // Solid: owns swap disposal
 active.collections.terminals.use();                         // re-keys on switch; a removed
                                                             // host's subs end typed, and
@@ -59,14 +64,22 @@ active.collections.terminals.use();                         // re-keys on switch
 
 ## API
 
-### `defineSurfaceMap(keySchema, entry) → SurfaceMap<KS, ES>`
+### `defineSurfaceMap(keySchema, entry, codec: KeyCodec<Key>) → SurfaceMap<KS, ES>`
 
-`keySchema` must be zod-`.brand()`ed — its `z.infer` is the **branded `Key`**, and
-`parseKey` (client) is the sole producer of one, so a raw string is a *type error*
-wherever a `Key` is expected. `entry` is the per-key `Surface<ES>`, kept verbatim as
-the type the client subtree is generated from. `SurfaceMap` carries `{ keySchema,
-entry, contract, entriesSpec }` — `contract` folds the key into every entry-member
-input; `entriesSpec` is the read-only `Collection<Key, EntryStatus>`.
+`keySchema` need **not** be zod-`.brand()`ed — its `z.infer` is `Key`, and `Key` can be
+ANY `keySchema`-validated value, not just a string (kolu's own `HostKey` is a
+discriminated-sum object). `entry` is the per-key `Surface<ES>`, kept verbatim as the
+type the client subtree is generated from. The third argument — `codec: KeyCodec<Key>`
+— is **required**: `{ encode(key): string; decode(wire): key }` bridges `Key` to the
+canonical WIRE string every channel name / dedup key / membership entry is keyed on
+(`@kolu/surface`'s own per-key channel machinery is always string-keyed). For a `Key`
+that is already a plain string, `codec` is the identity pair (`{ encode: (k) => k,
+decode: (s) => s }`); kolu's `HostKey` passes its own `encodeHostKey`/`decodeHostKey`.
+
+`SurfaceMap` carries `{ keySchema, entry, contract, entriesSpec, codec }` — `contract`
+folds the key into every entry-member input; `entriesSpec` is the membership
+collection's WIRE spec, `Collection<string, EntryStatus>` (always string-keyed — see
+`codec` above), decoded to `Key` at the client's `entries` field.
 
 ```ts
 type EntryStatus =
@@ -111,7 +124,6 @@ revised — it reopened the green-dot-over-dead-transport lie).
 interface SurfaceMapClient<KS, ES> {
   readonly entries: ReadOnlyBoundCollection<Key, EntryStatus>; // the ONE membership authority — upsert/delete absent
   readonly live: Accessor<boolean>;                      // resolved transport liveness (for the membership strip)
-  parseKey(raw: string): Key;                            // the map's branded-key producer (the `keySchema` is also reachable)
   entry(key: Key): Entry<ES>;                            // PURE lens — no owner, no I/O, total
   useEntry(key: Accessor<Key>): Entry<ES>;               // Solid — owns swap disposal; THROWS ownerless
   dispose(): void;
@@ -126,9 +138,13 @@ interface Entry<ES> extends Pick<SurfaceClient<ES>, "cells" | "collections" | "s
 `entry(key)` is *partial application of the key*: a per-key `SurfaceClient<ES>` over a
 link that injects the key, cached by key. Two views of one entry's cell share one
 upstream subscription (the base client's ref-counted dedup, keyed per entry). `useEntry`
-re-keys on a key change — the old key's subscriptions dispose, the new key's populate
+re-keys on a key CHANGE — the old key's subscriptions dispose, the new key's populate
 synchronously; "which host this tab views" is a plain app signal, so switching cannot
-race. Existence is always a **value** (`state()`), never a nullable `entry()`.
+race. A `Key` has no reference identity of its own (two independent decodes of the same
+wire string are logically equal but never `===`), so `useEntry` canonicalizes its
+accessor's key by its ENCODED string internally — a same-key new-reference write (e.g. a
+no-op click that re-decodes the active host) reads as a no-op, never a re-key. Existence
+is always a **value** (`state()`), never a nullable `entry()`.
 
 `entry(key).rpc` is the entry surface's **procedure client** for imperative point-calls
 (`entry(k).rpc.surface.<ns>.<verb>(input)`) — the same key-injecting link folds `{mapKey}`
@@ -148,9 +164,6 @@ null` type forces the caller to handle it (`now − null` is a type error). One 
 the map boundary; a consumer routes its KNOWN host-stamped reads through it (wire-level
 timestamp *branding* — every unconverted remote-epoch read a repo-wide type error — is a
 larger entry-contract change left to the consumer's own domain).
-
-`parseKey` is the map's branded-key producer for a raw string; a consumer that already holds
-the `keySchema` can also brand directly with it (both go through the same zod brand).
 
 ## Status
 

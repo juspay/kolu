@@ -9,7 +9,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { boolPref } from "./persistedPref";
-import { activeHost, padiRpcOf } from "./wire";
+import { activePadiRpc } from "./wire";
 
 type TerminalAttention = "unread" | "badge-only";
 
@@ -74,9 +74,7 @@ export function useViewState() {
       if (attention[id] === "unread")
         setAttention(produce((s) => delete s[id]));
       // Report active terminal to server for session snapshots
-      void padiRpcOf(activeHost())
-        .surface.chrome.setActive({ id })
-        .catch(() => {});
+      void activePadiRpc.surface.chrome.setActive({ id }).catch(() => {});
     }),
   );
 

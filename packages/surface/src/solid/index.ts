@@ -28,6 +28,7 @@ export {
   createSubscription,
   type Subscription,
   type SubscriptionOptions,
+  wireSubscriptionError,
 } from "./createSubscription";
 // The grace-windowed boolean view — delays a predicate's rising edge, instant on
 // the fall. `@kolu/surface-app`'s `SurfaceAppProvider` derives its "show the

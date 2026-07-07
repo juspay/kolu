@@ -77,11 +77,7 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import {
-  activeHost,
-  padiRpcOf,
-  savedSession as serverSavedSession,
-} from "./wire";
+import { activePadiRpc, savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -205,7 +201,7 @@ const App: Component = () => {
   const runImportSession = createImportSessionAction({
     pick: importSession,
     runImport: ({ session }) =>
-      padiRpcOf(activeHost()).surface.session.import({ session }),
+      activePadiRpc.surface.session.import({ session }),
   });
 
   const commands = createCommands({

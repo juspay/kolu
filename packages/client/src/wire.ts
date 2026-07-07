@@ -13,7 +13,7 @@
  * (exported as `client`) are `server` + `daemon` — `client.server.info(...)`,
  * `client.daemon.restart(...)`. The root `terminal.*` / `git.*` namespaces were
  * DELETED at W1.R7; terminal/git mutations now go through
- * `padiRpcOf(activeHost()).surface.*` (padiSurface). None of these are on `app.rpc`.
+ * `activePadiRpc.surface.*` (padiSurface). None of these are on `app.rpc`.
  *
  * The `preferences` / `recentRepos` / `savedSession` accessors below
  * collapse what used to be hand-rolled `usePreferences` / `useActivityFeed`
@@ -187,9 +187,10 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
 
 /** The active-host PROCEDURE client, typed as the concrete padi contract client (the
  *  generic map types `entry(k).rpc` as `unknown`, so the one concrete cast lives HERE).
- *  Every lifecycle/chrome/screen/fs/git/session procedure a call site fires goes through
- *  `padiRpcOf(activeHost())` — the per-key link folds `{ mapKey }` in, so the call site
- *  never passes the host. */
+ *  Kept for the (currently hypothetical) FIXED-host caller — one that must reach a
+ *  host other than whichever is active. Every real call site instead wants
+ *  `activePadiRpc` below, which fuses this with `activeHost()` so it never has to be
+ *  spelled out. */
 type PadiRpc = ContractRouterClient<
   typeof padiSurface.contract,
   ClientRetryPluginContext
@@ -200,7 +201,7 @@ export const padiRpcOf = (host: HostKey): PadiRpc =>
 /** Convenience alias — the FULL combined link. `client.server.info(...)` /
  *  `client.daemon.restart(...)` reach the only raw oRPC procedures left at the
  *  link root (the `terminal.*` / `git.*` roots were deleted at W1.R7 — those
- *  mutations go through `padiRpcOf(activeHost()).surface.*`);
+ *  mutations go through `activePadiRpc.surface.*`);
  *  `client.surface.kolu.preferences.patch(...)` /
  *  `client.surface.surfaceApp.identity.info(...)` reach the sibling surfaces.
  *  (Note: the surface-bound `.use(...)` hooks come off `app`/`surfaceApp`, which
@@ -273,7 +274,7 @@ const hostScoped = createRoot(() => {
   // Host-membership reconcile: if the ACTIVE host leaves the pool — the user ✕'d their own
   // guest chip, or the server auto-retired it on re-serve-pump death (`pool.remove`) —
   // `useEntry(activeHost)` does NOT re-key on its own, so the tab would be stranded on a
-  // dead host (every `padiRpcOf(activeHost())` call throws `MAP_KEY_UNKNOWN`, canvas frozen,
+  // dead host (every `activePadiRpc` call throws `MAP_KEY_UNKNOWN`, canvas frozen,
   // no chip lit). Mirror the terminal auto-switch at the host level: once a membership
   // snapshot has landed, a departed active host falls back to the unremovable LOCAL default,
   // LOUDLY (the server-driven auto-retire is otherwise silent). The `entries` sub dedups
@@ -297,8 +298,17 @@ const hostScoped = createRoot(() => {
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
-  return { activityFeed, session, terminalKeys, preferences };
+  return { activityFeed, session, terminalKeys, preferences, rpc: active.rpc };
 });
+
+/** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
+ *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive
+ *  lens already re-keys on switch; its `rpc` reads the CURRENT key per call, so this
+ *  single client always routes to whichever host is active). Every lifecycle / chrome
+ *  / screen / fs / git / session procedure call site should read
+ *  `activePadiRpc.surface.<ns>.<verb>(...)` instead of re-deriving the host by hand via
+ *  `padiRpcOf(activeHost())`. */
+export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
 
 export const recentRepos = (): RecentRepo[] =>
   hostScoped.activityFeed.value()?.recentRepos ?? [];

@@ -232,6 +232,27 @@ describe("buildRemotePool", () => {
     expect(built.get("beta")?.session.destroy).toHaveBeenCalledOnce();
   });
 
+  it("destroyAll() drops membership BEFORE destroying, and one throwing destroy() does not strand the rest (mirrors remove()'s ordering + guard)", () => {
+    const { registry, built } = harness(["alpha", "beta", "gamma"]);
+    let membershipAtDestroy: string[] | undefined;
+    registry.subscribe(() => {
+      // Fires once, from destroyAll's own notifyMembership — membership must
+      // already be empty by the time any destroy() fault could reach a listener.
+      membershipAtDestroy = registry.hosts();
+    });
+    built.get("beta")!.session.destroy.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    expect(() => registry.destroyAll()).not.toThrow();
+    expect(membershipAtDestroy).toEqual([]);
+    expect(registry.hosts()).toEqual([]);
+    // The throwing session AND its neighbors all got a destroy() call — one
+    // fault didn't abort the loop and strand the others un-destroyed.
+    expect(built.get("alpha")?.session.destroy).toHaveBeenCalledOnce();
+    expect(built.get("beta")?.session.destroy).toHaveBeenCalledOnce();
+    expect(built.get("gamma")?.session.destroy).toHaveBeenCalledOnce();
+  });
+
   it("works with no persist hook (a static host set)", async () => {
     const registry = buildRemotePool<FakeSession, Handler>({
       initialHosts: ["alpha"],

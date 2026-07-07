@@ -20,7 +20,7 @@ import {
 import { createSharedRoot } from "./createSharedRoot";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-import { activeHost, padiRpcOf, preferences } from "./wire";
+import { activePadiRpc, preferences } from "./wire";
 
 function init() {
   const store = useTerminalStore();
@@ -60,8 +60,8 @@ function init() {
   }
 
   function setThemeName(id: TerminalId, name: string) {
-    void padiRpcOf(activeHost())
-      .surface.chrome.setTheme({ id, themeName: name })
+    void activePadiRpc.surface.chrome
+      .setTheme({ id, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
       );

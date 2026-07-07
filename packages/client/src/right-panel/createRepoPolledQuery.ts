@@ -16,7 +16,7 @@
 
 import type { Subscription } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
-import { activeHost, padiMap, padiRpcOf } from "../wire";
+import { activeHost, activePadiRpc, padiMap } from "../wire";
 import { createPolledQuery } from "./createPolledQuery";
 
 export function createRepoPolledQuery<
@@ -33,7 +33,7 @@ export function createRepoPolledQuery<
   return createPolledQuery({
     ...config,
     live: () => padiMap.live(),
-    pulseProc: () => padiRpcOf(activeHost()).surface.subscribeRepoChange.get,
+    pulseProc: () => activePadiRpc.surface.subscribeRepoChange.get,
     pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath }),
   });

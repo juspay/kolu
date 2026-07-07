@@ -62,6 +62,18 @@ describe("parseKoluPadiHostSeed", () => {
     });
   });
 
+  it("a bare loopback spelling ('localhost') listed explicitly is ALSO not doubled — exactly two members, never three", () => {
+    // The `nix run` bug: 'localhost' and `{kind:"local"}` are the SAME host, two
+    // spellings — `parseHostInput` used to take 'localhost' literally as a remote
+    // target, so this seed rendered THREE chips (local + localhost + srid@zest)
+    // instead of two.
+    withEnv("localhost,srid@zest", () => {
+      const seed = parseKoluPadiHostSeed().map(encodeHostKey);
+      expect(seed).toEqual(["local", "remote:srid@zest"]);
+      expect(seed.filter((h) => h === "local")).toHaveLength(1);
+    });
+  });
+
   it("every entry is a HostKey (LOCAL_HOST included)", () => {
     withEnv("srid@zest", () => {
       const seed = parseKoluPadiHostSeed();

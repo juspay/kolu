@@ -65,7 +65,7 @@ import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { activeHost, padiMap, padiRpcOf } from "../wire";
+import { activeHost, activePadiRpc, padiMap } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { createPolledQuery } from "./createPolledQuery";
@@ -139,14 +139,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       filePath: props.filePath,
     }),
     live: () => padiMap.live(),
-    pulseProc: () => padiRpcOf(activeHost()).surface.subscribeFileChange.get,
+    pulseProc: () => activePadiRpc.surface.subscribeFileChange.get,
     pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: async (i, signal): Promise<BrowseFileContent> => {
       if (isBinaryPreviewable(i.filePath)) {
-        const mtimeMs = await padiRpcOf(
-          activeHost(),
-        ).surface.fs.statFileMtimeMs(
+        const mtimeMs = await activePadiRpc.surface.fs.statFileMtimeMs(
           { repoPath: i.repoPath, filePath: i.filePath },
           { signal },
         );
@@ -158,9 +156,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
         };
       }
-      const { content, truncated } = await padiRpcOf(
-        activeHost(),
-      ).surface.fs.readFile(
+      const { content, truncated } = await activePadiRpc.surface.fs.readFile(
         { repoPath: i.repoPath, filePath: i.filePath },
         { signal },
       );

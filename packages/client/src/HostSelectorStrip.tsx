@@ -29,7 +29,7 @@ import {
 } from "kolu-common/hostKey";
 import { type Component, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
-import { dotClass, hostGateOpen, statusTitle } from "./hostChipTone";
+import { dotClass, hostGateOpen, sameHost, statusTitle } from "./hostChipTone";
 import {
   activeHost,
   app,
@@ -54,10 +54,9 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
   });
   const awaiting = () => urgency.value()?.awaiting ?? 0;
   // The active-host signal + this chip's own host are compared by their CANONICAL
-  // string — a `HostKey` is an object with no reference identity across independent
-  // decodes, so `===` would silently never match a logically-equal remote.
-  const isActive = () =>
-    encodeHostKey(activeHost()) === encodeHostKey(props.host);
+  // string (`sameHost`) — a `HostKey` is an object with no reference identity across
+  // independent decodes, so `===` would silently never match a logically-equal remote.
+  const isActive = () => sameHost(activeHost(), props.host);
 
   // A non-interactive CONTAINER holding two real buttons — the SELECT button (the chip
   // body) and, for a guest, a sibling REMOVE button. Two buttons (not a clickable div
@@ -84,7 +83,15 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
         }}
         data-testid="host-select"
         aria-pressed={isActive()}
-        onClick={() => setActiveHost(props.host)}
+        // A no-op click on the ALREADY-active chip must not re-set `activeHost`: `props.host`
+        // is a FRESH object every membership read (`entries.use().keys()` decodes anew), so a
+        // guardless write would replace `activeHost`'s value with a new-reference-but-equal
+        // `HostKey` — `createSignal`'s default `===` equality treats that as a genuine change
+        // and re-notifies every `useEntry(activeHost)` consumer for nothing. Compare by the
+        // SAME canonical-string equality `isActive()` already uses (never `===` on the object).
+        onClick={() => {
+          if (!isActive()) setActiveHost(props.host);
+        }}
         title={`${label()} — ${statusTitle(state())}`}
       >
         <span

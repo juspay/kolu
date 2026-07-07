@@ -3,7 +3,7 @@
 import { sleepingArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { activeHost, padiRpcOf } from "../wire";
+import { activePadiRpc } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useWorktreeOps(deps: {
@@ -25,7 +25,7 @@ export function useWorktreeOps(deps: {
   ) {
     const id = toast.loading("Creating worktree…");
     try {
-      const result = await padiRpcOf(activeHost()).surface.git.worktreeCreate({
+      const result = await activePadiRpc.surface.git.worktreeCreate({
         repoPath,
         name,
       });
@@ -45,8 +45,8 @@ export function useWorktreeOps(deps: {
       // signal (OSC 133;A prompt mark) — a contract change deliberately
       // deferred out of phase 2 scope.
       if (initialCommand !== undefined) {
-        await padiRpcOf(activeHost())
-          .surface.lifecycle.sendInput({
+        await activePadiRpc.surface.lifecycle
+          .sendInput({
             id: newTerminalId,
             data: `${initialCommand}\r`,
           })
@@ -93,7 +93,7 @@ export function useWorktreeOps(deps: {
     if (worktreePath) {
       const tid = toast.loading("Removing worktree…");
       try {
-        await padiRpcOf(activeHost()).surface.git.worktreeRemove({
+        await activePadiRpc.surface.git.worktreeRemove({
           worktreePath,
         });
         toast.success("Worktree removed", { id: tid });

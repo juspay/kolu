@@ -54,7 +54,7 @@ import { createScrollLock } from "../scrollLock";
 import { wireScrollIntent } from "../scrollLockWiring";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
-import { activeHost, padiRpcOf, preferences } from "../wire";
+import { activePadiRpc, preferences } from "../wire";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
@@ -372,7 +372,7 @@ const Terminal: Component<{
     // window). Armed BEFORE the resize so the repaint can't slip in first.
     activity.suppress(props.terminalId, RESIZE_ACTIVITY_SUPPRESS_MS);
     try {
-      await padiRpcOf(activeHost()).surface.lifecycle.resize({
+      await activePadiRpc.surface.lifecycle.resize({
         id: props.terminalId,
         cols,
         rows,
@@ -808,7 +808,7 @@ const Terminal: Component<{
           consumeReattachingStream(
             () =>
               unenrolledStreamCall(
-                padiRpcOf(activeHost()).surface.terminalAttach.get,
+                activePadiRpc.surface.terminalAttach.get,
                 { id: props.terminalId },
                 { signal, onRetry: resetForFreshSnapshot },
               ),
@@ -858,7 +858,7 @@ const Terminal: Component<{
             if (isTerminalQueryResponse(data)) return;
             // Fold any sticky Ctrl/Alt armed on the mobile key bar into this
             // keystroke (no-op on desktop, where nothing is ever armed).
-            void padiRpcOf(activeHost()).surface.lifecycle.sendInput({
+            void activePadiRpc.surface.lifecycle.sendInput({
               id: props.terminalId,
               data: applyStickyModifiers(data),
             });
@@ -970,13 +970,12 @@ const Terminal: Component<{
               terminalId: props.terminalId,
               name,
               base64,
-              scratchWrite: (args) =>
-                padiRpcOf(activeHost()).surface.scratch.write(args),
+              scratchWrite: (args) => activePadiRpc.surface.scratch.write(args),
               isActive: () =>
                 activeArm(terminalStore.getMetadata(props.terminalId)) !==
                 undefined,
               sendInput: (args) =>
-                padiRpcOf(activeHost()).surface.lifecycle.sendInput(args),
+                activePadiRpc.surface.lifecycle.sendInput(args),
               wrapPath: wrapBracketedPaste,
             });
           }

@@ -488,10 +488,25 @@ export function buildRemotePool<S extends DestroyableSession, H>(
     },
 
     destroyAll() {
-      for (const entry of entries.values()) entry.session.destroy();
+      // Mirror `remove()`'s ordering + guard: snapshot, then drop membership + notify
+      // BEFORE destroying any session (so a live `forwardStream` sees `has(host) ===
+      // false` and ends each stream TYPED, never a raw session-death `ORPCError`), and
+      // destroy each snapshotted session inside its OWN try/catch (`session.destroy()`
+      // CAN throw — it kills the ssh child + clears timers) so one throwing teardown
+      // can't abort the loop and strand the rest un-destroyed.
+      const snapshot = [...entries.entries()];
       entries.clear();
       socketsByHost.clear();
       notifyMembership();
+      for (const [host, entry] of snapshot) {
+        try {
+          entry.session.destroy();
+        } catch (err) {
+          log(
+            `host ${host} session destroy threw during destroyAll (ignored): ${err}`,
+          );
+        }
+      }
     },
 
     subscribe(onChange) {

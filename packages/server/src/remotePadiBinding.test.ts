@@ -205,6 +205,12 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
               handle.drainCount += 1;
               drained = true;
             },
+            // The frozen control-core's clock-probe member `measureClockOffset` samples
+            // at every admit — real padi's is `() => ({ epochMs: Date.now() })`
+            // (controlCore.ts); mirrored here so admit's probe succeeds like production.
+            clockNow: async (): Promise<{ epochMs: number }> => ({
+              epochMs: Date.now(),
+            }),
           },
         },
         padi: {

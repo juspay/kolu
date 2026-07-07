@@ -5,7 +5,22 @@
  */
 
 import type { EntryState } from "@kolu/surface-map";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { HostMapGate } from "kolu-common/surface";
+
+/** Whether two `HostKey`s name the SAME host — compared by their CANONICAL
+ *  string (`encodeHostKey`), never `===`: a `HostKey` is an object with no
+ *  reference identity across independent decodes (`entries.use().keys()`
+ *  mints a FRESH object every membership read, and zod's `.parse` mints a
+ *  fresh object even for an already-valid input), so two logically-equal
+ *  keys are almost never the same reference. A chip's active-highlight AND
+ *  its click guard (a no-op click on the ALREADY-active chip must not
+ *  re-write `activeHost` with a new-reference-but-equal key — that would
+ *  needlessly re-notify every `useEntry(activeHost)` consumer) both compare
+ *  through this ONE function. */
+export function sameHost(a: HostKey, b: HostKey): boolean {
+  return encodeHostKey(a) === encodeHostKey(b);
+}
 
 /** The gate DECISION — whether the selector strip renders AT ALL. The strip is purely
  *  presentational with NO dual code path: with the gate closed (env-unset single-host

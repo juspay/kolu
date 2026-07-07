@@ -16,7 +16,6 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import {
   type Accessor,
-  createEffect,
   createMemo,
   createRoot,
   createSignal,
@@ -556,13 +555,11 @@ function bindCell<S extends SurfaceSpec>(
       // read-only `.use({onError})` contract still fires.
       const shared = readOnly ? standing : undefined;
       if (shared) {
-        if (opts.onError) {
-          const cb = opts.onError as (err: Error) => void;
-          createEffect(() => {
-            const e = shared.error();
-            if (e) cb(e);
-          });
-        }
+        // Reuse the SAME edge-wiring `wireSubscriptionError` gives every other
+        // `onError` in this file (lines below) — not a hand-rolled tracked
+        // `createEffect`, which would re-subscribe to whatever `cb` itself reads
+        // and can double-fire in a way the shared `on()`-based helper does not.
+        if (opts.onError) wireSubscriptionError(shared, opts.onError);
         return readOnlyCellView(shared);
       }
       if (readOnly) {
@@ -618,8 +615,24 @@ function bindCell<S extends SurfaceSpec>(
       // different upstream subs), so a second caller can never silently inherit the first
       // caller's variant. Identical shared options still fold to one slot. `onError`
       // (per-consumer, pulled out above) is not in the key.
+      //
+      // `authority` is normalized to its DEFAULT-omitted spelling before keying:
+      // `useCell` (and every other authority-consuming branch) treats an ABSENT
+      // `authority` identically to explicit `authority: "server"` — the default the
+      // `BoundCellOptions` type itself documents. Without this, `.use({})` and
+      // `.use({ authority: "server" })` are semantically the SAME site (both
+      // server-authority, otherwise-identical options) but keyed DIFFERENTLY —
+      // `stableOptsKey` already drops `undefined` values, so setting `authority` to
+      // `undefined` here (only for the KEY, not for `sharedOpts` itself — `useCell`
+      // still gets whatever the caller actually wrote) folds both spellings onto ONE
+      // slot instead of silently opening two upstream subscriptions for one logical
+      // consumer.
+      const keyOpts =
+        sharedOpts.authority === "server"
+          ? { ...sharedOpts, authority: undefined }
+          : sharedOpts;
       const cell = subs.use(
-        `cell:${key}:${stableOptsKey(sharedOpts)}`,
+        `cell:${key}:${stableOptsKey(keyOpts)}`,
         (onComplete) =>
           useCell(
             // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
@@ -687,8 +700,18 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   // two consumers may legitimately share the IDENTICAL handler reference (e.g. one
   // shared exported const) and each registers/unregisters independently: a `Set` would
   // drop the shared entry on the FIRST consumer's disposal even though a second consumer
-  // holding the same ref is still live. The whole entry is cleared when the slot itself
-  // is evicted (last consumer left / typed end — its make's `onCleanup`, below).
+  // holding the same ref is still live.
+  //
+  // LIFETIME: this registry's lifetime is the CONSUMERS', never a dedup-slot
+  // generation's. A typed-end eviction (a re-served collection) can rebuild the shared
+  // slot — a NEW generation, new dispatcher — while consumers of the OLD generation are
+  // still mounted and this SAME registry keeps serving both. Tying the entry's deletion
+  // to a slot's own `onCleanup` (as an earlier version did) is exactly wrong: the dead
+  // generation's disposal would delete the registry the LIVE generation's dispatcher
+  // still reads, silently dropping every later-joining consumer's handler. So only a
+  // CONSUMER's own unregister (below) ever deletes the entry — identity-guarded, and
+  // only once it's empty — and `dispatchError` (below) reads it live, by key, at call
+  // time, never a captured snapshot.
   const collOnError = new Map<string, Map<(err: Error) => void, number>>();
 
   // Build-time standing-root disposers for `liveWhen` cells (the readiness legs
@@ -779,17 +802,31 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
             if (n === undefined) return; // already unregistered (e.g. slot reset)
             if (n <= 1) handlers.delete(onError);
             else handlers.set(onError, n - 1);
+            // The registry's lifetime is this consumer's, never a dedup-slot
+            // generation's (see the `collOnError` docblock above) — so ONLY a
+            // consumer's own unregister ever deletes the entry, and ONLY once it's
+            // empty. Identity-guarded: if a fresh registry already replaced this one
+            // (this map was already emptied and dropped by an earlier consumer, then a
+            // new first-consumer minted a new map under the same key), this stale
+            // reference must never delete the LIVE one out from under it.
+            if (handlers.size === 0 && collOnError.get(collKey) === handlers) {
+              collOnError.delete(collKey);
+            }
           });
         }
         const view = subs.use(collKey, (onComplete) => {
-          // Clear the handler registry when the shared slot is evicted (last consumer
-          // left / typed end), so the next first-consumer starts a fresh registry.
-          onCleanup(() => collOnError.delete(collKey));
-          // Built ONCE per slot; fired on every upstream error. Reads `handlers` (this
-          // slot's live registry, captured by reference — mutated in place by every
-          // consumer's register/unregister above) at call time.
+          // Built ONCE per slot; fired on every upstream error. Reads the registry
+          // LIVE, BY KEY, at call time — NEVER a captured `handlers` snapshot. A
+          // typed-end eviction can rebuild this slot (a fresh generation) while the
+          // registry above keeps accepting new consumers under the OLD generation's
+          // map; a captured reference would silently stop matching the live map the
+          // moment a later write moved on (the generation-torn defect this closure
+          // must not reintroduce). No slot-generation code owns this registry's
+          // lifetime or clears it — the per-consumer register/unregister above is the
+          // only writer/deleter.
           const dispatchError = (err: Error): void => {
-            for (const h of handlers.keys()) h(err);
+            const live = collOnError.get(collKey);
+            if (live) for (const h of live.keys()) h(err);
           };
           return hasDeltas
             ? // ONE coalesced `deltas` stream folded into a per-key store.
@@ -797,7 +834,8 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
                 // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
                 (surface.descriptors.collections as any)[key],
                 {
-                  source: () => unenrolledStreamCall(ns.deltas, undefined),
+                  source: (signal) =>
+                    unenrolledStreamCall(ns.deltas, undefined, { signal }),
                   onError: dispatchError,
                   onComplete,
                   enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
@@ -806,7 +844,8 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
             : // The server keys stream + one value stream per key.
               (() => {
                 const keysSub = createSubscription<unknown[]>(
-                  () => unenrolledStreamCall(ns.keys, undefined),
+                  (signal) =>
+                    unenrolledStreamCall(ns.keys, undefined, { signal }),
                   { onError: dispatchError, onComplete },
                 );
                 // Leak B: enrol the keys-stream itself. A failing keys stream collapses
