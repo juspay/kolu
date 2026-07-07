@@ -16,9 +16,11 @@
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { defineSurface, scopeSibling } from "@kolu/surface/define";
+import { isDirectLink } from "@kolu/surface/links/direct";
 import {
   buildSurfaceClient,
   createKeyedRoot,
+  isLiveSignalHandle,
   type ReadOnlyBoundCollection,
   resolveTransport,
   type SurfaceClient,
@@ -278,6 +280,24 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   // pass the whole branded handle + `siblingKey`: the sibling is sliced from the resolved
   // link AFTER the guard, so it inherits the PARENT's watchdog `live` by construction —
   // there is no bare slice paired with a fabricated accessor.
+  // connectSurfaceMap OWNS the slicing (via `siblingKey`), so `transport` must be the
+  // BRANDED parent handle (a `LiveSignalHandle`, whose watchdog `live` the sliced sibling
+  // inherits) or an in-process `directLink` (sound constant-`true`). A RAW PRE-SLICED wire
+  // link — `scopeSibling(conn.link, "padi")` — or any other unbranded wire link is a
+  // MISUSE: `scopeSibling` re-wraps, stripping the half-open brand, so its liveness would
+  // fall to `resolveTransport`'s by-exclusion constant-`true` and floor every chip GREEN
+  // over a genuinely half-openable socket (#1564). Reject it loudly so THIS api cannot
+  // express that lie. (The framework-wide brand-propagation through `scopeSibling` — so a
+  // scoped WIRE slice still throws everywhere — is #1580's own fix, not this PR's; this
+  // guards connectSurfaceMap's own door.)
+  if (!isLiveSignalHandle(transport) && !isDirectLink(transport)) {
+    throw new Error(
+      "connectSurfaceMap: pass the BRANDED parent transport handle (e.g. `conn.transport` " +
+        "from connectSurfaces) + a siblingKey — or an in-process `directLink`. A pre-sliced " +
+        "or bare wire link cannot carry the half-open watchdog live; its by-exclusion " +
+        "constant-`true` liveness would floor a green chip over a dead transport (#1564 / #1580).",
+    );
+  }
   const { link: fullLink, live } = resolveTransport(transport);
   const baseLink =
     siblingKey !== undefined ? scopeSibling(fullLink, siblingKey) : fullLink;

@@ -501,4 +501,85 @@ describe("surface-map mock-entry e2e harness", () => {
       dispose();
     });
   });
+
+  it("(11) remove+READD host-flap during the dial ends the ORIGINAL forward TYPED — a re-add cannot un-orphan the captured session", async () => {
+    // The `removed`-latch half of the teardown fix: the dial-reject / recheck / loop guards
+    // test whether THIS forward's key LEFT membership (a latch set in the watcher), NOT the
+    // live `has()`. So a host flap — remove (destroy S1) then re-add under a NEW session S2
+    // while the S1 dial is still in flight — cannot un-orphan this forward (bound to S1): the
+    // captured-session dial rejects into a TYPED END, never a raw stub error, even though
+    // `has()` is true again from the re-add. (With the old `has()`-gate it would `throw e`.)
+    await createRoot(async (dispose) => {
+      const map = defineSurfaceMap(HostKeySchema, entrySurface);
+      let rejectDial!: (e: Error) => void;
+      const slowRejectingLink = {
+        surface: {
+          urgency: {
+            get: () =>
+              new Promise<AsyncIterable<unknown>>((_res, rej) => {
+                rejectDial = rej;
+              }),
+          },
+        },
+      };
+      const entries = new Map<HostKey, EntrySession>();
+      const listeners = new Set<() => void>();
+      const registry: MapRegistry<HostKey> = {
+        members: () => [...entries.keys()],
+        has: (k) => entries.has(k),
+        subscribe: (cb) => {
+          listeners.add(cb);
+          return () => {
+            listeners.delete(cb);
+          };
+        },
+        resolve: (k) => entries.get(k) ?? { failed: "unknown" },
+      };
+      const fire = () => {
+        for (const l of [...listeners]) l();
+      };
+      entries.set(A, { link: slowRejectingLink, state: connected(0) }); // session S1
+      const served = serveSurfaceMap(map, registry);
+      const mapLink = directLink<AnyContractRouter>(served.router as never);
+      const client = connectSurfaceMap(map, mapLink);
+
+      const cell = client.entry(A).cells.urgency.use();
+      let cellError: Error | undefined;
+      createEffect(() => {
+        cellError = cell.error();
+      });
+      await settle(); // blocked in the S1 dial
+
+      // Flap: remove A (has → false; the watcher LATCHES removed=true) THEN re-add under a
+      // NEW session S2 (has → true again) — both before the S1 dial settles.
+      entries.delete(A);
+      fire();
+      entries.set(A, {
+        link: makeEntry({ awaiting: 7, awaitingIds: [] }).link,
+        state: connected(0),
+      }); // session S2
+      fire();
+
+      // The captured S1 dial now rejects (its session was destroyed). `has(A)` is TRUE (S2),
+      // but THIS forward is orphaned to S1 → the `removed` latch ends it TYPED.
+      rejectDial(new Error("session S1 destroyed"));
+      await settle();
+
+      expect(cellError).toBeUndefined(); // typed end, NOT the raw "session S1 destroyed" error
+      dispose();
+    });
+  });
+
+  it("(12) connectSurfaceMap REJECTS a raw pre-sliced / unbranded wire link — no green-over-dead door", () => {
+    const map = defineSurfaceMap(HostKeySchema, entrySurface);
+    // A bare unbranded link (a pre-sliced `scopeSibling` re-wrap, or any non-directLink,
+    // non-LiveSignalHandle value) would fall to `resolveTransport`'s by-exclusion
+    // constant-`true` and floor chips GREEN over a dead transport (#1564). connectSurfaceMap
+    // owns the slicing now, so a pre-sliced link is a misuse — it THROWS. (The in-process
+    // `directLink` path stays valid — every other pin's `setup()` exercises it.)
+    const bareLink = { surface: { urgency: { get: () => Promise.resolve() } } };
+    expect(() => connectSurfaceMap(map, bareLink as unknown)).toThrow(
+      /branded parent transport handle|pre-sliced or bare wire link/,
+    );
+  });
 });

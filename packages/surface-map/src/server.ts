@@ -197,26 +197,37 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     // watcher straddle the await and neither catches it, and a delta/fail-through member's
     // dial rejects into a raw stub error the client can't retry. `ended` resolves the
     // instant `mapKey` leaves membership, on the dial OR in the loop.
+    // `removed` LATCHES the instant THIS forward's key leaves membership. A re-add (a host
+    // flap = remove+add) makes `has(mapKey)` true again under a NEW session, but this
+    // forward is bound to the session CAPTURED at dial — a re-add can never un-orphan it.
+    // So every guard below tests `removed`, NOT the live `has()`: otherwise a remove+readd
+    // during the dial leaves `has()` true when the (captured-session) dial rejects, the
+    // guard is skipped, and a raw stub error escapes (+ a live cached slot the re-add
+    // reuses). `ended` resolves off the same latch.
+    let removed = false;
     let onEnd!: () => void;
     const ended = new Promise<void>((res) => {
       onEnd = res;
     });
     const unsub = registry.subscribe(() => {
-      if (!has(mapKey)) onEnd();
+      if (!has(mapKey)) {
+        removed = true;
+        onEnd();
+      }
     });
     try {
       let upstream: AsyncIterable<unknown>;
       try {
         upstream = (await leaf(input, {})) as AsyncIterable<unknown>;
       } catch (e) {
-        // The dial itself rejected. If `mapKey` was removed while dialing, that is the
-        // session-destroy fallout → typed end; a genuine dial fault (still a member)
-        // propagates.
-        if (!has(mapKey)) return;
+        // The dial itself rejected. If THIS forward was removed while dialing (even if a
+        // re-add has since re-populated the key under a NEW session), that is the captured
+        // session's destroy fallout → typed end; a genuine dial fault propagates.
+        if (removed) return;
         throw e;
       }
       // Removed while the (resolved) dial was in flight → typed end before the loop.
-      if (!has(mapKey)) return;
+      if (removed) return;
       const it = upstream[Symbol.asyncIterator]();
       try {
         while (true) {
@@ -229,10 +240,10 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
           ]);
           if (step.kind === "end") return; // removed mid-stream → typed end
           if (step.kind === "error") {
-            // An upstream rejection is the session-destroy fallout, NOT a real fault, when
-            // the key has left membership: end TYPED so a delta member never delivers a
-            // raw stub ORPCError. A genuine error (still a member) propagates.
-            if (!has(mapKey)) return;
+            // An upstream rejection is the captured session's destroy fallout, NOT a real
+            // fault, when THIS forward was removed: end TYPED so a delta member never
+            // delivers a raw stub ORPCError. A genuine error (still a member) propagates.
+            if (removed) return;
             throw step.e;
           }
           if (step.r.done) return; // upstream ended → typed end
