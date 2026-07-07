@@ -1,0 +1,53 @@
+---
+title: surface-map (PR #1714) — the live tracker
+description: The single source of truth for the W4/surface-map endgame — what's decided, what's in flight, what's blocked on whom, and the task list to done (kolu #1714 · drishti · odu). Updated by the coordinator as state changes; superseded task states are overwritten, not appended.
+parents: [padi, remote-surfaces]
+status: accepted
+maturity: budding
+updated: 2026-07-07
+---
+
+**What this is.** The working tracker for landing [remote-surfaces](remote-surfaces.html) — kolu [PR #1714](https://github.com/juspay/kolu/pull/1714) plus its paired drishti and odu PRs. The design lives in the remote-surfaces note; **this note is only state**: the task board, the open decisions, and who's blocked on whom. srid deploys the branch to his production and tests live; the agent pushes small green commits continuously.
+
+## The task board
+
+Legend: ✅ done · 🔄 in flight · ⏸ blocked · ⬜ not started
+
+### Blocked on srid (the ONE review sitting — `w4-types-report.md` in the RT-fable worktree root)
+
+- ⏸ **Decision 1** — `EntryStatus<Cause>` generic (padi causes stay out of the generic map pkg) · *rec: yes*
+- ⏸ **Decision 2** — typed `running`/`expected` on the contract-skew variant (no version string-scan) · *rec: yes*
+- ⏸ **Decision 3** — remote ownership via existing anti-livelock detection (stop + fail-honest, no new control-core RPC; remote-isolation env is the primary defense) · *rec: yes*
+- ⏸ **Decision 4 (addendum)** — per-host canvas ownership shape · *rec: (B) `Map<HostKey, HostViewState>` — state survives switch-away in memory, savedSession seeds first visit, GL contexts active-host-only*
+
+One "approved as recommended" (or amendments) unblocks everything below marked ⏸.
+
+### kolu #1714 — remaining work
+
+- ⏸ **P0 · ownership-gated drain** — `nix run` can never drain a padi a *different live* kolu owns (the production-incident fix): local boot-time gate + CLI fail-fast; remote via anti-livelock reuse (Decision 3); `KOLU_REMOTE_PADI_STATE_DIR` isolation (P0-b). Pins: two-local-kolu war repro → zero drain, first padi untouched; same-lineage upgrade still drains.
+- ⏸ **Skew-UX** — `CanvasFacts` sum (kaval facts only on the connected arm — "kaval didn't start" over a skewed remote becomes *uncompilable*); host-down card switching on the typed `cause` (no string parsing, no inert Retry); header contract badge host-scoped (running + expected pair, Decision 2).
+- ⏸ **Per-host canvas** (Decision 4) — activeId / MRU / split-layout / restore-latches per host: A→B→A restores A's panes + focus; switching to B shows B's canvas immediately (zero dock-clicks); no cross-host MRU bleed or wrong-host RPCs.
+- 🔄 **Canvas red repro tests** (`it.fails`, srid's two symptoms encoded) + the 17 host-independent by-design comments — pushing as they land.
+- ✅ **Security code-scanning alert #30** — resolved (false-positive dismissal, no code change).
+- ⬜ **Final sweep once the above land**: my third delta re-review over the accumulated waves → fix loop until clean.
+- ⬜ **One two-platform CI** at the stabilized SHA (red → fix → re-run; no CI-as-fuzzer).
+- ⬜ **PR body final** — review trail (3 review layers + the audits, ~130 verified findings), invariant table, closed-in-PR issues (#1715, #1716), the two srid-ratified opportunities (#1034-gated rail unification, #1580 scopeSibling brand), the ops-gate product ruling, dev-mode pool caveat, W6 pointer.
+- ⬜ **Undraft** — srid merges (never the agent).
+
+### Paired PRs
+
+- ✅ **odu** — [juspay/odu#40](https://github.com/juspay/odu/pull/40) (draft): 4 imports → `@kolu/surface-remote`, nix pkg rename, gates green incl a real localhost-lane e2e. Needs only a **pin-bump + re-green at kolu's final SHA**.
+- 🔄 **drishti** — adoption-as-deletion building (hostRegistry + admin-surface → `@kolu/surface-map`; carries all wire ripples: fold envelope, channel namespacing, SessionState sum, `Subscription.complete`, KeyCodec, `buildRemotePool`). `EntryStatus` consumption seam kept thin pending Decision 1. Then pin-bump at kolu's final SHA.
+
+### Done (the short version — the archaeology is in git and the PR's review trail)
+
+- ✅ The five never-defer refactors (copying type-split · HostKey sum + codec · padi HostLocation · #1715 channel namespacing · daemon-rail collapse) — both host axes and the state vocabulary honest at the type level.
+- ✅ Three review layers + two audits, all findings fixed or evidence-refuted: independent C1–C7 (31) · delta re-review (14, incl. the leak-fix regression behind the "unknown" dialog) · type audit 176 types × 6 lie-modes (3 + 27 triaged) · host-axis state audit 60 containers (4 broken → the canvas cluster; 17 declared) · plus ~44 from the perfection sweeps/gauntlet era.
+- ✅ srid's live catches, each fixed + pinned + skill-encoded: the dedup crash · the 30s boot hang (env-divergence + fail-open) · the eternal-Connecting spinner · the "unknown" dialog (leak-fix regression + P4 escape hatch) · the localhost phantom chip · the fresh-connect race · the skew "kaval didn't start" card (fix pending, Decisions 1–2) · blank-canvas-on-switch + unrestored splits (pending, Decision 4) · **the production drain incident** (pending, P0).
+- ✅ The boot contract: manifest-discovery adopt (2s, was 30s hang) · CLI fail-fast with remedy · honest canvas arms. Verified in the agent's browser *and* srid's deploys.
+- ✅ Working-mode now: **push-often** — small green commits, srid deploys + tests; agent's bar = workspace-green + red-first pins; browser proof is srid's.
+- ✅ Ops-measurement gate resolved by product ruling (persisted daemons + few-host scale); one ws-kill recovery check remains a user-pass leg.
+
+## Standing rules (the ones that keep binding)
+
+Never-defer (findings fixed in the PR that surfaces them) · reproduce-first diagnosis · tree-verification over self-reports · one editor between fork waves · isolated state roots + teardown-reap for every spawned daemon · production/zest untouchable · srid merges everything.
