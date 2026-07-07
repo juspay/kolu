@@ -73,7 +73,7 @@ describe("provisionAgent GC-root pinning", () => {
     expect(pinArgs).toContain("--add-root");
     expect(pinArgs).toContain("--indirect");
     expect(pinArgs).toContain(
-      ".local/state/kolu/surface-nix-host/gcroots/agent",
+      ".local/state/kolu/surface-remote/gcroots/agent",
     );
     // …and it must not re-realise the derivation in the pin step.
     expect(pinArgs).not.toContain(DRV);
@@ -285,7 +285,7 @@ describe("agentGcRootPath", () => {
     const a = agentGcRootPath(false, drvOf("agent")); // hash all a's
     const b = agentGcRootPath(false, `/nix/store/${"b".repeat(32)}-agent.drv`);
     expect(a).toBe(b); // same agent name → one moving "latest" link
-    expect(a).toBe(".local/state/kolu/surface-nix-host/gcroots/agent");
+    expect(a).toBe(".local/state/kolu/surface-remote/gcroots/agent");
   });
 
   it("keeps distinct agents on distinct links", () => {
@@ -298,7 +298,7 @@ describe("agentGcRootPath", () => {
   it("anchors to $HOME for localhost (no ssh chdir to rely on)", () => {
     vi.stubEnv("HOME", "/home/tester");
     expect(agentGcRootPath(true, DRV)).toBe(
-      "/home/tester/.local/state/kolu/surface-nix-host/gcroots/agent",
+      "/home/tester/.local/state/kolu/surface-remote/gcroots/agent",
     );
   });
 
@@ -312,7 +312,7 @@ describe("agentGcRootPath", () => {
   it("never returns null for a remote host (resolves against ssh $HOME)", () => {
     vi.stubEnv("HOME", undefined);
     expect(agentGcRootPath(false, DRV)).toBe(
-      ".local/state/kolu/surface-nix-host/gcroots/agent",
+      ".local/state/kolu/surface-remote/gcroots/agent",
     );
   });
 });

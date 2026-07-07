@@ -45,7 +45,7 @@ import {
   type PadiHostInventory,
   type PadiTerminal,
 } from "@kolu/padi/surface";
-import { isLocalHost, makeSession, sshConnector } from "@kolu/surface-nix-host";
+import { isLocalHost, makeSession, sshConnector } from "@kolu/surface-remote";
 import type { TerminalId } from "@kolu/terminal-workspace/schema";
 import { afterAll, describe, expect, it } from "vitest";
 

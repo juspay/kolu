@@ -2,7 +2,7 @@
  * `surfaceClient` honors a cell's `verbs` — the CLIENT-side dual of the raw
  * contract honoring `verbs` (`define.test.ts`).
  *
- * A get-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-nix-host`'s
+ * A get-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-remote`'s
  * connection-health cell) must bind to a READ-ONLY view: no `.set` / `.patch`
  * and no `authority: "local"` path. The raw contract router carries no `set`
  * for such a cell, so a typed `app.cells.<getOnly>.use(...).set(...)` would be

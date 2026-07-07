@@ -85,7 +85,7 @@ export interface SessionState {
  *  `destroy()` (add-rollback, remove, destroyAll), so the slot demands exactly
  *  that. `Session` satisfies it; a registry keyed on `DestroyableSession` never
  *  names a richer session type it doesn't use. Fleet verbs (reconnect/recheck) are
- *  declared separately via `buildHostRegistry`'s `controls` (S2). */
+ *  declared separately via `buildRemotePool`'s `controls` (S2). */
 export interface DestroyableSession {
   destroy(): void;
 }

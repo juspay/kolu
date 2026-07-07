@@ -6,7 +6,7 @@
  * changes — the commands are byte-for-byte unchanged over ssh.
  *
  * The reach + provision + supervise + one-shot-dial composition is
- * `@kolu/surface-nix-host`'s `dialAgentOnce`: it resolves the daemon's `.drv`
+ * `@kolu/surface-remote`'s `dialAgentOnce`: it resolves the daemon's `.drv`
  * for the host's arch, ships it (`nix copy --derivation` → realise), runs
  * `ssh <host> kaval --stdio`, speaks `ptyHostSurface` over that child's stdio,
  * and proves the link with the reserved `system.live` probe before flipping the
@@ -20,10 +20,10 @@
  * `system.live` round-trip, so kaval nominates no liveness verb of its own
  * (`system.heartbeat` reverts to being just kaval's memory verb).
  *
- * This is the ONLY place kaval-tui imports `@kolu/surface-nix-host` — it must
+ * This is the ONLY place kaval-tui imports `@kolu/surface-remote` — it must
  * never leak into the kaval daemon closure (the staleKey allow-list).
  */
-import { dialAgentOnce } from "@kolu/surface-nix-host";
+import { dialAgentOnce } from "@kolu/surface-remote";
 import type { ptyHostSurface } from "kaval";
 import type { Connection } from "./connect.ts";
 

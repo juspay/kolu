@@ -122,7 +122,7 @@ export function resolveTransport(transport: unknown): {
         "round-trip) AND wires the watchdog, with `link` and `live` paired on one " +
         "object; the handle has no other minter. For a STDIO/UNIX-SOCKET link, wire a " +
         "`createHeartbeat` + `probeSurfaceLive` watchdog over `system.live` as " +
-        "`surface-nix-host`'s `hostSession.startLiveness` does. A bare `() => true` " +
+        "`surface-remote`'s `hostSession.startLiveness` does. A bare `() => true` " +
         "or an open/close-only `() => socketStatus() === 'live'` is half-open-blind " +
         "— it would paint a green/ready dot over a dead backend↔remote link (#1564).",
     );
@@ -360,7 +360,7 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
  *  as ONE object) OR a bare in-process `directLink` (`createRouterClient`, no
  *  transport, the ONE link that can't half-open). A bare `stdioLink`/`unixSocketLink`
  *  is a wire link that CAN half-open and is REFUSED bare (it throws — pass the handle,
- *  or hand-wire a watchdog as `surface-nix-host`'s `hostSession.startLiveness` does).
+ *  or hand-wire a watchdog as `surface-remote`'s `hostSession.startLiveness` does).
  *  Walks the spec once and pre-binds each primitive to its oRPC procedure refs,
  *  producing `.use(policy)` hooks that drop the wire-identity args from the per-call
  *  signature.

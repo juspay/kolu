@@ -147,7 +147,7 @@ export interface CellHandlerDeps<T, P = T> {
    *  wire write whose value equals the stale local mirror must STILL forward
    *  (never dedup-dropped), and the local mirror must NOT phantom-echo the write
    *  before the upstream confirms it (a rejected upstream write would otherwise
-   *  strand a value the mirror never reverts). The `@kolu/surface-nix-host`
+   *  strand a value the mirror never reverts). The `@kolu/surface-remote`
    *  re-serve is the consumer. */
   forward?: CellForward<T, P>;
 }

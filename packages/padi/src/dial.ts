@@ -61,10 +61,10 @@ export {
 /** The client a dial produces — typed to the COMBINED contract, so the handshake
  *  reaches `.surface.control.core.hello()` AND a consumer can scope
  *  `.surface.padi` (via `scopeSibling`). Structurally identical to
- *  surface-nix-host's `AgentClient<PadiDaemonContract>` (both are
+ *  surface-remote's `AgentClient<PadiDaemonContract>` (both are
  *  `ContractRouterClient<C, ClientRetryPluginContext>` — the shape `stdioLink`
  *  returns), spelled from padi's OWN oRPC deps so the dial kit adds no
- *  surface-nix-host edge to padi's closure. */
+ *  surface-remote edge to padi's closure. */
 export type PadiDaemonClient = ContractRouterClient<
   PadiDaemonContract,
   ClientRetryPluginContext

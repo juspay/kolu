@@ -17,7 +17,7 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import type { DaemonSession, Session } from "@kolu/surface-nix-host";
+import type { DaemonSession, Session } from "@kolu/surface-remote";
 import type { PadiConvergence } from "kolu-common/surface";
 
 /** A bound padi, LOCAL or REMOTE — a daemon session over the padi surface, its

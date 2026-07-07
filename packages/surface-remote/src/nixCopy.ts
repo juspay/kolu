@@ -89,7 +89,7 @@ export function agentGcRootPath(
     .replace(/^.*\//, "") // drop the /nix/store/ prefix
     .replace(/\.drv$/, "") // drop the .drv suffix
     .replace(/^[0-9a-z]{32}-/, ""); // drop the store hash
-  const rel = `.local/state/kolu/surface-nix-host/gcroots/${name}`;
+  const rel = `.local/state/kolu/surface-remote/gcroots/${name}`;
   if (!isLocal) return rel;
   const home = process.env.HOME;
   return home ? `${home}/${rel}` : null;

@@ -31,7 +31,7 @@ import {
   installPwaManifest,
 } from "@kolu/surface-app/server";
 import type { ServeResult } from "@kolu/serve-dir";
-import { reServeSurface } from "@kolu/surface-nix-host";
+import { reServeSurface } from "@kolu/surface-remote";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";

@@ -8,7 +8,7 @@
  * `index.ts` calls `ensureRemotePadiBinding` synchronously with no try/catch, so the
  * throw crashes boot instead of degrading the canvas through the deferred resolver's
  * retry-then-terminal path. These arms mirror the `parseDrvBySystem` precedent
- * (`@kolu/surface-nix-host/dialAgentOnce.test.ts`), which validates the same-shape
+ * (`@kolu/surface-remote/dialAgentOnce.test.ts`), which validates the same-shape
  * `KAVAL_AGENT_DRVS_JSON` map through ITS public seam.
  *
  * The ssh machinery (`sshConnector` + `makeSession`, the arch probe `resolveSystem`) is
@@ -28,9 +28,9 @@ const h = vi.hoisted(() => ({
 // Partial mock — override ONLY the ssh seam (the connector + the session appliance +
 // the arch probe), keep every other real export (`ResolveDrvError` etc.) so nothing in
 // the binder's import graph breaks on load.
-vi.mock("@kolu/surface-nix-host", async (importOriginal) => {
+vi.mock("@kolu/surface-remote", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@kolu/surface-nix-host")>();
+    await importOriginal<typeof import("@kolu/surface-remote")>();
   return {
     ...actual,
     sshConnector: h.sshConnector,

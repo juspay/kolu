@@ -13,7 +13,7 @@
  *     sink until the link dies, then waits for the next dial. The consume-side dual
  *     of an `implementSurface` re-serve shell.
  *
- *   - `buildHostRegistry({ buildEntry })` — the keyed `Map<host, {session,
+ *   - `buildRemotePool({ buildEntry })` — the keyed `Map<host, {session,
  *     handler}>` a `?host=` upgrade dispatcher reads. Owns only the map + its
  *     lifecycle (add/remove + per-host socket eviction, plus the optional fleet
  *     verbs a `controls` supplies); the app supplies `buildEntry` (how a host
@@ -242,7 +242,7 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
   log("pump: session destroyed — exiting reconnect loop");
 }
 
-// ── buildHostRegistry — the keyed per-host fan-out ─────────────────────────
+// ── buildRemotePool — the keyed per-host fan-out ─────────────────────────
 
 /** One host's entry: its session and the oRPC handler a `?host=` dispatcher
  *  upgrades a browser socket onto. The session slot is the minimal
@@ -250,7 +250,7 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
  *  richer type (`Session`) still fits, and the app's `S` is what `getSession`
  *  hands back. `H` stays generic (the app's `RPCHandler<…>`) so this package needs
  *  no `@orpc/server/ws` dependency. */
-export interface HostEntry<S extends DestroyableSession, H> {
+export interface RemoteEntry<S extends DestroyableSession, H> {
   session: S;
   handler: H;
 }
@@ -267,7 +267,7 @@ export interface ClosableSocket {
  *  `controls` (S2). Declared here so the union return type carries them exactly
  *  when the app supplied the machinery to enact them — calling `reconnect(host)`
  *  on a registry built without `controls` is a COMPILE error, not a silent no-op. */
-export interface FleetControls {
+export interface PoolControls {
   /** Re-arm the named host's session (its `reconnect()`), via the supplied
    *  control. No-op if the host isn't registered. */
   reconnect(host: string): void;
@@ -276,7 +276,7 @@ export interface FleetControls {
   recheckAll(): void;
 }
 
-export interface HostRegistryOptions<S extends DestroyableSession, H> {
+export interface RemotePoolOptions<S extends DestroyableSession, H> {
   /** Hosts seeded synchronously at construction. */
   initialHosts: readonly string[];
   /** Build one host's `{ session, handler }`. Owns session provisioning
@@ -285,7 +285,7 @@ export interface HostRegistryOptions<S extends DestroyableSession, H> {
    *  (matching `makeSession`, which defers the dial into the session's own
    *  reconnect machinery): a host unreachable at boot surfaces as a per-host
    *  `failed` connection state, never a throw that takes the whole registry down. */
-  buildEntry: (host: string) => HostEntry<S, H>;
+  buildEntry: (host: string) => RemoteEntry<S, H>;
   /** Persist the next host set, awaited BEFORE `add`/`remove` commit their
    *  in-memory + session/socket changes — so the write is transactional. Receives
    *  the intended post-mutation host list, not the current one. Omit for a static
@@ -298,8 +298,8 @@ export interface HostRegistryOptions<S extends DestroyableSession, H> {
 /** Options for a registry WITH fleet controls (S2). Supplying `controls` unlocks
  *  `reconnect(host)`/`recheckAll()` on the returned registry (typed via the
  *  overload); the controls are how the registry enacts them on each session `S`. */
-export interface HostRegistryControlOptions<S extends DestroyableSession, H>
-  extends HostRegistryOptions<S, H> {
+export interface RemotePoolControlOptions<S extends DestroyableSession, H>
+  extends RemotePoolOptions<S, H> {
   controls: {
     /** Re-arm one session (drishti: `(s) => s.reconnect()`). */
     reconnect: (session: S) => void;
@@ -311,9 +311,9 @@ export interface HostRegistryControlOptions<S extends DestroyableSession, H>
 /** A per-host session + handler registry — the single source of truth for
  *  "which hosts this parent knows about", with insertion order preserved
  *  (`Map` semantics) so a UI lists hosts in the order they were added. The fleet
- *  verbs (`reconnect`/`recheckAll`) are NOT here — they live on {@link FleetControls},
+ *  verbs (`reconnect`/`recheckAll`) are NOT here — they live on {@link PoolControls},
  *  present on the returned registry only when built with `controls` (S2). */
-export interface HostRegistry<S extends DestroyableSession, H> {
+export interface RemotePool<S extends DestroyableSession, H> {
   /** Is this host registered? */
   has(host: string): boolean;
   /** The known hosts, in insertion order. */
@@ -341,22 +341,22 @@ export interface HostRegistry<S extends DestroyableSession, H> {
 // omitting it returns the bare registry, where `reconnect`/`recheckAll` don't exist
 // (calling them won't compile — no optional methods, no silent no-ops). This is S2's
 // "illegal call fails to typecheck".
-export function buildHostRegistry<S extends DestroyableSession, H>(
-  opts: HostRegistryControlOptions<S, H>,
-): HostRegistry<S, H> & FleetControls;
-export function buildHostRegistry<S extends DestroyableSession, H>(
-  opts: HostRegistryOptions<S, H>,
-): HostRegistry<S, H>;
-export function buildHostRegistry<S extends DestroyableSession, H>(
-  opts: HostRegistryOptions<S, H> & {
+export function buildRemotePool<S extends DestroyableSession, H>(
+  opts: RemotePoolControlOptions<S, H>,
+): RemotePool<S, H> & PoolControls;
+export function buildRemotePool<S extends DestroyableSession, H>(
+  opts: RemotePoolOptions<S, H>,
+): RemotePool<S, H>;
+export function buildRemotePool<S extends DestroyableSession, H>(
+  opts: RemotePoolOptions<S, H> & {
     controls?: {
       reconnect: (session: S) => void;
       recheck: (session: S) => void;
     };
   },
-): HostRegistry<S, H> & Partial<FleetControls> {
+): RemotePool<S, H> & Partial<PoolControls> {
   const log = opts.log ?? (() => {});
-  const entries = new Map<string, HostEntry<S, H>>();
+  const entries = new Map<string, RemoteEntry<S, H>>();
   const socketsByHost = new Map<string, Set<ClosableSocket>>();
 
   // Reject a duplicate in the seed list BEFORE building any entry. `Map.set`
@@ -387,7 +387,7 @@ export function buildHostRegistry<S extends DestroyableSession, H>(
     if (opts.persist) await opts.persist(nextHosts);
   };
 
-  const registry: HostRegistry<S, H> = {
+  const registry: RemotePool<S, H> = {
     has: (host) => entries.has(host),
     hosts: () => [...entries.keys()],
     getHandler: (host) => entries.get(host)?.handler,
@@ -457,7 +457,7 @@ export function buildHostRegistry<S extends DestroyableSession, H>(
   // supplied `controls`. The verbs enact the app's control on each stored session.
   if (opts.controls === undefined) return registry;
   const controls = opts.controls;
-  const fleet: FleetControls = {
+  const fleet: PoolControls = {
     reconnect(host) {
       const entry = entries.get(host);
       if (entry !== undefined) controls.reconnect(entry.session);

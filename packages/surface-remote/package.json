@@ -1,5 +1,5 @@
 {
-  "name": "@kolu/surface-nix-host",
+  "name": "@kolu/surface-remote",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",

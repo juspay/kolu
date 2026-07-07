@@ -74,7 +74,7 @@ import {
   type Connector,
   makeSession,
   type Session,
-} from "@kolu/surface-nix-host";
+} from "@kolu/surface-remote";
 import { log } from "./log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the

@@ -1,5 +1,5 @@
 /**
- * `@kolu/surface-nix-host/connection` — the BROWSER-SAFE connection-health
+ * `@kolu/surface-remote/connection` — the BROWSER-SAFE connection-health
  * cell, composable into any surface mirrored over a `HostSession`.
  *
  * A re-served / mirrored surface (drishti, pulam-web) needs the browser to see

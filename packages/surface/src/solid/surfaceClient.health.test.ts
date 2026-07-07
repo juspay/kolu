@@ -336,7 +336,7 @@ describe("surfaceClient.rawStream — structural raw-stream enrolment (Leak A)",
 
 describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-5)", () => {
   // A mirror-shaped surface: a get-only `connection` cell that declares the
-  // readiness predicate, exactly as `surface-nix-host`'s `connectionCell` does.
+  // readiness predicate, exactly as `surface-remote`'s `connectionCell` does.
   // The VOCABULARY (`state === "connected"`) rides the cell; the framework only
   // invokes it. Gate-closed default (`connecting`) so cold start reads not-live.
   const mirrored = defineSurface({
@@ -468,7 +468,7 @@ describe("every half-openable WIRE link (websocket / stdio / unix-socket) demand
   // And it is refused for EVERY wire link, not just websocket: the half-open brand
   // is applied at `wireClient` — the one chokepoint every wire link crosses — so a
   // bare `stdioLink` / `unixSocketLink` (a pipe that wedges or an ssh tunnel that
-  // partitions half-opens exactly like a websocket; `surface-nix-host`'s
+  // partitions half-opens exactly like a websocket; `surface-remote`'s
   // `hostSession.startLiveness` hand-wires a watchdog over stdio for that reason)
   // is refused too, and a FUTURE wire link inherits the guard by construction.
 
@@ -521,7 +521,7 @@ describe("every half-openable WIRE link (websocket / stdio / unix-socket) demand
     // with no FIN exactly as a websocket half-opens (`closed` never flips, the
     // stream iterator hangs on the last frame, `health().live` would read true
     // forever). The brand rides `wireClient`, so a bare stdioLink demands a
-    // watchdog-backed handle just like a websocket — `surface-nix-host` proves
+    // watchdog-backed handle just like a websocket — `surface-remote` proves
     // this is real by hand-wiring `hostSession.startLiveness` over its own
     // stdioLink. `unixSocketLink` wraps `stdioLink`, so it inherits the guard.
     const pair = createLoopbackPair();

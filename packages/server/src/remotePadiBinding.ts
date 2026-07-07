@@ -43,7 +43,7 @@ import {
   resolveSystem,
   type Session,
   sshConnector,
-} from "@kolu/surface-nix-host";
+} from "@kolu/surface-remote";
 import type { PadiConvergence } from "kolu-common/surface";
 import { log } from "./log.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder

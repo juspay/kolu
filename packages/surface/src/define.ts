@@ -135,7 +135,7 @@ export interface CellSpec<T = unknown, P = T> {
    *  `@kolu/surface` (core only INVOKES the predicate — it never names a state
    *  literal or any domain vocabulary), while the predicate itself (`v.state ===
    *  "connected"`) is declared on the cell where its schema lives (e.g.
-   *  `surface-nix-host`'s `connectionCell`) — the same mechanism/vocabulary split
+   *  `surface-remote`'s `connectionCell`) — the same mechanism/vocabulary split
    *  as `resolveCellVerbs`. Keep it PURE and CHEAP (it runs on every cell frame
    *  and every `health()` read), and ensure the cell's `default` does NOT satisfy
    *  it (gate-closed cold start), so a freshly-composed surface reads `connecting`
@@ -386,7 +386,7 @@ type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
  *  {@link resolveCellVerbs}: `spec.verbs` when present, else the patch/no-patch
  *  default. TS can't reuse the runtime value, so this mirrors it; keep the two
  *  in step. Honoring `verbs` here is load-bearing, not cosmetic:
- *  a read-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-nix-host`'s
+ *  a read-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-remote`'s
  *  connection-health cell) must NOT type a `.set` the runtime contract router
  *  doesn't carry — otherwise a downstream consumer (kolu, drishti) sees a typed
  *  `surface.<cell>.set` that throws at runtime, an API-facing falsehood in the

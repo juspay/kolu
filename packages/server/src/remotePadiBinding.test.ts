@@ -6,7 +6,7 @@
  * Post-S9 there is no `RemotePadiSession` class: the arm is
  * `makeSession({ connectOnce: sshConnector({ binary: "padi" }), admit: padiAdmit })`
  * plus the daemon-supervision spread. So the transport is mocked at the ssh seam —
- * `sshConnector` is replaced (via `vi.mock` of `@kolu/surface-nix-host`) with a fake
+ * `sshConnector` is replaced (via `vi.mock` of `@kolu/surface-remote`) with a fake
  * connector that hands the loop a fake PADI DAEMON client per (re)dial, exactly the way
  * `recheck.test.ts` / `liveness.test.ts` mock the child. Everything ELSE — the real
  * `makeSession` reconnect loop, the real `admit` hook, the real `decide()` table — runs
@@ -44,7 +44,7 @@ import {
   type ConnectContext,
   type Connection,
   type SessionState,
-} from "@kolu/surface-nix-host";
+} from "@kolu/surface-remote";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PadiSession } from "./padiSession.ts";
 import {
@@ -56,7 +56,7 @@ import {
 
 // ── Mock the ssh transport ONLY ──────────────────────────────────────────────
 // Replace `sshConnector` with a fake connector the per-test harness drives; keep the
-// rest of `@kolu/surface-nix-host` (the REAL `makeSession` loop, `ConnectError`, …)
+// rest of `@kolu/surface-remote` (the REAL `makeSession` loop, `ConnectError`, …)
 // intact via `importOriginal`. This is the ssh seam the arm layers padi's admit over —
 // mocking it is the exact analog of `recheck`/`liveness` mocking `node:child_process`.
 const hoisted = vi.hoisted(() => ({
@@ -64,9 +64,9 @@ const hoisted = vi.hoisted(() => ({
     | null
     | ((ctx: ConnectContext) => Promise<Connection<unknown>>),
 }));
-vi.mock("@kolu/surface-nix-host", async (importOriginal) => {
+vi.mock("@kolu/surface-remote", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@kolu/surface-nix-host")>();
+    await importOriginal<typeof import("@kolu/surface-remote")>();
   return {
     ...actual,
     // Ignore the ssh opts; delegate to the harness's queue-driven connector.

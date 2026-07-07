@@ -589,9 +589,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@kolu/surface-nix-host':
+      '@kolu/surface-remote':
         specifier: workspace:*
-        version: link:../surface-nix-host
+        version: link:../surface-remote
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
@@ -819,9 +819,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
-      '@kolu/surface-nix-host':
+      '@kolu/surface-remote':
         specifier: workspace:*
-        version: link:../surface-nix-host
+        version: link:../surface-remote
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
@@ -1325,7 +1325,7 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/surface-nix-host:
+  packages/surface-remote:
     dependencies:
       '@kolu/shell-quote':
         specifier: workspace:*
@@ -1428,9 +1428,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../..
-      '@kolu/surface-nix-host':
+      '@kolu/surface-remote':
         specifier: workspace:*
-        version: link:../../../surface-nix-host
+        version: link:../../../surface-remote
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -1468,9 +1468,9 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../../../surface-app
-      '@kolu/surface-nix-host':
+      '@kolu/surface-remote':
         specifier: workspace:*
-        version: link:../../../surface-nix-host
+        version: link:../../../surface-remote
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13

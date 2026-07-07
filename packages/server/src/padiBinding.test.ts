@@ -42,7 +42,7 @@ import {
   createEndpoint,
   daemonBuild,
 } from "@kolu/surface-daemon-supervisor";
-import { reServeSurface } from "@kolu/surface-nix-host";
+import { reServeSurface } from "@kolu/surface-remote";
 import { createRouterClient } from "@orpc/server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 // `connectPadi` moved into the shared dial kit in W2.3; the supervision it feeds
@@ -604,7 +604,7 @@ describe("kolu-server padi binder — cutover acceptance", () => {
 describe("ensurePadiBinding — the LOCAL arm's members before any connect (pure, no real padi)", () => {
   // Post-S9 the boot-time lifecycle is no longer a bespoke `padiStartedAt()` on a wrapper
   // class; it rides the base `session.identity()` (padi's `system.identity`), which is
-  // proven generically by surface-nix-host's session tests. What is padi-LOCAL-arm
+  // proven generically by surface-remote's session tests. What is padi-LOCAL-arm
   // specific — and unit-testable with NO real padi (the session is side-effect-free until
   // the first pin) — is: the arm surfaces NO convergence (local has none), `identity()`
   // is the honest `disconnected` arm while unbound (never a fabricated 0), and `renew()`

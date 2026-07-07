@@ -2,7 +2,7 @@
 #
 # `just run [host]` runs the TUI. It probes the host's nix-system, resolves the
 # matching `mini-ci-runner` .drv, then drives the runner the drishti way via
-# @kolu/surface-nix-host's HostSession: nix copy the closure to the host
+# @kolu/surface-remote's HostSession: nix copy the closure to the host
 # (skipped for localhost), realise + run it over ssh stdio. The default
 # pipeline runs real CI for the remote-process-monitor example.
 #

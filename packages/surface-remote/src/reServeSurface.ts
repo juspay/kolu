@@ -37,7 +37,7 @@
  *
  * **Per-binding scope (item 3).** Each `reServeSurface` call mints its OWN store
  * set + router, so a parent that fronts N hosts calls it once per host (through
- * the existing `buildHostRegistry.buildEntry`, keyed by the connection's declared
+ * the existing `buildRemotePool.buildEntry`, keyed by the connection's declared
  * host) — one mirror-store set per bound host, shared by every connection
  * watching that host, replacing the single module-level router+store kolu-server
  * wires today. There is no global router here to switch.

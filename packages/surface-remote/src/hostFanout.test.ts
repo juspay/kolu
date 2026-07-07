@@ -3,9 +3,9 @@ import type { SurfaceClientLike } from "@kolu/surface/project";
 import { type Mock, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
-  buildHostRegistry,
+  buildRemotePool,
   type ClosableSocket,
-  type HostEntry,
+  type RemoteEntry,
   type LiveSpawnHolder,
   pumpRemoteSurface,
 } from "./hostFanout";
@@ -31,13 +31,13 @@ type Handler = { id: string };
  *  `controls` (S2), so `registry.reconnect(host)`/`recheckAll()` exist and pass
  *  through to each stub session's `reconnect`/`recheck`. */
 function harness(initialHosts: readonly string[]) {
-  const built = new Map<string, HostEntry<FakeSession, Handler>>();
+  const built = new Map<string, RemoteEntry<FakeSession, Handler>>();
   const persist = vi.fn(async (_hosts: string[]) => {});
-  const registry = buildHostRegistry<FakeSession, Handler>({
+  const registry = buildRemotePool<FakeSession, Handler>({
     initialHosts,
     persist,
     buildEntry: (host) => {
-      const entry: HostEntry<FakeSession, Handler> = {
+      const entry: RemoteEntry<FakeSession, Handler> = {
         session: fakeSession(),
         handler: { id: host },
       };
@@ -57,7 +57,7 @@ const socket = () => {
   return { close } satisfies ClosableSocket;
 };
 
-describe("buildHostRegistry", () => {
+describe("buildRemotePool", () => {
   it("seeds initial hosts synchronously, in insertion order", () => {
     const { registry } = harness(["alpha", "beta"]);
     expect(registry.hosts()).toEqual(["alpha", "beta"]);
@@ -77,12 +77,12 @@ describe("buildHostRegistry", () => {
     // `buildEntry` already started a pump/pinned a session for it — a leaked
     // background loop for a config typo. The throw must fire before any
     // `buildEntry` side effect.
-    const built = new Map<string, HostEntry<FakeSession, Handler>>();
+    const built = new Map<string, RemoteEntry<FakeSession, Handler>>();
     expect(() =>
-      buildHostRegistry<FakeSession, Handler>({
+      buildRemotePool<FakeSession, Handler>({
         initialHosts: ["alpha", "beta", "alpha"],
         buildEntry: (host) => {
-          const entry: HostEntry<FakeSession, Handler> = {
+          const entry: RemoteEntry<FakeSession, Handler> = {
             session: fakeSession(),
             handler: { id: host },
           };
@@ -116,15 +116,15 @@ describe("buildHostRegistry", () => {
   });
 
   it("add() persists BEFORE committing — a persist reject leaves nothing added and tears the new session down", async () => {
-    const built = new Map<string, HostEntry<FakeSession, Handler>>();
+    const built = new Map<string, RemoteEntry<FakeSession, Handler>>();
     const persist = vi
       .fn<(hosts: string[]) => Promise<void>>()
       .mockRejectedValue(new Error("disk full"));
-    const registry = buildHostRegistry<FakeSession, Handler>({
+    const registry = buildRemotePool<FakeSession, Handler>({
       initialHosts: ["alpha"],
       persist,
       buildEntry: (host) => {
-        const entry: HostEntry<FakeSession, Handler> = {
+        const entry: RemoteEntry<FakeSession, Handler> = {
           session: fakeSession(),
           handler: { id: host },
         };
@@ -143,15 +143,15 @@ describe("buildHostRegistry", () => {
   });
 
   it("remove() persists BEFORE committing — a persist reject leaves the host fully live", async () => {
-    const built = new Map<string, HostEntry<FakeSession, Handler>>();
+    const built = new Map<string, RemoteEntry<FakeSession, Handler>>();
     const persist = vi
       .fn<(hosts: string[]) => Promise<void>>()
       .mockRejectedValue(new Error("disk full"));
-    const registry = buildHostRegistry<FakeSession, Handler>({
+    const registry = buildRemotePool<FakeSession, Handler>({
       initialHosts: ["alpha", "beta"],
       persist,
       buildEntry: (host) => {
-        const entry: HostEntry<FakeSession, Handler> = {
+        const entry: RemoteEntry<FakeSession, Handler> = {
           session: fakeSession(),
           handler: { id: host },
         };
@@ -212,7 +212,7 @@ describe("buildHostRegistry", () => {
   });
 
   it("works with no persist hook (a static host set)", async () => {
-    const registry = buildHostRegistry<FakeSession, Handler>({
+    const registry = buildRemotePool<FakeSession, Handler>({
       initialHosts: ["alpha"],
       buildEntry: (host) => ({ session: fakeSession(), handler: { id: host } }),
     });
