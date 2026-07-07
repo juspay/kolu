@@ -39,6 +39,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
   },
   {
+    id: "amb-host-map",
+    text: "Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each chip showing its connection and how many agents await you",
+  },
+  {
     id: "amb-workspace-switcher-shortcut",
     text: `${formatKeybind(ACTIONS.openWorkspaceSwitcher.keybind)} opens the workspace switcher with search focused`,
   },

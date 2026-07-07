@@ -23,6 +23,7 @@
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
+import HostSelectorStrip from "./HostSelectorStrip";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";
@@ -122,11 +123,14 @@ const ChromeBar: Component<{
         <IdentityRail status={props.status} />
       </div>
 
-      {/* Middle spacer — pointer-events pass through to whatever the
-       *  canvas or right panel is showing underneath. The workspace
-       *  switcher used to live here; with the dock owning the
-       *  navigator, the chrome bar is just identity + global controls. */}
-      <div class="flex-1 min-w-0 pointer-events-none" />
+      {/* Middle slot — the gated multi-host selector strip. In the single-host
+       *  default the gate is closed and nothing renders, so the slot stays a
+       *  pointer-events-none spacer and clicks pass through to the canvas underneath;
+       *  when multi-host, the chip row lives here and scrolls rather than pushing the
+       *  control cluster off-screen. */}
+      <div class="flex-1 min-w-0 flex items-center pointer-events-none">
+        <HostSelectorStrip />
+      </div>
 
       {/* Control cluster: inspector → settings → ⌘K. Cluster wrapper
        *  itself stays pointer-events-none so the gap-2 spaces and any
