@@ -23,6 +23,10 @@
 import { implement } from "@orpc/server";
 import type { ZodType } from "zod";
 import {
+  COLLECTION_DELTAS_CHANNEL_SUFFIX,
+  COLLECTION_KEYSET_CHANNEL_SUFFIX,
+} from "./channelNames";
+import {
   type CellSpec,
   type CollectionDelta,
   type CollectionDeltasMsg,
@@ -1513,7 +1517,9 @@ function walkSurface<const S extends SurfaceSpec>(
     if (!collDeps) {
       throw new Error(`implementSurface: missing deps for collection "${key}"`);
     }
-    const keysBus = deps.channel<unknown[]>(`${key}:keys`);
+    const keysBus = deps.channel<unknown[]>(
+      `${key}:${COLLECTION_KEYSET_CHANNEL_SUFFIX}`,
+    );
     const perKeyBus = (k: unknown) =>
       deps.channel<unknown>(`${key}:${String(k)}`);
 
@@ -1523,7 +1529,9 @@ function walkSurface<const S extends SurfaceSpec>(
     const collVerbs = resolveCollectionVerbs(collSpec);
     const hasDeltas = collectionHasDeltas(collSpec);
     const deltasBus = hasDeltas
-      ? deps.channel<CollectionDelta<unknown, unknown>>(`${key}:deltas`)
+      ? deps.channel<CollectionDelta<unknown, unknown>>(
+          `${key}:${COLLECTION_DELTAS_CHANNEL_SUFFIX}`,
+        )
       : undefined;
     // The per-tick coalescer owns the `pending` buffer + microtask flush; it
     // exists ONLY when the collection opts into `deltas`, so `hasDeltas` is the

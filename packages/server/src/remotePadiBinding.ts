@@ -96,8 +96,9 @@ export function remotePadiHost(): string | undefined {
  *  switch"). `LOCAL_HOST` is ALWAYS the implicit, unremovable default — prepended, and
  *  any listed local variant (deduped via `isLocalHost`) collapses onto it. Env unset →
  *  `[LOCAL_HOST]` (a valid 1-member map = pixel-identical to single-host today). Each
- *  entry is `HostKeySchema.parse`'d (the sole branded-key producer). Remote hosts are
- *  order-preserved after the local default. */
+ *  entry is `HostKeySchema`-validated (the sole branded-key producer); a malformed
+ *  entry (e.g. a reserved channel name) is skipped LOUDLY, never fatal (F6). Remote
+ *  hosts are order-preserved after the local default. */
 export function parseKoluPadiHostSeed(): HostKey[] {
   const raw = process.env[KOLU_PADI_HOST_ENV]?.trim();
   const listed = raw
@@ -112,7 +113,18 @@ export function parseKoluPadiHostSeed(): HostKey[] {
     if (isLocalHost(h)) continue; // the local default is already the head
     if (seen.has(h)) continue;
     seen.add(h);
-    remotes.push(HostKeySchema.parse(h));
+    // A malformed seed entry (e.g. a reserved channel name like "keys") is LOUD
+    // but NON-FATAL (F6): skip it and boot the pool with the valid hosts, never
+    // brick boot for the whole pool over one bad KOLU_PADI_HOST entry.
+    const parsed = HostKeySchema.safeParse(h);
+    if (!parsed.success) {
+      log.error(
+        { host: h, issue: parsed.error.issues[0]?.message },
+        `KOLU_PADI_HOST seed entry "${h}" is not a valid host key — skipping it`,
+      );
+      continue;
+    }
+    remotes.push(parsed.data);
   }
   return [LOCAL_HOST, ...remotes];
 }

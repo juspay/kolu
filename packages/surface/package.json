@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./channel-names": "./src/channelNames.ts",
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
     "./heartbeat": "./src/heartbeat.ts",
