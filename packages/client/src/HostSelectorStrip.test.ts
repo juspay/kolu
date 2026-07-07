@@ -6,7 +6,7 @@
  * green over a host that is warming, failed, or gone.
  */
 
-import type { EntryStatus } from "@kolu/surface-map";
+import type { EntryState } from "@kolu/surface-map";
 import { describe, expect, it } from "vitest";
 import { dotClass, hostGateOpen, statusTitle } from "./hostChipTone";
 
@@ -31,7 +31,7 @@ describe("HostSelectorStrip dot tone — fact-only green", () => {
   });
 
   it("never emits green for a not-connected state", () => {
-    const notConnected: (EntryStatus | { kind: "not-a-member" })[] = [
+    const notConnected: EntryState[] = [
       { kind: "warming" },
       { kind: "failed", reason: "no drv for arch" },
       { kind: "not-a-member" },

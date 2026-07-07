@@ -21,7 +21,7 @@ import type { AnyContractRouter } from "@orpc/contract";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { connectSurfaceMap, floorOnLiveness } from "./client";
+import { connectSurfaceMap, type EntryState, floorOnLiveness } from "./client";
 import { defineSurfaceMap, type EntryStatus } from "./define";
 import {
   type EntryConnectionState,
@@ -263,7 +263,7 @@ describe("surface-map mock-entry e2e harness", () => {
       const cell = client.entry(A).cells.urgency.use();
       let cellError: Error | undefined;
       let keys: string[] = [];
-      let state: EntryStatus | { kind: "not-a-member" } = { kind: "warming" };
+      let state: EntryState = { kind: "warming" };
       createEffect(() => {
         cellError = cell.error();
       });

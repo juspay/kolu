@@ -15,3 +15,6 @@ export {
   type Key,
   type SurfaceMap,
 } from "./define";
+// A type-only re-export: erased at compile time, so the default (contract)
+// entrypoint stays free of the client runtime `./client` pulls in.
+export type { EntryState } from "./client";

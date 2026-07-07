@@ -32,6 +32,12 @@ import { fold } from "./envelope";
 
 // ── Entry & client shapes ───────────────────────────────────────────────
 
+/** The map's total displayed-entry state — a total existence-as-a-value fold over
+ *  `entries`: the published {@link EntryStatus} when a member, plus the explicit
+ *  `not-a-member` value `state()` returns when not. Named once here so a fourth
+ *  displayed state is a single edit, not a hand-repeated union at every use. */
+export type EntryState = EntryStatus | { kind: "not-a-member" };
+
 /** The entry-typed subtree PLUS a total existence-as-a-value fold over
  *  `entries`. Reuses the base `SurfaceClient<ES>`'s bound subtrees verbatim
  *  (`.cells`/`.collections`/`.streams`/`.events`). */
@@ -58,7 +64,7 @@ export interface Entry<ES extends SurfaceSpec>
   /** The `EntryStatus` when a member, an explicit `not-a-member` value when not
    *  — a client fold over `entries`, total and never nullable. Read it inside a
    *  reactive scope (it subscribes to the membership collection). */
-  state(): EntryStatus | { kind: "not-a-member" };
+  state(): EntryState;
 }
 
 /** The entry's clock translation (see {@link Entry.clock}). */
@@ -82,10 +88,7 @@ export interface EntryClock {
  *  transport). Every other status (`failed` / `warming` / `not-a-member`) is already
  *  honest and passes through untouched, and a live link is a no-op. Making `live` a
  *  REQUIRED argument is the point: `foldState` cannot forget to floor. */
-export function floorOnLiveness(
-  status: EntryStatus | { kind: "not-a-member" },
-  live: boolean,
-): EntryStatus | { kind: "not-a-member" } {
+export function floorOnLiveness(status: EntryState, live: boolean): EntryState {
   if (status.kind === "connected" && !live) return { kind: "warming" };
   return status;
 }
@@ -94,9 +97,7 @@ export function floorOnLiveness(
  *  `clockOffset = remoteEpoch − localEpoch` (same instant), so a remote-clock timestamp
  *  maps to this process's local clock by subtracting it. No `connected` status ⇒ no
  *  measured offset ⇒ `null` (never a silent identity). */
-function makeEntryClock(
-  getState: () => EntryStatus | { kind: "not-a-member" },
-): EntryClock {
+function makeEntryClock(getState: () => EntryState): EntryClock {
   return {
     toLocal(remoteMs: number): number | null {
       const s = getState();
@@ -367,7 +368,7 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     return c;
   };
 
-  const foldState = (key: K): EntryStatus | { kind: "not-a-member" } => {
+  const foldState = (key: K): EntryState => {
     const view = entries.use();
     if (!view.keys().some((k) => k === key)) return { kind: "not-a-member" };
     const v = view.byKey(key)?.() as EntryStatus | undefined;

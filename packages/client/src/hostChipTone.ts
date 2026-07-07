@@ -4,7 +4,7 @@
  * with them and the unit pin imports them without dragging in the live transport.
  */
 
-import type { EntryStatus } from "@kolu/surface-map";
+import type { EntryState } from "@kolu/surface-map";
 import type { HostMapGate } from "kolu-common/surface";
 
 /** The gate DECISION — whether the selector strip renders AT ALL. The strip is purely
@@ -23,9 +23,7 @@ export function hostGateOpen(gate: HostMapGate | undefined): boolean {
  *  surface's `health()`. A map entry's equivalent fact is its `EntryStatus`, which
  *  `connectSurfaceMap` floors on real transport liveness, so a green-over-a-dead-host
  *  dot is unrenderable. */
-export function dotClass(
-  status: EntryStatus | { kind: "not-a-member" },
-): string {
+export function dotClass(status: EntryState): string {
   switch (status.kind) {
     case "connected":
       return "bg-emerald-400"; // live — the map floors this on transport liveness
@@ -39,9 +37,7 @@ export function dotClass(
 }
 
 /** A one-line human note for the dot's `title` — the failure reason when failed. */
-export function statusTitle(
-  status: EntryStatus | { kind: "not-a-member" },
-): string {
+export function statusTitle(status: EntryState): string {
   switch (status.kind) {
     case "connected":
       return "connected";
