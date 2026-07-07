@@ -71,6 +71,24 @@ export interface EntryClock {
   toLocal(remoteMs: number): number | null;
 }
 
+/** The liveness floor `foldState` applies to a per-key status, extracted PURE so the
+ *  decision is unit-pinnable without a half-openable transport (a `directLink` is
+ *  constant-live and a `LiveSignalHandle` is un-forgeable, so the dead-link branch is
+ *  otherwise unreachable from a test). A server-published `connected` is only as
+ *  trustworthy as OUR link to the publisher: with that link dead (`live === false`) we
+ *  can no longer hear a demotion, so a stale `connected` must NOT keep presenting as
+ *  connected — it downgrades to `warming` (#1568: no status renders green over a dead
+ *  transport). Every other status (`failed` / `warming` / `not-a-member`) is already
+ *  honest and passes through untouched, and a live link is a no-op. Making `live` a
+ *  REQUIRED argument is the point: `foldState` cannot forget to floor. */
+export function floorOnLiveness(
+  status: EntryStatus | { kind: "not-a-member" },
+  live: boolean,
+): EntryStatus | { kind: "not-a-member" } {
+  if (status.kind === "connected" && !live) return { kind: "warming" };
+  return status;
+}
+
 /** Build an {@link EntryClock} over a `state()` reader. `measureClockOffset` stamps
  *  `clockOffset = remoteEpoch − localEpoch` (same instant), so a remote-clock timestamp
  *  maps to this process's local clock by subtracting it. No `connected` status ⇒ no
@@ -162,6 +180,20 @@ function reactiveDelegate<R extends object>(current: Accessor<R>): R {
     {},
     {
       get(_t, prop: string | symbol) {
+        // `.sub` is itself a `Subscription` — an accessor that ALSO carries `.pending`
+        // /`.error` accessor PROPERTIES (createSubscription). The blanket method-wrapper
+        // below would model it as a bare callable and DROP those nested accessors, so
+        // `entry.cells.X.use().sub.pending()` would throw. Delegate `.sub` AS a
+        // Subscription (callable + `.pending`/`.error`) so its full shape survives the
+        // re-key, matching the `Entry` type the outer cast promises.
+        if (prop === "sub") {
+          // biome-ignore lint/suspicious/noExplicitAny: delegating the current result's Subscription
+          const subOf = () => (current() as any).sub;
+          return Object.assign((...args: unknown[]) => subOf()(...args), {
+            pending: () => subOf().pending(),
+            error: () => subOf().error(),
+          });
+        }
         return (...args: unknown[]) => {
           // biome-ignore lint/suspicious/noExplicitAny: delegating to the current result's accessor/method
           const target = current() as any;
@@ -338,8 +370,14 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     const view = entries.use();
     if (!view.keys().some((k) => k === key)) return { kind: "not-a-member" };
     const v = view.byKey(key)?.() as EntryStatus | undefined;
-    // A member whose per-key status frame hasn't landed yet is honestly warming.
-    return v ?? { kind: "warming" };
+    // A member whose per-key status frame hasn't landed yet is honestly warming; then
+    // FLOOR the claim on the map's OWN transport liveness via {@link floorOnLiveness}: a
+    // server-published "connected" over a dead/half-open link (`live() === false`) can no
+    // longer hear a demotion, so it downgrades to warming rather than presenting green over
+    // a dead transport (#1568 — the per-key chip that paints `state()` inherits the floor
+    // for free). An in-process `directLink` can't half-open so its `live()` is a constant
+    // true and never floors. This is the flooring `hostChipTone`'s docstring asserts, in code.
+    return floorOnLiveness(v ?? { kind: "warming" }, live());
   };
 
   const entry = (key: K): Entry<ES> => {

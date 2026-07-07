@@ -21,7 +21,7 @@ import type { AnyContractRouter } from "@orpc/contract";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { connectSurfaceMap } from "./client";
+import { connectSurfaceMap, floorOnLiveness } from "./client";
 import { defineSurfaceMap, type EntryStatus } from "./define";
 import {
   type EntryConnectionState,
@@ -581,5 +581,67 @@ describe("surface-map mock-entry e2e harness", () => {
     expect(() => connectSurfaceMap(map, bareLink as unknown)).toThrow(
       /branded parent transport handle|pre-sliced or bare wire link/,
     );
+  });
+
+  it("(13) useEntry's reactive re-wrap preserves .sub's nested accessors — .pending/.error survive (no boot TypeError)", async () => {
+    await createRoot(async (dispose) => {
+      const { client, addSession } = setup();
+      addSession(A, makeEntry({ awaiting: 3, awaitingIds: [] }).link, connected(0));
+
+      const [active] = createSignal<HostKey>(A);
+      const r = client.useEntry(active).cells.urgency.use();
+
+      // `.sub` is a Subscription: an accessor that ALSO carries `.pending`/`.error` accessor
+      // PROPERTIES. The reactiveDelegate re-wrap must NOT flatten it to a bare callable —
+      // that dropped `.pending`/`.error` and made `savedSessionSub.pending()` (wire.ts) a
+      // boot-time TypeError at three real call sites the useEntry-MOCKING unit tests hid.
+      expect(typeof r.sub).toBe("function"); // the value accessor itself
+      expect(typeof r.sub.pending).toBe("function"); // survived the delegate
+      expect(typeof r.sub.error).toBe("function");
+      expect(() => r.sub.pending()).not.toThrow();
+      expect(() => r.sub.error()).not.toThrow();
+
+      await settle();
+      // …and they track the underlying sub: the frame landed → not pending, no error, value 3.
+      expect(r.sub.pending()).toBe(false);
+      expect(r.sub.error()).toBeUndefined();
+      expect(r.sub()?.awaiting).toBe(3);
+      dispose();
+    });
+  });
+});
+
+// The liveness floor `state()`/foldState applies (D3): a per-key chip must never paint
+// green over a dead map transport. The dead-link branch is unreachable through the harness
+// (a `directLink` is constant-live and a `LiveSignalHandle` is un-forgeable), so the floor
+// is extracted PURE (`floorOnLiveness`) and pinned here — foldState routes every status
+// through it with the resolved transport `live()`, so this IS the state() decision.
+describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
+  it("downgrades a server-published 'connected' to 'warming' when our link is dead", () => {
+    // The D3 defect: state() published `connected` while `live() === false`, painting a
+    // green chip over a transport that can no longer deliver a demotion. Floored → warming.
+    expect(floorOnLiveness({ kind: "connected", clockOffset: 42 }, false)).toEqual({
+      kind: "warming",
+    });
+  });
+
+  it("passes 'connected' through UNTOUCHED when the link is live (offset preserved)", () => {
+    expect(floorOnLiveness({ kind: "connected", clockOffset: 42 }, true)).toEqual({
+      kind: "connected",
+      clockOffset: 42,
+    });
+  });
+
+  it("never fabricates OR demotes an honest status — failed/warming/not-a-member pass through regardless of live", () => {
+    for (const live of [true, false]) {
+      expect(floorOnLiveness({ kind: "failed", reason: "boom" }, live)).toEqual({
+        kind: "failed",
+        reason: "boom",
+      });
+      expect(floorOnLiveness({ kind: "warming" }, live)).toEqual({ kind: "warming" });
+      expect(floorOnLiveness({ kind: "not-a-member" }, live)).toEqual({
+        kind: "not-a-member",
+      });
+    }
   });
 });
