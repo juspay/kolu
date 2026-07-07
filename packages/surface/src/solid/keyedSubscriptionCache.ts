@@ -68,13 +68,19 @@ function fnId(fn: object): number {
 /** Whether a data value serializes through `JSON.stringify` INJECTIVELY — i.e. two
  *  distinct values can't collide to one string. `JSON.stringify` is lossy for `Set`/`Map`
  *  (both → `"{}"` regardless of contents), for nested `undefined`/`function`/`symbol`
- *  values (silently dropped), and for non-plain objects (`Date`/`RegExp`/class instances).
- *  A plain tree of string/number/boolean/null + plain objects/arrays round-trips
- *  injectively (up to key order, which `stableOptsKey` normalizes). */
+ *  values (silently dropped), for non-plain objects (`Date`/`RegExp`/class instances), and
+ *  — the trap the number `typeof` hides — for the IEEE-754 special values: `NaN`/`Infinity`
+ *  /`-Infinity` all serialize to `"null"`, and `-0` serializes to `"0"` (colliding with `0`).
+ *  A plain tree of string/FINITE-non-`-0`-number/boolean/null + plain objects/arrays
+ *  round-trips injectively (up to key order, which `stableOptsKey` normalizes). */
 function isJsonInjective(v: unknown): boolean {
   if (v === null) return true;
   const t = typeof v;
-  if (t === "string" || t === "number" || t === "boolean") return true;
+  if (t === "string" || t === "boolean") return true;
+  // A number is injective EXCEPT the values `JSON.stringify` can't tell apart: NaN/±Infinity
+  // (all → "null") and -0 (→ "0", colliding with 0). Reject those so two divergent numeric
+  // opts (a NaN "disabled" sentinel vs an Infinity "never" sentinel) can't fold to one slot.
+  if (t === "number") return Number.isFinite(v) && !Object.is(v, -0);
   if (t !== "object") return false; // undefined / function / symbol / bigint — lossy
   if (Array.isArray(v)) return v.every(isJsonInjective);
   const proto = Object.getPrototypeOf(v);
@@ -93,7 +99,8 @@ function isJsonInjective(v: unknown): boolean {
  * (identity). Per-consumer options (`onError`/`onComplete`) are NOT passed here — they are
  * wired per-consumer on the shared value, never fold into the slot's identity.
  *
- * A non-plain-JSON data value (a `Set`/`Map`/`undefined`-bearing `initial`, etc.) THROWS:
+ * A non-injective-JSON data value (a `Set`/`Map`/`undefined`-bearing `initial`, or a
+ * `NaN`/`±Infinity`/`-0` number) THROWS:
  * `JSON.stringify` can't distinguish it, so two divergent `.use()` would silently share one
  * subscription (the sharing-by-convention defect). Rejecting it makes that unrepresentable
  * NOW — a `Set`-valued shared option needs per-consumer wiring, which is demand-gated (not
@@ -111,7 +118,7 @@ export function stableOptsKey(opts: Record<string, unknown>): string {
     }
     if (!isJsonInjective(v)) {
       throw new Error(
-        `surface dedup: the .use() option "${k}" is a Set/Map/undefined-bearing (non-plain-JSON) value — the shared-slot dedup key can't distinguish it, so two divergent .use() sites would silently share one subscription. Use a plain-JSON option value, or per-consumer wiring (not yet built) is needed for a non-plain-JSON shared option.`,
+        `surface dedup: the .use() option "${k}" is a non-injective-JSON value (a Set/Map/undefined-bearing object, or a NaN/±Infinity/-0 number) — the shared-slot dedup key can't distinguish it, so two divergent .use() sites would silently share one subscription. Use a plain-JSON option value (finite, non-(-0) numbers), or per-consumer wiring (not yet built) is needed for a non-plain-JSON shared option.`,
       );
     }
     parts.push(`${k}=${JSON.stringify(v)}`);

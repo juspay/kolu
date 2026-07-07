@@ -49,6 +49,29 @@ describe("stableOptsKey — divergent options are distinct keys; non-plain-JSON 
       stableOptsKey({ authority: "local", initial: { a: 1, list: ["x"] } }),
     ).not.toThrow();
   });
+
+  it("THROWS on a non-finite / -0 number option value (JSON.stringify collapses them)", () => {
+    // NaN/±Infinity all JSON.stringify to "null", and -0 to "0" — so two divergent
+    // numeric sentinels (a NaN "disabled" vs an Infinity "never") would silently share
+    // one slot. The number-typeof branch used to admit all of these; now they throw.
+    expect(() => stableOptsKey({ initial: { threshold: Number.NaN } })).toThrow(
+      /non-injective|NaN|Infinity|-0/,
+    );
+    expect(() =>
+      stableOptsKey({ initial: { threshold: Number.POSITIVE_INFINITY } }),
+    ).toThrow(/non-injective|NaN|Infinity|-0/);
+    expect(() =>
+      stableOptsKey({ initial: { threshold: Number.NEGATIVE_INFINITY } }),
+    ).toThrow(/non-injective|NaN|Infinity|-0/);
+    expect(() => stableOptsKey({ coalesceMs: -0 })).toThrow(
+      /non-injective|NaN|Infinity|-0/,
+    );
+    // A finite, non-(-0) number keys fine, and two identical ones still fold to one.
+    expect(() => stableOptsKey({ initial: { threshold: 5 } })).not.toThrow();
+    expect(stableOptsKey({ initial: { threshold: 5 } })).toBe(
+      stableOptsKey({ initial: { threshold: 5 } }),
+    );
+  });
 });
 
 /** A get-only cell (read-only server-authority path → deduped). */
