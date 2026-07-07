@@ -38,6 +38,7 @@ import {
   type Admit,
   type AdmitVerdict,
   type Connector,
+  isLocalHost,
   makeSession,
   ResolveDrvError,
   resolveSystem,
@@ -45,6 +46,11 @@ import {
   sshConnector,
 } from "@kolu/surface-remote";
 import type { PadiConvergence } from "kolu-common/surface";
+import {
+  type HostKey,
+  HostKeySchema,
+  LOCAL_HOST,
+} from "kolu-common/surfacesWithPadi";
 import { log } from "./log.ts";
 import { measureClockOffset } from "./measureClockOffset.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
@@ -84,6 +90,48 @@ export const KOLU_PADI_HOST_ENV = "KOLU_PADI_HOST";
 export function remotePadiHost(): string | undefined {
   const host = process.env[KOLU_PADI_HOST_ENV]?.trim();
   return host ? host : undefined;
+}
+
+/** Parse `KOLU_PADI_HOST` as a comma-separated SEED list of pool hosts (W4 "the
+ *  switch"). `LOCAL_HOST` is ALWAYS the implicit, unremovable default — prepended, and
+ *  any listed local variant (deduped via `isLocalHost`) collapses onto it. Env unset →
+ *  `[LOCAL_HOST]` (a valid 1-member map = pixel-identical to single-host today). Each
+ *  entry is `HostKeySchema.parse`'d (the sole branded-key producer). Remote hosts are
+ *  order-preserved after the local default. */
+export function parseKoluPadiHostSeed(): HostKey[] {
+  const raw = process.env[KOLU_PADI_HOST_ENV]?.trim();
+  const listed = raw
+    ? raw
+        .split(",")
+        .map((h) => h.trim())
+        .filter((h) => h.length > 0)
+    : [];
+  const seen = new Set<string>([LOCAL_HOST]);
+  const remotes: HostKey[] = [];
+  for (const h of listed) {
+    if (isLocalHost(h)) continue; // the local default is already the head
+    if (seen.has(h)) continue;
+    seen.add(h);
+    remotes.push(HostKeySchema.parse(h));
+  }
+  return [LOCAL_HOST, ...remotes];
+}
+
+/** Whether `KOLU_PADI_HOST` names any REMOTE host — i.e. the pool is multi-host and
+ *  the client should render the selector strip. Drives the published gate cell; the
+ *  client never reads env. Env unset / local-only → `false` → zero multi-host UI. */
+export function isMultiHost(): boolean {
+  return parseKoluPadiHostSeed().length > 1;
+}
+
+/** A host that cannot be removed from the pool — the local default (and the server's
+ *  boot default). `hosts.remove` rejects with this rather than silently no-op'ing
+ *  (the #1708 pin: `remove(default)` must fail LOUD, not "succeed"). */
+export class UnremovableHostError extends Error {
+  constructor(host: string, why: string) {
+    super(`cannot remove host ${JSON.stringify(host)}: ${why}`);
+    this.name = "UnremovableHostError";
+  }
 }
 
 /** Parse + validate the baked `{ system → padi .drv }` map EAGERLY — a missing /

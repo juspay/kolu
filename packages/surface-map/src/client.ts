@@ -192,18 +192,34 @@ function makeReactiveEntry<ES extends SurfaceSpec, K>(
  *  per-key client (each built over a key-injecting wrapper of the resolved link), so
  *  a per-key chip floors its status on real transport liveness — constant-`true`
  *  only for an in-process `directLink`, a watchdog otherwise. */
+export interface ConnectSurfaceMapOptions {
+  /** An explicit, already-resolved transport-liveness accessor — for FRAMEWORK
+   *  COMPOSITION where `link` is a SCOPED slice of an already-guarded transport
+   *  (e.g. `scopeSibling(conn.link, "padi")`, whose parent `connectSurfaces` already
+   *  applied the half-open guard and owns the watchdog `live`). When given, `link` is
+   *  used as-is with this `live` (the upstream guard is not re-applied); when omitted,
+   *  the transport is resolved via `resolveTransport` (the half-open guard applies). */
+  live?: Accessor<boolean>;
+}
+
 export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   map: SurfaceMap<KS, ES>,
   link: unknown,
+  opts?: ConnectSurfaceMapOptions,
 ): SurfaceMapClient<KS, ES> {
   type K = z.infer<KS>;
 
-  // Resolve the app transport ONCE → { resolvedLink, live }. `resolveTransport`
-  // applies the half-open guard (a bare wire link throws here, exactly as
-  // `surfaceClient` at its boundary); a branded handle yields its watchdog `live`;
-  // an in-process link yields constant-`true`. The SAME `live` threads into every
-  // client below so the live↔link pairing holds by construction.
-  const { link: baseLink, live } = resolveTransport(link);
+  // Resolve the app transport ONCE → { resolvedLink, live }. Normally via
+  // `resolveTransport` (the half-open guard: a bare wire link throws; a branded handle
+  // yields its watchdog `live`; an in-process link yields constant-`true`). But
+  // `opts.live` OVERRIDES it for framework composition — when `link` is a scoped slice
+  // of an already-guarded transport, `resolveTransport` would wrongly give the bare
+  // slice a constant-`true` leg, so the caller threads the parent's resolved `live`
+  // against the slice directly (the guard already met upstream). The SAME `live`
+  // threads into every client below so the live↔link pairing holds by construction.
+  const { link: baseLink, live } = opts?.live
+    ? { link, live: opts.live }
+    : resolveTransport(link);
 
   // Capture the STABLE client owner: per-key clients' dedup caches must be
   // client-lifetime, never the transient `.use()`/mapArray owner that first

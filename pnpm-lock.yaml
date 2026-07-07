@@ -245,6 +245,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
+      '@kolu/surface-map':
+        specifier: workspace:*
+        version: link:../surface-map
       '@kolu/terminal-workspace':
         specifier: workspace:*
         version: link:../terminal-workspace
