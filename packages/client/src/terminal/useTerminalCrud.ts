@@ -4,7 +4,6 @@
  *  changes via the live subscriptions — no optimistic cache needed. */
 
 import type { InitialTerminalMetadata } from "@kolu/padi/surface";
-import { padiRpc } from "@kolu/padi/surface";
 import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
 import type { TerminalId } from "kolu-common/surface";
 import { shuffleMode } from "kolu-common/surface";
@@ -20,7 +19,7 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useColorScheme } from "../settings/useColorScheme";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { padi, preferences } from "../wire";
+import { activeHost, padiRpcOf, preferences } from "../wire";
 import {
   createEvictionDedup,
   evictTerminal,
@@ -49,7 +48,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   /** Set a terminal's theme name on the server. */
   function setThemeName(id: TerminalId, name: string) {
-    void padiRpc(padi)
+    void padiRpcOf(activeHost())
       .surface.chrome.setTheme({ id, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
@@ -66,7 +65,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     dropFromMru: (id) =>
       store.setMruOrder((prev) => prev.filter((x) => x !== id)),
     promoteToTopLevel: (subId) =>
-      void padiRpc(padi)
+      void padiRpcOf(activeHost())
         .surface.chrome.setParent({ id: subId, parentId: null })
         .catch((err: Error) =>
           toast.error(`Failed to set parent: ${err.message}`),
@@ -182,7 +181,7 @@ export const useTerminalCrud = createSharedRoot(() => {
         activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
       );
     }
-    const info = await padiRpc(padi)
+    const info = await padiRpcOf(activeHost())
       .surface.lifecycle.create({
         cwd,
         themeName: theme,
@@ -213,7 +212,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     // `handleCreate`), so it needs the same warming guard — the split
     // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
     if (refuseIfWarming()) return;
-    const info = await padiRpc(padi)
+    const info = await padiRpcOf(activeHost())
       .surface.lifecycle.create({ cwd, parentId })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);
@@ -240,7 +239,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   async function handleKill(id: TerminalId) {
     try {
-      await padiRpc(padi).surface.lifecycle.kill({ id });
+      await padiRpcOf(activeHost()).surface.lifecycle.kill({ id });
     } catch {
       // Terminal may already be gone
     }
@@ -284,7 +283,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await handleKill(subId);
     try {
-      await padiRpc(padi).surface.lifecycle.sleep({ id });
+      await padiRpcOf(activeHost()).surface.lifecycle.sleep({ id });
     } catch (err) {
       toast.error(`Failed to sleep terminal: ${(err as Error).message}`);
     }
@@ -295,7 +294,7 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  it back to active and the tile re-renders live — so the client just asks. */
   async function handleWake(id: TerminalId) {
     try {
-      await padiRpc(padi).surface.lifecycle.wake({ id });
+      await padiRpcOf(activeHost()).surface.lifecycle.wake({ id });
     } catch (err) {
       toast.error(`Failed to wake terminal: ${(err as Error).message}`);
     }
@@ -319,7 +318,7 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  the result (it only needs the toast). */
   async function handleDiscard(id: TerminalId): Promise<boolean> {
     try {
-      await padiRpc(padi).surface.lifecycle.discardSleeping({ id });
+      await padiRpcOf(activeHost()).surface.lifecycle.discardSleeping({ id });
     } catch (err) {
       toast.error(`Failed to discard terminal: ${(err as Error).message}`);
       return false;
@@ -333,7 +332,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     if (id === null) return;
     let text: string;
     try {
-      text = await padiRpc(padi).surface.screen.text({ id });
+      text = await padiRpcOf(activeHost()).surface.screen.text({ id });
     } catch (err) {
       console.error("Failed to read terminal text:", err);
       toast.error(`Failed to read terminal text: ${(err as Error).message}`);
@@ -371,7 +370,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   function handleRunInActiveTerminal(command: string) {
     const id = store.focusedId();
     if (id === null) return;
-    void padiRpc(padi)
+    void padiRpcOf(activeHost())
       .surface.lifecycle.sendInput({ id, data: command })
       .catch((err: Error) =>
         toast.error(`Failed to prefill command: ${err.message}`),
@@ -380,7 +379,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   async function handleCloseAll() {
     try {
-      await padiRpc(padi).surface.lifecycle.killAll();
+      await padiRpcOf(activeHost()).surface.lifecycle.killAll();
       store.reset();
       // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so clear
       // the find-bar map wholesale here too — otherwise stale keys outlive the

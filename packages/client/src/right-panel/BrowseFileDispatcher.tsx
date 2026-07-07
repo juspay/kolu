@@ -28,7 +28,6 @@
  *  HTML/SVG follows (phase 4) with zero changes here beyond the renderer
  *  list. */
 
-import { padiRpc } from "@kolu/padi/surface";
 import { resolveLinkHref } from "@kolu/solid-browser";
 import {
   type FileData,
@@ -65,7 +64,7 @@ import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { padi } from "../wire";
+import { activeHost, padiMap, padiRpcOf } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { createPolledQuery } from "./createPolledQuery";
@@ -138,13 +137,15 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       repoPath: props.repoPath,
       filePath: props.filePath,
     }),
-    client: padi,
+    live: () => padiMap.live(),
     pulseName: "Code tab: file content pulse",
-    pulseProc: padiRpc(padi).surface.subscribeFileChange.get,
+    pulseProc: padiRpcOf(activeHost()).surface.subscribeFileChange.get,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: async (i, signal): Promise<BrowseFileContent> => {
       if (isBinaryPreviewable(i.filePath)) {
-        const mtimeMs = await padiRpc(padi).surface.fs.statFileMtimeMs(
+        const mtimeMs = await padiRpcOf(
+          activeHost(),
+        ).surface.fs.statFileMtimeMs(
           { repoPath: i.repoPath, filePath: i.filePath },
           { signal },
         );
@@ -153,7 +154,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           url: `${buildTerminalFileUrl(i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
         };
       }
-      const { content, truncated } = await padiRpc(padi).surface.fs.readFile(
+      const { content, truncated } = await padiRpcOf(
+        activeHost(),
+      ).surface.fs.readFile(
         { repoPath: i.repoPath, filePath: i.filePath },
         { signal },
       );

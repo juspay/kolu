@@ -13,10 +13,10 @@
  * and canvas reflect progress without this hook tracking it.
  */
 
-import { type DaemonStatus, padiRpc } from "@kolu/padi/surface";
+import type { DaemonStatus } from "@kolu/padi/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { padi } from "../wire";
+import { activeHost, padiRpcOf } from "../wire";
 import { daemonTransportLive, liveWarming } from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
@@ -56,7 +56,7 @@ export async function restartDaemon(): Promise<void> {
   setRestarting(true);
   const id = toast.loading("Restarting kaval…");
   try {
-    await padiRpc(padi).surface.lifecycle.recycleKaval();
+    await padiRpcOf(activeHost()).surface.lifecycle.recycleKaval();
     toast.success("kaval restarted — your session is offered for restore", {
       id,
     });

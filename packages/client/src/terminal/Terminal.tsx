@@ -31,7 +31,7 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
-import { activeArm, padiRpc } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi/surface";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
@@ -54,7 +54,7 @@ import { createScrollLock } from "../scrollLock";
 import { wireScrollIntent } from "../scrollLockWiring";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
-import { padi, preferences } from "../wire";
+import { activeHost, padiRpcOf, preferences } from "../wire";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
@@ -372,7 +372,7 @@ const Terminal: Component<{
     // window). Armed BEFORE the resize so the repaint can't slip in first.
     activity.suppress(props.terminalId, RESIZE_ACTIVITY_SUPPRESS_MS);
     try {
-      await padiRpc(padi).surface.lifecycle.resize({
+      await padiRpcOf(activeHost()).surface.lifecycle.resize({
         id: props.terminalId,
         cols,
         rows,
@@ -808,7 +808,7 @@ const Terminal: Component<{
           consumeReattachingStream(
             () =>
               unenrolledStreamCall(
-                padiRpc(padi).surface.terminalAttach.get,
+                padiRpcOf(activeHost()).surface.terminalAttach.get,
                 { id: props.terminalId },
                 { signal, onRetry: resetForFreshSnapshot },
               ),
@@ -858,7 +858,7 @@ const Terminal: Component<{
             if (isTerminalQueryResponse(data)) return;
             // Fold any sticky Ctrl/Alt armed on the mobile key bar into this
             // keystroke (no-op on desktop, where nothing is ever armed).
-            void padiRpc(padi).surface.lifecycle.sendInput({
+            void padiRpcOf(activeHost()).surface.lifecycle.sendInput({
               id: props.terminalId,
               data: applyStickyModifiers(data),
             });
@@ -970,12 +970,13 @@ const Terminal: Component<{
               terminalId: props.terminalId,
               name,
               base64,
-              scratchWrite: (args) => padiRpc(padi).surface.scratch.write(args),
+              scratchWrite: (args) =>
+                padiRpcOf(activeHost()).surface.scratch.write(args),
               isActive: () =>
                 activeArm(terminalStore.getMetadata(props.terminalId)) !==
                 undefined,
               sendInput: (args) =>
-                padiRpc(padi).surface.lifecycle.sendInput(args),
+                padiRpcOf(activeHost()).surface.lifecycle.sendInput(args),
               wrapPath: wrapBracketedPaste,
             });
           }

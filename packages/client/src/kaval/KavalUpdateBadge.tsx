@@ -15,9 +15,9 @@
  *  client-vs-server `≠ srv` signal (which stays the commit comparison). */
 
 import type { PadiStatus } from "@kolu/padi/surface";
-import type { Component } from "solid-js";
+import { type Component, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { padi } from "../wire";
+import { activeHost, padiMap } from "../wire";
 import { kavalStale } from "./kavalCurrency";
 import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
 
@@ -25,9 +25,13 @@ import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
 // useDaemonStatus uses for the daemonStatus collection). The `expectedKaval` axis
 // rides HERE now — it left the surface-app `buildInfo` cell in W1.R7 so a kaval
 // read no longer crosses `packages/server`. Read-only; padi seeds it once at boot.
-const padiStatus = padi.cells.status.use({
-  onError: (err) => toast.error(`Kaval status error: ${err.message}`),
-});
+// A host-scoped standing readout — rides `useEntry(activeHost)` under an app-scope
+// `createRoot` (module-lifetime), so it re-keys when the active host switches.
+const padiStatus = createRoot(() =>
+  padiMap.useEntry(activeHost).cells.status.use({
+    onError: (err: Error) => toast.error(`Kaval status error: ${err.message}`),
+  }),
+);
 
 /** The *expected* kaval identity — the build padi would spawn
  *  (`padi.cells.status.expectedKaval`: closure `staleKey` + git `navigableCommit`).

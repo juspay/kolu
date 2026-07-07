@@ -35,9 +35,11 @@ const rpc = vi.hoisted(() => ({
 
 // Spread the REAL (browser-safe) module so every schema kolu-common/surface pulls from
 // here — e.g. `HostDaemonInventorySchema` — stays present; override only `padiRpc`.
-vi.mock("@kolu/padi/surface", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@kolu/padi/surface")>()),
-  padiRpc: () => ({
+// Keep the REAL (browser-safe) `@kolu/padi/surface` — its schemas
+// (`HostDaemonInventorySchema`, …) must stay present; the RPC double moved to
+// `../wire`'s `padiRpcOf` (production now calls `padiRpcOf(activeHost()).surface.*`).
+vi.mock("../wire", () => ({
+  padiRpcOf: () => ({
     surface: {
       session: {
         restore: rpc.restore,
@@ -51,10 +53,7 @@ vi.mock("@kolu/padi/surface", async (importOriginal) => ({
       },
     },
   }),
-}));
-
-vi.mock("../wire", () => ({
-  padi: {},
+  activeHost: () => "local",
   savedSessionSub: { pending: () => h.sessionPending },
   savedSession: () => h.savedSession,
 }));

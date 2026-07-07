@@ -100,6 +100,9 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../surface-app
+      '@kolu/surface-map':
+        specifier: workspace:*
+        version: link:../surface-map
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol

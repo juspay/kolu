@@ -20,13 +20,13 @@
  *  command in that section. The parent gates this on the ACTIVE arm, so the
  *  target is always a live PTY — `sendInput` would otherwise quiet-drop. */
 
-import { activeArm, padiRpc } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { padi } from "../wire";
+import { activeHost, padiRpcOf } from "../wire";
 import { planComposeSend } from "./composeSend";
 
 /** `localStorage` key prefix for the per-terminal draft — same
@@ -81,7 +81,7 @@ const ComposeSection: Component<{
     const sent = draft();
     setSending(true);
     try {
-      await padiRpc(padi).surface.lifecycle.sendInput({
+      await padiRpcOf(activeHost()).surface.lifecycle.sendInput({
         id: props.terminalId,
         data,
       });

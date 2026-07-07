@@ -49,6 +49,11 @@ const WEB_SHELL_FILES = [
   "index",
   "log",
   "memorySampler",
+  // The RTT-halved clock-offset probe — measures a bound daemon's wall-clock skew vs
+  // this process (over control-core `clockNow`) at admit, folded into the keyed map's
+  // `EntryStatus.connected` so two hosts render on two clocks without comparing them.
+  // Shell glue (a one-shot measurement over the binder's client), not terminal domain.
+  "measureClockOffset",
   // The W2.2 padi BINDER — the web shell's supervisor/client of the padi PROCESS
   // (spawn/adopt + dial + the reconnect-mirror session `reServeSurface` consumes).
   // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives

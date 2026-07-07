@@ -14,10 +14,9 @@
  * one (e.g. `BrowseFileDispatcher`'s per-file `subscribeFileChange`).
  */
 
-import { padiRpc } from "@kolu/padi/surface";
 import type { Subscription } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
-import { padi } from "../wire";
+import { activeHost, padiMap, padiRpcOf } from "../wire";
 import { createPolledQuery } from "./createPolledQuery";
 
 export function createRepoPolledQuery<
@@ -35,8 +34,8 @@ export function createRepoPolledQuery<
 }): Subscription<Result> {
   return createPolledQuery({
     ...config,
-    client: padi,
-    pulseProc: padiRpc(padi).surface.subscribeRepoChange.get,
+    live: () => padiMap.live(),
+    pulseProc: padiRpcOf(activeHost()).surface.subscribeRepoChange.get,
     pulseInput: (i) => ({ repoPath: i.repoPath }),
   });
 }

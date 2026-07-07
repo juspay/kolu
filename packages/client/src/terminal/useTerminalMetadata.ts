@@ -22,7 +22,7 @@ import type {
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { padi } from "../wire";
+import { activeHost, padiMap } from "../wire";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -85,9 +85,9 @@ export function useTerminalMetadata(deps: {
   const keys = createMemo<TerminalId[]>(
     () => deps.list()?.map((t) => t.id) ?? [],
   );
-  const terminals = padi.collections.terminals.use({
+  const terminals = padiMap.useEntry(activeHost).collections.terminals.use({
     keys,
-    onError: (err) => toast.error(`Metadata error: ${err.message}`),
+    onError: (err: Error) => toast.error(`Metadata error: ${err.message}`),
   });
 
   // padi's `terminals` collection is typed `PadiTerminal` — a 3-arm union:

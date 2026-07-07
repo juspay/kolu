@@ -35,8 +35,11 @@ vi.mock("../wire", () => {
           : undefined,
     }),
   };
+  // The map shape: `padiMap.useEntry(activeHost)` returns the active host's Entry,
+  // whose `.collections.terminals` is the same controllable double.
   return {
-    padi: { collections: { terminals } },
+    padiMap: { useEntry: () => ({ collections: { terminals } }) },
+    activeHost: () => "local",
   };
 });
 vi.mock("solid-sonner", () => ({

@@ -20,7 +20,7 @@ import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
-import { app, padi } from "../wire";
+import { activeHost, app, padiMap } from "../wire";
 import {
   DAEMON_STATE_PRESENTATION,
   liveDownStateWithPadiLink,
@@ -78,10 +78,14 @@ export function daemonTransportLive(): boolean {
 // (`daemonTransportLive`, `app.health().live`) is unchanged: padi and kolu are
 // siblings over the ONE socket, so the ws that delivers this is the same one
 // `app.health()` watches.
-const sub = padi.collections.daemonStatus.use({
-  keys: () => [LOCAL_HOST],
-  onError: (err) => toast.error(`Daemon status error: ${err.message}`),
-});
+// A host-scoped standing readout — rides `useEntry(activeHost)` under an app-scope
+// `createRoot` (module-lifetime), so it re-keys when the active host switches.
+const sub = createRoot(() =>
+  padiMap.useEntry(activeHost).collections.daemonStatus.use({
+    keys: () => [LOCAL_HOST],
+    onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
+  }),
+);
 
 /** The local daemon's status, or undefined before the first server yield. */
 export function localDaemonStatus(): DaemonStatus | undefined {

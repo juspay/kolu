@@ -11,13 +11,12 @@
  *  the App-root call site, which was an unenforceable convention
  *  ("deps never change identity") held together by a comment. */
 
-import { padiRpc } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { padi } from "../wire";
+import { activeHost, padiRpcOf } from "../wire";
 
 export type IntentEditorSession = {
   title: string;
@@ -34,7 +33,7 @@ function init() {
   const close = () => setSession(null);
 
   const writeIntent = (id: TerminalId, intent: string) => {
-    void padiRpc(padi)
+    void padiRpcOf(activeHost())
       .surface.chrome.setIntent({ id, intent })
       .catch((err: Error) =>
         toast.error(`Failed to save intent: ${err.message}`),

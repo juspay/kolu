@@ -22,7 +22,6 @@
 import {
   type CodeTabView,
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
-  padiRpc,
   type RightPanelPerTerminalState,
   type RightPanelTab,
   rightPanelView,
@@ -38,7 +37,7 @@ import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { isDesktop } from "../useMobile";
-import { padi, preferences, updatePreferences } from "../wire";
+import { activeHost, padiRpcOf, preferences, updatePreferences } from "../wire";
 
 /** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
  *  history records. `mode` is the All/Local/Branch sub-view, carried *inside*
@@ -162,7 +161,7 @@ function ensureState(id: TerminalId): void {
 function reportToServer(id: TerminalId): void {
   const s = perTerminal[id];
   if (!s) return;
-  void padiRpc(padi)
+  void padiRpcOf(activeHost())
     .surface.chrome.setRightPanel({
       id,
       activeTab: s.activeTab,

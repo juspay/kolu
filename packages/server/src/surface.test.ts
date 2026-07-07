@@ -34,11 +34,14 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // `processMemory`, `padiLink` (kolu-server's live view of its binding to padi
     // — a #1034 honesty leg, server-authored, NOT a terminal member),
     // `processStartedAt` (the server + padi boot times the rail renders as uptime),
-    // and `daemonInventory` (the read-only host-daemon enumeration the Kaval/Padi
-    // dialogs list — presentation/diagnostic data, NOT a terminal member). No
-    // collections, no events.
+    // `daemonInventory` (the read-only host-daemon enumeration the Kaval/Padi
+    // dialogs list — presentation/diagnostic data, NOT a terminal member), and
+    // `hostMapGate` (the multi-host feature gate the client reads to render the
+    // selector strip — server-authored from `isMultiHost()`, NOT a terminal member).
+    // No collections, no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "daemonInventory",
+      "hostMapGate",
       "padiLink",
       "preferences",
       "processMemory",

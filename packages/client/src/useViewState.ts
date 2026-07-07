@@ -5,12 +5,11 @@
  *  Terminal grid dimensions are per-instance — each xterm measures its
  *  own container via FitAddon. */
 
-import { padiRpc } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { boolPref } from "./persistedPref";
-import { padi } from "./wire";
+import { activeHost, padiRpcOf } from "./wire";
 
 type TerminalAttention = "unread" | "badge-only";
 
@@ -75,7 +74,7 @@ export function useViewState() {
       if (attention[id] === "unread")
         setAttention(produce((s) => delete s[id]));
       // Report active terminal to server for session snapshots
-      void padiRpc(padi)
+      void padiRpcOf(activeHost())
         .surface.chrome.setActive({ id })
         .catch(() => {});
     }),

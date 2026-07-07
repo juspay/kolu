@@ -28,6 +28,13 @@
  * without a migration ladder.
  */
 
+// The host-daemon inventory shapes live in @kolu/padi's OWN surface vocabulary — padi
+// owns the daemon domain (a kaval gate pid is a padi-domain fact, not terminal
+// awareness). kolu-common's `daemonInventory` cell composes them here via the established
+// `kolu-common → @kolu/padi` direction (the same edge `surfacesWithPadi`/`contract` use);
+// the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
+// `kolu-common/surface` importers are unchanged.
+import { HostDaemonInventorySchema } from "@kolu/padi/surface";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import {
   type BuildInfo,
@@ -38,17 +45,14 @@ import {
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
 import { ProcessRssSchema } from "@kolu/terminal-workspace/schema";
-// The host-daemon inventory shapes live in @kolu/padi's OWN surface vocabulary — padi
-// owns the daemon domain (a kaval gate pid is a padi-domain fact, not terminal
-// awareness). kolu-common's `daemonInventory` cell composes them here via the established
-// `kolu-common → @kolu/padi` direction (the same edge `surfacesWithPadi`/`contract` use);
-// the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
-// `kolu-common/surface` importers are unchanged.
-import { HostDaemonInventorySchema } from "@kolu/padi/surface";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
 
+// The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
+// home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
+// them here — the schema home moved to the daemon-domain package, the consumers didn't.
+export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
 export type {
   AgentPaintClass,
   AlertClass,
@@ -76,17 +80,13 @@ export type {
   CodexInfo,
   Foreground,
   OpenCodeInfo,
-  PrResult,
   ProcessRss,
+  PrResult,
   PrUnavailableSource,
   RestoreTarget,
   TerminalId,
   TerminalSnapshot,
 } from "@kolu/terminal-workspace/schema";
-// The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
-// home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
-// them here — the schema home moved to the daemon-domain package, the consumers didn't.
-export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
 //
 // The generic `TerminalSnapshot` (terminal identity, agent status, PR resolution,
@@ -295,6 +295,12 @@ export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
  *  up" (warming) rather than trusting the frozen re-served state. */
 export const PadiLinkSchema = z.enum(["connecting", "connected", "degraded"]);
 export type PadiLink = z.infer<typeof PadiLinkSchema>;
+
+/** The multi-host feature gate — whether the keyed-map selector strip renders. The
+ *  server is the sole writer (from `KOLU_PADI_HOST` seeding more than the local
+ *  default); the client reads it and NEVER reads env. */
+export const HostMapGateSchema = z.object({ enabled: z.boolean() });
+export type HostMapGate = z.infer<typeof HostMapGateSchema>;
 
 /** Live boot-time readout for the identity rail's uptime — kolu-server's OWN boot
  *  time and the bound padi's. Server-authored (kolu-server stamps its own boot at
@@ -540,6 +546,18 @@ export const koluSurface = defineSurface({
     daemonInventory: {
       schema: DaemonInventorySchema,
       default: DEFAULT_DAEMON_INVENTORY,
+      verbs: ["get"],
+    },
+
+    /** The multi-host gate — is the keyed-map selector strip (chips + add/remove) to
+     *  render? Server-authored: `enabled: true` when `KOLU_PADI_HOST` seeds more than the
+     *  local default (`server/src/index.ts` via `koluSurfaceCtx.cells.hostMapGate.set`,
+     *  from `isMultiHost()`); clients read-only. The client NEVER reads env — this cell is
+     *  the SOLE cue. `enabled: false` (env-unset) → zero multi-host UI, single host
+     *  pixel-identical. */
+    hostMapGate: {
+      schema: HostMapGateSchema,
+      default: { enabled: false } satisfies z.infer<typeof HostMapGateSchema>,
       verbs: ["get"],
     },
   },

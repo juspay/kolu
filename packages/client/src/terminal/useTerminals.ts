@@ -15,7 +15,7 @@ import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { daemonConnected } from "../kaval/useDaemonStatus";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
-import { padi } from "../wire";
+import { activeHost, padiMap } from "../wire";
 import { terminalSubject } from "./terminalSubject";
 import { useActiveReconcile } from "./useActiveReconcile";
 import { useSessionRestore } from "./useSessionRestore";
@@ -59,7 +59,7 @@ export function useTerminals() {
    *  shouldRetry in rpc.ts), where the terminal is still removed via the list
    *  subscription. */
   function subscribeExit(id: TerminalId) {
-    padi.events.terminalExit.use(
+    padiMap.useEntry(activeHost).events.terminalExit.use(
       () => ({ id }),
       (code) => {
         const subject = getSubject(id);

@@ -33,12 +33,8 @@
  * so `q()`, `q.pending()`, `q.error()` all read verbatim downstream.
  */
 
-import type { PadiSurfaceSpec } from "@kolu/padi/surface";
-import type {
-  StreamingProcedure,
-  Subscription,
-  SurfaceClient,
-} from "@kolu/surface/solid";
+import { unenrolledStreamCall } from "@kolu/surface/client";
+import type { StreamingProcedure, Subscription } from "@kolu/surface/solid";
 import {
   type Accessor,
   createEffect,
@@ -51,12 +47,14 @@ import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
 export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   /** The query input; `null` = idle (no pulse subscription, no query). */
   input: Accessor<Input | null>;
-  /** The padi surface client (`padi` from `wire.ts`) — its `.rawStream` drives
-   *  the pulse subscription and enrols it into padi's `health()`. */
-  client: SurfaceClient<PadiSurfaceSpec>;
-  /** Health-registry label for the pulse subscription. */
+  /** The active host's transport liveness (`() => padiMap.live()`) — gates the
+   *  reconnect-window error swallow (a blip while the socket re-subscribes). Replaces
+   *  the old whole-client `health().live` (the map has no single per-host client). */
+  live: Accessor<boolean>;
+  /** A debug label for the pulse (retained from the old enrolled-`rawStream` health
+   *  registry, now that the pulse is an unenrolled stream). */
   pulseName: string;
-  /** The raw pulse streaming procedure — `padiRpc(padi).surface.<pulse>.get`. */
+  /** The raw pulse streaming procedure — `padiRpcOf(activeHost()).surface.<pulse>.get`. */
   pulseProc: StreamingProcedure<PulseInput, Pulse>;
   /** Derive the pulse key from the query input. Kept separate so the pulse
    *  subscribes to only the change signal it needs (a repo, or a repo+file). */
@@ -96,16 +94,8 @@ function writeValue<T>(
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
 ): Subscription<Result> {
-  const {
-    input,
-    client,
-    pulseName,
-    pulseProc,
-    pulseInput,
-    query,
-    onError,
-    swallowError,
-  } = config;
+  const { input, live, pulseProc, pulseInput, query, onError, swallowError } =
+    config;
 
   const [store, setStore] = createStore<{ v: Result | undefined }>({
     v: undefined,
@@ -127,7 +117,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     // Reconnect-window blip: `rawStream`'s STREAM_RETRY re-subscribes and the
     // pulse re-fires `{seq:0}`, so a genuine persistent failure re-surfaces on
     // the next LIVE read — swallow here to keep a spurious flash off reconnect.
-    if (!client.health().live) return;
+    if (!live()) return;
     // Caller-classified benign transient (e.g. the viewed file was deleted).
     if (swallowError?.(err)) return;
     setError(err);
@@ -166,30 +156,31 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       setError(undefined);
       setPending(true);
       if (i === null) return;
-      // `rawStream` runs inside this effect's reactive owner (required) and
-      // auto-disposes on the next input change; `onItem` fires per pulse frame,
-      // each one a requery of the padi procedure.
-      const pulseSource = client.rawStream(
-        pulseName,
-        pulseProc,
-        pulseInput(i),
-        {
-          onItem: () => runQuery(i),
-        },
-      );
-      // A pulse (watcher-install) failure routes into the SAME error/pending
-      // signals the requery does (via `surfaceError`) — NOT a bespoke
-      // `onError`-only path — so a persistent watcher failure surfaces a real
-      // error state, not just a transient toast over stale data. Scoped to this
-      // run so it re-arms per input.
-      createEffect(
-        on(
-          () => pulseSource.error(),
-          (err) => {
-            if (err) surfaceError(err);
-          },
-        ),
-      );
+      // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
+      // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
+      // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
+      // snapshot frame, so `runQuery` fires per frame INCLUDING each post-reconnect
+      // snapshot — the value stream's reconnect-refresh, preserved. It aborts on the next
+      // input change (this effect's `onCleanup`). A pulse failure routes into the SAME
+      // error/pending signals the requery does (via `surfaceError`), so a persistent
+      // watcher failure (inotify ENOSPC) surfaces a real error state, not just a toast.
+      // It is UNENROLLED (not the old whole-client `rawStream`) because the map has no
+      // single per-host client to fold health into — and kolu ignores that fold anyway.
+      const pulseCtl = new AbortController();
+      onCleanup(() => pulseCtl.abort());
+      void (async () => {
+        try {
+          for await (const _frame of await unenrolledStreamCall(
+            pulseProc,
+            pulseInput(i),
+            { signal: pulseCtl.signal },
+          )) {
+            runQuery(i);
+          }
+        } catch (err) {
+          if (!pulseCtl.signal.aborted) surfaceError(err);
+        }
+      })();
     }),
   );
 

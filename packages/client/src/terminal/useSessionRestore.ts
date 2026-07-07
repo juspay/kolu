@@ -1,17 +1,14 @@
 /** Session restore — hydration from server state, session restore handler. */
 
-import {
-  padiRpc,
-  type SavedSession,
-  type TerminalMetadata,
-} from "@kolu/padi/surface";
+import type { SavedSession, TerminalMetadata } from "@kolu/padi/surface";
 import { resumableCommand, type TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
-  padi,
+  activeHost,
+  padiRpcOf,
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../wire";
@@ -210,7 +207,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       //
       // `resumeIds` is the per-terminal opt-in the restore card builds off its
       // global toggle: the SET of ids to resume (empty when the toggle is off).
-      await padiRpc(padi).surface.session.restore({
+      await padiRpcOf(activeHost()).surface.session.restore({
         resumeIds: options.resumeIds ? [...options.resumeIds] : undefined,
       });
       setSavedSession(null);
@@ -251,7 +248,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     if (!session) return;
     // Optimistic dismissal: the card is gone the moment the user commits.
     setSavedSession(null);
-    await padiRpc(padi)
+    await padiRpcOf(activeHost())
       .surface.session.forfeit({})
       .catch((err: Error) => {
         // Surface the failure and restore the card so the user can retry —

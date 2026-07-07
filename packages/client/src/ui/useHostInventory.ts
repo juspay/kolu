@@ -13,14 +13,20 @@
  */
 
 import type { RunningKaval, RunningPadi } from "kolu-common/surface";
+import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { daemonTransportLive, padiLinkState } from "../kaval/useDaemonStatus";
-import { padi } from "../wire";
+import { activeHost, padiMap } from "../wire";
 import { hostInventoryLive } from "./hostInventoryLive";
 
-const sub = padi.cells.hostInventory.use({
-  onError: (err) => toast.error(`Host inventory error: ${err.message}`),
-});
+// A host-scoped standing readout — rides `useEntry(activeHost)` under an app-scope
+// `createRoot` (module-lifetime), so it re-keys when the active host switches.
+const sub = createRoot(() =>
+  padiMap.useEntry(activeHost).cells.hostInventory.use({
+    onError: (err: Error) =>
+      toast.error(`Host inventory error: ${err.message}`),
+  }),
+);
 
 /** Every running kaval daemon on the BOUND host, each marked `active` when that host's
  *  padi owns it (empty before the first scan). */

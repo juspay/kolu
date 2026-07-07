@@ -1,11 +1,10 @@
 /** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab per parent terminal.
  *  Reported to server for session snapshots; seeded from server on restore. */
 
-import { padiRpc } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
-import { padi } from "../wire";
+import { activeHost, padiRpcOf } from "../wire";
 
 interface SubPanelState {
   collapsed: boolean;
@@ -43,7 +42,7 @@ function ensureState(parentId: TerminalId): SubPanelState {
 function reportToServer(parentId: TerminalId) {
   const s = state[parentId];
   if (!s) return;
-  void padiRpc(padi)
+  void padiRpcOf(activeHost())
     .surface.chrome.setSubPanel({
       id: parentId,
       collapsed: s.collapsed,

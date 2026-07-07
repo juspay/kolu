@@ -10,12 +10,11 @@
  *  the client because the scrollback only exists there; this one runs
  *  on the server because the transcript only exists there. */
 
-import { padiRpc } from "@kolu/padi/surface";
 import { MODE_LABEL, type TranscriptHtmlMode } from "@kolu/padi/transcript";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
-import { padi } from "./wire";
+import { activeHost, padiRpcOf } from "./wire";
 
 /** Own the object-URL lifecycle once: mint a blob URL for the document, hand
  *  it to a delivery strategy, and revoke after a generous delay so the new tab
@@ -52,14 +51,14 @@ export async function exportSessionAsHtml(
     if (multiple) {
       const exports = await Promise.all(
         modes.map((mode) =>
-          padiRpc(padi).surface.transcript.exportHtml({ id, mode }),
+          padiRpcOf(activeHost()).surface.transcript.exportHtml({ id, mode }),
         ),
       );
       for (const { html, filename } of exports) downloadExport(html, filename);
       toast.success("Session files exported", { id: loadingId });
     } else {
-      const { html, filename } = await padiRpc(
-        padi,
+      const { html, filename } = await padiRpcOf(
+        activeHost(),
       ).surface.transcript.exportHtml({
         id,
         mode: first,

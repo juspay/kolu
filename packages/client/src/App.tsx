@@ -13,7 +13,7 @@
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Resizable from "@corvu/resizable";
-import { padiRpc, sleepingArm } from "@kolu/padi/surface";
+import { sleepingArm } from "@kolu/padi/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import type { TerminalId } from "kolu-common/surface";
@@ -77,7 +77,11 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { padi, savedSession as serverSavedSession } from "./wire";
+import {
+  activeHost,
+  padiRpcOf,
+  savedSession as serverSavedSession,
+} from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -201,7 +205,7 @@ const App: Component = () => {
   const runImportSession = createImportSessionAction({
     pick: importSession,
     runImport: ({ session }) =>
-      padiRpc(padi).surface.session.import({ session }),
+      padiRpcOf(activeHost()).surface.session.import({ session }),
   });
 
   const commands = createCommands({
