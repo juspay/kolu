@@ -20,19 +20,18 @@
 
 import { padiSurface } from "@kolu/padi/surface";
 import { defineSurfaceMap } from "@kolu/surface-map";
-import { z } from "zod";
+import { HostKeySchema } from "./hostKey.ts";
 import { surfaces } from "./surface.ts";
+
+// The branded key + local-host constant live in the padi-LESS `./hostKey.ts` (so
+// `contract.ts` can type the `hosts.*` root RPCs without pulling `@kolu/padi`); re-export
+// them here beside the map so consumers still reach them through one module.
+export { type HostKey, HostKeySchema, LOCAL_HOST } from "./hostKey.ts";
 
 export const surfacesWithPadi = {
   ...surfaces,
   padi: padiSurface,
 } as const;
-
-/** The branded per-host key — a padi host a tab can select. zod's `.brand()` is the
- *  SOLE producer (a raw string is a type error where a `HostKey` is expected, P4 at
- *  the typed API); the wire handler re-validates via the same schema (P5). */
-export const HostKeySchema = z.string().brand("HostKey");
-export type HostKey = z.infer<typeof HostKeySchema>;
 
 /** The keyed map of padi surfaces — ONE entry surface (`padiSurface`) served N times,
  *  keyed by host. kolu-server serves it (`serveHostMap` over the warm ssh pool) and
@@ -40,8 +39,3 @@ export type HostKey = z.infer<typeof HostKeySchema>;
  *  contract (the key-folded members + the `entries` membership collection). With the
  *  host env unset the map has exactly one member (the local host) — pixel-identical. */
 export const padiHostMap = defineSurfaceMap(HostKeySchema, padiSurface);
-
-/** The canonical local-host key — the pool's implicit, UNREMOVABLE default member.
- *  Value `"local"` (matching the client daemon-status `LOCAL_HOST` and padi's
- *  `LOCAL_HOST_ID`). Branded, so it is a valid `HostKey` everywhere the map is keyed. */
-export const LOCAL_HOST: HostKey = HostKeySchema.parse("local");

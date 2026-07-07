@@ -18,6 +18,7 @@
 import { composeSurfaceContracts } from "@kolu/surface/define";
 import { oc } from "@orpc/contract";
 import { z } from "zod";
+import { HostKeySchema } from "./hostKey.ts";
 import { surfaces } from "./surface";
 
 // ── Raw oRPC procedure I/O schemas ────────────────────────────────────
@@ -76,5 +77,20 @@ export const contract = oc.router({
      *  running or degraded daemon) or the DegradedCanvas (a dead one). No input:
      *  one local host today, host-count-agnostic shapes deferred to R-2. */
     restart: oc.output(z.void()),
+  },
+  // Runtime membership of the keyed padi host map — the selector strip's add/remove
+  // actions. Root RPCs (not surface members): they mutate the POOL, not one host's
+  // surface. The host is re-validated as a `HostKey` at the wire (P5). These exist on
+  // the shared contract (not a kolu-server-local splice like `padi`) because the CLIENT
+  // strip calls them.
+  hosts: {
+    /** Add a padi host to the warm pool at runtime. Resolves once the pool has seeded
+     *  the binding; the entry then warms through the map's `entries` collection
+     *  (connecting → connected). A duplicate host is a no-op (already a member). */
+    add: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
+    /** Remove a guest host — its map subs end typed, its session is destroyed, and it
+     *  drops from `entries`. Removing the unremovable default (LOCAL_HOST / the first
+     *  seed) is rejected loudly: the canvas must always keep a host to fall back to. */
+    remove: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
   },
 });

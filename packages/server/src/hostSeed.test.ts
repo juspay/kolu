@@ -5,9 +5,10 @@
  * `UnremovableHostError` the remove path rejects the default with.
  */
 
-import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
+import { HostKeySchema, LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { describe, expect, it } from "vitest";
 import {
+  assertRemovableHost,
   isMultiHost,
   KOLU_PADI_HOST_ENV,
   parseKoluPadiHostSeed,
@@ -78,5 +79,27 @@ describe("UnremovableHostError", () => {
     expect(e).toBeInstanceOf(Error);
     expect(e.name).toBe("UnremovableHostError");
     expect(e.message).toMatch(/cannot remove host "local": /);
+  });
+});
+
+describe("assertRemovableHost — the remove-path guard", () => {
+  const zest = HostKeySchema.parse("srid@zest");
+  const yast = HostKeySchema.parse("srid@yast");
+
+  it("throws for LOCAL_HOST — the implicit unremovable member", () => {
+    expect(() => assertRemovableHost(LOCAL_HOST, LOCAL_HOST)).toThrow(
+      UnremovableHostError,
+    );
+  });
+
+  it("throws for the boot default host (guard is defaultHost-parameterized)", () => {
+    // defaultHost is LOCAL_HOST today, but the guard rejects whatever the boot default
+    // is — so a future non-local default is protected by the same LOUD rejection.
+    expect(() => assertRemovableHost(zest, zest)).toThrow(UnremovableHostError);
+  });
+
+  it("does NOT throw for a guest host (removable)", () => {
+    expect(() => assertRemovableHost(zest, LOCAL_HOST)).not.toThrow();
+    expect(() => assertRemovableHost(yast, zest)).not.toThrow();
   });
 });

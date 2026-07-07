@@ -8,6 +8,7 @@
   "exports": {
     "./surface": "./src/surface.ts",
     "./surfacesWithPadi": "./src/surfacesWithPadi.ts",
+    "./hostKey": "./src/hostKey.ts",
     "./contract": "./src/contract.ts",
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",

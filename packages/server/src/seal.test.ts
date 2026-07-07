@@ -362,7 +362,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       Object.keys(contract)
         .filter((k) => k !== "surface")
         .sort(),
-    ).toEqual(["daemon", "server"]);
+    ).toEqual(["daemon", "hosts", "server"]);
 
     // `appRouter` is assembled in `index.ts`'s async boot now (the padi sibling is
     // an `await`ed re-serve), so build it here with stub deps to assert the same
@@ -370,6 +370,8 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     const r = buildAppRouter({
       surfaceRouter: { surface: {} },
       drainBoundPadi: async () => {},
+      addHost: async () => {},
+      removeHost: async () => {},
     }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();

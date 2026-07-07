@@ -75,6 +75,7 @@ import { mapConnectionToPadiLink } from "./padiLink.ts";
 import type { PadiSession } from "./padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import {
+  assertRemovableHost,
   ensureRemotePadiBinding,
   isMultiHost,
   parseKoluPadiHostSeed,
@@ -377,6 +378,15 @@ const appRouter = buildAppRouter({
   // The re-targeted "restart": drain the DEFAULT bound padi (persist + exit; kaval + its
   // PTYs survive; the reconnect loop re-spawns padi). Never a kill-9.
   drainBoundPadi: () => padiSession.renew(),
+  // Runtime pool membership (the selector strip's add/remove). `pool.add` uses the
+  // pool's stored `buildEntry` — a guest host takes the remote ssh arm. `remove` fails
+  // LOUD for the unremovable default (LOCAL_HOST / the boot default): the canvas must
+  // always keep a host to fall back to, and "being able to override" is never a feature.
+  addHost: (host) => pool.add(host),
+  removeHost: async (host) => {
+    assertRemovableHost(host, defaultHost);
+    await pool.remove(host);
+  },
 });
 
 // --- oRPC handlers (HTTP non-streaming + WS streaming) ---

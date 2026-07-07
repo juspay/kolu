@@ -134,6 +134,16 @@ export class UnremovableHostError extends Error {
   }
 }
 
+/** Guard the pool's UNREMOVABLE default: a `hosts.remove` of LOCAL_HOST (the implicit
+ *  local member) or `defaultHost` (the boot default) THROWS `UnremovableHostError` — the
+ *  canvas must always keep a host to fall back to, and "being able to override" is never
+ *  a feature. The #1708 pin: `remove(default)` fails LOUD, never silently no-ops. */
+export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
+  if (host === LOCAL_HOST || host === defaultHost) {
+    throw new UnremovableHostError(host, "it is the unremovable local default");
+  }
+}
+
 /** Parse + validate the baked `{ system → padi .drv }` map EAGERLY — a missing /
  *  malformed map is a BUILD defect (kolu-server was not run from its Nix wrapper), so
  *  it throws a PLAIN loud Error that crashes boot, NOT a deferred `ResolveDrvError` the
