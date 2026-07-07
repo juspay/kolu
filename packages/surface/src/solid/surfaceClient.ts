@@ -52,6 +52,7 @@ import {
 import {
   createKeyedSubscriptionCache,
   type KeyedSubscriptionCache,
+  runUnderOwner,
   stableOptsKey,
 } from "./keyedSubscriptionCache";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
@@ -796,22 +797,38 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
         }
         const handlers = existingHandlers;
         if (onError !== undefined) {
-          handlers.set(onError, (handlers.get(onError) ?? 0) + 1);
-          onCleanup(() => {
-            const n = handlers.get(onError);
-            if (n === undefined) return; // already unregistered (e.g. slot reset)
-            if (n <= 1) handlers.delete(onError);
-            else handlers.set(onError, n - 1);
-            // The registry's lifetime is this consumer's, never a dedup-slot
-            // generation's (see the `collOnError` docblock above) — so ONLY a
-            // consumer's own unregister ever deletes the entry, and ONLY once it's
-            // empty. Identity-guarded: if a fresh registry already replaced this one
-            // (this map was already emptied and dropped by an earlier consumer, then a
-            // new first-consumer minted a new map under the same key), this stale
-            // reference must never delete the LIVE one out from under it.
-            if (handlers.size === 0 && collOnError.get(collKey) === handlers) {
-              collOnError.delete(collKey);
-            }
+          // Registered under `runUnderOwner` — the SAME ownerless-owning-root
+          // treatment `keyedSubscriptionCache`'s `read()` applies to the slot
+          // ref-count. Called with a real reactive owner (a component's `.use()`),
+          // this is identical to running inline. Called OWNERLESS (a DOM event
+          // handler, no reactive scope — the caller class `read()`'s docblock
+          // names), the increment+`onCleanup`+decrement below runs under a
+          // throwaway `createRoot` instead and nets to zero in the SAME tick — so
+          // an ownerless `.use({onError})` can never leave a dead handler standing
+          // in `handlers` forever (Solid's `onCleanup` outside an owner warns and
+          // no-ops, which would otherwise pair the increment with NO decrement:
+          // the unguarded sibling of the slot ref-count leak `read()` exists to kill).
+          runUnderOwner(() => {
+            handlers.set(onError, (handlers.get(onError) ?? 0) + 1);
+            onCleanup(() => {
+              const n = handlers.get(onError);
+              if (n === undefined) return; // already unregistered (e.g. slot reset)
+              if (n <= 1) handlers.delete(onError);
+              else handlers.set(onError, n - 1);
+              // The registry's lifetime is this consumer's, never a dedup-slot
+              // generation's (see the `collOnError` docblock above) — so ONLY a
+              // consumer's own unregister ever deletes the entry, and ONLY once it's
+              // empty. Identity-guarded: if a fresh registry already replaced this one
+              // (this map was already emptied and dropped by an earlier consumer, then a
+              // new first-consumer minted a new map under the same key), this stale
+              // reference must never delete the LIVE one out from under it.
+              if (
+                handlers.size === 0 &&
+                collOnError.get(collKey) === handlers
+              ) {
+                collOnError.delete(collKey);
+              }
+            });
           });
         }
         const view = subs.use(collKey, (onComplete) => {

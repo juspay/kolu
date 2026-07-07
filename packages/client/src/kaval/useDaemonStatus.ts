@@ -95,6 +95,28 @@ function activeEntryConnected(): boolean {
   return padiMap.entry(activeHost()).state().kind === "connected";
 }
 
+/** True when the ACTIVE host entry's map-membership status is `failed` — a genuine ssh
+ *  dial/handshake failure the map reported, not "still provisioning". Read by
+ *  `canvasModeResolver`'s `pendingTimedOut` gate: a REMOTE host that is legitimately still
+ *  `copying`/`warming` (nix-copy + build, which projects to `warming` at the entry-status
+ *  level — see `@kolu/surface-map`'s `server.ts`) must NOT be judged against the LOCAL 30s
+ *  connect ceiling (a remote first-connect can genuinely take longer); a `failed` entry is
+ *  the one REMOTE condition that still earns the honest down/dead verdict. A reactive
+ *  accessor; read it inside a tracking scope. */
+export function activeEntryFailed(): boolean {
+  return padiMap.entry(activeHost()).state().kind === "failed";
+}
+
+/** True while the ACTIVE host is the unremovable LOCAL default — `canvasModeResolver`'s
+ *  30s `pendingTimedOut` ceiling ({@link LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS}) mirrors the
+ *  LOCAL session's own connect watchdog, a local-stack fact. Applying that SAME ceiling to
+ *  a REMOTE host would paint "kaval didn't start" over a normal remote-provisioning window
+ *  (a fresh remote padi legitimately takes longer than 30s to come up — ssh dial + nix
+ *  copy + build). A reactive accessor; read it inside a tracking scope. */
+export function isActiveHostLocal(): boolean {
+  return activeHost().kind === "local";
+}
+
 /** The full liveness of the channel delivering THIS host's `daemonStatus`:
  *  {@link daemonTransportLive} AND {@link activeEntryConnected}. Every kaval-rail consumer
  *  that paints the ACTIVE host's daemon state — the dot, the running label, the uptime, and
@@ -140,9 +162,27 @@ export function localDaemonStatus(): DaemonStatus | undefined {
 // Identity Rail's Padi chip) — the down/warming canvas fold no longer folds this in; it
 // floors uniformly on `daemonChannelLive` instead (W4 daemon-rail unification). Same
 // singleton `app.cells.X.use(...)` pattern as `processMemory` (ui/useMemoryUsage.ts).
-const padiLinkSub = app.cells.padiLink.use({
-  onError: (err) => toast.error(`padi link status error: ${err.message}`),
-});
+//
+// HOST-SCOPING: this describes kolu-server's binding to the LEGACY single-bind
+// `padiSession` — hardcoded to the unremovable LOCAL default under always-map
+// (`boundHost: null`, `server/src/index.ts`) — so it is HOST-INDEPENDENT-TODAY, not by
+// design: there is no per-host "padi link" wire member for a `padiMap` entry yet (a
+// padi/server-side gap, out of this fix's file scope). See the classification table in
+// `PadiInfoDialog.tsx`.
+//
+// THE LIVE-SUBSCRIPTION FIX: a bare module-const `.use()` is the base client's
+// `createKeyedSubscriptionCache` "ownerless" path — it acquires-then-releases the shared
+// slot in the SAME tick (no ambient Solid owner to hold a listener), so the underlying
+// subscription tears down a microtask later, before the first real (network) value can
+// land. Every reader then sees a permanently-`undefined` value FOREVER — the exact "padi
+// status unknown" symptom (`PadiInfoDialog`'s status row gates on `props.link`, which
+// never arrives). Wrapped in an app-lifetime `createRoot` (the `sub`/hostInventory idiom
+// above) so the subscription survives for the session.
+const padiLinkSub = createRoot(() =>
+  app.cells.padiLink.use({
+    onError: (err) => toast.error(`padi link status error: ${err.message}`),
+  }),
+);
 
 /** kolu-server's live binding-to-padi state, or `undefined` before the first server
  *  yield. DISPLAY-ONLY now (the Identity Rail's Padi chip, `padiPresentation.ts`'s

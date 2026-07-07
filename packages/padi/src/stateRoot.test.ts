@@ -6,7 +6,8 @@
  * identical digest, so a re-boot dials the same daemon.
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { type ChildProcess, spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -15,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   defaultPadiStateRoot,
   discoverPadiDaemons,
+  PADI_GATE_FILE,
   padiDigest,
   padiGatePath,
   padiKavalSocketPath,
@@ -22,6 +24,32 @@ import {
   residentPadiSocket,
   resolvePadiStateRoot,
 } from "./stateRoot.ts";
+
+/** A pid that is definitely dead — spawn a child, kill it, await its exit. Mirrors
+ *  `surface-daemon/src/pidGate.test.ts`'s `deadPid` — the same real-OS-pid pattern
+ *  for the liveness probe (`isHolderLive` reads a genuinely gone pid as dead). */
+async function deadPid(): Promise<number> {
+  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  const pid = child.pid;
+  if (pid === undefined) throw new Error("child failed to start");
+  await new Promise<void>((res) => {
+    child.on("exit", () => res());
+    child.kill("SIGKILL");
+  });
+  return pid;
+}
+
+/** A live child process whose pid stands in for a genuine gate holder. */
+function liveChild(): ChildProcess {
+  return spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
+    stdio: "ignore",
+  });
+}
+
+/** Write a `padi.pid` gate file naming `pid`, beside a socket at `socketDir`. */
+function writeGate(socketDir: string, pid: number): void {
+  writeFileSync(join(socketDir, PADI_GATE_FILE), `${pid}\n`);
+}
 
 /** Bind a real `net.Server` at `path`, leaving a genuine socket inode behind —
  *  discovery requires the rendezvous file to be an actual socket, not just an
@@ -256,7 +284,9 @@ describe("discoverPadiDaemons — unions every drawer a padi could be registered
 describe("residentPadiSocket — the ADOPT-PATH manifest read-back (#1713 adopt-path sibling)", () => {
   const servers: Server[] = [];
   const dirs: string[] = [];
+  const children: ChildProcess[] = [];
   afterEach(async () => {
+    for (const c of children.splice(0)) c.kill("SIGKILL");
     await Promise.all(servers.splice(0).map((s) => closeServer(s)));
     for (const d of dirs.splice(0)) {
       try {
@@ -276,11 +306,14 @@ describe("residentPadiSocket — the ADOPT-PATH manifest read-back (#1713 adopt-
     dirs.push(drawerB);
 
     // The resident: construct its socket path EXACTLY as a real padi would, under
-    // drawer A's regime, write its manifest, and bind a real socket there.
+    // drawer A's regime, write its manifest + a gate naming a LIVE pid (this test
+    // process itself — any live pid proves the liveness filter, #1713-delta-review
+    // finding 1), and bind a real socket there.
     process.env.XDG_RUNTIME_DIR = drawerA;
     const residentSocket = padiSocketPath(stateRoot);
     mkdirSync(dirname(residentSocket), { recursive: true, mode: 0o700 });
     writeStateRootManifest(dirname(residentSocket), stateRoot);
+    writeGate(dirname(residentSocket), process.pid);
     servers.push(await listenSocket(residentSocket));
 
     // The caller's OWN env computes a DIFFERENT drawer (B) — the exact
@@ -328,5 +361,76 @@ describe("residentPadiSocket — the ADOPT-PATH manifest read-back (#1713 adopt-
     servers.push(await listenSocket(socket));
 
     expect(residentPadiSocket(stateRoot, [drawer])).toBeUndefined();
+  });
+
+  // Delta-re-review finding 1 (P1): a manifest match ALONE is not proof of a live
+  // resident — a crashed padi's `/tmp` registration (inode + manifest both survive a
+  // crash) can SHADOW a genuinely live resident registered in a later regime.
+  // `residentPadiSocket` must filter matches by GATE-PID LIVENESS, preferring a live
+  // resident and never returning a dead-only match (which would adopt a socket
+  // nothing answers on, or cause a second padi to spawn onto an already-served state
+  // root).
+  it("PIN: with a DEAD-gate drawer and a LIVE-gate drawer both naming the same state-root, returns the LIVE one — never the dead one", async () => {
+    const stateRoot = mkdtempSync(join(tmpdir(), "padi-resident-live-sr-"));
+    dirs.push(stateRoot);
+    const deadDrawer = mkdtempSync(join(tmpdir(), "padi-resident-dead-"));
+    dirs.push(deadDrawer);
+    const liveDrawer = mkdtempSync(join(tmpdir(), "padi-resident-live-"));
+    dirs.push(liveDrawer);
+
+    // The DEAD registration: a crashed padi's leftover inode + manifest + a gate
+    // naming a pid that is genuinely gone. Its socket still accepts connections
+    // (nothing unlinked it) — the exact "stale but still discoverable" shape a
+    // crash leaves behind, so discovery finds it and only the gate-pid liveness
+    // check can tell it apart from a live resident.
+    process.env.XDG_RUNTIME_DIR = deadDrawer;
+    const deadSocket = padiSocketPath(stateRoot);
+    mkdirSync(dirname(deadSocket), { recursive: true, mode: 0o700 });
+    writeStateRootManifest(dirname(deadSocket), stateRoot);
+    writeGate(dirname(deadSocket), await deadPid());
+    servers.push(await listenSocket(deadSocket));
+
+    // The LIVE registration, in a LATER regime — a genuinely running resident.
+    process.env.XDG_RUNTIME_DIR = liveDrawer;
+    const liveSocket = padiSocketPath(stateRoot);
+    mkdirSync(dirname(liveSocket), { recursive: true, mode: 0o700 });
+    writeStateRootManifest(dirname(liveSocket), stateRoot);
+    const child = liveChild();
+    children.push(child);
+    if (child.pid === undefined) throw new Error("live child failed to start");
+    writeGate(dirname(liveSocket), child.pid);
+    servers.push(await listenSocket(liveSocket));
+
+    // The caller's own env computes neither drawer directly — both are supplied as
+    // extra regimes, exactly like the real /tmp + /run/user/$UID union.
+    const caller = mkdtempSync(join(tmpdir(), "padi-resident-live-caller-"));
+    dirs.push(caller);
+    process.env.XDG_RUNTIME_DIR = caller;
+
+    expect(residentPadiSocket(stateRoot, [deadDrawer, liveDrawer])).toBe(
+      liveSocket,
+    );
+  });
+
+  it("PIN: with ONLY a dead-gate manifest match, returns undefined — never a stale socket that would shadow a fresh spawn", async () => {
+    const stateRoot = mkdtempSync(join(tmpdir(), "padi-resident-onlydead-sr-"));
+    dirs.push(stateRoot);
+    const deadDrawer = mkdtempSync(join(tmpdir(), "padi-resident-onlydead-"));
+    dirs.push(deadDrawer);
+
+    process.env.XDG_RUNTIME_DIR = deadDrawer;
+    const deadSocket = padiSocketPath(stateRoot);
+    mkdirSync(dirname(deadSocket), { recursive: true, mode: 0o700 });
+    writeStateRootManifest(dirname(deadSocket), stateRoot);
+    writeGate(dirname(deadSocket), await deadPid());
+    servers.push(await listenSocket(deadSocket));
+
+    const caller = mkdtempSync(
+      join(tmpdir(), "padi-resident-onlydead-caller-"),
+    );
+    dirs.push(caller);
+    process.env.XDG_RUNTIME_DIR = caller;
+
+    expect(residentPadiSocket(stateRoot, [deadDrawer])).toBeUndefined();
   });
 });

@@ -25,6 +25,8 @@ function facts(overrides: Partial<CanvasFacts> = {}): CanvasFacts {
     recordsAwaited: 0,
     channelLive: true,
     pendingTimedOut: false,
+    isLocalHost: true,
+    activeEntryFailed: false,
     ...overrides,
   };
 }
@@ -82,6 +84,40 @@ describe("resolveCanvasMode precedence (#1340)", () => {
     expect(
       resolveCanvasMode(
         facts({ isLoading: true, pendingTimedOut: true, terminalCount: 0 }),
+      ),
+    ).toEqual({ kind: "down", state: "dead" });
+  });
+
+  it("a REMOTE host past the local 30s ceiling stays `connecting` while its entry is merely provisioning — never a false 'kaval didn't start'", () => {
+    // srid's exact class: `copying`/`warming` (nix-copy + build) legitimately outlasts the
+    // LOCAL connect watchdog the ceiling mirrors. `activeEntryFailed` is false here — the
+    // map projects `copying` to its `warming` entry status (never `failed`) — so the
+    // ceiling must NOT fire for a remote host.
+    expect(
+      resolveCanvasMode(
+        facts({
+          daemonPending: true,
+          pendingTimedOut: true,
+          terminalCount: 0,
+          isLocalHost: false,
+          activeEntryFailed: false,
+        }),
+      ),
+    ).toEqual({ kind: "connecting" });
+  });
+
+  it("a REMOTE host past the ceiling resolves to down/dead once its entry is PROVEN failed", () => {
+    // A genuine ssh dial/handshake failure — not "still provisioning" — still earns the
+    // honest down/dead verdict, exactly like a local host past its ceiling.
+    expect(
+      resolveCanvasMode(
+        facts({
+          daemonPending: true,
+          pendingTimedOut: true,
+          terminalCount: 0,
+          isLocalHost: false,
+          activeEntryFailed: true,
+        }),
       ),
     ).toEqual({ kind: "down", state: "dead" });
   });

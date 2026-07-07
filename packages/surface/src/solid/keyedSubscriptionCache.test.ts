@@ -9,15 +9,60 @@
  * enrol-once (enrolling per consumer) or the ref-counted teardown fails it.
  */
 
-import { createRoot } from "solid-js";
+import { createRoot, onCleanup } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "../define";
 
 // The cache is wired inside `buildSurfaceClient`; a plain in-process link (no wire,
 // no half-open) is accepted bare, so we drive the real client with a stub link.
-import { stableOptsKey } from "./keyedSubscriptionCache";
+import { runUnderOwner, stableOptsKey } from "./keyedSubscriptionCache";
 import { surfaceClient } from "./surfaceClient";
+
+describe("runUnderOwner — THE CLASS pin: an ownerless increment/onCleanup-decrement pair must net to zero", () => {
+  // This recurring bug class (SIX prior instances: the keyed-slot ref-count, the
+  // whole-collection onError registry, etc.) is always the SAME shape: code pairs an
+  // increment with an `onCleanup`-guarded decrement, assuming a reactive owner is
+  // ambient. Solid's `onCleanup` outside an owner warns and no-ops, so an ownerless
+  // caller gets the increment with NO decrement — a PERMANENT leak. `runUnderOwner`
+  // is the ONE place this package now routes such a pair through; this pins its
+  // general contract so the SEVENTH instance, if it reuses this helper (as the
+  // in-file docs direct future authors to), can't reintroduce the leak.
+  it("owned: fn() runs directly under the ambient owner — its onCleanup fires on THAT owner's disposal, not before", () => {
+    let cleaned = 0;
+    let disposeOuter = (): void => {};
+    let result: number | undefined;
+    createRoot((d) => {
+      disposeOuter = d;
+      result = runUnderOwner(() => {
+        onCleanup(() => {
+          cleaned++;
+        });
+        return 42;
+      });
+    });
+    expect(result).toBe(42);
+    expect(cleaned).toBe(0); // the ambient (outer) owner hasn't disposed yet
+    disposeOuter();
+    expect(cleaned).toBe(1);
+  });
+
+  it("ownerless: fn()'s onCleanup fires in the SAME tick — the increment+decrement nets to zero, never a standing leak", () => {
+    let cleaned = 0;
+    // No createRoot wrapping — getOwner() is null here (top-level test body).
+    const result = runUnderOwner(() => {
+      onCleanup(() => {
+        cleaned++;
+      });
+      return 7;
+    });
+    expect(result).toBe(7);
+    // Without the fix (a bare `return fn()`), `onCleanup` outside an owner warns
+    // and no-ops — `cleaned` would stay 0 forever, exactly the permanent-leak
+    // shape this whole class of bug takes.
+    expect(cleaned).toBe(1);
+  });
+});
 
 describe("stableOptsKey — divergent options are distinct keys; non-plain-JSON throws", () => {
   it("distinguishes divergent plain-JSON option values, folds identical ones", () => {

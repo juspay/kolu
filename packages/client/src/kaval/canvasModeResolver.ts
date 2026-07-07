@@ -67,6 +67,19 @@ export interface CanvasFacts {
    *  (whose re-served daemonStatus freezes STALE at `connected`) makes NO unconfirmable canvas
    *  claim (the #1568 SHAPE A class the rail dot already floors, now on the entry leg too). */
   channelLive: boolean;
+  /** True while the ACTIVE host is the unremovable LOCAL default. `pendingTimedOut`'s 30s
+   *  ceiling ({@link LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS} in `useDaemonStatus.ts`) mirrors the
+   *  LOCAL session's own connect watchdog — a LOCAL-STACK fact. A REMOTE host's first
+   *  connect legitimately takes longer (ssh dial + nix copy + build), so the SAME ceiling
+   *  must not resolve a still-provisioning remote to `down`/`dead` (srid's "kaval didn't
+   *  start over a provisioning remote" class). */
+  isLocalHost: boolean;
+  /** True when the ACTIVE host's map-membership entry is `failed` — a genuine ssh dial/
+   *  handshake failure, not "still provisioning" (`copying`/`warming` project to the map's
+   *  `warming` entry status, see `@kolu/surface-map`'s `server.ts`). The one REMOTE
+   *  condition that still earns the honest `down`/`dead` verdict before the local ceiling
+   *  would otherwise apply. */
+  activeEntryFailed: boolean;
 }
 
 /** The pure precedence partition — total over {@link CanvasFacts}, exclusive,
@@ -85,7 +98,15 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
   // came up) instead of spinning at "Connecting…" forever (never a silent
   // spinner — the #1713 adopt-path sibling's canvas symptom).
   if (facts.isLoading || facts.daemonPending) {
-    return facts.pendingTimedOut
+    // The 30s ceiling only earns a `down`/`dead` verdict for a LOCAL host (whose own
+    // connect watchdog it mirrors) or a REMOTE host whose entry is PROVEN `failed` — never
+    // a remote host that is merely still provisioning (`copying`/`warming`, which project
+    // to the map's `warming` entry status and so read `activeEntryFailed === false` here).
+    // A fresh remote padi's ssh dial + nix copy + build can genuinely outlast 30s; without
+    // this guard the canvas painted "kaval didn't start" over a perfectly normal
+    // provisioning window.
+    const ceilingApplies = facts.isLocalHost || facts.activeEntryFailed;
+    return facts.pendingTimedOut && ceilingApplies
       ? { kind: "down", state: "dead" }
       : { kind: "connecting" };
   }

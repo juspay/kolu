@@ -23,12 +23,32 @@ import type {
   RunningKaval,
   RunningPadi,
 } from "kolu-common/surface";
+import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { app } from "../wire";
 
-const sub = app.cells.daemonInventory.use({
-  onError: (err) => toast.error(`Daemon inventory error: ${err.message}`),
-});
+// HOST-SCOPING: every reader below rides koluSurface's `daemonInventory` cell, which
+// `server/src/daemonInventory.ts` populates off the LEGACY single-bind `padiSession` —
+// under always-map that session is hardcoded to the unremovable LOCAL default
+// (`boundHost: null`, `server/src/index.ts`), so `daemonScanBoundHost`/
+// `localScanKavals`/`localScanPadis`/`activePadiSurfaceVersion`/`boundPadiBuildCommit`/
+// `boundPadiConvergence` all describe the LOCAL bind ALWAYS, never the ACTIVE (possibly
+// remote) host selected via `padiMap`/`activeHost`. This is HOST-INDEPENDENT-TODAY, not
+// by design: `padiMap`'s per-host entries carry no per-host "padi's own identity/
+// convergence" wire member yet (padi's `hello` surfaceVersion/buildCommit are read only
+// by the ONE binder session) — a padi/server-side gap, out of this fix's file scope. See
+// the classification table in `PadiInfoDialog.tsx`.
+//
+// THE LIVE-SUBSCRIPTION FIX: same class as `useMemoryUsage.ts`'s `sub` — a bare
+// module-const `.use()` is the cache's "ownerless" path, torn down a microtask after
+// load with no owner to hold its listener count above zero (the "build commit —"
+// symptom: the cell's real first value never has a live subscriber to land on).
+// Wrapped in an app-lifetime `createRoot` so it survives for the session.
+const sub = createRoot(() =>
+  app.cells.daemonInventory.use({
+    onError: (err) => toast.error(`Daemon inventory error: ${err.message}`),
+  }),
+);
 
 /** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
  *  LOCAL binding / before the first enumeration. When non-null, the machine kolu-server

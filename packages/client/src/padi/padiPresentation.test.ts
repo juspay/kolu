@@ -5,6 +5,7 @@ import {
   PADI_LINK_PRESENTATION,
   padiBoundHostSegment,
   padiDot,
+  toPadiPresence,
 } from "./padiPresentation";
 
 describe("padiDot — the padi dot's tone is FLOORED on transport liveness (the padiLink sibling of kavalDot)", () => {
@@ -50,5 +51,53 @@ describe("padiBoundHostSegment — the Padi chip names WHERE padi is, and reads 
     // daemonScanBoundHost() null (local binding / pre-first-enumeration) → no host
     // noise, exactly today's `Padi · contract v<x.y>`.
     expect(padiBoundHostSegment(null)).toBeNull();
+  });
+});
+
+describe("toPadiPresence — P4: connected ⇒ identity present, by construction", () => {
+  it("a genuinely connected, identified padi over a live transport reads `connected` with its identity", () => {
+    expect(toPadiPresence("connected", true, "deadbeef", "1.1", null)).toEqual({
+      kind: "connected",
+      identity: {
+        buildCommit: "deadbeef",
+        surfaceVersion: "1.1",
+        convergence: null,
+      },
+    });
+  });
+
+  it("RED→GREEN repro (the reported bug): `padiLink === 'connected'` with no build commit sampled yet NEVER reads `connected` — it folds to `warming`, never a synthesized dash beside a claimed-live padi", () => {
+    // The reproduced bug's shape exactly: the socket + running-daemons list (host-scoped,
+    // already alive) correctly showed padi as live, while the status/build-commit read
+    // straight off `padiLink`/`boundPadiBuildCommit()` with `??`/ternary fallbacks —
+    // "connected" beside a synthesized "—". `toPadiPresence` makes that combination
+    // unrepresentable: there is no `{ kind: "connected", identity: undefined }`.
+    const presence = toPadiPresence("connected", true, null, null, null);
+    expect(presence.kind).toBe("warming");
+    expect(presence).not.toMatchObject({ kind: "connected" });
+  });
+
+  it("RED→GREEN repro: the drain/reconnect class — a dead transport never reads `connected`, even with identity already known", () => {
+    // The reproduced live bug: an AbortError drain burst kills the ws; the retained
+    // (stale) `connected` link + last-known build commit must not be shown as confirmed.
+    expect(toPadiPresence("connected", false, "deadbeef", "1.1", null)).toEqual(
+      { kind: "warming" },
+    );
+    // Reconnect (transport live again, facts unchanged) — identity is confirmed again.
+    expect(
+      toPadiPresence("connected", true, "deadbeef", "1.1", null),
+    ).toMatchObject({ kind: "connected" });
+  });
+
+  it("pre-first-value (link undefined), `connecting`, and `degraded` each read their own honest kind — never `connected`", () => {
+    expect(toPadiPresence(undefined, true, null, null, null)).toEqual({
+      kind: "warming",
+    });
+    expect(toPadiPresence("connecting", true, null, null, null)).toEqual({
+      kind: "warming",
+    });
+    expect(toPadiPresence("degraded", true, "deadbeef", "1.1", null)).toEqual({
+      kind: "down",
+    });
   });
 });

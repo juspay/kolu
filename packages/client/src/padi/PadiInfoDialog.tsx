@@ -7,7 +7,31 @@
  *  padi's status is its `padiLink` (kolu-server's binding state), not a `daemonStatus`
  *  liveness. padi's contract version + build commit + socket ride the server-authored
  *  `daemonInventory` cell (the bound padi's honest `hello.surfaceVersion` / `.commit`),
- *  the padi twin of kaval's `system.version`. */
+ *  the padi twin of kaval's `system.version`.
+ *
+ *  ── HOST-SCOPING CLASSIFICATION TABLE (W4 "the switch") ──────────────────────────
+ *  Every per-host-shaped field either RE-KEYS on `activeHost` (host-scoped) or is
+ *  HOST-INDEPENDENT with a reason — no third category. `KavalInfoDialog.tsx` shares
+ *  this table (its own fields are cross-referenced below).
+ *
+ *  | field                                          | classification                 |
+ *  |-------------------------------------------------|---------------------------------|
+ *  | `localDaemonStatus()` (kaval state/identity/…)   | host-scoped — `padiMap.useEntry(activeHost).collections.daemonStatus` |
+ *  | `activeEntryConnected()` / `daemonChannelLive()` | host-scoped — reads `padiMap.entry(activeHost())` directly |
+ *  | `activeEntryFailed()` / `isActiveHostLocal()`    | host-scoped — same as above (drives `canvasModeResolver`'s remote-provisioning ceiling) |
+ *  | `boundHostKavals/Padis()`, `activePadi()`        | host-scoped — `padiMap.useEntry(activeHost).cells.hostInventory` |
+ *  | `daemonTransportLive()` (`app.health().live`)    | host-INDEPENDENT by design — one physical browser↔kolu-server ws, regardless of which host tab is active |
+ *  | `serverRssBytes()`, `serverStartedAt()`          | host-INDEPENDENT by design — kolu-server's own process has exactly one RSS/boot-time |
+ *  | `clientHeapUsedBytes()`                          | host-INDEPENDENT by design — THIS browser tab's JS heap, not a daemon fact at all |
+ *  | `padiLinkState()` (padi chip/dialog status)      | host-INDEPENDENT **today**, not by design — describes the LEGACY single-bind `padiSession`, hardcoded to the LOCAL default under always-map (`server/src/index.ts`); no per-host `padiLink` wire member exists yet (padi/server gap, out of this fix's scope) |
+ *  | `activePadiSurfaceVersion()`, `boundPadiBuildCommit()`, `boundPadiConvergence()`, `daemonScanBoundHost()` | host-INDEPENDENT **today**, not by design — same `padiSession`-hardcoded-local gap |
+ *  | `padiStartedAt()`                                | host-INDEPENDENT **today**, not by design — same gap (padi's own boot time has no per-host wire member) |
+ *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` VALUE | host-INDEPENDENT **today**, not by design — koluSurface's `processMemory` folds the LOCAL padi/kaval pair (`server/src/memorySampler.ts`); padi DOES serve its own per-host `processMemory`, but kolu-server's fold isn't wired to the active host yet |
+ *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` GATE  | host-scoped — floored on `daemonTransportLive()`/`daemonChannelLive()` (kaval's) |
+ *
+ *  The "host-independent today" rows are a real gap (padi/server must eventually serve
+ *  per-host identity/memory/uptime through `padiMap`), not a permanent design choice —
+ *  flagged in each hook's own module comment, out of this fix's file scope (client-only). */
 
 import type {
   PadiConvergence,
@@ -15,7 +39,7 @@ import type {
   RunningPadi,
 } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { daemonTransportLive, formatUptime } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
@@ -37,7 +61,12 @@ import {
 } from "../ui/useHostInventory";
 import { padiMemoryDisplay } from "../ui/useMemoryUsage";
 import { padiStartedAt } from "../ui/useProcessUptime";
-import { PADI_LINK_PRESENTATION, padiDot } from "./padiPresentation";
+import {
+  PADI_LINK_PRESENTATION,
+  type PadiPresence,
+  padiDot,
+  toPadiPresence,
+} from "./padiPresentation";
 
 /** A "—" for an honestly-unknown value. */
 const dash = "—";
@@ -127,6 +156,28 @@ const PadiInfoDialog: Component<{
   link: PadiLink | undefined;
 }> = (props) => {
   const clockNow = getClockNow();
+  // The client's own honest presence sum (P4 — retires the "unknown"/"—" escape hatch):
+  // `identity` is MANDATORY on the `connected` arm, so a render can never show a
+  // synthesized dash/"unknown" beside a confirmed-connected padi. Floored on
+  // `daemonTransportLive` exactly like the dot below — a dead/half-open ws, or a
+  // `connected` link whose identity sample hasn't landed yet, folds to `warming`, never
+  // a stale `connected` claim. See `padiPresentation.ts`'s `toPadiPresence` + its
+  // `@ts-expect-error` pin in `padiPresentation.test.ts`.
+  const presence = createMemo<PadiPresence>(() =>
+    toPadiPresence(
+      props.link,
+      daemonTransportLive(),
+      boundPadiBuildCommit(),
+      activePadiSurfaceVersion(),
+      boundPadiConvergence(),
+    ),
+  );
+  const connected = ():
+    | Extract<PadiPresence, { kind: "connected" }>
+    | undefined => {
+    const p = presence();
+    return p.kind === "connected" ? p : undefined;
+  };
   return (
     <InfoDialogShell
       open={props.open}
@@ -137,9 +188,10 @@ const PadiInfoDialog: Component<{
       version={
         // The RUNNING padi's actual `padiSurface` version (off its control-core
         // `hello`), mirroring the Kaval dialog's "contract v5.0" chip. Honesty
-        // (#1034): shown only when a live value is known — otherwise no chip, never
-        // the binder's build constant fabricated as the running version.
-        <Show when={activePadiSurfaceVersion()}>
+        // (#1034): shown only when CONNECTED with known identity — never the binder's
+        // build constant fabricated as the running version, and never shown beside a
+        // "connecting…"/"disconnected" label.
+        <Show when={connected()?.identity.surfaceVersion}>
           {(v) => <VersionChip>contract v{v()}</VersionChip>}
         </Show>
       }
@@ -162,31 +214,31 @@ const PadiInfoDialog: Component<{
           <span
             class={`inline-block h-2 w-2 rounded-full ${padiDot(props.link, daemonTransportLive())}`}
           />
-          {/* The connection label floors on the same transport liveness as the dot:
-              over a dead/half-open ws the retained `padiLink` is stale, so read
-              "unknown" rather than a frozen definite state. */}
-          <Show
-            when={daemonTransportLive() && props.link}
-            fallback={
-              <span class="text-xs font-medium text-fg-3">unknown</span>
-            }
-          >
-            {(link) => (
-              <span class="text-xs font-medium text-fg">
-                {PADI_LINK_PRESENTATION[link()].label}
-              </span>
-            )}
-          </Show>
-          {/* Uptime, mirroring the Kaval dialog: `now − startedAt`, shown only over a
-              LIVE link to a CONNECTED padi with a known boot time — otherwise the
-              retained age is stale/unknown, so show nothing (never a fake uptime). */}
-          <Show
-            when={
-              daemonTransportLive() &&
-              props.link === "connected" &&
-              padiStartedAt()
-            }
-          >
+          {/* The connection label is derived from `presence()` (P4): `connected` is
+              reached ONLY once identity is confirmed (never a bare wire `"connected"`
+              beside an unconfirmed dash); `warming`/`down` read the SAME honest
+              "connecting…"/"disconnected" wording the rail dot's tone table already
+              uses — never the retired ad hoc "unknown" string. */}
+          <span class="text-xs font-medium text-fg">
+            {match(presence())
+              .with(
+                { kind: "connected" },
+                () => PADI_LINK_PRESENTATION.connected.label,
+              )
+              .with(
+                { kind: "warming" },
+                () => PADI_LINK_PRESENTATION.connecting.label,
+              )
+              .with(
+                { kind: "down" },
+                () => PADI_LINK_PRESENTATION.degraded.label,
+              )
+              .exhaustive()}
+          </span>
+          {/* Uptime, mirroring the Kaval dialog: `now − startedAt`, shown only for a
+              CONFIRMED-connected padi with a known boot time — otherwise the retained
+              age is stale/unknown, so show nothing (never a fake uptime). */}
+          <Show when={connected() ? (padiStartedAt() ?? undefined) : undefined}>
             {(t) => (
               <span class="truncate text-[11px] tabular-nums text-fg-3">
                 up {formatUptime(clockNow() - t())}
@@ -209,9 +261,14 @@ const PadiInfoDialog: Component<{
           dialog uses, or an honest "—" when unknown (#1034). */}
       <div class="space-y-1">
         <DetailRow label="build commit">
-          {/* The BOUND padi's `hello.commit` (works over ssh — no local active row under
-              a remote binding), the padi twin of kaval's `system.version`. */}
-          <Commit sha={boundPadiBuildCommit() ?? undefined} />
+          {/* Routed through `connected()` (P4): a confirmed-connected padi's build
+              commit is present BY CONSTRUCTION (no `??`/ternary escape hatch to a
+              synthesized dash beside a claimed-connected state); a
+              non-connected/not-yet-identified/transport-dead padi passes `undefined`,
+              which `<Commit>` renders as an honest "—". The BOUND padi's `hello.commit`
+              works over ssh — no local active row under a remote binding — the padi
+              twin of kaval's `system.version`. */}
+          <Commit sha={connected()?.identity.buildCommit} />
         </DetailRow>
         <DetailRow label="socket">
           {/* Local bind → the padi's unix socket. Remote bind → the padi lives on the ssh

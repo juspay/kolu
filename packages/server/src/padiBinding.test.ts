@@ -64,6 +64,7 @@ import {
   PADI_HOST_ID,
   PadiAdoptionRefusedError,
   padiConnectFailure,
+  reportAdoptionRefusal,
   resolvePadiLaunch,
 } from "./padiBinding.ts";
 // padi's convergence declaration + probe moved to `./padiConvergence.ts` in L6.
@@ -777,6 +778,66 @@ describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-re
       expect(err).toBeInstanceOf(ConnectError);
       expect(err).not.toBeInstanceOf(PadiAdoptionRefusedError);
     }
+  });
+});
+
+describe("reportAdoptionRefusal — a refusal reported on EVERY dial, not just the first (delta-re-review finding 2)", () => {
+  it("invokes the hook for a genuine PadiAdoptionRefusedError", () => {
+    const err = new PadiAdoptionRefusedError(
+      "a padi is already serving this workspace",
+    );
+    const seen: PadiAdoptionRefusedError[] = [];
+    reportAdoptionRefusal(err, (e) => seen.push(e));
+    expect(seen).toEqual([err]);
+  });
+
+  it("does NOT invoke the hook for a non-fatal (retryable) classification", () => {
+    const err = new ConnectError("padi did not come up", "network");
+    const seen: unknown[] = [];
+    reportAdoptionRefusal(err, (e) => seen.push(e));
+    expect(seen).toEqual([]);
+  });
+
+  it("is a no-op when no hook is supplied (the option is optional)", () => {
+    expect(() =>
+      reportAdoptionRefusal(new PadiAdoptionRefusedError("x"), undefined),
+    ).not.toThrow();
+  });
+
+  // THE PIN: session.ts's own reconnect loop (`@kolu/surface-remote`'s
+  // `launchAttempt`) only lets the composition root's boot `pin()` observe the
+  // FIRST dial's rejection — every dial after that is fire-and-forget, silently
+  // swallowing whatever `connectOnce` throws. Before this fix, a refusal reached on
+  // a LATER (reconnect) dial was retried as "network" forever — the exact silent
+  // spinner the boot-time fail-fast was meant to kill. `reportAdoptionRefusal` is
+  // called directly at the connector's throw site (not left to whichever dial's
+  // promise happens to be awaited), so calling it a SECOND time — simulating a
+  // reconnect dial that now hits a refusal a first dial didn't — must report just
+  // as loudly as the first ever would.
+  it("PIN: a refuse reached on a SIMULATED RECONNECT dial (a second, later call) still reports — never silently swallowed", () => {
+    const seen: PadiAdoptionRefusedError[] = [];
+    const onAdoptionRefused = (e: PadiAdoptionRefusedError): void => {
+      seen.push(e);
+    };
+
+    // Dial 1: a transient, retryable hiccup — no report (matches today's fail-open
+    // reconnect stance for everything except a genuine refusal).
+    reportAdoptionRefusal(
+      padiConnectFailure({ kind: "not-adopted" }, "/sr", "/sock"),
+      onAdoptionRefused,
+    );
+    expect(seen).toHaveLength(0);
+
+    // Dial 2 — a RECONNECT: the survivor now at this socket is a genuine contract
+    // skew this binder must never touch (#1313). This is the exact case the
+    // session's fire-and-forget reconnect loop would otherwise swallow silently.
+    const err = padiConnectFailure(
+      { kind: "refused", adopted: false },
+      "/sr",
+      "/sock",
+    );
+    reportAdoptionRefusal(err, onAdoptionRefused);
+    expect(seen).toEqual([err]);
   });
 });
 

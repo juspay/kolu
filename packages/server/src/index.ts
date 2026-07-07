@@ -269,6 +269,13 @@ const pool = buildRemotePool<PadiSession, undefined>({
               legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
               spawnVersion: serverVersion,
               verbose: argv.flags.verbose,
+              // A genuine adoption refusal is fatal on ANY dial, not just the boot
+              // pin's first one below — a reconnect's own fire-and-forget loop would
+              // otherwise swallow a LATER refusal silently (see the option's doc in
+              // padiBinding.ts). Wired to the SAME handler the boot pin's catch uses,
+              // so a first-dial and a later-dial refusal fail identically.
+              onAdoptionRefused: (err) =>
+                handlePadiBootFailure(err, { log, exit: process.exit }),
             })
           : ensureRemotePadiBinding({
               host: key.target,

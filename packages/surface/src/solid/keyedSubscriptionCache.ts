@@ -206,21 +206,46 @@ export function createKeyedSubscriptionCache(
    *  shared subscription (and, if this is the first-ever caller, its underlying wire
    *  stream) open for the rest of the client's life (the WEAKENED finding).
    *
-   *  Fix: an ownerless call acquires under a throwaway `createRoot` and releases it
-   *  in the SAME tick — a transient increment+decrement that nets to zero, exactly
-   *  like a real consumer that mounts and immediately unmounts. If this is the
-   *  first-ever caller, the underlying subscription opens for one microtask, then
-   *  tears back down — never a standing leak. An owned call is completely
-   *  unaffected (identical to calling `slot()` directly). */
+   *  Fix: delegate to {@link runUnderOwner} — an ownerless call acquires under a
+   *  throwaway `createRoot` and releases it in the SAME tick — a transient
+   *  increment+decrement that nets to zero, exactly like a real consumer that mounts
+   *  and immediately unmounts. If this is the first-ever caller, the underlying
+   *  subscription opens for one microtask, then tears back down — never a standing
+   *  leak. An owned call is completely unaffected (identical to calling `slot()`
+   *  directly). */
   function read(slot: () => unknown): unknown {
-    if (getOwner()) return slot();
-    let value: unknown;
-    createRoot((dispose) => {
-      value = slot();
-      dispose();
-    });
-    return value;
+    return runUnderOwner(slot);
   }
 
   return { use };
+}
+
+/**
+ * THE CLASS: any paired increment/`onCleanup`-decrement (a ref-count, a registry
+ * entry, an enrolment) run OWNERLESS — no `getOwner()`, e.g. a DOM event handler with
+ * no reactive scope — is a PERMANENT leak: Solid's `onCleanup` outside an owner warns
+ * and no-ops, so the decrement never fires. This recurs anywhere a `.use()`-shaped
+ * call sites its `onCleanup` unconditionally, on whatever owner HAPPENS to be
+ * ambient, instead of asserting one. `read()` above (the keyed-slot ref-count) is
+ * one instance; `surfaceClient.ts`'s whole-collection `.use({onError})` registration
+ * (the `collOnError` refcount) is its sibling, fixed by calling this same helper.
+ *
+ * Fix, generalized: run the increment+`onCleanup`+decrement under the CALLING owner
+ * if one is ambient, else under a throwaway `createRoot` acquired and released in
+ * the SAME tick — a transient increment/decrement that nets to zero, exactly like a
+ * real consumer that mounts and immediately unmounts. An owned call is completely
+ * unaffected (identical to calling `fn()` directly).
+ */
+export function runUnderOwner<R>(fn: () => R): R {
+  if (getOwner()) return fn();
+  // Non-null: `createRoot` invokes its callback synchronously (see solid-js's own
+  // implementation), so `value` is always assigned by the time this line runs — TS's
+  // control-flow analysis just can't see through the callback boundary. The repo's
+  // `noNonNullAssertion` rule is off (biome.jsonc), so no suppression is needed.
+  let value: R;
+  createRoot((dispose) => {
+    value = fn();
+    dispose();
+  });
+  return value!;
 }

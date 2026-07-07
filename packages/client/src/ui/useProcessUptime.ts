@@ -14,12 +14,29 @@
  * climbing off a made-up boot time.
  */
 
+import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { app } from "../wire";
 
-const sub = app.cells.processStartedAt.use({
-  onError: (err) => toast.error(`Uptime readout error: ${err.message}`),
-});
+// HOST-SCOPING: `processStartedAt` is a koluSurface (host-INDEPENDENT-TODAY) cell —
+// `server` is genuinely host-independent (kolu-server's own boot time, one process for
+// the whole browser tab). `padi` rides the LEGACY single-bind `padiSession` (hardcoded to
+// the unremovable LOCAL default under always-map — see `server/src/index.ts`'s
+// `startDaemonInventorySampler` call, `boundHost: null`), so `padiStartedAt()` describes
+// the LOCAL padi's uptime always, never the ACTIVE (possibly remote) host's — a
+// padi/server-side gap (no per-host "padi's own boot time" wire member exists yet), out
+// of this fix's file scope. See the classification table in `PadiInfoDialog.tsx`.
+//
+// THE LIVE-SUBSCRIPTION FIX: same class as `useMemoryUsage.ts`'s `sub` — a bare
+// module-const `.use()` is the "ownerless" path `createKeyedSubscriptionCache` documents,
+// torn down a microtask after load with no owner to keep its listener count above zero.
+// Wrapped in an app-lifetime `createRoot` so it survives for the session (the
+// `useDaemonStatus.ts`/`useHostInventory.ts` idiom).
+const sub = createRoot(() =>
+  app.cells.processStartedAt.use({
+    onError: (err) => toast.error(`Uptime readout error: ${err.message}`),
+  }),
+);
 
 /** kolu-server's boot time (ms epoch), or `null` before the first server yield (the
  *  `0` seed maps to `null` so a consumer never renders `now − 0` as an uptime). The

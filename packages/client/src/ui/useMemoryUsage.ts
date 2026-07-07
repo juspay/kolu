@@ -15,6 +15,7 @@
  */
 
 import type { ProcessRss } from "kolu-common/surface";
+import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import {
   daemonChannelLive,
@@ -25,9 +26,33 @@ import { getClockNow } from "../time/clock";
 import { app } from "../wire";
 import { readJsHeapUsedBytes } from "./memory";
 
-const sub = app.cells.processMemory.use({
-  onError: (err) => toast.error(`Memory readout error: ${err.message}`),
-});
+// HOST-SCOPING: `processMemory` is a koluSurface (host-INDEPENDENT) cell — kolu-server's
+// OWN RSS plus a fold of the LOCAL padi/kaval pair (see `server/src/memorySampler.ts`,
+// which reads the LOCAL `padiSession`, not `activeHost`). `serverRssBytes` is genuinely
+// host-independent by design (kolu-server has exactly one process, wherever the browser
+// tab is looking). `padiMemoryDisplay`/`kavalMemoryDisplay` are NOT yet re-keyed onto
+// `activeHost` — padi DOES serve its own `processMemory` per host (`padiSurface.processMemory`,
+// `padi/src/surface.ts`), but kolu-server's fold has not been wired to re-serve it per
+// active host (a padi/server-side gap, out of this fix's file scope — tracked separately,
+// not "by design"). Until that lands, this readout describes the LOCAL padi/kaval stack
+// always, mislabeled as the active host's when a REMOTE host is active; see the
+// classification table in `PadiInfoDialog.tsx`/`KavalInfoDialog.tsx`.
+//
+// THE LIVE-SUBSCRIPTION FIX: `app.cells.X.use(...)` routes through the base client's
+// ref-counted `createKeyedSubscriptionCache` (`@kolu/surface/solid/keyedSubscriptionCache`).
+// Calling `.use()` at MODULE scope with no ambient Solid owner is the "ownerless" path that
+// cache documents: it acquires the shared slot and releases it in the SAME tick, netting
+// the listener count to zero, so the underlying subscription is torn down a microtask
+// later — long before the first real (network) value can land. Every consumer then reads
+// a permanently-`undefined` value (the honest-unknown default), the exact "memory
+// unavailable" symptom. Wrapping in an app-lifetime `createRoot` (the same idiom
+// `useDaemonStatus.ts`'s `sub`/`useHostInventory.ts`'s `sub` already use) keeps a live
+// listener for the app's whole life, so the shared slot never tears down.
+const sub = createRoot(() =>
+  app.cells.processMemory.use({
+    onError: (err) => toast.error(`Memory readout error: ${err.message}`),
+  }),
+);
 
 /** The kolu-server process's RSS in bytes, or `null` before the first server
  *  yield (it's always a real number once a sample lands — the server measures

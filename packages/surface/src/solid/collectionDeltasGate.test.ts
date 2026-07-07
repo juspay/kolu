@@ -488,7 +488,18 @@ describe("collection onError — generation-torn registry (CONFIRMED fix)", () =
 
       // C3 joins the STILL-LIVE GEN 2 slot (no new slot is built — `slots.get`
       // already holds it), registering h3 into whatever registry is live NOW.
-      app.collections.plain.use({ onError: onError3 });
+      // Its OWN root — same as C1/C2 — is REQUIRED here, not cosmetic: this call
+      // runs after three `await`s inside the outer async `createRoot`, and Solid
+      // does not preserve an ambient owner across an `await` (`createRoot`'s
+      // `finally` restores `Owner` to the pre-call value the moment the async
+      // callback first suspends). A bare inline call at this point would itself be
+      // an OWNERLESS `.use({onError})` — exactly the leak class this file's
+      // dedicated "ownerless registration" test below pins.
+      let disposeC3 = (): void => {};
+      createRoot((d) => {
+        disposeC3 = d;
+        app.collections.plain.use({ onError: onError3 });
+      });
       await settle();
 
       failLiveGen(new Error("boom"));
@@ -505,7 +516,48 @@ describe("collection onError — generation-torn registry (CONFIRMED fix)", () =
       expect(fires3.length).toBe(1);
 
       disposeC2();
+      disposeC3();
       dispose();
     });
+  });
+});
+
+describe("collection onError — ownerless registration must not leak (the unguarded sibling of the cache's ownerless read() fix)", () => {
+  it("PIN — an ownerless .use({onError}) does not durably register the handler; a later generation's error never reaches it", async () => {
+    const { link, failKeys } = faultablePlainLink();
+    // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed wire client.
+    const app = surfaceClient(surface, link as any);
+    const fires: Error[] = [];
+    const leaky = (e: Error) => fires.push(e);
+
+    // Call `.use({onError})` completely OWNERLESS — no `createRoot` wrapping, mirroring
+    // kolu's DOM-event-handler read (the exact caller class the keyedSubscriptionCache
+    // `read()` docblock names). `getOwner()` is null here (top-level test body, no
+    // reactive scope), so — pre-fix — `handlers.set(leaky, 1)` runs but the paired
+    // `onCleanup` at surfaceClient.ts:800 warns-and-no-ops: the increment is NEVER
+    // paired with a decrement, a PERMANENT registry leak.
+    app.collections.plain.use({ onError: leaky });
+    await settle();
+
+    // A REAL, owned consumer joins afterward with NO handler of its own. Because the
+    // ownerless call's underlying dedup slot already transiently acquired-and-released
+    // (the cache's already-fixed `read()`), this opens a FRESH generation.
+    let disposeReal = (): void => {};
+    createRoot((d) => {
+      disposeReal = d;
+      app.collections.plain.use({});
+    });
+    await settle();
+
+    failKeys(new Error("boom"));
+    await settle();
+
+    // Without the fix: `leaky` is still sitting in `collOnError` (never unregistered)
+    // and `dispatchError` reads the registry LIVE by key — so it fires on this fresh
+    // generation's error even though its "consumer" never had a lifetime to observe
+    // it. With the fix, an ownerless `.use({onError})` must not durably register.
+    expect(fires.length).toBe(0);
+
+    disposeReal();
   });
 });

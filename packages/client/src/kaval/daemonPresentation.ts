@@ -8,7 +8,7 @@
  *  presentation is now testable on its own, which is what lets `kavalDot`'s
  *  transport-liveness floor be pinned by a unit test without standing up a socket. */
 
-import type { DaemonState } from "@kolu/padi/surface";
+import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
 
@@ -223,4 +223,66 @@ export function channelLive(
   entryConnected: boolean,
 ): boolean {
   return transportLive && entryConnected;
+}
+
+// ── KavalPresence — the P4 escape-hatch retirement ──────────────────────────────
+//
+// The wire's `DaemonStatusSchema` keeps `identity` OPTIONAL on the `connected` arm for
+// one reason: a pre-identity kaval build's own `system.version` predates the field
+// (`@kolu/padi/ptyHost/connect.ts`'s backward-compat seam — `@kolu/padi`'s call, not this
+// package's). That optionality let the DIALOG render a `connected` kaval with a
+// synthesized "—" build commit — the overloaded-null the drain/reconnect bug rode: a
+// dead-subscription "unknown" and a genuinely-connected-but-not-yet-identified kaval were
+// indistinguishable at the render site, both spelled with a `??`/ternary fallback.
+//
+// `KavalPresence` retires that: it is a NARROWER, client-owned sum every render site must
+// go through — `identity` is MANDATORY on its `connected` arm, so "connected but identity
+// unknown" is IMPOSSIBLE TO CONSTRUCT (a compile error, pinned by
+// `daemonPresentation.test.ts`'s `@ts-expect-error`). `toKavalPresence` is the ONE place
+// that decides what an identity-less "connected" wire value means — it folds to
+// `warming` (still becoming known), never a synthesized "—" beside a green dot.
+
+/** The wire's optional per-kaval identity, narrowed to "definitely present" — the shape
+ *  `KavalPresence`'s `connected` arm carries. Derived from `DaemonStatus["identity"]`
+ *  (not re-declared) so it can never drift from the wire schema. */
+export type KavalIdentity = NonNullable<DaemonStatus["identity"]>;
+
+/** The kaval dialog/rail's own honest presence sum — see the module section header.
+ *  `down`'s `state` mirrors {@link DAEMON_STATE_PRESENTATION}'s down bucket
+ *  (`dead`/`degraded`); `warming` covers EVERY case that is not a confirmed, identified
+ *  connection: pre-first-value, a dead/half-open channel, `connecting`/`restarting`, and
+ *  a `connected` wire status whose `identity` has not (yet) arrived. */
+export type KavalPresence =
+  | {
+      kind: "connected";
+      identity: KavalIdentity;
+      contractVersion: string;
+      startedAt: number;
+      socketPath: string | undefined;
+    }
+  | { kind: "warming" }
+  | { kind: "down"; state: "dead" | "degraded" };
+
+/** Project a (possibly stale/absent) `DaemonStatus` + the channel's liveness into the
+ *  client's own honest {@link KavalPresence} — the ONE place "connected" is decided.
+ *  Floored on `live` exactly like {@link kavalDot}/{@link liveWarming}/
+ *  {@link liveDownState}: a dead/half-open channel can't confirm ANY state, so it folds
+ *  to `warming` (never a stale "connected" claim over a value the dead channel can no
+ *  longer refresh). */
+export function toKavalPresence(
+  status: DaemonStatus | undefined,
+  live: boolean,
+): KavalPresence {
+  if (!live || status === undefined) return { kind: "warming" };
+  if (status.state === "dead" || status.state === "degraded")
+    return { kind: "down", state: status.state };
+  if (status.state !== "connected") return { kind: "warming" }; // connecting | restarting
+  if (status.identity === undefined) return { kind: "warming" }; // pre-identity survivor
+  return {
+    kind: "connected",
+    identity: status.identity,
+    contractVersion: status.contractVersion,
+    startedAt: status.startedAt,
+    socketPath: status.socketPath,
+  };
 }

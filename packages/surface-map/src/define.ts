@@ -21,7 +21,7 @@
  * (also the channel-name/dedup key), `decode` inverts it. For a `K` that is already
  * a plain string, the codec is the identity pair.
  *
- * `keySchema.parse` (paired with `codec.decode`, on the client's `parseKey` and the
+ * `keySchema.parse` (paired with `codec.decode`, on the client's `decodeKey` and the
  * server's wire handler) is the sole producer of a validated `K` from a wire string —
  * a raw unvalidated value is a type error wherever `Key` is expected (P4 at the typed
  * API); the wire handler re-validates via the same `keySchema.parse` (P5 gate).

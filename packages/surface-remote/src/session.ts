@@ -264,15 +264,20 @@ export interface MakeSessionOptions<
   /** The transport plug — dial once, hand back a live {@link Connection}. */
   connectOnce: Connector<Client>;
   /** The connector's OPENING phase — the fact only the connector knows (P5). Its
-   *  TYPE is `LocalConnectionState | Prov`, the connector's phase set: an ssh
-   *  `sshConnector` PROVISIONS (nix-copies the closure first), so `Prov =
-   *  ProvisioningPhase` and it opens at `"copying"`; the local `endpointConnector`
+   *  TYPE is `[Prov] extends [never] ? LocalConnectionState : Prov` — EXACTLY the
+   *  connector's own phase set, never the other arm's: the local `endpointConnector`
    *  provisions NOTHING (the daemon is already here), so `Prov = never`,
    *  `initialConnection: LocalConnectionState`, and `"copying"` is a COMPILE error —
    *  a local session's state sequence can never contain the provisioning phase
-   *  (juspay/kolu#1716). Both the first dial and every reconnect re-arm at this
-   *  phase. */
-  initialConnection: LocalConnectionState | Prov;
+   *  (juspay/kolu#1716). An ssh `sshConnector` PROVISIONS (nix-copies the closure
+   *  first), so `Prov = ProvisioningPhase` and `initialConnection` narrows to
+   *  EXACTLY `Prov` (`"copying"`) — a provisioning session can no longer be
+   *  constructed with a LOCAL-set opening phase either (juspay/kolu#1808): that
+   *  constructible contradiction let `provisions` below (the runtime read of this
+   *  same fact, since `Prov` itself is erased) misclassify a provisioning session
+   *  whose initial state happened to land in `LOCAL_CONNECTION_STATES`. Both the
+   *  first dial and every reconnect re-arm at this SAME phase. */
+  initialConnection: [Prov] extends [never] ? LocalConnectionState : Prov;
   /** Optional SUPERVISION hook run once per dial after the transport is up — a
    *  daemon session's convergence (padi: control-core hello + skew/build decision +
    *  drain). Omit for a plain session (every connection adopted). See {@link Admit}. */
@@ -311,10 +316,14 @@ export function makeSession<
   const label = opts.label ?? "session";
   const reconnectDelayMs = opts.reconnectDelayMs ?? 2000;
   const connectTimeoutMs = opts.connectTimeoutMs ?? 30_000;
-  // The runtime twin of `Prov`: a non-provisioning arm's `initialConnection` is
-  // ALWAYS one of the four `LocalConnectionState` values (a provisioning arm's
-  // opens outside that set, e.g. ssh's `"copying"`) — so membership alone tells
-  // the two arms apart without the (erased-at-runtime) `Prov` type parameter.
+  // The runtime twin of `Prov` (erased at runtime, so this is the only witness
+  // left standing at construction time). This is no longer a GUESS from the
+  // initial state's incidental value: `MakeSessionOptions.initialConnection`'s
+  // TYPE (`[Prov] extends [never] ? LocalConnectionState : Prov`) makes a
+  // provisioning arm's `initialConnection` EXACTLY `Prov` — disjoint from every
+  // `LocalConnectionState` member by construction (juspay/kolu#1808) — so a
+  // provisioning session with a local-set opening phase is a COMPILE error, not a
+  // constructible contradiction this membership test could ever be fooled by.
   const provisions = !LOCAL_CONNECTION_STATES.includes(
     opts.initialConnection as LocalConnectionState,
   );

@@ -16,11 +16,13 @@
 
 import { type CanvasMode, resolveCanvasMode } from "./canvasModeResolver";
 import {
+  activeEntryFailed,
   daemonChannelLive,
   daemonStatusPending,
   daemonStatusPendingTimedOut,
   daemonWarming,
   downState,
+  isActiveHostLocal,
   localDaemonStatus,
   warmingCanvasLabel,
 } from "./useDaemonStatus";
@@ -47,5 +49,7 @@ export function canvasMode(deps: {
     terminalCount: deps.terminalCount(),
     recordsAwaited: deps.recordsAwaited(),
     channelLive: daemonChannelLive(),
+    isLocalHost: isActiveHostLocal(),
+    activeEntryFailed: activeEntryFailed(),
   });
 }

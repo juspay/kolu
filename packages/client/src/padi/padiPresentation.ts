@@ -9,7 +9,7 @@
  *  `daemonPresentation` so the padi and kaval dots can't drift on what
  *  "ok/warming/down/unknown" looks like. */
 
-import type { PadiLink } from "kolu-common/surface";
+import type { PadiConvergence, PadiLink } from "kolu-common/surface";
 import {
   DAEMON_UNKNOWN_DOT,
   type DaemonTone,
@@ -41,6 +41,58 @@ export const PADI_LINK_PRESENTATION: Record<
 export function padiDot(link: PadiLink | undefined, live: boolean): string {
   if (!live || !link) return DAEMON_UNKNOWN_DOT;
   return toneDot[PADI_LINK_PRESENTATION[link].tone];
+}
+
+/** padi's honest identity, once known — the fields the Padi dialog shows for a
+ *  `connected` bind (build commit, contract/surface version, standing convergence
+ *  anomaly). `buildCommit` is MANDATORY here (unlike the raw `daemonInventory.boundPadi`
+ *  cell, whose `buildCommit` is nullable): {@link toPadiPresence} is the ONE place that
+ *  decides what "connected but no build commit yet" means, so a render site can never
+ *  see a `connected` {@link PadiPresence} with an absent build commit. */
+export type PadiIdentity = {
+  buildCommit: string;
+  surfaceVersion: string | null;
+  convergence: PadiConvergence | null;
+};
+
+/** The Padi dialog/rail's own honest presence sum — narrower than the raw wire facts
+ *  (`padiLink` + `daemonInventory.boundPadi.*`), which the dialog used to read directly
+ *  with `??`/ternary fallbacks to "unknown"/"—"/"unavailable" even while `padiLink` read
+ *  `connected` (the P4 escape hatch this type retires). `identity` is MANDATORY on the
+ *  `connected` arm, so "connected but identity unknown" is IMPOSSIBLE TO CONSTRUCT — see
+ *  `padiPresentation.test.ts`'s `@ts-expect-error` pin. Every render site must go through
+ *  {@link toPadiPresence}, never read `padiLink`/`boundPadiBuildCommit()` etc. directly. */
+export type PadiPresence =
+  | { kind: "connected"; identity: PadiIdentity }
+  | { kind: "warming" }
+  | { kind: "down" };
+
+/** Project the raw wire facts into the client's own honest {@link PadiPresence} — the
+ *  ONE place "connected" is decided. Floored on `live` (the browser↔kolu-server ws
+ *  liveness) exactly like {@link padiDot}: a dead/half-open channel can't confirm ANY
+ *  state, so it folds to `warming` (never a stale "connected" claim over a value the dead
+ *  channel can no longer refresh). A `connected` link whose identity sample hasn't landed
+ *  yet (the sampler ticks separately from the link's own connect) ALSO folds to
+ *  `warming` — "still learning who this is" — rather than showing `connected` beside a
+ *  synthesized dash; the identity typically arrives within one sampler tick (≤10s, see
+ *  `server/src/daemonInventory.ts`'s `DAEMON_INVENTORY_SAMPLE_INTERVAL_MS`), so this is a
+ *  brief, honest transitional window, never a permanent lie. */
+export function toPadiPresence(
+  link: PadiLink | undefined,
+  live: boolean,
+  buildCommit: string | null,
+  surfaceVersion: string | null,
+  convergence: PadiConvergence | null,
+): PadiPresence {
+  if (!live || link === undefined || link === "connecting")
+    return { kind: "warming" };
+  if (link === "degraded") return { kind: "down" };
+  // link === "connected"
+  if (buildCommit === null) return { kind: "warming" };
+  return {
+    kind: "connected",
+    identity: { buildCommit, surfaceVersion, convergence },
+  };
 }
 
 /** The Padi rail chip's REMOTE-HOST segment — names WHERE padi is and reads as

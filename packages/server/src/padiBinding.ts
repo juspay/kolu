@@ -284,6 +284,26 @@ export interface EnsurePadiBindingOptions {
   verbose?: boolean;
   /** Reconnect backoff (test hook). */
   reconnectDelayMs?: number;
+  /** Invoked with the {@link PadiAdoptionRefusedError} on EVERY dial that reaches a
+   *  genuine 'refused' convergence outcome — the very first boot dial AND every
+   *  later RECONNECT dial alike. #1313's refuse-a-skew verdict is structurally
+   *  unresolvable (retrying can never make an incompatible padiSurface contract
+   *  compatible), so it must fail loudly no matter which dial discovers it.
+   *
+   *  This exists because the composition root's boot `pin()` await only observes
+   *  the FIRST dial's rejection: every dial AFTER that runs through the session's
+   *  own fire-and-forget reconnect loop (`@kolu/surface-remote`'s `session.ts`,
+   *  `launchAttempt`), which deliberately swallows a `connectOnce` rejection into
+   *  the state cell and never rethrows it anywhere a caller could observe. Without
+   *  this hook, a refusal reached on a reconnect — e.g. a second binder taking over
+   *  the state root between this binder's boot and a later reconnect — would be
+   *  silently retried as "network" forever, recreating the exact silent spinner the
+   *  boot-time fail-fast was meant to kill. The composition root wires this to the
+   *  SAME `handlePadiBootFailure` the boot pin's rejection already reaches, so a
+   *  first-dial and a later-dial refusal fail exactly the same way (calling it
+   *  twice for a first-dial refusal — once here, once via the boot pin's own catch
+   *  — is a harmless, deliberate redundancy, not a bug). */
+  onAdoptionRefused?: (err: PadiAdoptionRefusedError) => void;
 }
 
 /** The single local padi host id — the endpoint's status key. Distinct from
@@ -342,6 +362,24 @@ export function padiConnectFailure(
     "padi did not come up (left degraded / refused)",
     "network",
   );
+}
+
+/** Report a classified connect failure through the injected `onAdoptionRefused`
+ *  hook — extracted as its own pure function (no I/O) so the ONE thing that must
+ *  hold on EVERY dial (first AND every later reconnect) is unit-testable directly,
+ *  without a real session or daemon. Called at the connector's throw site itself
+ *  (not left to whichever dial's promise a caller happens to await): the
+ *  composition root's boot `pin()` only observes the FIRST dial's rejection, and
+ *  every later dial runs through the session's own fire-and-forget reconnect loop
+ *  (`@kolu/surface-remote`'s `launchAttempt`), which swallows a `connectOnce`
+ *  rejection with no rethrow. Calling the hook HERE — synchronously, before the
+ *  throw — means a later dial's refusal is reported exactly the same way the first
+ *  dial's is, closing that gap. A no-op for every other (retryable) classification. */
+export function reportAdoptionRefusal(
+  err: Error,
+  onAdoptionRefused: ((err: PadiAdoptionRefusedError) => void) | undefined,
+): void {
+  if (err instanceof PadiAdoptionRefusedError) onAdoptionRefused?.(err);
 }
 
 /** The composition root's boot-`pin()` failure handler — extracted so it is
@@ -490,7 +528,13 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       // composition root's boot `pin()` catches specifically, to exit loudly with the
       // conflict + the remedy); everything else reconnects (network, retry with
       // backoff), matching the pre-S9 scheduleReconnect. NEVER a kill.
-      throw padiConnectFailure(outcome, stateRoot, socketPath);
+      const err = padiConnectFailure(outcome, stateRoot, socketPath);
+      // Report a fatal refusal HERE, synchronously, on every dial this connector
+      // ever runs — not just whichever dial a caller happens to await. Reconnect
+      // dials run through the session's own fire-and-forget loop and would
+      // otherwise swallow this throw silently (see `onAdoptionRefused`'s doc).
+      reportAdoptionRefusal(err, opts.onAdoptionRefused);
+      throw err;
     }
     // Sample the local clock offset over the frozen control core (offset-at-connect,
     // re-measured each dial) before handing the loop the connection. A probe failure

@@ -35,7 +35,7 @@ import { readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
-import { gatePid } from "@kolu/surface-daemon";
+import { gatePid, isHolderLive } from "@kolu/surface-daemon";
 import {
   getPtyHostSocketPath,
   isPrivateOwnedDir,
@@ -324,14 +324,26 @@ export function discoverPadiDaemons(
  * Find a resident padi ALREADY registered for `stateRoot` — the read-back
  * {@link ensurePadiBinding}'s wait/adopt side dials INSTEAD OF its own-env-computed
  * socket. Built on {@link discoverPadiDaemons} (which now unions every drawer this
- * host could plausibly have registered one under), filtered to the ONE daemon whose
+ * host could plausibly have registered one under), filtered to daemons whose
  * `state-root` manifest names THIS exact state-root — the manifest is what the
  * resident actually wrote about itself, so it wins over any caller's own-env guess
  * (never a bare digest-path recompute, which is exactly what reproduced the bug).
  *
- * Returns the resident's actual socket path, or `undefined` when no discovered padi's
- * manifest names this state-root (a fresh boot — the caller spawns at its own
- * drawer, unchanged).
+ * A manifest match alone is NOT enough: a crashed padi's `/tmp` registration (the
+ * inode + its manifest both survive a crash — nothing wipes `/tmp` on exit the way
+ * a boot-wiped `$XDG_RUNTIME_DIR` is wiped) can otherwise SHADOW a genuinely live
+ * resident registered in a later regime, so we additionally gate on the manifest's
+ * `padi.pid` gate holder being ALIVE ({@link isHolderLive}) — the same liveness test
+ * the gate mechanism itself uses to tell a real holder from a stale one. Without
+ * this, adopting the dead match would hand the caller a socket nothing answers on
+ * (a hang), or — worse — cause it to spawn a SECOND padi onto a state root a live
+ * resident already serves (the #1313 isolation property broken). A dead match is
+ * simply ignored (never returned as a fallback): a stale socket must never shadow
+ * a fresh spawn.
+ *
+ * Returns the live resident's socket path, or `undefined` when no discovered padi's
+ * manifest names this state-root with a LIVE gate holder (a fresh boot, or only a
+ * dead registration — the caller spawns at its own drawer, unchanged).
  */
 export function residentPadiSocket(
   stateRoot: string,
@@ -343,7 +355,11 @@ export function residentPadiSocket(
       ? discoverPadiDaemons()
       : discoverPadiDaemons(extraRegimes);
   return discovered.find(
-    (d) => d.stateRoot !== null && resolve(d.stateRoot) === resolved,
+    (d) =>
+      d.stateRoot !== null &&
+      resolve(d.stateRoot) === resolved &&
+      d.gatePid !== null &&
+      isHolderLive(d.gatePid),
   )?.socket;
 }
 

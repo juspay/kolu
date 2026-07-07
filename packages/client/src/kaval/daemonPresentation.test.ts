@@ -1,4 +1,4 @@
-import type { DaemonState } from "@kolu/padi/surface";
+import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import {
   channelLive,
@@ -8,6 +8,7 @@ import {
   liveDownState,
   liveWarming,
   serverDot,
+  toKavalPresence,
   toneDot,
 } from "./daemonPresentation";
 
@@ -170,5 +171,70 @@ describe("the daemon-rail floor is now host-UNIFORM (W4 daemon-rail unification 
     // enforced identically for every host by construction, not by a per-host gate).
     expect(liveWarming("connected", localDrain)).toBe(false);
     expect(liveDownState("degraded", localDrain)).toBeUndefined();
+  });
+});
+
+describe("toKavalPresence — P4: connected ⇒ identity present, by construction", () => {
+  const connectedStatus = (identity: DaemonStatus["identity"]): DaemonStatus =>
+    ({
+      state: "connected",
+      identity,
+      contractVersion: "5.0",
+      startedAt: 1000,
+      socketPath: "/run/user/1000/kaval-abcd/pty-host.sock",
+    }) as DaemonStatus;
+
+  it("a genuinely connected, identified daemon over a live channel reads `connected` with its identity", () => {
+    const status = connectedStatus({
+      staleKey: "abc",
+      navigableCommit: "deadbeef",
+    });
+    expect(toKavalPresence(status, true)).toEqual({
+      kind: "connected",
+      identity: { staleKey: "abc", navigableCommit: "deadbeef" },
+      contractVersion: "5.0",
+      startedAt: 1000,
+      socketPath: "/run/user/1000/kaval-abcd/pty-host.sock",
+    });
+  });
+
+  it("RED→GREEN repro: a `connected` status whose identity has not (yet) arrived NEVER reads `connected` — it folds to `warming`, never a synthesized dash beside a claimed-live daemon", () => {
+    // The pre-identity-survivor case `@kolu/padi`'s backward-compat seam allows at the
+    // wire level. Before P4, the dialog read `props.status?.identity?.navigableCommit`
+    // directly and rendered a bare "—" while the dot/label still said "running" — the
+    // exact "connected but identity unknown" escape hatch. `toKavalPresence` makes that
+    // combination unrepresentable: it is never `{ kind: "connected", identity: undefined }`
+    // (a type that does not exist), so the dialog can only show "—" for a NON-connected
+    // presence, never beside a connected one.
+    const status = connectedStatus(undefined);
+    const presence = toKavalPresence(status, true);
+    expect(presence.kind).toBe("warming");
+    expect(presence).not.toMatchObject({ kind: "connected" });
+  });
+
+  it("RED→GREEN repro: the drain/reconnect class — a dead/half-open channel never reads `connected`, even over a retained `connected` wire status", () => {
+    // The reproduced live bug: an AbortError drain burst kills the channel; the retained
+    // (stale) `connected` status must not be shown as a confirmed-connected identity.
+    const status = connectedStatus({
+      staleKey: "abc",
+      navigableCommit: "deadbeef",
+    });
+    expect(toKavalPresence(status, false)).toEqual({ kind: "warming" });
+    // Reconnect (channel live again, status unchanged) — identity is confirmed again.
+    expect(toKavalPresence(status, true)).toMatchObject({ kind: "connected" });
+  });
+
+  it("pre-first-value (status undefined) and a genuinely down daemon each read their own honest kind — never `connected`", () => {
+    expect(toKavalPresence(undefined, true)).toEqual({ kind: "warming" });
+    expect(toKavalPresence({ state: "dead" } as DaemonStatus, true)).toEqual({
+      kind: "down",
+      state: "dead",
+    });
+    expect(
+      toKavalPresence({ state: "degraded" } as DaemonStatus, true),
+    ).toEqual({ kind: "down", state: "degraded" });
+    expect(
+      toKavalPresence({ state: "connecting" } as DaemonStatus, true),
+    ).toEqual({ kind: "warming" });
   });
 });
