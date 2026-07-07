@@ -26,7 +26,14 @@ import { type HostKey, HostKeySchema, LOCAL_HOST } from "kolu-common/hostKey";
 import { type Component, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { dotClass, hostGateOpen, statusTitle } from "./hostChipTone";
-import { activeHost, app, client, padiMap, setActiveHost } from "./wire";
+import {
+  activeHost,
+  app,
+  client,
+  onHostMembershipError,
+  padiMap,
+  setActiveHost,
+} from "./wire";
 
 const HostChip: Component<{ host: HostKey }> = (props) => {
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
@@ -152,7 +159,9 @@ const HostSelectorStrip: Component = () => {
         class="pointer-events-auto flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar"
         data-testid="host-selector-strip"
       >
-        <For each={padiMap.entries.use().keys()}>
+        <For
+          each={padiMap.entries.use({ onError: onHostMembershipError }).keys()}
+        >
           {(host) => <HostChip host={host} />}
         </For>
 

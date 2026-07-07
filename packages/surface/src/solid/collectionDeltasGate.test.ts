@@ -191,4 +191,25 @@ describe("collection onError — a second handler is a LOUD throw, not a silent 
       dispose();
     });
   });
+
+  it("REVERSE order: a bare .use() FIRST then a handler .use() throws — co-consumers must share ONE handler ref", async () => {
+    await createRoot(async (dispose) => {
+      // biome-ignore lint/suspicious/noExplicitAny: proxy link stands in for the typed wire client.
+      const app = surfaceClient(surface, wireProxyLink() as any);
+      const handler = (): void => {};
+      // The trap the multi-host membership strip hit at runtime: a BARE consumer
+      // (`HostSelectorStrip`'s `<For>`) baked the shared slot with NO onError FIRST, then the
+      // HANDLER consumer (`wire.ts`'s reconcile sub) tried to add one SECOND. The shared
+      // streams already enrolled handler-less, so it throws — `undefined` is a divergent
+      // handler too. The guard is order-ASYMMETRIC (handler-first-then-bare shares; the reverse
+      // throws), so two co-consumers can't rely on registration order — they MUST pass the
+      // SAME handler reference (kolu's `wire.ts` exports `onHostMembershipError` for exactly
+      // this; the "identical handler shares fine" case above is then order-independent).
+      app.collections.plain.use({});
+      expect(() => app.collections.plain.use({ onError: handler })).toThrow(
+        /already has an error handler/,
+      );
+      dispose();
+    });
+  });
 });

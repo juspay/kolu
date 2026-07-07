@@ -150,6 +150,17 @@ export const surfaceApp = clients.surfaceApp;
 //    seam to pass a green-over-dead accessor through.
 export const padiMap = connectSurfaceMap(padiHostMap, conn.transport, "padi");
 
+/** The ONE membership-error handler for `padiMap.entries` — a SHARED reference so BOTH
+ *  whole-collection consumers (this module's reconcile sub + `HostSelectorStrip`'s strip)
+ *  bake the IDENTICAL `onError` into the dedup slot. That slot holds exactly one handler; a
+ *  second consumer supplying a *divergent* one — including a bare `.use()` (`undefined`) vs
+ *  this — trips the whole-collection second-onError guard, and which consumer registers first
+ *  is NOT ordered, so the two MUST pass this same reference (`surfaceClient.ts`: "the
+ *  identical handler shares fine"). Surfaces a membership-stream failure once, for both. */
+export const onHostMembershipError = (err: Error): void => {
+  toast.error(`Host membership error: ${err.message}`);
+};
+
 /** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Backed by
  *  `sessionStorage` (per-tab, never shared across tabs), validated + branded on read via
  *  the map's key schema, defaulting to the unremovable LOCAL default. Switching it
@@ -263,14 +274,11 @@ const hostScoped = createRoot(() => {
   // snapshot has landed, a departed active host falls back to the unremovable LOCAL default,
   // LOUDLY (the server-driven auto-retire is otherwise silent). The `entries` sub dedups
   // with the selector strip's via the base-client ref-count.
-  // The ONE app-scope membership subscription carries the error handler; HostSelectorStrip's
-  // `entries.use()` dedups onto this slot (a no-onError share), so this single handler surfaces
-  // a membership-stream failure for both — adding a SECOND divergent onError would trip the
-  // whole-collection second-onError-throw guard.
-  const members = padiMap.entries.use({
-    onError: (err: Error) =>
-      toast.error(`Host membership error: ${err.message}`),
-  });
+  // Both whole-collection `entries` consumers (this sub + HostSelectorStrip's strip) bake the
+  // SAME `onHostMembershipError` reference into the shared dedup slot, so a membership-stream
+  // failure surfaces once regardless of which consumer registers first (a divergent handler —
+  // or a bare `.use()` racing ahead of this one — would trip the second-onError guard).
+  const members = padiMap.entries.use({ onError: onHostMembershipError });
   createEffect(() => {
     const target = hostReconcileTarget(
       members.keys(),
