@@ -247,7 +247,7 @@ export function ensureRemotePadiBinding(
   const { host } = opts;
   log.info(
     { host },
-    `binding a REMOTE padi over ssh (${KOLU_PADI_HOST_ENV} set) — the whole canvas is this host`,
+    `binding a REMOTE padi over ssh — one keyed host in the pool that ${KOLU_PADI_HOST_ENV} seeds`,
   );
   // The STATIC-config axis, decided ONCE here: a missing/malformed BAKED map crashes
   // boot loudly (fail-fast) instead of degrading the canvas through a retry loop.
