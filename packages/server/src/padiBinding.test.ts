@@ -285,8 +285,17 @@ describe("kolu-server padi binder — cutover acceptance", () => {
 
   it("reconnects when padi dies, and the re-served surface round-trips again", async () => {
     const stateRoot = makeStateRoot();
-    const { padi } = await bootReServedPadi(stateRoot);
+    const { session, padi } = await bootReServedPadi(stateRoot);
     await roundTripTerminal(padi, "FIRST");
+
+    // Capture progress lines across the kill+reconnect — the producer pin below
+    // reads this to prove the ENDPOINT link death (no child process: the
+    // `Endpoint`'s `onStatus` degraded/dead callback, not a real `exit` event)
+    // renders honestly, never as a fabricated process exit.
+    const seenLines: string[] = [];
+    const unsub = session.onState((s) => {
+      seenLines.push(...s.progressLines);
+    });
 
     // Kill the bound padi (its detached kaval survives). The socket close flips the
     // endpoint to degraded → the session schedules `adoptOrSpawnOrRefuse` → a fresh
@@ -298,6 +307,16 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // The re-served surface round-trips a fresh terminal again once the binder has
     // re-established the link (roundTripTerminal retries create across the gap).
     await roundTripTerminal(padi, "SECOND");
+    unsub();
+
+    // THE PIN (task d): `ensurePadiBinding`'s `onStatus` degraded/dead handler used
+    // to resolve `{kind: "exit", code: null, signal: null}` — a fabricated process
+    // exit for a link death that was never a process exit — which `handleClosed`
+    // rendered as "agent exited (code=null, signal=null)". It now emits the honest
+    // `{kind: "endpoint-down"}` variant, rendered "endpoint link down (no process
+    // exit)". Assert the honest line appeared and the fabricated one never did.
+    expect(seenLines.some((l) => l.includes("endpoint link down"))).toBe(true);
+    expect(seenLines.some((l) => l.includes("agent exited"))).toBe(false);
   }, 90000);
 
   it("a kolu-server (binder) restart keeps padi's registry WARM — adopts, never respawns (done-criterion b)", async () => {

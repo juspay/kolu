@@ -243,6 +243,16 @@ export function compareAgentUrgency(
   return urgencyRankDelta(a.agent, b.agent) || a.id.localeCompare(b.id);
 }
 
+/** `lastActivityAt`'s recency RANK for a most-recent-first sort — `null`
+ *  (never-active; see {@link AgentMemorySchema}) sorts LAST, as if it were
+ *  older than every real epoch, never as epoch `0` (which would misrank a
+ *  never-active terminal ahead of one truly idle since the Unix epoch — an
+ *  absurd case in practice, but the honest ordering shouldn't depend on it
+ *  being absurd). */
+function recencyRank(lastActivityAt: number | null): number {
+  return lastActivityAt ?? Number.NEGATIVE_INFINITY;
+}
+
 /** Order two agents within a scope: needs-you first, then most-recently-active,
  *  then a stable id tiebreak. The kolu-only ordering — it adds the RECENCY
  *  tiebreak ({@link compareAgentUrgency} is the host-safe urgency-only sibling),
@@ -250,12 +260,28 @@ export function compareAgentUrgency(
  *  a snapshot one. The rank, recency, and tiebreak braided once so two scopes
  *  can't fall back to iteration order. */
 export function compareAgents(
-  a: { agent: TerminalSnapshot["agent"]; lastActivityAt: number; id: string },
-  b: { agent: TerminalSnapshot["agent"]; lastActivityAt: number; id: string },
+  a: {
+    agent: TerminalSnapshot["agent"];
+    lastActivityAt: number | null;
+    id: string;
+  },
+  b: {
+    agent: TerminalSnapshot["agent"];
+    lastActivityAt: number | null;
+    id: string;
+  },
 ): number {
+  const ra = recencyRank(a.lastActivityAt);
+  const rb = recencyRank(b.lastActivityAt);
+  // Explicit equality check before subtracting: `recencyRank` can return
+  // `-Infinity` for two never-active agents, and `-Infinity - -Infinity` is
+  // `NaN` — which `||` would treat as falsy and silently fall through to the
+  // id tiebreak anyway, but spelling the tie out is honest rather than
+  // relying on that coincidence.
+  const recencyDelta = ra === rb ? 0 : rb - ra;
   return (
     urgencyRankDelta(a.agent, b.agent) ||
-    b.lastActivityAt - a.lastActivityAt ||
+    recencyDelta ||
     a.id.localeCompare(b.id)
   );
 }

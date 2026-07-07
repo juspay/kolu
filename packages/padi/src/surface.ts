@@ -348,12 +348,16 @@ export type PadiTerminal = z.infer<typeof PadiTerminalSchema>;
 
 /** The recency-FREE urgency fold off the registry: how many terminals await
  *  the user, and which. The ONE thing kolu-server reads from every warm binding
- *  (for cross-host badge fan-in), so it deliberately carries counts + ids and NO
- *  recency — nothing cross-host ever compares two hosts' clocks. */
+ *  (for cross-host badge fan-in), so it deliberately carries ids and NO
+ *  recency — nothing cross-host ever compares two hosts' clocks. No separate
+ *  count: a count that could disagree with `awaitingIds` is a second source of
+ *  truth for one fact, so the count is DERIVED at every read site as
+ *  `awaitingIds.length` (see `HostSelectorStrip.tsx`'s `awaiting()`), never
+ *  carried on the wire. */
 export const PadiUrgencySchema = z.object({
-  /** Count of terminals whose agent is awaiting the user (`awaiting_user`). */
-  awaiting: z.number().int().nonnegative(),
-  /** The ids of those awaiting terminals — for a badge deep-link to focus one. */
+  /** The ids of the terminals whose agent is awaiting the user
+   *  (`awaiting_user`) — for a badge deep-link to focus one, and for the badge
+   *  COUNT (`.length`), read at the consumer, never duplicated here. */
   awaitingIds: z.array(TerminalIdSchema),
 });
 export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
@@ -537,7 +541,7 @@ export const padiSurface = defineSurface({
      *  registry fold is the sole writer. */
     urgency: {
       schema: PadiUrgencySchema,
-      default: { awaiting: 0, awaitingIds: [] } satisfies PadiUrgency,
+      default: { awaitingIds: [] } satisfies PadiUrgency,
       verbs: ["get"],
     },
     /** Host-side build-currency facts — today the `expectedKaval` axis (the kaval

@@ -7,8 +7,10 @@
  *
  *  `lastActivityAt` is bumped only on agent semantic-key transitions
  *  (`packages/server/src/meta/agent.ts`), so terminals that never hosted an
- *  agent stay at `0` and are excluded — staleness only applies to terminals
- *  whose attention state has actually been observed at some point.
+ *  agent stay `null` (the honest never-active reading — see `AgentMemorySchema`
+ *  in `@kolu/terminal-workspace/schema`) and are excluded — staleness only
+ *  applies to terminals whose attention state has actually been observed at
+ *  some point.
  *
  *  The active threshold flows from `activityWindowThresholdMs()` in
  *  `activityWindow.ts` — a per-device persisted choice exposed through
@@ -29,18 +31,18 @@ const TICK_MS = 60_000;
 
 /** Pure stale predicate.
  *
- *  Stale ⇔ `lastActivityAt > 0` AND `now - lastActivityAt > thresholdMs`.
- *  A `null` threshold disables the feature (never stale). The
- *  `lastActivityAt === 0` guard excludes terminals whose agent
- *  transitions have never been observed (plain shells, brand-new
- *  terminals). */
+ *  Stale ⇔ `lastActivityAt` is a real epoch AND `now - lastActivityAt >
+ *  thresholdMs`. A `null` threshold disables the feature (never stale). A
+ *  `null` `lastActivityAt` — the honest never-active reading, never an
+ *  in-band `0` — excludes terminals whose agent transitions have never been
+ *  observed (plain shells, brand-new terminals). */
 export function isStale(
-  lastActivityAt: number,
+  lastActivityAt: number | null,
   now: number,
   thresholdMs: number | null,
 ): boolean {
   if (thresholdMs === null) return false;
-  if (lastActivityAt === 0) return false;
+  if (lastActivityAt === null) return false;
   return now - lastActivityAt > thresholdMs;
 }
 
@@ -63,7 +65,7 @@ const getNowTicker = createSharedRoot<Accessor<number>>(() => {
  *  invoking it inside a tracking context (JSX, `createMemo`) subscribes
  *  to both the periodic tick and the user's activity-window choice, so
  *  views re-bucket automatically when either advances. */
-export function useStaleCheck(): (lastActivityAt: number) => boolean {
+export function useStaleCheck(): (lastActivityAt: number | null) => boolean {
   const tick = getNowTicker();
   return (lastActivityAt) =>
     isStale(lastActivityAt, tick(), activityWindowThresholdMs());
@@ -76,16 +78,17 @@ export function useStaleCheck(): (lastActivityAt: number) => boolean {
  *  identical to `useStaleCheck`'s — without this, `isStale` (strict `>`)
  *  and `idleBucketFor` (inclusive `>=` on the first bucket) would
  *  disagree at the exact `now - lastActivityAt === thresholdMs` tick.
- *  The shared gate also carries the `lastActivityAt === 0` plain-shell
+ *  The shared gate also carries the never-active (`null`) plain-shell
  *  exclusion. */
 export function useIdleClassifier(): (
-  lastActivityAt: number,
+  lastActivityAt: number | null,
 ) => IdleBucketKey | null {
   const tick = getNowTicker();
   return (lastActivityAt) => {
     const now = tick();
     if (!isStale(lastActivityAt, now, activityWindowThresholdMs())) return null;
-    return idleBucketFor(now - lastActivityAt);
+    // `isStale` already excluded `null`, so this is a real epoch.
+    return idleBucketFor(now - (lastActivityAt as number));
   };
 }
 
@@ -111,13 +114,13 @@ export function useDuration(): (startedAtMs: number) => string {
   return (startedAtMs) => formatDuration(tick() - startedAtMs);
 }
 
-/** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `0`
+/** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `null`
  *  (= "no agent transition observed yet"), "just now" under a minute. Single-
  *  unit "ago" suffix over the shared {@link compactDelta} ladder. Plain
  *  `Date.now()` read, not reactive: tooltips and hover panels recompute on
  *  mount, which is finer-grained than the 60s tick anyway. */
-export function formatTimeAgo(ts: number): string {
-  if (ts === 0) return "";
+export function formatTimeAgo(ts: number | null): string {
+  if (ts === null) return "";
   const { value, unit } = compactDelta(Date.now() - ts);
   if (unit === "s") return "just now";
   return `${value}${unit} ago`;

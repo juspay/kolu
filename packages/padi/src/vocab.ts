@@ -493,19 +493,16 @@ export const SavedTerminalSchema = z.discriminatedUnion("state", [
 
 export const SavedSessionSchema = z.object({
   terminals: z.array(SavedTerminalSchema),
-  // NOTE (type audit): `nullable().optional()` is a redundant double-absence —
-  // every writer in this package already states `null` explicitly (never omits
-  // the key) and every reader already normalizes with `?? null`, so ONE spelling
-  // (`.nullable()` alone, `.optional()` dropped) would say what the domain means.
-  // Tightening it is blocked from HERE, though: the field is REQUIRED (not
-  // optional) once `.optional()` is dropped, and two out-of-scope consumers
-  // construct a `SavedSession` object literal (not via `.parse()`) that OMITS
-  // the key — `packages/client/src/importSessionAction.test.ts:18` and
-  // `packages/client/src/sessionTransfer.test.ts:37` — which the tightened type
-  // would then reject at compile time. Fixing those two call sites is a
-  // one-line client-side edit outside this task's padi-only scope.
-  /** Which terminal was active at save time. */
-  activeTerminalId: z.string().nullable().optional(),
+  /** Which terminal was active at save time. ONE absence spelling —
+   *  `.nullable()` with a `null` default, not the redundant
+   *  `.nullable().optional()` double-absence a prior type audit flagged: every
+   *  writer here already states `null` explicitly (never omits the key) and
+   *  every reader already normalizes with `?? null`, so a MISSING key and an
+   *  explicit `null` were always the same domain fact wearing two spellings.
+   *  `.default(null)` keeps `.parse()` total over a legacy blob that omits the
+   *  key (pre-dates this field) — the OUTPUT type is a required `string | null`,
+   *  never `undefined`. */
+  activeTerminalId: z.string().nullable().default(null),
   savedAt: z.number(),
 });
 

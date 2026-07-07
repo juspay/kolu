@@ -466,7 +466,12 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       if (status.state === "degraded" || status.state === "dead") {
         const resolve = currentClosed;
         currentClosed = null;
-        resolve?.({ kind: "exit", code: null, signal: null });
+        // `Endpoint`'s in-process daemon link died with NO child process — a
+        // both-null `{kind: "exit"}` here would render as "agent exited
+        // code=null", the process-exit story for a death that was never a
+        // process exit. `endpoint-down` is the honest variant for exactly
+        // this case (see `ClosedInfo` in `@kolu/surface-remote/session`).
+        resolve?.({ kind: "endpoint-down" });
       }
     },
   });

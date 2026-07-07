@@ -48,7 +48,32 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
  *  (mixed / provisioning) registry's type unchanged; a registry that resolves
  *  ONLY local entries names itself `MapRegistry<K, never>` (or `EntrySession<never>`
  *  directly), and a `"copying"` literal becomes a compile error there — see
- *  `entryConnectionState.test-d.ts`. */
+ *  `entryConnectionState.test-d.ts`.
+ *
+ *  A type audit asked for MORE: per-entry local≠copying narrowing INSIDE one
+ *  mixed `Map<K, EntryStatus>` (`Prov = "copying"`, the shared default) — e.g. a
+ *  key-dependent type that says "entry `local-host`'s state can never be
+ *  `copying`" while a sibling key's can. That is dependent typing a generic
+ *  container shouldn't encode (the value type would have to vary BY KEY, which
+ *  `Map<K, V>` structurally cannot express) — refused, not merely deferred. The
+ *  guarantee already holds two OTHER ways, composed:
+ *   1. **At the producer.** A local entry is only ever resolved from a session
+ *      built over `makeSession<_, never>` (`Prov = never`) — the copying-
+ *      unrepresentable split (juspay/kolu#1716) makes that session's OWN state
+ *      type unable to construct `{ kind: "copying" }` in the first place. So the
+ *      local entry's projected value can never BE `copying`: not because this
+ *      generic container narrows it, but because nothing upstream can hand it
+ *      one.
+ *   2. **The belt, if (1) is ever violated by a future bug.** `serveHostMap`'s
+ *      `resolve()` (`packages/surface-remote/src/serveHostMap.ts`, the `if
+ *      (!session.provisions && state.kind === "copying") throw` guard) checks
+ *      PER-SESSION, at runtime, and fails loud rather than paint a lying
+ *      "warming" chip — pinned by `packages/surface-remote/src/
+ *      serveHostMap.test.ts`'s "serveHostMap belt — a non-provisioning session
+ *      can never project 'copying' (juspay/kolu#1716)" suite (the "BELT: … throws
+ *      LOUD instead of a lying 'warming' chip" case).
+ *  Producer-unrepresentable + a runtime belt is the honest form for a fact a
+ *  generic container's type can't carry per-key — not a type change here. */
 export type EntryConnectionState<Prov extends "copying" | never = "copying"> =
   | { kind: Prov }
   | { kind: "connecting" }

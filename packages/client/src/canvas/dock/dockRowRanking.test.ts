@@ -42,12 +42,14 @@ function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
-    lastActivityAt: 0,
+    lastActivityAt: null,
     ...overrides,
   };
 }
 
-function makeSleepingMeta(lastActivityAt = 0): TerminalMetadata {
+function makeSleepingMeta(
+  lastActivityAt: number | null = null,
+): TerminalMetadata {
   return {
     state: "sleeping",
     sleptAt: 1_700_000_000_000,
@@ -162,17 +164,18 @@ describe("rankDockRows — parked bucket precedence", () => {
   // sleep), NOT `lastActivityAt` (its last agent transition). The previous two
   // tests stub `isStale` to a constant, so they never exercise WHICH timestamp
   // the ranker keys on — these drive the real `isStale` to pin the seam.
-  const realStale = (now: number, thresholdMs: number) => (ts: number) =>
+  const realStale = (now: number, thresholdMs: number) => (ts: number | null) =>
     isStale(ts, now, thresholdMs);
   const NOW = 1_700_000_000_000;
   const WINDOW = 24 * 60 * 60 * 1000; // 24h
 
-  it("parks a plain shell slept long ago — keyed on sleptAt, not lastActivityAt:0", () => {
-    // An agent-less dormant tile carries `lastActivityAt === 0`, which `isStale`
-    // exempts. If the window keyed on it, this tile would NEVER park and old
-    // dormant shells would pile up. Keyed on `sleptAt` (2 days ago) it parks.
+  it("parks a plain shell slept long ago — keyed on sleptAt, not lastActivityAt:null", () => {
+    // An agent-less dormant tile carries `lastActivityAt === null` (honest
+    // never-active), which `isStale` exempts. If the window keyed on it, this
+    // tile would NEVER park and old dormant shells would pile up. Keyed on
+    // `sleptAt` (2 days ago) it parks.
     const meta = {
-      ...makeSleepingMeta(0),
+      ...makeSleepingMeta(null),
       sleptAt: NOW - 2 * WINDOW,
     } as TerminalMetadata;
     const rows = rankDockRows(
@@ -275,8 +278,8 @@ describe("dock ⇄ agentProjection urgency parity (the cross-consumer differenti
 
   for (const state of STATES) {
     it(`ranks a fresh ${state} agent at agentProjection's urgency`, () => {
-      // lastActivityAt > 0 so an idle-urgency agent lands in `idle`, not the
-      // never-touched `none` tail (which carries no agent and no urgency).
+      // A non-null lastActivityAt so an idle-urgency agent lands in `idle`, not
+      // the never-touched `none` tail (which carries no agent and no urgency).
       const meta = makeMeta({ agent: makeAgent(state), lastActivityAt: 1 });
       expect(DOCK_ROW_BUCKET_PRIORITY[bucket(meta, false)]).toBe(
         URGENCY_RANK[agentUrgency(makeAgent(state))],

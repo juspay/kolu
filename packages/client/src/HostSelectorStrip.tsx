@@ -52,7 +52,7 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
     onError: (err: Error) =>
       toast.error(`Host ${label()} urgency error: ${err.message}`),
   });
-  const awaiting = () => urgency.value()?.awaiting ?? 0;
+  const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.

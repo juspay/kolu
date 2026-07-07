@@ -8,10 +8,18 @@ describe("isStale", () => {
 
   it.each([
     {
-      lastActivityAt: 0,
+      lastActivityAt: null,
       thresholdMs: HOUR,
       expected: false,
-      why: "lastActivityAt=0 → never observed, never stale",
+      why: "lastActivityAt=null → never observed, never stale",
+    },
+    {
+      // 0 is no longer an in-band "never observed" sentinel — it is a real
+      // (if absurd) epoch, and the honest form ages it like any other.
+      lastActivityAt: 0,
+      thresholdMs: HOUR,
+      expected: true,
+      why: "lastActivityAt=0 is a REAL epoch now (honest form) — old enough to be stale, not exempted",
     },
     {
       lastActivityAt: now - 30 * 60 * 1000,
