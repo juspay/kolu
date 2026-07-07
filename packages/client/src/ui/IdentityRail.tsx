@@ -26,7 +26,6 @@ import {
   Show,
 } from "solid-js";
 import { match, P } from "ts-pattern";
-import { getClockNow } from "../time/clock";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
 import {
   KavalUpdateBadge,
@@ -34,6 +33,7 @@ import {
 } from "../kaval/KavalUpdateBadge";
 import {
   DAEMON_STATE_PRESENTATION,
+  daemonChannelLive,
   daemonTransportLive,
   formatUptime,
   kavalDot,
@@ -48,13 +48,14 @@ import {
   padiDot,
 } from "../padi/padiPresentation";
 import type { WsStatus } from "../rpc/rpc";
+import { getClockNow } from "../time/clock";
+import KoluInfoDialog from "./KoluInfoDialog";
+import { formatMBCompact, mbText } from "./memory";
+import { clientStale, StaleBadge } from "./StaleBadge";
 import {
   activePadiSurfaceVersion,
   daemonScanBoundHost,
 } from "./useDaemonInventory";
-import KoluInfoDialog from "./KoluInfoDialog";
-import { formatMBCompact, mbText } from "./memory";
-import { clientStale, StaleBadge } from "./StaleBadge";
 import {
   clientHeapUsedBytes,
   kavalMemoryDisplay,
@@ -133,6 +134,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // daemon state, so the column reads "unknown" rather than a stale definite
   // "running" + a uptime climbing off the local clock (the #1568 green-dot class).
   const daemonLive = daemonTransportLive;
+  // The kaval dot/label/uptime read the ACTIVE host's daemonStatus (`daemon()` rides
+  // `useEntry(activeHost)`), so they floor on the FULLER channel liveness — the ws leg AND
+  // the active entry's own connection — while the server/padi dots stay on the ws leg. A
+  // dead remote entry freezes its re-served daemonStatus, so without this the kaval dot
+  // would paint green "running" over a dead remote beside an honestly red host chip (#1568).
+  const kavalLive = daemonChannelLive;
   const [koluDialogOpen, setKoluDialogOpen] = createSignal(false);
   const [padiDialogOpen, setPadiDialogOpen] = createSignal(false);
   const [kavalDialogOpen, setKavalDialogOpen] = createSignal(false);
@@ -197,13 +204,13 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   );
 
   const kavalStateText = (): string => {
-    if (!daemonLive()) return "unknown";
+    if (!kavalLive()) return "unknown";
     const state = daemon()?.state;
     return state ? DAEMON_STATE_PRESENTATION[state].label : "unknown";
   };
 
   const kavalUptimeText = (): string | undefined => {
-    if (!daemonLive() || daemon()?.state !== "connected") return undefined;
+    if (!kavalLive() || daemon()?.state !== "connected") return undefined;
     const startedAt = daemon()?.startedAt;
     return startedAt === undefined
       ? undefined
@@ -298,9 +305,9 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         <IdentityMark logoSrc={KAVAL_LOGO_URL}>
           <StatusDot
             data-daemon-state={
-              daemonLive() ? (daemon()?.state ?? "unknown") : "unknown"
+              kavalLive() ? (daemon()?.state ?? "unknown") : "unknown"
             }
-            class={kavalDot(daemon()?.state, daemonLive())}
+            class={kavalDot(daemon()?.state, kavalLive())}
           />
         </IdentityMark>
         <span class="text-fg">Kaval</span>

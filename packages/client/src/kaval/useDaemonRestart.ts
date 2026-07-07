@@ -17,7 +17,7 @@ import type { DaemonStatus } from "@kolu/padi/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { activeHost, padiRpcOf } from "../wire";
-import { daemonTransportLive, liveWarming } from "./useDaemonStatus";
+import { daemonChannelLive, liveWarming } from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
 // window immediately (before the surface state flips) so a double-click can't
@@ -34,7 +34,7 @@ const [restarting, setRestarting] = createSignal(false);
  *  DegradedCanvas disable on this, so the two buttons can't disagree on what
  *  counts as in flight.
  *
- *  The `liveWarming(status?.state, daemonTransportLive())` arm is exactly
+ *  The `liveWarming(status?.state, daemonChannelLive())` arm is exactly
  *  `daemonWarming()`'s body (both project from the shared `liveWarming`, so both
  *  inherit the SAME transport-liveness floor: over a dead/half-open link the
  *  warming claim reads false, and the button can't stick disabled beside the grey
@@ -46,7 +46,7 @@ const [restarting, setRestarting] = createSignal(false);
  *  (App.tsx, useTerminalCrud, commands) are the ones without their own click
  *  signal to fold in. */
 export function restartInFlight(status: DaemonStatus | undefined): boolean {
-  return restarting() || liveWarming(status?.state, daemonTransportLive());
+  return restarting() || liveWarming(status?.state, daemonChannelLive());
 }
 
 /** Restart the local kaval daemon, preserving the session. Safe to call from

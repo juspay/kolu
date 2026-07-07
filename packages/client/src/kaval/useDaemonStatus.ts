@@ -22,6 +22,7 @@ import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
 import { activeHost, app, padiMap } from "../wire";
 import {
+  channelLive,
   DAEMON_STATE_PRESENTATION,
   liveDownStateWithPadiLink,
   liveWarmingWithPadiLink,
@@ -71,6 +72,27 @@ const sharedDaemonTransportLive = createSharedRoot(() =>
  *  scope. */
 export function daemonTransportLive(): boolean {
   return sharedDaemonTransportLive()();
+}
+
+/** The active host entry's own connection — the THIRD leg of the daemonStatus delivery
+ *  path (see {@link channelLive}). `daemonStatus` rides `useEntry(activeHost)`, so for a
+ *  REMOTE host the server→remote ssh link is part of the channel that refreshes it, a leg
+ *  neither the ws (`daemonTransportLive`) nor the LOCAL padiLink reflects. When the active
+ *  entry is not `connected` (ssh flap/warming/failed) the re-served status is FROZEN stale.
+ *  For LOCAL_HOST the entry is connected whenever the local padi is bound (harmless no-op).
+ *  A reactive accessor; read it inside a tracking scope. */
+function activeEntryConnected(): boolean {
+  return padiMap.entry(activeHost()).state().kind === "connected";
+}
+
+/** The full liveness of the channel delivering THIS host's `daemonStatus`:
+ *  {@link daemonTransportLive} AND {@link activeEntryConnected}. Every kaval-rail consumer
+ *  that paints the ACTIVE host's daemon state — the dot, the running label, the uptime, and
+ *  `downState`/`daemonWarming`/`daemonConnected` — floors on THIS (not the ws leg alone), so
+ *  a dead remote host reads "unknown"/not-connected, never a green "running" over a frozen
+ *  re-served status. A reactive accessor; read it inside a tracking scope. */
+export function daemonChannelLive(): boolean {
+  return channelLive(daemonTransportLive(), activeEntryConnected());
 }
 
 // The daemon-liveness collection rides padi now (W1.R7 — padi supervises its
@@ -150,7 +172,7 @@ export function downState(): "dead" | "degraded" | undefined {
   return liveDownStateWithPadiLink(
     padiLinkState(),
     localDaemonStatus()?.state,
-    daemonTransportLive(),
+    daemonChannelLive(),
   );
 }
 
@@ -185,7 +207,7 @@ export function daemonWarming(): boolean {
   return liveWarmingWithPadiLink(
     padiLinkState(),
     localDaemonStatus()?.state,
-    daemonTransportLive(),
+    daemonChannelLive(),
   );
 }
 

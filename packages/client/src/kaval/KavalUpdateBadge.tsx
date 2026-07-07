@@ -19,7 +19,7 @@ import { type Component, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { activeHost, padiMap } from "../wire";
 import { kavalStale } from "./kavalCurrency";
-import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
+import { daemonChannelLive, localDaemonStatus } from "./useDaemonStatus";
 
 // A module-level standing subscription to padi's `status` cell (the same pattern
 // useDaemonStatus uses for the daemonStatus collection). The `expectedKaval` axis
@@ -57,7 +57,7 @@ export const kavalUpdatePending = (): boolean => {
     expectedKaval()?.staleKey,
     status?.identity?.staleKey,
     status?.state,
-    daemonTransportLive(),
+    daemonChannelLive(),
   );
 };
 

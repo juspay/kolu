@@ -1,6 +1,7 @@
 import type { DaemonState } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import {
+  channelLive,
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
   kavalDot,
@@ -168,5 +169,47 @@ describe("the padi-link leg — the SECOND floor on the re-served kaval daemonSt
     expect(
       liveDownStateWithPadiLink("connected", "dead", false),
     ).toBeUndefined();
+  });
+});
+
+describe("the active-entry leg — the THIRD floor on the host-scoped kaval daemonStatus (#1568, remote)", () => {
+  // W4 scopes daemonStatus to `useEntry(activeHost)`. On a remote ssh flap the browser↔
+  // kolu-server ws AND the local padiLink stay up while the remote entry's own ssh link
+  // dies and its re-served daemonStatus FREEZES at `connected`. Without this leg the kaval
+  // dot paints green "running" over a dead remote beside a red host chip — the #1568 lie.
+
+  it("channelLive: the channel is live ONLY when the transport AND the active entry are both connected", () => {
+    expect(channelLive(true, true)).toBe(true);
+    // The active entry is NOT connected (remote ssh flap): the channel is dead even though
+    // the browser transport is live — this is the exact defect the leg closes.
+    expect(channelLive(true, false)).toBe(false);
+    // A dead transport floors regardless of the entry.
+    expect(channelLive(false, true)).toBe(false);
+    expect(channelLive(false, false)).toBe(false);
+  });
+
+  it("kavalDot: a `connected` daemon over a live transport but a non-connected active entry reads UNKNOWN, not green", () => {
+    // The concrete defect: server-published `connected` + live ws, but the active REMOTE
+    // entry is not connected → the dot must be grey "unknown", never bg-ok "running".
+    expect(kavalDot("connected", channelLive(true, false))).toBe(
+      DAEMON_UNKNOWN_DOT,
+    );
+    expect(kavalDot("connected", channelLive(true, false))).not.toBe(
+      toneDot.ok,
+    );
+    // Both legs live → the daemon state refines the tone as before.
+    expect(kavalDot("connected", channelLive(true, true))).toBe(toneDot.ok);
+  });
+
+  it("liveDownState/liveWarming inherit the floor when fed channelLive (a non-connected entry ⇒ unknown, not down/warming)", () => {
+    // Routing the *WithPadiLink floors through channelLive means a dead remote entry reads
+    // unknown (undefined down-state, not-warming) — daemonConnected() therefore reads false.
+    const dead = channelLive(true, false);
+    expect(
+      liveDownStateWithPadiLink("connected", "dead", dead),
+    ).toBeUndefined();
+    expect(liveWarmingWithPadiLink("connected", "restarting", dead)).toBe(
+      false,
+    );
   });
 });

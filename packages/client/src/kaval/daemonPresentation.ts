@@ -235,3 +235,28 @@ export function liveDownStateWithPadiLink(
   if (padiLink !== "connected") return undefined;
   return liveDownState(state, live);
 }
+
+// ── The active-entry leg: the THIRD floor on the (host-scoped) kaval daemonStatus ──
+//
+// W4 scopes `daemonStatus` to `useEntry(activeHost)`, so for a REMOTE active host the
+// browser↔kolu-server ws (`transportLive`) and kolu-server's binding to its LOCAL padi
+// (`padiLink`) are BOTH up while the leg that actually delivers the remote host's status —
+// the server→remote ssh link (the entry's own `EntryStatus`) — is dead. On that flap the
+// re-served `daemonStatus` FREEZES stale at `connected`, so a rail floored only on the two
+// local legs paints a green "running" kaval dot over a dead remote daemon, contradicting
+// the (honestly red) host chip — the #1568 green-over-dead class `foldState` floors on the
+// chip, relocated to the rail. This leg closes it: the daemonStatus channel is live only
+// when the active entry is itself `connected`. For LOCAL_HOST the entry is connected
+// whenever the local padi is bound (redundant with the two local legs, so a harmless no-op).
+
+/** The daemonStatus channel's TRUE liveness: the ws transport (`transportLive`) AND the
+ *  active host entry's own connection (`entryConnected`). Every kaval-rail read of the
+ *  ACTIVE host's daemon state floors on THIS, not `transportLive` alone, so a dead remote
+ *  entry reads "unknown" — never a green "running" over a frozen re-served status. Pure so
+ *  the third leg is pinnable without a socket, like {@link kavalDot}. */
+export function channelLive(
+  transportLive: boolean,
+  entryConnected: boolean,
+): boolean {
+  return transportLive && entryConnected;
+}

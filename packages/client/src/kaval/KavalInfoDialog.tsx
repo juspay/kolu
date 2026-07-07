@@ -24,7 +24,7 @@ import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
-  daemonTransportLive,
+  daemonChannelLive,
   formatUptime,
   kavalDot,
 } from "./useDaemonStatus";
@@ -104,7 +104,7 @@ const KavalInfoDialog: Component<{
       expectedKaval()?.staleKey,
       props.status?.identity?.staleKey,
       props.status?.state,
-      daemonTransportLive(),
+      daemonChannelLive(),
     );
   // The bound host's active kaval is still at the pre-padi legacy address (adopted on
   // upgrade) — so the Restart-kaval button (which recycles the BOUND host's kaval via
@@ -148,10 +148,10 @@ const KavalInfoDialog: Component<{
           {(s) => (
             <div class="flex min-w-0 items-center gap-2">
               <span
-                class={`inline-block h-2 w-2 rounded-full ${kavalDot(s().state, daemonTransportLive())}`}
+                class={`inline-block h-2 w-2 rounded-full ${kavalDot(s().state, daemonChannelLive())}`}
               />
               <Show
-                when={daemonTransportLive()}
+                when={daemonChannelLive()}
                 fallback={
                   <span class="text-xs font-medium text-fg-3">unknown</span>
                 }
@@ -160,7 +160,7 @@ const KavalInfoDialog: Component<{
                   {DAEMON_STATE_PRESENTATION[s().state].label}
                 </span>
               </Show>
-              <Show when={daemonTransportLive() && s().startedAt}>
+              <Show when={daemonChannelLive() && s().startedAt}>
                 {(t) => (
                   <span class="truncate text-[11px] tabular-nums text-fg-3">
                     up {formatUptime(clockNow() - t())}
