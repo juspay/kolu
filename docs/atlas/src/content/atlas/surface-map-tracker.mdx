@@ -13,12 +13,15 @@ updated: 2026-07-07
 
 Legend: ✅ done · 🔄 in flight · ⏸ blocked · ⬜ not started
 
-### Blocked on srid (the ONE review sitting — `w4-types-report.md` in the RT-fable worktree root)
+### Blocked on srid — the four decisions, self-contained (nothing else to read)
 
-- ⏸ **Decision 1** — `EntryStatus<Cause>` generic (padi causes stay out of the generic map pkg) · *rec: yes*
-- ⏸ **Decision 2** — typed `running`/`expected` on the contract-skew variant (no version string-scan) · *rec: yes*
-- ⏸ **Decision 3** — remote ownership via existing anti-livelock detection (stop + fail-honest, no new control-core RPC; remote-isolation env is the primary defense) · *rec: yes*
-- ⏸ **Decision 4 (addendum)** — per-host canvas ownership shape · *rec: (B) `Map<HostKey, HostViewState>` — state survives switch-away in memory, savedSession seeds first visit, GL contexts active-host-only*
+**Decision 1 — where do padi's failure-cause names live?** The new `EntryStatus.failed` carries a typed `cause` (e.g. `contract-skew-refused`, `cross-supervisor`, `drv-unbaked`) so the UI switches on a value instead of parsing reason strings. But `EntryStatus` lives in the *generic* `@kolu/surface-map` package, and those cause names are padi-specific. Options: bake the names into the generic package (cheap, but the framework now "knows" padi), or make it generic — `EntryStatus<Cause>`, with kolu instantiating `EntryStatus<PadiEntryFailedCause>` (clean boundary, a bit more type plumbing through the map's signatures). · ***rec: generic** — the repo's own volatility-boundary rule.*
+
+**Decision 2 — typed version pair on contract-skew.** When a host's padi runs an older contract, the UI shows "running v1.2, needs v1.3". Today those two versions would be fished out of the human-readable reason string. Option: the contract-skew cause variant carries `running` and `expected` as real typed fields; the header badge and the card read fields, zero string-scanning. · ***rec: yes.***
+
+**Decision 3 — how does a binder detect "someone else owns this REMOTE padi"?** Locally the fix is a pid-gate file (same trick padi already uses). Across ssh a pid-gate can't work. Options: (1) a new `claimSupervisor` RPC on padi's frozen control core (precise, but grows the never-changing protocol); (2) refuse to drain when >1 client is connected (cheap but over-conservative — a `padi-tui` watcher would block your own restart); (3) reuse the anti-livelock fight-detection that ALREADY exists (padi drained but a different instance came back ⇒ someone else is supervising) — on detecting it, stop and fail-honest instead of riding; and lean on the new `KOLU_REMOTE_PADI_STATE_DIR` isolation as the primary way dev and prod never share a remote padi at all. · ***rec: (3)** — the detection exists, no frozen-protocol change, isolation does the heavy lifting.*
+
+**Decision 4 — who owns the per-host canvas state?** (activeId, MRU, split layout, restore latches — the blank-canvas/unrestored-splits bugs.) Options: **(A)** an entry-scoped reactive owner — each switch disposes the old host's view state and re-hydrates from that host's savedSession (simpler lifecycle; switch-back re-derives rather than remembers); **(B)** a `Map<HostKey, HostViewState>` — each host's canvas state survives switch-away *in memory*, savedSession seeds only the first visit, and only the active host holds live WebGL contexts (released/re-acquired on switch). · ***rec: (B)** — "restore exactly what I left" is literally the behavior you asked for; the state is just ids and order, so keeping it is free.*
 
 One "approved as recommended" (or amendments) unblocks everything below marked ⏸.
 
