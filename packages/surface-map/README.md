@@ -154,9 +154,15 @@ the `keySchema` can also brand directly with it (both go through the same zod br
 
 ## Status
 
-Vertical slice, proven end-to-end by a mock-entry harness (two entries, switch, dedup,
-typed-end on removal, membership + status projection, and an rpc that folds `{mapKey}` to
-the keyed entry + rejects an absent key typed). The wire is complete for a consumer:
+Shipped and gauntleted. **kolu** serves its padi terminal surface as a host map over a warm
+ssh pool: `serveHostMap` folds `buildRemotePool`'s membership + per-session state into the
+`MapRegistry`, projecting each host's `EntryStatus` (warming → connected + clock-offset →
+failed). The **kolu client** rides `connectSurfaceMap` wholesale — always a map, so an unset
+host env is simply `N=1` with the local host as the sole member — and renders the gated,
+command-palette-only selector strip + per-host urgency chips from the entry lens. Proven
+end-to-end by a mock-entry harness (two entries, switch, dedup, typed-end on removal,
+membership + status projection, an rpc that folds `{mapKey}` to the keyed entry + rejects an
+absent key typed) and by kolu's own adoption. The wire is complete for a consumer:
 
 - **Uniform fold envelope.** Every proc folds as `{ mapKey, input }` — one wire shape
   for any input (object, primitive, or none), and an entry input that itself carries a
@@ -166,5 +172,5 @@ the keyed entry + rejects an absent key typed). The wire is complete for a consu
   a chip floors its status on real transport liveness (`client.live`); constant-`true`
   only for an in-process `directLink`.
 
-Phase 2 (kolu adoption) then serves the real padi surface over the warm ssh pool as the
-`MapRegistry`, and renders the gated selector strip + urgency chips on this client.
+Next consumer: **drishti** adopts the same `serveHostMap` / `connectSurfaceMap` path (its PR
+follows), retiring its hand-rolled keyed registry.
