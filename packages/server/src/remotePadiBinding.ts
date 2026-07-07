@@ -144,10 +144,12 @@ export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
   }
 }
 
-/** Parse + validate the baked `{ system → padi .drv }` map EAGERLY — a missing /
- *  malformed map is a BUILD defect (kolu-server was not run from its Nix wrapper), so
- *  it throws a PLAIN loud Error that crashes boot, NOT a deferred `ResolveDrvError` the
- *  session would retry-then-fail. Fail-fast per conventions.md. */
+/** Parse + validate the baked `{ system → padi .drv }` map. Called LAZILY from
+ *  `makeResolvePadiDrv` (at the first dial), NOT at seed time: a missing/malformed map is
+ *  a BUILD defect (kolu-server not run from its Nix wrapper), so it throws a loud Error
+ *  the caller re-raises as a TERMINAL `ResolveDrvError` — that entry settles
+ *  `failed(reason)` while the server + the healthy local default keep serving (F6).
+ *  Fail-fast, but at the ENTRY scope, never boot. */
 function parsePadiDrvMap(): Record<string, string> {
   const raw = process.env[PADI_AGENT_DRVS_ENV]?.trim();
   if (!raw || raw === "{}") {
@@ -177,15 +179,27 @@ function parsePadiDrvMap(): Record<string, string> {
 }
 
 /** Build the `resolveDrvPath` thunk `sshConnector` runs at the top of EVERY dial:
- *  probe the remote arch (`resolveSystem`, an ssh round-trip) and pick the baked padi
- *  `.drv` for it. A host whose arch has no baked drv is a TERMINAL config fault
- *  (`ResolveDrvError` with `"remote"`); an unreachable host makes `resolveSystem`
- *  reject plainly → `"network"` (retry). */
-function makeResolvePadiDrv(
-  host: string,
-  map: Record<string, string>,
-): () => Promise<string> {
+ *  parse the baked drv map, probe the remote arch (`resolveSystem`, an ssh round-trip),
+ *  and pick the baked padi `.drv` for it. The parse is LAZY — inside this thunk, not at
+ *  seed time — so an ABSENT/malformed map (a non-Nix-wrapper dev run) becomes THIS
+ *  entry's TERMINAL fault (the session goes `failed`, the chip reads the reason), NOT a
+ *  boot-brick that takes the whole server + the healthy local default down with it (F6:
+ *  the seed invariant — a seeded remote with no drv map is that entry's `failed(reason)`,
+ *  never a crash; boot never parses per-host config eagerly). A host whose arch has no
+ *  baked drv is likewise a TERMINAL config fault (`ResolveDrvError` `"remote"`); an
+ *  unreachable host makes `resolveSystem` reject plainly → `"network"` (retry). */
+function makeResolvePadiDrv(host: string): () => Promise<string> {
   return async () => {
+    // Parse the baked map here (lazy). A missing/malformed map can't self-heal on a
+    // retry, so re-raise it as a TERMINAL `ResolveDrvError("remote")` — the session
+    // settles on `failed` and the entry publishes the reason, rather than retrying a
+    // config/deploy fault forever.
+    let map: Record<string, string>;
+    try {
+      map = parsePadiDrvMap();
+    } catch (err) {
+      throw new ResolveDrvError((err as Error).message, "remote");
+    }
     const system = await resolveSystem(host);
     const drv = map[system];
     if (!drv) {
@@ -249,9 +263,11 @@ export function ensureRemotePadiBinding(
     { host },
     `binding a REMOTE padi over ssh — one keyed host in the pool that ${KOLU_PADI_HOST_ENV} seeds`,
   );
-  // The STATIC-config axis, decided ONCE here: a missing/malformed BAKED map crashes
-  // boot loudly (fail-fast) instead of degrading the canvas through a retry loop.
-  const drvMap = parsePadiDrvMap();
+  // The baked drv map is parsed LAZILY inside `makeResolvePadiDrv` (at the first dial),
+  // NOT here at seed time: an absent map (a non-Nix-wrapper run) must fault THIS entry,
+  // not brick boot for the whole pool (F6). `ensureRemotePadiBinding` therefore never
+  // throws at seed — it always returns a session that warms, then fails loud if the map
+  // is missing.
   const extraArgs = composePadiExtraArgs(opts.spawnVersion);
 
   const binderVersion = deps.binderVersion ?? PADI_SURFACE_VERSION;
@@ -290,7 +306,7 @@ export function ensureRemotePadiBinding(
     host,
     binary: "padi",
     extraArgs,
-    resolveDrvPath: makeResolvePadiDrv(host, drvMap),
+    resolveDrvPath: makeResolvePadiDrv(host),
   });
   const rawConnector: Connector<PadiSurfaceClient> = async (ctx) => {
     const conn = await inner(ctx);
