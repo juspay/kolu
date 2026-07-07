@@ -30,6 +30,7 @@ import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { LOCAL_LOCATION, type SavedSleepingTerminal } from "@kolu/padi/surface";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
+import { padiFold } from "../support/padiEnvelope.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { codexMockCwd } from "./codex_steps.ts";
@@ -153,7 +154,7 @@ async function moveSleepingTile(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: { id, layout } }),
+      data: JSON.stringify({ json: padiFold({ id, layout }) }),
     },
   );
   assert.ok(resp.ok(), `chrome/setCanvasLayout failed: ${resp.status()}`);
@@ -516,10 +517,10 @@ Given(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         data: JSON.stringify({
-          json: {
+          json: padiFold({
             terminals: [good, malformed],
             savedAt: this.savedSessionSavedAt,
-          },
+          }),
         }),
       },
     );

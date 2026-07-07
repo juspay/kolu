@@ -27,6 +27,7 @@ import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
 import * as engine from "../screencast/engine.ts";
 import { getRecording } from "../screencast/recordings/index.ts";
+import { padiFold } from "./padiEnvelope.ts";
 import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -900,7 +901,7 @@ async function waitForRemotePadiLive(): Promise<void> {
       const res = await fetch(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ json: padiFold() }),
         // Bound each attempt so a wedged request (TCP accepted, handler hung
         // mid-boot) can't outlive the 120s deadline this function promises — a bare
         // `await fetch` re-checks the deadline only BETWEEN attempts, so one hung
@@ -1007,7 +1008,9 @@ Before(async function (this: KoluWorld, scenario) {
   // own reset endpoint — fired in parallel so the per-scenario setup cost
   // stays the same.
   await Promise.all([
-    postJSON(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {}),
+    postJSON(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {
+      json: padiFold(),
+    }),
     postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
       json: {
         // Reset all preferences to defaults (newTerminalTheme "inherit" so new
@@ -1043,9 +1046,11 @@ Before(async function (this: KoluWorld, scenario) {
       },
     }),
     postJSON(`${baseUrl}/rpc/surface/padi/activityFeed/test__set`, {
-      json: { recentRepos: [], recentAgents: [] },
+      json: padiFold({ recentRepos: [], recentAgents: [] }),
     }),
-    postJSON(`${baseUrl}/rpc/surface/padi/session/test__set`, { json: null }),
+    postJSON(`${baseUrl}/rpc/surface/padi/session/test__set`, {
+      json: padiFold(null),
+    }),
   ]);
 
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
