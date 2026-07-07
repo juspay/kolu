@@ -130,6 +130,12 @@ const HostSelectorStrip: Component = () => {
       );
   };
 
+  // The ENTIRE render is gated by `hostGateOpen(gate.value())` — the SINGLE predicate
+  // that decides whether any strip/chip exists at all. Keep it the SOLE gate path: the
+  // gate-closed done-criterion pin (`HostSelectorStrip.test.ts`) proves "closed ⇒ zero
+  // multi-host UI" by pinning THIS predicate, so a second gate path (a CSS hide, an early
+  // return, another `when` condition) would silently void that pin. Closed ⇒ the `<Show>`
+  // mounts nothing (absent from the DOM, not hidden) ⇒ pixel-identical single-host canvas.
   return (
     <Show when={hostGateOpen(gate.value())}>
       <div
