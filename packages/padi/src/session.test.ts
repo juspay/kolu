@@ -28,7 +28,6 @@ import {
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID } from "./surface.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import {
   getSavedSession,
@@ -49,6 +48,7 @@ import {
   type AuthoredActiveTerminal,
   AuthoredParkedSchema,
   type AuthoredParkedTerminal,
+  encodeHostLocation,
   LOCAL_LOCATION,
   type SavedActiveTerminal,
   type SavedSession,
@@ -269,7 +269,9 @@ describe("session autosave — the PATH-B session-clobber guard", () => {
     const savedBefore = getSavedSession();
 
     // The supervisor flips the local kaval to degraded on daemon death.
-    publishDaemonStatus(LOCAL_HOST_ID, { state: "degraded" });
+    publishDaemonStatus(encodeHostLocation(LOCAL_LOCATION), {
+      state: "degraded",
+    });
 
     // The degraded transition writes ONLY status — never the session, never the
     // registry. Nobody wires a session-clobber into the degraded path.

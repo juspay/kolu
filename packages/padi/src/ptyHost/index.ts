@@ -39,7 +39,7 @@ import {
 } from "kaval";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import { log } from "../log.ts";
-import { LOCAL_HOST_ID } from "../surface.ts";
+import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
   connectKaval,
   type KavalConnectionMetadata,
@@ -246,7 +246,7 @@ export async function ensureLocalEndpoint(opts: {
   // when an upgrade adopts the port kaval, and a spawn resets it back.
   setLocalSocketPath(socketPath);
   const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
-    hostId: LOCAL_HOST_ID,
+    hostId: encodeHostLocation(LOCAL_LOCATION),
     gatePath: kavalGatePath(socketPath),
     socketPath,
     driver: localKavalDriver(socketPath),

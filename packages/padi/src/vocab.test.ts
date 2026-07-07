@@ -21,6 +21,8 @@ import {
   type AuthoredActiveTerminal,
   type AuthoredSleepingTerminal,
   composeTerminalMetadata,
+  decodeHostLocation,
+  encodeHostLocation,
   LOCAL_LOCATION,
 } from "./vocab.ts";
 
@@ -118,5 +120,34 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
     expect(wire.pr).toEqual({ kind: "absent" });
     expect(wire.agent).toEqual(claude("ses-A"));
     expect(wire.foreground).toEqual({ name: "vim", title: null });
+  });
+});
+
+describe("encodeHostLocation / decodeHostLocation — the daemon-status key codec", () => {
+  it("round-trips the local variant through LOCAL_LOCATION", () => {
+    expect(encodeHostLocation(LOCAL_LOCATION)).toBe("local");
+    expect(decodeHostLocation(encodeHostLocation(LOCAL_LOCATION))).toEqual(
+      LOCAL_LOCATION,
+    );
+  });
+
+  it("round-trips a remote variant through the `remote:` prefix", () => {
+    const remote = { kind: "remote", hostId: "zest" } as const;
+    expect(encodeHostLocation(remote)).toBe("remote:zest");
+    expect(decodeHostLocation(encodeHostLocation(remote))).toEqual(remote);
+  });
+
+  it('a remote hostId literally "local" encodes to "remote:local" — never confused with the local variant', () => {
+    const remote = { kind: "remote", hostId: "local" } as const;
+    expect(encodeHostLocation(remote)).toBe("remote:local");
+    expect(decodeHostLocation("remote:local")).toEqual(remote);
+    expect(decodeHostLocation("remote:local")).not.toEqual(LOCAL_LOCATION);
+  });
+
+  it("decodeHostLocation throws loudly on a non-canonical string", () => {
+    expect(() => decodeHostLocation("")).toThrow();
+    expect(() => decodeHostLocation("zest")).toThrow();
+    expect(() => decodeHostLocation("remote:")).toThrow();
+    expect(() => decodeHostLocation("Local")).toThrow();
   });
 });

@@ -28,17 +28,16 @@ import {
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
 import {
-  type KavalDaemon,
   discoverKavalDaemons,
+  type KavalDaemon,
   type ptyHostSurface,
 } from "kaval";
 import { log } from "./log.ts";
 import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
-import { LOCAL_HOST_ID } from "./surface.ts";
 import { readDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import {
-  type PadiDaemon,
   discoverPadiDaemons,
+  type PadiDaemon,
   padiKavalSocketPath,
 } from "./stateRoot.ts";
 import type {
@@ -46,6 +45,7 @@ import type {
   RunningKaval,
   RunningPadi,
 } from "./surface.ts";
+import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
 
 /** The best-effort status a kaval socket answered — every field `null` when the
  *  probe failed / the daemon didn't answer (honest "unknown", never a fake value). */
@@ -244,7 +244,8 @@ export const HOST_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
  *  no live daemon marks nothing. */
 function heldKaval(stateRoot: string): { socket: string; atLegacy: boolean } {
   const digest = padiKavalSocketPath(stateRoot);
-  const held = readDaemonStatus(LOCAL_HOST_ID)?.socketPath ?? null;
+  const held =
+    readDaemonStatus(encodeHostLocation(LOCAL_LOCATION))?.socketPath ?? null;
   return {
     socket: held ?? digest,
     // padi holds a non-digest socket ⟹ it adopted a legacy `kaval-<port>/` (padi wrote a

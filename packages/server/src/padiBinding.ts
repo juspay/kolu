@@ -270,7 +270,8 @@ export interface EnsurePadiBindingOptions {
 }
 
 /** The single local padi host id — the endpoint's status key. Distinct from
- *  kaval's `LOCAL_HOST_ID` (kaval now lives INSIDE padi). */
+ *  kaval's daemon-status key (padi's own `HostLocation` axis, encoded via
+ *  `encodeHostLocation` — kaval now lives INSIDE padi). */
 export const PADI_HOST_ID = "padi-local";
 
 /**

@@ -67,6 +67,18 @@ import {
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import {
+  FsListAllInputSchema,
+  FsListAllOutputSchema,
+  GitDiffInputSchema,
+  GitDiffOutputSchema,
+  GitStatusInputSchema,
+  GitStatusOutputSchema,
+  WorktreeCreateInputSchema,
+  WorktreeCreateOutputSchema,
+  WorktreeRemoveInputSchema,
+} from "kolu-git/schemas";
+import { z } from "zod";
+import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
 } from "./transcriptSchema.ts";
@@ -89,18 +101,6 @@ import {
   TerminalInfoSchema,
   TerminalOnExitOutputSchema,
 } from "./vocab.ts";
-import {
-  FsListAllInputSchema,
-  FsListAllOutputSchema,
-  GitDiffInputSchema,
-  GitDiffOutputSchema,
-  GitStatusInputSchema,
-  GitStatusOutputSchema,
-  WorktreeCreateInputSchema,
-  WorktreeCreateOutputSchema,
-  WorktreeRemoveInputSchema,
-} from "kolu-git/schemas";
-import { z } from "zod";
 
 // The terminal VOCABULARY (schemas · records · pure helpers) now lives HERE, in
 // `@kolu/padi` — the terminal-domain authority. Re-exported from this browser-safe
@@ -151,17 +151,6 @@ export type PadiStatus = z.infer<typeof PadiStatusSchema>;
 /** The value a fresh `status` subscriber sees before padi seeds it — no expected
  *  kaval known yet. */
 export const DEFAULT_PADI_STATUS: PadiStatus = {};
-
-/** The single local kaval host's id — the key the local endpoint reports its daemon
- *  status under (the `daemonStatus` collection key below), and consumers read by (boot
- *  adoption's `setAdoptedCount`, the client's `useDaemonStatus`). Lives HERE, in the same
- *  browser-safe module that declares the `daemonStatus` collection it keys, so both padi's
- *  node runtime and the client read padi's OWN key rather than re-typing the literal. A
- *  *daemon* identity (the kaval host), distinct from a terminal's `location` (a
- *  `HostLocation` DU in kolu-common) and from the branded map key `LOCAL_HOST`
- *  (kolu-common/hostKey); a terminal placed on the local endpoint carries
- *  `{ kind: "local" }`, not this string. */
-export const LOCAL_HOST_ID = "local";
 
 // ── Host-daemon inventory rows (the "Running daemons" leak diagnostic) ─────
 //
