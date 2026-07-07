@@ -138,7 +138,6 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       filePath: props.filePath,
     }),
     live: () => padiMap.live(),
-    pulseName: "Code tab: file content pulse",
     pulseProc: () => padiRpcOf(activeHost()).surface.subscribeFileChange.get,
     pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),

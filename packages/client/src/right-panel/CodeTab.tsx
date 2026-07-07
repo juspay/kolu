@@ -317,7 +317,6 @@ const CodeTab: Component<{
       const p = repoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
-    pulseName: "Code tab: local status pulse",
     query: (i, signal) =>
       padiRpcOf(activeHost()).surface.git.getStatus(i, { signal }),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
@@ -332,7 +331,6 @@ const CodeTab: Component<{
       const p = repoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
-    pulseName: "Code tab: branch status pulse",
     query: (i, signal) =>
       padiRpcOf(activeHost()).surface.git.getStatus(i, { signal }),
     onError: (err) => {
@@ -355,7 +353,6 @@ const CodeTab: Component<{
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    pulseName: "Code tab: active status pulse",
     query: (i, signal) =>
       padiRpcOf(activeHost()).surface.git.getStatus(i, { signal }),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
@@ -369,7 +366,6 @@ const CodeTab: Component<{
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
-    pulseName: "Code tab: file list pulse",
     query: (i, signal) =>
       padiRpcOf(activeHost()).surface.fs.listAll(i, { signal }),
     onError: (err) => toast.error(`File list stream: ${err.message}`),
@@ -385,7 +381,6 @@ const CodeTab: Component<{
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    pulseName: "Code tab: diff pulse",
     query: (i, signal) =>
       padiRpcOf(activeHost()).surface.git.getDiff(i, { signal }),
     onError: (err) => toast.error(`Git diff stream: ${err.message}`),

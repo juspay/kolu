@@ -51,9 +51,6 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
    *  reconnect-window error swallow (a blip while the socket re-subscribes). Replaces
    *  the old whole-client `health().live` (the map has no single per-host client). */
   live: Accessor<boolean>;
-  /** A debug label for the pulse (retained from the old enrolled-`rawStream` health
-   *  registry, now that the pulse is an unenrolled stream). */
-  pulseName: string;
   /** The pulse streaming procedure as a FACTORY re-derived at each (re)subscribe —
    *  `() => padiRpcOf(activeHost()).surface.<pulse>.get`. A factory, not a pre-bound proc, so
    *  the live-refresh watcher follows the ACTIVE host: the effect re-runs on a host switch

@@ -97,7 +97,6 @@ describe("createPolledQuery", () => {
           const q = createPolledQuery({
             input: () => null,
             live,
-            pulseName: "test",
             pulseProc,
             pulseInput: (i: { repoPath: string }) => ({ repoPath: i.repoPath }),
             query: async () => {
@@ -127,7 +126,6 @@ describe("createPolledQuery", () => {
           const q = createPolledQuery({
             input: () => ({ repoPath: "A" }),
             live,
-            pulseName: "test",
             pulseProc,
             pulseInput: (i) => ({ repoPath: i.repoPath }),
             query: async (i) => {
@@ -157,7 +155,6 @@ describe("createPolledQuery", () => {
           const q = createPolledQuery({
             input: () => ({ repoPath: "A" }),
             live,
-            pulseName: "test",
             pulseProc,
             pulseInput: (i) => ({ repoPath: i.repoPath }),
             query: async (i) => {
@@ -194,7 +191,6 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: repo() }),
           live,
-          pulseName: "test",
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async (i) => {
@@ -230,7 +226,6 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseName: "test",
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {
@@ -262,7 +257,6 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseName: "test",
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {
@@ -296,7 +290,6 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseName: "test",
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => "unused", // no frame fires; pending stays true until the pulse errors
@@ -331,7 +324,6 @@ describe("createPolledQuery", () => {
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
-          pulseName: "test",
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {

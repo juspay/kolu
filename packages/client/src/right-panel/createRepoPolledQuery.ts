@@ -2,7 +2,7 @@
  * `createRepoPolledQuery` — {@link createPolledQuery} specialised to a REPO-scoped
  * padi query. It bakes in the `padi` client, the `subscribeRepoChange` pulse, and
  * the `repoPath` pulse key, so a repo-scoped call site declares only its `input`
- * / `pulseName` / `query` / `onError`.
+ * / `query` / `onError`.
  *
  * This specialisation lives in its OWN module — NOT beside the general
  * `createPolledQuery` — because it imports the concrete `padi` singleton from
@@ -25,8 +25,6 @@ export function createRepoPolledQuery<
 >(config: {
   /** The query input; `null` = idle (no pulse subscription, no query). */
   input: Accessor<Input | null>;
-  /** Health-registry label for the pulse subscription. */
-  pulseName: string;
   /** (Re)invoke the padi procedure on each repo-change pulse frame. */
   query: (input: Input, signal: AbortSignal) => Promise<Result>;
   /** Surface query (and pulse) failures — matches `.use(..., { onError })`. */
