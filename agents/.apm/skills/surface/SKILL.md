@@ -20,7 +20,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 
 | Consumer | Shape | Notable |
 | --- | --- | --- |
-| **kolu** (`client`+`server`) | one browser ⇄ one Node server, ONE ws | single-tier; two sibling surfaces; uses `surface`+`surface-app` only (**not** `-nix-host`) |
+| **kolu** (`client`+`server`) | one browser ⇄ one Node server, ONE ws | single-tier; two sibling surfaces; uses `surface`+`surface-app` only (**not** `-remote`) |
 | **pulam-web** | browser ⇄ Node ⇄ ssh fleet mirror | one ws per host (`/rpc/ws?host=`); `connectSurface`; re-serves `terminalWorkspaceSurface` |
 | **drishti** (`srid/drishti`) | browser ⇄ Node ⇄ ssh agent mirror | the canonical twin; 3 workspaces (common/agent/app) |
 | **odu** (`juspay/odu`) | CI runner: stdio lanes → unix-socket fan-in → CLI/MCP | serve+consume+mirror over every transport at once; `surface-mcp` projection |
@@ -40,7 +40,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 ## Mirror a remote surface (drishti / pulam-web / odu)
 
 1. **Dial the host** — `getHostSession<contract>({host, binary, resolveDrvPath})` (`@kolu/surface-remote`): long-lived, `nix copy`s the agent closure, runs `<bin> --stdio` over ssh, reconnects. `buildHostRegistry` fans out N hosts; one-shot CLIs use `dialAgentOnce` instead.
-2. **Mirror inward** — `pumpRemoteSurface({source, session, makeSink, …})` (`-nix-host`) folds the remote agent's frames into a local `implementSurface` re-serve via a `SurfaceSink` (`makeSink`, `@kolu/surface/mirror`). The parent implements the *same* surface; a remotely-unobservable cell (e.g. connection state) is parent-authoritative.
+2. **Mirror inward** — `pumpRemoteSurface({source, session, makeSink, …})` (`-remote`) folds the remote agent's frames into a local `implementSurface` re-serve via a `SurfaceSink` (`makeSink`, `@kolu/surface/mirror`). The parent implements the *same* surface; a remotely-unobservable cell (e.g. connection state) is parent-authoritative.
 3. **Re-serve** — the local fragment served on `/rpc/ws`, accepted via `acceptSurfaceSocket` (`@kolu/surface-app/server`). Browsers connect with `connectSurface` (`@kolu/surface-app/solid`), which bundles socket + `websocketLink` + `surfaceClient` + a default-on liveness heartbeat.
 
 ## Gotchas (hard-won, all real)

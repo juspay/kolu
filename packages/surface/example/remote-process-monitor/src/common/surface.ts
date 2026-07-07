@@ -102,7 +102,7 @@ export const surface = defineSurface({
       default: DEFAULT_SYSTEM,
     },
     // NOTE: no `connection` cell here. Link health is composed ONLY at the
-    // nix-host re-serve seam via `mirroredSurface(surface)` below — the agent
+    // remote re-serve seam via `mirroredSurface(surface)` below — the agent
     // serves this connection-free base; the parent mirrors it and adds the cell.
   },
   collections: {

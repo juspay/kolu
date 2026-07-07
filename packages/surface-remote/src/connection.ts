@@ -12,7 +12,7 @@
  * `pipeSessionStateToCell`) lives on the package root, which spawns ssh and must
  * not.
  *
- * The cell is composed ONLY at the nix-host re-serve seam — via `mirroredSurface`
+ * The cell is composed ONLY at the remote re-serve seam — via `mirroredSurface`
  * (below), never hand-spread onto a base surface. So the base surface an agent /
  * daemon serves directly (or a one-shot dial reaches) stays connection-FREE: a
  * direct / local link carries no cell at all — NOT an inert stub — because it has
