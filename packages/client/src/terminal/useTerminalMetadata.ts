@@ -138,19 +138,34 @@ export function useTerminalMetadata(deps: {
    *  one of which consumers already render as "unknown", never the raw value. */
   function reprojectClock(record: TerminalMetadata): TerminalMetadata {
     const { toLocal } = padiMap.entry(activeHost()).clock;
-    const lastActivityAt =
-      record.lastActivityAt === undefined
-        ? undefined
-        : (toLocal(record.lastActivityAt) ?? undefined);
+    // 0 is an IN-BAND sentinel across these epochs ("no activity yet" for `lastActivityAt`,
+    // `z.number().default(0)`; the ABSENT/"unknown" form for `startedAt`/`sleptAt`), NOT an
+    // epoch — so it must NOT be reprojected: `toLocal(0)` = `-offset` would forge a garbage
+    // timestamp that isStale/formatTimeAgo/dock-ranking read as a real reading (a fresh remote
+    // shell → "55y ago" → dropped from the dock as "parked"). Only a real, NON-zero epoch is a
+    // host-clock value to translate; 0 (and undefined) pass through untouched. 0 doing double
+    // duty is an overloaded value — a padi-contract union splitting "no activity" from an epoch
+    // is the real fix, not tonight's; this comment stops a future cleanup from reprojecting the
+    // sentinel again.
+    const lastActivityAt = record.lastActivityAt
+      ? (toLocal(record.lastActivityAt) ?? undefined)
+      : record.lastActivityAt;
     const agent =
       "agent" in record && typeof record.agent?.startedAt === "number"
-        ? { ...record.agent, startedAt: toLocal(record.agent.startedAt) ?? 0 }
+        ? {
+            ...record.agent,
+            startedAt: record.agent.startedAt
+              ? (toLocal(record.agent.startedAt) ?? 0)
+              : record.agent.startedAt,
+          }
         : "agent" in record
           ? record.agent
           : undefined;
     const sleptAt =
       "sleptAt" in record && typeof record.sleptAt === "number"
-        ? (toLocal(record.sleptAt) ?? 0)
+        ? record.sleptAt
+          ? (toLocal(record.sleptAt) ?? 0)
+          : record.sleptAt
         : undefined;
     // The same type bridge the parked-narrow above rides: the reprojected fields keep
     // their wire types (number|undefined), so this is a value-only rewrite of the record.
@@ -186,8 +201,8 @@ export function useTerminalMetadata(deps: {
    *  HAZARD: a record whose per-key stream WEDGES without erroring stays `awaited`
    *  forever, holding the canvas on `connecting` while `terminalIds()` is 0. There is
    *  deliberately NO timeout knob (fail-fast doctrine): the floor is
-   *  `CanvasFacts.transportLive` (watchdog-backed) — a LIVE transport with a
-   *  never-composing record is a padi/compose BUG that must surface loudly, not a UI
+   *  `CanvasFacts.channelLive` (watchdog-backed ws ∧ the active entry) — a LIVE channel
+   *  with a never-composing record is a padi/compose BUG that must surface loudly, not a UI
    *  state to tune around. */
   const recordPhases = createMemo(() => {
     let awaited = 0;

@@ -35,7 +35,8 @@ export function createRepoPolledQuery<
   return createPolledQuery({
     ...config,
     live: () => padiMap.live(),
-    pulseProc: padiRpcOf(activeHost()).surface.subscribeRepoChange.get,
+    pulseProc: () => padiRpcOf(activeHost()).surface.subscribeRepoChange.get,
+    pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath }),
   });
 }

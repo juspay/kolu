@@ -28,7 +28,10 @@ import type {
   SavedSession,
 } from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
-import { createSubscription, type Subscription } from "@kolu/surface/solid";
+import {
+  createReactiveSubscription,
+  type Subscription,
+} from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
@@ -213,15 +216,20 @@ const hostScoped = createRoot(() => {
       toast.error(`Saved-session subscription error: ${err.message}`),
   });
   // The terminal-list keys stream carries STREAM_RETRY via `unenrolledStreamCall` (the
-  // #1591 health carve-out — a re-attach must never flicker the health gate). Its source
-  // reads `activeHost()`, so `createSubscription` re-subscribes to the NEW host's keys on
-  // a switch. Each id is shaped `{ id }` so `.map(t => t.id)` consumers stay unchanged.
-  const terminalKeys = createSubscription<TerminalId[]>(
-    () =>
-      unenrolledStreamCall(
-        padiRpcOf(activeHost()).surface.terminals.keys,
-        undefined,
-      ),
+  // #1591 health carve-out — a re-attach must never flicker the health gate). It is a
+  // `createReactiveSubscription` keyed on `activeHost`, so a host switch tears down the old
+  // host's keys stream and opens the NEW host's — re-keying in lockstep with the
+  // activityFeed/session readouts above (which re-key through the reactive entry). A plain
+  // `createSubscription` here would read `activeHost()` ONCE at init and strand the keys
+  // stream on the boot host, so the switched-to host's terminals never render (the
+  // boot-host-capture hazard). Each id is shaped `{ id }` so `.map(t => t.id)` consumers
+  // stay unchanged; between switches the stream resets to pending (not stale boot-host ids).
+  const terminalKeys = createReactiveSubscription(
+    activeHost,
+    (host, signal) =>
+      unenrolledStreamCall(padiRpcOf(host).surface.terminals.keys, undefined, {
+        signal,
+      }),
     { onError: (err) => toast.error(`Terminal list error: ${err.message}`) },
   );
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope

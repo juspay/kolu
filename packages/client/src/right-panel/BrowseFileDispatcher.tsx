@@ -139,7 +139,8 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     }),
     live: () => padiMap.live(),
     pulseName: "Code tab: file content pulse",
-    pulseProc: padiRpcOf(activeHost()).surface.subscribeFileChange.get,
+    pulseProc: () => padiRpcOf(activeHost()).surface.subscribeFileChange.get,
+    pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: async (i, signal): Promise<BrowseFileContent> => {
       if (isBinaryPreviewable(i.filePath)) {

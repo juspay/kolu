@@ -54,8 +54,19 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   /** A debug label for the pulse (retained from the old enrolled-`rawStream` health
    *  registry, now that the pulse is an unenrolled stream). */
   pulseName: string;
-  /** The raw pulse streaming procedure — `padiRpcOf(activeHost()).surface.<pulse>.get`. */
-  pulseProc: StreamingProcedure<PulseInput, Pulse>;
+  /** The pulse streaming procedure as a FACTORY re-derived at each (re)subscribe —
+   *  `() => padiRpcOf(activeHost()).surface.<pulse>.get`. A factory, not a pre-bound proc, so
+   *  the live-refresh watcher follows the ACTIVE host: the effect re-runs on a host switch
+   *  (via `pulseHost` below) and re-reads `activeHost()`, rebinding the pulse to the new host.
+   *  A pre-bound proc pins the pulse to the MOUNT-TIME host forever (the boot-host-capture
+   *  hazard — CodeTab mounts once), so a switched-to host's repo silently stops live-updating. */
+  pulseProc: () => StreamingProcedure<PulseInput, Pulse>;
+  /** The reactive host the pulse follows (`activeHost`). Folded into the effect's
+   *  re-subscribe trigger so a BARE host switch (the same `input`/repoPath present on two
+   *  hosts) still tears down the old host's pulse and opens the new host's — the common case
+   *  (a switch changes the active terminal → `input`) is covered by `input` alone; this closes
+   *  the identical-repoPath edge. */
+  pulseHost?: Accessor<unknown>;
   /** Derive the pulse key from the query input. Kept separate so the pulse
    *  subscribes to only the change signal it needs (a repo, or a repo+file). */
   pulseInput: (input: Input) => PulseInput;
@@ -94,8 +105,16 @@ function writeValue<T>(
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
 ): Subscription<Result> {
-  const { input, live, pulseProc, pulseInput, query, onError, swallowError } =
-    config;
+  const {
+    input,
+    live,
+    pulseProc,
+    pulseHost,
+    pulseInput,
+    query,
+    onError,
+    swallowError,
+  } = config;
 
   const [store, setStore] = createStore<{ v: Result | undefined }>({
     v: undefined,
@@ -145,43 +164,48 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   onCleanup(() => controller?.abort());
 
   createEffect(
-    on(input, (i) => {
-      // Reset for the new input: blank + pending until the fresh read lands, and
-      // abort any in-flight read from the prior input. `rawStream`'s own
-      // onCleanup (registered on this effect's run) tears down the previous
-      // pulse subscription before this re-run.
-      controller?.abort();
-      controller = null;
-      setStore("v", undefined);
-      setError(undefined);
-      setPending(true);
-      if (i === null) return;
-      // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
-      // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
-      // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
-      // snapshot frame, so `runQuery` fires per frame INCLUDING each post-reconnect
-      // snapshot — the value stream's reconnect-refresh, preserved. It aborts on the next
-      // input change (this effect's `onCleanup`). A pulse failure routes into the SAME
-      // error/pending signals the requery does (via `surfaceError`), so a persistent
-      // watcher failure (inotify ENOSPC) surfaces a real error state, not just a toast.
-      // It is UNENROLLED (not the old whole-client `rawStream`) because the map has no
-      // single per-host client to fold health into — and kolu ignores that fold anyway.
-      const pulseCtl = new AbortController();
-      onCleanup(() => pulseCtl.abort());
-      void (async () => {
-        try {
-          for await (const _frame of await unenrolledStreamCall(
-            pulseProc,
-            pulseInput(i),
-            { signal: pulseCtl.signal },
-          )) {
-            runQuery(i);
+    on(
+      // Track BOTH the query input and the active host, so the pulse re-subscribes on a
+      // host switch even when the input (repoPath) is unchanged across the two hosts.
+      () => ({ i: input(), host: pulseHost?.() }),
+      ({ i }) => {
+        // Reset for the new input: blank + pending until the fresh read lands, and
+        // abort any in-flight read from the prior input. `rawStream`'s own
+        // onCleanup (registered on this effect's run) tears down the previous
+        // pulse subscription before this re-run.
+        controller?.abort();
+        controller = null;
+        setStore("v", undefined);
+        setError(undefined);
+        setPending(true);
+        if (i === null) return;
+        // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
+        // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
+        // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
+        // snapshot frame, so `runQuery` fires per frame INCLUDING each post-reconnect
+        // snapshot — the value stream's reconnect-refresh, preserved. It aborts on the next
+        // input change (this effect's `onCleanup`). A pulse failure routes into the SAME
+        // error/pending signals the requery does (via `surfaceError`), so a persistent
+        // watcher failure (inotify ENOSPC) surfaces a real error state, not just a toast.
+        // It is UNENROLLED (not the old whole-client `rawStream`) because the map has no
+        // single per-host client to fold health into — and kolu ignores that fold anyway.
+        const pulseCtl = new AbortController();
+        onCleanup(() => pulseCtl.abort());
+        void (async () => {
+          try {
+            for await (const _frame of await unenrolledStreamCall(
+              pulseProc(),
+              pulseInput(i),
+              { signal: pulseCtl.signal },
+            )) {
+              runQuery(i);
+            }
+          } catch (err) {
+            if (!pulseCtl.signal.aborted) surfaceError(err);
           }
-        } catch (err) {
-          if (!pulseCtl.signal.aborted) surfaceError(err);
-        }
-      })();
-    }),
+        })();
+      },
+    ),
   );
 
   const sub = Object.assign(() => store.v, {

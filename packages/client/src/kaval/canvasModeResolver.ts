@@ -47,13 +47,15 @@ export interface CanvasFacts {
    *  reload's live terminals appear; a genuine reboot arrives with records PARKED
    *  (awaited 0, count 0), so it falls through to `empty` as it should. */
   recordsAwaited: number;
-  /** The watchdog-backed liveness of the ws delivering daemonStatus. The `down`
-   *  and `warming` facts arrive ALREADY floored on this at their source accessors
-   *  (`downState`/`daemonWarming` → `liveDownState`/`liveWarming`); this fact floors
-   *  the remaining daemon-derived claim — `empty` ("no terminals"), which the dead
-   *  channel also can't confirm — so a dead/half-open link makes NO unconfirmable
-   *  canvas claim (the #1568 SHAPE A class the rail dot already floors). */
-  transportLive: boolean;
+  /** The FULL channel liveness of the daemonStatus stream — the ws transport AND the
+   *  ACTIVE ENTRY's own connection (`daemonChannelLive()` = ws ∧ `activeEntryConnected`). The
+   *  `down` and `warming` facts arrive ALREADY floored on this at their source accessors
+   *  (`downState`/`daemonWarming` → `liveDownState`/`liveWarming`, both on `daemonChannelLive`);
+   *  this fact floors the remaining daemon-derived claim — `empty` ("no terminals"), which a
+   *  dead channel also can't confirm — so a dead/half-open ws OR a dead active REMOTE entry
+   *  (whose re-served daemonStatus freezes STALE at `connected`) makes NO unconfirmable canvas
+   *  claim (the #1568 SHAPE A class the rail dot already floors, now on the entry leg too). */
+  channelLive: boolean;
 }
 
 /** The pure precedence partition — total over {@link CanvasFacts}, exclusive,
@@ -78,11 +80,12 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
       daemonState: facts.daemonState,
     };
   // Terminals on screen → show them. Otherwise "no terminals" is the remaining
-  // daemon-derived claim, and it too is unconfirmable over a dead link: show `empty`
-  // only when the link is LIVE (it can confirm the set really is empty), else the
-  // neutral connecting surface — never a stale "no terminals" with active Restore /
-  // new-terminal affordances. The post-grace TransportOverlay owns the disconnect
-  // messaging.
+  // daemon-derived claim, and it too is unconfirmable over a dead channel: show `empty`
+  // only when the CHANNEL is LIVE (ws ∧ the active entry — it can confirm the set really is
+  // empty), else the neutral connecting surface — never a stale "no terminals" with active
+  // Restore / new-terminal affordances over a dead ws OR a dead active REMOTE entry (whose
+  // frozen daemonStatus would otherwise read as an authoritative empty). The post-grace
+  // TransportOverlay owns the disconnect messaging.
   if (facts.terminalCount > 0) return { kind: "workspace" };
   // Records still arriving after the key list resolved → a reload's live terminals
   // are mid-compose, so `terminalCount === 0` is a NOT-YET-settled claim, not "no
@@ -91,5 +94,5 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
   // A genuine reboot's records arrive PARKED (awaited hits 0 with no live tile), so
   // this falls through to `empty` and the restore card, exactly as intended.
   if (facts.recordsAwaited > 0) return { kind: "connecting" };
-  return facts.transportLive ? { kind: "empty" } : { kind: "connecting" };
+  return facts.channelLive ? { kind: "empty" } : { kind: "connecting" };
 }

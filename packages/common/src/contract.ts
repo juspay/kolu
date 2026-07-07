@@ -86,7 +86,8 @@ export const contract = oc.router({
   hosts: {
     /** Add a padi host to the warm pool at runtime. Resolves once the pool has seeded
      *  the binding; the entry then warms through the map's `entries` collection
-     *  (connecting → connected). A duplicate host is a no-op (already a member). */
+     *  (connecting → connected). Re-adding an existing
+     *  member rejects loudly (`host already exists`) — never a silent no-op. */
     add: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
     /** Remove a guest host — its map subs end typed, its session is destroyed, and it
      *  drops from `entries`. Removing the unremovable default (LOCAL_HOST / the first

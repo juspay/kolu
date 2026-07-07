@@ -23,7 +23,7 @@ function facts(overrides: Partial<CanvasFacts> = {}): CanvasFacts {
     daemonState: "connected",
     terminalCount: 1,
     recordsAwaited: 0,
-    transportLive: true,
+    channelLive: true,
     ...overrides,
   };
 }
@@ -125,24 +125,28 @@ describe("resolveCanvasMode precedence (#1340)", () => {
     ).toEqual({ kind: "empty" });
   });
 
-  it("floors `empty` on transport-live — a dead link never paints a stale 'no terminals'", () => {
-    // The round-3 relocation of the #1568 SHAPE A class (the canvas counterpart of
-    // the rail dot's kavalDot floor): "no terminals" is a claim the dead channel
-    // can't confirm, so over a not-live link the canvas shows the neutral connecting
-    // surface (0 terminals) or the last-good workspace (terminals on screen) — never
-    // `empty` with its active Restore / new-terminal affordances. The post-grace
-    // TransportOverlay owns the disconnect messaging. (`down`/`warming` arrive
-    // pre-floored from their source accessors, so this gates the remaining arm.)
+  it("floors `empty` on channel liveness (ws ∧ the active entry) — a dead ws OR a dead active remote entry never paints a stale 'no terminals'", () => {
+    // The #1568 SHAPE A class (the canvas counterpart of the rail dot's kavalDot floor): "no
+    // terminals" is a claim a dead channel can't confirm, so over a not-live channel the canvas
+    // shows the neutral connecting surface (0 terminals) or the last-good workspace (terminals
+    // on screen) — never `empty` with its active Restore / new-terminal affordances.
+    // `channelLive` = ws ∧ the ACTIVE ENTRY's own connection, so this floors on BOTH a dead ws
+    // AND a dead active REMOTE entry (whose re-served daemonStatus + terminal list freeze STALE
+    // at connected/last-count — the RS5 gap this fix closed: the arm previously floored on the
+    // ws leg alone and painted an authoritative empty over a dead remote). The post-grace
+    // TransportOverlay owns the disconnect messaging. (`down`/`warming` arrive pre-floored from
+    // their source accessors, so this gates the remaining arm.)
+    // channelLive false = a dead ws OR a dead active remote entry (ws still live) → connecting:
     expect(
-      resolveCanvasMode(facts({ transportLive: false, terminalCount: 0 })),
+      resolveCanvasMode(facts({ channelLive: false, terminalCount: 0 })),
     ).toEqual({ kind: "connecting" });
     expect(
-      resolveCanvasMode(facts({ transportLive: false, terminalCount: 3 })),
+      resolveCanvasMode(facts({ channelLive: false, terminalCount: 3 })),
     ).toEqual({ kind: "workspace" });
     // Sanity: the SAME facts over a LIVE link still resolve to `empty` — the floor
     // only withholds the claim when the link is dead, never otherwise.
     expect(
-      resolveCanvasMode(facts({ transportLive: true, terminalCount: 0 })),
+      resolveCanvasMode(facts({ channelLive: true, terminalCount: 0 })),
     ).toEqual({ kind: "empty" });
   });
 });

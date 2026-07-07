@@ -32,8 +32,9 @@ export interface BuildAppRouterDeps {
   /** Drain the bound padi — the re-targeted "restart" (persist + exit; kaval + its
    *  PTYs survive; the reconnect loop re-spawns padi). */
   drainBoundPadi: () => Promise<void>;
-  /** Add a padi host to the warm pool at runtime (the strip's "+ add host"). A
-   *  duplicate host is a no-op. */
+  /** Add a padi host to the warm pool at runtime (the strip's "+ add host"). Re-adding
+   *  an existing member rejects loudly (`host already exists`), never a silent no-op
+   *  (surfaced to the strip as a rejected call — see the `hosts.add` handler below). */
   addHost: (host: HostKey) => Promise<void>;
   /** Remove a guest host from the pool (its map subs end typed, its session is
    *  destroyed). Throws `UnremovableHostError` for the unremovable default. */

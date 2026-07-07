@@ -68,10 +68,16 @@ async function flush(ticks = 4): Promise<void> {
  *  accessor the primitive gates its reconnect-blip swallow on. */
 function fakeStream() {
   const [live, setLive] = createSignal(true);
-  const pulseProc = null as unknown as StreamingProcedure<
+  // A FACTORY now (the pulse follows the active host — `() => padiRpcOf(activeHost())…`); the
+  // mocked `unenrolledStreamCall` ignores the proc, so only the factory TYPE matters here.
+  const pulseProc: () => StreamingProcedure<
     { repoPath: string },
     { seq: number }
-  >;
+  > = () =>
+    null as unknown as StreamingProcedure<
+      { repoPath: string },
+      { seq: number }
+    >;
   return {
     live,
     pulseProc,

@@ -290,4 +290,17 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
       (readReprojected(null, sleeping) as { sleptAt?: number })?.sleptAt,
     ).toBe(0);
   });
+
+  it("PRESERVES the lastActivityAt:0 sentinel (never-had-agent) — a real offset must NOT forge -offset", () => {
+    // 0 is the in-band "no activity yet" sentinel, NOT an epoch. On a +90s host a naive
+    // reproject would render toLocal(0) = -90_000 — a garbage epoch isStale/formatTimeAgo read
+    // as canonical (a fresh remote shell "55y ago", dropped from the dock as parked). The guard
+    // leaves 0 as 0; a real, non-zero epoch on the same host still translates.
+    const noAgent = { cwd: "/p", lastActivityAt: 0 } as unknown as TestMeta;
+    expect(readReprojected(90_000, noAgent)?.lastActivityAt).toBe(0);
+    const active = { cwd: "/p", lastActivityAt: START } as unknown as TestMeta;
+    expect(readReprojected(90_000, active)?.lastActivityAt).toBe(
+      START - 90_000,
+    );
+  });
 });

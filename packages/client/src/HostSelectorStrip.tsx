@@ -119,8 +119,18 @@ const HostSelectorStrip: Component = () => {
   const submitAdd = (): void => {
     const raw = draft().trim();
     if (raw === "") return;
+    // Validate BEFORE constructing the call: HostKeySchema's reserved-name refine throws
+    // SYNCHRONOUSLY, so a bare `.add({ host: HostKeySchema.parse(raw) })` would throw before
+    // `.then/.catch` are attached and fail with NO toast (a reserved name like "keys"). A
+    // safeParse routes the rejection through the same error surface as a server-side reject.
+    const parsed = HostKeySchema.safeParse(raw);
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? "invalid host key";
+      toast.error(`Couldn't add ${raw}: ${message}`);
+      return;
+    }
     client.hosts
-      .add({ host: HostKeySchema.parse(raw) })
+      .add({ host: parsed.data })
       .then(() => {
         setDraft("");
         setAdding(false);
