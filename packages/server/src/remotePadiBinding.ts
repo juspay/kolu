@@ -46,6 +46,7 @@ import {
 } from "@kolu/surface-remote";
 import type { PadiConvergence } from "kolu-common/surface";
 import { log } from "./log.ts";
+import { measureClockOffset } from "./measureClockOffset.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
 // feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
 import {
@@ -218,6 +219,10 @@ export function ensureRemotePadiBinding(
   // survived. Reset only when a matched build is adopted.
   let drainedInstance: number | null = null;
   let drainAttempts = 0;
+  // The far-end clock offset (ms), re-measured at each admit's hello round-trip
+  // (RTT-halved) — folded into the keyed map's `EntryStatus.connected`. `null` until the
+  // first admit succeeds (the entry stays warming until then).
+  let clockOffset: number | null = null;
 
   // ── The ssh connector, wrapped to SCOPE + STASH ─────────────────────────────
   // `sshConnector` yields the COMBINED daemon client; the pump + `identity()` need the
@@ -297,6 +302,9 @@ export function ensureRemotePadiBinding(
       throw new Error("remote padi admit: no combined client stashed");
     }
     const hello = await c.surface.control.core.hello();
+    // Sample the far-end clock offset over the same frozen control core (offset-at-hello)
+    // — refreshed every admit, so a reconnect re-measures.
+    clockOffset = await measureClockOffset(c);
     const running = hello.surfaceVersion;
     const instance = hello.startedAt ?? null;
     const runningBuild = hello.buildId ?? "";
@@ -508,6 +516,7 @@ export function ensureRemotePadiBinding(
 
   return asPadiSession(base, {
     convergence: () => convergence,
+    clockOffset: () => clockOffset,
     /** DRAIN the bound padi (the "restart" verb): padi persists + exits, its kaval +
      *  PTYs survive, the front's relay ends → the session reconnects and re-adopts.
      *  Ground truth is the LINK DEATH (via {@link drainAndAwaitClose}), not the drain

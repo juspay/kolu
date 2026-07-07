@@ -24,6 +24,11 @@ export {
   projectConnection,
   seedConnectionCell,
 } from "./connectionPipe";
+export type {
+  DaemonConvergence,
+  DaemonSession,
+  PreservationStrategy,
+} from "./daemonSession";
 export {
   type AgentDial,
   type DialAgentOnceOptions,
@@ -40,55 +45,28 @@ export {
 export {
   buildRemotePool,
   type ClosableSocket,
+  type LiveSpawnHolder,
+  type ObservableHolder,
+  observableHolder,
   type PoolControls,
+  type PumpRemoteSurfaceOptions,
+  pumpRemoteSurface,
   type RemoteEntry,
   type RemotePool,
   type RemotePoolControlOptions,
   type RemotePoolOptions,
-  type LiveSpawnHolder,
-  type ObservableHolder,
-  observableHolder,
-  type PumpRemoteSurfaceOptions,
-  pumpRemoteSurface,
 } from "./hostFanout";
-export type {
-  DaemonConvergence,
-  DaemonSession,
-  PreservationStrategy,
-} from "./daemonSession";
-export {
-  type Admit,
-  type AdmitRefusal,
-  type AdmitVerdict,
-  type ClosedInfo,
-  type ConnectContext,
-  type Connection,
-  ConnectError,
-  type Connector,
-  type ConnectionState,
-  type DestroyableSession,
-  type FailureCause,
-  makeSession,
-  type MakeSessionOptions,
-  type Session,
-  type SessionState,
-  surfaceLiveProbe,
-} from "./session";
-export {
-  type AgentClient,
-  sshConnector,
-  type SshConnectorOptions,
-} from "./sshConnector";
 export {
   type ProvisionOptions,
   type ProvisionResult,
   provisionAgent,
 } from "./nixCopy";
 export {
-  type ReServedSurface,
-  type ReServeSurfaceOptions,
-  reServeSurface,
-} from "./reServeSurface";
+  type CaptureResult,
+  type ExitResult,
+  runCapture,
+  runProgress,
+} from "./process";
 export {
   type DeltaMembers,
   type ForwardableStream,
@@ -101,9 +79,36 @@ export {
   type ValueMembers,
 } from "./relayStream";
 export {
-  type CaptureResult,
-  type ExitResult,
-  runCapture,
-  runProgress,
-} from "./process";
+  type ReServedSurface,
+  type ReServeSurfaceOptions,
+  reServeSurface,
+} from "./reServeSurface";
+export {
+  type MembershipPool,
+  type ServeHostMapOptions,
+  serveHostMap,
+} from "./serveHostMap";
+export {
+  type Admit,
+  type AdmitRefusal,
+  type AdmitVerdict,
+  type ClosedInfo,
+  type ConnectContext,
+  ConnectError,
+  type Connection,
+  type ConnectionState,
+  type Connector,
+  type DestroyableSession,
+  type FailureCause,
+  type MakeSessionOptions,
+  makeSession,
+  type Session,
+  type SessionState,
+  surfaceLiveProbe,
+} from "./session";
+export {
+  type AgentClient,
+  type SshConnectorOptions,
+  sshConnector,
+} from "./sshConnector";
 export { type ClientCursor, makeClientCursor } from "./waitForNextClient";

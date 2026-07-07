@@ -58,4 +58,11 @@ export interface DaemonSession<
    *  trigger (the "restart" verb) of the same replacement machinery `convergence()`
    *  reports on. */
   renew(): Promise<void>;
+  /** The measured clock offset (ms) of the far-end daemon's wall clock vs THIS
+   *  process's, sampled RTT-halved at the admit/hello handshake — or `null` before the
+   *  first successful admit. A keyed `SurfaceMap` folds this into
+   *  `EntryStatus.connected` so a per-host chip can render two hosts on two clocks
+   *  without comparing them. Offset-at-hello IS the contract (re-measured on each
+   *  reconnect); there is no continuous drift correction. */
+  clockOffset(): number | null;
 }

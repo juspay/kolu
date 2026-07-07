@@ -335,6 +335,12 @@ export interface RemotePool<S extends DestroyableSession, H> {
   unregisterConnection(host: string, ws: ClosableSocket): void;
   /** Destroy every host's session (server shutdown). */
   destroyAll(): void;
+  /** Subscribe to MEMBERSHIP changes (add / remove / destroyAll). `onChange` fires
+   *  only AFTER `hosts()`/`has()` reflect the change (the ordering clause a
+   *  `SurfaceMap`'s `entries` republish depends on); the returned fn unsubscribes.
+   *  Per-session STATUS transitions are NOT emitted here — an observer that needs
+   *  them (the `serveHostMap` adapter) fuses this with each session's own `onState`. */
+  subscribe(onChange: () => void): () => void;
 }
 
 // Overloads: supplying `controls` widens the RETURN type to carry the fleet verbs;
@@ -358,6 +364,12 @@ export function buildRemotePool<S extends DestroyableSession, H>(
   const log = opts.log ?? (() => {});
   const entries = new Map<string, RemoteEntry<S, H>>();
   const socketsByHost = new Map<string, Set<ClosableSocket>>();
+  const membershipListeners = new Set<() => void>();
+  // Fire membership listeners AFTER the `entries` Map is mutated — so a listener
+  // reading `hosts()`/`has()` sees the change the notification announces (ordering).
+  const notifyMembership = (): void => {
+    for (const l of [...membershipListeners]) l();
+  };
 
   // Reject a duplicate in the seed list BEFORE building any entry. `Map.set`
   // would otherwise silently collapse the second occurrence onto the first —
@@ -407,6 +419,7 @@ export function buildRemotePool<S extends DestroyableSession, H>(
       }
       entries.set(host, entry);
       log(`added host: ${host} (total ${entries.size})`);
+      notifyMembership();
     },
 
     async remove(host) {
@@ -431,6 +444,7 @@ export function buildRemotePool<S extends DestroyableSession, H>(
       entry.session.destroy();
       entries.delete(host);
       log(`removed host: ${host} (total ${entries.size})`);
+      notifyMembership();
     },
 
     registerConnection(host, ws) {
@@ -450,6 +464,14 @@ export function buildRemotePool<S extends DestroyableSession, H>(
       for (const entry of entries.values()) entry.session.destroy();
       entries.clear();
       socketsByHost.clear();
+      notifyMembership();
+    },
+
+    subscribe(onChange) {
+      membershipListeners.add(onChange);
+      return () => {
+        membershipListeners.delete(onChange);
+      };
     },
   };
 

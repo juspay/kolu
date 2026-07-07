@@ -76,6 +76,7 @@ import {
   type Session,
 } from "@kolu/surface-remote";
 import { log } from "./log.ts";
+import { measureClockOffset } from "./measureClockOffset.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
 // probe and the "restart" verb share. Carved out of this file in W4 ledger L6: it
@@ -332,6 +333,10 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // the build-mismatch drain fires at most once across this binder's life (#1670).
   const buildDrainFence = createBuildDrainFence();
   const binderBuildId = currentPadiBuildId();
+  // The local padi's clock offset (ms) — measured at each connect over the frozen
+  // control core (same machine → ~0, measured honestly, not assumed). Folded into the
+  // keyed map's `EntryStatus.connected`.
+  let clockOffset: number | null = null;
 
   // SELF-CONVERGE (pre-connect): `converge` probes the running padi's control-core
   // identity, decides per `PADI_CONVERGENCE_POLICY`, and ENACTS through the endpoint
@@ -382,6 +387,9 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
         "network",
       );
     }
+    // Sample the local clock offset over the frozen control core (offset-at-connect,
+    // re-measured each dial) before handing the loop the connection.
+    clockOffset = await measureClockOffset(conn.client);
     const closed = new Promise<ClosedInfo>((resolve) => {
       currentClosed = resolve;
     });
@@ -413,6 +421,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     // collapses a fence-spent adopt to a bare `{kind:"adopted"}`, so local adopt-stale
     // can't be surfaced without a kit change (L23 follow-up).
     convergence: () => null,
+    clockOffset: () => clockOffset,
     /** DRAIN the bound padi (the "restart" verb): invoke the FROZEN control core's
      *  `drain` over the endpoint's held connection — padi persists + exits, its kaval +
      *  PTYs survive, the socket closes → the loop reconnects. NEVER a kill-9. The

@@ -38,6 +38,9 @@ export function asPadiSession(
   members: {
     convergence: () => PadiConvergence | null;
     renew: () => Promise<void>;
+    /** The far-end clock offset measured at admit/connect (ms), or `null` before the
+     *  first successful handshake. Folded into a keyed map's `EntryStatus.connected`. */
+    clockOffset: () => number | null;
   },
 ): PadiSession {
   return {
@@ -45,5 +48,6 @@ export function asPadiSession(
     convergence: members.convergence,
     preservation: PADI_PRESERVATION,
     renew: members.renew,
+    clockOffset: members.clockOffset,
   };
 }
