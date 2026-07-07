@@ -27,6 +27,7 @@ import {
  *  honest uptime instead of resetting the age on every reconnect. */
 const PADI_STARTED_AT = Date.now();
 
+import { buildCommit } from "@kolu/surface/identity";
 import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
 import { implement, type Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
@@ -65,11 +66,10 @@ import {
   writeStateRootManifest,
 } from "./stateRoot.ts";
 import { openPadiStateStores } from "./stateStore.ts";
-import { buildCommit } from "@kolu/surface/identity";
 import {
+  PADI_SURFACE_VERSION,
   padiDaemonContract,
   padiDaemonSurfaces,
-  PADI_SURFACE_VERSION,
 } from "./surface.ts";
 import { hasParkedTerminals } from "./terminal-registry.ts";
 import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
@@ -86,8 +86,12 @@ export interface PadiDaemonOptions {
    *  {@link resolvePadiStateRoot}) to `KOLU_PADI_STATE_DIR` else the binary's
    *  spelled default. dev/e2e pass an explicit path. */
   stateRoot?: string;
-  /** Override the socket path (`--socket`); the gate sits beside it. Rarely set
-   *  — the digest-keyed default is the whole point of the rendezvous. */
+  /** Override the socket path (`--socket`); the gate sits beside it. kolu-server's
+   *  binder ALWAYS sets this — the exact path it already computed with
+   *  `padiSocketPath` for its own wait side — so padi's bind can never diverge from
+   *  what the binder dials by independently re-reading `$XDG_RUNTIME_DIR` at spawn
+   *  time (the single-source fix; see `resolvePadiLaunch`). Only a standalone padi
+   *  (no binder) leaves this unset and falls back to the digest-keyed default. */
   socketOverride?: string;
   /** The env whitelist for `--allow-nix-shell-with-env-whitelist`, forwarded so
    *  PTY spawns compose the same nix-devshell env kolu-server did. */

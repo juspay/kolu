@@ -160,19 +160,32 @@ function daemonEnv(
 /** Resolve how to launch padi: the built wrapper in production (`KOLU_PADI_BIN`),
  *  or the from-source `node --import <tsx> packages/padi/src/bin.ts` shape in
  *  dev/e2e. Twin of `resolveKavalLaunch`. padi is ALWAYS told its state-root via
- *  `--state-root` (so the digest, socket, and its kaval all follow it), the
- *  nix-shell whitelist via `--allow-nix-shell-with-env-whitelist` when set, and the
- *  kolu app version via `--spawn-version` — so spawned PTYs' `TERM_PROGRAM_VERSION`
- *  stays the kolu app version (byte-identical to the pre-cutover in-process spawn),
- *  not padi's own commit hash. Omit the version → padi falls back to its own commit
- *  (a standalone padi with no binder to forward the app version). */
+ *  `--state-root` (so its kaval + digest follow it) AND its socket via `--socket`
+ *  — the EXACT path {@link ensurePadiBinding} already computed with
+ *  {@link padiSocketPath} for its own wait side (`createEndpoint`'s `socketPath`,
+ *  what `dialPadiHello` dials). This is the single-source fix (the #1713 pattern):
+ *  padi's OWN `padiSocketPath(stateRoot, opts.socketOverride)` call
+ *  (`daemonMain.ts`) would otherwise re-read `$XDG_RUNTIME_DIR` in ITS process at
+ *  spawn time — which can genuinely differ from the binder's reading (e.g. a
+ *  transient `systemd-run --user` unit inherits the user manager's OWN default
+ *  environment for anything not explicitly `--setenv`'d, so an unset
+ *  `XDG_RUNTIME_DIR` in the binder's env does not imply unset in padi's). Passing
+ *  the resolved path verbatim makes `padiSocketPath`'s override branch return it
+ *  untouched, so construction (here) and expectation (padi's bind) cannot diverge
+ *  under ANY env. Also carries the nix-shell whitelist via
+ *  `--allow-nix-shell-with-env-whitelist` when set, and the kolu app version via
+ *  `--spawn-version` — so spawned PTYs' `TERM_PROGRAM_VERSION` stays the kolu app
+ *  version (byte-identical to the pre-cutover in-process spawn), not padi's own
+ *  commit hash. Omit the version → padi falls back to its own commit (a standalone
+ *  padi with no binder to forward the app version). */
 export function resolvePadiLaunch(
   stateRoot: string,
+  socketPath: string,
   nixShellWhitelist: string | undefined,
   spawnVersion: string | undefined,
   legacyKavalSocket: string | undefined,
 ): { binPath: string; args: string[] } {
-  const baseArgs = ["--state-root", stateRoot];
+  const baseArgs = ["--state-root", stateRoot, "--socket", socketPath];
   if (nixShellWhitelist != null)
     baseArgs.push("--allow-nix-shell-with-env-whitelist", nixShellWhitelist);
   if (spawnVersion != null) baseArgs.push("--spawn-version", spawnVersion);
@@ -212,6 +225,7 @@ export function resolvePadiLaunch(
  *  systemd host (kolu under `kolu.service`) needs neither. */
 export function localPadiDriver(
   stateRoot: string,
+  socketPath: string,
   nixShellWhitelist: string | undefined,
   spawnVersion: string | undefined,
   verbose: boolean,
@@ -219,6 +233,7 @@ export function localPadiDriver(
 ): DaemonDriver {
   const { binPath, args } = resolvePadiLaunch(
     stateRoot,
+    socketPath,
     nixShellWhitelist,
     spawnVersion,
     legacyKavalSocket,
@@ -309,6 +324,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     socketPath,
     driver: localPadiDriver(
       stateRoot,
+      socketPath,
       opts.nixShellWhitelist,
       opts.spawnVersion,
       opts.verbose ?? false,

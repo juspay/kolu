@@ -875,24 +875,27 @@ async function startServerChild(koluServer: string): Promise<void> {
       `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempts`,
     );
   }
-  // W3.1 — the ssh leg: a REMOTE padi binding warms ASYNC (fail-open by design;
-  // provisioning + fronting over ssh takes seconds), so — unlike the LOCAL arm, which
-  // awaits its first connect before the server listens — the server is up before the
-  // remote padi is live. Wait for it here, on EVERY server start (boot AND the mid-run
-  // restarts reconnect/session-restore/@kaval-restart trigger), so scenarios never
-  // race the warm-up (a `killAll` against a not-yet-connected binding is the "no live
-  // upstream link" 500). Local runs (knob unset) skip this entirely — byte-identical.
-  await waitForRemotePadiLive();
+  // BOTH arms now warm padi ASYNC (fail-open by design: the local arm's boot no
+  // longer awaits its first connect before the server listens either — W4's
+  // extend-fail-open-to-local fix — so the server is up before EITHER a local or a
+  // remote padi is live). Wait for it here, on EVERY server start (boot AND the
+  // mid-run restarts reconnect/session-restore/@kaval-restart trigger), so scenarios
+  // never race the warm-up (a `killAll` against a not-yet-connected binding is the
+  // "no live upstream link" 500).
+  await waitForPadiLive();
 }
 
-/** Poll a padi procedure until the (async-warming) remote binding is live, or throw
- *  after 120s. No-op unless `KOLU_E2E_PADI_HOST` is set (the ssh-leg e2e). */
-async function waitForRemotePadiLive(): Promise<void> {
+/** Poll a padi procedure until the (async-warming) bound arm — local or, under
+ *  `KOLU_E2E_PADI_HOST`, remote — is live, or throw after 120s. Local warm-up is
+ *  normally sub-second (a from-source spawn + connect); the remote leg's ssh
+ *  provisioning is what actually needs the long budget. Runs UNCONDITIONALLY: since
+ *  neither arm's boot blocks the server's listen anymore, a scenario racing padi's
+ *  warm-up is possible on EITHER leg, not just the ssh one. */
+async function waitForPadiLive(): Promise<void> {
   const remotePadiHost = process.env.KOLU_E2E_PADI_HOST;
-  if (!remotePadiHost) return;
   // Belt-and-suspenders: the ack was already enforced before the spawn (assertRemoteDestructiveAck
   // in startServerChild); re-assert here so this destructive killAll poll can't run without it
-  // even if a future caller reaches it another way.
+  // even if a future caller reaches it another way. A no-op on the local leg.
   assertRemoteDestructiveAck();
   const deadline = Date.now() + 120_000;
   let lastStatus = 0;
@@ -911,7 +914,9 @@ async function waitForRemotePadiLive(): Promise<void> {
       lastStatus = res.status;
       if (res.ok) {
         console.log(
-          `[worker:${workerId}] remote padi is live — running against the ssh host`,
+          remotePadiHost
+            ? `[worker:${workerId}] remote padi is live — running against the ssh host`
+            : `[worker:${workerId}] local padi is live`,
         );
         return;
       }
@@ -921,7 +926,9 @@ async function waitForRemotePadiLive(): Promise<void> {
     await new Promise((r) => setTimeout(r, 1000));
   }
   throw new Error(
-    `[worker:${workerId}] remote padi (KOLU_E2E_PADI_HOST=${process.env.KOLU_E2E_PADI_HOST}) never became live within 120s (last killAll status ${lastStatus})`,
+    remotePadiHost
+      ? `[worker:${workerId}] remote padi (KOLU_E2E_PADI_HOST=${remotePadiHost}) never became live within 120s (last killAll status ${lastStatus})`
+      : `[worker:${workerId}] local padi never became live within 120s (last killAll status ${lastStatus})`,
   );
 }
 
@@ -947,9 +954,9 @@ BeforeAll(async () => {
   if (koluServer.startsWith("http")) {
     // Reuse an already-running server
     baseUrl = koluServer;
-    await waitForRemotePadiLive();
+    await waitForPadiLive();
   } else {
-    await startServerChild(koluServer); // waits for a live remote padi internally
+    await startServerChild(koluServer); // waits for a live bound padi internally
   }
 
   // Launch browser — always use CI args for consistency and performance.

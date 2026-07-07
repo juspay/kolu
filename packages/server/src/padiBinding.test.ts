@@ -73,6 +73,13 @@ const silentLog = {
   error() {},
 };
 
+/** Set (or, given `undefined`, unset) `$XDG_RUNTIME_DIR` — the single-source pin
+ *  below flips this between a simulated wait-time and serve-time read. */
+function setXdgRuntimeDir(v: string | undefined): void {
+  if (v === undefined) delete process.env.XDG_RUNTIME_DIR;
+  else process.env.XDG_RUNTIME_DIR = v;
+}
+
 // tsx must resolve so the spawned padi (and its kaval) launch from source.
 createRequire(import.meta.url).resolve("tsx");
 
@@ -553,6 +560,7 @@ describe("kolu-server padi binder — cutover acceptance", () => {
       socketPath,
       driver: localPadiDriver(
         stateRoot,
+        socketPath,
         "default",
         undefined,
         false,
@@ -645,10 +653,17 @@ describe("ensurePadiBinding — the LOCAL arm's members before any connect (pure
 
 describe("resolvePadiLaunch — the legacy-kaval-socket adopt-hint (binder hints its OWN port)", () => {
   const stateRoot = "/state/root";
+  const socketPath = "/run/user/1000/padi-deadbeef/padi.sock";
 
   it("forwards `--legacy-kaval-socket <path>` VERBATIM when the binder hints one (its own listen port's legacy socket)", () => {
     const hint = "/run/user/1000/kaval-7681/pty-host.sock";
-    const { args } = resolvePadiLaunch(stateRoot, undefined, undefined, hint);
+    const { args } = resolvePadiLaunch(
+      stateRoot,
+      socketPath,
+      undefined,
+      undefined,
+      hint,
+    );
     const i = args.indexOf("--legacy-kaval-socket");
     expect(i).toBeGreaterThanOrEqual(0);
     expect(args[i + 1]).toBe(hint); // exactly what the binder passed — padi never guesses
@@ -657,10 +672,63 @@ describe("resolvePadiLaunch — the legacy-kaval-socket adopt-hint (binder hints
   it("OMITS the flag entirely for a standalone bring-up (no hint) — so a padi with no binder never adopts a stray port kaval", () => {
     const { args } = resolvePadiLaunch(
       stateRoot,
+      socketPath,
       undefined,
       undefined,
       undefined,
     );
     expect(args).not.toContain("--legacy-kaval-socket");
+  });
+});
+
+describe("resolvePadiLaunch — single-source the padi socket path (#1713 pattern)", () => {
+  const stateRoot = "/state/root";
+
+  it("ALWAYS forwards `--socket <path>` VERBATIM — the exact path the binder already computed with padiSocketPath, so padi's own process never re-derives it from its own env", () => {
+    const socketPath = padiSocketPath(stateRoot);
+    const { args } = resolvePadiLaunch(
+      stateRoot,
+      socketPath,
+      undefined,
+      undefined,
+      undefined,
+    );
+    const i = args.indexOf("--socket");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe(socketPath);
+  });
+
+  it("wait-path === serve-path EVEN WHEN the two sides read $XDG_RUNTIME_DIR at genuinely different moments (SET at wait-time, UNSET at serve-time, and vice versa) — the real shape of the bug, where a transient systemd-run unit's own default env can differ from the binder's. Without the fix, padi's own `padiSocketPath(stateRoot, opts.socketOverride)` (daemonMain.ts) would re-read its OWN env and diverge from what the binder dials; with the fix the override makes the serve side ignore its env entirely", () => {
+    const prevXdg = process.env.XDG_RUNTIME_DIR;
+    try {
+      for (const [waitXdg, serveXdg] of [
+        ["/run/user/1000", undefined],
+        [undefined, "/run/user/1000"],
+        [undefined, undefined],
+        ["/run/user/1000", "/run/user/1000"],
+      ] as const) {
+        // Wait-time: the binder resolves its own endpoint/dial path under ITS env.
+        setXdgRuntimeDir(waitXdg);
+        const waitPath = padiSocketPath(stateRoot);
+        const { args } = resolvePadiLaunch(
+          stateRoot,
+          waitPath,
+          undefined,
+          undefined,
+          undefined,
+        );
+        const socketOverride = args[args.indexOf("--socket") + 1];
+
+        // Serve-time: padi's OWN process (daemonMain.ts) calls
+        // `padiSocketPath(stateRoot, opts.socketOverride)` under WHATEVER env IT
+        // sees — simulated here as possibly different from wait-time.
+        setXdgRuntimeDir(serveXdg);
+        const servePath = padiSocketPath(stateRoot, socketOverride);
+
+        expect(servePath).toBe(waitPath);
+      }
+    } finally {
+      setXdgRuntimeDir(prevXdg);
+    }
   });
 });

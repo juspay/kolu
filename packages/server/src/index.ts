@@ -233,9 +233,11 @@ const rpcPlugins = [
 // `padi` key beside kolu-server's own `kolu`+`surfaceApp` fragment, so the browser
 // reaches padi's members at `/surface/padi/*`.
 //
-// Awaited BEFORE the HTTP server listens (as `ensureLocalEndpoint` was) so no RPC
-// races an unready binding; a boot failure reports the down state through the
-// re-serve's `connection` cell rather than crashing (fail-open).
+// NEVER awaited before the HTTP server listens — for EITHER arm. A slow/failed padi
+// (a stale gate, a wedged spawn, a genuinely down host) must not hold `serve()` back;
+// a boot failure reports the down state through the re-serve's `connection` cell
+// rather than crashing OR blocking (fail-open). See the LOCAL-arm pin below for the
+// W4 fix that extended this from remote-only to both arms.
 // ─────────────────────────────────────────────────────────────────────────────
 // The KOLU_PADI_HOST seed — the pool's host set. LOCAL_HOST is the implicit,
 // UNREMOVABLE default (always `seed[0]`); the env may append remote hosts. ALWAYS-MAP:
@@ -250,11 +252,11 @@ const defaultHost = seed[0] ?? LOCAL_HOST;
 // going in; `buildEntry` DECODES back to pick the local/remote arm and, for a remote,
 // pass its bare ssh target (never the "remote:"-prefixed wire form) to `sshConnector`.
 // `buildEntry` is SYNC (`makeSession` defers the dial into its own reconnect loop), so an
-// unreachable seed host surfaces as a `failed` entry, never a boot throw. The default
-// (local) arm is boot-awaited below; remote arms are fail-open (provisioning over ssh
-// takes seconds — the connection cell reports copying/connecting meanwhile). The
-// `?host=` handler is unused (the map forwards by key-in-input, not a per-host socket),
-// so `H = undefined`.
+// unreachable seed host surfaces as a `failed` entry, never a boot throw. BOTH the
+// default (local) arm and remote arms are fail-open (a local spawn+connect, or ssh
+// provisioning, both take real time — the connection cell reports copying/connecting
+// meanwhile, exactly the same shape for either). The `?host=` handler is unused (the
+// map forwards by key-in-input, not a per-host socket), so `H = undefined`.
 const pool = buildRemotePool<PadiSession, undefined>({
   initialHosts: seed.map(encodeHostKey),
   buildEntry: (h) => {
@@ -277,15 +279,21 @@ const pool = buildRemotePool<PadiSession, undefined>({
   },
 });
 
-// BOOT-AWAIT the LOCAL padi arm before serving browsers: `makeSession` warms on the
-// first `pin()`, so without this the very first re-served-surface request (an e2e's
-// `lifecycle.killAll`) would race an un-connected arm and 500. Spawn/adopt + connect
-// padi HERE (the pre-S9 stance the sync `ensurePadiBinding` deferred); `reServeSurface`'s
-// pump pins again (idempotent — same in-flight dial). Fail-OPEN: a boot failure surfaces
-// on the connection cell and the loop retries, so don't crash boot. The REMOTE arm is
-// fail-open by construction (provisioning a closure over ssh takes seconds), so it is NOT
-// boot-awaited — the pump warms it and the canvas reports copying/connecting meanwhile.
-await pool
+// W4: pin the LOCAL padi arm WITHOUT awaiting it — extends the REMOTE arm's
+// fail-open stance to local too, so a slow/wedged local padi (e.g. the #1713-class
+// XDG_RUNTIME_DIR socket-path mismatch this fix half addresses, or any other spawn
+// stall) can no longer hold the HTTP server's `serve()` back for its ~30s connect
+// timeout. `makeSession` warms on the first `pin()`; this call (like the REMOTE
+// arm's, and `reServeSurface`'s own pump below — `pin()` is idempotent, ref-counted)
+// merely KICKS OFF that warm-up. A request racing the warm-up window sees the SAME
+// thing a remote host's guest already shows meanwhile: the map/`padiLink` cell
+// reports `connecting`/`disconnected` (never a lying `copying` — the local arm is a
+// non-provisioning session, `serveHostMap`'s belt in juspay/kolu#1716), and a
+// procedure call in that window fails loudly rather than silently (reServeSurface's
+// documented "a call while the link is down throws"; the client already retries via
+// its warming-chip UX, exactly as it does for a remote host). Fail-OPEN: a boot
+// failure surfaces on the connection cell and the loop retries, so don't crash boot.
+pool
   .getSession(encodeHostKey(LOCAL_HOST))
   ?.pin()
   .catch((err: unknown) => {

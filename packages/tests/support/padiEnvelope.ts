@@ -12,7 +12,7 @@ import { encodeHostKey, LOCAL_HOST, parseHostInput } from "kolu-common/hostKey";
 /** The wire `mapKey` — the CANONICAL encoded form (`encodeHostKey`) — the e2e drives its padi
  *  resets against: the local default's `"local"` (the single-host CI e2e — `parseKoluPadiHostSeed`
  *  seeds `[LOCAL_HOST]`), or the remote seeded via `KOLU_E2E_PADI_HOST` (the ssh-leg e2e — the
- *  same host `waitForRemotePadiLive` polls). `KOLU_E2E_PADI_HOST` carries the same RAW ssh-target
+ *  same host `waitForPadiLive` polls). `KOLU_E2E_PADI_HOST` carries the same RAW ssh-target
  *  tokens `KOLU_PADI_HOST` does (order-preserved after the local default in
  *  `parseKoluPadiHostSeed`), so each is parsed the same HUMAN-input way (`parseHostInput`) before
  *  being encoded onto the wire. */
