@@ -27,7 +27,7 @@
  */
 
 import { debounce } from "@solid-primitives/scheduled";
-import { type Accessor, createEffect, createRoot, on } from "solid-js";
+import { type Accessor, createEffect, on } from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
 import { STREAM_RETRY, type StreamingProcedure } from "../client";
 import type { Cell } from "../index";
@@ -43,6 +43,9 @@ export interface UseCellServerOptions<T, P = T> {
   authority?: "server";
   mutate?: UnaryProcedure<P, unknown> | ((patch: P) => Promise<void> | void);
   onError?: (err: Error) => void;
+  /** Fired when the cell's stream ends NORMALLY (typed end) — the surface client
+   *  threads the keyed cache's slot eviction here so a re-served cell rebuilds. */
+  onComplete?: () => void;
 }
 
 export interface UseCellLocalOptions<T extends object, P = T> {
@@ -90,6 +93,9 @@ export interface UseCellLocalOptions<T extends object, P = T> {
    *  Flush failures surface via `onError`, not the returned promise. */
   coalesceMs?: number;
   onError?: (err: Error) => void;
+  /** Fired when the cell's stream ends NORMALLY (typed end) — the surface client
+   *  threads the keyed cache's slot eviction here so a re-served cell rebuilds. */
+  onComplete?: () => void;
 }
 
 export type UseCellOptions<T, P = T> =
@@ -142,11 +148,13 @@ function useCellServer<Name extends string, T, P>(
   _cell: Cell<Name, T>,
   options: UseCellServerOptions<T, P>,
 ): UseCellResult<T, P> {
-  const sub = createRoot(() =>
-    createSubscription(streamingThunk(options.source), {
-      onError: options.onError,
-    }),
-  );
+  // No wrapping `createRoot`: the subscription runs under the CALLER's owner — the
+  // keyed-cache slot when the surface client shares it, else the consumer's own
+  // owner — so it aborts when that owner disposes instead of leaking app-lifetime.
+  const sub = createSubscription(streamingThunk(options.source), {
+    onError: options.onError,
+    onComplete: options.onComplete,
+  });
 
   async function callMutate(p: P): Promise<void> {
     if (!options.mutate) {
@@ -179,23 +187,24 @@ function useCellLocal<Name extends string, T extends object, P>(
   // unnecessary effects for a one-time transition.
   let initialized = false;
 
-  const sub = createRoot(() => {
-    const s = createSubscription(streamingThunk(options.source), {
-      onError: options.onError,
-    });
-    createEffect(
-      on(
-        () => s(),
-        (server) => {
-          if (server !== undefined && !initialized) {
-            initialized = true;
-            setStore(reconcile(server as T));
-          }
-        },
-      ),
-    );
-    return s;
+  // No wrapping `createRoot`: the subscription + its seed effect run under the
+  // CALLER's owner (the keyed-cache slot when shared, else the consumer's own owner),
+  // so they dispose with that owner instead of leaking app-lifetime.
+  const sub = createSubscription(streamingThunk(options.source), {
+    onError: options.onError,
+    onComplete: options.onComplete,
   });
+  createEffect(
+    on(
+      () => sub(),
+      (server) => {
+        if (server !== undefined && !initialized) {
+          initialized = true;
+          setStore(reconcile(server as T));
+        }
+      },
+    ),
+  );
 
   function applyLocal(p: P): void {
     if (options.mergeIntoStore) {

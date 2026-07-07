@@ -252,6 +252,9 @@ export function useCollectionDeltas<Name extends string, K, T>(
     /** The collection's `deltas` stream factory (snapshot-then-deltas). */
     source: () => Promise<AsyncIterable<CollectionDeltasMsg<K, T>>>;
     onError?: SubscriptionOptions<unknown>["onError"];
+    /** Fired when the batched stream ends NORMALLY (typed end) — the surface client
+     *  threads the keyed cache's slot eviction here so a re-served collection rebuilds. */
+    onComplete?: () => void;
     /** Enrol the single batched subscription into the client health registry. */
     enroll?: (sub: Subscription<DeltasFold<K, T>>) => void;
   },
@@ -262,6 +265,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
       initial: { byKey: emptyDict<T>(), order: [] },
       reduce: foldCollectionDeltas,
       onError: options.onError,
+      onComplete: options.onComplete,
     },
   );
   options.enroll?.(sub);

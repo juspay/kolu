@@ -1116,6 +1116,9 @@ importers:
       '@orpc/standard-server-peer':
         specifier: ^1.13.13
         version: 1.13.13
+      '@solid-primitives/rootless':
+        specifier: ^1.5.3
+        version: 1.5.3(solid-js@1.9.11)
       '@solid-primitives/scheduled':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)

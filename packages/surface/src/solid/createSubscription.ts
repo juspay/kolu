@@ -52,6 +52,12 @@ export interface SubscriptionOptions<T, R = T> {
    *  (e.g. `toast.error`). Without this, stream errors are only available
    *  via the reactive `sub.error()` signal — easy to forget to read. */
   onError?: (err: Error) => void;
+  /** Called when the stream ENDS NORMALLY — the async iterable completed because
+   *  the server/map sent a typed end — NEVER on abort. The keyed subscription cache
+   *  wires this to evict a shared slot on typed completion, so a re-added member
+   *  never reuses an ended stream. "A disposed subscription cannot report anything"
+   *  extends here: an aborted subscription must not fire `onComplete`. */
+  onComplete?: () => void;
 }
 
 /** Convert an async stream into a SolidJS signal. */
@@ -117,6 +123,15 @@ export function createSubscription<T, R = T>(
         if (pending()) setPending(false);
         if (error()) setError(undefined);
       }
+      // Normal completion — the iterable ended because the server/map sent a TYPED
+      // end (not an abort: an aborted loop takes the `break` above and its
+      // `abortSignal.aborted` is already true here). Clear any lingering `pending`
+      // and signal the typed end so the dedup cache can evict this slot. An aborted
+      // (disposed) subscription reports nothing.
+      if (!abortSignal.aborted) {
+        if (pending()) setPending(false);
+        options?.onComplete?.();
+      }
     } catch (err) {
       if (!abortSignal.aborted) {
         setError(toError(err));
@@ -131,16 +146,29 @@ export function createSubscription<T, R = T>(
   }) as Subscription<T | R>;
 
   if (options?.onError) {
-    const handler = options.onError;
-    createEffect(
-      on(
-        () => sub.error(),
-        (err) => {
-          if (err) handler(err);
-        },
-      ),
-    );
+    wireSubscriptionError(sub, options.onError);
   }
 
   return sub;
+}
+
+/** Wire a per-consumer error handler onto a subscription's self-clearing `error()`
+ *  signal, via an EDGE effect — fires once per rising error transition and clears
+ *  with the signal (never the inline-in-catch double-fire, and never latching a
+ *  transient blip the signal already cleared). Factored out of `createSubscription`
+ *  so the keyed subscription cache can share ONE upstream subscription across N
+ *  consumers while each consumer still gets its OWN `onError` (a per-call label /
+ *  toast), wired under that consumer's own reactive owner. */
+export function wireSubscriptionError<T>(
+  sub: Subscription<T>,
+  onError: (err: Error) => void,
+): void {
+  createEffect(
+    on(
+      () => sub.error(),
+      (err) => {
+        if (err) onError(err);
+      },
+    ),
+  );
 }

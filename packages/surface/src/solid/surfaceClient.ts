@@ -37,12 +37,12 @@ import type {
 } from "../define";
 import { collectionHasDeltas, resolveCellVerbs, scopeSibling } from "../define";
 import { isHalfOpenLink } from "../links/_wire";
-import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
   type Subscription,
   type SubscriptionOptions,
+  wireSubscriptionError,
 } from "./createSubscription";
 import {
   createSurfaceHealthRegistry,
@@ -50,6 +50,11 @@ import {
   mergeSurfaceHealth,
   type SurfaceHealth,
 } from "./health";
+import {
+  createKeyedSubscriptionCache,
+  type KeyedSubscriptionCache,
+} from "./keyedSubscriptionCache";
+import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import { type UseCellResult, useCell } from "./useCell";
 import {
   type UseCollectionResult,
@@ -469,6 +474,7 @@ function bindCell<S extends SurfaceSpec>(
   cellSpec: CellSpec<unknown, unknown>,
   link: unknown,
   registry: ReturnType<typeof createSurfaceHealthRegistry>,
+  subs: KeyedSubscriptionCache,
   surface: Surface<S>,
 ): { cell: BoundCell<unknown, unknown>; disposeRoot?: () => void } {
   // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
@@ -552,18 +558,25 @@ function bindCell<S extends SurfaceSpec>(
               "to flush a local write to, so this cell is read-only.",
           );
         }
-        const cell = useCell(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
-          (surface.descriptors.cells as any)[key],
-          // Thread the caller's `onError` (the only `ReadOnlyBoundCellOptions` field)
-          // into the server-authority subscription so a get-only cell's stream failure
-          // reaches callback-based error handling, not just the `error()` signal —
-          // `useCellServer` forwards it to `createSubscription`.
-          { source, authority: "server", onError: opts.onError },
+        // Share the get-only cell's upstream subscription across all consumers via the
+        // keyed cache: N `.use()` calls fold to ONE `.get` stream, enrolled ONCE.
+        const cell = subs.use(
+          `cell:${key}`,
+          (onComplete) =>
+            useCell(
+              // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+              (surface.descriptors.cells as any)[key],
+              { source, authority: "server", onComplete },
+            ),
+          // Enrol the cell's self-clearing error()/pending() into health() ONCE inside
+          // the shared slot (un-enrols on slot disposal), not once per consumer — which
+          // would double-count the same fact in the `health()` fold.
+          (c) => registry.enroll(key, { pending: c.pending, error: c.error }),
         );
-        // Enrol the cell's self-clearing error()/pending() into health() — rides this
-        // `.use()`'s consumer owner, so it drops when the component unmounts.
-        registry.enroll(key, { pending: cell.pending, error: cell.error });
+        // Per-consumer `onError`: wire the caller's handler on the SHARED error signal
+        // under THIS consumer's own owner (the shared slot carries no toast of its own),
+        // so a get-only cell's stream failure still reaches callback-based handling.
+        if (opts.onError) wireSubscriptionError(cell.sub, opts.onError);
         // Return ONLY the read-only projection (`set`/`patch` absent at runtime) — the
         // shared `readOnlyCellView` owns the shape + the single bridging cast.
         return readOnlyCellView(cell);
@@ -578,12 +591,24 @@ function bindCell<S extends SurfaceSpec>(
       ) {
         merged.applyPatch = specPatch;
       }
-      const cell = useCell(
-        // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
-        (surface.descriptors.cells as any)[key],
-        merged,
+      // `onError` is PER-CONSUMER — pull it out of the SHARED construction and wire it
+      // on the shared sub below. Everything else (authority, applyPatch, and — for a
+      // local-authority cell — the local store) is SHARED: N consumers of one cell
+      // share ONE upstream sub and ONE local store, so a `.set` from one is seen by all
+      // (this is what replaces the module-const `createSharedRoot` sharing idiom).
+      const { onError: cellOnError, ...sharedOpts } = merged;
+      const cell = subs.use(
+        `cell:${key}`,
+        (onComplete) =>
+          useCell(
+            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+            (surface.descriptors.cells as any)[key],
+            { ...sharedOpts, onComplete },
+          ),
+        (c) => registry.enroll(key, { pending: c.pending, error: c.error }),
       );
-      registry.enroll(key, { pending: cell.pending, error: cell.error });
+      if (cellOnError)
+        wireSubscriptionError(cell.sub, cellOnError as (e: Error) => void);
       return cell;
     },
   };
@@ -616,6 +641,15 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   // this link can't half-open).
   const registry = createSurfaceHealthRegistry(live);
 
+  // The per-client subscription DEDUP cache. Every static-input `.use()` below routes
+  // its construction through this, so N views of one `(proc, static-input)` share ONE
+  // upstream subscription — ref-counted, torn down when the last consumer leaves. The
+  // shared slots are owned by THIS client's owner (`getOwner()` here), NEVER by
+  // whichever consumer subscribed first (a first-consumer owner is the leak class the
+  // cache exists to kill). This replaces the module-const `createSharedRoot` "sharing
+  // by convention" idiom — every consumer inherits sharing from the base client.
+  const subs = createKeyedSubscriptionCache(getOwner());
+
   // Build-time standing-root disposers for `liveWhen` cells (the readiness legs
   // `bindCell` → `openReadinessLeg` open EAGERLY, not at `.use()` time, so the
   // mirror-liveness leg folds into `health().live` by construction — independent of
@@ -630,6 +664,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
       cellSpec,
       link,
       registry,
+      subs,
       surface,
     );
     cells[key] = cell;
@@ -656,58 +691,71 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     collections[key] = {
       use: (opts) => {
         const onError = opts?.onError;
-        // Whole-collection AND the collection opts into batched delivery (the
-        // spec lists `deltas`) → ONE coalesced stream folded into a per-key
-        // store, instead of a keys stream + one value stream per key. A NARROWED
-        // subscription (explicit `opts.keys` — the "watch this subset" case) or a
-        // collection without the `deltas` verb takes the unchanged per-key path.
-        if (!opts?.keys && hasDeltas) {
-          const view = useCollectionDeltas(
+        // A NARROWED subscription (explicit reactive `opts.keys` — the "watch this
+        // subset" case) is ACCESSOR-input: two input accessors are honestly two
+        // subscriptions, so it stays PER-CONSUMER (no dedup), unchanged. Its `.use()`
+        // runs inside a Solid owner so each per-key sub disposes with the component.
+        if (opts?.keys) {
+          const view = useCollection(
             // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
             (surface.descriptors.collections as any)[key],
             {
-              // biome-ignore lint/suspicious/noExplicitAny: walk-by-string stream ref
-              source: () => unenrolledStreamCall((ns as any).deltas, undefined),
+              keys: opts.keys,
+              valueSource: ns.get,
+              keyToInput: (k) => ({ key: k }),
               onError,
-              enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
+              enroll: (k, sub) => registry.enroll(`${key}[${String(k)}]`, sub),
             },
           );
           return { ...view, upsert, delete: del };
         }
-        // Default keys: subscribe to the server's keys stream and lift
-        // it to a SolidJS accessor. The `.use()` runs inside a Solid
-        // owner so the subscription disposes with the component.
-        const keys =
-          opts?.keys ??
-          (() => {
-            const sub = createSubscription<unknown[]>(
-              () => unenrolledStreamCall(ns.keys, undefined),
-              { onError },
-            );
-            // Leak B: enrol the keys-stream itself. A failing keys stream
-            // collapses `keys()` to `[]` (the `sub() ?? []` fallback), so the
-            // collection would otherwise read as a healthy EMPTY set — without
-            // this, `health()` reports `ready` over a dead collection. This
-            // enrolment is the keys-stream's ONLY error channel now (it subsumes
-            // the former per-collection `keysError` accessor); a caller-supplied
-            // `keys` owns its own subscription and so isn't enrolled here.
-            registry.enroll(`${key}.keys`, sub);
-            return createMemo<unknown[]>(() => sub() ?? []);
-          })();
-        const view = useCollection(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
-          (surface.descriptors.collections as any)[key],
-          {
-            keys,
-            valueSource: ns.get,
-            keyToInput: (k) => ({ key: k }),
-            onError,
-            // Enrol each per-key value sub as `<key>[<id>]`. The callback runs
-            // inside the `mapArray` per-key owner, so each enrolment drops when
-            // its key leaves the set (the same owner disposal `useCollection`
-            // already rides for the subscription itself).
-            enroll: (k, sub) => registry.enroll(`${key}[${String(k)}]`, sub),
-          },
+        // WHOLE collection (STATIC input — watch every key) → DEDUP the whole result
+        // via the keyed cache: N views share ONE set of upstream streams, ref-counted,
+        // torn down when the last leaves, evicted on a typed end (a re-served
+        // collection rebuilds). `onError` + enrolment live INSIDE the shared slot here
+        // (unlike a cell's per-consumer `onError`): a whole-collection `.use()` is a
+        // singleton in practice (it was a module-const `createSharedRoot`), so a shared
+        // `onError` matches per-consumer for the real cases, and the collection's
+        // health leg is the total error picture.
+        const view = subs.use(`coll:${key}`, (onComplete) =>
+          hasDeltas
+            ? // ONE coalesced `deltas` stream folded into a per-key store.
+              useCollectionDeltas(
+                // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+                (surface.descriptors.collections as any)[key],
+                {
+                  source: () => unenrolledStreamCall(ns.deltas, undefined),
+                  onError,
+                  onComplete,
+                  enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
+                },
+              )
+            : // The server keys stream + one value stream per key.
+              (() => {
+                const keysSub = createSubscription<unknown[]>(
+                  () => unenrolledStreamCall(ns.keys, undefined),
+                  { onError, onComplete },
+                );
+                // Leak B: enrol the keys-stream itself. A failing keys stream collapses
+                // `keys()` to `[]` (the `sub() ?? []` fallback), so the collection would
+                // otherwise read as a healthy EMPTY set — this is its ONLY error channel.
+                registry.enroll(`${key}.keys`, keysSub);
+                const keys = createMemo<unknown[]>(() => keysSub() ?? []);
+                return useCollection(
+                  // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+                  (surface.descriptors.collections as any)[key],
+                  {
+                    keys,
+                    valueSource: ns.get,
+                    keyToInput: (k) => ({ key: k }),
+                    onError,
+                    // Enrol each per-key value sub as `<key>[<id>]`; the callback runs in
+                    // the `mapArray` per-key owner, so it drops when the key leaves.
+                    enroll: (k, sub) =>
+                      registry.enroll(`${key}[${String(k)}]`, sub),
+                  },
+                );
+              })(),
         );
         return { ...view, upsert, delete: del };
       },
