@@ -34,7 +34,7 @@ import {
 } from "kaval";
 import { log } from "./log.ts";
 import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
-import { LOCAL_HOST_ID } from "./ptyHost/index.ts";
+import { LOCAL_HOST_ID } from "./surface.ts";
 import { readDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import {
   type PadiDaemon,

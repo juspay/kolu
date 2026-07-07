@@ -51,7 +51,7 @@ import {
 } from "../padiSurfaceCtx.ts";
 import type { PairedDaemon } from "../pairedDaemon.ts";
 import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID } from "../ptyHost/index.ts";
+import { LOCAL_HOST_ID } from "../surface.ts";
 import { getSavedSession, setSavedSession } from "../session.ts";
 import {
   getTerminal,

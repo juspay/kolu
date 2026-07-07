@@ -39,6 +39,7 @@ import {
 } from "kaval";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import { log } from "../log.ts";
+import { LOCAL_HOST_ID } from "../surface.ts";
 import {
   connectKaval,
   type KavalConnectionMetadata,
@@ -52,14 +53,6 @@ import {
 import { kavalGatePath, localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity | undefined;
-
-/** The single local kaval host's id — the daemon-status key the endpoint reports
- *  under and consumers (e.g. boot adoption's `setAdoptedCount`) read by. Owned
- *  here, where `ensureLocalEndpoint` defines the daemon's identity/lifecycle.
- *  This is a *daemon* identity (the kaval host), distinct from a terminal's
- *  `location` (a `HostLocation` DU in kolu-common); a terminal placed on the
- *  local endpoint carries `{ kind: "local" }`, not this string. */
-export const LOCAL_HOST_ID = "local";
 
 /**
  * kaval's declaration into the shared daemon-convergence kit (`converge`). kaval is

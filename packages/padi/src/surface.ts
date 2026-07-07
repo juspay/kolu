@@ -152,6 +152,17 @@ export type PadiStatus = z.infer<typeof PadiStatusSchema>;
  *  kaval known yet. */
 export const DEFAULT_PADI_STATUS: PadiStatus = {};
 
+/** The single local kaval host's id — the key the local endpoint reports its daemon
+ *  status under (the `daemonStatus` collection key below), and consumers read by (boot
+ *  adoption's `setAdoptedCount`, the client's `useDaemonStatus`). Lives HERE, in the same
+ *  browser-safe module that declares the `daemonStatus` collection it keys, so both padi's
+ *  node runtime and the client read padi's OWN key rather than re-typing the literal. A
+ *  *daemon* identity (the kaval host), distinct from a terminal's `location` (a
+ *  `HostLocation` DU in kolu-common) and from the branded map key `LOCAL_HOST`
+ *  (kolu-common/hostKey); a terminal placed on the local endpoint carries
+ *  `{ kind: "local" }`, not this string. */
+export const LOCAL_HOST_ID = "local";
+
 // ── Host-daemon inventory rows (the "Running daemons" leak diagnostic) ─────
 //
 // One running kaval / padi the host-daemon scan enumerated — the read-only diagnostic

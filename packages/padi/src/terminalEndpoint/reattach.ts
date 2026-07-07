@@ -42,7 +42,8 @@ import {
   recordPairedDaemon,
 } from "../pairedDaemon.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
+import { ptyHostClient } from "../ptyHost/index.ts";
+import { LOCAL_HOST_ID } from "../surface.ts";
 import { reconcile } from "../reconcile.ts";
 import { clearSavedSession, getSavedSession, saveSession } from "../session.ts";
 import { getTerminal } from "../terminal-registry.ts";

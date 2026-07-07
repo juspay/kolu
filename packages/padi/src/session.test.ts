@@ -28,7 +28,7 @@ import {
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID } from "./ptyHost/index.ts";
+import { LOCAL_HOST_ID } from "./surface.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import {
   getSavedSession,

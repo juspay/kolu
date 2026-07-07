@@ -14,7 +14,8 @@
  * subscription and the accessors over it.
  */
 
-import type { DaemonStatus } from "@kolu/padi/surface";
+import { type DaemonStatus, LOCAL_HOST_ID } from "@kolu/padi/surface";
+import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
@@ -43,9 +44,6 @@ export {
   liveWarming,
   serverDot,
 } from "./daemonPresentation";
-
-/** The one host today; R-2's ssh hosts add more keys to the same collection. */
-export const LOCAL_HOST = "local";
 
 // ONE shared, app-lifetime memo of the liveness boolean. `app.health()` is a plain
 // accessor (not a memo) that re-folds the WHOLE registry — walking every enrolled
@@ -105,7 +103,7 @@ export function daemonChannelLive(): boolean {
 // `createRoot` (module-lifetime), so it re-keys when the active host switches.
 const sub = createRoot(() =>
   padiMap.useEntry(activeHost).collections.daemonStatus.use({
-    keys: () => [LOCAL_HOST],
+    keys: () => [LOCAL_HOST_ID],
     onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
   }),
 );
@@ -117,7 +115,7 @@ const sub = createRoot(() =>
  *  (the foreign-clock fence, applied once here, not per-dialog). A null offset (host
  *  warming) ⇒ `startedAt` 0, which the dialogs already gate as "unknown". */
 export function localDaemonStatus(): DaemonStatus | undefined {
-  const status = sub.byKey(LOCAL_HOST)?.();
+  const status = sub.byKey(LOCAL_HOST_ID)?.();
   if (status === undefined || typeof status.startedAt !== "number")
     return status;
   const local = padiMap.entry(activeHost()).clock.toLocal(status.startedAt);
@@ -166,7 +164,7 @@ export function activePadiLink(): PadiLink | undefined {
  *  subscription, which is itself the pre-first-value state, so treat that as
  *  pending too. */
 export function daemonStatusPending(): boolean {
-  return sub.byKey(LOCAL_HOST)?.pending() ?? true;
+  return sub.byKey(LOCAL_HOST_ID)?.pending() ?? true;
 }
 
 /** The single projection of "is the daemon down, and which kind" — `dead`

@@ -31,6 +31,8 @@ export const HostKeySchema = z
 export type HostKey = z.infer<typeof HostKeySchema>;
 
 /** The canonical local-host key — the pool's implicit, UNREMOVABLE default member.
- *  Value `"local"` (matching the client daemon-status `LOCAL_HOST` and padi's
- *  `LOCAL_HOST_ID`). Branded, so it is a valid `HostKey` everywhere the map is keyed. */
+ *  Value `"local"`. Branded, so it is a valid `HostKey` everywhere the map is keyed.
+ *  A DISTINCT concept from padi's daemon-collection key `LOCAL_HOST_ID`
+ *  (@kolu/padi/surface): this is the map key a browser tab selects; that is the key
+ *  padi reports daemon status under. They share the literal but own different axes. */
 export const LOCAL_HOST: HostKey = HostKeySchema.parse("local");

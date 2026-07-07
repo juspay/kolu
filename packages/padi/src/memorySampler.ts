@@ -20,7 +20,8 @@
 import { log } from "./log.ts";
 import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { readDaemonStatus } from "./ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID, ptyHostClient } from "./ptyHost/index.ts";
+import { ptyHostClient } from "./ptyHost/index.ts";
+import { LOCAL_HOST_ID } from "./surface.ts";
 import type { ProcessRss } from "./vocab.ts";
 
 /** Cadence of padi's process-memory readout — the SAME 5s the retired kolu-server

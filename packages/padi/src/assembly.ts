@@ -65,7 +65,6 @@ export {
 // ── kaval supervision ───────────────────────────────────────────────────
 export {
   ensureLocalEndpoint,
-  LOCAL_HOST_ID,
   ptyHostClient,
   setSpawnServerVersion,
 } from "./ptyHost/index.ts";
