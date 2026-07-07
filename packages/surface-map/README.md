@@ -97,18 +97,28 @@ writer. A call carries its key in every frame: an unknown key is a **typed rejec
 ends its subs with a typed `{reason:"removed"}` **before** the session is destroyed — so
 there is no socket-error frame after a typed end.
 
-### `connectSurfaceMap(map, link) → SurfaceMapClient<KS, ES>`
+### `connectSurfaceMap(map, transport, siblingKey?) → SurfaceMapClient<KS, ES>`
+
+`transport` is the **branded** parent handle (a `LiveSignalHandle`, e.g. `conn.transport`
+from `connectSurfaces`). `resolveTransport(transport)` applies the half-open guard ONCE —
+the sole liveness gate — and when `siblingKey` is given the map slices
+`scopeSibling(fullLink, siblingKey)` **after** the guard, so the scoped slice inherits the
+parent's watchdog `live` by construction. There is **no unbranded `{live}` override**: a
+bare `{ live: () => true }` floored over a dead transport is unspellable (the old seam,
+revised — it reopened the green-dot-over-dead-transport lie).
 
 ```ts
 interface SurfaceMapClient<KS, ES> {
-  readonly entries: BoundCollection<Key, EntryStatus>;   // the one membership authority
-  parseKey(raw: string): Key;                            // sole branded-key producer
+  readonly entries: ReadOnlyBoundCollection<Key, EntryStatus>; // the ONE membership authority — upsert/delete absent
+  readonly live: Accessor<boolean>;                      // resolved transport liveness (for the membership strip)
+  parseKey(raw: string): Key;                            // the map's branded-key producer (the `keySchema` is also reachable)
   entry(key: Key): Entry<ES>;                            // PURE lens — no owner, no I/O, total
   useEntry(key: Accessor<Key>): Entry<ES>;               // Solid — owns swap disposal; THROWS ownerless
   dispose(): void;
 }
 interface Entry<ES> extends Pick<SurfaceClient<ES>, "cells" | "collections" | "streams" | "events"> {
   readonly rpc: SurfaceClient<ES>["rpc"];                // procedure client — folds {mapKey} per call
+  readonly clock: { toLocal(remoteMs: number): number | null }; // reproject a host-stamped epoch; null when no offset
   state(): EntryStatus | { kind: "not-a-member" };       // total fold over entries — never nullable
 }
 ```
@@ -129,6 +139,19 @@ e.g. a `padiRpcOf` helper), which sidesteps the TS2590 "union too complex" a
 absent-key procedure call is a **typed rejection** (`MAP_KEY_UNKNOWN`), the one-shot twin
 of a sub's typed stream-end.
 
+`entry(key).clock.toLocal(remoteMs)` reprojects a timestamp stamped on the ENTRY's host (a
+remote clock) into the consuming process's local clock, via the entry's measured
+`clockOffset` (`toLocal = remoteMs − offset`) — so a duration or instant rendered against
+`Date.now()` stays honest across a clock-skewed host. It returns **`null`** (never a silent
+identity) when the entry has no measured offset yet (warming/failed), and the `number |
+null` type forces the caller to handle it (`now − null` is a type error). One mechanism at
+the map boundary; a consumer routes its KNOWN host-stamped reads through it (wire-level
+timestamp *branding* — every unconverted remote-epoch read a repo-wide type error — is a
+larger entry-contract change left to the consumer's own domain).
+
+`parseKey` is the map's branded-key producer for a raw string; a consumer that already holds
+the `keySchema` can also brand directly with it (both go through the same zod brand).
+
 ## Status
 
 Vertical slice, proven end-to-end by a mock-entry harness (two entries, switch, dedup,
@@ -138,8 +161,8 @@ the keyed entry + rejects an absent key typed). The wire is complete for a consu
 - **Uniform fold envelope.** Every proc folds as `{ mapKey, input }` — one wire shape
   for any input (object, primitive, or none), and an entry input that itself carries a
   `mapKey` field cannot collide with the folded key (it rides `input`, nested).
-- **Transport liveness.** The link is resolved once (`resolveTransport`, half-open guard
-  applied) and its `live` threads into the `entries` client and every per-key client, so
+- **Transport liveness.** The BRANDED parent handle is resolved once (`resolveTransport`,
+  half-open guard applied) and its `live` threads into the `entries` client and every per-key client, so
   a chip floors its status on real transport liveness (`client.live`); constant-`true`
   only for an in-process `directLink`.
 
