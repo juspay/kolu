@@ -1,11 +1,13 @@
 ---
 title: Padi
 description: "padi — the per-host workspace daemon behind kolu. It remembers sessions, terminal records, repo context, restore state, and agent awareness while kaval owns the live PTYs underneath."
+order: 110
+section: Daemons
 koluHero:
   eyebrow: "the workspace daemon & its CLI · alpha"
   headline: |
-    the memory
-    under {kolu}.
+    {Padi}: the memory
+    under kolu.
   image: /padi-logo.svg
   imageAlt: "padi — the per-host workspace daemon"
 ---
@@ -25,7 +27,7 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 workspace _is_: terminals, sessions, restore state, repo context, the code tree,
 git status, diffs, and agent awareness. It sits above [`kaval`](/kaval), which
 owns the live PTYs. The split is simple: kaval keeps shells alive; padi keeps the
-workspace legible.
+workspace legible. The whole layer stack is in [Architecture](/architecture).
 
 ## Where it sits
 
@@ -104,7 +106,8 @@ face.
 
 `padi-tui` reads the same workspace surface kolu uses. Where `kaval-tui` shows
 what's running in each PTY, padi-tui shows what each terminal is in: repo, PR,
-checks, foreground command, live byte activity, and agent state.
+checks, foreground command, live byte activity, and agent state. That is the
+state behind the [multi-agent dock](/power-features).
 
 ```sh
 padi-tui status
@@ -124,7 +127,9 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
 inside a kolu terminal `$PADI_SOCKET` makes `padi-tui` flag-less — an agent
 driving its siblings never guesses a path. Elsewhere it autodiscovers the running
 padi; `--socket <path>` or `--state-root <dir>` point it elsewhere. Remote padi
-over ssh is a later phase; today padi-tui is local.
+over ssh is a later phase in [Architecture](/architecture#next--your-other-machines);
+today padi-tui is local. For remote PTY control that already works, use
+[`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh).
 
 `wait <id> --until awaiting,waiting` blocks until a terminal's agent finishes its
 turn — a done-signal read from real padi state, not guessed from terminal

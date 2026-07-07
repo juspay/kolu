@@ -1,0 +1,99 @@
+---
+title: Troubleshooting
+description: "Common setup snags: install prompts, notifications, supported agents, updates, and the welcome overlay."
+order: 70
+section: Use Kolu
+koluHero:
+  eyebrow: help
+  headline: Common {snags}.
+---
+
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+## I see no one-click Install button
+
+You are probably on plain `http://`: a LAN IP or Tailscale `100.x` address. The
+automatic Install prompt needs HTTPS or loopback/`localhost`; the browser rules
+are in [Install as an App](/install-pwa).
+
+You can still pin manually:
+
+- Chrome: menu → Save and share → Create shortcut → Open as window.
+- iOS: Share → Add to Home Screen.
+
+For the one-click prompt plus app badge, open the `https://...ts.net` URL from
+[Remote Access](/remote-access).
+
+## I am not getting desktop notifications
+
+kolu fires a native OS notification when an agent finishes in a terminal you are
+not actively watching. If you are looking at that terminal, the dock surfaces it
+instead and no banner fires. The multi-agent notification flow is part of
+[Power Features](/power-features).
+
+Past that, check these in order:
+
+1. **Secure context.** Notifications ride a service worker, which needs HTTPS or
+   `localhost`; [Remote Access](/remote-access) gives kolu a private HTTPS URL.
+2. **Browser permission.** Re-enable notifications from the address-bar lock icon
+   if the browser prompt was dismissed.
+3. **OS permission.** On macOS, the browser and the pinned app can have separate
+   notification entries. Allow the right one and check Focus / Do Not Disturb.
+
+Quick browser check:
+
+```js
+navigator.serviceWorker
+  .getRegistration()
+  .then((r) => r?.showNotification("test"));
+```
+
+If that banner shows, the OS/browser layer is fine and the "not watching" rule
+above is the likely explanation.
+
+## Can I use it without Tailscale?
+
+Yes. Locally over `localhost`, everything works, including one-click install,
+because loopback is a secure-context exemption. Tailscale matters when you want
+to reach kolu from another device and keep the install/badge/notification path;
+see [Remote Access](/remote-access).
+
+## Which agents does kolu support?
+
+Run any agent. The terminal is the interface, so `aider`, `gemini`, or whatever
+ships next week works the moment you run it.
+
+Three agents get first-class state today: `claude`, `codex`, and `opencode`.
+For these, kolu reads live agent state into the dock and can export the session
+as a self-contained HTML chat log or full transcript. Other agents still run in
+tiles; they just do not light up the dock.
+
+For launching the first one, see [First Five Minutes](/first-five-minutes). For
+running many and exporting transcripts, see [Power Features](/power-features).
+
+## How do I update kolu?
+
+Run the same command again:
+
+```sh
+nix --refresh run github:juspay/kolu
+```
+
+The `--refresh` flag busts Nix's flake cache so you pull the latest commit; it is
+the same command from [Quickstart](/quickstart).
+
+## I closed the welcome. How do I get it back?
+
+Open the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> and run **Tutorial**
+(alias: "Welcome"). It reopens the welcome overlay while you are working. The
+same palette opens the first terminal flow in
+[First Five Minutes](/first-five-minutes).
+
+## Still stuck?
+
+<CardGrid>
+  <LinkCard title="Remote Access" href="/remote-access" description="private HTTPS, install prompts, and Tailscale Serve" />
+  <LinkCard title="Install as an App" href="/install-pwa" description="browser-specific PWA install paths" />
+  <LinkCard title="GitHub" href="https://github.com/juspay/kolu" description="source, issues, and deployment notes" />
+</CardGrid>

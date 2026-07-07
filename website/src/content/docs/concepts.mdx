@@ -1,0 +1,95 @@
+---
+title: Core Concepts
+description: "The vocabulary behind kolu: canvas, tiles, dock, worktrees, palette, detection, GitHub state, and file comments."
+order: 30
+section: Start
+koluHero:
+  eyebrow: vocabulary
+  headline: The words that make {kolu} legible.
+---
+
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+Eight ideas cover most of the product. Learn these and the rest of kolu reads
+like plain language.
+
+<CardGrid>
+  <Card title="Canvas">
+    An infinite, mode-less 2D plane. Pan with two-finger scroll, zoom with pinch
+    or <kbd>Ctrl</kbd> + scroll, and spread terminals out like Figma or
+    Excalidraw.
+  </Card>
+  <Card title="Tiles">
+    Every terminal is a draggable, resizable tile: a real xterm.js instance with
+    WebGL rendering, clickable URLs, inline images, splits, themes, and mobile
+    keys.
+  </Card>
+  <Card title="Dock">
+    The left-edge navigator and at-a-glance list of every live terminal. Rows
+    show repo, branch, PR/CI, and agent state.
+  </Card>
+  <Card title="Worktrees">
+    Creating a terminal in a repo branches a fresh git worktree under the hood.
+    The name you type becomes the branch and labels the dock row.
+  </Card>
+  <Card title="Command palette">
+    <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> opens the unified palette. Drilling into a
+    row opens a sub-palette, such as repo → worktree name → agent.
+  </Card>
+  <Card title="Auto-detection">
+    kolu populates itself by watching shell facts: recent repos from `cd`, agent
+    CLIs from command marks, and branch/PR/CI from each terminal's cwd.
+  </Card>
+  <Card title="Git & GitHub">
+    Each terminal knows its repo. Branch, PR number, and CI status are read from
+    the working directory and shown on the dock row.
+  </Card>
+  <Card title="File comments">
+    Select text in the Code tab and pin a quoted note to it. The tray flushes to
+    Markdown you paste back into the agent.
+  </Card>
+</CardGrid>
+
+Those observations do not live only in the browser. [Padi](/padi) keeps the
+workspace record durable, while [Kaval](/kaval) owns the live PTYs underneath it.
+The split is covered in [Architecture](/architecture).
+
+## The code browser
+
+The right-hand panel carries an **Inspector** tab and a **Code** tab. The Code
+tab is a file browser scoped to the active terminal's repo: a Pierre file tree
+with git-status tinting over a syntax-highlighted source view.
+
+- Click a `path/to/file.ts:42` reference in terminal output to jump to that line.
+- Markdown renders as a reading document with a Source/Rendered toggle.
+- Repo-relative links open the target file in the tab.
+- Agent-generated `.html`, `.svg`, and `.pdf` artifacts preview inline in a
+  sandboxed iframe and live-reload on change.
+- Select text in source, a branch diff, or a rendered artifact and leave a quoted
+  comment for the agent.
+
+## The canvas
+
+The desktop workspace has no separate edit mode. Terminals are tiles you arrange
+freely.
+
+- Pan with two-finger scroll; hold <kbd>Shift</kbd> to force pan even when the
+  cursor is over a tile.
+- Zoom with pinch or <kbd>Ctrl</kbd> + scroll; tiles snap to a 24px grid on drag
+  and resize.
+- Double-click a title bar to maximize a tile. That posture persists across
+  reloads.
+- Run **Arrange canvas by repo** from the palette to cluster each repo's tiles
+  into an island.
+- The minimap heatmap marks tiles whose agents are waiting or thinking; the
+  bigger multi-agent workflow lives in [Power Features](/power-features).
+
+## Next
+
+<CardGrid>
+  <LinkCard title="First five minutes" href="/first-five-minutes" description="turn these concepts into the first agent tile" />
+  <LinkCard title="Power features" href="/power-features" description="sessions, sleep/wake, export, recording, and shell control" />
+  <LinkCard title="Architecture" href="/architecture" description="why kolu splits the browser, server, padi, and kaval" />
+</CardGrid>
