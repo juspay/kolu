@@ -14,6 +14,10 @@
  */
 
 import { collection } from "@kolu/surface";
+import {
+  collectionKeyChannel,
+  collectionKeysetChannel,
+} from "@kolu/surface/channel-names";
 import type { SurfaceSpec } from "@kolu/surface/define";
 import { resolveCellVerbs, resolveCollectionVerbs } from "@kolu/surface/define";
 import {
@@ -327,11 +331,15 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   // (`map.codec.encode`), never the raw `K` — matching `map.entriesSpec`'s
   // string-keyed wire shape (define.ts) and `@kolu/surface`'s own per-key
   // channel-naming assumption (a non-primitive `K` would collapse every entry's
-  // channel onto the literal `"entries:[object Object]"`).
+  // channel onto the literal `"entries:key:[object Object]"`). Minted through
+  // the SAME `@kolu/surface/channel-names` helpers `walkSurface` mints every
+  // OTHER collection's channels from — so an encoded key literally equal to
+  // `"keys"` or `"deltas"` still can't alias the keyset channel (the `key:`
+  // infix makes it structurally impossible, not just here by convention).
   const channel = inMemoryChannelByName();
-  const keysBus = channel<string[]>("entries:keys");
+  const keysBus = channel<string[]>(collectionKeysetChannel("entries"));
   const perKeyBus = (encoded: string) =>
-    channel<EntryStatus>(`entries:${encoded}`);
+    channel<EntryStatus>(collectionKeyChannel("entries", encoded));
 
   const entriesDeps: CollectionHandlerDeps<string, EntryStatus> = {
     readAll: () =>

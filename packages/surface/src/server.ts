@@ -23,8 +23,9 @@
 import { implement } from "@orpc/server";
 import type { ZodType } from "zod";
 import {
-  COLLECTION_DELTAS_CHANNEL_SUFFIX,
-  COLLECTION_KEYSET_CHANNEL_SUFFIX,
+  collectionDeltasChannel,
+  collectionKeyChannel,
+  collectionKeysetChannel,
 } from "./channelNames";
 import {
   type CellSpec,
@@ -1137,7 +1138,7 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
     : never;
 
 /** Per-collection implementation deps. The surface owns both buses
- *  (`<key>:keys` and `<key>:<k>`, derived from the surface key — not
+ *  (`<key>:keys` and `<key>:key:<k>`, derived from the surface key — not
  *  configurable) and wraps `upsert`/`remove` so every persisted change
  *  publishes through the surface's channels — the consumer's upsert/remove
  *  are persistence-only. Side-effects (`scheduleAutosave`, etc.) belong
@@ -1306,7 +1307,7 @@ export type ProcedureImpl<
 
 export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
   /** Channel factory. The framework computes channel names from surface
-   *  keys (e.g. `"prefs:changed"`, `"notes:keys"`, `"notes:n1"`) and
+   *  keys (e.g. `"prefs:changed"`, `"notes:keys"`, `"notes:key:n1"`) and
    *  passes them into this fn — the consumer plugs in their underlying
    *  publisher (`publisherChannel(publisher, name)` for the `@orpc/experimental-publisher`
    *  adapter). */
@@ -1354,8 +1355,9 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
  *  the surface.
  *
  *  Channel naming is surface-driven and not configurable: cells use
- *  `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:" +
- *  String(k)`, events use `"<key>:" + eventChannelKey(input)`. Renaming a
+ *  `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:deltas"` +
+ *  `"<key>:key:" + String(k)` (see `./channelNames.ts` — the sole source of
+ *  these names), events use `"<key>:" + eventChannelKey(input)`. Renaming a
  *  surface key thus renames the channel — for cells whose channels back
  *  persisted subscriptions, prefer adding a new key and migrating off the
  *  old one.
@@ -1517,11 +1519,9 @@ function walkSurface<const S extends SurfaceSpec>(
     if (!collDeps) {
       throw new Error(`implementSurface: missing deps for collection "${key}"`);
     }
-    const keysBus = deps.channel<unknown[]>(
-      `${key}:${COLLECTION_KEYSET_CHANNEL_SUFFIX}`,
-    );
+    const keysBus = deps.channel<unknown[]>(collectionKeysetChannel(key));
     const perKeyBus = (k: unknown) =>
-      deps.channel<unknown>(`${key}:${String(k)}`);
+      deps.channel<unknown>(collectionKeyChannel(key, String(k)));
 
     // The batched `deltas` stream is OPT-IN: its bus and per-tick coalescing
     // exist only when the collection lists the `deltas` verb. A non-opted
@@ -1530,7 +1530,7 @@ function walkSurface<const S extends SurfaceSpec>(
     const hasDeltas = collectionHasDeltas(collSpec);
     const deltasBus = hasDeltas
       ? deps.channel<CollectionDelta<unknown, unknown>>(
-          `${key}:${COLLECTION_DELTAS_CHANNEL_SUFFIX}`,
+          collectionDeltasChannel(key),
         )
       : undefined;
     // The per-tick coalescer owns the `pending` buffer + microtask flush; it

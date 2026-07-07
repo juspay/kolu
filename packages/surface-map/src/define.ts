@@ -13,8 +13,9 @@
  * `K` can be ANY `keySchema`-validated value, but the WIRE `mapKey` field, the
  * `entries` membership collection's key, and every channel name the server derives
  * from a key are ALWAYS a plain STRING — matching `@kolu/surface`'s own per-key
- * channel/dedup machinery (`${name}:${String(k)}`, `useCollection`'s primitive-key
- * assumption), which a non-primitive `K` would silently corrupt (`String({...})` →
+ * channel/dedup machinery (`collectionKeyChannel(name, String(k))`, i.e.
+ * `${name}:key:${String(k)}`; see `@kolu/surface/channel-names`), which a
+ * non-primitive `K` would silently corrupt (`String({...})` →
  * `"[object Object]"`, collapsing every entry onto one channel). The REQUIRED
  * {@link KeyCodec} bridges the two: `encode` produces that canonical wire string
  * (also the channel-name/dedup key), `decode` inverts it. For a `K` that is already
