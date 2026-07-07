@@ -319,4 +319,64 @@ describe("surface-map mock-entry e2e harness", () => {
       dispose();
     });
   });
+
+  it("(6) rpc folds {mapKey,input} to the keyed entry and rejects an absent key", async () => {
+    await createRoot(async (dispose) => {
+      const { client, addSession } = setup();
+      addSession(
+        A,
+        makeEntry({ awaiting: 11, awaitingIds: ["p"] }).link,
+        connected(0),
+      );
+      addSession(
+        B,
+        makeEntry({ awaiting: 22, awaitingIds: ["q"] }).link,
+        connected(0),
+      );
+
+      // `Entry.rpc` is typed `SurfaceClient<ES>["rpc"]` (`unknown` at the generic map —
+      // the consumer casts to its own entry contract; here a minimal shape for the pin).
+      // A cell `get` is a subscription (resolves to an async iterable); a collection
+      // `upsert` is a one-shot procedure (resolves to a value).
+      type EntryRpc = {
+        surface: {
+          urgency: { get: () => Promise<AsyncIterable<{ awaiting: number }>> };
+          terminals: {
+            upsert: (input: {
+              key: string;
+              value: { title: string };
+            }) => Promise<unknown>;
+          };
+        };
+      };
+
+      // (a) THE FOLD — a raw rpc call through `entry(A)`: the key-injecting link folds
+      // `{ mapKey: A }` into the wire input (the consumer passes NO key), and the map
+      // server unwraps it and routes to A's entry, so the snapshot is A's urgency, never
+      // B's. The SAME envelope fold the `.use()` subs ride, exercised at the procedure
+      // client.
+      let firstA: { awaiting: number } | undefined;
+      const iterA = await (
+        client.entry(A).rpc as EntryRpc
+      ).surface.urgency.get();
+      for await (const item of iterA) {
+        firstA = item;
+        break;
+      }
+      expect(firstA?.awaiting).toBe(11); // routed to A by the fold, not B
+
+      // (b) TYPED REJECTION ON AN ABSENT KEY — a one-shot procedure (a collection
+      // `upsert`) through a never-a-member key cannot end gracefully like a sub's typed
+      // stream-end, so it REJECTS (`MAP_KEY_UNKNOWN`), never silently resolving to a
+      // no-op. This is the procedure-client half of the total-existence discipline the
+      // subs honor (an absent key is answered, never hung or swallowed).
+      await expect(
+        (client.entry(D).rpc as EntryRpc).surface.terminals.upsert({
+          key: "t1",
+          value: { title: "x" },
+        }),
+      ).rejects.toThrow(/not a member|MAP_KEY_UNKNOWN/);
+      dispose();
+    });
+  });
 });

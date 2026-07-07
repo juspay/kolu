@@ -108,6 +108,7 @@ interface SurfaceMapClient<KS, ES> {
   dispose(): void;
 }
 interface Entry<ES> extends Pick<SurfaceClient<ES>, "cells" | "collections" | "streams" | "events"> {
+  readonly rpc: SurfaceClient<ES>["rpc"];                // procedure client — folds {mapKey} per call
   state(): EntryStatus | { kind: "not-a-member" };       // total fold over entries — never nullable
 }
 ```
@@ -119,11 +120,20 @@ re-keys on a key change — the old key's subscriptions dispose, the new key's p
 synchronously; "which host this tab views" is a plain app signal, so switching cannot
 race. Existence is always a **value** (`state()`), never a nullable `entry()`.
 
+`entry(key).rpc` is the entry surface's **procedure client** for imperative point-calls
+(`entry(k).rpc.surface.<ns>.<verb>(input)`) — the same key-injecting link folds `{mapKey}`
+into every call, so the caller never passes the key. It is typed `SurfaceClient<ES>["rpc"]`
+(`unknown` at the generic map — a consumer that knows its entry contract casts it once,
+e.g. a `padiRpcOf` helper), which sidesteps the TS2590 "union too complex" a
+`ContractRouterClient<Surface<ES>["contract"]>` expansion trips under a generic `ES`. An
+absent-key procedure call is a **typed rejection** (`MAP_KEY_UNKNOWN`), the one-shot twin
+of a sub's typed stream-end.
+
 ## Status
 
 Vertical slice, proven end-to-end by a mock-entry harness (two entries, switch, dedup,
-typed-end on removal, membership + status projection). The wire is complete for a
-consumer:
+typed-end on removal, membership + status projection, and an rpc that folds `{mapKey}` to
+the keyed entry + rejects an absent key typed). The wire is complete for a consumer:
 
 - **Uniform fold envelope.** Every proc folds as `{ mapKey, input }` — one wire shape
   for any input (object, primitive, or none), and an entry input that itself carries a

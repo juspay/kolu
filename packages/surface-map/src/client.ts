@@ -37,6 +37,16 @@ export interface Entry<ES extends SurfaceSpec>
     SurfaceClient<ES>,
     "cells" | "collections" | "streams" | "events"
   > {
+  /** The entry surface's PROCEDURE client — for imperative point-calls
+   *  (`entry(k).rpc.surface.<ns>.<verb>(input)`, the lifecycle/chrome/fs/git/… procs).
+   *  The per-key link folds `{ mapKey }` into every call, so the consumer never passes
+   *  the key. It is the per-key `SurfaceClient`'s `rpc` — typed as the map's `Rpc`
+   *  (default `unknown` for the generic map, since the entry's link is untyped here); a
+   *  consumer that knows its entry contract casts it (e.g. a `padiRpcOf` helper) or reads
+   *  it through the concrete contract. Kept as `SurfaceClient<ES>["rpc"]` rather than a
+   *  `ContractRouterClient<Surface<ES>["contract"]>` expansion, which is a TS2590
+   *  "union too complex" under a generic `ES`. */
+  readonly rpc: SurfaceClient<ES>["rpc"];
   /** The `EntryStatus` when a member, an explicit `not-a-member` value when not
    *  — a client fold over `entries`, total and never nullable. Read it inside a
    *  reactive scope (it subscribes to the membership collection). */
@@ -175,13 +185,38 @@ function makeReactiveEntry<ES extends SurfaceSpec, K>(
         },
       },
     );
+  // Cast the whole proxy-backed object at once (`as unknown as Entry<ES>`): the fields
+  // are structurally satisfied by the proxies at runtime, and casting the object avoids
+  // expanding `Entry<ES>["rpc"]`'s full contract-client union (a TS2590 "union too
+  // complex" if cast per-field).
   return {
-    cells: primProxy("cells") as Entry<ES>["cells"],
-    collections: primProxy("collections") as Entry<ES>["collections"],
-    streams: primProxy("streams") as Entry<ES>["streams"],
-    events: primProxy("events") as Entry<ES>["events"],
+    cells: primProxy("cells"),
+    collections: primProxy("collections"),
+    streams: primProxy("streams"),
+    events: primProxy("events"),
+    rpc: rpcDelegate(entryFor, keyAccessor),
     state: () => entryFor(keyAccessor()).state(),
-  };
+  } as unknown as Entry<ES>;
+}
+
+/** A path-walking proxy over an entry's `rpc` that reads the CURRENT key per call — so a
+ *  procedure point-call through `useEntry` routes to the active host at call time (rare:
+ *  procedures usually use the pure `entry()`, but this keeps `Entry.rpc` total). */
+function rpcDelegate<ES extends SurfaceSpec, K>(
+  entryFor: (key: K) => Entry<ES>,
+  keyAccessor: Accessor<K>,
+): unknown {
+  const walk = (path: string[]): unknown =>
+    new Proxy(() => {}, {
+      get: (_t, prop) => walk([...path, prop as string]),
+      apply: (_t, _this, args) => {
+        // biome-ignore lint/suspicious/noExplicitAny: walk the current entry's rpc by the accumulated path
+        let node: any = entryFor(keyAccessor()).rpc;
+        for (const p of path) node = node[p];
+        return node(...args);
+      },
+    });
+  return walk([]);
 }
 
 // ── connectSurfaceMap ───────────────────────────────────────────────────
@@ -268,6 +303,10 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
       collections: c.collections,
       streams: c.streams,
       events: c.events,
+      // The per-key client's procedure client — its key-injecting link folds `{ mapKey }`
+      // into every call. Typed loosely off the untyped link (`c.rpc` is `unknown`), so
+      // cast to the entry-contract client `Entry.rpc` names.
+      rpc: c.rpc as Entry<ES>["rpc"],
       state: () => foldState(key),
     };
   };
