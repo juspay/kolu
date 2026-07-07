@@ -56,10 +56,10 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
       // `surface.ts`. The kaval identities ride padi's `status` cell + `daemonStatus`
       // collection (re-served off the bound padi).
       info: t.server.info.handler(async () => ({
-        // `pwaIdentityForHostname` folds the bound remote host (`remotePadiHost()`)
-        // into the name by default, so the browser tab title + About dialog read
-        // `Kolu [<serverHost> → <remoteHost>]` under a remote binding (byte-identical
-        // `Kolu [<host>]` when local).
+        // The browser tab title + About dialog read `Kolu [<serverHost>]` — this
+        // kolu-server's OWN host. Under always-map which host a tab views is a
+        // client-side strip selection, not a server fact, so the identity no longer
+        // folds a remote host into the name.
         identity: pwaIdentityForHostname(serverHostname),
       })),
     },
