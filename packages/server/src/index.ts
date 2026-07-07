@@ -304,7 +304,9 @@ const padiSession = pool.getSession(defaultHost)!;
 // Re-serve one host's padi surface on demand, CACHED per host. `.done` enacts the
 // #1708 pump-fault pins: the DEFAULT (local) host's pump death is FATAL (fail-fast —
 // the supervisor restarts kolu-server clean); a GUEST host's death RETIRES just that
-// host (`pool.remove` ends its map subs typed and the canvas falls back). The map
+// host (`pool.remove` ends its map subs typed; the client's `hostReconcile` effect then
+// switches `activeHost` off the departed host to the local default, so the canvas falls
+// back with a toast rather than stranding the tab on a dead host). The map
 // forwards each host's calls to `directLink(reServeFor(h, s).router)`.
 const reServes = new Map<HostKey, ReServedSurface<typeof padiSurface.spec>>();
 const reServeFor = (

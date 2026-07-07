@@ -47,8 +47,9 @@ import {
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import type { WebSocket as PartySocket } from "partysocket";
-import { createRoot } from "solid-js";
+import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
+import { hostReconcileTarget } from "./hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
 const { protocol, host } = window.location;
@@ -236,6 +237,28 @@ const hostScoped = createRoot(() => {
     coalesceMs: 150,
     // Covers subscription drops + coalesced-flush failures.
     onError: (err: Error) => toast.error(`Preferences error: ${err.message}`),
+  });
+  // Host-membership reconcile: if the ACTIVE host leaves the pool — the user ✕'d their own
+  // guest chip, or the server auto-retired it on re-serve-pump death (`pool.remove`) —
+  // `useEntry(activeHost)` does NOT re-key on its own, so the tab would be stranded on a
+  // dead host (every `padiRpcOf(activeHost())` call throws `MAP_KEY_UNKNOWN`, canvas frozen,
+  // no chip lit). Mirror the terminal auto-switch at the host level: once a membership
+  // snapshot has landed, a departed active host falls back to the unremovable LOCAL default,
+  // LOUDLY (the server-driven auto-retire is otherwise silent). The `entries` sub dedups
+  // with the selector strip's via the base-client ref-count.
+  const members = padiMap.entries.use();
+  createEffect(() => {
+    const target = hostReconcileTarget(
+      members.keys(),
+      activeHost(),
+      LOCAL_HOST,
+    );
+    if (target === null) return;
+    const departed = activeHost();
+    setActiveHost(target);
+    toast.warning(
+      `Host "${departed}" left the pool — switched to the local host`,
+    );
   });
   return { activityFeed, session, terminalKeys, preferences };
 });
