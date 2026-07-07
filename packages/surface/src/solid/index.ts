@@ -92,6 +92,8 @@ export {
   type BoundEvent,
   type BoundStream,
   buildSurfaceClient,
+  type ReadOnlyBoundCollection,
+  type ReadOnlyBoundCollectionResult,
   resolveTransport,
   type SurfaceClient,
   type SurfaceClients,

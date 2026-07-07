@@ -17,9 +17,9 @@
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { defineSurface } from "@kolu/surface/define";
 import {
-  type BoundCollection,
   buildSurfaceClient,
   createKeyedRoot,
+  type ReadOnlyBoundCollection,
   resolveTransport,
   type SurfaceClient,
 } from "@kolu/surface/solid";
@@ -58,7 +58,7 @@ export interface SurfaceMapClient<
   ES extends SurfaceSpec,
 > {
   /** The ONE membership authority, consumed as a normal bound collection. */
-  readonly entries: BoundCollection<z.infer<KS>, EntryStatus>;
+  readonly entries: ReadOnlyBoundCollection<z.infer<KS>, EntryStatus>;
   /** The app-transport liveness leg (resolved from the link once). A per-key chip
    *  must FLOOR its status claim on this — a stale `connected` over a silently
    *  half-open link is the #1568 lie. Constant-`true` for an in-process `directLink`;
@@ -268,7 +268,7 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   const entriesClient = build(() =>
     buildSurfaceClient(entriesSurface, baseLink, live),
   );
-  const entries = entriesClient.collections.entries as BoundCollection<
+  const entries = entriesClient.collections.entries as ReadOnlyBoundCollection<
     K,
     EntryStatus
   >;

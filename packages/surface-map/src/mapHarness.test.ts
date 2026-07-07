@@ -379,4 +379,19 @@ describe("surface-map mock-entry e2e harness", () => {
       dispose();
     });
   });
+
+  it("(7) entries is READ-ONLY — a client mutation is a TYPE error, not a runtime reject", () => {
+    const { client } = setup();
+    const e = client.entries;
+    // `entries` is the ONE membership authority, published by one writer; a consumer must
+    // not be able to even EXPRESS a mutation. `ReadOnlyBoundCollection` drops upsert/delete
+    // structurally, so these are compile errors (not the old rejects-at-runtime lie-shape).
+    // @ts-expect-error — upsert is structurally absent from ReadOnlyBoundCollection.
+    const _u: unknown = e.upsert;
+    // @ts-expect-error — delete is likewise absent.
+    const _d: unknown = e.delete;
+    void _u;
+    void _d;
+    expect(typeof e.use).toBe("function"); // the read path (keys/get) remains
+  });
 });

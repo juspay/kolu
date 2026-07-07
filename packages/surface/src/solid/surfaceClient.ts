@@ -213,6 +213,20 @@ export interface BoundCollection<K, T> {
   delete(key: K): Promise<void>;
 }
 
+/** A READ-ONLY bound collection — the mutation verbs (`upsert`/`delete`) are
+ *  STRUCTURALLY ABSENT, both at the top level and on the `.use()` result. A consumer of
+ *  a server-authored, one-writer collection (a surface-map `entries` membership
+ *  authority) therefore cannot even EXPRESS a client mutation the wire would reject:
+ *  `entries.upsert(...)` is a type error, not a runtime rejection. The collection
+ *  analogue of `ReadOnlyBoundCell`. */
+export type ReadOnlyBoundCollectionResult<K, T> = UseCollectionResult<K, T>;
+export interface ReadOnlyBoundCollection<K, T> {
+  use(opts?: {
+    keys?: Accessor<K[]>;
+    onError?: SubscriptionOptions<unknown>["onError"];
+  }): ReadOnlyBoundCollectionResult<K, T>;
+}
+
 export interface BoundStream<I, T> {
   use(
     inputFn: () => I | null,
