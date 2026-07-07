@@ -72,6 +72,26 @@ describe("stableOptsKey — divergent options are distinct keys; non-plain-JSON 
       stableOptsKey({ initial: { threshold: 5 } }),
     );
   });
+
+  it("THROWS on a SPARSE-array hole (JSON.stringify fills it to null, colliding with an explicit null)", () => {
+    // `.every` spec-SKIPS holes, so the array branch used to admit `[1,,3]` while its
+    // stringify "[1,null,3]" collides with the DISTINCT dense `[1,null,3]` — a silent share.
+    // A hole is a dropped-undefined, so reject it like the explicit `[1,undefined,3]`.
+    // biome-ignore lint/suspicious/noSparseArray: the hole is the exact input under test
+    expect(() => stableOptsKey({ initial: [1, , 3] })).toThrow(
+      /non-injective|sparse|undefined|hole/,
+    );
+    const holed = [1, 2, 3];
+    delete holed[1]; // a hole from an ordinary op, not just the literal
+    expect(() => stableOptsKey({ initial: holed })).toThrow(
+      /non-injective|sparse|undefined|hole/,
+    );
+    // A DENSE array still keys fine, and two identical dense sites still fold to one.
+    expect(() => stableOptsKey({ initial: [1, null, 3] })).not.toThrow();
+    expect(stableOptsKey({ initial: [1, null, 3] })).toBe(
+      stableOptsKey({ initial: [1, null, 3] }),
+    );
+  });
 });
 
 /** A get-only cell (read-only server-authority path → deduped). */

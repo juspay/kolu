@@ -68,7 +68,8 @@ function fnId(fn: object): number {
 /** Whether a data value serializes through `JSON.stringify` INJECTIVELY — i.e. two
  *  distinct values can't collide to one string. `JSON.stringify` is lossy for `Set`/`Map`
  *  (both → `"{}"` regardless of contents), for nested `undefined`/`function`/`symbol`
- *  values (silently dropped), for non-plain objects (`Date`/`RegExp`/class instances), and
+ *  values (silently dropped), for a SPARSE-array hole (`[1,,3]` → `"[1,null,3]"`, colliding
+ *  with an explicit `null`), for non-plain objects (`Date`/`RegExp`/class instances), and
  *  — the trap the number `typeof` hides — for the IEEE-754 special values: `NaN`/`Infinity`
  *  /`-Infinity` all serialize to `"null"`, and `-0` serializes to `"0"` (colliding with `0`).
  *  A plain tree of string/FINITE-non-`-0`-number/boolean/null + plain objects/arrays
@@ -82,7 +83,17 @@ function isJsonInjective(v: unknown): boolean {
   // opts (a NaN "disabled" sentinel vs an Infinity "never" sentinel) can't fold to one slot.
   if (t === "number") return Number.isFinite(v) && !Object.is(v, -0);
   if (t !== "object") return false; // undefined / function / symbol / bigint — lossy
-  if (Array.isArray(v)) return v.every(isJsonInjective);
+  if (Array.isArray(v)) {
+    // Iterate INDICES, not `.every` (which spec-SKIPS holes): a hole reads as `undefined`
+    // and `JSON.stringify` serializes it to `null`, so `[1,,3]` would collide with the
+    // distinct `[1,null,3]`. The explicit `[1,undefined,3]` is already rejected (its element
+    // is non-injective) — a hole is the same dropped-undefined, so reject it too.
+    for (let i = 0; i < v.length; i++) {
+      if (!(i in v)) return false; // a hole → null, colliding with an explicit null
+      if (!isJsonInjective(v[i])) return false;
+    }
+    return true;
+  }
   const proto = Object.getPrototypeOf(v);
   if (proto !== Object.prototype && proto !== null) return false; // Set/Map/Date/RegExp/class
   // A plain object: every own-enumerable value must itself be injective (an `undefined`
@@ -118,7 +129,7 @@ export function stableOptsKey(opts: Record<string, unknown>): string {
     }
     if (!isJsonInjective(v)) {
       throw new Error(
-        `surface dedup: the .use() option "${k}" is a non-injective-JSON value (a Set/Map/undefined-bearing object, or a NaN/±Infinity/-0 number) — the shared-slot dedup key can't distinguish it, so two divergent .use() sites would silently share one subscription. Use a plain-JSON option value (finite, non-(-0) numbers), or per-consumer wiring (not yet built) is needed for a non-plain-JSON shared option.`,
+        `surface dedup: the .use() option "${k}" is a non-injective-JSON value (a Set/Map/undefined-bearing object, a sparse-array hole, or a NaN/±Infinity/-0 number) — the shared-slot dedup key can't distinguish it, so two divergent .use() sites would silently share one subscription. Use a plain-JSON option value (finite, non-(-0) numbers, dense arrays), or per-consumer wiring (not yet built) is needed for a non-plain-JSON shared option.`,
       );
     }
     parts.push(`${k}=${JSON.stringify(v)}`);
