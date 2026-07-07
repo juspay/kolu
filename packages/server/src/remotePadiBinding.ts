@@ -551,6 +551,9 @@ export function ensureRemotePadiBinding(
   // ── The base session + the daemon-member spread ─────────────────────────────
   const base: Session<PadiSurfaceClient> = makeSession<PadiSurfaceClient>({
     connectOnce: rawConnector,
+    // The REMOTE ssh connector PROVISIONS — it nix-copies the padi closure to the
+    // host before the transport is up — so this session opens at "copying".
+    initialConnection: "copying",
     admit,
     onLog: (line) => log.info({ host, line }, "remote padi session"),
     label: `host:${host}`,

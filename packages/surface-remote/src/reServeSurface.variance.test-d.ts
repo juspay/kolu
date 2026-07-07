@@ -55,6 +55,7 @@ void pumpRemoteSurface({
 //     `AgentClient<C>` survives for a direct consumer (odu reads `session.pin()`'s
 //     typed client), while the loosening is confined to the receptacle's VIEW.
 const built = makeSession({
+  initialConnection: "copying",
   connectOnce: sshConnector<SpecificContract>({
     host: "h",
     binary: "b",

@@ -176,6 +176,9 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
       resolveDrvPath: () =>
         resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
     }),
+    // The ssh connector PROVISIONS — it nix-copies the agent closure to the remote
+    // before the transport is up — so this session opens at the "copying" phase.
+    initialConnection: "copying",
     onLog: opts.onLog,
     // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag
     // every `HostSession` line carried), so an alt-screen consumer's log filtering

@@ -26,7 +26,7 @@ import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { provisionAgent } from "./nixCopy";
-import { type SessionState, makeSession } from "./session";
+import { makeSession, type SessionState } from "./session";
 import { type AgentClient, sshConnector } from "./sshConnector";
 
 vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
@@ -100,6 +100,7 @@ function wedgedChild() {
 
 function buildSession(extra: Record<string, unknown> = {}) {
   return makeSession<AgentClient<SurfaceContract>>({
+    initialConnection: "copying",
     connectOnce: sshConnector<SurfaceContract>({
       host: "testhost",
       binary: "agent",

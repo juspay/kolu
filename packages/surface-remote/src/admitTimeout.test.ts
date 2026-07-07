@@ -43,6 +43,7 @@ describe("admit handshake watchdog (S9 parity)", () => {
     const admit = () => new Promise<never>(() => {});
 
     const session = makeSession<unknown>({
+      initialConnection: "copying",
       connectOnce,
       admit,
       connectTimeoutMs: 5000,
@@ -84,6 +85,7 @@ describe("admit handshake watchdog (S9 parity)", () => {
     const admit = () => Promise.resolve({ kind: "adopt" as const });
 
     const session = makeSession<unknown>({
+      initialConnection: "copying",
       connectOnce,
       admit,
       connectTimeoutMs: 5000,

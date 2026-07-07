@@ -25,7 +25,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { provisionAgent } from "./nixCopy";
-import { type SessionState, makeSession } from "./session";
+import { makeSession, type SessionState } from "./session";
 import { sshConnector } from "./sshConnector";
 
 vi.mock("./nixCopy", () => ({
@@ -64,6 +64,7 @@ function snap(session: {
 
 function failingSession() {
   return makeSession({
+    initialConnection: "copying",
     connectOnce: sshConnector({
       host: "testhost",
       binary: "agent",
@@ -79,6 +80,7 @@ function failingSession() {
  *  `provisionAgent` is never reached, so it stays unmocked here. */
 function unresolvableSession() {
   return makeSession({
+    initialConnection: "copying",
     connectOnce: sshConnector({
       host: "testhost",
       binary: "agent",
@@ -108,6 +110,7 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     const lines: string[] = [];
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const session = makeSession({
+      initialConnection: "copying",
       connectOnce: sshConnector({
         host: "altscreen",
         binary: "agent",
@@ -143,6 +146,7 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     // lifecycle proceeds: the failing-provision drive still reaches `failed`.
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const session = makeSession({
+      initialConnection: "copying",
       connectOnce: sshConnector({
         host: "throwsink",
         binary: "agent",

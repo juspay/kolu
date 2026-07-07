@@ -21,10 +21,10 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { mirroredSurface } from "./connection";
 import { type Controllable, controllable } from "./controllableStream.testutil";
+import type { RelayPolicy } from "./relayStream";
+import { reServeSurface } from "./reServeSurface";
 import type { Session as MirrorSession, SessionState } from "./session";
 import type { AgentClient } from "./sshConnector";
-import { reServeSurface } from "./reServeSurface";
-import type { RelayPolicy } from "./relayStream";
 
 const delay = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
 

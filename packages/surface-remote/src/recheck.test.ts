@@ -19,14 +19,14 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { eventIterator, oc } from "@orpc/contract";
-import { implement } from "@orpc/server";
 import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
+import { eventIterator, oc } from "@orpc/contract";
+import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { provisionAgent } from "./nixCopy";
-import { type SessionState, makeSession } from "./session";
+import { makeSession, type SessionState } from "./session";
 import { type AgentClient, sshConnector } from "./sshConnector";
 
 vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
@@ -119,6 +119,7 @@ describe("HostSession child-exit classification", () => {
     // bound it. Pre-fix every child exit was "network" → infinite retry.
     vi.mocked(spawn).mockImplementation(() => crashingChild(127) as never);
     const session = makeSession<AgentClient<typeof contract>>({
+      initialConnection: "copying",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -162,6 +163,7 @@ describe("HostSession.recheck", () => {
 
   it("force-cycles a live (connected) link and reconnects", async () => {
     const session = makeSession<AgentClient<typeof contract>>({
+      initialConnection: "copying",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -198,6 +200,7 @@ describe("HostSession.recheck", () => {
 
   it("a recheck() cycle mid-connecting retries as network, not bounded remote (Codex P1)", async () => {
     const session = makeSession<AgentClient<typeof contract>>({
+      initialConnection: "copying",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -230,6 +233,7 @@ describe("HostSession.recheck", () => {
 
   it("is a no-op on an unreferenced session (no spawn, no throw)", () => {
     const session = makeSession<AgentClient<typeof contract>>({
+      initialConnection: "copying",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",

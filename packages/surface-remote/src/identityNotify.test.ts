@@ -80,6 +80,7 @@ describe("makeSession identity republish (F1)", () => {
 
   it("publishes a state frame when the async system.identity probe lands, so onState consumers resample", async () => {
     const session = makeSession<AgentClient<SurfaceContract>>({
+      initialConnection: "copying",
       connectOnce: sshConnector<SurfaceContract>({
         host: "testhost",
         binary: "agent",

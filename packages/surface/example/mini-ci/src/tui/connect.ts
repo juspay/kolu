@@ -53,6 +53,7 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
     );
   }
   const session = makeSession<RunnerClient>({
+    initialConnection: "copying",
     connectOnce: sshConnector<typeof surface.contract>({
       host: opts.host,
       binary: "mini-ci-runner",

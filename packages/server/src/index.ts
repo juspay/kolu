@@ -369,6 +369,10 @@ const reServedPadiClient = surfaceClientRef(
 const padiMap = serveHostMap(padiHostMap, pool, {
   // biome-ignore lint/suspicious/noExplicitAny: ReServedSurface.router is opaque (`unknown`); directLink forwards it structurally, exactly as the memory sampler's `surfaceClientRef` does above.
   linkFor: (h, s) => directLink(reServeFor(h, s).router as any),
+  // The local arm is a non-provisioning `makeSession<_, never>` (padiBinding), typed
+  // without "copying"; this is the runtime belt that a local key can never project a
+  // provisioning "copying"/"warming" status (juspay/kolu#1716).
+  localKey: LOCAL_HOST,
 });
 
 // Publish the multi-host gate as a cell — the client reads THIS to render the selector

@@ -45,6 +45,32 @@ export const CONNECTION_STATES = [
 /** The session's link phase. Single-sourced from {@link CONNECTION_STATES}. */
 export type ConnectionState = (typeof CONNECTION_STATES)[number];
 
+/** The LOCAL / endpoint arm's phase set — `ConnectionState` MINUS `"copying"`.
+ *  `"copying"` is the nix-closure-PROVISIONING phase; a NON-provisioning connector
+ *  (the local `endpointConnector` — the daemon is already here, nothing to copy)
+ *  can never enter it, so its session type OMITS it and `local is copying` becomes
+ *  a COMPILE error, not a runtime lie. The full `ConnectionState` stays for the
+ *  ssh/provisioning arm and the heterogeneous pool boundary. (juspay/kolu#1716.) */
+export const LOCAL_CONNECTION_STATES = [
+  "connecting",
+  "connected",
+  "disconnected",
+  "failed",
+] as const satisfies readonly Exclude<ConnectionState, "copying">[];
+
+/** The local/endpoint session's link phase — {@link ConnectionState} without the
+ *  remote-only `"copying"` provisioning phase. */
+export type LocalConnectionState = (typeof LOCAL_CONNECTION_STATES)[number];
+
+/** The PROVISIONING-only phases a provisioning connector (ssh) adds beyond the
+ *  always-present {@link LocalConnectionState} — today just `"copying"`. A session's
+ *  connection type is `LocalConnectionState | Prov`: the four local phases are
+ *  ALWAYS reachable (so the session machine's internal transitions typecheck for
+ *  any `Prov`), and `Prov` widens ONLY the provisioning arm. `Prov = never` (the
+ *  local/endpoint arm) yields exactly `LocalConnectionState`; `Prov =
+ *  ProvisioningPhase` (the ssh arm, the default) yields exactly `ConnectionState`. */
+export type ProvisioningPhase = Exclude<ConnectionState, LocalConnectionState>;
+
 /** Why a down link is down — `"network"` (host unreachable; retries forever)
  *  vs `"remote"` (host reached, rejected us; terminal `failed`). Single-sourced
  *  here so the cell schema and `HostSession`'s `FailureCause` can't drift. */

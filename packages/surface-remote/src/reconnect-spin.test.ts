@@ -15,15 +15,15 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { eventIterator, oc } from "@orpc/contract";
-import { implement } from "@orpc/server";
 import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import type { SurfaceClientLike } from "@kolu/surface/project";
+import { eventIterator, oc } from "@orpc/contract";
+import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { provisionAgent } from "./nixCopy";
-import { type Session, makeSession } from "./session";
+import { makeSession, type Session } from "./session";
 import { type AgentClient, sshConnector } from "./sshConnector";
 import { makeClientCursor } from "./waitForNextClient";
 
@@ -85,6 +85,7 @@ describe("reconnect bridge loop", () => {
 
   it("does not busy-spin after a connected link drops", async () => {
     session = makeSession<AgentClient<typeof contract>>({
+      initialConnection: "copying",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -140,6 +141,7 @@ describe("reconnect bridge loop", () => {
     vi.mocked(spawn).mockImplementation(() => flakyChild(40) as never);
 
     session = makeSession<AgentClient<typeof contract>>({
+      initialConnection: "copying",
       connectOnce: sshConnector<typeof contract>({
         host: "destroyhost",
         binary: "agent",

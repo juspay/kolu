@@ -70,6 +70,13 @@ export interface ServeHostMapOptions<K, S> {
    *  injected). Called once per host; the result is cached here and evicted on
    *  removal, so a re-serve mirror is never built twice for a host. */
   linkFor: (host: K, session: S) => unknown;
+  /** The non-provisioning (local/endpoint) key, if this pool has one. A local
+   *  session is a `makeSession<_, never>` arm typed WITHOUT the provisioning phase
+   *  `"copying"` (juspay/kolu#1716), so it can NEVER legitimately project a
+   *  `copying`/`warming` status. This is the runtime BELT for the map's W4-new
+   *  reachability: if the local key ever projects `"copying"`, `resolve` throws LOUD
+   *  rather than paint a lying "warming" chip. Omit when every host provisions. */
+  localKey?: K;
 }
 
 /** The pool surface `serveHostMap` consumes — a slice of {@link RemotePool} (it never
@@ -165,9 +172,25 @@ export function serveHostMap<
       if (session === undefined)
         return { failed: `unknown host: ${String(k)}` };
       const offset = session.clockOffset();
+      const state = projectState(latestState.get(k), offset);
+      // BELT (juspay/kolu#1716): the local/endpoint arm is a non-provisioning session
+      // typed WITHOUT "copying", so it can never legitimately reach the provisioning
+      // phase. If the local key ever projects "copying", a non-provisioning session
+      // illegitimately entered it — fail LOUD rather than paint a lying "warming" chip.
+      if (
+        opts.localKey !== undefined &&
+        k === opts.localKey &&
+        state.kind === "copying"
+      ) {
+        throw new Error(
+          `local host "${String(k)}" projected a provisioning "copying" state it can ` +
+            "never inhabit — a non-provisioning endpoint session must never enter " +
+            "copying (see juspay/kolu#1716)",
+        );
+      }
       return {
         link: linkFor(k, session),
-        state: projectState(latestState.get(k), offset),
+        state,
       };
     },
   };

@@ -403,8 +403,20 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     };
   };
 
-  const base: Session<PadiSurfaceClient> = makeSession<PadiSurfaceClient>({
+  // The LOCAL endpoint arm — `Prov = never` (no provisioning phases): the local
+  // daemon is already here, nothing to nix-copy, so `initialConnection` can ONLY be
+  // "connecting" and this session's state can NEVER contain the provisioning phase
+  // "copying". `makeSession<_, never>` makes `initialConnection: "copying"` a COMPILE
+  // error here — the illegal state is unrepresentable, not merely unused
+  // (juspay/kolu#1716). The `Session<_, never>` is still assignable to the pool's
+  // heterogeneous `Session` slot (a local session satisfies the full contract by
+  // never emitting copying).
+  const base: Session<PadiSurfaceClient, never> = makeSession<
+    PadiSurfaceClient,
+    never
+  >({
     connectOnce: connector,
+    initialConnection: "connecting",
     reconnectDelayMs: opts.reconnectDelayMs,
     label: PADI_HOST_ID,
     onLog: (line) => log.info({ line }, "local padi session"),

@@ -134,6 +134,43 @@ describe("projectState — SessionState → EntryConnectionState", () => {
   });
 });
 
+describe("serveHostMap belt — a local key can never project 'copying' (juspay/kolu#1716)", () => {
+  it("RUNTIME pin: a non-local key in 'copying' projects 'copying' fine (the remote path warms-via-copy)", async () => {
+    const p = fakePool();
+    p.add("remote", fakeSession(st("copying"), 0));
+    const served = serveHostMap(map, p.pool, {
+      linkFor: () => directLink<AnyContractRouter>({} as never),
+      localKey: "local" as never, // "remote" is NOT the local key → the belt stays silent
+    });
+    const iter = await entriesGet(
+      directLink<AnyContractRouter>(served.router as never),
+      "remote",
+    );
+    // The remote entry warms-via-copy honestly — no throw, status is 'warming'.
+    await expect(iter.next()).resolves.toMatchObject({
+      value: { kind: "warming" },
+    });
+    served.dispose();
+  });
+
+  it("BELT: the localKey's session in 'copying' (an illegal state the endpoint TYPE forbids at construction) throws LOUD instead of a lying 'warming' chip", async () => {
+    const p = fakePool();
+    // Force the local key into "copying" — the endpoint arm's type (`makeSession<_,
+    // never>`) makes this UNCONSTRUCTIBLE, so this models a regression / a wrong widening.
+    p.add("local", fakeSession(st("copying"), 0));
+    const served = serveHostMap(map, p.pool, {
+      linkFor: () => directLink<AnyContractRouter>({} as never),
+      localKey: "local" as never,
+    });
+    const iter = await entriesGet(
+      directLink<AnyContractRouter>(served.router as never),
+      "local",
+    );
+    await expect(iter.next()).rejects.toThrow(/never inhabit|1716/);
+    served.dispose();
+  });
+});
+
 describe("buildRemotePool.subscribe — membership, ordering", () => {
   it("fires after add/remove/destroyAll, with hosts()/has() already reflecting the change", async () => {
     const built = buildRemotePool<Session, unknown>({

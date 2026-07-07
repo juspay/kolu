@@ -47,15 +47,24 @@ import {
   type SurfaceIdentity,
 } from "@kolu/surface/identity";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
-import { inMemoryCell } from "@kolu/surface/server";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import type { ConnectionState } from "./connection";
+import { inMemoryCell } from "@kolu/surface/server";
+import type {
+  ConnectionState,
+  LocalConnectionState,
+  ProvisioningPhase,
+} from "./connection";
 import type { FailureCause } from "./host";
 
 // `ConnectionState` / `FailureCause` are single-sourced from `./connection` /
 // `./host` (shared with the cell schema + `provisionAgent`); re-export so existing
 // importers keep reading them from the session module.
-export type { ConnectionState, FailureCause };
+export type {
+  ConnectionState,
+  FailureCause,
+  LocalConnectionState,
+  ProvisioningPhase,
+};
 
 const MAX_PROGRESS_LINES = 20;
 const MAX_CONSECUTIVE_FAILURES = 5;
@@ -64,8 +73,15 @@ const MAX_CONSECUTIVE_FAILURES = 5;
  *  `onState`). Renamed from `HostSessionState` (S3/S10 — "Host" named the deleted
  *  class); the shape is unchanged so every reader (odu, drishti, kolu-server) keeps
  *  its field reads. */
-export interface SessionState {
-  connection: ConnectionState;
+export interface SessionState<
+  Prov extends ProvisioningPhase = ProvisioningPhase,
+> {
+  /** `LocalConnectionState | Prov`: the four local phases are ALWAYS reachable
+   *  (so the session machine's internal transitions typecheck for any `Prov`), and
+   *  `Prov` widens ONLY the provisioning arm (`"copying"` for ssh, `never` for the
+   *  local endpoint). A `SessionState<never>` therefore cannot hold `"copying"`
+   *  (juspay/kolu#1716). */
+  connection: LocalConnectionState | Prov;
   /** Free-form progress lines (last 20) — provisioning output, transport start,
    *  agent fatal-error tails. Carries BOTH parent-side (`[local] …`) and forwarded
    *  remote-stderr (`[remote] …`) lines for a unified log; a consumer that needs
@@ -97,7 +113,10 @@ export interface DestroyableSession {
  *  `SurfaceClientLike` the mirror forwards structurally) — NOT by the contract, so a
  *  specific-contract session stays assignable to the general receptacle (the
  *  covariance `session.variance.test-d.ts` pins). */
-export interface Session<Client = SurfaceClientLike> {
+export interface Session<
+  Client = SurfaceClientLike,
+  Prov extends ProvisioningPhase = ProvisioningPhase,
+> {
   /** Pin the session open for the parent's lifetime (bumps a ref so the reconnect
    *  loop keeps retrying across transient callers reaching zero). Resolves with the
    *  first client. */
@@ -110,7 +129,7 @@ export interface Session<Client = SurfaceClientLike> {
   isDestroyed(): boolean;
   /** Snapshot-then-delta listener: fires the current state synchronously, then on
    *  every change. Returns an unsubscribe. */
-  onState(cb: (s: SessionState) => void): () => void;
+  onState(cb: (s: SessionState<Prov>) => void): () => void;
   /** Called by the consumer's router/pump after the first RPC roundtrips — the
    *  `connecting → connected` cue the loop can't infer generically. */
   markConnected(): void;
@@ -227,9 +246,22 @@ export type AdmitVerdict =
  *  failure (the handshake RPC died mid-flight) → reconnect. */
 export type Admit<Client> = (client: Client) => Promise<AdmitVerdict>;
 
-export interface MakeSessionOptions<Client> {
+export interface MakeSessionOptions<
+  Client,
+  Prov extends ProvisioningPhase = ProvisioningPhase,
+> {
   /** The transport plug — dial once, hand back a live {@link Connection}. */
   connectOnce: Connector<Client>;
+  /** The connector's OPENING phase — the fact only the connector knows (P5). Its
+   *  TYPE is `LocalConnectionState | Prov`, the connector's phase set: an ssh
+   *  `sshConnector` PROVISIONS (nix-copies the closure first), so `Prov =
+   *  ProvisioningPhase` and it opens at `"copying"`; the local `endpointConnector`
+   *  provisions NOTHING (the daemon is already here), so `Prov = never`,
+   *  `initialConnection: LocalConnectionState`, and `"copying"` is a COMPILE error —
+   *  a local session's state sequence can never contain the provisioning phase
+   *  (juspay/kolu#1716). Both the first dial and every reconnect re-arm at this
+   *  phase. */
+  initialConnection: LocalConnectionState | Prov;
   /** Optional SUPERVISION hook run once per dial after the transport is up — a
    *  daemon session's convergence (padi: control-core hello + skew/build decision +
    *  drain). Omit for a plain session (every connection adopted). See {@link Admit}. */
@@ -261,9 +293,10 @@ export interface MakeSessionOptions<Client> {
  * poll. Returns the {@link Session} role — a plain object (closures), so a daemon
  * flavor is derived by spreading supervision members onto it (no wrapper class).
  */
-export function makeSession<Client = SurfaceClientLike>(
-  opts: MakeSessionOptions<Client>,
-): Session<Client> {
+export function makeSession<
+  Client = SurfaceClientLike,
+  Prov extends ProvisioningPhase = ProvisioningPhase,
+>(opts: MakeSessionOptions<Client, Prov>): Session<Client, Prov> {
   const label = opts.label ?? "session";
   const reconnectDelayMs = opts.reconnectDelayMs ?? 2000;
   const connectTimeoutMs = opts.connectTimeoutMs ?? 30_000;
@@ -306,8 +339,8 @@ export function makeSession<Client = SurfaceClientLike>(
    *  arm of the null-free {@link SurfaceIdentity} sum. */
   let cachedIdentity: ServedIdentity | null = null;
 
-  const stateCell = inMemoryCell<SessionState>({
-    connection: "copying",
+  const stateCell = inMemoryCell<SessionState<Prov>>({
+    connection: opts.initialConnection,
     progressLines: [],
     remoteProgressLines: [],
     lastError: null,
@@ -377,9 +410,9 @@ export function makeSession<Client = SurfaceClientLike>(
     if (from !== to) emit(`[${label} local] connection: ${from} → ${to}`);
   };
 
-  const updateState = (patch: Partial<SessionState>): void => {
+  const updateState = (patch: Partial<SessionState<Prov>>): void => {
     const prev = stateCell.current();
-    const next: SessionState = { ...prev, ...patch };
+    const next: SessionState<Prov> = { ...prev, ...patch };
     if (patch.progressLines !== undefined) {
       next.progressLines = patch.progressLines.slice(-MAX_PROGRESS_LINES);
     }
@@ -522,7 +555,11 @@ export function makeSession<Client = SurfaceClientLike>(
 
   const attempt = async (): Promise<Client> => {
     dialEpoch += 1;
-    updateState({ connection: "copying", lastError: null, failureCause: null });
+    updateState({
+      connection: opts.initialConnection,
+      lastError: null,
+      failureCause: null,
+    });
     let conn: Connection<Client>;
     try {
       conn = await opts.connectOnce({
@@ -671,7 +708,7 @@ export function makeSession<Client = SurfaceClientLike>(
       });
   };
 
-  const session: Session<Client> = {
+  const session: Session<Client, Prov> = {
     pin() {
       refCount += 1;
       return ensureSpawned();

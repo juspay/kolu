@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   CONNECTION_STATES,
-  connectionCell,
   ConnectionInfoSchema,
+  connectionCell,
   DEFAULT_CONNECTION,
   mirroredSurface,
   type WithConnection,
