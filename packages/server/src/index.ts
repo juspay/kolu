@@ -285,7 +285,18 @@ await pool
 // daemon-inventory, uptime) and the `padiLink` `onState` below are kolu-server's own
 // host-INDEPENDENT facts, so they bind to THIS unremovable default; the per-host padi
 // facts (urgency, terminals, daemonStatus) ride the map's `entries`/members instead.
-const padiSession = pool.getSession(defaultHost)!;
+// `defaultHost` was just seeded into the pool above, so this lookup can't miss — but PROVE it
+// (a named throw, not a bare `!`), so a future seed/pool refactor that broke the invariant fails
+// fast with a clear error instead of a silent non-null narrowing. The IIFE keeps `padiSession`
+// typed non-nullable so the closures below (samplers, `onState`) don't re-widen it to `undefined`.
+const padiSession = ((): PadiSession => {
+  const s = pool.getSession(defaultHost);
+  if (s === undefined)
+    throw new Error(
+      `boot invariant violated: default host "${defaultHost}" was seeded but has no pool session`,
+    );
+  return s;
+})();
 
 // `padiSession` is a `PadiSession` (a `DaemonSession<PadiSurfaceClient>`, from the
 // local or remote arm's `makeSession` + spread); it plugs into `reServeSurface`'s loose

@@ -29,7 +29,11 @@ import type {
   Surface,
   SurfaceSpec,
 } from "@kolu/surface/define";
-import { resolveCellVerbs, resolveCollectionVerbs } from "@kolu/surface/define";
+import {
+  collectionDeltasSchema,
+  resolveCellVerbs,
+  resolveCollectionVerbs,
+} from "@kolu/surface/define";
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
 import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
@@ -82,24 +86,6 @@ function foldInput(keySchema: MapKeySchema, inner?: ZodType<unknown>): ZodType {
     [MAP_KEY_FIELD]: keySchema,
     [INPUT_FIELD]: inner ?? z.void(),
   }) as ZodType;
-}
-
-/** The `deltas` wire schema — replicated from `@kolu/surface/define`'s private
- *  `collectionDeltasSchema` (it is not exported). Kept tiny and local; only used
- *  when an entry collection opts into the `deltas` verb. */
-function collectionDeltasSchema(
-  keySchema: ZodType<unknown>,
-  schema: ZodType<unknown>,
-): ZodType {
-  const entry = z.tuple([keySchema, schema]);
-  return z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("snapshot"), entries: z.array(entry) }),
-    z.object({
-      kind: z.literal("delta"),
-      upserts: z.array(entry),
-      removes: z.array(keySchema),
-    }),
-  ]) as ZodType;
 }
 
 function foldedCell(

@@ -1,13 +1,13 @@
 import { defineSurface } from "@kolu/surface/define";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import { type Mock, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 import { z } from "zod";
 import {
   buildRemotePool,
   type ClosableSocket,
-  type RemoteEntry,
   type LiveSpawnHolder,
   pumpRemoteSurface,
+  type RemoteEntry,
 } from "./hostFanout";
 import type { Session } from "./session";
 
@@ -113,6 +113,27 @@ describe("buildRemotePool", () => {
     expect(registry.hosts()).toEqual(["beta"]);
     expect(built.get("alpha")?.session.destroy).toHaveBeenCalledOnce();
     expect(ws.close).toHaveBeenCalledWith(1000, "host removed");
+  });
+
+  it("ISOLATION: a session.destroy() that THROWS on one guest's remove doesn't crash the pool — the OTHER entries survive", async () => {
+    const { registry, built } = harness(["alpha", "beta"]);
+    // Make alpha's teardown FAULT: `session.destroy()` can throw (it kills the ssh child +
+    // clears timers — documented + guarded in dialAgentOnce.ts). kolu calls `remove()`
+    // fire-and-forget (`void pool.remove(h)`), so an UNGUARDED throw would float an
+    // unhandledRejection → the deliberately-fatal `process.exit(1)`, taking down the WHOLE
+    // server on ONE guest's teardown.
+    built.get("alpha")?.session.destroy.mockImplementation(() => {
+      throw new Error("ssh child kill faulted");
+    });
+    // The guard swallows the throw, so remove() RESOLVES — no floating rejection to go fatal.
+    await expect(registry.remove("alpha")).resolves.toBeUndefined();
+    // The ISOLATION PROMISE the feature makes: the pool is alive and the OTHER host is
+    // untouched — still a member (its subs keep streaming), its session never destroyed. A
+    // teardown fault on one guest does NOT cascade to the rest.
+    expect(registry.has("alpha")).toBe(false); // alpha left membership (typed-end), as intended
+    expect(registry.has("beta")).toBe(true);
+    expect(registry.hosts()).toEqual(["beta"]);
+    expect(built.get("beta")?.session.destroy).not.toHaveBeenCalled();
   });
 
   it("add() persists BEFORE committing — a persist reject leaves nothing added and tears the new session down", async () => {

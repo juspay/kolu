@@ -23,17 +23,17 @@ export function hostGateOpen(gate: HostMapGate | undefined): boolean {
  *  surface's `health()`. A map entry's equivalent fact is its `EntryStatus`, which
  *  `connectSurfaceMap` floors on real transport liveness, so a green-over-a-dead-host
  *  dot is unrenderable. */
+// A pure kind→tone lookup as a `Record` keyed on the full `EntryState["kind"]` union — so
+// adding a fourth displayed kind is a compile error here (exhaustive by construction), not a
+// silent fall-through to the `default` a `switch` would hide.
+const DOT_TONE: Record<EntryState["kind"], string> = {
+  connected: "bg-emerald-400", // live — the map floors this on transport liveness
+  warming: "bg-amber-400", // copying / connecting / pre-clock-offset — coming up
+  failed: "bg-red-400", // provisioning or link failed
+  "not-a-member": "bg-fg-3/40", // unreached — we only render members
+};
 export function dotClass(status: EntryState): string {
-  switch (status.kind) {
-    case "connected":
-      return "bg-emerald-400"; // live — the map floors this on transport liveness
-    case "warming":
-      return "bg-amber-400"; // copying / connecting / pre-clock-offset — coming up
-    case "failed":
-      return "bg-red-400"; // provisioning or link failed
-    default:
-      return "bg-fg-3/40"; // not-a-member (unreached — we only render members)
-  }
+  return DOT_TONE[status.kind];
 }
 
 /** A one-line human note for the dot's `title` — the failure reason when failed. */

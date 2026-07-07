@@ -40,6 +40,7 @@ import {
   type Connector,
   isLocalHost,
   makeSession,
+  parseDrvBySystem,
   ResolveDrvError,
   resolveSystem,
   type Session,
@@ -85,12 +86,6 @@ const PADI_AGENT_DRVS_ENV = "PADI_AGENT_DRVS_JSON";
 /** The host-selection knob: an ssh host (an `~/.ssh/config` alias or `user@host`).
  *  Unset → the LOCAL padi binding (byte-identical to today). */
 export const KOLU_PADI_HOST_ENV = "KOLU_PADI_HOST";
-
-/** Read the host-selection knob, or `undefined` when unset/blank (→ local arm). */
-export function remotePadiHost(): string | undefined {
-  const host = process.env[KOLU_PADI_HOST_ENV]?.trim();
-  return host ? host : undefined;
-}
 
 /** Parse `KOLU_PADI_HOST` as a comma-separated SEED list of pool hosts (W4 "the
  *  switch"). `LOCAL_HOST` is ALWAYS the implicit, unremovable default — prepended, and
@@ -164,30 +159,16 @@ export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
  *  Fail-fast, but at the ENTRY scope, never boot. */
 function parsePadiDrvMap(): Record<string, string> {
   const raw = process.env[PADI_AGENT_DRVS_ENV]?.trim();
+  // The binder's own config-fault: an unbaked (empty or literal "{}") map carries the
+  // remote-specific hint (unset KOLU_PADI_HOST to bind local). The JSON-parse + { system →
+  // drv string } shape-check is the SAME across every agent, so reuse surface-remote's
+  // `parseDrvBySystem` (the one authority) rather than a drift-prone copy.
   if (!raw || raw === "{}") {
     throw new Error(
       `${PADI_AGENT_DRVS_ENV} is not baked — a remote padi binding (${KOLU_PADI_HOST_ENV}) needs kolu-server run from its Nix wrapper, which bakes the arch-keyed padi drv map. Unset ${KOLU_PADI_HOST_ENV} to bind the local padi.`,
     );
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(
-      `${PADI_AGENT_DRVS_ENV} is not a valid { system → drv } JSON map: ${(err as Error).message}`,
-    );
-  }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    Array.isArray(parsed) ||
-    Object.values(parsed).some((v) => typeof v !== "string")
-  ) {
-    throw new Error(
-      `${PADI_AGENT_DRVS_ENV} is not a { system → drv string } JSON object`,
-    );
-  }
-  return parsed as Record<string, string>;
+  return parseDrvBySystem(PADI_AGENT_DRVS_ENV, raw);
 }
 
 /** Build the `resolveDrvPath` thunk `sshConnector` runs at the top of EVERY dial:

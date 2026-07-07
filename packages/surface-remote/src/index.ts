@@ -33,6 +33,7 @@ export {
   type AgentDial,
   type DialAgentOnceOptions,
   dialAgentOnce,
+  parseDrvBySystem,
 } from "./dialAgentOnce";
 export {
   buildAgentCommand,

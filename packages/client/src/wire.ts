@@ -159,6 +159,15 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
   fallback: LOCAL_HOST,
   parse: (raw) => padiMap.parseKey(raw),
   storage: sessionStorage,
+  // Surface a corrupt/invalid stored host rather than silently collapsing to the local
+  // default — otherwise "the stored active host was garbage" reads identically to "this tab
+  // has always been local." Resetting to LOCAL_HOST is benign, so a warn is the right level
+  // (matches useDaemonStatus's reattachAnnouncedAt pref). caught-error-must-not-collapse.
+  onInvalid: (err, raw) =>
+    console.warn(
+      `[wire] stored active-host "${raw}" is invalid; resetting to the local default:`,
+      err,
+    ),
 });
 
 /** The active-host PROCEDURE client, typed as the concrete padi contract client (the
@@ -254,7 +263,14 @@ const hostScoped = createRoot(() => {
   // snapshot has landed, a departed active host falls back to the unremovable LOCAL default,
   // LOUDLY (the server-driven auto-retire is otherwise silent). The `entries` sub dedups
   // with the selector strip's via the base-client ref-count.
-  const members = padiMap.entries.use();
+  // The ONE app-scope membership subscription carries the error handler; HostSelectorStrip's
+  // `entries.use()` dedups onto this slot (a no-onError share), so this single handler surfaces
+  // a membership-stream failure for both — adding a SECOND divergent onError would trip the
+  // whole-collection second-onError-throw guard.
+  const members = padiMap.entries.use({
+    onError: (err: Error) =>
+      toast.error(`Host membership error: ${err.message}`),
+  });
   createEffect(() => {
     const target = hostReconcileTarget(
       members.keys(),

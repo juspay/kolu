@@ -127,16 +127,14 @@ describe("parsePadiDrvMap — LAZY entry-scope fault (F6, via ensureRemotePadiBi
   it("(b) malformed JSON → resolver rejects", async () => {
     process.env[ENV] = "{not json";
     const resolve = seedAndCaptureResolver();
-    await expect(resolve()).rejects.toThrow(
-      /is not a valid \{ system → drv \} JSON map/,
-    );
+    await expect(resolve()).rejects.toThrow(/is not valid JSON/);
   });
 
   it("(c) valid JSON, wrong shape — a JSON ARRAY → resolver rejects (shape, not just JSON.parse)", async () => {
     process.env[ENV] = JSON.stringify(["/nix/store/x-padi.drv"]);
     const resolve = seedAndCaptureResolver();
     await expect(resolve()).rejects.toThrow(
-      /is not a \{ system → drv string \} JSON object/,
+      /must be a JSON object of \{ system: drvPath \} strings/,
     );
   });
 
@@ -144,7 +142,7 @@ describe("parsePadiDrvMap — LAZY entry-scope fault (F6, via ensureRemotePadiBi
     process.env[ENV] = JSON.stringify({ "x86_64-linux": 42 });
     const resolve = seedAndCaptureResolver();
     await expect(resolve()).rejects.toThrow(
-      /is not a \{ system → drv string \} JSON object/,
+      /must be a JSON object of \{ system: drvPath \} strings/,
     );
   });
 

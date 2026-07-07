@@ -55,7 +55,6 @@ import {
   KOLU_PADI_HOST_ENV,
   parseKoluPadiHostSeed,
   type RemotePadiSessionDeps,
-  remotePadiHost,
 } from "./remotePadiBinding.ts";
 
 // ── Mock the ssh transport ONLY ──────────────────────────────────────────────
@@ -907,26 +906,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await flush(500);
     await expect(p).rejects.toThrow(/build mismatch|link death/i);
     expect(handles[0]!.drainCount).toBe(1);
-  });
-});
-
-describe("remotePadiHost — the KOLU_PADI_HOST knob", () => {
-  const prior = process.env.KOLU_PADI_HOST;
-
-  it("is undefined when unset or blank (→ local arm)", () => {
-    delete process.env.KOLU_PADI_HOST;
-    expect(remotePadiHost()).toBeUndefined();
-    process.env.KOLU_PADI_HOST = "   ";
-    expect(remotePadiHost()).toBeUndefined();
-    if (prior === undefined) delete process.env.KOLU_PADI_HOST;
-    else process.env.KOLU_PADI_HOST = prior;
-  });
-
-  it("returns the trimmed host when set (→ remote arm)", () => {
-    process.env.KOLU_PADI_HOST = "  nix@prod  ";
-    expect(remotePadiHost()).toBe("nix@prod");
-    if (prior === undefined) delete process.env.KOLU_PADI_HOST;
-    else process.env.KOLU_PADI_HOST = prior;
   });
 });
 

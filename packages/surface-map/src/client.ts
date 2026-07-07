@@ -369,6 +369,26 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     return c;
   };
 
+  // Prune a DEPARTED host's cached per-key client — the client-side twin of the server's
+  // `reServeEviction.pruneToMembers`. A key that LEAVES membership has had its subs typed-ended
+  // by the server, so disposing its cached client is safe cleanup; the next entry(key)/useEntry
+  // rebuilds one on demand. Tracks the PREVIOUS member set (not merely "not a member"), so an
+  // `entry(key)` lens a consumer holds for a never-member key is never touched — only a host that
+  // WAS a member and then left. Runs in the client owner (client-lifetime, like the caches).
+  build(() => {
+    let prevMembers: K[] = [];
+    createEffect(() => {
+      const members = entries.use().keys();
+      for (const key of prevMembers) {
+        if (!members.includes(key)) {
+          clients.get(key)?.dispose();
+          clients.delete(key);
+        }
+      }
+      prevMembers = members;
+    });
+  });
+
   const foldState = (key: K): EntryState => {
     const view = entries.use();
     if (!view.keys().some((k) => k === key)) return { kind: "not-a-member" };

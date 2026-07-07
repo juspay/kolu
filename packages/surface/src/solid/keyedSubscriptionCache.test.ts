@@ -29,6 +29,11 @@ describe("stableOptsKey — divergent options are distinct keys; non-plain-JSON 
     expect(stableOptsKey({ authority: "server", coalesceMs: 50 })).toBe(
       stableOptsKey({ coalesceMs: 50, authority: "server" }),
     );
+    // …and NESTED object keys too (the recursive canonical sort): `initial`'s inner keys
+    // reordered must still fold to ONE slot, else two identical-config sites over-split.
+    expect(stableOptsKey({ initial: { a: 1, b: 2 } })).toBe(
+      stableOptsKey({ initial: { b: 2, a: 1 } }),
+    );
   });
 
   it("THROWS on a non-plain-JSON option value (Set/Map/undefined-bearing) — the collision is unrepresentable", () => {

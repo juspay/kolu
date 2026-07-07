@@ -101,6 +101,22 @@ function isJsonInjective(v: unknown): boolean {
   return Object.values(v as Record<string, unknown>).every(isJsonInjective);
 }
 
+/** `JSON.stringify` with object keys SORTED at EVERY depth, so two options that differ only in
+ *  NESTED key order produce the same string — the "any key order → same key" invariant the
+ *  top-level `Object.keys().sort()` alone does NOT reach (it left `{initial:{a,b}}` and
+ *  `{initial:{b,a}}` as two distinct slots). `v` is already `isJsonInjective` here (a plain tree
+ *  of string/finite-number/boolean/null + plain objects/arrays), so a recursive key-sort is
+ *  total — no canonicalizing library needed. */
+function canonicalJson(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+    .join(",")}}`;
+}
+
 /**
  * A STABLE, order-independent key fragment for a set of SHARED subscription options, so
  * two `.use()` sites that pass DIVERGENT options (a different `authority` / `initial` /
@@ -132,7 +148,7 @@ export function stableOptsKey(opts: Record<string, unknown>): string {
         `surface dedup: the .use() option "${k}" is a non-injective-JSON value (a Set/Map/undefined-bearing object, a sparse-array hole, or a NaN/±Infinity/-0 number) — the shared-slot dedup key can't distinguish it, so two divergent .use() sites would silently share one subscription. Use a plain-JSON option value (finite, non-(-0) numbers, dense arrays), or per-consumer wiring (not yet built) is needed for a non-plain-JSON shared option.`,
       );
     }
-    parts.push(`${k}=${JSON.stringify(v)}`);
+    parts.push(`${k}=${canonicalJson(v)}`);
   }
   return parts.join("&");
 }

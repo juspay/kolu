@@ -34,7 +34,7 @@ import { type AgentClient, sshConnector } from "./sshConnector";
  *  The env-var NAME is the caller's (the Nix-wrapper boundary spells it
  *  per-agent), so it's passed in only to render honest, actionable errors —
  *  never re-typed as a literal here. */
-function parseDrvBySystem(
+export function parseDrvBySystem(
   envVar: string,
   raw: string | undefined,
 ): Record<string, string> {

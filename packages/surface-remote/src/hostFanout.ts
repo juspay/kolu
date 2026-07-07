@@ -414,7 +414,14 @@ export function buildRemotePool<S extends DestroyableSession, H>(
       try {
         await persistHosts([...entries.keys(), host]);
       } catch (err) {
-        entry.session.destroy();
+        // Best-effort rollback teardown — `session.destroy()` CAN throw (it kills the ssh child
+        // + clears timers; see dialAgentOnce.ts), and that must NOT pre-empt `throw err`: the
+        // persist rejection is the failure the caller needs to see, not a teardown hiccup.
+        try {
+          entry.session.destroy();
+        } catch {
+          /* best-effort rollback */
+        }
         throw err;
       }
       entries.set(host, entry);
@@ -452,7 +459,19 @@ export function buildRemotePool<S extends DestroyableSession, H>(
       entries.delete(host);
       log(`removed host: ${host} (total ${entries.size})`);
       notifyMembership();
-      entry.session.destroy();
+      // Best-effort — `session.destroy()` CAN throw (kills the ssh child + clears timers). kolu
+      // retires a guest fire-and-forget (`void pool.remove(h)`), so an UNGUARDED throw here would
+      // float an unhandledRejection → the server's deliberately-fatal handler → process.exit(1),
+      // crashing the WHOLE server on ONE guest's teardown fault (defeating the guest-isolation
+      // this feature exists to give). Membership is already dropped + notified (the typed-end the
+      // map needs has fired), so the destroy is cleanup, not the caller's concern — swallow it.
+      try {
+        entry.session.destroy();
+      } catch (err) {
+        log(
+          `host ${host} session destroy threw during removal (ignored): ${err}`,
+        );
+      }
     },
 
     registerConnection(host, ws) {

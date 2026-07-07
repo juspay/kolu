@@ -267,7 +267,11 @@ function cellContractEntries<T, P>(
 /** The wire schema for a collection's batched `deltas` stream — a single home
  *  both the runtime contract (`collectionContractEntries`) and the type oracle
  *  (`buildCollection`) build from, so the two derivations can't drift. */
-function collectionDeltasSchema<K, T>(
+/** The `deltas` wire schema (`snapshot | delta`) for a collection. Exported as the ONE
+ *  authority so a keyed-map's folded entry collection (`@kolu/surface-map`) decodes the exact
+ *  same shape rather than a drift-prone copy — a wire contract with two authorities silently
+ *  cross-decodes if the format ever changes. */
+export function collectionDeltasSchema<K, T>(
   keySchema: ZodType<K>,
   schema: ZodType<T>,
 ) {
