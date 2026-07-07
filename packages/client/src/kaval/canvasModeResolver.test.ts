@@ -24,6 +24,7 @@ function facts(overrides: Partial<CanvasFacts> = {}): CanvasFacts {
     terminalCount: 1,
     recordsAwaited: 0,
     channelLive: true,
+    pendingTimedOut: false,
     ...overrides,
   };
 }
@@ -48,6 +49,41 @@ describe("resolveCanvasMode precedence (#1340)", () => {
     expect(
       resolveCanvasMode(facts({ daemonPending: true, terminalCount: 0 })),
     ).toEqual({ kind: "connecting" });
+  });
+
+  it("a still-pending daemon status resolves to down/dead once past the connect timeout — never an eternal spinner", () => {
+    // The #1713 adopt-path sibling's canvas symptom: a local padi that never comes
+    // up at boot leaves `daemonPending` true FOREVER (no value is ever published).
+    // Bounded by `pendingTimedOut`, the canvas must stop lying with "Connecting…"
+    // and resolve honestly to `down` (dead — it never came up), reason surfaced.
+    expect(
+      resolveCanvasMode(
+        facts({
+          daemonPending: true,
+          pendingTimedOut: true,
+          terminalCount: 0,
+        }),
+      ),
+    ).toEqual({ kind: "down", state: "dead" });
+    // The SAME facts before the timeout still hold the neutral connecting surface —
+    // a merely-slow (but not yet abandoned) wait must not flash `down` early.
+    expect(
+      resolveCanvasMode(
+        facts({
+          daemonPending: true,
+          pendingTimedOut: false,
+          terminalCount: 0,
+        }),
+      ),
+    ).toEqual({ kind: "connecting" });
+  });
+
+  it("isLoading past the timeout also resolves to down/dead (the same bounded gate)", () => {
+    expect(
+      resolveCanvasMode(
+        facts({ isLoading: true, pendingTimedOut: true, terminalCount: 0 }),
+      ),
+    ).toEqual({ kind: "down", state: "dead" });
   });
 
   it("down beats empty and carries its dead/degraded sub-state", () => {

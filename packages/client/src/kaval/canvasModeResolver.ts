@@ -47,6 +47,17 @@ export interface CanvasFacts {
    *  reload's live terminals appear; a genuine reboot arrives with records PARKED
    *  (awaited 0, count 0), so it falls through to `empty` as it should. */
   recordsAwaited: number;
+  /** True once `daemonPending` has held for longer than the local endpoint's own
+   *  connect timeout — i.e. the daemon-status stream has NEVER produced a first
+   *  value and the wait has structurally run past the ceiling the padi session
+   *  itself uses to decide a dial is wedged. Bounds the `connecting` arm below: a
+   *  local padi endpoint that never comes up at boot (a spawn/adopt failure — the
+   *  #1713 adopt-path sibling is one cause) would otherwise leave `daemonPending`
+   *  true FOREVER (no value is ever published), and the canvas would spin at
+   *  "Connecting…" with no way out. Always `false` while genuinely still within
+   *  the window (the common, near-instant case) — computed by the wall-clock-aware
+   *  caller; this module stays pure (see the header). */
+  pendingTimedOut: boolean;
   /** The FULL channel liveness of the daemonStatus stream — the ws transport AND the
    *  ACTIVE ENTRY's own connection (`daemonChannelLive()` = ws ∧ `activeEntryConnected`). The
    *  `down` and `warming` facts arrive ALREADY floored on this at their source accessors
@@ -67,8 +78,17 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
   // stream have produced their first value. Gating on daemon-status-pending
   // (not just `down`, which is undefined while pending) stops a `dead` boot
   // from flashing the normal empty workspace before the degraded surface takes
-  // over (#1034).
-  if (facts.isLoading || facts.daemonPending) return { kind: "connecting" };
+  // over (#1034). BOUNDED: once the daemon-status wait has run past the local
+  // endpoint's own connect timeout, "still pending" no longer means "about to
+  // arrive" — nothing will ever be published (a local padi that never came up
+  // at boot), so resolve honestly to `down` (the reason surfaced — "dead", never
+  // came up) instead of spinning at "Connecting…" forever (never a silent
+  // spinner — the #1713 adopt-path sibling's canvas symptom).
+  if (facts.isLoading || facts.daemonPending) {
+    return facts.pendingTimedOut
+      ? { kind: "down", state: "dead" }
+      : { kind: "connecting" };
+  }
   // `down` and `warming` arrive ALREADY floored on transport liveness (their source
   // accessors `downState`/`daemonWarming` return undefined/false when the link is
   // dead), so a stale daemon state never reaches these arms over a dead channel.

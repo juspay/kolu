@@ -99,6 +99,7 @@ export {
   padiLogPath,
   padiSocketPath,
   padiStderrLogPath,
+  residentPadiSocket,
   resolvePadiStateRoot,
 } from "./stateRoot.ts";
 export type {

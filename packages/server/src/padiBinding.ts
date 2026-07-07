@@ -42,6 +42,7 @@ import {
   padiGatePath,
   padiSocketPath,
   padiStderrLogPath,
+  residentPadiSocket,
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 // The client-side dial kit — carved out of THIS module in W2.3 so `padi-tui` and
@@ -60,6 +61,7 @@ import {
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
   buildLabel,
+  type ConvergenceOutcome,
   converge,
   createBuildDrainFence,
   createEndpoint,
@@ -290,6 +292,81 @@ export interface EnsurePadiBindingOptions {
 export const PADI_HOST_ID = "padi-local";
 
 /**
+ * A resident padi owns this state root at a `padiSurface` contract this binder
+ * cannot speak, and — per #1313 (never kill a running padi) — the binder REFUSED
+ * to touch it (left it standing + degraded). This is thrown ONLY for that
+ * structurally-unresolvable case: retrying can never make an incompatible
+ * contract compatible, so looping forever (fail-open's usual stance for a
+ * transient boot hiccup) would just be a silent spinner behind the scenes — the
+ * ONE outcome the boot acceptance bar forbids. The composition root
+ * (`server/src/index.ts`) catches this specifically off the boot `pin()` and
+ * exits non-zero with the message here, naming the conflict + the remedy,
+ * instead of logging a buried error and serving a UI that will never connect.
+ */
+export class PadiAdoptionRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PadiAdoptionRefusedError";
+  }
+}
+
+/** The connector's `conn === undefined` failure, classified — extracted as its own
+ *  pure function (no I/O, no closures) so the ONE branch-point between "structurally
+ *  unresolvable, exit" and "possibly transient, retry" is unit-testable directly off a
+ *  hand-built {@link ConvergenceOutcome}, without booting a real padi. `outcome.kind
+ *  === "refused"` reaching here (i.e. with no connection adopted — a raced
+ *  refuse-but-actually-adopted never reaches this branch, see the connector) is the
+ *  ONE case #1313's REFUSE policy produces: a genuine padiSurface CONTRACT skew
+ *  against a survivor this binder must never touch. Every other reason `conn` is
+ *  undefined (unreachable survivor, "not-adopted") is possibly transient — the
+ *  existing fail-open `ConnectError`/`"network"` reconnect stance, unchanged. */
+export function padiConnectFailure(
+  outcome: ConvergenceOutcome,
+  stateRoot: string,
+  socketPath: string,
+): Error {
+  if (outcome.kind === "refused") {
+    return new PadiAdoptionRefusedError(
+      "a padi is already serving this workspace at a padiSurface contract this " +
+        `kolu cannot speak (state dir: ${stateRoot}; its socket: ${socketPath}) — ` +
+        "left standing, never touched (#1313: a binder never kills a running padi). " +
+        "If a kolu is already running against it, use that one. To run a second, " +
+        "independent instance here, set KOLU_STATE_DIR=<dir> (and " +
+        "KOLU_PADI_STATE_DIR=<dir> for an isolated padi too).",
+    );
+  }
+  // converge left padi standing + degraded (unreachable, or a raced refuse that
+  // still holds no connection) — reconnect (network, retry with backoff) rather
+  // than crash, matching the pre-S9 scheduleReconnect. NEVER a kill.
+  return new ConnectError(
+    "padi did not come up (left degraded / refused)",
+    "network",
+  );
+}
+
+/** The composition root's boot-`pin()` failure handler — extracted so it is
+ *  unit-testable without booting the whole server. Distinguishes the ONE fatal case
+ *  ({@link PadiAdoptionRefusedError}: adoption structurally cannot proceed, #1313) from
+ *  every other boot hiccup, which stays fail-open (the reconnect loop already
+ *  scheduled its own retry; this only logs). `deps` are injected (never read `log`/
+ *  `process.exit` off a module global) so a test observes the exact calls without a
+ *  real process teardown. */
+export function handlePadiBootFailure(
+  err: unknown,
+  deps: {
+    log: { error: typeof log.error; fatal: typeof log.fatal };
+    exit: (code: number) => void;
+  },
+): void {
+  if (err instanceof PadiAdoptionRefusedError) {
+    deps.log.fatal({ err }, err.message);
+    deps.exit(1);
+    return;
+  }
+  deps.log.error({ err }, "padi endpoint failed to come up at boot");
+}
+
+/**
  * Boot the padi binding under the ADOPT-OR-SPAWN-OR-REFUSE policy and return the
  * reconnect-mirror session `reServeSurface` consumes. Twin of `ensureLocalEndpoint`,
  * but:
@@ -307,7 +384,18 @@ export const PADI_HOST_ID = "padi-local";
  */
 export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   const stateRoot = resolvePadiStateRoot(opts.stateRoot);
-  const socketPath = padiSocketPath(stateRoot);
+  // DISCOVER a resident before computing our own drawer (the #1713 adopt-path
+  // sibling's fix): `residentPadiSocket` reads back the `state-root` manifest a
+  // running padi wrote about ITSELF, across every drawer this host could
+  // plausibly have registered one under (this process's own env, the /tmp
+  // fallback, and the systemd-standard `/run/user/$UID` — the last checked even
+  // when THIS process's own `$XDG_RUNTIME_DIR` is unset). A manifest match wins
+  // over our own-env guess unconditionally, so an XDG-unset kolu ADOPTS a
+  // resident serving at XDG instead of waiting at a drawer nobody is listening
+  // in. No resident found (a genuine fresh boot) → fall back to our own-env
+  // socket, unchanged from before — the single-source-of-truth path the SPAWN
+  // side (`resolvePadiLaunch`'s `--socket`) already threads verbatim.
+  const socketPath = residentPadiSocket(stateRoot) ?? padiSocketPath(stateRoot);
   const gatePath = padiGatePath(socketPath);
 
   // The endpoint reports degraded/dead via `onStatus`; the connector routes that to the
@@ -360,7 +448,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // (drain-if-newer / refuse-if-older / adopt / build-drain-once). Run at the top of
   // EVERY dial by the connector — this is why the LOCAL arm needs no post-connect
   // `admit`: its transport converges at connect (the Endpoint is unchanged).
-  const convergePadi = async (): Promise<void> => {
+  const convergePadi = async (): Promise<ConvergenceOutcome> => {
     const outcome = await converge({
       endpoint: ep,
       baked: {
@@ -386,6 +474,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
           "respawning this binder's own build (drain-on-build-mismatch, #1670).",
       );
     }
+    return outcome;
   };
 
   // The LOCAL transport CONNECTOR (`endpointConnector`, a kolu-server leaf): self-
@@ -393,16 +482,15 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // sibling (the pump mirrors `/surface/padi/*`; `identity()` reads its `system.identity`).
   const connector: Connector<PadiSurfaceClient> = async (ctx) => {
     ctx.connecting();
-    await convergePadi();
+    const outcome = await convergePadi();
     const conn = ep.current();
     if (conn === undefined) {
-      // converge left padi standing + degraded (a skew refused, or unreachable) —
-      // reconnect (network, retry with backoff) rather than crash, matching the pre-S9
-      // scheduleReconnect. NEVER a kill.
-      throw new ConnectError(
-        "padi did not come up (left degraded / refused)",
-        "network",
-      );
+      // Classified by the extracted, unit-testable `padiConnectFailure`: a genuine
+      // `"refused"` contract skew (#1313) is FATAL (a distinguished error the
+      // composition root's boot `pin()` catches specifically, to exit loudly with the
+      // conflict + the remedy); everything else reconnects (network, retry with
+      // backoff), matching the pre-S9 scheduleReconnect. NEVER a kill.
+      throw padiConnectFailure(outcome, stateRoot, socketPath);
     }
     // Sample the local clock offset over the frozen control core (offset-at-connect,
     // re-measured each dial) before handing the loop the connection.

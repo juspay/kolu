@@ -31,11 +31,11 @@
  */
 
 import { createHash } from "node:crypto";
+import { readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { readdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { gatePid } from "@kolu/surface-daemon";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
+import { gatePid } from "@kolu/surface-daemon";
 import {
   getPtyHostSocketPath,
   isPrivateOwnedDir,
@@ -183,25 +183,59 @@ export interface PadiDaemon {
   gatePid: number | null;
 }
 
-/** Discover every running padi daemon on this host — the read-only enumeration the
- *  Padi info dialog lists so a LEAKED padi (a second padi at a different state-root)
- *  is visible at a glance. Mirrors kaval's `discoverKavalDaemons`: it reads the
- *  runtime root and the `padi-<digest>` decoration back from the SAME
- *  {@link getRuntimeSocketPath} builder a live padi constructs its socket with (a
- *  sentinel digest whose literal `0` becomes a `([0-9a-f]+)` capture), so discovery
- *  can never spell the path shape differently than construction. Reuses kaval's
- *  owner-only privacy check + socket-inode check (the same boundary the serving side
- *  enforces) so a sibling another local user planted under a shared `/tmp` root is
- *  never read. It stats dirs, reads the gate file, and reads the manifest, but NEVER
- *  dials, kills, or reaps a daemon — strictly read-only. Never throws (an unreadable
- *  root → []). */
-export function discoverPadiDaemons(): PadiDaemon[] {
+/** The systemd-standard `$XDG_RUNTIME_DIR` value on Linux (`/run/user/$UID`) —
+ *  what logind sets for any session it manages. Used ONLY as a SECOND drawer
+ *  {@link discoverPadiDaemons} probes when THIS process's own `$XDG_RUNTIME_DIR`
+ *  is unset (e.g. a bare `nix run` outside a login session) — a resident padi
+ *  spawned in a DIFFERENT session that DID have it set is otherwise invisible
+ *  to a caller that only ever computes its own drawer (the #1713 adopt-path
+ *  sibling: the exact env-divergence that made a 30s "daemon socket never came
+ *  up" boot hang look like padi failed to start, when a compatible resident was
+ *  live the whole time at `/run/user/$UID`). Never used for CONSTRUCTION — a
+ *  live padi always binds wherever ITS OWN env points, this is a discovery-only
+ *  guess of the common case. `undefined` on a platform with no uid semantics
+ *  (Windows), where there is no such standard drawer to guess. */
+function standardXdgRuntimeDir(): string | undefined {
+  const uid = process.getuid?.();
+  return uid === undefined ? undefined : `/run/user/${uid}`;
+}
+
+/** Compute the decorated sentinel-digest dir `discoverPadiDaemons` pattern-matches
+ *  against, evaluated under a SPECIFIC `$XDG_RUNTIME_DIR` value (`undefined` forces
+ *  the `/tmp` fallback, mirroring {@link getRuntimeSocketPath}'s own branch) rather
+ *  than this process's live env — the save/restore is synchronous (no `await`
+ *  between), so it can't race another caller's view of the env (the same pattern
+ *  kaval's `discoverKavalCandidates` uses via its own `socketPathForApp`). */
+function sentinelDecoratedDirUnderRegime(
+  xdgRuntimeDir: string | undefined,
+): string {
+  const saved = process.env.XDG_RUNTIME_DIR;
+  if (xdgRuntimeDir === undefined) delete process.env.XDG_RUNTIME_DIR;
+  else process.env.XDG_RUNTIME_DIR = xdgRuntimeDir;
+  try {
+    return dirname(
+      getRuntimeSocketPath({ app: padiNamespace("0"), file: PADI_SOCK_FILE }),
+    );
+  } finally {
+    if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = saved;
+  }
+}
+
+/** Every padi candidate under ONE runtime-root regime (this process's own env,
+ *  the forced `/tmp` fallback, or the systemd-standard `/run/user/$UID` guess) —
+ *  the single-regime scan {@link discoverPadiDaemons} unions across every regime
+ *  it checks. Reads the runtime root and the `padi-<digest>` decoration back from
+ *  the SAME {@link getRuntimeSocketPath} builder a live padi constructs its socket
+ *  with (a sentinel digest whose literal `0` becomes a `([0-9a-f]+)` capture), so
+ *  discovery can never spell the path shape differently than construction. */
+function padiCandidatesUnderRegime(
+  xdgRuntimeDir: string | undefined,
+): PadiDaemon[] {
   // The decorated dir for a sentinel digest: `<root>/padi-0[-$UID]/padi.sock`.
   // Whatever shape surface gives it (XDG `padi-0/`, or `/tmp` `padi-0-$UID/`) the
   // decoration is baked in, never re-decided here.
-  const decoratedDir = dirname(
-    getRuntimeSocketPath({ app: padiNamespace("0"), file: PADI_SOCK_FILE }),
-  );
+  const decoratedDir = sentinelDecoratedDirUnderRegime(xdgRuntimeDir);
   const root = dirname(decoratedDir);
   const decoratedName = basename(decoratedDir);
   const decoratedRe = new RegExp(
@@ -231,6 +265,86 @@ export function discoverPadiDaemons(): PadiDaemon[] {
     });
   }
   return found;
+}
+
+/** The canonical (symlink-resolved) form of `path`, or `path` verbatim if it
+ *  can't be resolved (already unlinked, or a broken link) — the de-dup key that
+ *  collapses two spellings of the same daemon into one (mirrors kaval's
+ *  `discoverKavalCandidates`). */
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/** Discover every running padi daemon on this host — the read-only enumeration the
+ *  Padi info dialog lists so a LEAKED padi (a second padi at a different state-root)
+ *  is visible at a glance. Mirrors kaval's `discoverKavalDaemons`, EXTENDED past its
+ *  own precedent: kaval's discovery unions this process's own env-derived drawer with
+ *  the forced `/tmp` fallback (fixing "an XDG-set caller misses a /tmp resident"), but
+ *  never checks the systemd-standard `/run/user/$UID` when its OWN env lacks
+ *  `$XDG_RUNTIME_DIR` — so an XDG-unset caller still misses an XDG-drawer resident
+ *  (kaval accepted that gap as a diagnostic-only limitation; see its own discovery
+ *  test). padi's ADOPT path (`ensurePadiBinding`/`residentPadiSocket`) cannot accept
+ *  it — that asymmetry IS the reported bug (#1713 adopt-path sibling): a 30s "daemon
+ *  socket never came up" hang against a resident that was live the whole time at
+ *  `/run/user/$UID`. So this unions THREE regimes: this process's own env-derived
+ *  drawer, the forced `/tmp` fallback, and the systemd-standard `/run/user/$UID`
+ *  guess (`extraRegimes`, always checked, even when this process's own XDG is unset)
+ *  — de-duped by canonical path. `extraRegimes` defaults to the real guess; a test
+ *  substitutes a fabricated drawer, since a unit test cannot write under the real
+ *  `/run/user/$UID` (root-owned outside a real login session).
+ *
+ *  Each regime's scan reuses kaval's owner-only privacy check + socket-inode check
+ *  (the same boundary the serving side enforces) so a sibling another local user
+ *  planted under a shared `/tmp` root is never read. It stats dirs, reads the gate
+ *  file, and reads the manifest, but NEVER dials, kills, or reaps a daemon — strictly
+ *  read-only. Never throws (an unreadable root → it contributes nothing). */
+export function discoverPadiDaemons(
+  extraRegimes: readonly (string | undefined)[] = [standardXdgRuntimeDir()],
+): PadiDaemon[] {
+  const regimes: readonly (string | undefined)[] = [
+    process.env.XDG_RUNTIME_DIR,
+    undefined,
+    ...extraRegimes,
+  ];
+  const byPath = new Map<string, PadiDaemon>();
+  for (const xdgRuntimeDir of regimes) {
+    for (const daemon of padiCandidatesUnderRegime(xdgRuntimeDir)) {
+      const key = canonicalPath(daemon.socket);
+      if (!byPath.has(key)) byPath.set(key, daemon);
+    }
+  }
+  return [...byPath.values()];
+}
+
+/**
+ * Find a resident padi ALREADY registered for `stateRoot` — the read-back
+ * {@link ensurePadiBinding}'s wait/adopt side dials INSTEAD OF its own-env-computed
+ * socket. Built on {@link discoverPadiDaemons} (which now unions every drawer this
+ * host could plausibly have registered one under), filtered to the ONE daemon whose
+ * `state-root` manifest names THIS exact state-root — the manifest is what the
+ * resident actually wrote about itself, so it wins over any caller's own-env guess
+ * (never a bare digest-path recompute, which is exactly what reproduced the bug).
+ *
+ * Returns the resident's actual socket path, or `undefined` when no discovered padi's
+ * manifest names this state-root (a fresh boot — the caller spawns at its own
+ * drawer, unchanged).
+ */
+export function residentPadiSocket(
+  stateRoot: string,
+  extraRegimes?: readonly (string | undefined)[],
+): string | undefined {
+  const resolved = resolve(stateRoot);
+  const discovered =
+    extraRegimes === undefined
+      ? discoverPadiDaemons()
+      : discoverPadiDaemons(extraRegimes);
+  return discovered.find(
+    (d) => d.stateRoot !== null && resolve(d.stateRoot) === resolved,
+  )?.socket;
 }
 
 /** The outcome of resolving which running padi to dial — the whole selection

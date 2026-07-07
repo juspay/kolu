@@ -22,8 +22,6 @@
  * padi it cannot speak to, loudly) — and nothing that mutates padi's lifecycle.
  */
 
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
 import {
   isContractVersionCompatible,
   scopeSibling,
@@ -34,6 +32,8 @@ import {
   DaemonContractSkewError,
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
+import type { ContractRouterClient } from "@orpc/contract";
 import {
   PADI_SURFACE_VERSION,
   type PadiDaemonContract,
@@ -48,10 +48,11 @@ import {
 // terminal-domain `@kolu/padi/assembly` barrel (the daemon runtime) just to
 // compute a socket path.
 export {
+  discoverPadiDaemons,
   type PadiDaemon,
   type PadiSocketResolution,
-  discoverPadiDaemons,
   padiSocketPath,
+  residentPadiSocket,
   resolvePadiStateRoot,
   resolveRunningPadiSocket,
 } from "./stateRoot.ts";

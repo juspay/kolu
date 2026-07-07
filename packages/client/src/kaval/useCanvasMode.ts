@@ -18,6 +18,7 @@ import { type CanvasMode, resolveCanvasMode } from "./canvasModeResolver";
 import {
   daemonChannelLive,
   daemonStatusPending,
+  daemonStatusPendingTimedOut,
   daemonWarming,
   downState,
   localDaemonStatus,
@@ -38,6 +39,7 @@ export function canvasMode(deps: {
   return resolveCanvasMode({
     isLoading: deps.isLoading(),
     daemonPending: daemonStatusPending(),
+    pendingTimedOut: daemonStatusPendingTimedOut(),
     down: downState(),
     warming: daemonWarming(),
     warmingLabel: warmingCanvasLabel(),

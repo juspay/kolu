@@ -72,7 +72,7 @@ import {
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { ensurePadiBinding } from "./padiBinding.ts";
+import { ensurePadiBinding, handlePadiBootFailure } from "./padiBinding.ts";
 import { mapConnectionToPadiLink } from "./padiLink.ts";
 import type { PadiSession } from "./padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -293,12 +293,18 @@ const pool = buildRemotePool<PadiSession, undefined>({
 // documented "a call while the link is down throws"; the client already retries via
 // its warming-chip UX, exactly as it does for a remote host). Fail-OPEN: a boot
 // failure surfaces on the connection cell and the loop retries, so don't crash boot.
+//
+// ONE exception, handled by `handlePadiBootFailure`: a `PadiAdoptionRefusedError` is
+// structurally UNRESOLVABLE (a resident padi owns this state root at a contract skew
+// #1313 forbids touching) — retrying forever would just be a silent spinner behind
+// the fail-open UI, which the boot acceptance bar forbids, so THAT one case exits
+// loudly instead, naming the conflict + the remedy the error already composed.
 pool
   .getSession(encodeHostKey(LOCAL_HOST))
   ?.pin()
-  .catch((err: unknown) => {
-    log.error({ err }, "padi endpoint failed to come up at boot");
-  });
+  .catch((err: unknown) =>
+    handlePadiBootFailure(err, { log, exit: process.exit }),
+  );
 
 // The default (local) session — kolu-server's OWN binding. The samplers (memory,
 // daemon-inventory, uptime) and the `padiLink` `onState` below are kolu-server's own

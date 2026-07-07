@@ -25,6 +25,7 @@ import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
+import { getClockNow } from "../time/clock";
 import { activeHost, app, padiMap } from "../wire";
 import {
   channelLive,
@@ -160,6 +161,39 @@ export function padiLinkState(): PadiLink | undefined {
  *  pending too. */
 export function daemonStatusPending(): boolean {
   return sub.byKey(encodeHostLocation(LOCAL_LOCATION))?.pending() ?? true;
+}
+
+/** Mirrors `makeSession`'s default `connectTimeoutMs` (`@kolu/surface-remote`'s
+ *  session module) — the local padi session's own connect-watchdog ceiling. Kept
+ *  as its own constant here (client and server are separate packages, and this is
+ *  a "stop waiting, tell the truth" ceiling for the CANVAS, not a coordinated
+ *  protocol deadline) rather than importing the session module; the two need only
+ *  agree on the same order of magnitude. */
+const LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS = 30_000;
+
+/** The wall-clock instant this module loaded — the daemon-status subscription
+ *  (`sub`, above) is opened once at module load with a input that never changes
+ *  for the local host, so `daemonStatusPending()` can only ever be true from THIS
+ *  instant until its first-ever yield (per `createReactiveSubscription`'s own
+ *  contract: "pending() is true between the input change and the first new
+ *  yield"). A plain (non-reactive) snapshot is exactly what "when did the wait
+ *  begin" needs. */
+const daemonStatusSubscribedAtMs = Date.now();
+
+/** True once the daemon-status stream has been pending — no first value, ever —
+ *  for longer than the local endpoint's own connect timeout ({@link
+ *  LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS}). Feeds `resolveCanvasMode`'s
+ *  `pendingTimedOut` fact: a local padi endpoint that never comes up at boot (a
+ *  spawn/adopt failure — the #1713 adopt-path sibling is one cause) would
+ *  otherwise leave `daemonStatusPending()` true FOREVER, and the canvas would spin
+ *  at "Connecting…" with no way out. Reactive (reads the shared 1s clock), so a
+ *  consumer inside a tracking scope re-renders the instant the ceiling passes. */
+export function daemonStatusPendingTimedOut(): boolean {
+  return (
+    daemonStatusPending() &&
+    getClockNow()() - daemonStatusSubscribedAtMs >
+      LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS
+  );
 }
 
 /** The single projection of "is the daemon down, and which kind" — `dead`
