@@ -30,7 +30,7 @@ One "approved as recommended" (or amendments) unblocks everything below marked �
 - ⏸ **P0 · ownership-gated drain** — `nix run` can never drain a padi a *different live* kolu owns (the production-incident fix): local boot-time gate + CLI fail-fast; remote via anti-livelock reuse (Decision 3); `KOLU_REMOTE_PADI_STATE_DIR` isolation (P0-b). Pins: two-local-kolu war repro → zero drain, first padi untouched; same-lineage upgrade still drains.
 - ⏸ **Skew-UX** — `CanvasFacts` sum (kaval facts only on the connected arm — "kaval didn't start" over a skewed remote becomes *uncompilable*); host-down card switching on the typed `cause` (no string parsing, no inert Retry); header contract badge host-scoped (running + expected pair, Decision 2).
 - ⏸ **Per-host canvas** (Decision 4) — activeId / MRU / split-layout / restore-latches per host: A→B→A restores A's panes + focus; switching to B shows B's canvas immediately (zero dock-clicks); no cross-host MRU bleed or wrong-host RPCs.
-- 🔄 **Canvas red repro tests** (`it.fails`, srid's two symptoms encoded) + the 17 host-independent by-design comments — pushing as they land.
+- ✅ **Canvas red repro tests** — pushed (`89e601b4f`): 3 red-proofs encoding srid's exact symptoms (confirmed RED first, then `it.fails` so the suite stays green; they flip to `it()` when the Decision-4 fix lands) + the 17 by-design comments.
 - ✅ **Security code-scanning alert #30** — resolved (false-positive dismissal, no code change).
 - ⬜ **Final sweep once the above land**: my third delta re-review over the accumulated waves → fix loop until clean.
 - ⬜ **One two-platform CI** at the stabilized SHA (red → fix → re-run; no CI-as-fuzzer).
