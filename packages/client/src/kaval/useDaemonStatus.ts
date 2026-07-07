@@ -26,6 +26,7 @@ import {
   DAEMON_STATE_PRESENTATION,
   liveDownStateWithPadiLink,
   liveWarmingWithPadiLink,
+  localPadiLinkOnly,
 } from "./daemonPresentation";
 import { announceReattach } from "./reattachAnnounce";
 
@@ -141,6 +142,21 @@ export function padiLinkState(): PadiLink | undefined {
   return padiLinkSub.value();
 }
 
+/** `padiLinkState` GATED to the LOCAL_HOST view. `padiLink` is kolu-server's binding to its
+ *  OWN local padi — a host-INDEPENDENT fact — so folding it into the down/warming legs is only
+ *  honest when the ACTIVE host IS local. For a REMOTE active host it returns the `"connected"`
+ *  sentinel, a no-op in `liveDownStateWithPadiLink`/`liveWarmingWithPadiLink` (which act only
+ *  when padiLink !== "connected"), so a LOCAL-padi blip — a spontaneous crash+reconnect, or a
+ *  `daemon.restart` drain (`drainBoundPadi` → `renew`), both host-independent — can NEVER
+ *  false-warm the canvas or mask a kaval death of the REMOTE host being viewed. For a remote
+ *  host the decision falls through to the host-scoped kaval state + `activeEntryConnected`
+ *  (daemonChannelLive), which cover a real remote drain via the remote host's OWN daemonStatus
+ *  (recycleKaval publishes "restarting" while the remote padi stays up) + its EntryStatus. The
+ *  #1034 local-restart-drain coverage for LOCAL_HOST is preserved unchanged (re-run #6). */
+export function activePadiLink(): PadiLink | undefined {
+  return localPadiLinkOnly(activeHost(), padiLinkState(), LOCAL_HOST);
+}
+
 /** True until the daemon-status stream has produced its FIRST value — i.e. the
  *  status is genuinely unknown, not "up". The canvas gates on this so a `dead`
  *  boot never flashes the normal empty workspace before the first status lands
@@ -170,7 +186,7 @@ export function downState(): "dead" | "degraded" | undefined {
   // warming) instead of the honest "coming up" surface. The down-sub-union is whichever
   // states the presentation table marks `down` (today exactly `dead`/`degraded`).
   return liveDownStateWithPadiLink(
-    padiLinkState(),
+    activePadiLink(),
     localDaemonStatus()?.state,
     daemonChannelLive(),
   );
@@ -205,7 +221,7 @@ export function daemonWarming(): boolean {
   // drain window with the neutral coming-up surface instead of a frozen re-served status
   // (#1034).
   return liveWarmingWithPadiLink(
-    padiLinkState(),
+    activePadiLink(),
     localDaemonStatus()?.state,
     daemonChannelLive(),
   );
@@ -280,31 +296,46 @@ createRoot(() => {
   // real adoptedAt is an ms epoch, so it clears the fallback). `localDaemonStatus()`
   // re-emits on every transition (the rail ticks uptime, restarting→connected), so
   // the persisted guard — not a one-shot latch — keeps it idempotent.
-  const [reattachAnnouncedAt, setReattachAnnouncedAt] = persistedPref<number>({
+  const [reattachAnnouncedAt, setReattachAnnouncedAt] = persistedPref<
+    Record<string, number>
+  >({
     name: "kolu.kaval.reattachAnnouncedAt",
-    fallback: 0,
+    // A PER-HOST record `{[host]: high-water mark}`, NOT one shared scalar: `adoptedAt` is a raw
+    // foreign epoch on the ACTIVE host's OWN clock (deliberately unreprojected — a monotonic
+    // dedup key, never compared to the browser), and per-host clocks are not mutually monotonic,
+    // so one scalar mark across hosts would let a remote AHEAD-clock toast suppress a genuine
+    // later LOCAL re-adoption on switch-back (re-run #6 — the foreign-clock class, storage
+    // edition). One localStorage key; the value is host-keyed. Serializes as JSON by default.
+    fallback: {},
     parse: (raw) => {
-      const n = Number(raw);
-      if (!Number.isFinite(n)) throw new Error(`non-numeric: ${raw}`);
-      return n;
+      const v: unknown = JSON.parse(raw);
+      if (v === null || typeof v !== "object" || Array.isArray(v))
+        throw new Error(`not a per-host record: ${raw}`);
+      for (const n of Object.values(v as Record<string, unknown>))
+        if (typeof n !== "number" || !Number.isFinite(n))
+          throw new Error(`non-numeric mark in ${raw}`);
+      return v as Record<string, number>;
     },
-    // Surface a corrupt mark rather than resetting it silently. Resetting to `0`
-    // is benign — at worst the next adoption re-announces once — so a console
-    // warning is the right level (no user-facing toast for a recoverable reset).
+    // Surface a corrupt mark rather than resetting it silently. Resetting to `{}` is benign — at
+    // worst each host's next adoption re-announces once — so a console warning is the right
+    // level (no user-facing toast for a recoverable reset).
     onInvalid: (err, raw) =>
       console.warn(
-        `[kaval] reattachAnnouncedAt corrupt (${raw}); resetting to 0:`,
+        `[kaval] reattachAnnouncedAt corrupt (${raw}); resetting to {}:`,
         err,
       ),
   });
   createEffect(() => {
-    // The glue (`announceReattach`) commits the proven adoptedAt as the new
-    // high-water mark BEFORE toasting, so a re-run on the same snapshot is silent
-    // — both halves are unit-tested in `reattachAnnounce.test.ts`.
+    // The glue (`announceReattach`) commits the proven adoptedAt as the new high-water mark
+    // BEFORE toasting, so a re-run on the same snapshot is silent — both halves are unit-tested
+    // in `reattachAnnounce.test.ts`. Scoped to the ACTIVE host's OWN mark (per-host clocks are
+    // per-host facts — see the record above), captured once per run so the read and the commit
+    // target the same host across a mid-effect switch.
+    const host = activeHost();
     announceReattach(
       localDaemonStatus(),
-      reattachAnnouncedAt(),
-      setReattachAnnouncedAt,
+      reattachAnnouncedAt()[host] ?? 0,
+      (mark) => setReattachAnnouncedAt((prev) => ({ ...prev, [host]: mark })),
       (count) =>
         toast.info(`${count} terminal${count === 1 ? "" : "s"} reattached`),
     );

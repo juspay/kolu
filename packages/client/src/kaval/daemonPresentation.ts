@@ -220,6 +220,22 @@ export function liveWarmingWithPadiLink(
   return live && (padiLink !== "connected" || isWarming(state));
 }
 
+/** The LOCAL padiLink, GATED to a LOCAL active host. `padiLink` (kolu-server's binding to its
+ *  OWN local padi) is HOST-INDEPENDENT, so it may fold into the down/warming legs ONLY when the
+ *  ACTIVE host is local; for a REMOTE active host it collapses to the `"connected"` sentinel —
+ *  a no-op in `liveWarmingWithPadiLink`/`liveDownStateWithPadiLink` (which act only when
+ *  padiLink !== "connected") — so a LOCAL-padi blip (a spontaneous reconnect or a
+ *  `daemon.restart` drain) can't false-warm the canvas or MASK a kaval death of the REMOTE host
+ *  being viewed. The remote's own drain still shows via its host-scoped kaval state +
+ *  `activeEntryConnected`. Pure so the cross-host wiring is pinnable without `../wire`. */
+export function localPadiLinkOnly(
+  activeHost: string,
+  padiLink: PadiLink | undefined,
+  localHost: string,
+): PadiLink | undefined {
+  return activeHost === localHost ? padiLink : "connected";
+}
+
 /** {@link liveDownState}, additionally floored on the padi-link leg. While the padi link
  *  is not `connected` the re-served kaval status is STALE/unconfirmable, so a "kaval is
  *  down" claim can't hold — read `undefined` (unknown), never a stale `dead`/`degraded`

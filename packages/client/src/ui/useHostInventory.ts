@@ -15,7 +15,7 @@
 import type { RunningKaval, RunningPadi } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { daemonChannelLive, padiLinkState } from "../kaval/useDaemonStatus";
+import { activePadiLink, daemonChannelLive } from "../kaval/useDaemonStatus";
 import { activeHost, padiMap } from "../wire";
 import { hostInventoryLive } from "./hostInventoryLive";
 
@@ -53,10 +53,10 @@ export function boundHostInventoryLive(): boolean {
     // kolu's honest bind-liveness fact for the ACTIVE host's inventory (this cell rides
     // `useEntry(activeHost)`): the browser transport ∧ the active entry's own connection
     // (`daemonChannelLive` — so a dead REMOTE entry's frozen re-served inventory is not read
-    // as live, the #1568 leg the dot floors on) ∧ koluSurface's directly-served `padiLink`
-    // (the re-served surface's own health is held stale across a drop, so it can't be the
-    // tell — see `useDaemonStatus`).
-    bindLive: daemonChannelLive() && padiLinkState() === "connected",
+    // as live, the #1568 leg the dot floors on) ∧ — for a LOCAL active host — koluSurface's
+    // directly-served `padiLink` (`activePadiLink` no-ops this leg for a REMOTE active host, so
+    // a local-padi drop can't read a healthy remote's inventory as "unavailable"; re-run #6).
+    bindLive: daemonChannelLive() && activePadiLink() === "connected",
     padis: boundHostPadis(),
   });
 }

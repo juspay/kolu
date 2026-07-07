@@ -17,6 +17,7 @@
 import type { ProcessRss } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import {
+  daemonChannelLive,
   daemonTransportLive,
   localDaemonStatus,
 } from "../kaval/useDaemonStatus";
@@ -71,6 +72,14 @@ export function kavalMemoryDisplay():
   | { kind: "ok"; rssBytes: number }
   | { kind: "error" }
   | null {
+  // The kaval RSS renders on the HOST-SCOPED Kaval chip (its dot/state/uptime floor on
+  // `daemonChannelLive` = ws ∧ the active entry), so its memory folds the SAME entry leg: a
+  // dead active REMOTE entry (whose re-served daemonStatus freezes at "connected") hides the
+  // stale RSS rather than a definite figure beside an "unknown" dot (re-run #6 — the
+  // dot-vs-tooltip honesty split). The a34032209 rationale (processMemory is a host-INDEPENDENT
+  // local-stack diagnostic) stands for the VALUE; the DISPLAY still floors on the host-scoped
+  // channel, exactly like every other host-scoped kaval-rail consumer.
+  if (!daemonChannelLive()) return null;
   if (localDaemonStatus()?.state !== "connected") return null;
   return displayRss(sub.value()?.kaval);
 }
