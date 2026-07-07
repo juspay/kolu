@@ -1,5 +1,4 @@
 import type { DaemonState } from "@kolu/padi/surface";
-import { LOCAL_HOST } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
 import {
   channelLive,
@@ -7,10 +6,7 @@ import {
   DAEMON_UNKNOWN_DOT,
   kavalDot,
   liveDownState,
-  liveDownStateWithPadiLink,
   liveWarming,
-  liveWarmingWithPadiLink,
-  localPadiLinkOnly,
   serverDot,
   toneDot,
 } from "./daemonPresentation";
@@ -104,81 +100,11 @@ describe("liveWarming / liveDownState — daemon-state claims FLOORED on transpo
   });
 });
 
-describe("the padi-link leg — the SECOND floor on the re-served kaval daemonStatus (#1034)", () => {
-  // The kaval daemonStatus rides padi's RE-SERVED surface, so its true liveness is BOTH
-  // legs: the browser↔kolu-server ws AND kolu-server's binding to padi (`padiLink`). The
-  // re-targeted "restart kaval" DRAINS padi, dropping the binding for the whole drain
-  // window — during which the re-serve value-fold HOLDS the last kaval status STALE. The
-  // fold treats a not-`connected` padi link as the honest "coming up" (warming true) AND
-  // suppresses the stale "kaval is down" claim, so the canvas shows the neutral warming
-  // surface over the whole drain window instead of a frozen re-served `degraded`.
-
-  it("liveWarmingWithPadiLink: warming whenever the padi link is not `connected` (over a live transport)", () => {
-    // A (re)connecting or dropped binding is itself 'coming up', regardless of the
-    // (frozen) re-served kaval state.
-    expect(liveWarmingWithPadiLink("connecting", "connected", true)).toBe(true);
-    expect(liveWarmingWithPadiLink("degraded", "connected", true)).toBe(true);
-    // Even a stale re-served `degraded` kaval status reads WARMING (not down) while the
-    // padi link is down — this is the whole-drain-window honesty the fix delivers.
-    expect(liveWarmingWithPadiLink("degraded", "degraded", true)).toBe(true);
-    // Pre-first-yield padiLink (undefined) is treated as not-connected → warming.
-    expect(liveWarmingWithPadiLink(undefined, "connected", true)).toBe(true);
-  });
-
-  it("liveWarmingWithPadiLink: falls through to the kaval-state warming logic when the padi link is `connected`", () => {
-    // padi bound → the kaval state alone decides, exactly as `liveWarming` did.
-    expect(liveWarmingWithPadiLink("connected", "restarting", true)).toBe(true);
-    expect(liveWarmingWithPadiLink("connected", "connecting", true)).toBe(true);
-    expect(liveWarmingWithPadiLink("connected", "connected", true)).toBe(false);
-    expect(liveWarmingWithPadiLink("connected", "dead", true)).toBe(false);
-    expect(liveWarmingWithPadiLink("connected", undefined, true)).toBe(false);
-  });
-
-  it("liveWarmingWithPadiLink: FLOORS to false over a dead browser transport — no warming off a stale padiLink", () => {
-    // The browser↔server leg dead: the whole readout is stale, so even a not-connected
-    // padi link claims no warming — mirroring `liveWarming`'s transport floor exactly.
-    expect(liveWarmingWithPadiLink("connecting", "connected", false)).toBe(
-      false,
-    );
-    expect(liveWarmingWithPadiLink("degraded", "degraded", false)).toBe(false);
-    expect(liveWarmingWithPadiLink("connected", "restarting", false)).toBe(
-      false,
-    );
-  });
-
-  it("liveDownStateWithPadiLink: suppresses a stale kaval down claim while the padi link is not `connected`", () => {
-    // This is what lets the WARMING arm win the canvas precedence over a padi drop:
-    // without it a frozen re-served `degraded` would light DegradedCanvas (which beats
-    // warming). Unknown ≠ down.
-    expect(
-      liveDownStateWithPadiLink("connecting", "degraded", true),
-    ).toBeUndefined();
-    expect(liveDownStateWithPadiLink("degraded", "dead", true)).toBeUndefined();
-    expect(
-      liveDownStateWithPadiLink(undefined, "degraded", true),
-    ).toBeUndefined();
-  });
-
-  it("liveDownStateWithPadiLink: defers to the kaval down logic when the padi link is `connected` (a genuine kaval death over a live binding still surfaces)", () => {
-    expect(liveDownStateWithPadiLink("connected", "dead", true)).toBe("dead");
-    expect(liveDownStateWithPadiLink("connected", "degraded", true)).toBe(
-      "degraded",
-    );
-    expect(
-      liveDownStateWithPadiLink("connected", "connected", true),
-    ).toBeUndefined();
-    // Still floored on the browser transport leg too (both legs must be live).
-    expect(
-      liveDownStateWithPadiLink("connected", "dead", false),
-    ).toBeUndefined();
-  });
-});
-
-describe("the active-entry leg — the THIRD floor on the host-scoped kaval daemonStatus (#1568, remote)", () => {
+describe("the active-entry leg — the SECOND floor on the host-scoped kaval daemonStatus (#1568, remote)", () => {
   // W4 scopes daemonStatus to `useEntry(activeHost)`. On a remote ssh flap the browser↔
-  // kolu-server ws AND the local padiLink stay up while the remote entry's own ssh link
-  // dies and its re-served daemonStatus FREEZES at `connected`. Without this leg the kaval
-  // dot paints green "running" over a dead remote beside a red host chip — the #1568 lie.
+  // kolu-server ws stays up while the remote entry's own ssh link dies and its re-served
+  // daemonStatus FREEZES at `connected`. Without this leg the kaval dot paints green
+  // "running" over a dead remote beside a red host chip — the #1568 lie.
 
   it("channelLive: the channel is live ONLY when the transport AND the active entry are both connected", () => {
     expect(channelLive(true, true)).toBe(true);
@@ -203,72 +129,46 @@ describe("the active-entry leg — the THIRD floor on the host-scoped kaval daem
     expect(kavalDot("connected", channelLive(true, true))).toBe(toneDot.ok);
   });
 
-  it("liveDownState/liveWarming inherit the floor when fed channelLive (a non-connected entry ⇒ unknown, not down/warming)", () => {
-    // Routing the *WithPadiLink floors through channelLive means a dead remote entry reads
-    // unknown (undefined down-state, not-warming) — daemonConnected() therefore reads false.
+  it("liveDownState/liveWarming, fed channelLive directly: a non-connected entry ⇒ unknown, not down/warming", () => {
+    // `downState`/`daemonWarming` (useDaemonStatus.ts) feed `daemonChannelLive()` straight
+    // into these — no intermediate padi-link fold any more (W4 daemon-rail unification, see
+    // the describe block below). A dead entry reads unknown (undefined down-state,
+    // not-warming) — `daemonConnected()` therefore reads false.
     const dead = channelLive(true, false);
-    expect(
-      liveDownStateWithPadiLink("connected", "dead", dead),
-    ).toBeUndefined();
-    expect(liveWarmingWithPadiLink("connected", "restarting", dead)).toBe(
-      false,
-    );
+    expect(liveDownState("dead", dead)).toBeUndefined();
+    expect(liveWarming("restarting", dead)).toBe(false);
   });
 });
 
-describe("localPadiLinkOnly — the LOCAL padiLink leg is gated to a LOCAL active host (re-run #6 cross-host false-warm)", () => {
-  // activePadiLink() = localPadiLinkOnly(activeHost(), padiLinkState(), LOCAL_HOST). The bug: a
-  // LOCAL-padi drop (padiLink !== "connected") folded UNCONDITIONALLY into the down/warming legs
-  // false-warmed a REMOTE active host's canvas (its live terminals replaced by "Restarting
-  // kaval…", ⌘T locked) AND masked its real kaval death. The gate no-ops the local leg for a
-  // remote host; BOTH directions matter — the #1034 local-restart-drain UI must still fire.
-  const zest = { kind: "remote" as const, target: "srid@zest" };
-
-  it("LOCAL active: passes the real local padiLink through (the #1034 drain fold survives)", () => {
-    expect(localPadiLinkOnly(LOCAL_HOST, "connecting", LOCAL_HOST)).toBe(
-      "connecting",
+describe("the daemon-rail floor is now host-UNIFORM (W4 daemon-rail unification — the padi-link leg retired)", () => {
+  // Before this fix, `downState`/`daemonWarming` folded a THIRD, host-gated signal — the
+  // local session's re-served `padiLink` cell, masked to a no-op for a remote active host
+  // by `localPadiLinkOnly` — alongside `channelLive`. But `padiLink` and `channelLive` are
+  // BOTH projections of the exact SAME underlying session state for LOCAL_HOST (the local
+  // padi's `Session`, shared verbatim by `serveHostMap`'s per-host `entries` projection and
+  // kolu-server's `padiLink` cell — see `packages/server/src/padiBinding.ts` /
+  // `packages/surface-remote/src/serveHostMap.ts`): whenever `padiLink !== "connected"`,
+  // the LOCAL_HOST entry is ALSO not `connected`, so `channelLive` is ALSO already false —
+  // the padi-link fold's extra "OR" term was multiplied by an already-false floor and could
+  // never fire. `channelLive` alone was always the complete, sufficient fact; the extra
+  // fold was dead weight (and a false promise the doc comments made but the composition
+  // didn't keep). Retiring it removes a host special-case with NO behavior change: a LOCAL
+  // `daemon.restart` drain and a REMOTE ssh flap now read through the exact same function,
+  // with no host key anywhere in this module — `liveWarming`/`liveDownState` don't even
+  // HAVE a host parameter to special-case.
+  it("liveWarming/liveDownState take no host input — a LOCAL padi drain and a REMOTE ssh flap (identical channelLive) verdict identically", () => {
+    const localDrain = channelLive(true, false); // local session leaves `connected`
+    const remoteFlap = channelLive(true, false); // remote entry leaves `connected`
+    expect(liveWarming("connected", localDrain)).toBe(
+      liveWarming("connected", remoteFlap),
     );
-    expect(localPadiLinkOnly(LOCAL_HOST, "connected", LOCAL_HOST)).toBe(
-      "connected",
+    expect(liveDownState("degraded", localDrain)).toBe(
+      liveDownState("degraded", remoteFlap),
     );
-  });
-  it("REMOTE active: collapses the local padiLink to the 'connected' no-op sentinel", () => {
-    expect(localPadiLinkOnly(zest, "connecting", LOCAL_HOST)).toBe("connected");
-    expect(localPadiLinkOnly(zest, undefined, LOCAL_HOST)).toBe("connected");
-  });
-  it("COMPOSITION — a local-padi drop warms/downs ONLY a LOCAL active host, never a remote one", () => {
-    // local drop + LOCAL active + connected kaval + live ⇒ WARMING (the #1034 drain surface).
-    expect(
-      liveWarmingWithPadiLink(
-        localPadiLinkOnly(LOCAL_HOST, "connecting", LOCAL_HOST),
-        "connected",
-        true,
-      ),
-    ).toBe(true);
-    // local drop + REMOTE active (connected, live terminals) + live ⇒ NOT warming — the remote's
-    // live terminals stay on screen (the cross-host false-warm the fix kills).
-    expect(
-      liveWarmingWithPadiLink(
-        localPadiLinkOnly(zest, "connecting", LOCAL_HOST),
-        "connected",
-        true,
-      ),
-    ).toBe(false);
-    // The remote's OWN kaval death still SURFACES (the gate never masks a real remote death)…
-    expect(
-      liveDownStateWithPadiLink(
-        localPadiLinkOnly(zest, "connecting", LOCAL_HOST),
-        "dead",
-        true,
-      ),
-    ).not.toBeUndefined();
-    // …while a LOCAL-padi drop still masks the LOCAL down as "coming up" (#1034 drain preserved).
-    expect(
-      liveDownStateWithPadiLink(
-        localPadiLinkOnly(LOCAL_HOST, "connecting", LOCAL_HOST),
-        "dead",
-        true,
-      ),
-    ).toBeUndefined();
+    // Concretely: neither reads a stale claim over the dropped channel — unknown, not a
+    // frozen "running"/"degraded" (the #1034 never-show-a-stale-verdict invariant, now
+    // enforced identically for every host by construction, not by a per-host gate).
+    expect(liveWarming("connected", localDrain)).toBe(false);
+    expect(liveDownState("degraded", localDrain)).toBeUndefined();
   });
 });

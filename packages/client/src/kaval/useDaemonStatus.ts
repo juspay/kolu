@@ -19,7 +19,7 @@ import {
   encodeHostLocation,
   LOCAL_LOCATION,
 } from "@kolu/padi/surface";
-import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
+import { encodeHostKey } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
@@ -29,9 +29,8 @@ import { activeHost, app, padiMap } from "../wire";
 import {
   channelLive,
   DAEMON_STATE_PRESENTATION,
-  liveDownStateWithPadiLink,
-  liveWarmingWithPadiLink,
-  localPadiLinkOnly,
+  liveDownState,
+  liveWarming,
 } from "./daemonPresentation";
 import { announceReattach } from "./reattachAnnounce";
 
@@ -77,13 +76,15 @@ export function daemonTransportLive(): boolean {
   return sharedDaemonTransportLive()();
 }
 
-/** The active host entry's own connection — the THIRD leg of the daemonStatus delivery
+/** The active host entry's own connection — the SECOND leg of the daemonStatus delivery
  *  path (see {@link channelLive}). `daemonStatus` rides `useEntry(activeHost)`, so for a
- *  REMOTE host the server→remote ssh link is part of the channel that refreshes it, a leg
- *  neither the ws (`daemonTransportLive`) nor the LOCAL padiLink reflects. When the active
- *  entry is not `connected` (ssh flap/warming/failed) the re-served status is FROZEN stale.
- *  For LOCAL_HOST the entry is connected whenever the local padi is bound (harmless no-op).
- *  A reactive accessor; read it inside a tracking scope. */
+ *  REMOTE host the server→remote link is part of the channel that refreshes it, a leg the
+ *  ws (`daemonTransportLive`) alone doesn't reflect. When the active entry is not
+ *  `connected` (ssh flap/warming/failed) the re-served status is FROZEN stale. For
+ *  LOCAL_HOST this is the SAME leg a `daemon.restart` drain drops out of `connected` (the
+ *  local session is a `pool` member like any other) — there is no separate local leg any
+ *  more (W4 daemon-rail unification). A reactive accessor; read it inside a tracking
+ *  scope. */
 function activeEntryConnected(): boolean {
   return padiMap.entry(activeHost()).state().kind === "connected";
 }
@@ -129,34 +130,24 @@ export function localDaemonStatus(): DaemonStatus | undefined {
 // kolu-server's live view of its binding to the local padi, off koluSurface's server-
 // authored `padiLink` cell. koluSurface is served DIRECTLY by kolu-server, so this value
 // is never held STALE by the re-serve value-fold that freezes padi's OWN members
-// (including the kaval `daemonStatus` above) while padi is unbound. The canvas folds
-// this in as the SECOND liveness leg on the re-served daemonStatus, so a padi drop shows
-// an honest connecting state instead of a frozen re-served status (#1034). Same singleton
-// `app.cells.X.use(...)` pattern as `processMemory` (ui/useMemoryUsage.ts).
+// (including the kaval `daemonStatus` above) while padi is unbound. DISPLAY-ONLY (the
+// Identity Rail's Padi chip) — the down/warming canvas fold no longer folds this in; it
+// floors uniformly on `daemonChannelLive` instead (W4 daemon-rail unification). Same
+// singleton `app.cells.X.use(...)` pattern as `processMemory` (ui/useMemoryUsage.ts).
 const padiLinkSub = app.cells.padiLink.use({
   onError: (err) => toast.error(`padi link status error: ${err.message}`),
 });
 
 /** kolu-server's live binding-to-padi state, or `undefined` before the first server
- *  yield (treated as not-`connected` — the honest "coming up" — by the canvas folds). A
- *  reactive accessor; read it inside a tracking scope. */
+ *  yield. DISPLAY-ONLY now (the Identity Rail's Padi chip, `padiPresentation.ts`'s
+ *  `padiDot`/`PADI_LINK_PRESENTATION`): kolu-server's OWN binding to its local padi is a
+ *  host-independent fact the rail always shows, regardless of which host tab is active.
+ *  It no longer feeds the down/warming canvas fold — that fold floors UNIFORMLY on
+ *  {@link daemonChannelLive} for every host, local included (W4 daemon-rail unification;
+ *  see `downState`/`daemonWarming`). A reactive accessor; read it inside a tracking
+ *  scope. */
 export function padiLinkState(): PadiLink | undefined {
   return padiLinkSub.value();
-}
-
-/** `padiLinkState` GATED to the LOCAL_HOST view. `padiLink` is kolu-server's binding to its
- *  OWN local padi — a host-INDEPENDENT fact — so folding it into the down/warming legs is only
- *  honest when the ACTIVE host IS local. For a REMOTE active host it returns the `"connected"`
- *  sentinel, a no-op in `liveDownStateWithPadiLink`/`liveWarmingWithPadiLink` (which act only
- *  when padiLink !== "connected"), so a LOCAL-padi blip — a spontaneous crash+reconnect, or a
- *  `daemon.restart` drain (`drainBoundPadi` → `renew`), both host-independent — can NEVER
- *  false-warm the canvas or mask a kaval death of the REMOTE host being viewed. For a remote
- *  host the decision falls through to the host-scoped kaval state + `activeEntryConnected`
- *  (daemonChannelLive), which cover a real remote drain via the remote host's OWN daemonStatus
- *  (recycleKaval publishes "restarting" while the remote padi stays up) + its EntryStatus. The
- *  #1034 local-restart-drain coverage for LOCAL_HOST is preserved unchanged (re-run #6). */
-export function activePadiLink(): PadiLink | undefined {
-  return localPadiLinkOnly(activeHost(), padiLinkState(), LOCAL_HOST);
 }
 
 /** True until the daemon-status stream has produced its FIRST value — i.e. the
@@ -177,21 +168,18 @@ export function daemonStatusPending(): boolean {
  *  Drives the DegradedCanvas gate AND its `state` prop, so the down-sub-union
  *  is named in one place rather than re-derived by an inline ternary. */
 export function downState(): "dead" | "degraded" | undefined {
-  // FLOORED on BOTH legs of the daemonStatus delivery path via
-  // `liveDownStateWithPadiLink`: the browser↔kolu-server ws (`daemonTransportLive`) AND
-  // kolu-server's binding to padi (`padiLinkState`). When EITHER is not live the retained
-  // kaval state is stale, so "down" reads `undefined` ("unknown") rather than painting
-  // DegradedCanvas off a value the dead channel — or the dropped padi binding — can't
-  // confirm (the post-grace transport overlay owns the disconnect). Critically, this is
-  // what lets the WARMING arm win the canvas precedence over a padi drop: without the
-  // padi-link floor a stale re-served `degraded` would light DegradedCanvas (which beats
-  // warming) instead of the honest "coming up" surface. The down-sub-union is whichever
-  // states the presentation table marks `down` (today exactly `dead`/`degraded`).
-  return liveDownStateWithPadiLink(
-    activePadiLink(),
-    localDaemonStatus()?.state,
-    daemonChannelLive(),
-  );
+  // FLOORED on `daemonChannelLive` — the ws transport AND the ACTIVE entry's own
+  // connection, for WHICHEVER host is active (local or remote, no special case: a local
+  // `daemon.restart` drain drops the LOCAL_HOST entry out of `connected` exactly as a
+  // remote ssh flap drops a guest's, W4 daemon-rail unification). When the channel is
+  // not live the retained kaval state is stale, so "down" reads `undefined` ("unknown")
+  // rather than painting DegradedCanvas off a value the dead channel can't confirm (the
+  // post-grace transport overlay owns the disconnect). Critically, this is what lets the
+  // WARMING arm win the canvas precedence over a drop: without this floor a stale
+  // re-served `degraded` would light DegradedCanvas (which beats warming) instead of the
+  // honest "coming up" surface. The down-sub-union is whichever states the presentation
+  // table marks `down` (today exactly `dead`/`degraded`).
+  return liveDownState(localDaemonStatus()?.state, daemonChannelLive());
 }
 
 /** True while the local daemon is transiently coming up (its state warming, via
@@ -210,30 +198,24 @@ export function downState(): "dead" | "degraded" | undefined {
  *  kill (or a momentarily-`current` old connection). Terminal creation must wait
  *  for `connected`. */
 export function daemonWarming(): boolean {
-  // FLOORED on transport liveness via `liveWarmingWithPadiLink`: a "the daemon is coming
-  // up" claim only holds over a live browser↔kolu-server link. When that link is
-  // dead/half-open this reads false (not "warming"), so the canvas won't paint
-  // "Restarting kaval…" and `refuseIfWarming` won't lock ⌘T with a misleading "Daemon is
-  // starting" off a stale state — every consumer inherits the floor from this one source.
-  //
-  // ADDITIONALLY folds `padiLinkState()`: when kolu-server's binding to padi is not
-  // `connected` (the re-targeted "restart kaval" DRAINS padi, so the binding drops for
-  // the whole drain window) the re-served kaval daemonStatus is frozen — but the padi
-  // link itself is honestly (re)connecting, so warming reads TRUE, covering the entire
-  // drain window with the neutral coming-up surface instead of a frozen re-served status
-  // (#1034).
-  return liveWarmingWithPadiLink(
-    activePadiLink(),
-    localDaemonStatus()?.state,
-    daemonChannelLive(),
-  );
+  // FLOORED on `daemonChannelLive` — exactly `restartInFlight`'s own
+  // `liveWarming(state, daemonChannelLive())` arm (`useDaemonRestart.ts`), and exactly
+  // `downState`'s floor above: a "the daemon is coming up" claim only holds over a live
+  // channel to the ACTIVE host's daemon (ws transport AND that host's own entry
+  // connection). When the channel is dead/half-open — including the whole window of a
+  // LOCAL `daemon.restart` drain, which drops the LOCAL_HOST entry out of `connected`
+  // exactly as a remote ssh flap drops a guest's (W4 daemon-rail unification; no more
+  // host-gated padi-link leg) — this reads false (not "warming"), so the canvas won't
+  // paint "Restarting kaval…" over a stale state and `refuseIfWarming` won't lock ⌘T
+  // off one either; every consumer inherits the floor from this one source.
+  return liveWarming(localDaemonStatus()?.state, daemonChannelLive());
 }
 
 /** True ONLY when the local kaval daemon is genuinely CONNECTED — and the client
  *  is therefore the lifecycle authority over its terminals. The inverse of
- *  "warming, down, or not-yet-known": it folds transport + padi-link liveness in
- *  through {@link daemonWarming} / {@link downState} (both floored on them), so a
- *  half-open link or a dropped padi binding reads NOT-connected, and the
+ *  "warming, down, or not-yet-known": it folds channel liveness in through
+ *  {@link daemonWarming} / {@link downState} (both floored on {@link daemonChannelLive}),
+ *  so a half-open link or a dropped daemon binding reads NOT-connected, and the
  *  pre-first-yield window ({@link daemonStatusPending}) reads NOT-connected too.
  *
  *  The list-driven reconcile (`useActiveReconcile`) gates its authoritative
