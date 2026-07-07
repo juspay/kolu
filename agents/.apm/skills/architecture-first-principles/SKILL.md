@@ -143,7 +143,14 @@ live one hop below the diff.
 > mutable place read back as truth? core reaching for now()/globals? sole
 > writer per fact + whose clock + do merges survive reorder? constructible
 > contradictions / two-job nulls? guarantees at a layer that can't see enough?
-> Cite the violated principle per finding.
+> SPECIAL CASE that hides from per-field audits — the FLAT FACTS-PRODUCT: any
+> product of primitive fields feeding a decision function (a resolver, a
+> renderer) where some field's VALIDITY has a precondition on another field
+> ("this health claim is only groundable when that state is connected") left
+> as arm-order/convention. Each field reads honest alone; the lie lives in the
+> joint distribution. Demand the precondition be encoded as DISCRIMINATION
+> (the dependent fact exists only on the arm that grounds it). Cite the
+> violated principle per finding.
 
 ### C7 · project-conventions — walk the overlay's coverage map
 
