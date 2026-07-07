@@ -89,7 +89,7 @@ let
   # result-file path).
   openTerminal = ''
     id=$(${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/create" \
-           -H 'content-type: application/json' -d '{"json":{}}' \
+           -H 'content-type: application/json' -d '{"json":{"mapKey":"local","input":{}}}' \
          | ${jq} -r '.json.id') || fail "lifecycle.create RPC errored"
     [ -n "$id" ] && [ "$id" != null ] || fail "lifecycle.create returned no id"
   '';

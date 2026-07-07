@@ -241,7 +241,7 @@ let
         # Drive the restore: the marker RECORD comes back as a live terminal (a NEW PTY —
         # the old one died in the reboot) in the fresh digest kaval.
         ${curl} -fsS --max-time 60 -X POST "http://127.0.0.1:${port}/rpc/surface/padi/session/restore" \
-          -H 'content-type: application/json' -d '{"json":{}}' >/dev/null || { sleep 1; continue; }
+          -H 'content-type: application/json' -d '{"json":{"mapKey":"local","input":{}}}' >/dev/null || { sleep 1; continue; }
         DIGEST_SOCK=$(ls -d "$XDG_RUNTIME_DIR"/kaval-*/pty-host.sock 2>/dev/null | grep -v "/kaval-${port}/" | head -1)
         live_n=$(${kavalTui} list --socket "$DIGEST_SOCK" --json 2>/dev/null | ${jq} 'length' 2>/dev/null || echo 0)
         if [ "$live_n" -ge 1 ]; then restored=1; break; fi
@@ -265,16 +265,16 @@ let
     exit 1
   '';
 
-  # The Restart-kaval RPC (`padiSurface.procedures.lifecycle.recycleKaval`): capture →
-  # drain → recycle (kill the adopted kaval + spawn fresh, DIGEST-keyed) → park.
-  # `recycleKaval` takes NO input — the surface compiles its `{}` spec to `z.void()`, so
-  # the oRPC body must DESERIALIZE to `undefined`: an EMPTY envelope `{}` (no `json`
-  # key) does, whereas `{"json":{}}` deserializes to an OBJECT and is rejected
-  # ("expected void, received object"). Unlike lib.nix's `daemonRestart` (a top-level
-  # `oc.output(z.void())` with no `.input()`, whose lenient default accepts `{"json":{}}`),
-  # a re-served surface procedure validates strictly. No `"` in `{}` → no escaping needed.
+  # The Restart-kaval RPC (`padiSurface.procedures.lifecycle.recycleKaval`, now served
+  # through the padi host MAP): capture → drain → recycle (kill the adopted kaval + spawn
+  # fresh, DIGEST-keyed) → park. `recycleKaval` itself takes NO input, but W4 folds every
+  # entry-member input into the map envelope `{ mapKey, input }`, so the wire input is now
+  # the NON-void object `{ mapKey: "local" }` — the `input` field stays ABSENT (the fold
+  # preserves recycleKaval's own `z.void()`, which accepts a missing field). So the oRPC
+  # body is `{"json":{"mapKey":"local"}}`; the pre-map bare `{}` now fails the map's
+  # `{ mapKey, input }` parse. Single-host VM ⇒ mapKey is always LOCAL_HOST "local".
   # Unauthenticated loopback.
-  recycleKaval = ''${curl} -fsS --max-time 90 -X POST 'http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/recycleKaval' -H 'content-type: application/json' -d '{}' >/dev/null'';
+  recycleKaval = ''${curl} -fsS --max-time 90 -X POST 'http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/recycleKaval' -H 'content-type: application/json' -d '{"json":{"mapKey":"local"}}' >/dev/null'';
 
   # The kolu service overrides both checks share: do NOT auto-start (the seed stands up
   # the LEGACY port kaval FIRST, then the testScript starts kolu by hand — the "upgrade"
