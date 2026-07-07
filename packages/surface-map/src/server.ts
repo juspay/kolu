@@ -258,8 +258,13 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     }
   }
 
+  // The wire `mapKey` is ALWAYS the canonical string {@link KeyCodec.encode} produces
+  // (`define.ts`'s `foldInput` folds `z.string()`, never `keySchema`) — decode it back
+  // to `K` through `map.codec`, then re-validate via `keySchema.parse` (P5): a foreign
+  // string a client somehow smuggled onto the wire must fail here, not silently become
+  // a trusted `K`.
   const parseMapKey = (input: unknown): K =>
-    keySchema.parse(unfoldKeyField(input)) as K;
+    keySchema.parse(map.codec.decode(unfoldKeyField(input) as string)) as K;
 
   const makeStreamHandler = (path: readonly string[]) =>
     async function* (opts: { input?: unknown }): AsyncGenerator<unknown> {
@@ -280,7 +285,7 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
       if (!has(mapKey)) {
         // A one-shot call cannot end gracefully — reject typed.
         throw new ORPCError("MAP_KEY_UNKNOWN", {
-          message: `surface-map: key "${String(mapKey)}" is not a member`,
+          message: `surface-map: key "${map.codec.encode(mapKey)}" is not a member`,
         });
       }
       const resolved = resolve(mapKey);
@@ -318,22 +323,35 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   }
 
   // ── The `entries` membership collection ──────────────────────────────
+  // Channel names + the collection's own key are the CANONICAL STRING
+  // (`map.codec.encode`), never the raw `K` — matching `map.entriesSpec`'s
+  // string-keyed wire shape (define.ts) and `@kolu/surface`'s own per-key
+  // channel-naming assumption (a non-primitive `K` would collapse every entry's
+  // channel onto the literal `"entries:[object Object]"`).
   const channel = inMemoryChannelByName();
-  const keysBus = channel<K[]>("entries:keys");
-  const perKeyBus = (k: K) => channel<EntryStatus>(`entries:${String(k)}`);
+  const keysBus = channel<string[]>("entries:keys");
+  const perKeyBus = (encoded: string) =>
+    channel<EntryStatus>(`entries:${encoded}`);
 
-  const entriesDeps: CollectionHandlerDeps<K, EntryStatus> = {
+  const entriesDeps: CollectionHandlerDeps<string, EntryStatus> = {
     readAll: () =>
-      new Map(members().map((k) => [k, statusOf(k)] as [K, EntryStatus])),
-    readOne: (k) => (has(k) ? statusOf(k) : undefined),
+      new Map(
+        members().map(
+          (k) => [map.codec.encode(k), statusOf(k)] as [string, EntryStatus],
+        ),
+      ),
+    readOne: (encoded) => {
+      const k = keySchema.parse(map.codec.decode(encoded)) as K;
+      return has(k) ? statusOf(k) : undefined;
+    },
     upsert: () => {}, // read-only on the wire; the registry is the sole writer
     remove: () => {},
     perKeyBus,
     keysBus,
   };
-  const entriesDescriptor = collection<"entries", K, EntryStatus>({
+  const entriesDescriptor = collection<"entries", string, EntryStatus>({
     name: "entries",
-    keySchema: map.entriesSpec.keySchema as z.ZodType<K>,
+    keySchema: map.entriesSpec.keySchema,
     schema: map.entriesSpec.schema,
   });
   const entriesHandlers = collectionHandlers(entriesDescriptor, entriesDeps);
@@ -346,8 +364,9 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   // change (add/remove membership AND per-session status transitions).
   const unsubRepublish = registry.subscribe(() => {
     const ks = members();
-    keysBus.publish(ks);
-    for (const k of ks) perKeyBus(k).publish(statusOf(k));
+    const encoded = ks.map((k) => map.codec.encode(k));
+    keysBus.publish(encoded);
+    for (const k of ks) perKeyBus(map.codec.encode(k)).publish(statusOf(k));
   });
 
   // Same shape `implementSurface` returns: a `{ surface: <router> }` fragment.

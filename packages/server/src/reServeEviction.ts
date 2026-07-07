@@ -15,12 +15,14 @@
  * dropping the map reference is enough for it to GC — no explicit dispose is needed.
  */
 
-import type { HostKey } from "kolu-common/hostKey";
-
-/** Delete every cache entry whose host is no longer a pool member. */
-export function pruneToMembers<V>(
-  cache: Map<HostKey, V>,
-  isMember: (host: HostKey) => boolean,
+/** Delete every cache entry whose host is no longer a pool member. Generic over the
+ *  cache's own key type — `index.ts` keys `reServes` by the pool's CANONICAL STRING
+ *  (`encodeHostKey`), never the `HostKey` object itself (a `Map`/`===` compares an
+ *  object by reference, so two logically-equal `HostKey`s from independent decodes
+ *  would never collide — string keys sidestep that entirely). */
+export function pruneToMembers<K, V>(
+  cache: Map<K, V>,
+  isMember: (host: K) => boolean,
 ): void {
   for (const host of [...cache.keys()]) {
     if (!isMember(host)) cache.delete(host);

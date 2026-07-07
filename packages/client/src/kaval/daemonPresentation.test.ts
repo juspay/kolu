@@ -1,4 +1,5 @@
 import type { DaemonState } from "@kolu/padi/surface";
+import { LOCAL_HOST } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
 import {
   channelLive,
@@ -221,25 +222,25 @@ describe("localPadiLinkOnly — the LOCAL padiLink leg is gated to a LOCAL activ
   // false-warmed a REMOTE active host's canvas (its live terminals replaced by "Restarting
   // kaval…", ⌘T locked) AND masked its real kaval death. The gate no-ops the local leg for a
   // remote host; BOTH directions matter — the #1034 local-restart-drain UI must still fire.
+  const zest = { kind: "remote" as const, target: "srid@zest" };
+
   it("LOCAL active: passes the real local padiLink through (the #1034 drain fold survives)", () => {
-    expect(localPadiLinkOnly("local", "connecting", "local")).toBe(
+    expect(localPadiLinkOnly(LOCAL_HOST, "connecting", LOCAL_HOST)).toBe(
       "connecting",
     );
-    expect(localPadiLinkOnly("local", "connected", "local")).toBe("connected");
+    expect(localPadiLinkOnly(LOCAL_HOST, "connected", LOCAL_HOST)).toBe(
+      "connected",
+    );
   });
   it("REMOTE active: collapses the local padiLink to the 'connected' no-op sentinel", () => {
-    expect(localPadiLinkOnly("srid@zest", "connecting", "local")).toBe(
-      "connected",
-    );
-    expect(localPadiLinkOnly("srid@zest", undefined, "local")).toBe(
-      "connected",
-    );
+    expect(localPadiLinkOnly(zest, "connecting", LOCAL_HOST)).toBe("connected");
+    expect(localPadiLinkOnly(zest, undefined, LOCAL_HOST)).toBe("connected");
   });
   it("COMPOSITION — a local-padi drop warms/downs ONLY a LOCAL active host, never a remote one", () => {
     // local drop + LOCAL active + connected kaval + live ⇒ WARMING (the #1034 drain surface).
     expect(
       liveWarmingWithPadiLink(
-        localPadiLinkOnly("local", "connecting", "local"),
+        localPadiLinkOnly(LOCAL_HOST, "connecting", LOCAL_HOST),
         "connected",
         true,
       ),
@@ -248,7 +249,7 @@ describe("localPadiLinkOnly — the LOCAL padiLink leg is gated to a LOCAL activ
     // live terminals stay on screen (the cross-host false-warm the fix kills).
     expect(
       liveWarmingWithPadiLink(
-        localPadiLinkOnly("srid@zest", "connecting", "local"),
+        localPadiLinkOnly(zest, "connecting", LOCAL_HOST),
         "connected",
         true,
       ),
@@ -256,7 +257,7 @@ describe("localPadiLinkOnly — the LOCAL padiLink leg is gated to a LOCAL activ
     // The remote's OWN kaval death still SURFACES (the gate never masks a real remote death)…
     expect(
       liveDownStateWithPadiLink(
-        localPadiLinkOnly("srid@zest", "connecting", "local"),
+        localPadiLinkOnly(zest, "connecting", LOCAL_HOST),
         "dead",
         true,
       ),
@@ -264,7 +265,7 @@ describe("localPadiLinkOnly — the LOCAL padiLink leg is gated to a LOCAL activ
     // …while a LOCAL-padi drop still masks the LOCAL down as "coming up" (#1034 drain preserved).
     expect(
       liveDownStateWithPadiLink(
-        localPadiLinkOnly("local", "connecting", "local"),
+        localPadiLinkOnly(LOCAL_HOST, "connecting", LOCAL_HOST),
         "dead",
         true,
       ),

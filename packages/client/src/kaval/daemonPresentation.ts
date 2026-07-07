@@ -9,6 +9,7 @@
  *  transport-liveness floor be pinned by a unit test without standing up a socket. */
 
 import type { DaemonState } from "@kolu/padi/surface";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
@@ -229,11 +230,15 @@ export function liveWarmingWithPadiLink(
  *  being viewed. The remote's own drain still shows via its host-scoped kaval state +
  *  `activeEntryConnected`. Pure so the cross-host wiring is pinnable without `../wire`. */
 export function localPadiLinkOnly(
-  activeHost: string,
+  activeHost: HostKey,
   padiLink: PadiLink | undefined,
-  localHost: string,
+  localHost: HostKey,
 ): PadiLink | undefined {
-  return activeHost === localHost ? padiLink : "connected";
+  // Compared by CANONICAL string, not `===` — a `HostKey` is an object with no reference
+  // identity across independent decodes.
+  return encodeHostKey(activeHost) === encodeHostKey(localHost)
+    ? padiLink
+    : "connected";
 }
 
 /** {@link liveDownState}, additionally floored on the padi-link leg. While the padi link

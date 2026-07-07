@@ -99,45 +99,51 @@ export function serveHostMap<
   opts: ServeHostMapOptions<z.infer<KS>, S>,
 ): ServeSurfaceMapResult {
   type K = z.infer<KS>;
+  // `pool` is ALWAYS string-keyed (the warm ssh pool's native key), while the map's
+  // own `K` may be a non-primitive (kolu's `HostKey`). Every internal cache here
+  // (state, subs, links) is therefore keyed by the pool's own STRING — `map.codec`
+  // bridges to/from `K` only at the `MapRegistry<K>` boundary below, mirroring the
+  // same string-space-internally/object-at-the-boundary shape `@kolu/surface-map`'s
+  // own client/server halves use.
+  const { encode, decode } = map.codec;
 
-  const latestState = new Map<K, SessionState>();
-  const stateSubs = new Map<K, () => void>();
-  const links = new Map<K, unknown>();
+  const latestState = new Map<string, SessionState>();
+  const stateSubs = new Map<string, () => void>();
+  const links = new Map<string, unknown>();
   const changeListeners = new Set<() => void>();
 
   const fire = (): void => {
     for (const l of [...changeListeners]) l();
   };
-  const members = (): K[] => pool.hosts() as K[];
-  const has = (k: K): boolean => pool.has(k as unknown as string);
-  const sessionOf = (k: K): S | undefined =>
-    pool.getSession(k as unknown as string);
+  const members = (): K[] => pool.hosts().map((h) => decode(h));
+  const has = (k: K): boolean => pool.has(encode(k));
+  const sessionOf = (k: K): S | undefined => pool.getSession(encode(k));
 
   // Attach a per-member `onState` — cache the latest state, and fire the fused change
   // signal on every transition so `entries` republishes the new `EntryStatus` WITHOUT
   // a membership change. `onState` is snapshot-then-delta, so this also seeds the cache
   // synchronously.
-  const attach = (k: K): void => {
-    if (stateSubs.has(k)) return;
-    const session = sessionOf(k);
+  const attach = (enc: string): void => {
+    if (stateSubs.has(enc)) return;
+    const session = pool.getSession(enc);
     if (session === undefined) return;
     const off = session.onState((s) => {
-      latestState.set(k, s);
+      latestState.set(enc, s);
       fire();
     });
-    stateSubs.set(k, off);
+    stateSubs.set(enc, off);
   };
-  const detach = (k: K): void => {
-    stateSubs.get(k)?.();
-    stateSubs.delete(k);
-    latestState.delete(k);
-    links.delete(k);
+  const detach = (enc: string): void => {
+    stateSubs.get(enc)?.();
+    stateSubs.delete(enc);
+    latestState.delete(enc);
+    links.delete(enc);
   };
   // Reconcile per-member `onState` subs (and dropped links) against membership.
   const reconcile = (): void => {
-    const current = new Set(members());
-    for (const k of current) attach(k);
-    for (const k of [...stateSubs.keys()]) if (!current.has(k)) detach(k);
+    const current = new Set(pool.hosts());
+    for (const enc of current) attach(enc);
+    for (const enc of [...stateSubs.keys()]) if (!current.has(enc)) detach(enc);
   };
   reconcile();
 
@@ -150,10 +156,11 @@ export function serveHostMap<
   });
 
   const linkFor = (k: K, session: S): unknown => {
-    let link = links.get(k);
+    const enc = encode(k);
+    let link = links.get(enc);
     if (link === undefined) {
       link = opts.linkFor(k, session);
-      links.set(k, link);
+      links.set(enc, link);
     }
     return link;
   };
@@ -168,22 +175,22 @@ export function serveHostMap<
       };
     },
     resolve(k): EntrySession | EntryFault {
+      const enc = encode(k);
       const session = sessionOf(k);
-      if (session === undefined)
-        return { failed: `unknown host: ${String(k)}` };
+      if (session === undefined) return { failed: `unknown host: ${enc}` };
       const offset = session.clockOffset();
-      const state = projectState(latestState.get(k), offset);
+      const state = projectState(latestState.get(enc), offset);
       // BELT (juspay/kolu#1716): the local/endpoint arm is a non-provisioning session
       // typed WITHOUT "copying", so it can never legitimately reach the provisioning
       // phase. If the local key ever projects "copying", a non-provisioning session
       // illegitimately entered it — fail LOUD rather than paint a lying "warming" chip.
       if (
         opts.localKey !== undefined &&
-        k === opts.localKey &&
+        enc === encode(opts.localKey) &&
         state.kind === "copying"
       ) {
         throw new Error(
-          `local host "${String(k)}" projected a provisioning "copying" state it can ` +
+          `local host "${enc}" projected a provisioning "copying" state it can ` +
             "never inhabit — a non-provisioning endpoint session must never enter " +
             "copying (see juspay/kolu#1716)",
         );

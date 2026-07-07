@@ -1,33 +1,68 @@
-import { COLLECTION_RESERVED_CHANNEL_SUFFIXES } from "@kolu/surface/channel-names";
 import { describe, expect, it } from "vitest";
-import { HostKeySchema, LOCAL_HOST } from "./hostKey.ts";
+import {
+  decodeHostKey,
+  encodeHostKey,
+  HostKeySchema,
+  LOCAL_HOST,
+  parseHostInput,
+} from "./hostKey.ts";
 
-describe("HostKeySchema — the branded host-key producer", () => {
-  it("REJECTS a key equal to a reserved collection channel suffix (RS4 #5)", () => {
-    // A host key of "keys" would make the `entries` membership collection's
-    // per-key channel `entries:keys` alias its reserved keyset channel and
-    // cross-wire the streams — the sole producer refuses it, sealing every path.
-    for (const reserved of COLLECTION_RESERVED_CHANNEL_SUFFIXES) {
-      const parsed = HostKeySchema.safeParse(reserved);
-      expect(parsed.success).toBe(false);
-      if (!parsed.success) {
-        expect(parsed.error.issues[0]?.message).toMatch(/reserved|channel/i);
-      }
-    }
-    // "keys" and "deltas" are the concrete reserved names.
-    expect(HostKeySchema.safeParse("keys").success).toBe(false);
-    expect(HostKeySchema.safeParse("deltas").success).toBe(false);
-    // A hard throw at the throwing `.parse`, too.
-    expect(() => HostKeySchema.parse("keys")).toThrow();
+describe("HostKey — a discriminated sum, not an in-band string sentinel", () => {
+  it("HostKeySchema accepts the local + remote shapes and rejects an empty remote target", () => {
+    expect(HostKeySchema.safeParse({ kind: "local" }).success).toBe(true);
+    expect(
+      HostKeySchema.safeParse({ kind: "remote", target: "srid@zest" }).success,
+    ).toBe(true);
+    expect(
+      HostKeySchema.safeParse({ kind: "remote", target: "" }).success,
+    ).toBe(false);
+    // A bare string is no longer a HostKey at all — the union is nominal on `.kind`.
+    expect(HostKeySchema.safeParse("local").success).toBe(false);
   });
 
-  it("accepts every legitimate host key", () => {
-    expect(HostKeySchema.safeParse("local").success).toBe(true);
-    expect(HostKeySchema.safeParse("srid@zest").success).toBe(true);
-    expect(
-      HostKeySchema.safeParse("nix-infra@rasam.tail12b27.ts.net").success,
-    ).toBe(true);
-    // The unremovable default still mints cleanly.
-    expect(LOCAL_HOST).toBe("local");
+  it("LOCAL_HOST is the local variant", () => {
+    expect(LOCAL_HOST).toEqual({ kind: "local" });
+  });
+});
+
+describe("parseHostInput vs decodeHostKey — two boundaries, same string, different meanings", () => {
+  it("parseHostInput takes a 'remote:' prefixed HUMAN string LITERALLY", () => {
+    expect(parseHostInput("remote:zest")).toEqual({
+      kind: "remote",
+      target: "remote:zest",
+    });
+  });
+
+  it("decodeHostKey interprets the SAME string as its own canonical 'remote:' prefix", () => {
+    expect(decodeHostKey("remote:zest")).toEqual({
+      kind: "remote",
+      target: "zest",
+    });
+  });
+
+  it("parseHostInput('local') is the local variant", () => {
+    expect(parseHostInput("local")).toEqual({ kind: "local" });
+  });
+});
+
+describe("encodeHostKey / decodeHostKey — the canonical wire codec round-trips", () => {
+  it("round-trips the local variant", () => {
+    expect(decodeHostKey(encodeHostKey(LOCAL_HOST))).toEqual(LOCAL_HOST);
+    expect(encodeHostKey(LOCAL_HOST)).toBe("local");
+  });
+
+  it("round-trips a remote variant", () => {
+    const remote = { kind: "remote" as const, target: "srid@zest" };
+    expect(encodeHostKey(remote)).toBe("remote:srid@zest");
+    expect(decodeHostKey(encodeHostKey(remote))).toEqual(remote);
+  });
+
+  it("decodeHostKey THROWS on a non-canonical string", () => {
+    expect(() => decodeHostKey("zest")).toThrow();
+    expect(() => decodeHostKey("srid@zest")).toThrow();
+  });
+
+  it("decodeHostKey rejects a 'remote:' prefix with an empty target", () => {
+    expect(() => decodeHostKey("remote:")).toThrow();
   });
 });

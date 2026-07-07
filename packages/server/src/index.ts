@@ -46,6 +46,7 @@ import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import { DEFAULT_PORT } from "kolu-common/config";
+import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
@@ -244,26 +245,36 @@ const seed = parseKoluPadiHostSeed();
 // only satisfies the indexed-access optional — the parser always prepends it).
 const defaultHost = seed[0] ?? LOCAL_HOST;
 
-// The warm padi pool — one session per seed host. `buildEntry` is SYNC (`makeSession`
-// defers the dial into its own reconnect loop), so an unreachable seed host surfaces as
-// a `failed` entry, never a boot throw. The default (local) arm is boot-awaited below;
-// remote arms are fail-open (provisioning over ssh takes seconds — the connection cell
-// reports copying/connecting meanwhile). The `?host=` handler is unused (the map
-// forwards by key-in-input, not a per-host socket), so `H = undefined`.
+// The warm padi pool — one session per seed host. `buildRemotePool`'s host set is ALWAYS
+// a plain string (the ssh pool's own key), so the seed's `HostKey` objects are ENCODED
+// going in; `buildEntry` DECODES back to pick the local/remote arm and, for a remote,
+// pass its bare ssh target (never the "remote:"-prefixed wire form) to `sshConnector`.
+// `buildEntry` is SYNC (`makeSession` defers the dial into its own reconnect loop), so an
+// unreachable seed host surfaces as a `failed` entry, never a boot throw. The default
+// (local) arm is boot-awaited below; remote arms are fail-open (provisioning over ssh
+// takes seconds — the connection cell reports copying/connecting meanwhile). The
+// `?host=` handler is unused (the map forwards by key-in-input, not a per-host socket),
+// so `H = undefined`.
 const pool = buildRemotePool<PadiSession, undefined>({
-  initialHosts: seed,
-  buildEntry: (h) => ({
-    session:
-      h === LOCAL_HOST
-        ? ensurePadiBinding({
-            nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
-            legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
-            spawnVersion: serverVersion,
-            verbose: argv.flags.verbose,
-          })
-        : ensureRemotePadiBinding({ host: h, spawnVersion: serverVersion }),
-    handler: undefined,
-  }),
+  initialHosts: seed.map(encodeHostKey),
+  buildEntry: (h) => {
+    const key = decodeHostKey(h);
+    return {
+      session:
+        key.kind === "local"
+          ? ensurePadiBinding({
+              nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
+              legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
+              spawnVersion: serverVersion,
+              verbose: argv.flags.verbose,
+            })
+          : ensureRemotePadiBinding({
+              host: key.target,
+              spawnVersion: serverVersion,
+            }),
+      handler: undefined,
+    };
+  },
 });
 
 // BOOT-AWAIT the LOCAL padi arm before serving browsers: `makeSession` warms on the
@@ -275,7 +286,7 @@ const pool = buildRemotePool<PadiSession, undefined>({
 // fail-open by construction (provisioning a closure over ssh takes seconds), so it is NOT
 // boot-awaited — the pump warms it and the canvas reports copying/connecting meanwhile.
 await pool
-  .getSession(LOCAL_HOST)
+  .getSession(encodeHostKey(LOCAL_HOST))
   ?.pin()
   .catch((err: unknown) => {
     log.error({ err }, "padi endpoint failed to come up at boot");
@@ -290,10 +301,10 @@ await pool
 // fast with a clear error instead of a silent non-null narrowing. The IIFE keeps `padiSession`
 // typed non-nullable so the closures below (samplers, `onState`) don't re-widen it to `undefined`.
 const padiSession = ((): PadiSession => {
-  const s = pool.getSession(defaultHost);
+  const s = pool.getSession(encodeHostKey(defaultHost));
   if (s === undefined)
     throw new Error(
-      `boot invariant violated: default host "${defaultHost}" was seeded but has no pool session`,
+      `boot invariant violated: default host "${encodeHostKey(defaultHost)}" was seeded but has no pool session`,
     );
   return s;
 })();
@@ -302,44 +313,50 @@ const padiSession = ((): PadiSession => {
 // local or remote arm's `makeSession` + spread); it plugs into `reServeSurface`'s loose
 // `Session` receptacle checked (S3 dropped the dead contract `<C>` at the role
 // boundary, so only the SURFACE spec is named here).
-// Re-serve one host's padi surface on demand, CACHED per host. `.done` enacts the
-// #1708 pump-fault pins: the DEFAULT (local) host's pump death is FATAL (fail-fast —
-// the supervisor restarts kolu-server clean); a GUEST host's death RETIRES just that
-// host (`pool.remove` ends its map subs typed; the client's `hostReconcile` effect then
-// switches `activeHost` off the departed host to the local default, so the canvas falls
-// back with a toast rather than stranding the tab on a dead host). The map
+// Re-serve one host's padi surface on demand, CACHED per host — keyed by the CANONICAL
+// STRING (`encodeHostKey`), never the `HostKey` object itself (a `Map`/`===` compares an
+// object by reference, so two logically-equal `HostKey`s would never collide). `.done`
+// enacts the #1708 pump-fault pins: the DEFAULT (local) host's pump death is FATAL
+// (fail-fast — the supervisor restarts kolu-server clean); a GUEST host's death RETIRES
+// just that host (`pool.remove` ends its map subs typed; the client's `hostReconcile`
+// effect then switches `activeHost` off the departed host to the local default, so the
+// canvas falls back with a toast rather than stranding the tab on a dead host). The map
 // forwards each host's calls to `directLink(reServeFor(h, s).router)`.
-const reServes = new Map<HostKey, ReServedSurface<typeof padiSurface.spec>>();
+const reServes = new Map<string, ReServedSurface<typeof padiSurface.spec>>();
 const reServeFor = (
   h: HostKey,
   s: PadiSession,
 ): ReServedSurface<typeof padiSurface.spec> => {
-  let r = reServes.get(h);
+  const enc = encodeHostKey(h);
+  let r = reServes.get(enc);
   if (r === undefined) {
     r = reServeSurface<typeof padiSurface.spec>({
       source: padiSurface, // the BASE surface; reServeSurface adds `connection` internally.
       policy: PADI_FORWARDING_POLICY, // per-member value|delta forwarding.
       session: s,
-      log: (line) => log.debug({ line, host: h }, "padi re-serve"),
+      log: (line) => log.debug({ line, host: enc }, "padi re-serve"),
     });
-    reServes.set(h, r);
+    reServes.set(enc, r);
     r.done
       .then(() =>
-        log.info({ host: h }, "padi re-serve pump exited (session destroyed)"),
+        log.info(
+          { host: enc },
+          "padi re-serve pump exited (session destroyed)",
+        ),
       )
       .catch((err) => {
-        if (h === defaultHost) {
+        if (enc === encodeHostKey(defaultHost)) {
           log.fatal(
-            { err, host: h },
+            { err, host: enc },
             "default padi re-serve pump died — binding is unrecoverable",
           );
           process.exit(1);
         }
         log.error(
-          { err, host: h },
+          { err, host: enc },
           "guest padi re-serve pump died — retiring the host",
         );
-        void pool.remove(h);
+        void pool.remove(enc);
       });
   }
   return r;
@@ -399,10 +416,10 @@ const appRouter = buildAppRouter({
   // pool's stored `buildEntry` — a guest host takes the remote ssh arm. `remove` fails
   // LOUD for the unremovable default (LOCAL_HOST / the boot default): the canvas must
   // always keep a host to fall back to, and "being able to override" is never a feature.
-  addHost: (host) => pool.add(host),
+  addHost: (host) => pool.add(encodeHostKey(host)),
   removeHost: async (host) => {
     assertRemovableHost(host, defaultHost);
-    await pool.remove(host);
+    await pool.remove(encodeHostKey(host));
   },
 });
 
@@ -463,18 +480,22 @@ mountArtifactSdk(app, {
 app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const terminalId = c.req.param("terminalId");
   // The preview reads a per-HOST terminal's bytes, so the tab's active host rides
-  // in the URL (`buildTerminalFileUrl`) and we resolve against THAT host's padi —
-  // not the local default. Without this, switching to a remote host would ask the
-  // LOCAL padi about a remote terminal id (a 404, or the wrong bytes on an id
-  // collision). Re-validate the key through the SAME schema the map is keyed by
-  // (rejects a reserved/malformed key → 400), then find its warm session; a key
-  // that isn't a current pool member (an unseeded or departed host) is a loud 404,
-  // never a silent fall-through to the default host.
-  const parsedHost = HostKeySchema.safeParse(c.req.param("host"));
-  if (!parsedHost.success) return c.text("invalid host key", 400);
-  const host = parsedHost.data;
-  const session = pool.getSession(host);
-  if (!session) return c.text(`unknown host "${host}"`, 404);
+  // in the URL (`buildTerminalFileUrl`, as `encodeHostKey`'s canonical string) and we
+  // resolve against THAT host's padi — not the local default. Without this, switching
+  // to a remote host would ask the LOCAL padi about a remote terminal id (a 404, or
+  // the wrong bytes on an id collision). Decode + re-validate the key through the
+  // SAME codec + schema the map is keyed by (rejects a malformed segment → 400), then
+  // find its warm session; a key that isn't a current pool member (an unseeded or
+  // departed host) is a loud 404, never a silent fall-through to the default host.
+  const rawHostParam = c.req.param("host");
+  let host: HostKey;
+  try {
+    host = HostKeySchema.parse(decodeHostKey(rawHostParam));
+  } catch {
+    return c.text("invalid host key", 400);
+  }
+  const session = pool.getSession(encodeHostKey(host));
+  if (!session) return c.text(`unknown host "${encodeHostKey(host)}"`, 404);
   // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
   // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
   // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
@@ -493,7 +514,7 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const rawTarget = rawTargetFromContext(c);
   if (rawTarget === undefined)
     return c.text("raw request target unavailable", 500);
-  const rawTail = previewTailFromRawUrl(rawTarget, host, terminalId);
+  const rawTail = previewTailFromRawUrl(rawTarget, rawHostParam, terminalId);
 
   // Which directory this terminal serves (its git repo root) — RE-SOURCED from
   // padi's registry over the SELECTED host's session, since padi (not kolu-server)
@@ -542,13 +563,13 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   //     `preview.read` in bounded chunks (`assembleRemotePreview`) — the RIGHT
   //     host's bytes, streamed back with an O(chunk) heap on both hops. padi
   //     re-enforces its realpath/403 guard host-side inside the read.
-  //   - LOCAL default (`host === LOCAL_HOST`): read THIS machine's disk directly via
+  //   - LOCAL default (`host.kind === "local"`): read THIS machine's disk directly via
   //     the shared streaming `previewFile` (the same underlying serve-dir read padi
   //     serves) — no hop, no base64 round trip, byte-identical to before.
   // Both return serve-dir's `ServeResult` shape; the artifact-sdk HTML decorator
   // (mounted above) rewrites text/html downstream in either case.
   let r: ServeResult;
-  if (host !== LOCAL_HOST) {
+  if (host.kind !== "local") {
     // The remote arm's METADATA dials (the 1-byte probe + any re-dial) run
     // synchronously inside this await; a link fault there maps to the SAME logged
     // 503 as the repoRoot resolve above. The streaming body's per-chunk dials run

@@ -47,7 +47,6 @@ import {
 } from "@kolu/surface-remote";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { log } from "./log.ts";
 import type { PadiSession } from "./padiSession.ts";
 import {
   composePadiExtraArgs,
@@ -922,7 +921,7 @@ describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", ()
   });
 });
 
-describe("KOLU_PADI_HOST seed parse — F6 loud-but-non-fatal (RS4 #5)", () => {
+describe("KOLU_PADI_HOST seed parse (W4 the switch)", () => {
   const priorSeed = process.env[KOLU_PADI_HOST_ENV];
   afterEach(() => {
     if (priorSeed === undefined) delete process.env[KOLU_PADI_HOST_ENV];
@@ -938,23 +937,23 @@ describe("KOLU_PADI_HOST seed parse — F6 loud-but-non-fatal (RS4 #5)", () => {
     process.env[KOLU_PADI_HOST_ENV] = "srid@zest, srid@pu";
     expect(parseKoluPadiHostSeed()).toEqual([
       LOCAL_HOST,
-      "srid@zest",
-      "srid@pu",
+      { kind: "remote", target: "srid@zest" },
+      { kind: "remote", target: "srid@pu" },
     ]);
   });
 
-  it("SKIPS a reserved-name seed entry LOUDLY, still booting the valid pool (F6)", () => {
-    const errSpy = vi.spyOn(log, "error").mockImplementation(() => log);
+  it("a seed entry that would have been a reserved channel name is now just an honest remote (the reject retired)", () => {
+    // `HostKey` is a nominal sum now, not an in-band string a bad value could collide
+    // with — every remote's encoded form is `remote:<target>`, which can never equal a
+    // reserved collection channel suffix (`keys`/`deltas`) — so there is nothing left to
+    // reject. `parseHostInput` is total: every token seeds cleanly.
     process.env[KOLU_PADI_HOST_ENV] = "srid@zest,keys,srid@pu";
-    const seed = parseKoluPadiHostSeed(); // must NOT throw — a bad entry can't brick boot
-    // the reserved "keys" entry is dropped; the valid hosts still seed
-    expect(seed).toEqual([LOCAL_HOST, "srid@zest", "srid@pu"]);
-    expect(seed).not.toContain("keys");
-    // …and its rejection was LOUD (a logged error naming the offending entry)
-    expect(errSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ host: "keys" }),
-      expect.stringContaining("keys"),
-    );
-    errSpy.mockRestore();
+    const seed = parseKoluPadiHostSeed();
+    expect(seed).toEqual([
+      LOCAL_HOST,
+      { kind: "remote", target: "srid@zest" },
+      { kind: "remote", target: "keys" },
+      { kind: "remote", target: "srid@pu" },
+    ]);
   });
 });

@@ -15,7 +15,7 @@
  */
 
 import { type DaemonStatus, LOCAL_HOST_ID } from "@kolu/padi/surface";
-import { LOCAL_HOST } from "kolu-common/hostKey";
+import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
@@ -329,7 +329,9 @@ createRoot(() => {
     // in `reattachAnnounce.test.ts`. Scoped to the ACTIVE host's OWN mark (per-host clocks are
     // per-host facts — see the record above), captured once per run so the read and the commit
     // target the same host across a mid-effect switch.
-    const host = activeHost();
+    // The record is keyed by the host's CANONICAL string (`encodeHostKey`) — a `HostKey`
+    // object can't itself be a `Record` key.
+    const host = encodeHostKey(activeHost());
     announceReattach(
       localDaemonStatus(),
       reattachAnnouncedAt()[host] ?? 0,

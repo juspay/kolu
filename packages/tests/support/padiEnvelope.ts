@@ -7,17 +7,22 @@
  * `mapKey`, which is why an un-folded body now 400s.
  */
 
-import { LOCAL_HOST } from "kolu-common/hostKey";
+import { encodeHostKey, LOCAL_HOST, parseHostInput } from "kolu-common/hostKey";
 
-/** The pool host key the e2e drives its padi resets against: `LOCAL_HOST` by default (the
- *  single-host CI e2e — `parseKoluPadiHostSeed` seeds `[LOCAL_HOST]`), or the remote seeded via
- *  `KOLU_E2E_PADI_HOST` (the ssh-leg e2e — the same host `waitForRemotePadiLive` polls). A
- *  remote's key IS the raw `KOLU_PADI_HOST` entry (order-preserved after the local default in
- *  `parseKoluPadiHostSeed`), so we reuse the first non-local entry verbatim. */
+/** The wire `mapKey` — the CANONICAL encoded form (`encodeHostKey`) — the e2e drives its padi
+ *  resets against: the local default's `"local"` (the single-host CI e2e — `parseKoluPadiHostSeed`
+ *  seeds `[LOCAL_HOST]`), or the remote seeded via `KOLU_E2E_PADI_HOST` (the ssh-leg e2e — the
+ *  same host `waitForRemotePadiLive` polls). `KOLU_E2E_PADI_HOST` carries the same RAW ssh-target
+ *  tokens `KOLU_PADI_HOST` does (order-preserved after the local default in
+ *  `parseKoluPadiHostSeed`), so each is parsed the same HUMAN-input way (`parseHostInput`) before
+ *  being encoded onto the wire. */
+const LOCAL_WIRE_KEY = encodeHostKey(LOCAL_HOST);
 export const PADI_HOST_KEY: string =
   process.env.KOLU_E2E_PADI_HOST?.split(",")
     .map((h) => h.trim())
-    .find((h) => h.length > 0 && h !== LOCAL_HOST) ?? LOCAL_HOST;
+    .filter((h) => h.length > 0)
+    .map((h) => encodeHostKey(parseHostInput(h)))
+    .find((enc) => enc !== LOCAL_WIRE_KEY) ?? LOCAL_WIRE_KEY;
 
 /** Fold a padi entry-member input into the map's `{ mapKey, input }` wire envelope. A
  *  VOID-input procedure (e.g. `lifecycle/killAll`) passes no argument and omits `input` — the

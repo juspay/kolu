@@ -1,4 +1,5 @@
 import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
+import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
@@ -55,7 +56,7 @@ vi.mock("../wire", () => {
         },
       }),
     },
-    activeHost: () => "local",
+    activeHost: () => LOCAL_HOST,
   };
 });
 vi.mock("solid-sonner", () => ({

@@ -8,7 +8,11 @@
 
 import { defineSurface } from "@kolu/surface/define";
 import { directLink } from "@kolu/surface/links/direct";
-import { defineSurfaceMap, type EntryStatus } from "@kolu/surface-map";
+import {
+  defineSurfaceMap,
+  type EntryStatus,
+  type KeyCodec,
+} from "@kolu/surface-map";
 import type { AnyContractRouter } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -26,7 +30,14 @@ const entrySurface = defineSurface({
   },
 });
 const HostKey = z.string().brand("HostKey");
-const map = defineSurfaceMap(HostKey, entrySurface);
+// The test's own key IS already a plain (branded) string, so its codec is the
+// identity pair — see `hostKeyCodec` in `kolu-common/hostKey` for the real,
+// object-keyed case this codec seam exists for.
+const identityCodec: KeyCodec<z.infer<typeof HostKey>> = {
+  encode: (k) => k,
+  decode: (s) => s as z.infer<typeof HostKey>,
+};
+const map = defineSurfaceMap(HostKey, entrySurface, identityCodec);
 
 const st = (
   connection: SessionState["connection"],

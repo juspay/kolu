@@ -14,6 +14,7 @@ export {
   type EntryStatus,
   entryStatusSchema,
   type Key,
+  type KeyCodec,
   type SurfaceMap,
 } from "./define";
 // (`EntryState` is sourced from the SOLID-FREE `./define`, NOT `./client`: a

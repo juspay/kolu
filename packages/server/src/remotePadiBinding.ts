@@ -38,7 +38,6 @@ import {
   type Admit,
   type AdmitVerdict,
   type Connector,
-  isLocalHost,
   makeSession,
   parseDrvBySystem,
   ResolveDrvError,
@@ -46,12 +45,9 @@ import {
   type Session,
   sshConnector,
 } from "@kolu/surface-remote";
+import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
 import type { PadiConvergence } from "kolu-common/surface";
-import {
-  type HostKey,
-  HostKeySchema,
-  LOCAL_HOST,
-} from "kolu-common/surfacesWithPadi";
+import { type HostKey, LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { log } from "./log.ts";
 import { measureClockOffset } from "./measureClockOffset.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
@@ -88,12 +84,12 @@ const PADI_AGENT_DRVS_ENV = "PADI_AGENT_DRVS_JSON";
 export const KOLU_PADI_HOST_ENV = "KOLU_PADI_HOST";
 
 /** Parse `KOLU_PADI_HOST` as a comma-separated SEED list of pool hosts (W4 "the
- *  switch"). `LOCAL_HOST` is ALWAYS the implicit, unremovable default — prepended, and
- *  any listed local variant (deduped via `isLocalHost`) collapses onto it. Env unset →
- *  `[LOCAL_HOST]` (a valid 1-member map = pixel-identical to single-host today). Each
- *  entry is `HostKeySchema`-validated (the sole branded-key producer); a malformed
- *  entry (e.g. a reserved channel name) is skipped LOUDLY, never fatal (F6). Remote
- *  hosts are order-preserved after the local default. */
+ *  switch"). `LOCAL_HOST` is ALWAYS the implicit, unremovable default — prepended.
+ *  Every token parses via `parseHostInput` (the HUMAN-input codec: the literal word
+ *  `"local"` names the default, everything else is a remote target taken literally) —
+ *  total, so there is no reserved-name/malformed-entry reject to skip: a `HostKey` is
+ *  now a nominal sum, not an in-band string a bad value could collide with. Remote
+ *  hosts are order-preserved after the local default, deduped by their encoded form. */
 export function parseKoluPadiHostSeed(): HostKey[] {
   const raw = process.env[KOLU_PADI_HOST_ENV]?.trim();
   const listed = raw
@@ -102,24 +98,14 @@ export function parseKoluPadiHostSeed(): HostKey[] {
         .map((h) => h.trim())
         .filter((h) => h.length > 0)
     : [];
-  const seen = new Set<string>([LOCAL_HOST]);
+  const seen = new Set<string>([encodeHostKey(LOCAL_HOST)]);
   const remotes: HostKey[] = [];
   for (const h of listed) {
-    if (isLocalHost(h)) continue; // the local default is already the head
-    if (seen.has(h)) continue;
-    seen.add(h);
-    // A malformed seed entry (e.g. a reserved channel name like "keys") is LOUD
-    // but NON-FATAL (F6): skip it and boot the pool with the valid hosts, never
-    // brick boot for the whole pool over one bad KOLU_PADI_HOST entry.
-    const parsed = HostKeySchema.safeParse(h);
-    if (!parsed.success) {
-      log.error(
-        { host: h, issue: parsed.error.issues[0]?.message },
-        `KOLU_PADI_HOST seed entry "${h}" is not a valid host key — skipping it`,
-      );
-      continue;
-    }
-    remotes.push(parsed.data);
+    const parsed = parseHostInput(h);
+    const enc = encodeHostKey(parsed);
+    if (seen.has(enc)) continue;
+    seen.add(enc);
+    remotes.push(parsed);
   }
   return [LOCAL_HOST, ...remotes];
 }
@@ -141,13 +127,21 @@ export class UnremovableHostError extends Error {
   }
 }
 
-/** Guard the pool's UNREMOVABLE default: a `hosts.remove` of LOCAL_HOST (the implicit
- *  local member) or `defaultHost` (the boot default) THROWS `UnremovableHostError` — the
- *  canvas must always keep a host to fall back to, and "being able to override" is never
- *  a feature. The #1708 pin: `remove(default)` fails LOUD, never silently no-ops. */
+/** Guard the pool's UNREMOVABLE default: a `hosts.remove` of the local host (`.kind ===
+ *  "local"`) or `defaultHost` (the boot default — encoded-form compared, since a
+ *  `HostKey` is an object with no reference identity across independent decodes) THROWS
+ *  `UnremovableHostError` — the canvas must always keep a host to fall back to, and
+ *  "being able to override" is never a feature. The #1708 pin: `remove(default)` fails
+ *  LOUD, never silently no-ops. */
 export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
-  if (host === LOCAL_HOST || host === defaultHost) {
-    throw new UnremovableHostError(host, "it is the unremovable local default");
+  if (
+    host.kind === "local" ||
+    encodeHostKey(host) === encodeHostKey(defaultHost)
+  ) {
+    throw new UnremovableHostError(
+      encodeHostKey(host),
+      "it is the unremovable local default",
+    );
   }
 }
 

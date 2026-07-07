@@ -5,7 +5,8 @@
  * `UnremovableHostError` the remove path rejects the default with.
  */
 
-import { HostKeySchema, LOCAL_HOST } from "kolu-common/surfacesWithPadi";
+import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
+import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { describe, expect, it } from "vitest";
 import {
   assertRemovableHost,
@@ -30,24 +31,24 @@ function withEnv(val: string | undefined, fn: () => void): void {
 describe("parseKoluPadiHostSeed", () => {
   it("unset → [LOCAL_HOST] — a valid 1-member map (pixel-identical single-host)", () => {
     withEnv(undefined, () => {
-      expect(parseKoluPadiHostSeed().map(String)).toEqual(["local"]);
+      expect(parseKoluPadiHostSeed().map(encodeHostKey)).toEqual(["local"]);
       expect(isMultiHost()).toBe(false);
     });
   });
 
   it("blank/whitespace env → local only", () => {
     withEnv("   ", () => {
-      expect(parseKoluPadiHostSeed().map(String)).toEqual(["local"]);
+      expect(parseKoluPadiHostSeed().map(encodeHostKey)).toEqual(["local"]);
       expect(isMultiHost()).toBe(false);
     });
   });
 
   it("comma list → local default THEN ordered remotes, deduped, blanks dropped", () => {
     withEnv("srid@zest, srid@yast , ,srid@zest", () => {
-      expect(parseKoluPadiHostSeed().map(String)).toEqual([
+      expect(parseKoluPadiHostSeed().map(encodeHostKey)).toEqual([
         "local",
-        "srid@zest",
-        "srid@yast",
+        "remote:srid@zest",
+        "remote:srid@yast",
       ]);
       expect(isMultiHost()).toBe(true);
     });
@@ -55,16 +56,16 @@ describe("parseKoluPadiHostSeed", () => {
 
   it("the local default listed explicitly is not doubled", () => {
     withEnv("local,srid@zest", () => {
-      const seed = parseKoluPadiHostSeed().map(String);
+      const seed = parseKoluPadiHostSeed().map(encodeHostKey);
       expect(seed.filter((h) => h === "local")).toHaveLength(1);
-      expect(seed).toEqual(["local", "srid@zest"]);
+      expect(seed).toEqual(["local", "remote:srid@zest"]);
     });
   });
 
-  it("every entry is a branded HostKey (LOCAL_HOST included)", () => {
+  it("every entry is a HostKey (LOCAL_HOST included)", () => {
     withEnv("srid@zest", () => {
       const seed = parseKoluPadiHostSeed();
-      expect(seed[0]).toBe(LOCAL_HOST); // the branded local default, by value
+      expect(seed[0]).toEqual(LOCAL_HOST); // the local default, by value
       expect(seed).toHaveLength(2);
     });
   });
@@ -83,8 +84,8 @@ describe("UnremovableHostError", () => {
 });
 
 describe("assertRemovableHost — the remove-path guard", () => {
-  const zest = HostKeySchema.parse("srid@zest");
-  const yast = HostKeySchema.parse("srid@yast");
+  const zest = parseHostInput("srid@zest");
+  const yast = parseHostInput("srid@yast");
 
   it("throws for LOCAL_HOST — the implicit unremovable member", () => {
     expect(() => assertRemovableHost(LOCAL_HOST, LOCAL_HOST)).toThrow(

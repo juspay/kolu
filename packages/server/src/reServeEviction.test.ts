@@ -10,29 +10,27 @@
  * gone) composed with `reServeFor`'s build-on-cache-miss (`if (r === undefined) build`).
  */
 
-import { HostKeySchema } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
 import { pruneToMembers } from "./reServeEviction.ts";
 
-const key = (s: string) => HostKeySchema.parse(s);
-
+// `index.ts` keys its real `reServes` cache by the pool's canonical STRING
+// (`encodeHostKey`) — plain strings exercise the same key-membership logic without
+// dragging in the HostKey codec.
 describe("pruneToMembers", () => {
   it("drops entries whose host has left the pool, keeps members", () => {
     // Sentinel values stand in for the real `ReServedSurface` mirrors — the prune only cares
     // about key membership, never the value.
-    const zest = key("zest");
-    const bogus = key("bogus");
-    const cache = new Map<ReturnType<typeof key>, string>([
-      [zest, "zest-mirror"],
-      [bogus, "bogus-mirror"],
+    const cache = new Map<string, string>([
+      ["remote:zest", "zest-mirror"],
+      ["remote:bogus", "bogus-mirror"],
     ]);
 
-    // `zest` is still a pool member; `bogus` has been removed.
-    const members = new Set([zest]);
+    // `remote:zest` is still a pool member; `remote:bogus` has been removed.
+    const members = new Set(["remote:zest"]);
     pruneToMembers(cache, (h) => members.has(h));
 
-    expect(cache.has(bogus)).toBe(false); // the departed host's mirror is evicted…
-    expect(cache.get(zest)).toBe("zest-mirror"); // …the surviving member's mirror is untouched.
+    expect(cache.has("remote:bogus")).toBe(false); // the departed host's mirror is evicted…
+    expect(cache.get("remote:zest")).toBe("zest-mirror"); // …the surviving member's mirror is untouched.
   });
 
   it("re-add after eviction is a cache MISS — the corpse can never be re-handed out", () => {
@@ -40,23 +38,20 @@ describe("pruneToMembers", () => {
     // re-add the SAME key over session B. Because eviction deleted the slot, the re-add path
     // (`reServeFor`'s `reServes.get(h) === undefined`) sees a MISS and builds fresh — it can
     // never resolve to the mirror pinned to the destroyed session A.
-    const guest = key("guest");
-    const cache = new Map<ReturnType<typeof key>, string>([
-      [guest, "mirror-over-sessionA"],
+    const cache = new Map<string, string>([
+      ["remote:guest", "mirror-over-sessionA"],
     ]);
 
     // Host leaves the pool → eviction runs with `guest` no longer a member.
     pruneToMembers(cache, () => false);
 
-    expect(cache.get(guest)).toBeUndefined(); // MISS ⇒ the re-add would build a fresh mirror.
+    expect(cache.get("remote:guest")).toBeUndefined(); // MISS ⇒ the re-add would build a fresh mirror.
   });
 
   it("no-op when every cached host is still a member (steady state)", () => {
-    const local = key("local");
-    const zest = key("zest");
-    const cache = new Map<ReturnType<typeof key>, string>([
-      [local, "local-mirror"],
-      [zest, "zest-mirror"],
+    const cache = new Map<string, string>([
+      ["local", "local-mirror"],
+      ["remote:zest", "zest-mirror"],
     ]);
 
     pruneToMembers(cache, () => true);

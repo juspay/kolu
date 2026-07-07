@@ -1,18 +1,29 @@
 /**
  * `defineSurfaceMap` — the CONTRACT half of a keyed map of remote surfaces.
  *
- * A `SurfaceMap` is one entry spec (`Surface<ES>`) typed ONCE, keyed at runtime
- * by a BRANDED key. The map keeps the entry surface's `Surface<ES>` verbatim (it
- * is the type the client subtree is generated from) and, alongside it, derives a
- * WIRE contract that folds the branded `mapKey` into EVERY entry-member
- * procedure's input — so a call carries its key in every frame by construction
- * (a subscription can't cross keys any more than it can cross procs).
+ * A `SurfaceMap` is one entry spec (`Surface<ES>`) typed ONCE, keyed at runtime by a
+ * `keySchema`-validated key `K` (`Key<M>`, `z.infer<KS>`) — a plain string in the
+ * common case, but not required to be one (kolu's own `HostKey` is a discriminated
+ * sum object). The map keeps the entry surface's `Surface<ES>` verbatim (it is the
+ * type the client subtree is generated from) and, alongside it, derives a WIRE
+ * contract that folds a key into EVERY entry-member procedure's input — so a call
+ * carries its key in every frame by construction (a subscription can't cross keys
+ * any more than it can cross procs).
  *
- * The branded key IS zod's `.brand()` on `keySchema` — the source of truth, not a
- * hand-rolled nominal type. `parseKey` (`keySchema.parse`, on the client) is the
- * sole producer of a branded key; a raw string is a type error wherever `Key` is
- * expected (P4 at the typed API). The wire handler re-validates via the same
- * `keySchema.parse` (P5 gate).
+ * `K` can be ANY `keySchema`-validated value, but the WIRE `mapKey` field, the
+ * `entries` membership collection's key, and every channel name the server derives
+ * from a key are ALWAYS a plain STRING — matching `@kolu/surface`'s own per-key
+ * channel/dedup machinery (`${name}:${String(k)}`, `useCollection`'s primitive-key
+ * assumption), which a non-primitive `K` would silently corrupt (`String({...})` →
+ * `"[object Object]"`, collapsing every entry onto one channel). The REQUIRED
+ * {@link KeyCodec} bridges the two: `encode` produces that canonical wire string
+ * (also the channel-name/dedup key), `decode` inverts it. For a `K` that is already
+ * a plain string, the codec is the identity pair.
+ *
+ * `keySchema.parse` (paired with `codec.decode`, on the client's `parseKey` and the
+ * server's wire handler) is the sole producer of a validated `K` from a wire string —
+ * a raw unvalidated value is a type error wherever `Key` is expected (P4 at the typed
+ * API); the wire handler re-validates via the same `keySchema.parse` (P5 gate).
  *
  * Membership is published as ONE authoritative collection: `entries:
  * Collection<Key, EntryStatus>`. Absence = the key is not in the collection —
@@ -76,43 +87,37 @@ export const entryStatusSchema = z.discriminatedUnion("kind", [
 // decisively, an entry input that itself carries a `mapKey` field cannot collide
 // with the folded key (it is nested under `input`), so misroute-by-collision is
 // UNCONSTRUCTIBLE (P4), not merely unlikely.
-
-type MapKeySchema = ZodType<unknown>;
+//
+// The folded `mapKey` field is ALWAYS `z.string()` here — the canonical wire form
+// {@link KeyCodec} produces — regardless of what the map's own `K` is. The server
+// re-derives + re-validates the real `K` from it (`codec.decode` + `keySchema.parse`,
+// the P5 gate); these builders never see `K` at all.
 
 /** The fold envelope `z.object({ mapKey, input })` — `input` is the member's own
  *  input schema (or `z.void()` when it has none). The single home of the shape. */
-function foldInput(keySchema: MapKeySchema, inner?: ZodType<unknown>): ZodType {
+function foldInput(inner?: ZodType<unknown>): ZodType {
   return z.object({
-    [MAP_KEY_FIELD]: keySchema,
+    [MAP_KEY_FIELD]: z.string(),
     [INPUT_FIELD]: inner ?? z.void(),
   }) as ZodType;
 }
 
-function foldedCell(
-  spec: CellSpec<unknown, unknown>,
-  keySchema: MapKeySchema,
-): Record<string, unknown> {
+function foldedCell(spec: CellSpec<unknown, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const v of resolveCellVerbs(spec)) {
     if (v === "get") {
-      out.get = oc
-        .input(foldInput(keySchema))
-        .output(eventIterator(spec.schema));
+      out.get = oc.input(foldInput()).output(eventIterator(spec.schema));
     } else if (v === "set") {
-      out.set = oc.input(foldInput(keySchema, spec.schema)).output(z.void());
+      out.set = oc.input(foldInput(spec.schema)).output(z.void());
     } else if (v === "patch") {
       if (!spec.patchSchema) {
         throw new Error(
           "defineSurfaceMap: cell exposes 'patch' but has no patchSchema",
         );
       }
-      out.patch = oc
-        .input(foldInput(keySchema, spec.patchSchema))
-        .output(z.void());
+      out.patch = oc.input(foldInput(spec.patchSchema)).output(z.void());
     } else if (v === "test__set") {
-      out.test__set = oc
-        .input(foldInput(keySchema, spec.schema))
-        .output(z.void());
+      out.test__set = oc.input(foldInput(spec.schema)).output(z.void());
     }
   }
   return out;
@@ -120,7 +125,6 @@ function foldedCell(
 
 function foldedCollection(
   spec: CollectionSpec<unknown, unknown>,
-  keySchema: MapKeySchema,
 ): Record<string, unknown> {
   const keyShape = z.object({ key: spec.keySchema });
   const upsertShape = z.object({ key: spec.keySchema, value: spec.schema });
@@ -128,25 +132,25 @@ function foldedCollection(
   for (const v of resolveCollectionVerbs(spec)) {
     if (v === "keys") {
       out.keys = oc
-        .input(foldInput(keySchema))
+        .input(foldInput())
         .output(eventIterator(z.array(spec.keySchema)));
     } else if (v === "get") {
       out.get = oc
-        .input(foldInput(keySchema, keyShape))
+        .input(foldInput(keyShape))
         .output(eventIterator(spec.schema));
     } else if (v === "deltas") {
       out.deltas = oc
-        .input(foldInput(keySchema))
+        .input(foldInput())
         .output(
           eventIterator(collectionDeltasSchema(spec.keySchema, spec.schema)),
         );
     } else if (v === "upsert") {
-      out.upsert = oc.input(foldInput(keySchema, upsertShape)).output(z.void());
+      out.upsert = oc.input(foldInput(upsertShape)).output(z.void());
     } else if (v === "delete") {
-      out.delete = oc.input(foldInput(keySchema, keyShape)).output(z.void());
+      out.delete = oc.input(foldInput(keyShape)).output(z.void());
     } else if (v === "test__set") {
       out.test__set = oc
-        .input(foldInput(keySchema, z.array(upsertShape)))
+        .input(foldInput(z.array(upsertShape)))
         .output(z.void());
     }
   }
@@ -155,31 +159,26 @@ function foldedCollection(
 
 function foldedStream(
   spec: StreamSpec<unknown, unknown>,
-  keySchema: MapKeySchema,
 ): Record<string, unknown> {
   return {
     get: oc
-      .input(foldInput(keySchema, spec.inputSchema))
+      .input(foldInput(spec.inputSchema))
       .output(eventIterator(spec.outputSchema)),
   };
 }
 
 function foldedEvent(
   spec: EventSpec<unknown, unknown>,
-  keySchema: MapKeySchema,
 ): Record<string, unknown> {
   return {
     get: oc
-      .input(foldInput(keySchema, spec.inputSchema))
+      .input(foldInput(spec.inputSchema))
       .output(eventIterator(spec.outputSchema)),
   };
 }
 
-function foldedProcedure(
-  spec: ProcedureSpec<unknown, unknown>,
-  keySchema: MapKeySchema,
-): unknown {
-  const input = foldInput(keySchema, spec.input);
+function foldedProcedure(spec: ProcedureSpec<unknown, unknown>): unknown {
+  const input = foldInput(spec.input);
   const output = spec.output ?? z.void();
   return oc.input(input).output(output);
 }
@@ -188,7 +187,6 @@ function foldedProcedure(
  *  namespace per member, mirroring `defineSurface`'s spec walk. */
 function foldedMembers(
   entry: SurfaceSpec,
-  keySchema: MapKeySchema,
 ): Record<string, Record<string, unknown>> {
   const out: Record<string, Record<string, unknown>> = {};
   const claim = (key: string, entries: Record<string, unknown>): void => {
@@ -201,21 +199,21 @@ function foldedMembers(
     out[key] = { ...(out[key] ?? {}), ...entries };
   };
   for (const [key, s] of Object.entries(entry.cells ?? {})) {
-    claim(key, foldedCell(s, keySchema));
+    claim(key, foldedCell(s));
   }
   for (const [key, s] of Object.entries(entry.collections ?? {})) {
-    claim(key, foldedCollection(s, keySchema));
+    claim(key, foldedCollection(s));
   }
   for (const [key, s] of Object.entries(entry.streams ?? {})) {
-    claim(key, foldedStream(s, keySchema));
+    claim(key, foldedStream(s));
   }
   for (const [key, s] of Object.entries(entry.events ?? {})) {
-    claim(key, foldedEvent(s, keySchema));
+    claim(key, foldedEvent(s));
   }
   for (const [ns, procs] of Object.entries(entry.procedures ?? {})) {
     const procEntries: Record<string, unknown> = {};
     for (const [verb, ps] of Object.entries(procs)) {
-      procEntries[verb] = foldedProcedure(ps, keySchema);
+      procEntries[verb] = foldedProcedure(ps);
     }
     claim(ns, procEntries);
   }
@@ -223,62 +221,84 @@ function foldedMembers(
 }
 
 /** The read-only `entries` membership collection contract — NOT folded (its key
- *  IS the map key). The client reads it (`keys`/`get`); the server is the sole
- *  writer (membership is published, not mutated over the wire). */
-function entriesContract(keySchema: MapKeySchema): Record<string, unknown> {
+ *  IS the map key). Its wire key is ALWAYS `z.string()` (the canonical encoded
+ *  form; see the module doc) — the client reads it (`keys`/`get`) and decodes
+ *  through {@link KeyCodec}; the server is the sole writer (membership is
+ *  published, not mutated over the wire). */
+function entriesContract(): Record<string, unknown> {
   return {
-    keys: oc.output(eventIterator(z.array(keySchema))),
+    keys: oc.output(eventIterator(z.array(z.string()))),
     get: oc
-      .input(z.object({ key: keySchema }))
+      .input(z.object({ key: z.string() }))
       .output(eventIterator(entryStatusSchema)),
   };
 }
 
 // ── SurfaceMap value ────────────────────────────────────────────────────
 
-/** The branded key of a `SurfaceMap` — `z.infer` of its `keySchema` (so the
- *  brand rides for free). */
+/** The branded key of a `SurfaceMap` — `z.infer` of its `keySchema`. */
 export type Key<M> =
   M extends SurfaceMap<infer KS, SurfaceSpec> ? z.infer<KS> : never;
+
+/** The string <-> key bridge every map needs: {@link encode} produces the
+ *  canonical wire string a key is transmitted/channel-named as; {@link decode}
+ *  inverts it. For a `K` that is already a plain string this is the identity
+ *  pair; kolu's `HostKey` (a discriminated-sum object) passes its own
+ *  `encodeHostKey`/`decodeHostKey`. `decode` is paired with `keySchema.parse` at
+ *  every call site (the P5 re-validation gate) — it need not validate on its own. */
+export interface KeyCodec<K> {
+  encode(key: K): string;
+  decode(wire: string): K;
+}
 
 export interface SurfaceMap<
   KS extends ZodType,
   ES extends SurfaceSpec = SurfaceSpec,
 > {
-  /** The branded key schema — `keySchema.parse` is the sole producer of a
-   *  branded key. */
+  /** The key schema — `keySchema.parse` (paired with `codec.decode`) is the sole
+   *  producer of a validated key from a wire string. */
   readonly keySchema: KS;
   /** The entry surface, kept verbatim — the type the client subtree is
    *  generated from, and the spec the server/client walk. */
   readonly entry: Surface<ES>;
   /** The key-folded WIRE contract: `{ surface: { <member>: {...folded},
-   *  entries } }`. `mapKey` is folded into every entry-member input; `entries`
-   *  is the membership collection (unfolded). */
+   *  entries } }`. A canonical-string `mapKey` is folded into every entry-member
+   *  input; `entries` is the membership collection (unfolded). */
   readonly contract: AnyContractRouter;
-  /** The membership collection's spec — `Collection<Key, EntryStatus>`,
-   *  read-only. Backs both the server's `entries` handlers and the client's
-   *  bound collection. */
-  readonly entriesSpec: CollectionSpec<z.infer<KS>, EntryStatus>;
+  /** The membership collection's spec — `Collection<string, EntryStatus>` on
+   *  the wire (see the module doc for why the collection key is always a plain
+   *  string), read-only. Backs both the server's `entries` handlers and the
+   *  client's bound collection; both decode through {@link codec} at their own
+   *  API boundary. */
+  readonly entriesSpec: CollectionSpec<string, EntryStatus>;
+  /** The string <-> key codec — see {@link KeyCodec}. */
+  readonly codec: KeyCodec<z.infer<KS>>;
 }
 
-/** Build a `SurfaceMap` from a branded key schema + an entry surface. */
+/** Build a `SurfaceMap` from a key schema, an entry surface, and the key's
+ *  string codec (required — see {@link KeyCodec}; a plain-string `K` passes the
+ *  identity pair). */
 export function defineSurfaceMap<
   KS extends ZodType,
   const ES extends SurfaceSpec,
->(keySchema: KS, entry: Surface<ES>): SurfaceMap<KS, ES> {
-  const members = foldedMembers(entry.spec, keySchema as MapKeySchema);
+>(
+  keySchema: KS,
+  entry: Surface<ES>,
+  codec: KeyCodec<z.infer<KS>>,
+): SurfaceMap<KS, ES> {
+  const members = foldedMembers(entry.spec);
   const contract = oc.router({
     surface: {
       ...members,
-      entries: entriesContract(keySchema as MapKeySchema),
+      entries: entriesContract(),
     },
   } as unknown as AnyContractRouter) as AnyContractRouter;
 
-  const entriesSpec: CollectionSpec<z.infer<KS>, EntryStatus> = {
-    keySchema: keySchema as unknown as ZodType<z.infer<KS>>,
+  const entriesSpec: CollectionSpec<string, EntryStatus> = {
+    keySchema: z.string(),
     schema: entryStatusSchema,
     verbs: ["keys", "get"],
   };
 
-  return { keySchema, entry, contract, entriesSpec };
+  return { keySchema, entry, contract, entriesSpec, codec };
 }

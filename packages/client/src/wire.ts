@@ -37,6 +37,7 @@ import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
+import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
@@ -162,13 +163,16 @@ export const onHostMembershipError = (err: Error): void => {
 };
 
 /** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Backed by
- *  `sessionStorage` (per-tab, never shared across tabs), validated + branded on read via
- *  the map's key schema, defaulting to the unremovable LOCAL default. Switching it
- *  re-keys every `useEntry(activeHost)` readout — the canvas live-switches, no reload. */
+ *  `sessionStorage` (per-tab, never shared across tabs). The persisted value is the
+ *  CANONICAL wire string (`encodeHostKey`/`decodeHostKey` — NOT the default
+ *  `JSON.stringify`, which would write `{"kind":"local"}` instead of `"local"`),
+ *  defaulting to the unremovable LOCAL default. Switching it re-keys every
+ *  `useEntry(activeHost)` readout — the canvas live-switches, no reload. */
 export const [activeHost, setActiveHost] = persistedPref<HostKey>({
   name: "kolu-active-host",
   fallback: LOCAL_HOST,
-  parse: (raw) => padiMap.parseKey(raw),
+  parse: (raw) => decodeHostKey(raw),
+  serialize: encodeHostKey,
   storage: sessionStorage,
   // Surface a corrupt/invalid stored host rather than silently collapsing to the local
   // default — otherwise "the stored active host was garbage" reads identically to "this tab
@@ -289,7 +293,7 @@ const hostScoped = createRoot(() => {
     const departed = activeHost();
     setActiveHost(target);
     toast.warning(
-      `Host "${departed}" left the pool — switched to the local host`,
+      `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
   return { activityFeed, session, terminalKeys, preferences };

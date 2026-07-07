@@ -9,9 +9,9 @@
  * always-map, read a seed LIST as one remote).
  */
 
-import { type HostKey, LOCAL_HOST } from "kolu-common/hostKey";
+import type { HostKey } from "kolu-common/hostKey";
 
 /** `"Kolu"` for the local default, `"Kolu [<host>]"` for an active remote. */
 export function hostTitle(active: HostKey): string {
-  return active === LOCAL_HOST ? "Kolu" : `Kolu [${active}]`;
+  return active.kind === "local" ? "Kolu" : `Kolu [${active.target}]`;
 }

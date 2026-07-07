@@ -41,6 +41,7 @@ import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import { resolveWikilink } from "@kolu/solid-markdown";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import { ORPCError } from "@orpc/client";
+import { encodeHostKey } from "kolu-common/hostKey";
 import {
   buildTerminalFileUrl,
   isBinaryPreviewable,
@@ -151,10 +152,10 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         );
         return {
           kind: "binary",
-          // Key the file URL by the ACTIVE host so the route reads the bytes from
-          // the same padi the mtime above came from — a remote host's preview must
-          // not resolve against the local default.
-          url: `${buildTerminalFileUrl(activeHost(), i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
+          // Key the file URL by the ACTIVE host's CANONICAL string so the route reads
+          // the bytes from the same padi the mtime above came from — a remote host's
+          // preview must not resolve against the local default.
+          url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
         };
       }
       const { content, truncated } = await padiRpcOf(
@@ -453,7 +454,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
               markdown={file.source?.content ?? ""}
               resolveImageSrc={(src) =>
                 resolveMarkdownImageSrc(
-                  activeHost(),
+                  encodeHostKey(activeHost()),
                   props.terminalId,
                   props.filePath,
                   src,

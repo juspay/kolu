@@ -138,16 +138,17 @@ export interface SurfaceMapClient<
  *  map server reads `mapKey` and forwards `input` verbatim. Uniform across object,
  *  primitive, and undefined inputs (a no-input member sends `input: undefined`), and
  *  an entry input carrying its own `mapKey` field can't collide with the folded key
- *  (it rides `input`, nested). */
-function foldMapKey(mapKey: unknown, input: unknown): unknown {
+ *  (it rides `input`, nested). `mapKey` is ALWAYS the canonical wire string here —
+ *  the caller (`clientFor`) already ran the key through `map.codec.encode`. */
+function foldMapKey(mapKey: string, input: unknown): unknown {
   return fold(mapKey, input);
 }
 
-/** A Proxy over `link` that folds `mapKey` into every `surface.<member>.<verb>`
- *  leaf call — so a per-key `SurfaceClient<ES>` built over it (typed against
- *  `ES`, no `mapKey`) issues wire calls the map server reads as
- *  `{ mapKey, ...input }`. */
-function keyInjectingLink(link: unknown, mapKey: unknown): unknown {
+/** A Proxy over `link` that folds the encoded `mapKey` STRING into every
+ *  `surface.<member>.<verb>` leaf call — so a per-key `SurfaceClient<ES>` built
+ *  over it (typed against `ES`, no `mapKey`) issues wire calls the map server
+ *  reads as `{ mapKey, ...input }`. */
+function keyInjectingLink(link: unknown, mapKey: string): unknown {
   const surface = (link as { surface: Record<string, unknown> }).surface;
   return {
     surface: new Proxy(
@@ -343,28 +344,57 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   const clientOwner = getOwner();
   const build = <R>(fn: () => R): R => runWithOwner(clientOwner, fn) as R;
 
+  // The membership collection's WIRE shape is ALWAYS string-keyed (`map.entriesSpec`,
+  // define.ts) — `rawEntries` is that raw bound collection. The map's OWN `K` may be a
+  // non-primitive (kolu's `HostKey`), so every membership/dedup/cache operation below
+  // works in STRING space (via `map.codec.encode`) and only decodes to `K` at the
+  // external `entries` field consumers read for `.kind`-switching (below).
   const entriesSurface: Surface<{
     collections: { entries: typeof map.entriesSpec };
   }> = defineSurface({ collections: { entries: map.entriesSpec } });
   const entriesClient = build(() =>
     buildSurfaceClient(entriesSurface, baseLink, live),
   );
-  const entries = entriesClient.collections.entries as ReadOnlyBoundCollection<
-    K,
-    EntryStatus
-  >;
+  const rawEntries = entriesClient.collections
+    .entries as ReadOnlyBoundCollection<string, EntryStatus>;
 
-  const parseKey = (raw: string): K => map.keySchema.parse(raw) as K;
+  /** Decode + re-validate a wire string into `K` — the P5 gate (a foreign string a
+   *  server somehow published must fail here, not silently become a trusted `K`). */
+  const decodeKey = (wire: string): K =>
+    map.keySchema.parse(map.codec.decode(wire)) as K;
 
-  // The pure lens' get-or-create: a per-key `SurfaceClient<ES>` cached by key.
-  const clients = new Map<K, SurfaceClient<ES>>();
+  const parseKey = decodeKey;
+
+  // The external, OBJECT-keyed membership view (`SurfaceMapClient.entries`) — a thin
+  // projection of `rawEntries` that encodes a caller's `keys` override going in and
+  // decodes the string keyset coming out, so a consumer (kolu's host-reconcile effect,
+  // the selector strip) can `.kind`-switch the members it reads.
+  const entries: ReadOnlyBoundCollection<K, EntryStatus> = {
+    use(opts) {
+      const rawKeys = opts?.keys
+        ? () => opts.keys?.().map((k) => map.codec.encode(k)) ?? []
+        : undefined;
+      const result = rawEntries.use({ keys: rawKeys, onError: opts?.onError });
+      return {
+        keys: () => result.keys().map(decodeKey),
+        byKey: (key: K) => result.byKey(map.codec.encode(key)),
+      };
+    },
+  };
+
+  // The pure lens' get-or-create: a per-key `SurfaceClient<ES>` cached by the key's
+  // CANONICAL STRING (never the raw `K` — a JS `Map`/`===` compares objects by
+  // reference, so two logically-equal `HostKey` objects from independent decodes
+  // would otherwise never dedup to the same cached client).
+  const clients = new Map<string, SurfaceClient<ES>>();
   const clientFor = (key: K): SurfaceClient<ES> => {
-    let c = clients.get(key);
+    const enc = map.codec.encode(key);
+    let c = clients.get(enc);
     if (!c) {
       c = build(() =>
-        buildSurfaceClient(map.entry, keyInjectingLink(baseLink, key), live),
+        buildSurfaceClient(map.entry, keyInjectingLink(baseLink, enc), live),
       ) as SurfaceClient<ES>;
-      clients.set(key, c);
+      clients.set(enc, c);
     }
     return c;
   };
@@ -375,14 +405,16 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   // rebuilds one on demand. Tracks the PREVIOUS member set (not merely "not a member"), so an
   // `entry(key)` lens a consumer holds for a never-member key is never touched — only a host that
   // WAS a member and then left. Runs in the client owner (client-lifetime, like the caches).
+  // Compares the RAW encoded strings (never a decoded `K`) — string equality is exact,
+  // side-stepping the object-identity trap `K` itself would set.
   build(() => {
-    let prevMembers: K[] = [];
+    let prevMembers: string[] = [];
     createEffect(() => {
-      const members = entries.use().keys();
-      for (const key of prevMembers) {
-        if (!members.includes(key)) {
-          clients.get(key)?.dispose();
-          clients.delete(key);
+      const members = rawEntries.use().keys();
+      for (const enc of prevMembers) {
+        if (!members.includes(enc)) {
+          clients.get(enc)?.dispose();
+          clients.delete(enc);
         }
       }
       prevMembers = members;
@@ -390,9 +422,10 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   });
 
   const foldState = (key: K): EntryState => {
-    const view = entries.use();
-    if (!view.keys().some((k) => k === key)) return { kind: "not-a-member" };
-    const v = view.byKey(key)?.() as EntryStatus | undefined;
+    const view = rawEntries.use();
+    const enc = map.codec.encode(key);
+    if (!view.keys().includes(enc)) return { kind: "not-a-member" };
+    const v = view.byKey(enc)?.() as EntryStatus | undefined;
     // A member whose per-key status frame hasn't landed yet is honestly warming; then
     // FLOOR the claim on the map's OWN transport liveness via {@link floorOnLiveness}: a
     // server-published "connected" over a dead/half-open link (`live() === false`) can no

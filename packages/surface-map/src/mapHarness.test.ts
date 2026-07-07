@@ -22,7 +22,7 @@ import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { connectSurfaceMap, type EntryState, floorOnLiveness } from "./client";
-import { defineSurfaceMap, type EntryStatus } from "./define";
+import { defineSurfaceMap, type EntryStatus, type KeyCodec } from "./define";
 import {
   type EntryConnectionState,
   type EntrySession,
@@ -52,6 +52,13 @@ const entrySurface = defineSurface({
 
 const HostKeySchema = z.string().brand("HostKey");
 type HostKey = z.infer<typeof HostKeySchema>;
+// The harness's own key IS already a plain (branded) string, so its codec is the
+// identity pair — kolu's real `HostKey` (a discriminated-sum object) is the case
+// {@link KeyCodec} exists for; see `hostKeyCodec` in `kolu-common/hostKey`.
+const identityCodec: KeyCodec<HostKey> = {
+  encode: (k) => k,
+  decode: (s) => s as HostKey,
+};
 
 const settle = async (): Promise<void> => {
   for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
@@ -155,7 +162,7 @@ function makeRegistry() {
 }
 
 function setup() {
-  const map = defineSurfaceMap(HostKeySchema, entrySurface);
+  const map = defineSurfaceMap(HostKeySchema, entrySurface, identityCodec);
   const reg = makeRegistry();
   const served = serveSurfaceMap(map, reg.registry);
   // biome-ignore lint/suspicious/noExplicitAny: served router is a runtime-valid oRPC router; the client re-types via map.entry.
@@ -403,7 +410,7 @@ describe("surface-map mock-entry e2e harness", () => {
     // — a delta member whose upstream REJECTS on the pool's destroy→delete→notify order —
     // additionally needs hostFanout reordered to delete→notify→destroy; tracked separately.)
     await createRoot(async (dispose) => {
-      const map = defineSurfaceMap(HostKeySchema, entrySurface);
+      const map = defineSurfaceMap(HostKeySchema, entrySurface, identityCodec);
       // A link whose `urgency.get` DIAL is slow — resolved by hand, modelling a member
       // still provisioning when the host is removed.
       let resolveDial!: (it: AsyncIterable<unknown>) => void;
@@ -460,7 +467,7 @@ describe("surface-map mock-entry e2e harness", () => {
   });
 
   it("(9) the { live } override is unspellable — the 3rd arg is a siblingKey string, not a raw liveness accessor", () => {
-    const map = defineSurfaceMap(HostKeySchema, entrySurface);
+    const map = defineSurfaceMap(HostKeySchema, entrySurface, identityCodec);
     // Liveness comes ONLY from a branded LiveSignalHandle (its watchdog `live`) or a
     // constant-true in-process directLink; a raw accessor over a bare link (the #1564
     // green-over-dead lie) cannot be SPELLED — the 3rd arg is a siblingKey string.
@@ -510,7 +517,7 @@ describe("surface-map mock-entry e2e harness", () => {
     // captured-session dial rejects into a TYPED END, never a raw stub error, even though
     // `has()` is true again from the re-add. (With the old `has()`-gate it would `throw e`.)
     await createRoot(async (dispose) => {
-      const map = defineSurfaceMap(HostKeySchema, entrySurface);
+      const map = defineSurfaceMap(HostKeySchema, entrySurface, identityCodec);
       let rejectDial!: (e: Error) => void;
       const slowRejectingLink = {
         surface: {
@@ -571,7 +578,7 @@ describe("surface-map mock-entry e2e harness", () => {
   });
 
   it("(12) connectSurfaceMap REJECTS a raw pre-sliced / unbranded wire link — no green-over-dead door", () => {
-    const map = defineSurfaceMap(HostKeySchema, entrySurface);
+    const map = defineSurfaceMap(HostKeySchema, entrySurface, identityCodec);
     // A bare unbranded link (a pre-sliced `scopeSibling` re-wrap, or any non-directLink,
     // non-LiveSignalHandle value) would fall to `resolveTransport`'s by-exclusion
     // constant-`true` and floor chips GREEN over a dead transport (#1564). connectSurfaceMap
@@ -723,7 +730,11 @@ describe("serveSurfaceMap — a member shared by a cell AND a procedure namespac
 
   it("serves BOTH the cell verb (session/get) and the procedure verb (session/ping) — neither clobbered", async () => {
     await createRoot(async (dispose) => {
-      const map = defineSurfaceMap(HostKeySchema, collisionSurface);
+      const map = defineSurfaceMap(
+        HostKeySchema,
+        collisionSurface,
+        identityCodec,
+      );
       const reg = makeRegistry();
       const { router } = implementSurface(collisionSurface, {
         channel: inMemoryChannelByName(),

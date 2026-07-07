@@ -22,7 +22,11 @@
  *      UnremovableHostError surfaces LOUD via toast, never a silent no-op).
  *  A trailing "+ add" opens an inline input → `client.hosts.add`. */
 
-import { type HostKey, HostKeySchema, LOCAL_HOST } from "kolu-common/hostKey";
+import {
+  encodeHostKey,
+  type HostKey,
+  parseHostInput,
+} from "kolu-common/hostKey";
 import { type Component, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { dotClass, hostGateOpen, statusTitle } from "./hostChipTone";
@@ -39,14 +43,21 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
+  const isLocal = () => props.host.kind === "local";
+  const label = () => {
+    const h = props.host;
+    return h.kind === "local" ? "local" : h.target;
+  };
   const urgency = padiMap.entry(props.host).cells.urgency.use({
     onError: (err: Error) =>
-      toast.error(`Host ${props.host} urgency error: ${err.message}`),
+      toast.error(`Host ${label()} urgency error: ${err.message}`),
   });
   const awaiting = () => urgency.value()?.awaiting ?? 0;
-  const isActive = () => activeHost() === props.host;
-  const isLocal = () => props.host === LOCAL_HOST;
-  const label = () => (isLocal() ? "local" : String(props.host));
+  // The active-host signal + this chip's own host are compared by their CANONICAL
+  // string — a `HostKey` is an object with no reference identity across independent
+  // decodes, so `===` would silently never match a logically-equal remote.
+  const isActive = () =>
+    encodeHostKey(activeHost()) === encodeHostKey(props.host);
 
   // A non-interactive CONTAINER holding two real buttons — the SELECT button (the chip
   // body) and, for a guest, a sibling REMOVE button. Two buttons (not a clickable div
@@ -60,7 +71,7 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
         "border-edge": !isActive(),
       }}
       data-testid="host-chip"
-      data-host={props.host}
+      data-host={encodeHostKey(props.host)}
       data-active={isActive() ? "" : undefined}
     >
       <button
@@ -126,18 +137,14 @@ const HostSelectorStrip: Component = () => {
   const submitAdd = (): void => {
     const raw = draft().trim();
     if (raw === "") return;
-    // Validate BEFORE constructing the call: HostKeySchema's reserved-name refine throws
-    // SYNCHRONOUSLY, so a bare `.add({ host: HostKeySchema.parse(raw) })` would throw before
-    // `.then/.catch` are attached and fail with NO toast (a reserved name like "keys"). A
-    // safeParse routes the rejection through the same error surface as a server-side reject.
-    const parsed = HostKeySchema.safeParse(raw);
-    if (!parsed.success) {
-      const message = parsed.error.issues[0]?.message ?? "invalid host key";
-      toast.error(`Couldn't add ${raw}: ${message}`);
-      return;
-    }
+    // `parseHostInput` is TOTAL (a nominal sum has no reserved-name reject left to fail —
+    // typing "local" just parses to the Local variant, which is always ALREADY a pool
+    // member). So there is no client-side pre-validation to fail loud on: `hosts.add`'s own
+    // "host already exists" rejection is the honest, single error surface — for a literal
+    // "local" retype exactly as it would be for re-adding any other existing member.
+    const host = parseHostInput(raw);
     client.hosts
-      .add({ host: parsed.data })
+      .add({ host })
       .then(() => {
         setDraft("");
         setAdding(false);
