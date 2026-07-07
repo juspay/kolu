@@ -586,7 +586,11 @@ describe("surface-map mock-entry e2e harness", () => {
   it("(13) useEntry's reactive re-wrap preserves .sub's nested accessors — .pending/.error survive (no boot TypeError)", async () => {
     await createRoot(async (dispose) => {
       const { client, addSession } = setup();
-      addSession(A, makeEntry({ awaiting: 3, awaitingIds: [] }).link, connected(0));
+      addSession(
+        A,
+        makeEntry({ awaiting: 3, awaitingIds: [] }).link,
+        connected(0),
+      );
 
       const [active] = createSignal<HostKey>(A);
       const r = client.useEntry(active).cells.urgency.use();
@@ -620,13 +624,17 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
   it("downgrades a server-published 'connected' to 'warming' when our link is dead", () => {
     // The D3 defect: state() published `connected` while `live() === false`, painting a
     // green chip over a transport that can no longer deliver a demotion. Floored → warming.
-    expect(floorOnLiveness({ kind: "connected", clockOffset: 42 }, false)).toEqual({
+    expect(
+      floorOnLiveness({ kind: "connected", clockOffset: 42 }, false),
+    ).toEqual({
       kind: "warming",
     });
   });
 
   it("passes 'connected' through UNTOUCHED when the link is live (offset preserved)", () => {
-    expect(floorOnLiveness({ kind: "connected", clockOffset: 42 }, true)).toEqual({
+    expect(
+      floorOnLiveness({ kind: "connected", clockOffset: 42 }, true),
+    ).toEqual({
       kind: "connected",
       clockOffset: 42,
     });
@@ -634,14 +642,78 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
 
   it("never fabricates OR demotes an honest status — failed/warming/not-a-member pass through regardless of live", () => {
     for (const live of [true, false]) {
-      expect(floorOnLiveness({ kind: "failed", reason: "boom" }, live)).toEqual({
-        kind: "failed",
-        reason: "boom",
+      expect(floorOnLiveness({ kind: "failed", reason: "boom" }, live)).toEqual(
+        {
+          kind: "failed",
+          reason: "boom",
+        },
+      );
+      expect(floorOnLiveness({ kind: "warming" }, live)).toEqual({
+        kind: "warming",
       });
-      expect(floorOnLiveness({ kind: "warming" }, live)).toEqual({ kind: "warming" });
       expect(floorOnLiveness({ kind: "not-a-member" }, live)).toEqual({
         kind: "not-a-member",
       });
     }
+  });
+});
+
+// ── A member name shared by a CELL and a PROCEDURE namespace ──────────────────
+// padi's real `session` is a CELL {get, test__set} AND a procedure namespace
+// {restore, import, forfeit}. `entryMemberVerbs` emits it TWICE (primitives first,
+// procedures last), so a reset-not-merge router build (`inner[member] = {}`) would
+// DROP the cell's `get` handler when the procedures pass ran second — `session/get`
+// would 404 on every boot, breaking session-restore (the mocked-surface blind spot:
+// the other map test surfaces have zero procedures). This pins the accumulating merge.
+describe("serveSurfaceMap — a member shared by a cell AND a procedure namespace", () => {
+  const collisionSurface = defineSurface({
+    cells: {
+      session: {
+        schema: z.object({ n: z.number() }),
+        default: { n: 0 },
+        verbs: ["get"], // the CELL verb — clobbered by the bug
+      },
+    },
+    procedures: {
+      session: {
+        ping: { input: z.object({ echo: z.string() }), output: z.string() },
+      },
+    },
+  });
+
+  it("serves BOTH the cell verb (session/get) and the procedure verb (session/ping) — neither clobbered", async () => {
+    await createRoot(async (dispose) => {
+      const map = defineSurfaceMap(HostKeySchema, collisionSurface);
+      const reg = makeRegistry();
+      const { router } = implementSurface(collisionSurface, {
+        channel: inMemoryChannelByName(),
+        cells: { session: { store: inMemoryStore({ n: 7 }) } },
+        procedures: {
+          session: { ping: ({ input }) => input.echo },
+        },
+      });
+      const entryLink = directLink<typeof collisionSurface.contract>(router);
+      const served = serveSurfaceMap(map, reg.registry);
+      const mapLink = directLink<AnyContractRouter>(
+        // biome-ignore lint/suspicious/noExplicitAny: served router re-typed by the client via map.entry
+        served.router as any,
+      );
+      const client = connectSurfaceMap(map, mapLink);
+      reg.addSession(A, entryLink, connected(0));
+
+      // (a) the CELL verb resolves — session/get streams the served store value.
+      //     Under the bug this route was clobbered, so the sub 404'd and value()
+      //     never left the default { n: 0 }.
+      const cell = client.entry(A).cells.session.use();
+      await settle();
+      expect(cell.value()).toEqual({ n: 7 });
+
+      // (b) the PROCEDURE verb resolves — session/ping still routes (folds {mapKey}).
+      // biome-ignore lint/suspicious/noExplicitAny: Entry.rpc is `unknown` at the generic map
+      const rpc = client.entry(A).rpc as any;
+      expect(await rpc.surface.session.ping({ echo: "pong" })).toBe("pong");
+
+      dispose();
+    });
   });
 });

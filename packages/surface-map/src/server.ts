@@ -299,7 +299,15 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   const inner: Record<string, Record<string, unknown>> = {};
 
   for (const [member, verbs] of entryMemberVerbs(map.entry.spec)) {
-    inner[member] = {};
+    // ACCUMULATE, don't reset: a member name shared by a non-procedure primitive
+    // AND a procedure namespace (padi's `session` is a cell {get,test__set} AND a
+    // procedure ns {restore,import,forfeit}) is emitted TWICE by entryMemberVerbs
+    // (primitives first, procedures last). A bare `inner[member] = {}` on the second
+    // tuple would DROP the first's verbs — the served router would 404 `session/get`
+    // while the contract (which merges, define.ts) carries it, breaking session-restore
+    // on every boot. Mirror implementSurface (surface/server.ts) which merges the same
+    // collision with `?? {}`, so both verb sets land in one namespace.
+    inner[member] = inner[member] ?? {};
     for (const { verb, streaming } of verbs) {
       const path = [member, verb] as const;
       inner[member][verb] = t.surface[member][verb].handler(
