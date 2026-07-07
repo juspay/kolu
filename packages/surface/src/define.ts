@@ -30,14 +30,14 @@
 
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
-import type { Cell, Collection, Event, Stream } from "./index";
-import { cell, collection, event, stream } from "./index";
 import {
   IDENTITY_NAMESPACE,
   IDENTITY_VERB,
   identityContractEntry,
   type ReservedIdentityContract,
 } from "./identity";
+import type { Cell, Collection, Event, Stream } from "./index";
+import { cell, collection, event, stream } from "./index";
 import {
   LIVENESS_NAMESPACE,
   LIVENESS_VERB,

@@ -44,6 +44,7 @@ import {
 // server-only consumers that already import from `@kolu/surface/server` keep
 // working.
 export { composeSurfaceContracts };
+
 import {
   type BakedIdentity,
   IDENTITY_NAMESPACE,

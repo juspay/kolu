@@ -161,3 +161,34 @@ describe("collection deltas — opt-in gate reads the spec, not the link proxy",
     });
   });
 });
+
+describe("collection onError — a second handler is a LOUD throw, not a silent drop", () => {
+  it("a second whole-collection .use() with a different onError throws; single + no-onError + identical share", async () => {
+    await createRoot(async (dispose) => {
+      // biome-ignore lint/suspicious/noExplicitAny: proxy link stands in for the typed wire client.
+      const app = surfaceClient(surface, wireProxyLink() as any);
+      const onError1 = (): void => {};
+      const onError2 = (): void => {};
+
+      // First consumer bakes its onError into the shared slot.
+      app.collections.plain.use({ onError: onError1 });
+      // A second consumer with NO onError shares fine.
+      expect(() => app.collections.plain.use({})).not.toThrow();
+      // A second consumer with the IDENTICAL handler shares fine.
+      expect(() =>
+        app.collections.plain.use({ onError: onError1 }),
+      ).not.toThrow();
+      // A second consumer with a DIFFERENT onError THROWS loudly, naming the upgrade —
+      // the silent-drop defect is now inexpressible.
+      expect(() => app.collections.plain.use({ onError: onError2 })).toThrow(
+        /already has an error handler/,
+      );
+
+      // A DISTINCT collection with no prior registration takes its own first onError.
+      expect(() =>
+        app.collections.batched.use({ onError: onError2 }),
+      ).not.toThrow();
+      dispose();
+    });
+  });
+});

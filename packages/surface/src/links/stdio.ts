@@ -35,7 +35,7 @@ import type {
   StandardRequest,
 } from "@orpc/standard-server";
 import { ClientPeer } from "@orpc/standard-server-peer";
-import { SURFACE_STDIO_TRANSPORT_CLOSED, deadTransportError } from "../client";
+import { deadTransportError, SURFACE_STDIO_TRANSPORT_CLOSED } from "../client";
 import { wireClient, wireRetryPlugins } from "./_wire";
 import { framedSend, readFramedLines } from "./stdio-codec";
 

@@ -678,6 +678,12 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   // by convention" idiom — every consumer inherits sharing from the base client.
   const subs = createKeyedSubscriptionCache(getOwner());
 
+  // The whole-collection dedup slot bakes exactly ONE `onError` (it shares one set of
+  // upstream streams). This tracks the baked handler per LIVE `coll:` slot so a SECOND
+  // consumer supplying a DIFFERENT `onError` THROWS loudly rather than silently dropping
+  // its handler; the entry is cleared when the slot is evicted (its make's `onCleanup`).
+  const collOnError = new Map<string, { onError?: (e: Error) => void }>();
+
   // Build-time standing-root disposers for `liveWhen` cells (the readiness legs
   // `bindCell` → `openReadinessLeg` open EAGERLY, not at `.use()` time, so the
   // mirror-liveness leg folds into `health().live` by construction — independent of
@@ -740,13 +746,32 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
         // WHOLE collection (STATIC input — watch every key) → DEDUP the whole result
         // via the keyed cache: N views share ONE set of upstream streams, ref-counted,
         // torn down when the last leaves, evicted on a typed end (a re-served
-        // collection rebuilds). `onError` + enrolment live INSIDE the shared slot here
-        // (unlike a cell's per-consumer `onError`): a whole-collection `.use()` is a
-        // singleton in practice (it was a module-const `createSharedRoot`), so a shared
-        // `onError` matches per-consumer for the real cases, and the collection's
-        // health leg is the total error picture.
-        const view = subs.use(`coll:${key}`, (onComplete) =>
-          hasDeltas
+        // collection rebuilds). `onError` + enrolment live INSIDE the shared slot: a
+        // whole-collection has no divergent shared options, so the slot bakes exactly ONE
+        // `onError`. A SECOND consumer supplying a DIFFERENT handler cannot be honored
+        // (the shared streams already enrolled the first), so it THROWS LOUDLY here rather
+        // than SILENTLY DROPPING its handler — the silent-drop defect made inexpressible.
+        // A second `.use()` with no `onError`, or the identical handler, shares fine.
+        // Per-consumer collection `onError` is demand-gated behind this throw (zero second
+        // consumers today: 15/15 whole-collection `.use()` are single-consumer).
+        const collKey = `coll:${key}`;
+        const liveColl = collOnError.get(collKey);
+        if (liveColl !== undefined) {
+          if (onError !== undefined && onError !== liveColl.onError) {
+            throw new Error(
+              "whole-collection dedup slot already has an error handler — a second " +
+                "consumer needs per-consumer collection onError wiring (not yet built; " +
+                "see @kolu/surface README 'Whole-collection onError')",
+            );
+          }
+        } else {
+          collOnError.set(collKey, { onError });
+        }
+        const view = subs.use(collKey, (onComplete) => {
+          // Clear the baked-onError tracking when the shared slot is evicted (last
+          // consumer left / typed end), so the next first-consumer re-registers.
+          onCleanup(() => collOnError.delete(collKey));
+          return hasDeltas
             ? // ONE coalesced `deltas` stream folded into a per-key store.
               useCollectionDeltas(
                 // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
@@ -783,8 +808,8 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
                       registry.enroll(`${key}[${String(k)}]`, sub),
                   },
                 );
-              })(),
-        );
+              })();
+        });
         return { ...view, upsert, delete: del };
       },
       upsert,
