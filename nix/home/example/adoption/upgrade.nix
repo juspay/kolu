@@ -273,8 +273,11 @@ let
   # preserves recycleKaval's own `z.void()`, which accepts a missing field). So the oRPC
   # body is `{"json":{"mapKey":"local"}}`; the pre-map bare `{}` now fails the map's
   # `{ mapKey, input }` parse. Single-host VM ⇒ mapKey is always LOCAL_HOST "local".
+  # Unlike the shell-context calls (openTerminal / session.restore), recycleKaval is inlined
+  # DIRECTLY into the Python testScript (`wait_until_succeeds("… ${recycleKaval} …")`), so its
+  # JSON quotes are `\"`-escaped like `daemonRestart` — raw `"` breaks the Python string.
   # Unauthenticated loopback.
-  recycleKaval = ''${curl} -fsS --max-time 90 -X POST 'http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/recycleKaval' -H 'content-type: application/json' -d '{"json":{"mapKey":"local"}}' >/dev/null'';
+  recycleKaval = ''${curl} -fsS --max-time 90 -X POST 'http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/recycleKaval' -H 'content-type: application/json' -d '{\"json\":{\"mapKey\":\"local\"}}' >/dev/null'';
 
   # The kolu service overrides both checks share: do NOT auto-start (the seed stands up
   # the LEGACY port kaval FIRST, then the testScript starts kolu by hand — the "upgrade"
