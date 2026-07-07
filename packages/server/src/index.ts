@@ -81,6 +81,7 @@ import {
   parseKoluPadiHostSeed,
   remotePadiHost,
 } from "./remotePadiBinding.ts";
+import { pruneToMembers } from "./reServeEviction.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
 import { buildAppRouter } from "./router.ts";
 import { koluSurfaceCtx, koluSurfaceRouter } from "./surface.ts";
@@ -340,6 +341,13 @@ const reServeFor = (
   }
   return r;
 };
+
+// Evict a re-served mirror when its host leaves the pool (see `pruneToMembers` for the full
+// stale-reserve-on-flap rationale): a guest remove→re-add of the SAME key must build a FRESH
+// mirror, never the dead one still pinned to the destroyed session. `pool.subscribe` fires
+// only after `has()` reflects the drop, so the slot is gone before any re-add can re-request
+// it; the unremovable LOCAL host never leaves, so its eager mirror stays.
+pool.subscribe(() => pruneToMembers(reServes, (h) => pool.has(h)));
 
 // Eagerly re-serve the LOCAL (default) host so the memory sampler has its in-process
 // client — a `directLink` over the mirror's own router, no socket/ssh hop. It reads

@@ -70,6 +70,12 @@ const WEB_SHELL_FILES = [
   // the SAME `reServeSurface` seam. Web-shell code (it runs no terminal domain — it
   // re-serves a remote padi's), so it lives beside the shell, not in @kolu/padi.
   "remotePadiBinding",
+  // The stale-reserve-on-flap eviction: prunes `index.ts`'s per-host `reServeSurface`
+  // mirror cache to the pool's live membership (wired to `pool.subscribe`), so a guest
+  // remove→re-add of the same key builds a FRESH mirror over the new session rather than
+  // reusing the dead one pinned to the destroyed session (#1708). Web-shell glue (a cache
+  // prune keyed by pool membership), not terminal domain.
+  "reServeEviction",
   // The padi SESSION shape both arms return (post-S9): a base `Session` from
   // `makeSession` + the daemon-supervision members by spread — no `BoundPadi`, no
   // wrapper class. Web-shell glue (the arms' shared session type + spread helper).
