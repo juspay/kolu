@@ -102,7 +102,7 @@ import { useStream } from "./useStream";
  *  blessed factories (all of which brand via `wireClient`) — there is no `{ live }`
  *  knob to pass a blind accessor through (the #1564 lie, one seam upstream of the
  *  dot). */
-function resolveTransport(transport: unknown): {
+export function resolveTransport(transport: unknown): {
   link: unknown;
   live: Accessor<boolean>;
 } {
@@ -623,10 +623,17 @@ function bindCell<S extends SurfaceSpec>(
  *  slices are fresh non-half-open wrappers, so they need no brand check). The
  *  half-open guard lives at the PUBLIC boundary, not here.
  *
- *  @internal Package-private: exported for the relative-import fold tests (which need
- *  a stub link AND a custom `live` together), NOT in the `@kolu/surface/solid` barrel
- *  — so no EXTERNAL consumer can supply a `live` paired with a separate link (the
- *  whole point of collapsing the pair into a `LiveSignalHandle` at the public API). */
+ *  Exposed in the `@kolu/surface/solid` barrel for FRAMEWORK COMPOSITION — a builder
+ *  that needs to serve many clients over ONE resolved transport, threading its `live`
+ *  into each. `@kolu/surface-map` is the case: it resolves the app's transport ONCE
+ *  via {@link resolveTransport} (which applies the half-open guard) and builds each
+ *  per-key client over a key-INJECTING wrapper of the resolved link paired with the
+ *  SAME resolved `live` — so the live↔link pairing still holds by construction (both
+ *  come from the one resolved handle), and a per-key chip floors on real transport
+ *  liveness rather than a green-over-dead-link lie. The half-open guard lives at the
+ *  PUBLIC boundary ({@link resolveTransport} / `surfaceClient`), not here; a caller
+ *  reaching for this raw builder owns that guarantee, exactly as the `resolveTransport`
+ *  by-exclusion fallback does (#1580). */
 export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   surface: Surface<S>,
   link: Rpc,

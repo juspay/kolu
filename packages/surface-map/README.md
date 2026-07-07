@@ -122,13 +122,16 @@ race. Existence is always a **value** (`state()`), never a nullable `entry()`.
 ## Status
 
 Vertical slice, proven end-to-end by a mock-entry harness (two entries, switch, dedup,
-typed-end on removal, membership + status projection). Two known extensions before a
-wire consumer:
+typed-end on removal, membership + status projection). The wire is complete for a
+consumer:
 
-- **Input fold shape.** The key currently folds as `{ mapKey, …input }` (object inputs
-  only). An entry member with a *primitive* input (e.g. a `string` stream input) needs a
-  nested fold (`{ mapKey, arg }`) — a public-API-neutral change.
-- **Wire-transport liveness.** The per-key clients are built over the bare link with a
-  constant-`true` liveness leg (honest for the in-process `directLink`). A half-openable
-  *wire* link needs the base package to expose a `link`+`live` seam so the map threads a
-  watchdog-backed `live` (else a green dot over a dead link).
+- **Uniform fold envelope.** Every proc folds as `{ mapKey, input }` — one wire shape
+  for any input (object, primitive, or none), and an entry input that itself carries a
+  `mapKey` field cannot collide with the folded key (it rides `input`, nested).
+- **Transport liveness.** The link is resolved once (`resolveTransport`, half-open guard
+  applied) and its `live` threads into the `entries` client and every per-key client, so
+  a chip floors its status on real transport liveness (`client.live`); constant-`true`
+  only for an in-process `directLink`.
+
+Phase 2 (kolu adoption) then serves the real padi surface over the warm ssh pool as the
+`MapRegistry`, and renders the gated selector strip + urgency chips on this client.

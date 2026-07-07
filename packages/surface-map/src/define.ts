@@ -56,20 +56,21 @@ export const entryStatusSchema = z.discriminatedUnion("kind", [
 // ── Key-fold contract builders (mirror @kolu/surface/define, +mapKey) ───
 //
 // Each mirrors a per-primitive builder in `@kolu/surface/define`, wrapping the
-// member's input `S` as `z.object({ mapKey }).and(S)` before `oc.input(...)`; a
-// member with NO input (`cell.get`, `collection.keys`, `collection.deltas`)
-// takes just `z.object({ mapKey })`. Outputs are untouched. `.and(S)` assumes
-// `S` is object-shaped (or void) — a primitive-valued `cell.set`/`patch` or a
-// primitive stream/event/procedure input can't be intersected with an object;
-// declare those inputs object-shaped.
+// member's input `S` in a UNIFORM ENVELOPE — `z.object({ mapKey, input: S })` —
+// before `oc.input(...)`; a member with NO input carries `input: z.void()`.
+// Outputs are untouched. The envelope (not a spread merge) is deliberate: ONE
+// wire shape for every proc regardless of `S` (object, primitive, or none — a
+// primitive `terminalAttach`/`cell.set` input rides `input` verbatim), and,
+// decisively, an entry input that itself carries a `mapKey` field cannot collide
+// with the folded key (it is nested under `input`), so misroute-by-collision is
+// UNCONSTRUCTIBLE (P4), not merely unlikely.
 
 type MapKeySchema = ZodType<unknown>;
 
-/** `z.object({ mapKey }).and(inner)` — or just `z.object({ mapKey })` when the
- *  member has no input. The single home of the fold shape. */
+/** The fold envelope `z.object({ mapKey, input })` — `input` is the member's own
+ *  input schema (or `z.void()` when it has none). The single home of the shape. */
 function foldInput(keySchema: MapKeySchema, inner?: ZodType<unknown>): ZodType {
-  const base = z.object({ mapKey: keySchema });
-  return (inner ? base.and(inner) : base) as ZodType;
+  return z.object({ mapKey: keySchema, input: inner ?? z.void() }) as ZodType;
 }
 
 /** The `deltas` wire schema — replicated from `@kolu/surface/define`'s private

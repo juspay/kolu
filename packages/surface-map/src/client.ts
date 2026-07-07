@@ -18,16 +18,12 @@ import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { defineSurface } from "@kolu/surface/define";
 import {
   type BoundCollection,
+  buildSurfaceClient,
+  createKeyedRoot,
+  resolveTransport,
   type SurfaceClient,
-  surfaceClient,
 } from "@kolu/surface/solid";
-import {
-  type Accessor,
-  createEffect,
-  getOwner,
-  mapArray,
-  runWithOwner,
-} from "solid-js";
+import { type Accessor, createEffect, getOwner, runWithOwner } from "solid-js";
 import type { z } from "zod";
 import type { EntryStatus, SurfaceMap } from "./define";
 
@@ -53,6 +49,12 @@ export interface SurfaceMapClient<
 > {
   /** The ONE membership authority, consumed as a normal bound collection. */
   readonly entries: BoundCollection<z.infer<KS>, EntryStatus>;
+  /** The app-transport liveness leg (resolved from the link once). A per-key chip
+   *  must FLOOR its status claim on this — a stale `connected` over a silently
+   *  half-open link is the #1568 lie. Constant-`true` for an in-process `directLink`;
+   *  a websocket's watchdog otherwise. The per-key clients already fold it into their
+   *  own `health().live`; this exposes it for the membership-strip UI. */
+  readonly live: Accessor<boolean>;
   /** Sole producer of a branded key from a raw string (validates + brands). */
   parseKey(raw: string): z.infer<KS>;
   /** PURE lens — partial application of the key. No owner, no I/O, safe
@@ -67,14 +69,13 @@ export interface SurfaceMapClient<
 
 // ── The key-injecting link ──────────────────────────────────────────────
 
-/** Merge `{ mapKey }` into a leaf call's (object) input. A no-input member
- *  (`undefined`) becomes `{ mapKey }`; an object input is spread. The fold
- *  requires object-shaped inputs (the wire contract intersects the input schema
- *  with `z.object({ mapKey })`) — a primitive input is not representable. */
+/** Wrap a leaf call's input in the uniform fold envelope `{ mapKey, input }` — the
+ *  map server reads `mapKey` and forwards `input` verbatim. Uniform across object,
+ *  primitive, and undefined inputs (a no-input member sends `input: undefined`), and
+ *  an entry input carrying its own `mapKey` field can't collide with the folded key
+ *  (it rides `input`, nested). */
 function foldMapKey(mapKey: unknown, input: unknown): unknown {
-  return input && typeof input === "object"
-    ? { mapKey, ...(input as Record<string, unknown>) }
-    : { mapKey };
+  return { mapKey, input };
 }
 
 /** A Proxy over `link` that folds `mapKey` into every `surface.<member>.<verb>`
@@ -107,25 +108,6 @@ function keyInjectingLink(link: unknown, mapKey: unknown): unknown {
       },
     ),
   };
-}
-
-// ── The re-key atom (createKeyedRoot over mapArray) ─────────────────────
-
-/** Run `factory(key)` inside a root that is DISPOSED and rebuilt when `key`
- *  changes — the swap-disposal mechanism `useEntry` leans on. Implemented over
- *  `mapArray` (a single-element keyed array): on a key change the old element's
- *  reactive owner is disposed (its subscriptions' `onCleanup` fire → the shared
- *  dedup slot's ref-count drops → teardown) and the factory reruns under a fresh
- *  owner. */
-function createKeyedRoot<K, R>(
-  key: Accessor<K>,
-  factory: (key: K) => R,
-): Accessor<R> {
-  const arr = mapArray<K, R>(
-    () => [key()],
-    (k) => factory(k),
-  );
-  return () => arr()[0] as R;
 }
 
 /** A reactive object whose every member delegates through `current()` — so a
@@ -204,19 +186,24 @@ function makeReactiveEntry<ES extends SurfaceSpec, K>(
 
 // ── connectSurfaceMap ───────────────────────────────────────────────────
 
-/** Connect a `SurfaceMap` over a link, producing the typed map client.
- *
- *  NOTE (phase-1 transport): the per-key + entries clients are built over the
- *  bare `link` with a constant-`true` transport-liveness leg (honest for the
- *  in-process `directLink` the mock harness uses). Threading a watchdog-backed
- *  `live` for a half-openable WIRE link needs the base package to expose the
- *  `link`+`live` builder (`buildSurfaceClient`, today package-private) — a phase-2
- *  seam. See the checkpoint report. */
+/** Connect a `SurfaceMap` over a link, producing the typed map client. The link's
+ *  transport is resolved ONCE (via `resolveTransport`, which applies the half-open
+ *  guard): the resolved `live` is threaded into the `entries` client AND every
+ *  per-key client (each built over a key-injecting wrapper of the resolved link), so
+ *  a per-key chip floors its status on real transport liveness — constant-`true`
+ *  only for an in-process `directLink`, a watchdog otherwise. */
 export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   map: SurfaceMap<KS, ES>,
   link: unknown,
 ): SurfaceMapClient<KS, ES> {
   type K = z.infer<KS>;
+
+  // Resolve the app transport ONCE → { resolvedLink, live }. `resolveTransport`
+  // applies the half-open guard (a bare wire link throws here, exactly as
+  // `surfaceClient` at its boundary); a branded handle yields its watchdog `live`;
+  // an in-process link yields constant-`true`. The SAME `live` threads into every
+  // client below so the live↔link pairing holds by construction.
+  const { link: baseLink, live } = resolveTransport(link);
 
   // Capture the STABLE client owner: per-key clients' dedup caches must be
   // client-lifetime, never the transient `.use()`/mapArray owner that first
@@ -227,7 +214,9 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   const entriesSurface: Surface<{
     collections: { entries: typeof map.entriesSpec };
   }> = defineSurface({ collections: { entries: map.entriesSpec } });
-  const entriesClient = build(() => surfaceClient(entriesSurface, link));
+  const entriesClient = build(() =>
+    buildSurfaceClient(entriesSurface, baseLink, live),
+  );
   const entries = entriesClient.collections.entries as BoundCollection<
     K,
     EntryStatus
@@ -241,7 +230,7 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     let c = clients.get(key);
     if (!c) {
       c = build(() =>
-        surfaceClient(map.entry, keyInjectingLink(link, key)),
+        buildSurfaceClient(map.entry, keyInjectingLink(baseLink, key), live),
       ) as SurfaceClient<ES>;
       clients.set(key, c);
     }
@@ -284,5 +273,5 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     clients.clear();
   };
 
-  return { entries, parseKey, entry, useEntry, dispose };
+  return { entries, live, parseKey, entry, useEntry, dispose };
 }

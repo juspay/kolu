@@ -132,16 +132,12 @@ function entryMemberVerbs(
   return out;
 }
 
-/** Strip the folded `mapKey` from a wire input, yielding the entry surface's own
- *  input (or `undefined` when nothing else remains — a no-input member like
- *  `cell.get` / `collection.keys`). */
-function stripMapKey(input: unknown): unknown {
-  if (input === null || typeof input !== "object") return undefined;
-  const rest: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
-    if (k !== "mapKey") rest[k] = v;
-  }
-  return Object.keys(rest).length > 0 ? rest : undefined;
+/** Extract the entry surface's own input from the wire envelope `{ mapKey, input }`
+ *  — the EXACT value the consumer passed (object, primitive, or undefined). No
+ *  key-stripping heuristic: the key lives in its own `mapKey` field, so an entry
+ *  input that itself has a `mapKey` field survives untouched (it rode `input`). */
+function unwrapInput(wire: unknown): unknown {
+  return (wire as { input?: unknown } | undefined)?.input;
 }
 
 /** Resolve `link.surface.<...path>` to its leaf callable. */
@@ -233,7 +229,7 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
       if (!has(mapKey)) return; // absent at subscribe → immediate typed end
       const resolved = resolve(mapKey);
       if (isFault(resolved)) return; // terminal fault → typed end
-      yield* forwardStream(mapKey, resolved, path, stripMapKey(opts.input));
+      yield* forwardStream(mapKey, resolved, path, unwrapInput(opts.input));
     };
 
   const makeUnaryHandler =
@@ -255,7 +251,7 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
       }
       const leaf = leafAt(resolved.link, path);
       return await leaf(
-        stripMapKey(opts.input),
+        unwrapInput(opts.input),
         opts.signal ? { signal: opts.signal } : {},
       );
     };
