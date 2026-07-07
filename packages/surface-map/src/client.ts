@@ -27,16 +27,17 @@ import {
 } from "@kolu/surface/solid";
 import { type Accessor, createEffect, getOwner, runWithOwner } from "solid-js";
 import type { z } from "zod";
-import type { EntryStatus, SurfaceMap } from "./define";
+import type { EntryState, EntryStatus, SurfaceMap } from "./define";
 import { fold } from "./envelope";
 
 // ── Entry & client shapes ───────────────────────────────────────────────
 
-/** The map's total displayed-entry state — a total existence-as-a-value fold over
- *  `entries`: the published {@link EntryStatus} when a member, plus the explicit
- *  `not-a-member` value `state()` returns when not. Named once here so a fourth
- *  displayed state is a single edit, not a hand-repeated union at every use. */
-export type EntryState = EntryStatus | { kind: "not-a-member" };
+/** The map's total displayed-entry state — a total existence-as-a-value fold over `entries`
+ *  (the {@link EntryStatus} when a member + the explicit `not-a-member` value `state()` returns
+ *  when not). DEFINED in `./define` (the solid-free contract module) so a node consumer that
+ *  re-exports it type-only via `index.ts` never pulls the Solid client; re-exported here so
+ *  `@kolu/surface-map/client` importers keep resolving it. */
+export type { EntryState };
 
 /** The entry-typed subtree PLUS a total existence-as-a-value fold over
  *  `entries`. Reuses the base `SurfaceClient<ES>`'s bound subtrees verbatim

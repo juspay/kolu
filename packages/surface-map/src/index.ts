@@ -10,11 +10,13 @@
 
 export {
   defineSurfaceMap,
+  type EntryState,
   type EntryStatus,
   entryStatusSchema,
   type Key,
   type SurfaceMap,
 } from "./define";
-// A type-only re-export: erased at compile time, so the default (contract)
-// entrypoint stays free of the client runtime `./client` pulls in.
-export type { EntryState } from "./client";
+// (`EntryState` is sourced from the SOLID-FREE `./define`, NOT `./client`: a
+// `export type … from "./client"` still makes TS typecheck the Solid client for a NODE
+// consumer of this index — surface-remote's serveHostMap imports `SurfaceMap` here — pulling
+// onWake's `window`/`document` into a DOM-less typecheck.)

@@ -46,6 +46,13 @@ export type EntryStatus =
   | { kind: "connected"; clockOffset: number }
   | { kind: "failed"; reason: string };
 
+/** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
+ *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It
+ *  lives HERE (the contract module, solid-free), not in the client, so a NODE consumer that
+ *  re-exports it type-only through `index.ts` never drags the Solid/DOM client into its
+ *  typecheck (surface-remote would otherwise fail on onWake's `window`/`document`). */
+export type EntryState = EntryStatus | { kind: "not-a-member" };
+
 /** The wire/zod schema for {@link EntryStatus}. Backs both the `entries`
  *  collection contract and the client-side bound collection value. */
 export const entryStatusSchema = z.discriminatedUnion("kind", [
