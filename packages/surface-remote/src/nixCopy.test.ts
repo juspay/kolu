@@ -72,9 +72,7 @@ describe("provisionAgent GC-root pinning", () => {
     expect(pinArgs).toContain(STORE);
     expect(pinArgs).toContain("--add-root");
     expect(pinArgs).toContain("--indirect");
-    expect(pinArgs).toContain(
-      ".local/state/kolu/surface-remote/gcroots/agent",
-    );
+    expect(pinArgs).toContain(".local/state/kolu/surface-remote/gcroots/agent");
     // …and it must not re-realise the derivation in the pin step.
     expect(pinArgs).not.toContain(DRV);
   });

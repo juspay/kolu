@@ -65,8 +65,7 @@ const hoisted = vi.hoisted(() => ({
     | ((ctx: ConnectContext) => Promise<Connection<unknown>>),
 }));
 vi.mock("@kolu/surface-remote", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@kolu/surface-remote")>();
+  const actual = await importOriginal<typeof import("@kolu/surface-remote")>();
   return {
     ...actual,
     // Ignore the ssh opts; delegate to the harness's queue-driven connector.
