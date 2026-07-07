@@ -47,10 +47,42 @@ export interface Entry<ES extends SurfaceSpec>
    *  `ContractRouterClient<Surface<ES>["contract"]>` expansion, which is a TS2590
    *  "union too complex" under a generic `ES`. */
   readonly rpc: SurfaceClient<ES>["rpc"];
+  /** The clock-translation lens — reproject a far-end (remote-host) timestamp into THIS
+   *  process's local clock using the entry's measured `clockOffset`. The ONE generic
+   *  translation the map exposes; WHICH fields are host-stamped is the consumer's domain
+   *  knowledge (it routes its known host-stamped reads through this). */
+  readonly clock: EntryClock;
   /** The `EntryStatus` when a member, an explicit `not-a-member` value when not
    *  — a client fold over `entries`, total and never nullable. Read it inside a
    *  reactive scope (it subscribes to the membership collection). */
   state(): EntryStatus | { kind: "not-a-member" };
+}
+
+/** The entry's clock translation (see {@link Entry.clock}). */
+export interface EntryClock {
+  /** A remote-host epoch-ms → this process's LOCAL-clock epoch-ms, via the entry's
+   *  offset-at-hello `clockOffset`. Returns `null` when the entry has no offset yet
+   *  (`warming` / `failed` / `not-a-member`) — the caller MUST handle it (render a
+   *  pending "—"), NEVER falling back to the raw remote value (that is the silent
+   *  foreign-clock identity this lens exists to prevent). Read inside a reactive scope:
+   *  it folds the membership collection, so it re-answers as the entry connects. */
+  toLocal(remoteMs: number): number | null;
+}
+
+/** Build an {@link EntryClock} over a `state()` reader. `measureClockOffset` stamps
+ *  `clockOffset = remoteEpoch − localEpoch` (same instant), so a remote-clock timestamp
+ *  maps to this process's local clock by subtracting it. No `connected` status ⇒ no
+ *  measured offset ⇒ `null` (never a silent identity). */
+function makeEntryClock(
+  getState: () => EntryStatus | { kind: "not-a-member" },
+): EntryClock {
+  return {
+    toLocal(remoteMs: number): number | null {
+      const s = getState();
+      if (s.kind !== "connected") return null;
+      return remoteMs - s.clockOffset;
+    },
+  };
 }
 
 export interface SurfaceMapClient<
@@ -195,6 +227,7 @@ function makeReactiveEntry<ES extends SurfaceSpec, K>(
     streams: primProxy("streams"),
     events: primProxy("events"),
     rpc: rpcDelegate(entryFor, keyAccessor),
+    clock: makeEntryClock(() => entryFor(keyAccessor()).state()),
     state: () => entryFor(keyAccessor()).state(),
   } as unknown as Entry<ES>;
 }
@@ -300,6 +333,7 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
       // into every call. Typed loosely off the untyped link (`c.rpc` is `unknown`), so
       // cast to the entry-contract client `Entry.rpc` names.
       rpc: c.rpc as Entry<ES>["rpc"],
+      clock: makeEntryClock(() => foldState(key)),
       state: () => foldState(key),
     };
   };

@@ -473,4 +473,32 @@ describe("surface-map mock-entry e2e harness", () => {
       );
     expect(bad).toBeDefined();
   });
+
+  it("(10) entry.clock.toLocal reprojects a remote timestamp by the offset — null (NOT identity) with no offset", async () => {
+    await createRoot(async (dispose) => {
+      const { client, addSession, setState } = setup();
+      // Subscribe `entries` so the clock's state-fold reads live membership + status.
+      client.entries.use();
+
+      // Warming (connecting, no measured offset yet) → toLocal is NULL — the honest
+      // pending, never a silent identity that would paint a foreign-clock instant as local.
+      addSession(A, makeEntry({ awaiting: 0, awaitingIds: [] }).link, {
+        kind: "connecting",
+      });
+      await settle();
+      expect(client.entry(A).clock.toLocal(1_000_000)).toBeNull();
+
+      // Connected, host +45s ahead → remoteMs − 45000, a SANE local instant.
+      setState(A, connected(45_000));
+      await settle();
+      expect(client.entry(A).clock.toLocal(1_045_000)).toBe(1_000_000);
+
+      // Offset 0 (a local host) → identity, but ONLY because the offset is genuinely 0.
+      setState(A, connected(0));
+      await settle();
+      expect(client.entry(A).clock.toLocal(1_234)).toBe(1_234);
+
+      dispose();
+    });
+  });
 });

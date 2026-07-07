@@ -6,7 +6,8 @@ import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
-import { useDuration } from "./staleness";
+import { activeHost, padiMap } from "../wire";
+import { useHostDuration } from "./staleness";
 
 /** Busy = actively working (thinking or running tools). Alert = needs user input
  *  — the same "your turn" token the dock pip and awaiting column use, so a
@@ -54,7 +55,17 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const label = () => stateLabels[props.agent.state];
   // Live elapsed-since formatter for the running-for badge; ticks every second
   // off the shared clock, the same readout the inspector's "Running for" uses.
-  const runningFor = useDuration();
+  // Host-stamped `startedAt` → reprojected to the browser clock via the ACTIVE host's
+  // offset, so a skewed remote host's "Running for" is honest (warming host ⇒ "—").
+  const toLocal = (ms: number) => padiMap.entry(activeHost()).clock.toLocal(ms);
+  const runningFor = useHostDuration(toLocal);
+  // The absolute "started" instant is ALSO reprojected — a remote host's raw `startedAt`
+  // is on its OWN clock, the same foreign-clock defect as the duration; "—" until the
+  // offset is measured (warming host), never a mis-framed instant.
+  const startedLabel = (ms: number): string => {
+    const local = toLocal(ms);
+    return local === null ? "—" : new Date(local).toLocaleString();
+  };
   return (
     <span
       class={`inline-flex items-center gap-1 text-xs ${cfg().color}`}
@@ -96,9 +107,9 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
           <span
             data-testid="agent-running-for"
             class="tabular-nums text-fg-3"
-            title={`Running for ${runningFor(startedAt())} · started ${new Date(
+            title={`Running for ${runningFor(startedAt())} · started ${startedLabel(
               startedAt(),
-            ).toLocaleString()}`}
+            )}`}
           >
             {runningFor(startedAt())}
           </span>

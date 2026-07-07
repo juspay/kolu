@@ -111,6 +111,26 @@ export function useDuration(): (startedAtMs: number) => string {
   return (startedAtMs) => formatDuration(tick() - startedAtMs);
 }
 
+/** Reactive elapsed-since formatter for a HOST-STAMPED epoch. An agent's `startedAt` is
+ *  wall-clock on the AGENT'S host, so for a REMOTE active host `now − startedAt` mixes two
+ *  clocks — a host skewed +45s renders a negative/garbage "Running for". The caller injects
+ *  `toLocal` — the active host's `padiMap.entry(activeHost()).clock.toLocal` — which
+ *  reprojects the host-stamped epoch into THIS browser's clock BEFORE the subtraction. The
+ *  injection keeps this widely-imported util free of `wire`'s module-load transport (a
+ *  direct import breaks every downstream unit test). When the host is warming (`toLocal`
+ *  returns null, no offset yet) it yields the honest pending "—", NEVER a bogus number (the
+ *  raw cross-clock subtraction is what the foreign-clock defect forbids). */
+export function useHostDuration(
+  toLocal: (hostStampedMs: number) => number | null,
+): (hostStampedMs: number) => string {
+  const tick = getClockNow();
+  return (hostStampedMs) => {
+    const local = toLocal(hostStampedMs);
+    if (local === null) return "—";
+    return formatDuration(tick() - local);
+  };
+}
+
 /** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `0`
  *  (= "no agent transition observed yet"), "just now" under a minute. Single-
  *  unit "ago" suffix over the shared {@link compactDelta} ladder. Plain
