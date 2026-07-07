@@ -33,10 +33,10 @@ import type { z } from "zod";
 import type { RemotePool } from "./hostFanout";
 import type { Session, SessionState } from "./session";
 
-/** A session that may carry a measured clock offset — a `DaemonSession` does (stamped
- *  by its admit handshake); a plain `Session` doesn't, and reads `null` (still
- *  settling). */
-type ClockableSession = Session & { clockOffset?(): number | null };
+/** A session that carries a measured clock offset — required, so a session lacking one
+ *  is a compile error rather than a silent forever-`connecting`. `null` means the offset
+ *  has not been stamped yet (the admit handshake stamps it). */
+type ClockableSession = Session & { clockOffset(): number | null };
 
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
  *  `connectionPipe.projectConnection` (which targets the 4-field browser
@@ -164,7 +164,7 @@ export function serveHostMap<
       const session = sessionOf(k);
       if (session === undefined)
         return { failed: `unknown host: ${String(k)}` };
-      const offset = session.clockOffset?.() ?? null;
+      const offset = session.clockOffset() ?? null;
       return {
         link: linkFor(k, session),
         state: projectState(latestState.get(k), offset),
