@@ -65,6 +65,25 @@ function fnId(fn: object): number {
   return id;
 }
 
+/** Whether a data value serializes through `JSON.stringify` INJECTIVELY — i.e. two
+ *  distinct values can't collide to one string. `JSON.stringify` is lossy for `Set`/`Map`
+ *  (both → `"{}"` regardless of contents), for nested `undefined`/`function`/`symbol`
+ *  values (silently dropped), and for non-plain objects (`Date`/`RegExp`/class instances).
+ *  A plain tree of string/number/boolean/null + plain objects/arrays round-trips
+ *  injectively (up to key order, which `stableOptsKey` normalizes). */
+function isJsonInjective(v: unknown): boolean {
+  if (v === null) return true;
+  const t = typeof v;
+  if (t === "string" || t === "number" || t === "boolean") return true;
+  if (t !== "object") return false; // undefined / function / symbol / bigint — lossy
+  if (Array.isArray(v)) return v.every(isJsonInjective);
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) return false; // Set/Map/Date/RegExp/class
+  // A plain object: every own-enumerable value must itself be injective (an `undefined`
+  // value would be dropped, colliding `{a:1,b:undefined}` with `{a:1}`).
+  return Object.values(v as Record<string, unknown>).every(isJsonInjective);
+}
+
 /**
  * A STABLE, order-independent key fragment for a set of SHARED subscription options, so
  * two `.use()` sites that pass DIVERGENT options (a different `authority` / `initial` /
@@ -73,15 +92,29 @@ function fnId(fn: object): number {
  * (keys sorted for determinism); function values contribute a WeakMap-assigned stable id
  * (identity). Per-consumer options (`onError`/`onComplete`) are NOT passed here — they are
  * wired per-consumer on the shared value, never fold into the slot's identity.
+ *
+ * A non-plain-JSON data value (a `Set`/`Map`/`undefined`-bearing `initial`, etc.) THROWS:
+ * `JSON.stringify` can't distinguish it, so two divergent `.use()` would silently share one
+ * subscription (the sharing-by-convention defect). Rejecting it makes that unrepresentable
+ * NOW — a `Set`-valued shared option needs per-consumer wiring, which is demand-gated (not
+ * yet built, since no live consumer passes one). Same discipline as the whole-collection
+ * second-`onError` throw.
  */
 export function stableOptsKey(opts: Record<string, unknown>): string {
   const parts: string[] = [];
   for (const k of Object.keys(opts).sort()) {
     const v = opts[k];
     if (v === undefined) continue;
-    parts.push(
-      `${k}=${typeof v === "function" ? `fn#${fnId(v as object)}` : JSON.stringify(v)}`,
-    );
+    if (typeof v === "function") {
+      parts.push(`${k}=fn#${fnId(v as object)}`);
+      continue;
+    }
+    if (!isJsonInjective(v)) {
+      throw new Error(
+        `surface dedup: the .use() option "${k}" is a Set/Map/undefined-bearing (non-plain-JSON) value — the shared-slot dedup key can't distinguish it, so two divergent .use() sites would silently share one subscription. Use a plain-JSON option value, or per-consumer wiring (not yet built) is needed for a non-plain-JSON shared option.`,
+      );
+    }
+    parts.push(`${k}=${JSON.stringify(v)}`);
   }
   return parts.join("&");
 }

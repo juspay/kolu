@@ -16,7 +16,40 @@ import { defineSurface } from "../define";
 
 // The cache is wired inside `buildSurfaceClient`; a plain in-process link (no wire,
 // no half-open) is accepted bare, so we drive the real client with a stub link.
+import { stableOptsKey } from "./keyedSubscriptionCache";
 import { surfaceClient } from "./surfaceClient";
+
+describe("stableOptsKey — divergent options are distinct keys; non-plain-JSON throws", () => {
+  it("distinguishes divergent plain-JSON option values, folds identical ones", () => {
+    // Divergent → distinct keys (so two .use() get two slots, not one silent share).
+    expect(stableOptsKey({ authority: "local", initial: { n: 1 } })).not.toBe(
+      stableOptsKey({ authority: "local", initial: { n: 2 } }),
+    );
+    // Identical (any key order) → the SAME key (dedup preserved for a genuine share).
+    expect(stableOptsKey({ authority: "server", coalesceMs: 50 })).toBe(
+      stableOptsKey({ coalesceMs: 50, authority: "server" }),
+    );
+  });
+
+  it("THROWS on a non-plain-JSON option value (Set/Map/undefined-bearing) — the collision is unrepresentable", () => {
+    // Set/Map both JSON.stringify to "{}" regardless of contents → would silently share.
+    expect(() =>
+      stableOptsKey({ authority: "local", initial: new Set(["a"]) }),
+    ).toThrow(/non-plain-JSON|Set\/Map/);
+    expect(() => stableOptsKey({ initial: new Map([["k", 1]]) })).toThrow(
+      /non-plain-JSON|Set\/Map/,
+    );
+    // A nested `undefined` value is dropped by JSON.stringify → `{a:1,b:undefined}`
+    // collides with `{a:1}` → also rejected.
+    expect(() => stableOptsKey({ initial: { a: 1, b: undefined } })).toThrow(
+      /non-plain-JSON/,
+    );
+    // A plain-JSON initial is fine (the live case — preferences with a plain default).
+    expect(() =>
+      stableOptsKey({ authority: "local", initial: { a: 1, list: ["x"] } }),
+    ).not.toThrow();
+  });
+});
 
 /** A get-only cell (read-only server-authority path → deduped). */
 const cellSurface = defineSurface({

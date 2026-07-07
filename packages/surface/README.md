@@ -67,6 +67,16 @@ second `.use()` with no `onError`, or the identical handler, shares fine. (Per-c
 whole-collection `onError` is demand-gated behind this throw; the narrowed per-key
 `.use({ keys })` path is already per-consumer and unaffected.)
 
+**Divergent options are two subscriptions (non-plain-JSON options throw).** The dedup slot's
+identity folds the SHARED options (`authority` / `initial` / `coalesceMs` / `applyPatch` …),
+so two `.use()` of one cell with divergent options get DISTINCT slots — divergent configs
+ARE two subscriptions, never one silently-shared. The slot key serializes data options as
+sorted JSON + functions by identity; a non-plain-JSON option value (a `Set`/`Map`/`undefined`-
+bearing `initial`) can't be distinguished by `JSON.stringify` (both a `Set([a])` and a
+`Set([b])` → `"{}"`), so it **throws loudly at subscribe** rather than let two divergent sites
+silently share. A plain-JSON option keys fine; a `Set`/`Map`-valued shared option needs
+per-consumer wiring (demand-gated behind the throw — no live consumer passes one today).
+
 See `## Surface` below and `packages/surface/example/` for three end-to-end demos:
 
 - **`example/` — notes app** (single-process WebSocket): exercises every primitive against an in-memory store. The canonical "first surface" tour.
