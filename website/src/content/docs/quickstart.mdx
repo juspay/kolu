@@ -1,0 +1,78 @@
+---
+title: Quickstart
+description: "Run kolu with Nix, open the local workspace, and create the first terminal."
+order: 10
+section: Start
+koluHero:
+  eyebrow: start here
+  headline: From zero to {running}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+kolu is packaged with Nix. Install Nix with flakes enabled, then run one
+command. The same command runs kolu _and_ updates it: `--refresh` busts Nix's
+flake cache so you pull the current commit.
+
+<Steps>
+
+1. Install Nix if you do not already have it.
+
+   Use a Nix installer that enables flakes, such as the
+   [NixOS Asia guide](https://nixos.asia/en/install).
+
+2. Run kolu. It serves the app on `127.0.0.1:7681`.
+
+   ```sh
+   nix --refresh run github:juspay/kolu
+   ```
+
+3. Open the local URL.
+
+   ```text
+   http://127.0.0.1:7681
+   ```
+
+</Steps>
+
+<figure class="doc-shot">
+  <img src="/demo/hero-demo.webp" alt="Kolu running in a browser workspace with the dock, a terminal tile, and the code panel visible." loading="eager" />
+  <figcaption>The running workspace is the product: real xterm.js terminals on a canvas, with repo and agent state around them.</figcaption>
+</figure>
+
+The [Core Concepts](/concepts) page names the pieces you see here — canvas,
+tiles, dock rows, worktrees, and agent state — once the app is running.
+
+## Bind a different address
+
+By default, kolu listens on loopback. To expose it on your LAN, pass a host and
+port after `--`:
+
+```sh
+nix --refresh run github:juspay/kolu -- --host 0.0.0.0 --port 8080
+```
+
+Open the address you chose. You should see an empty canvas. The empty canvas is
+the welcome state; it goes away when you create the first terminal and returns
+whenever there are none.
+
+For another device, prefer the private HTTPS setup in
+[Remote Access](/remote-access); plain LAN HTTP does not unlock install prompts,
+badges, or notifications.
+
+<Aside type="tip" title="Create the first terminal">
+  Double-click any empty spot on the canvas to open the New terminal menu. The
+  dock's `+` button opens the same flow. The first full walkthrough is
+  [First Five Minutes](/first-five-minutes).
+</Aside>
+
+## Keep going
+
+<CardGrid>
+  <LinkCard title="First five minutes" href="/first-five-minutes" description="open a repo, name a worktree, and launch an agent" />
+  <LinkCard title="Install as an app" href="/install-pwa" description="pin kolu as a PWA and unlock badges/notifications" />
+  <LinkCard title="Reach it anywhere" href="/remote-access" description="put kolu behind a private HTTPS URL with Tailscale Serve" />
+</CardGrid>

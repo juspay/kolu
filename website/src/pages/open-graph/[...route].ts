@@ -3,8 +3,8 @@
  * `astro-og-canvas` (canvaskit-wasm). Routes:
  *
  *   /open-graph/site.png                  — the home / fallback card.
- *   /open-graph/blog/<slug>.png           — per-blog-post card with the
- *                                            post's title + description.
+ *   /open-graph/blog/<slug>.png           — per-blog-post card.
+ *   /open-graph/docs/<slug>.png           — per-docs-page card.
  *
  * `BaseLayout.astro` resolves the route via its `ogImageRoute` prop;
  * blog pages pass `blog/<slug>`, the home passes `site`, and any
@@ -19,6 +19,7 @@ import { OGImageRoute } from "astro-og-canvas";
 import { KOLU_PALETTE, SITE_DESCRIPTION } from "../../site";
 
 const blog = await getCollection("blog");
+const docs = await getCollection("docs");
 
 const pages: Record<string, { title: string; description: string }> = {
   site: {
@@ -29,6 +30,12 @@ const pages: Record<string, { title: string; description: string }> = {
     blog.map(({ id, data }) => [
       `blog/${id}`,
       { title: data.title, description: data.description },
+    ]),
+  ),
+  ...Object.fromEntries(
+    docs.map(({ id, data }) => [
+      `docs/${id}`,
+      { title: data.title, description: data.description ?? SITE_DESCRIPTION },
     ]),
   ),
 };

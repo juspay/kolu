@@ -1,0 +1,78 @@
+---
+title: First Five Minutes
+description: "Open a repository, create a worktree, launch an agent, and read the dock."
+order: 20
+section: Start
+koluHero:
+  eyebrow: first run
+  headline: Open a repo, launch an {agent}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+The whole point lands in one move: open a repository and start an agent in its
+own tile. If the words canvas, tile, dock, and worktree are still fuzzy, keep
+[Core Concepts](/concepts) nearby; kolu watches what you do, so setup is mostly
+just using your shell.
+
+<figure class="doc-shot">
+  <img src="/blog/kolu-evidence-worktree-name-leaf.png" alt="Kolu's New terminal sub-palette with a generated worktree name and a Plain shell choice." loading="lazy" />
+  <figcaption>The New terminal flow names a worktree, then lets you choose a plain shell or an agent.</figcaption>
+</figure>
+
+<Steps>
+
+1. Open the command palette.
+
+   Press <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd>. This is kolu's canonical search
+   surface: terminals, themes, actions, repos, and shortcuts from one box.
+
+2. Drill into **New terminal → your repo**.
+
+   Recent repos appear automatically because kolu tracks the directories you
+   `cd` into. Pick one and the worktree-name step opens with a generated name.
+
+3. Pick an agent, or hit Enter for a shell.
+
+   Any agent CLI you have run before, such as `claude`, `codex`, or `opencode`,
+   appears as a launch option. Choose one and kolu creates a fresh worktree and
+   launches the agent in one step.
+
+4. Watch the dock.
+
+   The dock row pulses while the agent is working and changes when it is waiting
+   on you, so a glance tells you who needs attention even across many tiles. The
+   same state becomes more important once you are using the
+   [multi-agent tools](/power-features).
+
+</Steps>
+
+<Aside type="note" title="Zero setup is real">
+  You never register an agent. Run a CLI once in any kolu terminal and it appears
+  in the palette the next time you create a worktree: no adapter, no config file.
+</Aside>
+
+## Worktrees are the parallel-work model
+
+Each terminal you create in a repo is backed by its own git worktree, so several
+branches can be checked out side by side without stashing or re-cloning.
+
+- Press <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> to open the New
+  terminal menu directly.
+- The worktree name you type becomes the branch name and shows verbatim on the
+  dock row.
+- Branch, PR number, and CI status come from each terminal's working directory.
+- You can run several agents on several branches at once; the dock keeps them
+  distinct, and [padi](/padi) is the daemon that keeps that workspace memory
+  durable.
+
+## Next
+
+<CardGrid>
+  <LinkCard title="Core concepts" href="/concepts" description="the vocabulary: canvas, tiles, dock, worktrees, and code comments" />
+  <LinkCard title="Power features" href="/power-features" description="sessions, sleep/wake, export, recording, and shell control" />
+  <LinkCard title="Padi" href="/padi" description="the workspace daemon that makes the dock and repo context durable" />
+</CardGrid>

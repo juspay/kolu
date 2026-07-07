@@ -47,7 +47,12 @@ const lines = headline
       {
         lines.map((line, i) => (
           <>
-            {i > 0 && <br />}
+            {i > 0 && (
+              <>
+                {" "}
+                <br />
+              </>
+            )}
             {line.map((seg) =>
               seg.accent ? (
                 <span class="kolu-hero__accent">{seg.text}</span>

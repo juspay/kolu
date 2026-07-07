@@ -35,7 +35,29 @@ for (const entry of entries) {
 }
 ---
 
-<details class="docs-sidebar" open>
+<nav class="docs-sidebar docs-sidebar__nav docs-sidebar--desktop" aria-label="Documentation">
+  {
+    groups.map((group) => (
+      <div class="docs-sidebar__group">
+        <p class="docs-sidebar__grouplabel">{group.label}</p>
+        <ul>
+          {group.items.map((entry) => (
+            <li>
+              <a
+                href={`/${entry.id}`}
+                aria-current={entry.id === current ? "page" : undefined}
+              >
+                {entry.data.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))
+  }
+</nav>
+
+<details class="docs-sidebar docs-sidebar--mobile">
   <summary class="docs-sidebar__summary">
     <span>On this site</span>
     <span class="docs-sidebar__current">{currentTitle}</span>
@@ -67,8 +89,26 @@ for (const entry of entries) {
   .docs-sidebar {
     font-size: 0.9rem;
   }
-  .docs-sidebar__summary {
+  .docs-sidebar--mobile {
     display: none;
+  }
+  .docs-sidebar__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.7rem 0.95rem;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--color-ink-dim);
+    list-style: none;
+  }
+  .docs-sidebar__summary::-webkit-details-marker {
+    display: none;
+  }
+  .docs-sidebar__current {
+    color: var(--color-kolu-primary);
   }
   .docs-sidebar__grouplabel {
     margin: 0 0 0.6rem;
@@ -113,29 +153,15 @@ for (const entry of entries) {
   /* On narrow viewports the sidebar becomes a collapsible disclosure above the
      content, using the same idiom as the site's other panels. */
   @media (max-width: 60rem) {
-    .docs-sidebar {
+    .docs-sidebar--desktop {
+      display: none;
+    }
+    .docs-sidebar--mobile {
+      display: block;
       border: 1px solid var(--color-rule);
       border-radius: 0.6rem;
       background: color-mix(in srgb, var(--color-void-raised) 70%, transparent);
       margin-bottom: 1.75rem;
-    }
-    .docs-sidebar__summary {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-      padding: 0.7rem 0.95rem;
-      cursor: pointer;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      color: var(--color-ink-dim);
-      list-style: none;
-    }
-    .docs-sidebar__summary::-webkit-details-marker {
-      display: none;
-    }
-    .docs-sidebar__current {
-      color: var(--color-kolu-primary);
     }
     .docs-sidebar__nav {
       padding: 0 0.95rem 0.95rem;

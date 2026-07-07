@@ -9,14 +9,15 @@ import type { MarkdownHeading } from "astro";
 
 interface Props {
   headings: MarkdownHeading[];
+  variant?: "rail" | "inline";
 }
-const { headings } = Astro.props;
+const { headings, variant = "rail" } = Astro.props;
 const items = headings.filter((h) => h.depth === 2);
 ---
 
 {
   items.length > 0 && (
-    <nav class="docs-toc" aria-label="On this page">
+    <nav class:list={["docs-toc", `docs-toc--${variant}`]} aria-label="On this page">
       <p class="docs-toc__label">On this page</p>
       <ul>
         {items.map((h) => (
@@ -31,9 +32,18 @@ const items = headings.filter((h) => h.depth === 2);
 
 <style>
   .docs-toc {
+    font-size: 0.85rem;
+  }
+  .docs-toc--rail {
     position: sticky;
     top: 4.5rem;
-    font-size: 0.85rem;
+  }
+  .docs-toc--inline {
+    margin: -0.85rem 0 1.7rem;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.55rem;
+    padding: 0.85rem 1rem;
+    background: color-mix(in srgb, var(--color-void-raised) 70%, transparent);
   }
   .docs-toc__label {
     margin: 0 0 0.7rem;
@@ -62,7 +72,12 @@ const items = headings.filter((h) => h.depth === 2);
     color: var(--color-kolu-primary);
   }
   @media (max-width: 72rem) {
-    .docs-toc {
+    .docs-toc--rail {
+      display: none;
+    }
+  }
+  @media (min-width: 72.001rem) {
+    .docs-toc--inline {
       display: none;
     }
   }

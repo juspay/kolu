@@ -187,6 +187,16 @@ body {
   font-feature-settings: "zero", "ss01";
 }
 
+.pagefind-scope {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 /* --- Theme toggle icons --------------------------------------------------- */
 
 /* Show the sun in dark mode (clicking it moves to light), moon in light. */
