@@ -52,6 +52,7 @@ import {
 } from "kolu-common/preview";
 import {
   type HostKey,
+  HostKeySchema,
   LOCAL_HOST,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
@@ -79,7 +80,6 @@ import {
   ensureRemotePadiBinding,
   isMultiHost,
   parseKoluPadiHostSeed,
-  remotePadiHost,
 } from "./remotePadiBinding.ts";
 import { pruneToMembers } from "./reServeEviction.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
@@ -236,16 +236,6 @@ const rpcPlugins = [
 // races an unready binding; a boot failure reports the down state through the
 // re-serve's `connection` cell rather than crashing (fail-open).
 // ─────────────────────────────────────────────────────────────────────────────
-// The host-selection knob (W3.1): `KOLU_PADI_HOST=<ssh host>` binds a REMOTE padi
-// over ssh — the whole canvas becomes that host — while UNSET keeps today's LOCAL
-// binding byte-identical. OFF by default, no UI (the picker + per-view bindings are
-// W3.2). Both arms return a `PadiSession` (a `DaemonSession` — `makeSession` + the
-// daemon members by spread), so `reServeSurface` and the router below are identical;
-// only the transport connector (local `endpointConnector` vs ssh `sshConnector`)
-// differs. The remote arm does NOT boot-await first-connect — provisioning a closure
-// over ssh can take seconds, and the binding is fail-open (the connection cell reports
-// copying/connecting/degraded while it warms); the LOCAL arm IS boot-awaited below.
-const remoteHost = remotePadiHost();
 // The KOLU_PADI_HOST seed — the pool's host set. LOCAL_HOST is the implicit,
 // UNREMOVABLE default (always `seed[0]`); the env may append remote hosts. ALWAYS-MAP:
 // env-unset = a 1-member pool = pixel-identical to today's single local padi.
@@ -442,7 +432,7 @@ app.get("/api/health", (c) => c.text("kolu"));
 // Self-contained — registers the SDK bundle route and a middleware that
 // splices the SDK <script> into text/html responses on the iframe-preview
 // route. The byte-streaming `iframePreviewRoute` below stays untouched.
-const PREVIEW_ROUTE_PATTERN = `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
+const PREVIEW_ROUTE_PATTERN = `${TERMINAL_FILE_ROUTE_BASE}/:host/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
 mountArtifactSdk(app, {
   sdkScriptPath: "/api/artifact-sdk.js",
   htmlRoutePrefix: PREVIEW_ROUTE_PATTERN,
@@ -455,6 +445,19 @@ mountArtifactSdk(app, {
 // shadow this route with `serveStatic`'s `/*` matcher.
 app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const terminalId = c.req.param("terminalId");
+  // The preview reads a per-HOST terminal's bytes, so the tab's active host rides
+  // in the URL (`buildTerminalFileUrl`) and we resolve against THAT host's padi —
+  // not the local default. Without this, switching to a remote host would ask the
+  // LOCAL padi about a remote terminal id (a 404, or the wrong bytes on an id
+  // collision). Re-validate the key through the SAME schema the map is keyed by
+  // (rejects a reserved/malformed key → 400), then find its warm session; a key
+  // that isn't a current pool member (an unseeded or departed host) is a loud 404,
+  // never a silent fall-through to the default host.
+  const parsedHost = HostKeySchema.safeParse(c.req.param("host"));
+  if (!parsedHost.success) return c.text("invalid host key", 400);
+  const host = parsedHost.data;
+  const session = pool.getSession(host);
+  if (!session) return c.text(`unknown host "${host}"`, 404);
   // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
   // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
   // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
@@ -473,14 +476,15 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const rawTarget = rawTargetFromContext(c);
   if (rawTarget === undefined)
     return c.text("raw request target unavailable", 500);
-  const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
+  const rawTail = previewTailFromRawUrl(rawTarget, host, terminalId);
 
   // Which directory this terminal serves (its git repo root) — RE-SOURCED from
-  // padi's registry over the bound session, since padi (not kolu-server) owns the
-  // terminal registry now. padi resolves terminal id → repoRoot; how kolu-server
-  // then reads the bytes forks on the binding (local disk vs. the bound host), see
-  // below. Either way the file is never forced whole through the base64 procedure.
-  const clientPromise = padiSession.currentClient();
+  // padi's registry over the SELECTED host's session, since padi (not kolu-server)
+  // owns the terminal registry now. padi resolves terminal id → repoRoot; how
+  // kolu-server then reads the bytes forks on the host (local disk vs. the remote
+  // host), see below. Either way the file is never forced whole through the base64
+  // procedure.
+  const clientPromise = session.currentClient();
   // A degraded/warming binding (skew · unconverged · linkFailed · not-yet-connected)
   // yields a NULL `currentClient()` (`remotePadiBinding.ts` currentClient) — a loud
   // 503 here, never a hang. Both the client AWAIT and the repoRoot resolve stay INSIDE
@@ -514,20 +518,20 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   // arms honor the `Range` only while this validator still matches the file's
   // current ETag (RFC 9110 §13.1.3), else serve the full 200.
   const ifRange = c.req.header("if-range");
-  // The byte read forks on the binding — but the file tail + repoRoot (and their
-  // `..`/`%2f` defenses above) are identical for both arms, so a remote path never
-  // reaches a local read, and vice versa.
-  //   - REMOTE (KOLU_PADI_HOST): the file lives on the ssh HOST, so dial the bound
-  //     padi's `preview.read` in bounded chunks (`assembleRemotePreview`) — the RIGHT
+  // The byte read forks on the SELECTED host — but the file tail + repoRoot (and
+  // their `..`/`%2f` defenses above) are identical for both arms, so a remote path
+  // never reaches a local read, and vice versa.
+  //   - REMOTE host: the file lives on the ssh HOST, so dial that host's padi
+  //     `preview.read` in bounded chunks (`assembleRemotePreview`) — the RIGHT
   //     host's bytes, streamed back with an O(chunk) heap on both hops. padi
   //     re-enforces its realpath/403 guard host-side inside the read.
-  //   - LOCAL: read THIS machine's disk directly via the shared streaming
-  //     `previewFile` (the same underlying serve-dir read padi serves) — no hop, no
-  //     base64 round trip, byte-identical to before.
+  //   - LOCAL default (`host === LOCAL_HOST`): read THIS machine's disk directly via
+  //     the shared streaming `previewFile` (the same underlying serve-dir read padi
+  //     serves) — no hop, no base64 round trip, byte-identical to before.
   // Both return serve-dir's `ServeResult` shape; the artifact-sdk HTML decorator
   // (mounted above) rewrites text/html downstream in either case.
   let r: ServeResult;
-  if (remoteHost) {
+  if (host !== LOCAL_HOST) {
     // The remote arm's METADATA dials (the 1-byte probe + any re-dial) run
     // synchronously inside this await; a link fault there maps to the SAME logged
     // 503 as the repoRoot resolve above. The streaming body's per-chunk dials run

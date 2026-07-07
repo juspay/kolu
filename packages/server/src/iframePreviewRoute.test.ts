@@ -425,6 +425,7 @@ async function readServeBody(body: string | ReadableStream): Promise<string> {
 }
 
 describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)", () => {
+  const host = "local";
   const terminalId = "abc";
 
   it("round-trips a filename with a literal % through encode → extract → serve-dir decode", async () => {
@@ -434,8 +435,8 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     // `decodeURIComponent` then throws on the bare `% ` → a spurious 400. The raw
     // tail keeps it encoded so serve-dir's single decode recovers the real name.
     const filePath = "100% done.mp4";
-    const url = `http://host${buildTerminalFileUrl(terminalId, filePath)}`;
-    const tail = previewTailFromRawUrl(url, terminalId);
+    const url = `http://host${buildTerminalFileUrl(host, terminalId, filePath)}`;
+    const tail = previewTailFromRawUrl(url, host, terminalId);
     expect(tail).toBe("100%25%20done.mp4");
 
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
@@ -453,8 +454,8 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     // An attacker sends a literal `%2f` to smuggle a `/` past the per-segment
     // `..` check. The raw tail keeps `%2f` encoded; serve-dir decodes it to `/`,
     // splits, and the per-segment check rejects the `..` → 400 (not a traversal).
-    const url = `http://host/api/terminals/${terminalId}/file/foo%2f..%2fpasswd`;
-    const tail = previewTailFromRawUrl(url, terminalId);
+    const url = `http://host/api/terminals/${host}/${terminalId}/file/foo%2f..%2fpasswd`;
+    const tail = previewTailFromRawUrl(url, host, terminalId);
     expect(tail).toBe("foo%2f..%2fpasswd");
 
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
@@ -471,8 +472,8 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     // `secret.html` BEFORE the slice, so serve-dir would never see the `..` and
     // would serve the sibling. Slicing the raw string keeps the `..` segment so
     // serve-dir's per-segment check rejects it with 400.
-    const url = `http://host/api/terminals/${terminalId}/file/foo/../secret.html`;
-    const tail = previewTailFromRawUrl(url, terminalId);
+    const url = `http://host/api/terminals/${host}/${terminalId}/file/foo/../secret.html`;
+    const tail = previewTailFromRawUrl(url, host, terminalId);
     expect(tail).toBe("foo/../secret.html");
 
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
@@ -489,8 +490,8 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     // WHATWG normalization also decodes-then-collapses `%2e%2e` → `..`. Slicing
     // the raw string leaves it encoded for serve-dir's single decode, which then
     // produces a `..` segment the per-segment check rejects with 400.
-    const url = `http://host/api/terminals/${terminalId}/file/foo/%2e%2e/secret.html`;
-    const tail = previewTailFromRawUrl(url, terminalId);
+    const url = `http://host/api/terminals/${host}/${terminalId}/file/foo/%2e%2e/secret.html`;
+    const tail = previewTailFromRawUrl(url, host, terminalId);
     expect(tail).toBe("foo/%2e%2e/secret.html");
 
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
@@ -508,16 +509,17 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     // slicer must handle it as well as absolute-form.
     expect(
       previewTailFromRawUrl(
-        `/api/terminals/${terminalId}/file/clip.mp4?v=123`,
+        `/api/terminals/${host}/${terminalId}/file/clip.mp4?v=123`,
+        host,
         terminalId,
       ),
     ).toBe("clip.mp4");
   });
 
   it("returns empty for a URL that doesn't match the prefix", () => {
-    expect(previewTailFromRawUrl("http://host/other/path", terminalId)).toBe(
-      "",
-    );
+    expect(
+      previewTailFromRawUrl("http://host/other/path", host, terminalId),
+    ).toBe("");
   });
 });
 
@@ -529,6 +531,7 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
 // real adapter and drive it over HTTP to prove the shipped route sources the RAW
 // target (`c.env.incoming.url`) and the `..` guard holds end-to-end.
 describe("iframe-preview route over real @hono/node-server (raw target survives the adapter)", () => {
+  const host = "local";
   const terminalId = "abc";
   let tmpRoot: string;
   let server: ReturnType<typeof serve>;
@@ -546,14 +549,15 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
     // `readPreview`, and reconstruct the Response — the exact re-backed route
     // shape from `index.ts`, so this test can't drift from it.
     const app = new Hono<{ Bindings: HttpBindings }>();
-    const pattern = `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
+    const pattern = `${TERMINAL_FILE_ROUTE_BASE}/:host/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
     app.get(pattern, async (c) => {
+      const hostParam = c.req.param("host");
       const id = c.req.param("terminalId");
       const rawTarget = rawTargetFromContext(c);
       if (rawTarget === undefined) {
         return c.text("raw request target unavailable", 500);
       }
-      const rawTail = previewTailFromRawUrl(rawTarget, id);
+      const rawTail = previewTailFromRawUrl(rawTarget, hostParam, id);
       const r = await previewFile({
         repoPath: tmpRoot,
         filePath: rawTail,
@@ -603,14 +607,16 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
   }
 
   it("serves an in-root file (sanity: the route is wired)", async () => {
-    const res = await rawGet(`/api/terminals/${terminalId}/file/clip.mp4?v=1`);
+    const res = await rawGet(
+      `/api/terminals/${host}/${terminalId}/file/clip.mp4?v=1`,
+    );
     expect(res.status).toBe(200);
     expect(res.body).toBe("video-bytes");
   });
 
   it("400s a literal `..` dot segment instead of serving the sibling", async () => {
     const res = await rawGet(
-      `/api/terminals/${terminalId}/file/foo/../secret.html`,
+      `/api/terminals/${host}/${terminalId}/file/foo/../secret.html`,
     );
     expect(res.status).toBe(400);
     expect(res.body).not.toContain("SECRET");
@@ -618,7 +624,7 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
 
   it("400s an encoded `%2e%2e` dot segment instead of serving the sibling", async () => {
     const res = await rawGet(
-      `/api/terminals/${terminalId}/file/foo/%2e%2e/secret.html`,
+      `/api/terminals/${host}/${terminalId}/file/foo/%2e%2e/secret.html`,
     );
     expect(res.status).toBe(400);
     expect(res.body).not.toContain("SECRET");

@@ -223,7 +223,7 @@ export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
 export const FsReadFileInputSchema = z.object({
   /** Terminal that owns the URL handle for `kind: "binary"` outputs.
    *  Text reads ignore this — the field is on the input because the URL
-   *  shape (`/api/terminals/<id>/file/...`) is constructed server-side
+   *  shape (`/api/terminals/<host>/<id>/file/...`) is constructed server-side
    *  from this id, so the client doesn't have to know the route layout. */
   terminalId: z.string().uuid(),
   /** Absolute path to the repo root. */

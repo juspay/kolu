@@ -121,7 +121,7 @@ export type BrowseFileDispatcherProps = {
  *  `fs.readFile` is TEXT-ONLY (`{ content, truncated }`) — deliberately not the
  *  union `koluSurface.fsReadFile` returned — so the dispatcher decides binary vs
  *  text itself, exactly as the old server backing did. A binary-previewable file
- *  reads its mtime (`fs.statFileMtimeMs`) and builds the `/api/terminals/:id/file`
+ *  reads its mtime (`fs.statFileMtimeMs`) and builds the `/api/terminals/:host/:id/file`
  *  URL with the `?v=<mtime>` cache-key (the same route + shape the server built,
  *  still served until W1.R5) so a save bumps the URL and the img/iframe reloads;
  *  a text file reads its content. Either way the `subscribeFileChange` pulse
@@ -151,7 +151,10 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         );
         return {
           kind: "binary",
-          url: `${buildTerminalFileUrl(i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
+          // Key the file URL by the ACTIVE host so the route reads the bytes from
+          // the same padi the mtime above came from — a remote host's preview must
+          // not resolve against the local default.
+          url: `${buildTerminalFileUrl(activeHost(), i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
         };
       }
       const { content, truncated } = await padiRpcOf(
@@ -449,7 +452,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             <MarkdownRenderer
               markdown={file.source?.content ?? ""}
               resolveImageSrc={(src) =>
-                resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
+                resolveMarkdownImageSrc(
+                  activeHost(),
+                  props.terminalId,
+                  props.filePath,
+                  src,
+                )
               }
               onNavigateRelative={onNavigateRelative}
               onNavigateWikilink={onNavigateWikilink}

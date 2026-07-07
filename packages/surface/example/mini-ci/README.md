@@ -6,7 +6,7 @@ This is **Phase 0** of [`kolu-tui`](../../../../docs/atlas/src/content/atlas/pty
 
 ## Architecture
 
-The runner is shipped to the host the **drishti way** — as a prebuilt nix closure copied + realised over ssh — and reached through [`@kolu/surface-nix-host`](../../../surface-nix-host)'s `HostSession`, exactly as remote-process-monitor does it:
+The runner is shipped to the host the **drishti way** — as a prebuilt nix closure copied + realised over ssh — and reached through [`@kolu/surface-remote`](../../../surface-remote)'s `HostSession`, exactly as remote-process-monitor does it:
 
 ```
 ┌──────────────────────┐                                              ┌──────────────────────────────────┐
@@ -37,7 +37,7 @@ Keys: digits `1`–`9` attach a node's log, `n`/`p` cycle, `r` rerun the attache
 
 ## The default pipeline runs real CI
 
-The zero-config pipeline isn't a toy `build → test → lint` — it's **real CI for the [remote-process-monitor](../remote-process-monitor/README.md) example**: `tsc --noEmit` over its dependency closure. `@kolu/surface` and `@kolu/surface-nix-host` typecheck in parallel (`needs: []`), then `@kolu/surface-example-remote-process-monitor` (`needs: [surface, nix-host]`). These are the same typecheck gates the repo's CI runs.
+The zero-config pipeline isn't a toy `build → test → lint` — it's **real CI for the [remote-process-monitor](../remote-process-monitor/README.md) example**: `tsc --noEmit` over its dependency closure. `@kolu/surface` and `@kolu/surface-remote` typecheck in parallel (`needs: []`), then `@kolu/surface-example-remote-process-monitor` (`needs: [surface, nix-host]`). These are the same typecheck gates the repo's CI runs.
 
 ```
    surface ──┐
@@ -60,7 +60,7 @@ just run localhost --headless    # stream status transitions as plain lines
 nix run .#mini-ci                # standalone — bakes the current system's runner .drv
 ```
 
-`just run [host]` probes the host's nix-system, resolves the matching `mini-ci-runner` `.drv`, and passes it as `MINI_CI_RUNNER_DRV` (exactly like drishti's `KOLU_AGENT_DRV`); [`src/probe-arch.ts`](src/probe-arch.ts) is the thin arch-probe wrapper over `@kolu/surface-nix-host`'s `resolveSystem`. The TUI then drives the runner via `getHostSession({ host, binary: "mini-ci-runner", resolveDrvPath })`. Remote hosts only need passwordless ssh + Nix; the runner is built once for the host's arch and `nix copy`d over.
+`just run [host]` probes the host's nix-system, resolves the matching `mini-ci-runner` `.drv`, and passes it as `MINI_CI_RUNNER_DRV` (exactly like drishti's `KOLU_AGENT_DRV`); [`src/probe-arch.ts`](src/probe-arch.ts) is the thin arch-probe wrapper over `@kolu/surface-remote`'s `resolveSystem`. The TUI then drives the runner via `getHostSession({ host, binary: "mini-ci-runner", resolveDrvPath })`. Remote hosts only need passwordless ssh + Nix; the runner is built once for the host's arch and `nix copy`d over.
 
 ## Detach (and why there's no `~`-escape)
 

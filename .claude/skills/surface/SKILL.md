@@ -2,7 +2,7 @@
 name: surface
 description: >-
   How a downstream app consumes the shared @kolu/surface stack (@kolu/surface ·
-  surface-app · surface-nix-host · surface-mcp) — declaring a typed reactive surface,
+  surface-app · surface-remote · surface-mcp) — declaring a typed reactive surface,
   serving it, consuming it (SolidJS hooks or a CLI), and mirroring a remote surface over
   ssh. Grounded in the real consumers: kolu, pulam-web, drishti, odu, and the TUIs. Load
   when wiring a surface server/client/mirror, or reaching for getHostSession / a link /
@@ -39,7 +39,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 
 ## Mirror a remote surface (drishti / pulam-web / odu)
 
-1. **Dial the host** — `getHostSession<contract>({host, binary, resolveDrvPath})` (`@kolu/surface-nix-host`): long-lived, `nix copy`s the agent closure, runs `<bin> --stdio` over ssh, reconnects. `buildHostRegistry` fans out N hosts; one-shot CLIs use `dialAgentOnce` instead.
+1. **Dial the host** — `getHostSession<contract>({host, binary, resolveDrvPath})` (`@kolu/surface-remote`): long-lived, `nix copy`s the agent closure, runs `<bin> --stdio` over ssh, reconnects. `buildHostRegistry` fans out N hosts; one-shot CLIs use `dialAgentOnce` instead.
 2. **Mirror inward** — `pumpRemoteSurface({source, session, makeSink, …})` (`-nix-host`) folds the remote agent's frames into a local `implementSurface` re-serve via a `SurfaceSink` (`makeSink`, `@kolu/surface/mirror`). The parent implements the *same* surface; a remotely-unobservable cell (e.g. connection state) is parent-authoritative.
 3. **Re-serve** — the local fragment served on `/rpc/ws`, accepted via `acceptSurfaceSocket` (`@kolu/surface-app/server`). Browsers connect with `connectSurface` (`@kolu/surface-app/solid`), which bundles socket + `websocketLink` + `surfaceClient` + a default-on liveness heartbeat.
 

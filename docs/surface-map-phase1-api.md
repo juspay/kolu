@@ -1,7 +1,7 @@
 # @kolu/surface-map — Phase 1 public API (design draft, pre-checkpoint)
 
 Grounded in: the accepted spec (`remote-surfaces.mdx`), the 3-agent debate record, and a
-ground-truth read of `@kolu/surface` (dedup seam), `@kolu/surface-nix-host` (resolver seam),
+ground-truth read of `@kolu/surface` (dedup seam), `@kolu/surface-remote` (resolver seam),
 `padiSurface` (entry spec), `createSingletonRoot@1.5.3` (verified source), and the #1708 pins.
 
 This draft nails the signatures + the lifetime contract, and marks the **three decisions the

@@ -49,13 +49,13 @@ When adding or rebinding a global shortcut in `input/actions.ts`, check `input/p
 
 - The Architecture section in `README.md` documents communication patterns, server internals, client state, and build pipeline. **Read it before declaring done** on any structural change, and update every part that no longer matches (table, diagram, prose, footnotes).
 
-## Files matching `packages/{surface,surface-app,surface-nix-host}/**`
+## Files matching `packages/{surface,surface-app,surface-remote}/**`
 
 ## Surface libraries are shared — mirror API changes to drishti
 
-`@kolu/surface` and its sibling libraries (`@kolu/surface-app`, `@kolu/surface-nix-host`) are not kolu-internal: they are consumed by [`drishti`](https://github.com/srid/drishti) as well as kolu.
+`@kolu/surface` and its sibling libraries (`@kolu/surface-app`, `@kolu/surface-remote`) are not kolu-internal: they are consumed by [`drishti`](https://github.com/srid/drishti) as well as kolu.
 
-**Any API-facing change** to `packages/surface/`, `packages/surface-app/`, or `packages/surface-nix-host/` — exported types, function signatures, the oRPC contract shape, package `exports`, runtime behaviour a consumer depends on, or anything else that changes how a downstream consumer wires these packages — **requires a corresponding PR to [`github.com/srid/drishti`](https://github.com/srid/drishti) that updates drishti for the change and passes full CI.**
+**Any API-facing change** to `packages/surface/`, `packages/surface-app/`, or `packages/surface-remote/` — exported types, function signatures, the oRPC contract shape, package `exports`, runtime behaviour a consumer depends on, or anything else that changes how a downstream consumer wires these packages — **requires a corresponding PR to [`github.com/srid/drishti`](https://github.com/srid/drishti) that updates drishti for the change and passes full CI.**
 
 - Open the drishti PR before (or alongside) merging the kolu change, and link the two PRs to each other.
 - The drishti PR is not optional and "done" is not "done" until drishti's CI is green against the new surface API.
