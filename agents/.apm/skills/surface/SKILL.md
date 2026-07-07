@@ -5,7 +5,7 @@ description: >-
   surface-app · surface-remote · surface-mcp) — declaring a typed reactive surface,
   serving it, consuming it (SolidJS hooks or a CLI), and mirroring a remote surface over
   ssh. Grounded in the real consumers: kolu, pulam-web, drishti, odu, and the TUIs. Load
-  when wiring a surface server/client/mirror, or reaching for getHostSession / a link /
+  when wiring a surface server/client/mirror, or reaching for makeSession / a link /
   the `.use()` hooks. CHANGING the framework is gated separately —
   `.claude/rules/surface.md` (a paired, CI-green drishti PR pinned to final kolu HEAD).
 ---
