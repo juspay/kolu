@@ -197,6 +197,36 @@ describe("keyed subscription cache — dedup + lifetime", () => {
     });
   });
 
+  it("FIX 1 — divergent shared options are TWO subscriptions (opts-in-key); identical fold to ONE", async () => {
+    let calls = 0;
+    const link = {
+      surface: {
+        prefs: {
+          // Stays open (never completes) so a typed-end eviction can't skew the count.
+          get: (..._a: unknown[]): Promise<AsyncIterable<{ n: number }>> => {
+            calls++;
+            return pendingForever<{ n: number }>()();
+          },
+          set: async () => {},
+        },
+      },
+    };
+    await createRoot(async (outer) => {
+      // biome-ignore lint/suspicious/noExplicitAny: stub link.
+      const app = surfaceClient(prefsSurface, link as any);
+      app.cells.prefs.use({ authority: "local", initial: { n: 0 } }); // slot A
+      app.cells.prefs.use({ authority: "server" }); // slot B — DIVERGENT authority
+      app.cells.prefs.use({ authority: "server" }); // folds into slot B (identical)
+      await settle();
+      // A local-authority coalesced store and a server-authority view are honestly TWO
+      // upstream subs — the 2nd `.use()` must NOT silently inherit the 1st's variant; the
+      // 3rd (identical to the 2nd) shares. So exactly TWO — never one (the old silent
+      // share), never three.
+      expect(calls).toBe(2);
+      outer();
+    });
+  });
+
   it("streams (ACCESSOR-input) are NOT deduped — two consumers open two subscriptions", async () => {
     let calls = 0;
     const src = (..._a: unknown[]): Promise<AsyncIterable<string[]>> => {

@@ -191,8 +191,12 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     input: unknown,
   ): AsyncGenerator<unknown> {
     const leaf = leafAt(session.link, path);
-    const upstream = (await leaf(input, {})) as AsyncIterable<unknown>;
-    const it = upstream[Symbol.asyncIterator]();
+    // Install the removal watcher BEFORE the dial await. The real pool removes
+    // destroy→delete→notify, so a removal that lands WHILE the dial is in flight must be
+    // observed here — otherwise the `has()` gate (upstream in makeStreamHandler) and this
+    // watcher straddle the await and neither catches it, and a delta/fail-through member's
+    // dial rejects into a raw stub error the client can't retry. `ended` resolves the
+    // instant `mapKey` leaves membership, on the dial OR in the loop.
     let onEnd!: () => void;
     const ended = new Promise<void>((res) => {
       onEnd = res;
@@ -201,22 +205,44 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
       if (!has(mapKey)) onEnd();
     });
     try {
-      while (true) {
-        const step = await Promise.race([
-          it.next().then(
-            (r) => ({ kind: "item" as const, r }),
-            (e) => ({ kind: "error" as const, e }),
-          ),
-          ended.then(() => ({ kind: "end" as const })),
-        ]);
-        if (step.kind === "end") return; // removed mid-stream → typed end
-        if (step.kind === "error") throw step.e; // real upstream error propagates
-        if (step.r.done) return; // upstream ended → typed end
-        yield step.r.value;
+      let upstream: AsyncIterable<unknown>;
+      try {
+        upstream = (await leaf(input, {})) as AsyncIterable<unknown>;
+      } catch (e) {
+        // The dial itself rejected. If `mapKey` was removed while dialing, that is the
+        // session-destroy fallout → typed end; a genuine dial fault (still a member)
+        // propagates.
+        if (!has(mapKey)) return;
+        throw e;
+      }
+      // Removed while the (resolved) dial was in flight → typed end before the loop.
+      if (!has(mapKey)) return;
+      const it = upstream[Symbol.asyncIterator]();
+      try {
+        while (true) {
+          const step = await Promise.race([
+            it.next().then(
+              (r) => ({ kind: "item" as const, r }),
+              (e) => ({ kind: "error" as const, e }),
+            ),
+            ended.then(() => ({ kind: "end" as const })),
+          ]);
+          if (step.kind === "end") return; // removed mid-stream → typed end
+          if (step.kind === "error") {
+            // An upstream rejection is the session-destroy fallout, NOT a real fault, when
+            // the key has left membership: end TYPED so a delta member never delivers a
+            // raw stub ORPCError. A genuine error (still a member) propagates.
+            if (!has(mapKey)) return;
+            throw step.e;
+          }
+          if (step.r.done) return; // upstream ended → typed end
+          yield step.r.value;
+        }
+      } finally {
+        await it.return?.().catch(() => {});
       }
     } finally {
       unsub();
-      await it.return?.().catch(() => {});
     }
   }
 

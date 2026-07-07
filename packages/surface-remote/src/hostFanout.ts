@@ -441,10 +441,18 @@ export function buildRemotePool<S extends DestroyableSession, H>(
         }
         socketsByHost.delete(host);
       }
-      entry.session.destroy();
+      // Drop membership + notify BEFORE destroying the session (FIX 2 paired half): so
+      // `has(host)` is already false when the destroy fault reaches the map's
+      // `forwardStream`, its error→typed-end guard fires, and each delta/fail-through
+      // iterator ends TYPED — never a raw session-death `ORPCError` delivered to the
+      // browser. (For a hold-open cell/value-stream the notify-driven typed end already
+      // fires first; this ordering closes the delta case too.) The orphaned session is
+      // destroyed LAST. Ordering also honors the MapRegistry clause: `has()` reflects the
+      // change before `onChange` fires.
       entries.delete(host);
       log(`removed host: ${host} (total ${entries.size})`);
       notifyMembership();
+      entry.session.destroy();
     },
 
     registerConnection(host, ws) {

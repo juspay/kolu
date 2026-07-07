@@ -50,6 +50,42 @@ export interface KeyedSubscriptionCache {
   ): R;
 }
 
+// A module-private registry giving each distinct FUNCTION a stable short id, so a
+// function-valued option (applyPatch / mergeIntoStore / source / mutate) contributes a
+// STABLE token to the cache key by IDENTITY — the same function → the same token, a
+// different function → a different one (never source text, which two closures share).
+const fnIds = new WeakMap<object, number>();
+let fnCounter = 0;
+function fnId(fn: object): number {
+  let id = fnIds.get(fn);
+  if (id === undefined) {
+    id = ++fnCounter;
+    fnIds.set(fn, id);
+  }
+  return id;
+}
+
+/**
+ * A STABLE, order-independent key fragment for a set of SHARED subscription options, so
+ * two `.use()` sites that pass DIVERGENT options (a different `authority` / `initial` /
+ * `coalesceMs` / `applyPatch`) get DISTINCT cache slots — divergent configs ARE two
+ * subscriptions, not one silently-shared-by-convention. Data values serialize as JSON
+ * (keys sorted for determinism); function values contribute a WeakMap-assigned stable id
+ * (identity). Per-consumer options (`onError`/`onComplete`) are NOT passed here — they are
+ * wired per-consumer on the shared value, never fold into the slot's identity.
+ */
+export function stableOptsKey(opts: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const k of Object.keys(opts).sort()) {
+    const v = opts[k];
+    if (v === undefined) continue;
+    parts.push(
+      `${k}=${typeof v === "function" ? `fn#${fnId(v as object)}` : JSON.stringify(v)}`,
+    );
+  }
+  return parts.join("&");
+}
+
 export function createKeyedSubscriptionCache(
   clientOwner: Owner | null,
 ): KeyedSubscriptionCache {

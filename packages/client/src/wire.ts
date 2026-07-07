@@ -183,46 +183,12 @@ export const padiRpcOf = (host: HostKey): PadiRpc =>
  *  wrap a SCOPED slice of this same link.) */
 export const client = link;
 
-// ── Module-level singleton subscriptions ───────────────────────────────
+// Preferences (host-INDEPENDENT) rides the ONE app-scope reader below, beside the
+// host-scoped readouts — there is NO import-time module-const subscription (the
+// sharing-by-convention singleton this PR deletes). Its `preferences()` /
+// `updatePreferences()` accessors are defined just after that `createRoot`.
 
-const _preferences = app.cells.preferences.use({
-  authority: "local",
-  initial: DEFAULT_PREFERENCES,
-  // Debounce window for size writes that opt in via `{ coalesce: true }`. The
-  // rightPanel splitter's `onSizesChange` fires a patch per frame during a drag
-  // (and re-fires on Corvu panel re-registration), which storms the server.
-  // Coalescing is per-write, so discrete toggles (colorScheme, scrollLock) keep
-  // flushing immediately and survive a quick reload. See #1041.
-  coalesceMs: 150,
-  // Covers both subscription drops and coalesced-flush failures — a coalesced
-  // write's `mutate` failure surfaces here, not on `patch`'s returned promise.
-  onError: (err) => toast.error(`Preferences error: ${err.message}`),
-});
-
-/** Local-store accessor for user preferences — authoritative after the
- *  first server yield. */
-export const preferences = (): Preferences =>
-  _preferences.value() ?? DEFAULT_PREFERENCES;
-
-/** Streaming subscription handle. Use this when callers need
- *  `.pending()` / `.error()` (e.g. boot gating) rather than the value. */
-export const preferencesSub = _preferences.sub;
-
-/** Patch user preferences; reports failures via `toast`. Pass
- *  `{ coalesce: true }` for high-frequency writes (panel-size drags) to
- *  trailing-debounce the server round-trip — see the cell's `coalesceMs`. */
-export function updatePreferences(
-  patch: PreferencesPatch,
-  opts?: { coalesce?: boolean },
-): void {
-  void _preferences
-    .patch(patch, opts)
-    .catch((err: Error) =>
-      toast.error(`Failed to save preferences: ${err.message}`),
-    );
-}
-
-// ── The ONE app-scope reader for host-SCOPED standing readouts ──────────
+// ── The ONE app-scope reader for standing readouts ──────────────────────
 //
 // activityFeed, saved-session, and the terminal-list keys are per-HOST facts — they ride
 // `padiMap.useEntry(activeHost)`, so switching the active host must RE-KEY them (the
@@ -261,13 +227,45 @@ const hostScoped = createRoot(() => {
       ),
     { onError: (err) => toast.error(`Terminal list error: ${err.message}`) },
   );
-  return { activityFeed, session, terminalKeys };
+  // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
+  // owner rather than a bare import-time module-const sub — the sharing-by-convention
+  // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader
+  // folds onto it (the base-client dedup would share it even if opened per-consumer, but
+  // imperative module-level readers like useTips have no reactive owner of their own).
+  const preferences = app.cells.preferences.use({
+    authority: "local",
+    initial: DEFAULT_PREFERENCES,
+    // Debounce window for size writes that opt in via `{ coalesce: true }` (#1041): the
+    // rightPanel splitter fires a patch per drag frame; discrete toggles flush immediately.
+    coalesceMs: 150,
+    // Covers subscription drops + coalesced-flush failures.
+    onError: (err: Error) => toast.error(`Preferences error: ${err.message}`),
+  });
+  return { activityFeed, session, terminalKeys, preferences };
 });
 
 export const recentRepos = (): RecentRepo[] =>
   hostScoped.activityFeed.value()?.recentRepos ?? [];
 export const recentAgents = (): RecentAgent[] =>
   hostScoped.activityFeed.value()?.recentAgents ?? [];
+
+/** Local-store accessor for user preferences — authoritative after the first server yield. */
+export const preferences = (): Preferences =>
+  hostScoped.preferences.value() ?? DEFAULT_PREFERENCES;
+
+/** Patch user preferences; reports failures via `toast`. Pass `{ coalesce: true }` for
+ *  high-frequency writes (panel-size drags) to trailing-debounce the server round-trip —
+ *  see the cell's `coalesceMs`. */
+export function updatePreferences(
+  patch: PreferencesPatch,
+  opts?: { coalesce?: boolean },
+): void {
+  void hostScoped.preferences
+    .patch(patch, opts)
+    .catch((err: Error) =>
+      toast.error(`Failed to save preferences: ${err.message}`),
+    );
+}
 
 /** The persisted saved-session for the active host, or null when none exists / no yield
  *  yet. Re-keys when the active host switches. */

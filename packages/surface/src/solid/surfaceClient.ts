@@ -53,6 +53,7 @@ import {
 import {
   createKeyedSubscriptionCache,
   type KeyedSubscriptionCache,
+  stableOptsKey,
 } from "./keyedSubscriptionCache";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import { type UseCellResult, useCell } from "./useCell";
@@ -611,8 +612,14 @@ function bindCell<S extends SurfaceSpec>(
       // share ONE upstream sub and ONE local store, so a `.set` from one is seen by all
       // (this is what replaces the module-const `createSharedRoot` sharing idiom).
       const { onError: cellOnError, ...sharedOpts } = merged;
+      // Fold the SHARED options into the cache key: two `.use()` sites with divergent
+      // `authority`/`initial`/`coalesceMs`/`applyPatch` get DISTINCT slots (they ARE two
+      // subscriptions — a local-authority coalesced store and a server-authority view are
+      // different upstream subs), so a second caller can never silently inherit the first
+      // caller's variant. Identical shared options still fold to one slot. `onError`
+      // (per-consumer, pulled out above) is not in the key.
       const cell = subs.use(
-        `cell:${key}`,
+        `cell:${key}:${stableOptsKey(sharedOpts)}`,
         (onComplete) =>
           useCell(
             // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime

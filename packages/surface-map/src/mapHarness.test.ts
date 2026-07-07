@@ -394,4 +394,68 @@ describe("surface-map mock-entry e2e harness", () => {
     void _d;
     expect(typeof e.use).toBe("function"); // the read path (keys/get) remains
   });
+
+  it("(8) removal DURING the subscribe dial ends TYPED — no stale value for an absent member", async () => {
+    // The removal-during-await half of the teardown fix: `forwardStream` installs its
+    // membership watcher BEFORE the `await leaf()` dial and re-checks `has()` AFTER it, so a
+    // removal that lands WHILE a (delta) member is still dialing ends the stream TYPED,
+    // before it can yield a snapshot for a host that is no longer a member. (The other half
+    // — a delta member whose upstream REJECTS on the pool's destroy→delete→notify order —
+    // additionally needs hostFanout reordered to delete→notify→destroy; tracked separately.)
+    await createRoot(async (dispose) => {
+      const map = defineSurfaceMap(HostKeySchema, entrySurface);
+      // A link whose `urgency.get` DIAL is slow — resolved by hand, modelling a member
+      // still provisioning when the host is removed.
+      let resolveDial!: (it: AsyncIterable<unknown>) => void;
+      const slowLink = {
+        surface: {
+          urgency: {
+            get: () =>
+              new Promise<AsyncIterable<unknown>>((res) => {
+                resolveDial = res;
+              }),
+          },
+        },
+      };
+      const entries = new Map<HostKey, EntrySession>();
+      const listeners = new Set<() => void>();
+      const registry: MapRegistry<HostKey> = {
+        members: () => [...entries.keys()],
+        has: (k) => entries.has(k),
+        subscribe: (cb) => {
+          listeners.add(cb);
+          return () => {
+            listeners.delete(cb);
+          };
+        },
+        resolve: (k) => entries.get(k) ?? { failed: "unknown" },
+      };
+      entries.set(A, { link: slowLink, state: connected(0) });
+      const served = serveSurfaceMap(map, registry);
+      const mapLink = directLink<AnyContractRouter>(served.router as never);
+      const client = connectSurfaceMap(map, mapLink);
+
+      const cell = client.entry(A).cells.urgency.use();
+      let cellError: Error | undefined;
+      createEffect(() => {
+        cellError = cell.error();
+      });
+      await settle(); // forwardStream is now blocked in `await leaf()` (the slow dial)
+
+      // Remove A mid-dial: delete (has → false) + notify. The watcher (installed before the
+      // await) fires; the has-recheck (after the dial resolves) ends TYPED before yielding.
+      entries.delete(A);
+      for (const l of [...listeners]) l();
+      resolveDial(
+        (async function* () {
+          yield { awaiting: 1, awaitingIds: [] }; // the value that must NOT reach the client
+        })(),
+      );
+      await settle();
+
+      expect(cellError).toBeUndefined(); // typed end, not a stub error
+      expect(cell.value()).toBeUndefined(); // absent member never received a stale snapshot
+      dispose();
+    });
+  });
 });
