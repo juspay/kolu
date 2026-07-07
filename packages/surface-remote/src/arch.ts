@@ -42,7 +42,7 @@
  */
 
 import { buildSshProbeCommand } from "./host";
-import { runCapture } from "./process";
+import { describeExit, runCapture } from "./process";
 
 /** Sanity-guard shape for a nix-system identifier: `<cpu>-<os>`, e.g.
  *  `x86_64-linux`, `aarch64-darwin`. Deliberately NOT a closed
@@ -99,7 +99,7 @@ async function probeSystem(host: string): Promise<string> {
   const res = await runCapture(command, args);
   if (!res.ok) {
     throw new Error(
-      `${host}: \`nix-instantiate --eval builtins.currentSystem\` exited ${res.code}`,
+      `${host}: \`nix-instantiate --eval builtins.currentSystem\` ${describeExit(res)}`,
     );
   }
   // nix-instantiate prints the Nix string repr — `"x86_64-linux"\n` —

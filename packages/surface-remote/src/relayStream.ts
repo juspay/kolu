@@ -98,8 +98,15 @@ export interface RelayHoldOpenOptions<F> extends RelayStreamOptions {
   /** An optional lead frame emitted at the start of each (re)bind — a synthetic
    *  first pulse that makes the downstream requery the current state on subscribe
    *  AND after a reconnect (the fs may have changed while the link was down).
-   *  Omit for a stream whose own first frame is already a fresh snapshot. */
-  lead?: F;
+   *  Omit for a stream whose own first frame is already a fresh snapshot.
+   *
+   *  BOXED as `{ frame: F }` so PRESENCE (the box exists) is disjoint from the
+   *  frame's own VALUE: a stream whose frame type `F` itself includes `undefined`
+   *  (a `void`/`undefined`-framed value stream) can emit an `undefined` lead by
+   *  passing `lead: { frame: undefined }`, and a `!== undefined` box-presence
+   *  check still tells it apart from `lead` omitted entirely. The old bare
+   *  `lead?: F` collided the two — an `undefined` lead frame read as "no lead". */
+  lead?: { frame: F };
 }
 
 /**
@@ -172,7 +179,10 @@ export function holdOpenStreamCore<Cl, I, F>(
         if (!(await waitNextSpawn())) return;
         continue;
       }
-      if (opts.lead !== undefined) yield opts.lead;
+      // Box-PRESENCE, not frame-value: `opts.lead` is a `{ frame }` box (or
+      // absent), so this yields a lead whose frame is legitimately `undefined`
+      // (a void-framed stream) instead of swallowing it as omission.
+      if (opts.lead !== undefined) yield opts.lead.frame;
       try {
         for await (const frame of await select(client).get(input, { signal })) {
           yield frame;

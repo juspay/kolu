@@ -92,10 +92,17 @@ export function scopePadiSurface(client: PadiDaemonClient): PadiSurfaceClient {
 
 /** padi's wire identity, from its control-core `hello`. `commit` is the RUNNING
  *  padi's navigable git build (the Padi dialog's "build commit"); optional — a
- *  survivor padi predating the hello field omits it (honest "—"). */
-export type PadiIdentity =
-  | { stateRoot: string; surfaceVersion: string; commit?: string }
-  | undefined;
+ *  survivor padi predating the hello field omits it (honest "—"). No bare
+ *  `undefined` variant: a `DaemonConnection`/`EndpointStatus` only ever carries
+ *  an `I` when `state === "connected"` (the surrounding union's OTHER arms omit
+ *  `identity` entirely via `identity?: never`), and {@link connectPadi} always
+ *  builds a full object — so a connected padi's identity is never absent, and
+ *  the absent case already has its own representation one level up. */
+export type PadiIdentity = {
+  stateRoot: string;
+  surfaceVersion: string;
+  commit?: string;
+};
 export type PadiConnectionMetadata = {
   surfaceVersion: string;
   controlCoreVersion: string;

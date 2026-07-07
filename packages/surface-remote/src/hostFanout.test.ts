@@ -63,7 +63,10 @@ describe("buildRemotePool", () => {
     expect(registry.hosts()).toEqual(["alpha", "beta"]);
     expect(registry.has("alpha")).toBe(true);
     expect(registry.has("ghost")).toBe(false);
-    expect(registry.getHandler("beta")).toEqual({ id: "beta" });
+    // `getHandler` returns the whole entry (membership signalled by ENTRY
+    // presence, not by the handler value — see the interface doc) so an `H`
+    // that itself admits `undefined` can't be confused with "unknown host".
+    expect(registry.getHandler("beta")?.handler).toEqual({ id: "beta" });
     expect(registry.getHandler("ghost")).toBeUndefined();
   });
 

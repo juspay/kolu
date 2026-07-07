@@ -21,9 +21,16 @@ import { activePadiRpc } from "../wire";
 export type IntentEditorSession = {
   title: string;
   initialValue: string;
+  /** Whether Clear is a MEANINGFUL action for this session (there's something to
+   *  clear) — the ONE gate the dialog renders/hides the button on. `clear` below
+   *  is unconditionally constructible (nuking an already-empty intent is a safe
+   *  no-op RPC), so its own optionality never encoded a second "can't clear"
+   *  state — it was always present at this module's one construction site. Kept
+   *  required (not `clear?`) so there is exactly one place to disagree about
+   *  clearability: this field. */
   allowClear: boolean;
   save: (intent: string) => void;
-  clear?: () => void;
+  clear: () => void;
 };
 
 function init() {
@@ -72,7 +79,7 @@ function init() {
       if (!open) close();
     },
     save: (intent: string) => session()?.save(intent),
-    clear: () => session()?.clear?.(),
+    clear: () => session()?.clear(),
   } as const;
 }
 

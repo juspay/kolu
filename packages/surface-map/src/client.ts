@@ -95,6 +95,32 @@ export function floorOnLiveness(status: EntryState, live: boolean): EntryState {
   return status;
 }
 
+/** Floor a per-key `Subscription<EntryStatus>` on liveness with the SAME
+ *  {@link floorOnLiveness} that floors `entry(key).state()` — applied here to the
+ *  `entries` PROJECTION (the public membership collection), which otherwise re-exposes
+ *  the server's RAW `connected` untouched (the #1568 green-over-dead lie, relocated
+ *  from the per-entry lens to the membership collection a consumer actually reads,
+ *  e.g. the host selector strip). `sub()` is `undefined` before the first frame lands
+ *  — passed through as-is (there is no status yet to floor, and `byKey`'s contract is
+ *  "undefined while pending", never a synthesized value). `floorOnLiveness` only ever
+ *  DEMOTES a `connected` value it's handed (never introduces `not-a-member`), so the
+ *  cast back to `EntryStatus` is sound. `pending`/`error`/`complete` pass through
+ *  untouched — only the VALUE the subscription reports is floored. */
+function floorEntrySubscription(
+  sub: Subscription<EntryStatus>,
+  live: Accessor<boolean>,
+): Subscription<EntryStatus> {
+  return Object.assign(
+    () => {
+      const v = sub();
+      return v === undefined
+        ? undefined
+        : (floorOnLiveness(v, live()) as EntryStatus);
+    },
+    { pending: sub.pending, error: sub.error, complete: sub.complete },
+  ) as Subscription<EntryStatus>;
+}
+
 /** Build an {@link EntryClock} over a `state()` reader. `measureClockOffset` stamps
  *  `clockOffset = remoteEpoch − localEpoch` (same instant), so a remote-clock timestamp
  *  maps to this process's local clock by subtracting it. No `connected` status ⇒ no
@@ -176,19 +202,28 @@ function keyInjectingLink(link: unknown, mapKey: string): unknown {
 }
 
 /** Delegate a reactive result that IS a canonical {@link Subscription} — callable
- *  (the primary read path) AND carrying `.pending`/`.error` accessor properties.
- *  Typed AS `Subscription<T>` (not re-spelled by ad-hoc `pending`/`error` string
- *  literals guessed independently), so a future field the upstream type gains is a
+ *  (the primary read path) AND carrying `.pending`/`.error`/`.complete` accessor
+ *  properties. Typed AS `Subscription<T>` (not re-spelled by ad-hoc `pending`/`error`
+ *  string literals guessed independently), so a future field the upstream type gains is a
  *  compile error HERE too, not a silent drop. Shared by `reactiveDelegate`'s `.sub`
  *  case (a cell/collection's nested Subscription) and a stream's WHOLE `.use()`
  *  result (`makeReactiveEntry`'s `prim === "streams"` branch below) — the two
- *  places a `useEntry` consumer can hit a re-keyed Subscription. */
+ *  places a `useEntry` consumer can hit a re-keyed Subscription.
+ *
+ *  `complete` is OPTIONAL on `Subscription<T>` (a hand-assembled non-factory
+ *  Subscription can legitimately omit it), so forwarding it can't be a bare
+ *  `current().complete()` — that would throw the instant a re-key lands on one
+ *  that omits it. `?.() ?? false` is not a fallback for a MISSING fact (every
+ *  Subscription this delegate actually re-keys — cells/collections/streams built
+ *  through `@kolu/surface/solid` — populates it), it is the SHAPE `Accessor<boolean>`
+ *  demands: the property, once present, must always resolve to a real boolean. */
 function delegateSubscription<T>(
   current: Accessor<Subscription<T>>,
 ): Subscription<T> {
   return Object.assign(() => current()(), {
     pending: () => current().pending(),
     error: () => current().error(),
+    complete: () => current().complete?.() ?? false,
   }) as Subscription<T>;
 }
 
@@ -421,7 +456,12 @@ export function connectSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
       const result = rawEntries.use({ keys: rawKeys, onError: opts?.onError });
       return {
         keys: () => result.keys().map(decodeKey),
-        byKey: (key: K) => result.byKey(map.codec.encode(key)),
+        byKey: (key: K) => {
+          const sub = result.byKey(map.codec.encode(key));
+          return sub === undefined
+            ? undefined
+            : floorEntrySubscription(sub, live);
+        },
       };
     },
   };

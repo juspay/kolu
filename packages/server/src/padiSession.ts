@@ -18,11 +18,34 @@
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import type { DaemonSession, Session } from "@kolu/surface-remote";
+import type { ProvisioningPhase } from "@kolu/surface-remote/connection";
 import type { PadiConvergence } from "kolu-common/surface";
 
 /** A bound padi, LOCAL or REMOTE — a daemon session over the padi surface, its
- *  convergence descriptor being padi's app-specific {@link PadiConvergence}. */
-export type PadiSession = DaemonSession<PadiSurfaceClient, PadiConvergence>;
+ *  convergence descriptor being padi's app-specific {@link PadiConvergence}.
+ *
+ *  Parameterized by `Prov`, mirroring `@kolu/surface-remote`'s own copying-
+ *  unrepresentable split (juspay/kolu#1716) one layer up: `DaemonSession` itself
+ *  always extends the FULL-union `Session<Client>` (it is not generic over the
+ *  provisioning phase), so a padi session built over the local arm's narrowed
+ *  `Session<_, never>` base was silently WIDENED back to the full union the moment
+ *  it became a `PadiSession` — the type claimed a local padi session's `onState`
+ *  could report `"copying"`, even though the local endpoint connector (no
+ *  nix-copy, the daemon is already here) can never produce it. `PadiSession<Prov>`
+ *  intersects the daemon's supervision members onto the `Prov`-NARROWED base
+ *  `Session<PadiSurfaceClient, Prov>`'s `onState` instead of `DaemonSession`'s own
+ *  (always-full) one — so `PadiSession<never>` (the local arm, see
+ *  `padiBinding.ts`) makes `"copying"` a compile error here too, the LAST consumer
+ *  in this split's chain. The remote ssh arm keeps the default (full
+ *  `ProvisioningPhase`, admitting `"copying"`); the heterogeneous local+remote pool
+ *  (`index.ts`'s `buildRemotePool<PadiSession, …>`) still needs the common,
+ *  un-parameterized `PadiSession` as its slot type — a local session widening
+ *  into that slot is the same deliberate, structural widening `Session<_, never>`
+ *  already undergoes to plug into a `Session` pool, not a silent one buried
+ *  inside this alias. */
+export type PadiSession<Prov extends ProvisioningPhase = ProvisioningPhase> =
+  Omit<DaemonSession<PadiSurfaceClient, PadiConvergence>, "onState"> &
+    Pick<Session<PadiSurfaceClient, Prov>, "onState">;
 
 /** padi's preservation strategy: its PTYs live in a SEPARATE kaval process, so a
  *  `renew()` (drain + respawn) is survived by them — a fresh padi adopts the running
@@ -32,9 +55,19 @@ export const PADI_PRESERVATION = { children: "survive" } as const;
 /** Add the padi daemon-supervision members onto a base {@link Session} by spread —
  *  the TS-idiomatic derivation S9 mandates (no wrapper class, no forwarding
  *  boilerplate). `convergence` reads the arm's standing anomaly; `renew` is the arm's
- *  drain. Identity/reconnect/recheck/pin/… all ride the base unchanged. */
-export function asPadiSession(
-  base: Session<PadiSurfaceClient>,
+ *  drain. Identity/reconnect/recheck/pin/… all ride the base unchanged.
+ *
+ *  Generic over `Prov` — INFERRED from `base` — so the caller's own narrowing
+ *  survives THROUGH this function instead of being discarded at the one place
+ *  both arms funnel through: the local arm (`padiBinding.ts`) passes a
+ *  `Session<_, never>` base and gets back a `PadiSession<never>` (still unable to
+ *  report `"copying"`); the remote ssh arm (`remotePadiBinding.ts`) passes the
+ *  default `Session<_>` (Prov = `ProvisioningPhase`) and gets back the default
+ *  `PadiSession` (admits `"copying"`, its actual opening phase). */
+export function asPadiSession<
+  Prov extends ProvisioningPhase = ProvisioningPhase,
+>(
+  base: Session<PadiSurfaceClient, Prov>,
   members: {
     convergence: () => PadiConvergence | null;
     renew: () => Promise<void>;
@@ -42,7 +75,7 @@ export function asPadiSession(
      *  first successful handshake. Folded into a keyed map's `EntryStatus.connected`. */
     clockOffset: () => number | null;
   },
-): PadiSession {
+): PadiSession<Prov> {
   return {
     ...base,
     convergence: members.convergence,

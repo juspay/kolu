@@ -14,7 +14,10 @@ import { resolveSystem } from "./arch";
 import { __resetControlMemo } from "./controlMaster";
 import { runCapture } from "./process";
 
-vi.mock("./process", () => ({
+vi.mock("./process", async (importOriginal) => ({
+  // Keep the real pure helpers (`describeExit`) and mock only the two
+  // subprocess-spawning entry points.
+  ...(await importOriginal<typeof import("./process")>()),
   runCapture: vi.fn(),
   runProgress: vi.fn(),
 }));
@@ -38,7 +41,8 @@ afterEach(() => {
     rmSync(d, { recursive: true, force: true });
 });
 
-const okSystem = (sys: string) => ({ ok: true, code: 0, stdout: `"${sys}"\n` });
+const okSystem = (sys: string) =>
+  ({ ok: true, kind: "exit", code: 0, stdout: `"${sys}"\n` }) as const;
 
 describe("resolveSystem arch cache", () => {
   it("probes a host once and memoizes for the process", async () => {
@@ -66,7 +70,7 @@ describe("resolveSystem arch cache", () => {
 
   it("does not cache a failed probe — the next dial re-probes", async () => {
     vi.mocked(runCapture)
-      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // unreachable
+      .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }) // unreachable
       .mockResolvedValueOnce(okSystem("x86_64-linux")); // host answers now
     await expect(resolveSystem("h-reject")).rejects.toThrow();
     const sys = await resolveSystem("h-reject");

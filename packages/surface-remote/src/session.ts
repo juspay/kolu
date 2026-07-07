@@ -189,11 +189,32 @@ export interface Session<
 
 /** How a live connection ended — the RAW transport signal the loop classifies (it
  *  alone knows whether the link was `connected`, and whether it initiated the
- *  teardown). A process/link death carries the exit `code`/`signal`; a spawn error
- *  (the transport couldn't even start) carries a message and is always terminal-ish
- *  `"remote"` (a local/config fault). */
+ *  teardown). A CLOSED union over the ways a transport dies, so each cause has ONE
+ *  honest shape — no magic exit-code sentinel, no both-null `exit` overload:
+ *
+ *   - `exit`             — a real PROCESS death: the child exited with a numeric
+ *                           `code` (`signal` null) or was killed by a `signal`
+ *                           (`code` null). Exactly one of the pair is non-null,
+ *                           per Node's `exit` event.
+ *   - `transport-failed` — the ssh TRANSPORT itself failed (connection error / a
+ *                           dropped link): ssh exits 255 for its OWN connection
+ *                           failures, so `sshConnector` maps a REMOTE 255 to this
+ *                           variant rather than leaking a magic `code === 255`
+ *                           literal into this transport-agnostic loop. Classified
+ *                           `"network"` (retry forever). Localhost has no ssh, so a
+ *                           localhost 255 stays an honest `exit` (→ bounded
+ *                           `"remote"`), fixing the old uniform-255 misread.
+ *   - `endpoint-down`    — a NON-process endpoint link death: an in-process daemon
+ *                           endpoint reported degraded/dead with NO child process,
+ *                           so neither a code nor a signal exists. Its own variant
+ *                           so "endpoint down" is not the both-null `exit`
+ *                           inhabitant (which described an exit that never happened).
+ *   - `spawn-error`      — the transport couldn't even START (a local/config fault);
+ *                           always terminal-ish `"remote"`. */
 export type ClosedInfo =
   | { kind: "exit"; code: number | null; signal: NodeJS.Signals | null }
+  | { kind: "transport-failed" }
+  | { kind: "endpoint-down" }
   | { kind: "spawn-error"; message: string };
 
 /** A single live connection attempt, handed back by a connector once the transport
@@ -633,13 +654,27 @@ export function makeSession<
       // The transport couldn't even start — a local/config problem. Bounded.
       reason = `transport failed to spawn: ${info.message}`;
       cause = "remote";
+    } else if (info.kind === "transport-failed") {
+      // The ssh TRANSPORT itself failed (a connection error, ssh's own exit 255,
+      // or a dropped link — the connector classified it, so no magic literal
+      // lives here). Transport → retry forever.
+      reason = "ssh transport connection failed — host unreachable or link dropped";
+      cause = "network";
+    } else if (info.kind === "endpoint-down") {
+      // A non-process endpoint link death (no child, so no exit code/signal). A
+      // dropped LIVE link retries as transport; a death BEFORE we ever connected
+      // is the endpoint refusing to come up — bounded.
+      reason = "endpoint link down (no process exit)";
+      cause = wasConnected ? "network" : "remote";
     } else {
       reason = `agent exited (code=${info.code}, signal=${info.signal})`;
-      // A live link that dropped, or the transport's own connection failure
-      // (exit 255), is transport — retry forever. A non-255 exit BEFORE we ever
-      // connected means the transport ran the agent and IT exited (bad path,
-      // missing exe, startup crash) — bounded.
-      cause = wasConnected || info.code === 255 ? "network" : "remote";
+      // A live link that dropped is transport — retry forever. An exit BEFORE we
+      // ever connected means the transport ran the agent and IT exited (bad path,
+      // missing exe, startup crash) — bounded. (An ssh transport-255 arrives as
+      // `transport-failed` above, not here, so 255 is no longer magic-matched: a
+      // real agent that exits 255 is now honestly bounded, and a localhost 255 —
+      // which has no ssh transport — no longer misreads as a network fault.)
+      cause = wasConnected ? "network" : "remote";
     }
     localProgress(reason);
     setDown("disconnected", reason, cause);

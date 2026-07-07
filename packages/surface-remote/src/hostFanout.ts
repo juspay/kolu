@@ -324,9 +324,17 @@ export interface RemotePool<S extends DestroyableSession, H> {
   has(host: string): boolean;
   /** The known hosts, in insertion order. */
   hosts(): string[];
-  /** The host's oRPC handler (what a `?host=` upgrade dispatcher hands the
-   *  browser socket), or `undefined` for an unknown host. */
-  getHandler(host: string): H | undefined;
+  /** The host's entry — its oRPC handler (what a `?host=` upgrade dispatcher
+   *  hands the browser socket) plus its session — or `undefined` for an
+   *  unknown host. Returns the whole {@link RemoteEntry}, not a bare `H`:
+   *  `H` is an open type parameter a caller may instantiate with a value
+   *  space that itself contains `undefined` (kolu's own local pool builds
+   *  `RemoteEntry<PadiSession, undefined>`), so a bare `H | undefined`
+   *  return can't tell "unknown host" from "registered host whose real
+   *  handler value IS `undefined`". Wrapping in the entry means membership
+   *  is signalled by ENTRY presence, never by the handler's own value —
+   *  read `.handler` off the result. */
+  getHandler(host: string): RemoteEntry<S, H> | undefined;
   /** The host's session (its connection lifecycle), or `undefined` if unknown. */
   getSession(host: string): S | undefined;
   /** Spawn a new host's entry and persist. Throws if the host already exists
@@ -437,7 +445,7 @@ export function buildRemotePool<S extends DestroyableSession, H>(
   const registry: RemotePool<S, H> = {
     has: (host) => entries.has(host),
     hosts: () => [...entries.keys()],
-    getHandler: (host) => entries.get(host)?.handler,
+    getHandler: (host) => entries.get(host),
     getSession: (host) => entries.get(host)?.session,
 
     add(host) {

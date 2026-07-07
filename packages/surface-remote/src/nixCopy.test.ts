@@ -12,7 +12,10 @@ import { __resetControlMemo } from "./controlMaster";
 import { agentGcRootPath, provisionAgent } from "./nixCopy";
 import { runCapture, runProgress } from "./process";
 
-vi.mock("./process", () => ({
+vi.mock("./process", async (importOriginal) => ({
+  // Keep the real pure helpers (`describeExit`) and mock only the two
+  // subprocess-spawning entry points.
+  ...(await importOriginal<typeof import("./process")>()),
   runCapture: vi.fn(),
   runProgress: vi.fn(),
 }));
@@ -25,11 +28,21 @@ const DRV = "/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-agent.drv";
  *  store path, pin prints the link path. Returns the `vi.fn()` handles for
  *  assertions. */
 function mockHappyPath() {
-  vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
+  vi.mocked(runProgress).mockResolvedValue({ ok: true, kind: "exit", code: 0 });
   vi.mocked(runCapture)
-    .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // warm probe: not on host yet
-    .mockResolvedValueOnce({ ok: true, code: 0, stdout: `${STORE}\n` }) // realise
-    .mockResolvedValueOnce({ ok: true, code: 0, stdout: "/home/u/link\n" }); // pin
+    .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }) // warm probe: not on host yet
+    .mockResolvedValueOnce({
+      ok: true,
+      kind: "exit",
+      code: 0,
+      stdout: `${STORE}\n`,
+    }) // realise
+    .mockResolvedValueOnce({
+      ok: true,
+      kind: "exit",
+      code: 0,
+      stdout: "/home/u/link\n",
+    }); // pin
 }
 
 const tmpDirs: string[] = [];
@@ -118,11 +131,20 @@ describe("provisionAgent GC-root pinning", () => {
   });
 
   it("treats a pin failure as non-fatal — the agent still provisions", async () => {
-    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
+    vi.mocked(runProgress).mockResolvedValue({
+      ok: true,
+      kind: "exit",
+      code: 0,
+    });
     vi.mocked(runCapture)
-      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // warm probe: not on host
-      .mockResolvedValueOnce({ ok: true, code: 0, stdout: `${STORE}\n` }) // realise
-      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }); // pin fails
+      .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }) // warm probe: not on host
+      .mockResolvedValueOnce({
+        ok: true,
+        kind: "exit",
+        code: 0,
+        stdout: `${STORE}\n`,
+      }) // realise
+      .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }); // pin fails
 
     const lines: string[] = [];
     const res = await provisionAgent({
@@ -136,10 +158,14 @@ describe("provisionAgent GC-root pinning", () => {
   });
 
   it("does not pin when the realise itself fails", async () => {
-    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
+    vi.mocked(runProgress).mockResolvedValue({
+      ok: true,
+      kind: "exit",
+      code: 0,
+    });
     vi.mocked(runCapture)
-      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // warm probe: not on host
-      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }); // realise fails
+      .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }) // warm probe: not on host
+      .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }); // realise fails
 
     const res = await provisionAgent({
       host: "testhost",
@@ -159,6 +185,7 @@ describe("provisionAgent warm fast-path", () => {
     // no separate realise/pin. This is the redundant work the fast-path removes.
     vi.mocked(runCapture).mockResolvedValueOnce({
       ok: true,
+      kind: "exit",
       code: 0,
       stdout: `${STORE}\n`,
     });
@@ -186,16 +213,20 @@ describe("provisionAgent warm fast-path", () => {
     // nix emits a real `error: …` line on stderr. That line must NOT reach the
     // user-visible progress callback, or a clean first-time provision would
     // read as if it errored.
-    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
+    vi.mocked(runProgress).mockResolvedValue({
+      ok: true,
+      kind: "exit",
+      code: 0,
+    });
     vi.mocked(runCapture).mockImplementation(
       async (_cmd, _args, onProgress) => {
         // Probe (call #1): nix's expected miss-on-cold-host stderr.
         if (vi.mocked(runCapture).mock.calls.length === 1) {
           onProgress?.(`error: path '${DRV}' is not valid`);
-          return { ok: false, code: 1, stdout: "" };
+          return { ok: false, kind: "exit", code: 1, stdout: "" };
         }
         // realise (#2), pin (#3): succeed.
-        return { ok: true, code: 0, stdout: `${STORE}\n` };
+        return { ok: true, kind: "exit", code: 0, stdout: `${STORE}\n` };
       },
     );
 
@@ -217,7 +248,11 @@ describe("provisionAgent warm fast-path", () => {
     // still be SCANNED: a network-looking line on the probe has to flip the
     // fall-through's cause to `"network"` so an unreachable host keeps
     // retrying instead of failing terminally.
-    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
+    vi.mocked(runProgress).mockResolvedValue({
+      ok: true,
+      kind: "exit",
+      code: 0,
+    });
     vi.mocked(runCapture).mockImplementation(
       async (_cmd, _args, onProgress) => {
         if (vi.mocked(runCapture).mock.calls.length === 1) {
@@ -225,13 +260,17 @@ describe("provisionAgent warm fast-path", () => {
           onProgress?.(
             "ssh: connect to host testhost port 22: No route to host",
           );
-          return { ok: false, code: 255, stdout: "" };
+          return { ok: false, kind: "exit", code: 255, stdout: "" };
         }
         // The fall-through copy then also fails on the unreachable host.
-        return { ok: false, code: 1, stdout: "" };
+        return { ok: false, kind: "exit", code: 1, stdout: "" };
       },
     );
-    vi.mocked(runProgress).mockResolvedValue({ ok: false, code: 1 });
+    vi.mocked(runProgress).mockResolvedValue({
+      ok: false,
+      kind: "exit",
+      code: 1,
+    });
 
     const res = await provisionAgent({
       host: "testhost",
@@ -249,7 +288,11 @@ describe("provisionAgent warm fast-path", () => {
     // later realise fails for a genuine REMOTE reason, the cause must be
     // "remote" (bounded give-up) — not "network" (retry forever) leaked from
     // the now-stale probe blip.
-    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 }); // copy succeeds
+    vi.mocked(runProgress).mockResolvedValue({
+      ok: true,
+      kind: "exit",
+      code: 0,
+    }); // copy succeeds
     vi.mocked(runCapture).mockImplementation(
       async (_cmd, _args, onProgress) => {
         if (vi.mocked(runCapture).mock.calls.length === 1) {
@@ -257,10 +300,10 @@ describe("provisionAgent warm fast-path", () => {
           onProgress?.(
             "ssh: connect to host testhost port 22: No route to host",
           );
-          return { ok: false, code: 255, stdout: "" };
+          return { ok: false, kind: "exit", code: 255, stdout: "" };
         }
         // Realise (#2): a genuine remote failure, no network signal.
-        return { ok: false, code: 1, stdout: "" };
+        return { ok: false, kind: "exit", code: 1, stdout: "" };
       },
     );
 

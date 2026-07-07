@@ -60,7 +60,12 @@ import {
   surfaces,
 } from "kolu-common/surface";
 import { padiHostMap, surfacesWithPadi } from "kolu-common/surfacesWithPadi";
-import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
+import {
+  serverCommit,
+  serverProcessId,
+  serverStartedAt,
+  serverVersion,
+} from "./hostname.ts";
 import { log } from "./log.ts";
 import { store } from "./state.ts";
 
@@ -180,9 +185,16 @@ const padiLinkCellStore = {
 // Server-authored (kolu-server drives it off `padiSession.onState` in `index.ts`,
 // the SAME subscription that drives `padiLink`); the client renders `now − startedAt`
 // as each process's uptime. A live signal, so the backing is in-memory (no on-disk
-// slot); the `{ server: 0, padi: null }` seed is the honest pre-yield "unknown" (the
-// rail gates a `0`/`null` out rather than rendering a bogus uptime).
-let currentProcessStartedAt: ProcessStartedAt = { server: 0, padi: null };
+// slot). `server` is seeded to `serverStartedAt` (`./hostname.ts`'s module-init
+// `Date.now()`) — the REAL boot epoch is already known at seed time, so there is no
+// pre-yield gap to paper over with an in-band `0` sentinel (#1034: `0` is a real, if
+// absurd, timestamp, not a safe "unknown" marker). `padi` genuinely ISN'T known yet
+// (no padi session has bound), so it stays the honest `null` until the first
+// `onState` yield — never a fabricated boot time.
+let currentProcessStartedAt: ProcessStartedAt = {
+  server: serverStartedAt,
+  padi: null,
+};
 const processStartedAtCellStore = {
   get: (): ProcessStartedAt => currentProcessStartedAt,
   set: (value: ProcessStartedAt): void => {

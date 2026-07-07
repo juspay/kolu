@@ -47,7 +47,12 @@ import {
   looksLikeNetworkError,
   nixSshOpts,
 } from "./host";
-import { runCapture, runProgress } from "./process";
+import {
+  describeExit,
+  type ExitResult,
+  runCapture,
+  runProgress,
+} from "./process";
 
 export interface ProvisionOptions {
   host: string;
@@ -148,9 +153,14 @@ export async function provisionAgent(
   const onProbeProgress = scanForNetworkError;
   // A direct-ssh command (realise/pin) surfaces ssh's own 255 on a transport
   // failure; combined with the stderr scan this covers both the copy step
-  // (nix-wrapped ssh) and the realise step (bare ssh).
-  const causeFor = (code: number | null): FailureCause =>
-    sawNetworkError || code === 255 ? "network" : "remote";
+  // (nix-wrapped ssh) and the realise step (bare ssh). Keys on the EXIT arm's
+  // numeric code — a signal-kill or a spawn failure is never ssh's 255, so both
+  // fall through to the bounded `"remote"` default (correct: neither is a
+  // transport blip), rather than being read off an overloaded `code: null`.
+  const causeFor = (res: ExitResult): FailureCause =>
+    sawNetworkError || (res.kind === "exit" && res.code === 255)
+      ? "network"
+      : "remote";
 
   const rootPath = agentGcRootPath(isLocal, opts.drvPath);
 
@@ -221,8 +231,8 @@ export async function provisionAgent(
     if (!copyRes.ok) {
       return {
         ok: false,
-        reason: `${opts.host}: 'nix copy --derivation' exited with code ${copyRes.code}`,
-        cause: causeFor(copyRes.code),
+        reason: `${opts.host}: 'nix copy --derivation' ${describeExit(copyRes)}`,
+        cause: causeFor(copyRes),
       };
     }
     onProgress(`${opts.host}: derivation copy complete`);
@@ -252,8 +262,8 @@ export async function provisionAgent(
   if (!realiseRes.ok) {
     return {
       ok: false,
-      reason: `${opts.host}: 'nix-store --realise' exited with code ${realiseRes.code}`,
-      cause: causeFor(realiseRes.code),
+      reason: `${opts.host}: 'nix-store --realise' ${describeExit(realiseRes)}`,
+      cause: causeFor(realiseRes),
     };
   }
   const agentPath = realiseRes.stdout.trim();
@@ -286,7 +296,7 @@ export async function provisionAgent(
     const pinRes = await runCapture(pin.command, pin.args, opts.onProgress);
     if (!pinRes.ok) {
       opts.onProgress(
-        `${opts.host}: GC-root pin failed (code ${pinRes.code}); agent runs but is unpinned`,
+        `${opts.host}: GC-root pin ${describeExit(pinRes)}; agent runs but is unpinned`,
       );
     }
   }

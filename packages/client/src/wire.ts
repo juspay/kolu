@@ -346,4 +346,9 @@ export const terminalListSub: Subscription<{ id: TerminalId }[]> =
   Object.assign(() => hostScoped.terminalKeys()?.map((id) => ({ id })), {
     pending: hostScoped.terminalKeys.pending,
     error: hostScoped.terminalKeys.error,
+    // Forwarded, not dropped: `terminalKeys` is a `createReactiveSubscription`, which
+    // always populates `complete` — omitting it here would silently strand a consumer
+    // that checks it (there is none today, but the field-audit rule is "populate what
+    // the source has," not "only what today's readers use").
+    complete: hostScoped.terminalKeys.complete,
   });

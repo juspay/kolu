@@ -122,7 +122,12 @@ function serverSrcModules(): string[] {
   // as a `sub/mod` key that isn't in the flat WEB_SHELL_FILES set.
   return readdirSync(SRC, { recursive: true })
     .map((f) => String(f).split(sep).join("/"))
-    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+    .filter(
+      (f) =>
+        f.endsWith(".ts") &&
+        !f.endsWith(".test.ts") &&
+        !f.endsWith(".test-d.ts"),
+    )
     .map((f) => f.replace(/\.ts$/, ""))
     .sort();
 }

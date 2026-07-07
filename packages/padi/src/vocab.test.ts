@@ -23,6 +23,7 @@ import {
   composeTerminalMetadata,
   decodeHostLocation,
   encodeHostLocation,
+  HostLocationSchema,
   LOCAL_LOCATION,
 } from "./vocab.ts";
 
@@ -149,5 +150,24 @@ describe("encodeHostLocation / decodeHostLocation — the daemon-status key code
     expect(() => decodeHostLocation("zest")).toThrow();
     expect(() => decodeHostLocation("remote:")).toThrow();
     expect(() => decodeHostLocation("Local")).toThrow();
+  });
+
+  it("HostLocationSchema rejects an empty remote hostId — the shape the codec can't round-trip", () => {
+    expect(HostLocationSchema.safeParse({ kind: "local" }).success).toBe(true);
+    expect(
+      HostLocationSchema.safeParse({ kind: "remote", hostId: "zest" }).success,
+    ).toBe(true);
+    expect(
+      HostLocationSchema.safeParse({ kind: "remote", hostId: "" }).success,
+    ).toBe(false);
+    // PIN: an empty hostId is exactly what `encodeHostLocation` would turn into
+    // the bare "remote:" prefix, which `decodeHostLocation` already throws on —
+    // the schema now refuses to mint the value in the first place. (`hostId:
+    // string` is unrefined at the TYPE level — Zod's `.min(1)` is a runtime-only
+    // check — so this literal still typechecks as a `HostLocation`; the schema
+    // is the one guard that actually rejects it.)
+    const emptyRemote = { kind: "remote" as const, hostId: "" };
+    expect(encodeHostLocation(emptyRemote)).toBe("remote:");
+    expect(() => decodeHostLocation(encodeHostLocation(emptyRemote))).toThrow();
   });
 });

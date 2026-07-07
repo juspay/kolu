@@ -112,7 +112,11 @@ describe("DaemonInventorySchema.boundPadi — exactly one representation of 'not
     expect(
       DaemonInventorySchema.safeParse({
         binding,
-        boundPadi: { surfaceVersion: null, buildCommit: null, convergence: null },
+        boundPadi: {
+          surfaceVersion: null,
+          buildCommit: null,
+          convergence: null,
+        },
       }).success,
     ).toBe(false);
   });

@@ -36,8 +36,8 @@ export function isLocalHost(host: string): boolean {
  *  `HostSession` keep importing it from this module. */
 export type { FailureCause };
 
-/** A `resolveDrvPath` rejection that carries its own {@link FailureCause}, so the
- *  resolver can tell `HostSession` that THIS failure is not a transport blip.
+/** A `resolveDrvPath` rejection that marks THIS failure as a NON-transport,
+ *  bounded → terminal `"remote"` fault — not a transport blip.
  *
  *  Why it exists: `HostSession.spawn` runs the caller's `resolveDrvPath` thunk
  *  at the top of every spawn and, by default, treats a rejection as `"network"`
@@ -45,10 +45,20 @@ export type { FailureCause };
  *  round-trip, so a rejection usually means the host is unreachable, which must
  *  retry forever). But a resolver can also fail for a NON-transport reason that
  *  retrying can never fix: it probed the host fine and then found no derivation
- *  baked for that system. That is a `"remote"` (bounded → terminal) fault, not a
- *  sleeping host. Throwing this error lets the resolver say so explicitly; the
- *  session reads `.failureCause` instead of assuming `"network"`. A plain `Error`
- *  keeps the back-compatible `"network"` default.
+ *  baked for that system. Throwing this error lets the resolver say so
+ *  explicitly; the session reads `.failureCause` and gives up bounded instead of
+ *  assuming `"network"`. A plain `Error` keeps the back-compatible `"network"`
+ *  default.
+ *
+ *  `failureCause` is the LITERAL `"remote"`, not the full {@link FailureCause}:
+ *  the class exists SOLELY to assert the non-transport fault, so a `"network"`
+ *  inhabitant would classify identically to a plain `Error` and buy nothing —
+ *  making it representable was an uninhabitable variant. Both real producers
+ *  (kolu-server's `makeResolvePadiDrv`) pass `"remote"`; the parameter is pinned
+ *  to that literal so the redundant `"network"` state is a COMPILE error, not a
+ *  constructible-but-meaningless value (`new ResolveDrvError(msg, "network")` no
+ *  longer typechecks). Kept as a required constructor arg — rather than a bare
+ *  field — so the two existing producers stay source-compatible.
  *
  *  The discriminant is its OWN field (`failureCause`), NOT the standard
  *  `Error.cause` (the ES2022 options bag). Redeclaring `cause` as a class member
@@ -60,7 +70,7 @@ export type { FailureCause };
 export class ResolveDrvError extends Error {
   constructor(
     message: string,
-    readonly failureCause: FailureCause,
+    readonly failureCause: Extract<FailureCause, "remote">,
   ) {
     super(message);
     this.name = "ResolveDrvError";

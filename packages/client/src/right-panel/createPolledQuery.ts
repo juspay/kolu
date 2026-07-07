@@ -105,6 +105,14 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   });
   const [pending, setPending] = createSignal(true);
   const [error, setError] = createSignal<Error | undefined>();
+  // Mirrors `createSubscription`'s typed-end fact: latches true once the PULSE
+  // stream (the thing that would ever tell this query to requery again) ends
+  // normally — never on abort (an input change / teardown). Without it, this
+  // hand-rolled `Subscription` silently dropped the field a real one always
+  // populates, and a consumer that checks `.complete?.()` (same as any other
+  // stream-backed subscription) would see "not complete" forever even after the
+  // pulse genuinely stopped.
+  const [complete, setComplete] = createSignal(false);
 
   /** The ONE error sink for BOTH channels — the requery AND the pulse stream.
    *  Routing the pulse (watcher-install) failure here, not to a separate
@@ -162,6 +170,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
         setStore("v", undefined);
         setError(undefined);
         setPending(true);
+        setComplete(false);
         if (i === null) return;
         // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
         // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
@@ -184,6 +193,11 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
             )) {
               runQuery(i);
             }
+            // Normal completion — the pulse iterable ended on its own (a typed end,
+            // e.g. the host/entry left membership), not an abort: an aborted loop
+            // never falls through the `for await` to here with `aborted` still
+            // false. Mirrors `createSubscription`'s own typed-end handling.
+            if (!pulseCtl.signal.aborted) setComplete(true);
           } catch (err) {
             if (!pulseCtl.signal.aborted) surfaceError(err);
           }
@@ -195,6 +209,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   const sub = Object.assign(() => store.v, {
     error,
     pending,
+    complete,
   }) as Subscription<Result>;
 
   // Drive `onError` off the self-clearing `error()` EDGE via the shared

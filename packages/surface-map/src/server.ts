@@ -36,9 +36,21 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
 /** A session's connection state — the map DERIVES {@link EntryStatus} from it (a
  *  projection, never a second writer). `copying`/`connecting` project to
  *  `warming`; `connected` carries the serving process's own-clock offset at
- *  hello; `disconnected`/`failed` project to `failed(reason)`. */
-export type EntryConnectionState =
-  | { kind: "copying" }
+ *  hello; `disconnected`/`failed` project to `failed(reason)`.
+ *
+ *  `Prov` mirrors `@kolu/surface-remote/session`'s `SessionState<Prov extends
+ *  ProvisioningPhase>` split (juspay/kolu#1716) ONE LAYER UP: `"copying"` is the
+ *  nix-closure-PROVISIONING phase, a remote-only fact a LOCAL (non-provisioning)
+ *  session can never reach. Before this parameter, a non-provisioning entry could
+ *  still TYPE its state as `{ kind: "copying" }` here — only a runtime belt
+ *  (`serveHostMap`'s `session.provisions === false && state.kind === "copying"`
+ *  throw) caught it landing. Default `Prov = "copying"` keeps every existing
+ *  (mixed / provisioning) registry's type unchanged; a registry that resolves
+ *  ONLY local entries names itself `MapRegistry<K, never>` (or `EntrySession<never>`
+ *  directly), and a `"copying"` literal becomes a compile error there — see
+ *  `entryConnectionState.test-d.ts`. */
+export type EntryConnectionState<Prov extends "copying" | never = "copying"> =
+  | { kind: Prov }
   | { kind: "connecting" }
   | { kind: "connected"; clockOffset: number }
   | { kind: "disconnected"; reason: string }
@@ -47,13 +59,13 @@ export type EntryConnectionState =
 /** A resolved, serveable entry. Carries what the map needs to (a) FORWARD calls
  *  (a live entry-surface oRPC client/link to proxy to) and (b) observe status
  *  (the session's connection state). */
-export interface EntrySession {
+export interface EntrySession<Prov extends "copying" | never = "copying"> {
   /** The entry-surface oRPC client/link the map forwards member calls to
    *  (`link.surface.<member>.<verb>(input)`). */
   readonly link: unknown;
   /** The session's current connection state — read fresh on each publish; the
    *  registry re-fires `subscribe` when it changes so `entries` re-projects. */
-  readonly state: EntryConnectionState;
+  readonly state: EntryConnectionState<Prov>;
 }
 
 /** A terminal, no-session entry — a structural fault (no drv for arch, a bogus
@@ -69,11 +81,11 @@ export interface EntryFault {
  *    the change.
  *  - CLAUSE 2 (snapshot): `members()` and `has()` answer from ONE consistent view.
  *  - Status is DERIVED from the resolved session's state (projection). */
-export interface MapRegistry<K> {
+export interface MapRegistry<K, Prov extends "copying" | never = "copying"> {
   members(): K[];
   subscribe(onChange: () => void): () => void;
   has(key: K): boolean;
-  resolve(key: K): EntrySession | EntryFault;
+  resolve(key: K): EntrySession<Prov> | EntryFault;
 }
 
 function isFault(r: EntrySession | EntryFault): r is EntryFault {

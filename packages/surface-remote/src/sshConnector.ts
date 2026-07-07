@@ -18,7 +18,12 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
-import { buildAgentCommand, forEachLine, ResolveDrvError } from "./host";
+import {
+  buildAgentCommand,
+  forEachLine,
+  isLocalHost,
+  ResolveDrvError,
+} from "./host";
 import { provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
@@ -117,7 +122,7 @@ export function sshConnector<C extends AnyContractRouter>(
     );
 
     // One `closed` per connection: the child's `exit` (a link/agent death — the loop
-    // classifies it by `wasConnected`/`code`) or `error` (the transport couldn't even
+    // classifies it by `wasConnected`/kind) or `error` (the transport couldn't even
     // spawn — a local/config fault the loop reads as bounded `"remote"`). `settle`
     // fires it at most once.
     let onClosed!: (info: ClosedInfo) => void;
@@ -130,7 +135,22 @@ export function sshConnector<C extends AnyContractRouter>(
       settled = true;
       onClosed(info);
     };
-    child.on("exit", (code, signal) => settle({ kind: "exit", code, signal }));
+    // A REMOTE dial went through ssh; localhost ran the binary directly (no ssh).
+    // ssh exits 255 for its OWN connection failures, so over a real ssh link a 255
+    // is (indistinguishably — ssh gives no better signal) either the transport
+    // failing or the remote command itself exiting 255; presume the transport (the
+    // standard ssh-255 convention) and classify it at the CONNECTOR as a distinct
+    // `transport-failed`, rather than leaking a magic `code === 255` into the
+    // transport-agnostic session loop. A localhost 255 has no ssh in play, so it
+    // stays an honest process `exit` (the loop bounds it as `"remote"`).
+    const usesSsh = !isLocalHost(opts.host);
+    child.on("exit", (code, signal) =>
+      settle(
+        usesSsh && code === 255
+          ? { kind: "transport-failed" }
+          : { kind: "exit", code, signal },
+      ),
+    );
     child.on("error", (err) =>
       settle({ kind: "spawn-error", message: err.message }),
     );

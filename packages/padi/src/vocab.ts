@@ -90,11 +90,16 @@ export const RightPanelPerTerminalStateSchema = z.object({
  * `~/.ssh/config` is `{ kind: "remote", hostId: "local" }`, which can never
  * be confused with the in-process endpoint `{ kind: "local" }`. `hostId`
  * matches the rest of the system's host-identity spelling (`getHostSession`,
- * the daemon-status keys).
+ * the daemon-status keys). `hostId` is `.min(1)` — an empty remote hostId is
+ * not a value {@link encodeHostLocation}/{@link decodeHostLocation} can
+ * round-trip (the codec's wire form for it, `"remote:"`, collides with no
+ * hostId at all and `decodeHostLocation` already throws on it) — mirrors
+ * kolu-common/hostKey's `HostKeySchema.target: z.string().min(1)` fix for the
+ * same shape of bug.
  */
 export const HostLocationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("local") }),
-  z.object({ kind: z.literal("remote"), hostId: z.string() }),
+  z.object({ kind: z.literal("remote"), hostId: z.string().min(1) }),
 ]);
 
 export type HostLocation = z.infer<typeof HostLocationSchema>;
@@ -488,6 +493,17 @@ export const SavedTerminalSchema = z.discriminatedUnion("state", [
 
 export const SavedSessionSchema = z.object({
   terminals: z.array(SavedTerminalSchema),
+  // NOTE (type audit): `nullable().optional()` is a redundant double-absence —
+  // every writer in this package already states `null` explicitly (never omits
+  // the key) and every reader already normalizes with `?? null`, so ONE spelling
+  // (`.nullable()` alone, `.optional()` dropped) would say what the domain means.
+  // Tightening it is blocked from HERE, though: the field is REQUIRED (not
+  // optional) once `.optional()` is dropped, and two out-of-scope consumers
+  // construct a `SavedSession` object literal (not via `.parse()`) that OMITS
+  // the key — `packages/client/src/importSessionAction.test.ts:18` and
+  // `packages/client/src/sessionTransfer.test.ts:37` — which the tightened type
+  // would then reject at compile time. Fixing those two call sites is a
+  // one-line client-side edit outside this task's padi-only scope.
   /** Which terminal was active at save time. */
   activeTerminalId: z.string().nullable().optional(),
   savedAt: z.number(),

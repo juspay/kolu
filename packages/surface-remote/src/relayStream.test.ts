@@ -300,7 +300,7 @@ describe("relayHoldOpenStream (value)", () => {
       surface: { s: { get: async (_i, opts) => up.stream(opts?.signal) } },
     };
     const relay = relayHoldOpenStream(POLICY, "pulse", holder, selectPulse, {
-      lead: 0,
+      lead: { frame: 0 },
     });
     const frames: number[] = [];
     const ctl = new AbortController();

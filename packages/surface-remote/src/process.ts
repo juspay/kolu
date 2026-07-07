@@ -16,13 +16,55 @@
 import { spawn } from "node:child_process";
 import { forEachLine } from "./host";
 
-export interface ExitResult {
-  ok: boolean;
-  code: number | null;
+/** How a fire-and-collect child settled — a CLOSED union over the three ways
+ *  `node:child_process` ends a run, so "killed by a signal" and "never spawned"
+ *  stop sharing the one `code: null` inhabitant the old flat `{ code: number |
+ *  null }` gave them (Node hands `close` a `signal` alongside a null `code`; the
+ *  old shape dropped it, collapsing an OOM `SIGKILL` onto a spawn failure):
+ *
+ *   - `exit`        — the child ran and exited with a numeric `code` (`ok` iff 0).
+ *   - `signal`      — the OS killed the child (`close` fired with `code === null`
+ *                     + a `signal`); there is no exit code.
+ *   - `spawn-error` — the child never started (`error` event: bad exe, EACCES);
+ *                     neither code nor signal exists, only a `message`.
+ *
+ *  `ok` is the success gate every caller reads; the `kind`/`code`/`signal`/
+ *  `message` carry the honest WHY (see {@link describeExit}). */
+export type ExitResult =
+  | { ok: boolean; kind: "exit"; code: number }
+  | { ok: false; kind: "signal"; signal: NodeJS.Signals }
+  | { ok: false; kind: "spawn-error"; message: string };
+
+/** An {@link ExitResult} that also buffered stdout (from `runCapture`). */
+export type CaptureResult = ExitResult & { stdout: string };
+
+/** A human-readable tail describing how a run ended — honest across all three
+ *  {@link ExitResult} arms (never "code null" for a signal kill or a spawn
+ *  failure, the cosmetic lie the old flat `code: number | null` forced). */
+export function describeExit(res: ExitResult): string {
+  switch (res.kind) {
+    case "exit":
+      return `exited with code ${res.code}`;
+    case "signal":
+      return `killed by signal ${res.signal}`;
+    case "spawn-error":
+      return `failed to spawn: ${res.message}`;
+  }
 }
 
-export interface CaptureResult extends ExitResult {
-  stdout: string;
+/** Map a `close` event's `(code, signal)` onto the honest {@link ExitResult}
+ *  arm. Node guarantees EXACTLY ONE of the pair is non-null on `close`: a
+ *  non-null `signal` means the OS killed the child (no exit code), otherwise the
+ *  child exited with `code`. Shared by both `runProgress` and `runCapture` so the
+ *  code/signal demux lives in one place. */
+function exitFromClose(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): ExitResult {
+  return signal !== null
+    ? { ok: false, kind: "signal", signal }
+    : // Node guarantees a non-null `code` here (no signal killed the child).
+      { ok: code === 0, kind: "exit", code: code as number };
 }
 
 /** Run a child process with stdout ignored; forward stderr lines to
@@ -50,10 +92,10 @@ export function runProgress(
     proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
     // Use "close" (not "exit") so the last stderr chunk is guaranteed
     // flushed before we resolve — "exit" fires before stdio streams drain.
-    proc.on("close", (code) => resolve({ ok: code === 0, code }));
+    proc.on("close", (code, signal) => resolve(exitFromClose(code, signal)));
     proc.on("error", (err) => {
       onProgress(`${cmd}: ${err.message}`);
-      resolve({ ok: false, code: null });
+      resolve({ ok: false, kind: "spawn-error", message: err.message });
     });
   });
 }
@@ -77,10 +119,17 @@ export function runCapture(
     proc.stderr?.setEncoding("utf-8");
     proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
     // Use "close" (not "exit") so stdout/stderr are fully drained first.
-    proc.on("close", (code) => resolve({ ok: code === 0, code, stdout }));
+    proc.on("close", (code, signal) =>
+      resolve({ ...exitFromClose(code, signal), stdout }),
+    );
     proc.on("error", (err) => {
       onProgress(`${cmd}: ${err.message}`);
-      resolve({ ok: false, code: null, stdout: "" });
+      resolve({
+        ok: false,
+        kind: "spawn-error",
+        message: err.message,
+        stdout: "",
+      });
     });
   });
 }
