@@ -109,8 +109,57 @@ export function useTerminalMetadata(deps: {
    *  `parentId`: presence (a real tile record arrived) is the gate that excludes a
    *  still-loading OR parked terminal from the order. */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
+    const record = rawTile(id);
+    return record === undefined ? undefined : reprojectClock(record);
+  }
+
+  /** The RAW composed tile record — presence + the parked-narrow, with NO clock
+   *  reprojection. The ORDERING filters (`terminalIds`/`getSubTerminalIds`) read `parentId`
+   *  + presence off THIS, both clock-free, so the #1422 order-reference stability is not
+   *  perturbed by `reprojectClock`'s activeHost/offset read + fresh-object-per-call (which
+   *  only the value-reading `getMetadata` needs). */
+  function rawTile(id: TerminalId): TerminalMetadata | undefined {
     const record = terminals.byKey(id)?.();
     return record === undefined || isParked(record) ? undefined : record;
+  }
+
+  /** Reproject the record's padi-host-stamped epochs onto THIS browser's clock at the
+   *  ingestion BOUNDARY — via the ACTIVE host's measured `clockOffset` — so no downstream
+   *  consumer ever subtracts a raw remote epoch from the local clock (the foreign-clock
+   *  fence, applied ONCE here rather than per-consumer, so nothing is translated twice).
+   *  The THREE padi-stamped epochs a tile consumer renders against `Date.now()` are:
+   *  `lastActivityAt` (top-level, optional — staleness/recency), the ACTIVE arm's
+   *  `agent.startedAt` (the "Running for" duration), and the SLEEPING arm's `sleptAt` (the
+   *  "asleep 3d" line + dock recency). (`adoptedAt` rides the daemon status, not a tile,
+   *  and is a monotonic host-to-host dedup key — never compared to the browser clock — so
+   *  it stays raw there; `parkedAt` lives only on the parked arm this boundary narrows out.)
+   *  A null offset (host still warming, no offset measured yet) maps each epoch to its
+   *  ABSENT form — `lastActivityAt` → undefined, `agent.startedAt`/`sleptAt` → 0 — every
+   *  one of which consumers already render as "unknown", never the raw value. */
+  function reprojectClock(record: TerminalMetadata): TerminalMetadata {
+    const { toLocal } = padiMap.entry(activeHost()).clock;
+    const lastActivityAt =
+      record.lastActivityAt === undefined
+        ? undefined
+        : (toLocal(record.lastActivityAt) ?? undefined);
+    const agent =
+      "agent" in record && typeof record.agent?.startedAt === "number"
+        ? { ...record.agent, startedAt: toLocal(record.agent.startedAt) ?? 0 }
+        : "agent" in record
+          ? record.agent
+          : undefined;
+    const sleptAt =
+      "sleptAt" in record && typeof record.sleptAt === "number"
+        ? (toLocal(record.sleptAt) ?? 0)
+        : undefined;
+    // The same type bridge the parked-narrow above rides: the reprojected fields keep
+    // their wire types (number|undefined), so this is a value-only rewrite of the record.
+    return {
+      ...record,
+      lastActivityAt,
+      ...(agent === undefined ? {} : { agent }),
+      ...(sleptAt === undefined ? {} : { sleptAt }),
+    } as TerminalMetadata;
   }
 
   /** The tri-state census of the listed terminals' composed records, counted from
@@ -167,9 +216,10 @@ export function useTerminalMetadata(deps: {
   const terminalIds = createMemo<TerminalId[]>(
     () =>
       keys().filter((id) => {
-        // `getMetadata` already returns `undefined` for a parked (or not-yet-
-        // arrived) record, so presence alone excludes restore-card rows.
-        const a = getMetadata(id);
+        // `rawTile` already returns `undefined` for a parked (or not-yet-arrived)
+        // record, so presence alone excludes restore-card rows. Raw (not reprojected):
+        // ordering reads only `parentId`, clock-free.
+        const a = rawTile(id);
         return a !== undefined && !a.parentId;
       }),
     [],
@@ -181,7 +231,7 @@ export function useTerminalMetadata(deps: {
    *  presence check suffices here too. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
     return keys().filter((id) => {
-      const a = getMetadata(id);
+      const a = rawTile(id);
       return a !== undefined && a.parentId === parentId;
     });
   }

@@ -87,9 +87,18 @@ const sub = createRoot(() =>
   }),
 );
 
-/** The local daemon's status, or undefined before the first server yield. */
+/** The local daemon's status, or undefined before the first server yield. The daemon's
+ *  `startedAt` is stamped on the ACTIVE host's padi (which serves `daemonStatus`), so it
+ *  is reprojected onto THIS browser's clock at THIS ingestion boundary — the Kaval/Padi
+ *  dialogs render `now − startedAt` uptime, and a raw remote epoch would mix two clocks
+ *  (the foreign-clock fence, applied once here, not per-dialog). A null offset (host
+ *  warming) ⇒ `startedAt` 0, which the dialogs already gate as "unknown". */
 export function localDaemonStatus(): DaemonStatus | undefined {
-  return sub.byKey(LOCAL_HOST)?.();
+  const status = sub.byKey(LOCAL_HOST)?.();
+  if (status === undefined || typeof status.startedAt !== "number")
+    return status;
+  const local = padiMap.entry(activeHost()).clock.toLocal(status.startedAt);
+  return { ...status, startedAt: local ?? 0 };
 }
 
 // kolu-server's live view of its binding to the local padi, off koluSurface's server-

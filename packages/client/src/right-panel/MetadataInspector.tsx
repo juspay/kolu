@@ -8,7 +8,7 @@ import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
-import { useHostDuration } from "../terminal/staleness";
+import { useDuration } from "../terminal/staleness";
 import {
   agentIcons,
   agentNames,
@@ -18,7 +18,6 @@ import {
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
-import { activeHost, padiMap } from "../wire";
 import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
 
@@ -30,16 +29,10 @@ const MetadataInspector: Component<{
 }> = (props) => {
   // Reactive elapsed-since formatter for the agent's "Running for" row; reads
   // the shared 60s tick so it advances on its own while the panel is open.
-  // Host-stamped agent `startedAt` → reprojected to the browser clock via the ACTIVE
-  // host's offset, so a skewed remote host's "Running for" row is honest (warming ⇒ "—").
-  const toLocal = (ms: number) => padiMap.entry(activeHost()).clock.toLocal(ms);
-  const runningFor = useHostDuration(toLocal);
-  // The absolute "Started" instant is ALSO reprojected — a remote host's raw `startedAt`
-  // is on its OWN clock; "—" until the offset is measured (warming), never mis-framed.
-  const startedLabel = (ms: number): string => {
-    const local = toLocal(ms);
-    return local === null ? "—" : new Date(local).toLocaleString();
-  };
+  // `startedAt` is already reprojected to the browser clock at the metadata ingestion
+  // boundary (`useTerminalMetadata.reprojectClock`), so a plain local-clock duration +
+  // instant are correct here — the boundary owns reprojection (warming ⇒ startedAt 0).
+  const runningFor = useDuration();
   return (
     <Show
       when={props.meta}
@@ -212,7 +205,7 @@ const MetadataInspector: Component<{
                       <Row label="Running for">
                         <span
                           class="font-mono text-fg"
-                          title={`Started ${startedLabel(startedAt())}`}
+                          title={`Started ${new Date(startedAt()).toLocaleString()}`}
                         >
                           {runningFor(startedAt())}
                         </span>
