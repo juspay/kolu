@@ -25,6 +25,7 @@ import { ORPCError } from "@orpc/client";
 import { implement } from "@orpc/server";
 import type { z } from "zod";
 import type { EntryStatus, SurfaceMap } from "./define";
+import { unfoldInput, unfoldKeyField } from "./envelope";
 
 // ── The resolver / membership seam ──────────────────────────────────────
 
@@ -137,7 +138,7 @@ function entryMemberVerbs(
  *  key-stripping heuristic: the key lives in its own `mapKey` field, so an entry
  *  input that itself has a `mapKey` field survives untouched (it rode `input`). */
 function unwrapInput(wire: unknown): unknown {
-  return (wire as { input?: unknown } | undefined)?.input;
+  return unfoldInput(wire);
 }
 
 /** Resolve `link.surface.<...path>` to its leaf callable. */
@@ -258,7 +259,7 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   }
 
   const parseMapKey = (input: unknown): K =>
-    keySchema.parse((input as { mapKey?: unknown } | undefined)?.mapKey) as K;
+    keySchema.parse(unfoldKeyField(input)) as K;
 
   const makeStreamHandler = (path: readonly string[]) =>
     async function* (opts: { input?: unknown }): AsyncGenerator<unknown> {

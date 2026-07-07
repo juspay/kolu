@@ -32,6 +32,7 @@ import type {
 import { resolveCellVerbs, resolveCollectionVerbs } from "@kolu/surface/define";
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
+import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
 
 // ── Membership status ──────────────────────────────────────────────────
 
@@ -70,7 +71,10 @@ type MapKeySchema = ZodType<unknown>;
 /** The fold envelope `z.object({ mapKey, input })` — `input` is the member's own
  *  input schema (or `z.void()` when it has none). The single home of the shape. */
 function foldInput(keySchema: MapKeySchema, inner?: ZodType<unknown>): ZodType {
-  return z.object({ mapKey: keySchema, input: inner ?? z.void() }) as ZodType;
+  return z.object({
+    [MAP_KEY_FIELD]: keySchema,
+    [INPUT_FIELD]: inner ?? z.void(),
+  }) as ZodType;
 }
 
 /** The `deltas` wire schema — replicated from `@kolu/surface/define`'s private

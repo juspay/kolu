@@ -28,6 +28,7 @@ import {
 import { type Accessor, createEffect, getOwner, runWithOwner } from "solid-js";
 import type { z } from "zod";
 import type { EntryStatus, SurfaceMap } from "./define";
+import { fold } from "./envelope";
 
 // ── Entry & client shapes ───────────────────────────────────────────────
 
@@ -137,7 +138,7 @@ export interface SurfaceMapClient<
  *  an entry input carrying its own `mapKey` field can't collide with the folded key
  *  (it rides `input`, nested). */
 function foldMapKey(mapKey: unknown, input: unknown): unknown {
-  return { mapKey, input };
+  return fold(mapKey, input);
 }
 
 /** A Proxy over `link` that folds `mapKey` into every `surface.<member>.<verb>`
