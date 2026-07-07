@@ -613,6 +613,46 @@ describe("surface-map mock-entry e2e harness", () => {
       dispose();
     });
   });
+
+  it("(14) multi-host membership crash — two `entries` consumers must SHARE one onError (strip-first order)", async () => {
+    // kolu's multi-host wiring has TWO whole-collection consumers of the membership authority
+    // `entries`: HostSelectorStrip's chip row and wire.ts's reconcile sub. They mount in NO
+    // guaranteed order — the GATED strip can register before wire.ts's setup runs — and the
+    // whole-collection dedup slot is order-ASYMMETRIC. The `nix run` runtime crash was a BARE
+    // strip `.use()` baking `undefined` into the slot FIRST, then a handler sibling THROWING
+    // second. The fix is ONE shared handler reference (kolu: `onHostMembershipError`), so the
+    // slot bakes it once and the sibling matches. This is the registration-layer sibling of the
+    // unmocked-boot test: gate-ON, both consumers register, the wiring comes up clean — no DOM.
+    const onMembershipError = (_err: Error): void => {};
+
+    // (a) THE FIX — both consumers SHARE the handler; strip-FIRST (the crash order) is clean.
+    await createRoot(async (dispose) => {
+      const { client, addSession } = setup();
+      addSession(
+        A,
+        makeEntry({ awaiting: 1, awaitingIds: [] }).link,
+        connected(0),
+      );
+      expect(() => {
+        client.entries.use({ onError: onMembershipError }); // strip chip row — registers first
+        client.entries.use({ onError: onMembershipError }); // wire.ts reconcile — registers second
+      }).not.toThrow();
+      await settle();
+      dispose();
+    });
+
+    // (b) THE TRAP it closes — a DIVERGENT pair (bare strip `.use()` first, then a handler)
+    //     still throws LOUDLY on the real membership authority, so a future re-divergence
+    //     re-crashes at boot rather than silently dropping the handler.
+    createRoot((dispose) => {
+      const { client } = setup();
+      client.entries.use(); // strip, BARE (undefined) — registers first
+      expect(() => client.entries.use({ onError: onMembershipError })).toThrow(
+        /already has an error handler/,
+      );
+      dispose();
+    });
+  });
 });
 
 // The liveness floor `state()`/foldState applies (D3): a per-key chip must never paint
