@@ -5,6 +5,18 @@
  */
 
 import type { EntryStatus } from "@kolu/surface-map";
+import type { HostMapGate } from "kolu-common/surface";
+
+/** The gate DECISION — whether the selector strip renders AT ALL. The strip is purely
+ *  presentational with NO dual code path: with the gate closed (env-unset single-host
+ *  default) the whole component renders nothing — a Solid `<Show>`, so it is ABSENT from
+ *  the DOM, not CSS-hidden — and the single-host canvas stays pixel-identical. `undefined`
+ *  (before the first cell frame) reads CLOSED, so the strip never flashes in during warm-
+ *  up. (Real-DOM absence on an env-unset boot is captured as E2E evidence; this pins the
+ *  sole predicate that governs the render.) */
+export function hostGateOpen(gate: HostMapGate | undefined): boolean {
+  return gate?.enabled === true;
+}
 
 /** The connection dot's tailwind tone. Green (`bg-emerald-400`) is emitted ONLY for
  *  `connected` — fact-only, the same discipline `<HostStatusPip>` enforces for a

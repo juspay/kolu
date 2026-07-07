@@ -25,7 +25,7 @@
 import { type HostKey, HostKeySchema, LOCAL_HOST } from "kolu-common/hostKey";
 import { type Component, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
-import { dotClass, statusTitle } from "./hostChipTone";
+import { dotClass, hostGateOpen, statusTitle } from "./hostChipTone";
 import { activeHost, app, client, padiMap, setActiveHost } from "./wire";
 
 const HostChip: Component<{ host: HostKey }> = (props) => {
@@ -131,7 +131,7 @@ const HostSelectorStrip: Component = () => {
   };
 
   return (
-    <Show when={gate.value()?.enabled}>
+    <Show when={hostGateOpen(gate.value())}>
       <div
         class="pointer-events-auto flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar"
         data-testid="host-selector-strip"

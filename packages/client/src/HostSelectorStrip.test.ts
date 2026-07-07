@@ -8,9 +8,22 @@
 
 import type { EntryStatus } from "@kolu/surface-map";
 import { describe, expect, it } from "vitest";
-import { dotClass, statusTitle } from "./hostChipTone";
+import { dotClass, hostGateOpen, statusTitle } from "./hostChipTone";
 
 const GREEN = "bg-emerald-400";
+
+describe("HostSelectorStrip gate — closed ⇒ ZERO multi-host UI", () => {
+  // The strip's whole render is `<Show when={hostGateOpen(gate.value())}>`, so this
+  // predicate is the SOLE thing that decides whether ANY chip/strip exists. Closed ⇒
+  // false ⇒ the Show mounts nothing (absent from the DOM, not hidden) ⇒ the single-host
+  // canvas is pixel-identical. (Real-browser DOM-absence on an env-unset boot is captured
+  // as E2E evidence; this pins the decision.)
+  it("stays closed until the server opens the gate — no dual path, no flash-in", () => {
+    expect(hostGateOpen(undefined)).toBe(false); // pre-first-frame ⇒ closed (no flash)
+    expect(hostGateOpen({ enabled: false })).toBe(false); // env-unset single-host default
+    expect(hostGateOpen({ enabled: true })).toBe(true); // KOLU_PADI_HOST seeded a remote
+  });
+});
 
 describe("HostSelectorStrip dot tone — fact-only green", () => {
   it("emits green ONLY for connected", () => {
