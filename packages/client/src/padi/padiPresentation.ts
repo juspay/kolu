@@ -45,23 +45,28 @@ export function padiDot(link: PadiLink | undefined, live: boolean): string {
 
 /** padi's honest identity, once known — the fields the Padi dialog shows for a
  *  `connected` bind (build commit, contract/surface version, standing convergence
- *  anomaly). `buildCommit` is MANDATORY here (unlike the raw `daemonInventory.boundPadi`
- *  cell, whose `buildCommit` is nullable): {@link toPadiPresence} is the ONE place that
- *  decides what "connected but no build commit yet" means, so a render site can never
- *  see a `connected` {@link PadiPresence} with an absent build commit. */
+ *  anomaly). `buildCommit` is MANDATORY here — but nullable: a `null` is padi's OWN
+ *  DECLARED fact ("this build has no commit", a dev/off-nix build), never a
+ *  placeholder for "not sampled yet". That absence is a DIFFERENT state entirely —
+ *  the whole per-host `identity` cell reading `undefined` (not yet arrived) — which
+ *  {@link toPadiPresence} floors to `warming`, never `connected`. So "connected but
+ *  identity unknown" stays IMPOSSIBLE TO CONSTRUCT, while "connected with a
+ *  DECLARED-null commit" is legal and distinct — see `padiPresentation.test-d.ts`'s
+ *  pins for both. */
 export type PadiIdentity = {
-  buildCommit: string;
-  surfaceVersion: string | null;
+  buildCommit: string | null;
+  surfaceVersion: string;
   convergence: PadiConvergence | null;
 };
 
 /** The Padi dialog/rail's own honest presence sum — narrower than the raw wire facts
- *  (`padiLink` + `daemonInventory.boundPadi.*`), which the dialog used to read directly
- *  with `??`/ternary fallbacks to "unknown"/"—"/"unavailable" even while `padiLink` read
- *  `connected` (the P4 escape hatch this type retires). `identity` is MANDATORY on the
- *  `connected` arm, so "connected but identity unknown" is IMPOSSIBLE TO CONSTRUCT — see
- *  `padiPresentation.test.ts`'s `@ts-expect-error` pin. Every render site must go through
- *  {@link toPadiPresence}, never read `padiLink`/`boundPadiBuildCommit()` etc. directly. */
+ *  (`padiLink` + padi's per-host `identity` cell), which the dialog used to read
+ *  directly with `??`/ternary fallbacks to "unknown"/"—"/"unavailable" even while
+ *  `padiLink` read `connected` (the P4 escape hatch this type retires). `identity` is
+ *  MANDATORY on the `connected` arm, so "connected but identity unknown" is
+ *  IMPOSSIBLE TO CONSTRUCT — see `padiPresentation.test.ts`'s `@ts-expect-error` pin.
+ *  Every render site must go through {@link toPadiPresence}, never read
+ *  `padiLink`/the identity cell's raw value etc. directly. */
 export type PadiPresence =
   | { kind: "connected"; identity: PadiIdentity }
   | { kind: "warming" }
@@ -70,28 +75,37 @@ export type PadiPresence =
 /** Project the raw wire facts into the client's own honest {@link PadiPresence} — the
  *  ONE place "connected" is decided. Floored on `live` (the browser↔kolu-server ws
  *  liveness) exactly like {@link padiDot}: a dead/half-open channel can't confirm ANY
- *  state, so it folds to `warming` (never a stale "connected" claim over a value the dead
- *  channel can no longer refresh). A `connected` link whose identity sample hasn't landed
- *  yet (the sampler ticks separately from the link's own connect) ALSO folds to
- *  `warming` — "still learning who this is" — rather than showing `connected` beside a
- *  synthesized dash; the identity typically arrives within one sampler tick (≤10s, see
- *  `server/src/daemonInventory.ts`'s `DAEMON_INVENTORY_SAMPLE_INTERVAL_MS`), so this is a
- *  brief, honest transitional window, never a permanent lie. */
+ *  state, so it folds to `warming` (never a stale "connected" claim over a value the
+ *  dead channel can no longer refresh).
+ *
+ *  `identity` is the ACTIVE host's per-host `identity` cell value (`padiMap.useEntry
+ *  (activeHost).cells.identity`) — `undefined` means the cell hasn't arrived over the
+ *  wire yet (a genuinely PENDING state, "still learning who this is") and folds to
+ *  `warming`, exactly like a not-yet-landed identity sampler tick used to. This is
+ *  DELIBERATELY a single object parameter, not two nullable strings: `identity.commit`
+ *  being `null` is padi's OWN DECLARED "no commit" fact (a dev/off-nix build) and
+ *  reads as `connected` — the two "unknown"s (pending vs declared-null) can never be
+ *  conflated by a `??` because they are different TYPES here (absent object vs a
+ *  present object with a null field), not the same nullable string. */
 export function toPadiPresence(
   link: PadiLink | undefined,
   live: boolean,
-  buildCommit: string | null,
-  surfaceVersion: string | null,
+  identity: { commit: string | null; surfaceVersion: string } | undefined,
   convergence: PadiConvergence | null,
 ): PadiPresence {
   if (!live || link === undefined || link === "connecting")
     return { kind: "warming" };
   if (link === "degraded") return { kind: "down" };
-  // link === "connected"
-  if (buildCommit === null) return { kind: "warming" };
+  // link === "connected": the identity cell PENDING (not yet arrived) is a genuinely
+  // unknown state, never a synthesized "connected with no commit" — fold to warming.
+  if (identity === undefined) return { kind: "warming" };
   return {
     kind: "connected",
-    identity: { buildCommit, surfaceVersion, convergence },
+    identity: {
+      buildCommit: identity.commit,
+      surfaceVersion: identity.surfaceVersion,
+      convergence,
+    },
   };
 }
 

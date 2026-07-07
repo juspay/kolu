@@ -58,9 +58,12 @@ export function projectState(
         ? { kind: "connecting" }
         : { kind: "connected", clockOffset };
     case "disconnected":
-      return { kind: "disconnected", reason: s.lastError ?? "disconnected" };
+      // `lastError` is REQUIRED on the down arm now (juspay/kolu SessionState
+      // sum split) — a down link always has a real reason, so there is no
+      // invented `?? "disconnected"` fallback left to write.
+      return { kind: "disconnected", reason: s.lastError };
     case "failed":
-      return { kind: "failed", reason: s.lastError ?? "failed" };
+      return { kind: "failed", reason: s.lastError };
   }
 }
 

@@ -39,16 +39,29 @@ const identityCodec: KeyCodec<z.infer<typeof HostKey>> = {
 };
 const map = defineSurfaceMap(HostKey, entrySurface, identityCodec);
 
+/** Build a `SessionState` for the given `connection` phase. The DOWN arm
+ *  (`disconnected`/`failed`) now REQUIRES a real `lastError` — the type no
+ *  longer admits "down with no reason" — so this throws rather than silently
+ *  defaulting one in, mirroring the production invariant at the test-helper
+ *  boundary. */
 const st = (
   connection: SessionState["connection"],
-  lastError: string | null = null,
-): SessionState => ({
-  connection,
-  progressLines: [],
-  remoteProgressLines: [],
-  lastError,
-  failureCause: null,
-});
+  lastError?: string,
+): SessionState => {
+  if (connection === "disconnected" || connection === "failed") {
+    if (lastError === undefined) {
+      throw new Error(`st(${connection}): a down arm requires a lastError`);
+    }
+    return {
+      connection,
+      progressLines: [],
+      remoteProgressLines: [],
+      lastError,
+      failureCause: "remote",
+    };
+  }
+  return { connection, progressLines: [], remoteProgressLines: [] };
+};
 
 type FakeSession = Session & { clockOffset(): number | null };
 
@@ -144,11 +157,11 @@ describe("projectState — SessionState → EntryConnectionState", () => {
       kind: "failed",
       reason: "dead",
     });
-    // reason coalesces a null lastError.
-    expect(projectState(st("disconnected"), 5)).toEqual({
-      kind: "disconnected",
-      reason: "disconnected",
-    });
+    // NOTE: a down state with NO reason is no longer constructible at all — the
+    // `SessionState` sum requires `lastError` on `disconnected`/`failed` (see
+    // `st()` above), so the old "reason coalesces a null lastError" case (the
+    // `?? "disconnected"` fallback `projectState` used to need) has no
+    // representable input to test; the fallback itself was deleted as dead code.
     expect(projectState(undefined, 5)).toEqual({ kind: "connecting" });
   });
 });

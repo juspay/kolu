@@ -115,12 +115,14 @@ export * from "./vocab.ts";
  *  preserving kaval recycle); 1.2 ADDS the `hostInventory` cell (padi serving the
  *  running kaval + padi daemons on its OWN host — the "Running daemons" leak
  *  diagnostic, which rides the re-served surface so it works identically local and
- *  remote). Additive growth (a new optional field / stream / procedure / cell) is a
- *  minor bump; a shape-breaking change a major. A remote dial gates an incompatible
- *  padi via `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION},
- *  which is frozen forever so a contract-revving deploy can still reach the
- *  daemon's control core. */
-export const PADI_SURFACE_VERSION = "1.2";
+ *  remote); 1.3 ADDS the `identity` cell (padi's own build commit / surfaceVersion /
+ *  boot time, the per-host twin of the control-core `hello` — see
+ *  {@link PadiIdentitySchema}). Additive growth (a new optional field / stream /
+ *  procedure / cell) is a minor bump; a shape-breaking change a major. A remote dial
+ *  gates an incompatible padi via `isContractVersionCompatible`. Distinct from
+ *  {@link CONTROL_CORE_VERSION}, which is frozen forever so a contract-revving
+ *  deploy can still reach the daemon's control core. */
+export const PADI_SURFACE_VERSION = "1.3";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -129,6 +131,50 @@ export type PadiVersion = z.infer<typeof PadiVersionSchema>;
 /** The value a fresh `version` subscriber sees — this build's version. */
 export const DEFAULT_PADI_VERSION: PadiVersion = {
   contractVersion: PADI_SURFACE_VERSION,
+};
+
+// ── Identity (padi's own build commit · surfaceVersion · boot time) ───────
+
+/** The `identity` cell payload — padi's own honest identity, PER HOST. padi is the
+ *  sole authority on its own identity (P3): these are the EXACT facts it already
+ *  advertises on the frozen control-core `hello` ({@link PadiHelloSchema}'s
+ *  `commit`/`surfaceVersion`/`startedAt`, below) — re-served here, on `padiSurface`
+ *  itself, so a per-host `padiMap` entry (W4's cross-host dock) can read the
+ *  RUNNING padi's own identity directly instead of riding the single legacy bind
+ *  (`daemonInventory.boundPadi` / `app.cells.padiLink`), which only ever describes
+ *  whichever ONE padi kolu-server happens to be bound to — a wrong-host lie the
+ *  instant a REMOTE host is active.
+ *
+ *  `commit` is DECLARED, not "absent until known": `null` means padi ITSELF has
+ *  declared "no commit" (a dev/off-nix build with no `PADI_COMMIT_HASH`) — a real
+ *  fact, rendered "—". This is NEVER the encoding for "the cell hasn't arrived over
+ *  the wire yet" — that is the subscription's own pending state (the client reads
+ *  `undefined`, not a synthesized `null`), so the two "unknown"s can't be conflated
+ *  (see `padiPresentation.ts`'s `toPadiPresence` on the client). `surfaceVersion`
+ *  and `startedAt` are likewise always DECLARED once the cell arrives — never
+ *  optional-absent.
+ *
+ *  `startedAt` is padi's RAW boot epoch, stamped on padi's OWN clock — a consumer
+ *  on a DIFFERENT host must reproject it through that entry's `clock.toLocal`
+ *  before computing an uptime (never `browserNow − rawRemoteEpoch`, the
+ *  metadata-boundary bug `useDaemonStatus.ts`'s `localDaemonStatus` already fixed
+ *  for `daemonStatus.startedAt` — this cell's consumer must mirror it). */
+export const PadiIdentitySchema = z.object({
+  commit: z.string().nullable(),
+  surfaceVersion: z.string(),
+  startedAt: z.number(),
+});
+export type PadiIdentity = z.infer<typeof PadiIdentitySchema>;
+
+/** The pre-boot placeholder — practically unobservable: padi computes the real
+ *  identity synchronously (no I/O) at surface-deps construction and seeds the
+ *  store with it directly, so a fresh subscriber sees the real value from the
+ *  first frame. Kept only because every cell needs a `default` (spec completeness,
+ *  the `liveWhen`-adjacent contract every other cell here follows). */
+export const DEFAULT_PADI_IDENTITY: PadiIdentity = {
+  commit: null,
+  surfaceVersion: PADI_SURFACE_VERSION,
+  startedAt: 0,
 };
 
 // ── Status (the per-host build-currency axis) ─────────────────────────────
@@ -478,6 +524,15 @@ export const padiSurface = defineSurface({
   cells: {
     /** padi's self-declared surface contract version (1.0). */
     version: { schema: PadiVersionSchema, default: DEFAULT_PADI_VERSION },
+    /** padi's own honest identity — build commit / surfaceVersion / boot time, PER
+     *  HOST (see {@link PadiIdentitySchema}). Read-only on the client; padi seeds it
+     *  ONCE at boot, from the same source constants the control-core `hello` reads
+     *  (never re-derived), so this and `hello` can't drift. */
+    identity: {
+      schema: PadiIdentitySchema,
+      default: DEFAULT_PADI_IDENTITY,
+      verbs: ["get"],
+    },
     /** The recency-free urgency projection — read-only on the client; padi's
      *  registry fold is the sole writer. */
     urgency: {
@@ -738,6 +793,7 @@ export type ForwardingPolicy = "value" | "delta";
 export const PADI_FORWARDING_POLICY = {
   // cells
   version: "value",
+  identity: "value",
   urgency: "value",
   status: "value",
   hostInventory: "value",

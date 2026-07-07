@@ -5,9 +5,10 @@
  *  commit, socket, memory, uptime, the running-daemons list). Genuine per-daemon
  *  differences stay: kaval carries a currency/stale nudge + a restart affordance;
  *  padi's status is its `padiLink` (kolu-server's binding state), not a `daemonStatus`
- *  liveness. padi's contract version + build commit + socket ride the server-authored
- *  `daemonInventory` cell (the bound padi's honest `hello.surfaceVersion` / `.commit`),
- *  the padi twin of kaval's `system.version`.
+ *  liveness. padi's contract version + build commit ride its OWN per-host `identity`
+ *  cell (W4 "the switch" — the ACTIVE host's honest `surfaceVersion`/`commit`, the
+ *  padi twin of kaval's `system.version`); the socket detail row still reads the
+ *  bound-host scan (`useHostInventory`'s `activePadi()`).
  *
  *  ── HOST-SCOPING CLASSIFICATION TABLE (W4 "the switch") ──────────────────────────
  *  Every per-host-shaped field either RE-KEYS on `activeHost` (host-scoped) or is
@@ -24,14 +25,16 @@
  *  | `serverRssBytes()`, `serverStartedAt()`          | host-INDEPENDENT by design — kolu-server's own process has exactly one RSS/boot-time |
  *  | `clientHeapUsedBytes()`                          | host-INDEPENDENT by design — THIS browser tab's JS heap, not a daemon fact at all |
  *  | `padiLinkState()` (padi chip/dialog status)      | host-INDEPENDENT **today**, not by design — describes the LEGACY single-bind `padiSession`, hardcoded to the LOCAL default under always-map (`server/src/index.ts`); no per-host `padiLink` wire member exists yet (padi/server gap, out of this fix's scope) |
- *  | `activePadiSurfaceVersion()`, `boundPadiBuildCommit()`, `boundPadiConvergence()`, `daemonScanBoundHost()` | host-INDEPENDENT **today**, not by design — same `padiSession`-hardcoded-local gap |
- *  | `padiStartedAt()`                                | host-INDEPENDENT **today**, not by design — same gap (padi's own boot time has no per-host wire member) |
- *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` VALUE | host-INDEPENDENT **today**, not by design — koluSurface's `processMemory` folds the LOCAL padi/kaval pair (`server/src/memorySampler.ts`); padi DOES serve its own per-host `processMemory`, but kolu-server's fold isn't wired to the active host yet |
+ *  | `boundPadiConvergence()`, `daemonScanBoundHost()`  | host-INDEPENDENT **today**, not by design — same `padiSession`-hardcoded-local gap |
+ *  | `activePadiIdentity()` (build commit, surfaceVersion) | host-scoped (W4 "the switch") — `padiMap.useEntry(activeHost).cells.identity`, padi's own per-host hello twin |
+ *  | `activePadiStartedAt()`                          | host-scoped (W4 "the switch") — same `identity` cell, reprojected via `padiMap.entry(activeHost).clock.toLocal` (padi's boot epoch is on padi's OWN clock) |
+ *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` VALUE | host-scoped (W4 "the switch") — `padiMap.useEntry(activeHost).cells.processMemory` (padi's OWN per-host RSS pair), not koluSurface's host-independent fold any more |
  *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` GATE  | host-scoped — floored on `daemonTransportLive()`/`daemonChannelLive()` (kaval's) |
  *
- *  The "host-independent today" rows are a real gap (padi/server must eventually serve
- *  per-host identity/memory/uptime through `padiMap`), not a permanent design choice —
- *  flagged in each hook's own module comment, out of this fix's file scope (client-only). */
+ *  The remaining "host-independent today" rows (`padiLinkState()`, `boundPadiConvergence()`,
+ *  `daemonScanBoundHost()`) are a real gap (padi/server must eventually serve a per-host
+ *  `padiLink`/convergence through `padiMap`), not a permanent design choice — flagged in
+ *  each hook's own module comment, out of this fix's file scope (client-only). */
 
 import type {
   PadiConvergence,
@@ -48,19 +51,18 @@ import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import { formatMBCompact } from "../ui/memory";
 import RunningDaemonsSection from "../ui/RunningDaemonsSection";
 import {
-  activePadiSurfaceVersion,
-  boundPadiBuildCommit,
   boundPadiConvergence,
   daemonScanBoundHost,
   localScanPadis,
 } from "../ui/useDaemonInventory";
 import {
   activePadi,
+  activePadiIdentity,
+  activePadiStartedAt,
   boundHostInventoryLive,
   boundHostPadis,
 } from "../ui/useHostInventory";
 import { padiMemoryDisplay } from "../ui/useMemoryUsage";
-import { padiStartedAt } from "../ui/useProcessUptime";
 import {
   PADI_LINK_PRESENTATION,
   type PadiPresence,
@@ -88,7 +90,7 @@ const RunningPadiRow: Component<{ padi: RunningPadi }> = (props) => (
     </div>
     {/* padi's contract version + build commit are NOT per-row: padi cannot probe a
         foreign padi, so they belong to the one bound padi and ride the header chip +
-        build DetailRow (off `daemonInventory.boundPadi`). The row shows only the gate
+        build DetailRow (off its own per-host `identity` cell). The row shows only the gate
         pid — the terminal count kaval owns, padi does not. */}
     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-fg-3">
       <span>gate pid {props.padi.gatePid ?? dash}</span>
@@ -159,16 +161,19 @@ const PadiInfoDialog: Component<{
   // The client's own honest presence sum (P4 — retires the "unknown"/"—" escape hatch):
   // `identity` is MANDATORY on the `connected` arm, so a render can never show a
   // synthesized dash/"unknown" beside a confirmed-connected padi. Floored on
-  // `daemonTransportLive` exactly like the dot below — a dead/half-open ws, or a
-  // `connected` link whose identity sample hasn't landed yet, folds to `warming`, never
-  // a stale `connected` claim. See `padiPresentation.ts`'s `toPadiPresence` + its
-  // `@ts-expect-error` pin in `padiPresentation.test.ts`.
+  // `daemonTransportLive` exactly like the dot below — a dead/half-open ws, or the ACTIVE
+  // host's `identity` cell not having yielded its first frame yet, folds to `warming`,
+  // never a stale `connected` claim. `activePadiIdentity()` is the ACTIVE host's own
+  // per-host cell (W4 "the switch" — re-keys on `activeHost`, replacing the single
+  // legacy-bind `boundPadi.*` reads); its `commit` field being DECLARED `null` (a
+  // dev/off-nix build) is a legitimate `connected` identity, distinct from the cell
+  // itself being `undefined` (pending). See `padiPresentation.ts`'s `toPadiPresence` +
+  // its `@ts-expect-error` pin in `padiPresentation.test.ts`.
   const presence = createMemo<PadiPresence>(() =>
     toPadiPresence(
       props.link,
       daemonTransportLive(),
-      boundPadiBuildCommit(),
-      activePadiSurfaceVersion(),
+      activePadiIdentity(),
       boundPadiConvergence(),
     ),
   );
@@ -237,8 +242,15 @@ const PadiInfoDialog: Component<{
           </span>
           {/* Uptime, mirroring the Kaval dialog: `now − startedAt`, shown only for a
               CONFIRMED-connected padi with a known boot time — otherwise the retained
-              age is stale/unknown, so show nothing (never a fake uptime). */}
-          <Show when={connected() ? (padiStartedAt() ?? undefined) : undefined}>
+              age is stale/unknown, so show nothing (never a fake uptime).
+              `activePadiStartedAt()` is ALREADY reprojected onto the browser's clock via
+              the active entry's `clock.toLocal` (padi's raw boot epoch is on padi's OWN
+              clock) — never subtract a raw remote epoch from `clockNow()` directly. */}
+          <Show
+            when={
+              connected() ? (activePadiStartedAt() ?? undefined) : undefined
+            }
+          >
             {(t) => (
               <span class="truncate text-[11px] tabular-nums text-fg-3">
                 up {formatUptime(clockNow() - t())}
@@ -255,20 +267,22 @@ const PadiInfoDialog: Component<{
       </div>
 
       {/* Detail rows mirror the Kaval dialog's set + order: build commit, socket,
-          memory. padi's build commit is the RUNNING padi's `hello.commit` off the
-          active `daemonInventory` row (the padi twin of kaval's `system.version`
-          identity); `<Commit>` renders it as the SAME navigable commit link the Kaval
-          dialog uses, or an honest "—" when unknown (#1034). */}
+          memory. padi's build commit is the RUNNING padi's OWN per-host `identity`
+          cell (the padi twin of kaval's `system.version` identity, W4 "the switch");
+          `<Commit>` renders it as the SAME navigable commit link the Kaval dialog
+          uses, or an honest "—" when unknown (#1034). */}
       <div class="space-y-1">
         <DetailRow label="build commit">
-          {/* Routed through `connected()` (P4): a confirmed-connected padi's build
-              commit is present BY CONSTRUCTION (no `??`/ternary escape hatch to a
-              synthesized dash beside a claimed-connected state); a
-              non-connected/not-yet-identified/transport-dead padi passes `undefined`,
-              which `<Commit>` renders as an honest "—". The BOUND padi's `hello.commit`
-              works over ssh — no local active row under a remote binding — the padi
-              twin of kaval's `system.version`. */}
-          <Commit sha={connected()?.identity.buildCommit} />
+          {/* Routed through `connected()` (P4): a confirmed-connected padi's identity
+              is present BY CONSTRUCTION (no `??`/ternary escape hatch to a synthesized
+              dash for the CELL-PENDING case — that state never reaches `connected` at
+              all, see `toPadiPresence`). `identity.buildCommit` is `string | null`: a
+              DECLARED `null` (padi's own dev/off-nix build has no commit) and a
+              non-connected/transport-dead padi's `undefined` both render "—" via
+              `<Commit>`'s own fallback — but only the former is a WIRE fact, the
+              latter is simply "no row to show". padi's `identity` cell works over ssh
+              too — no local active row under a remote binding. */}
+          <Commit sha={connected()?.identity.buildCommit ?? undefined} />
         </DetailRow>
         <DetailRow label="socket">
           {/* Local bind → the padi's unix socket. Remote bind → the padi lives on the ssh

@@ -563,13 +563,14 @@ export function ensureRemotePadiBinding(
   // handshake re-decides). Mirrors the pre-S9 hostUnsub.
   base.onState((s) => {
     if (s.connection === "failed") {
+      // `lastError` is REQUIRED on the down arm (juspay/kolu SessionState sum
+      // split) — a `failed` session always carries the real reason it gave up,
+      // so there is no invented fallback text left to write here.
       convergence = {
         state: "link-failed",
         runningBuild: null,
         expectedBuild: null,
-        detail:
-          s.lastError ??
-          "the remote ssh link failed and gave up (host unreachable / provisioning failed)",
+        detail: s.lastError,
       };
       combined = null;
     } else if (s.connection === "disconnected") {

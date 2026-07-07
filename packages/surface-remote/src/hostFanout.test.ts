@@ -192,6 +192,39 @@ describe("buildRemotePool", () => {
     expect(ws.close).not.toHaveBeenCalled();
   });
 
+  it("CONCURRENCY: N adds fired without awaiting between them never lose a host on disk (serialized persist)", async () => {
+    // Repro for the false "transactional" claim: `add` used to read `entries.keys()`
+    // as a PRE-await snapshot and commit it POST-await, with no ordering between
+    // concurrent callers — a browser double-click (or add+remove) races exactly
+    // this. Each `persist` call here does a real microtask hop before recording,
+    // so a racy implementation actually interleaves rather than happening to run
+    // to completion synchronously.
+    const persisted: string[][] = [];
+    const persist = vi.fn(async (hosts: string[]) => {
+      await Promise.resolve();
+      persisted.push(hosts);
+    });
+    const registry = buildRemotePool<FakeSession, Handler>({
+      initialHosts: ["alpha"],
+      persist,
+      buildEntry: (host) => ({ session: fakeSession(), handler: { id: host } }),
+    });
+
+    // Fire three adds WITHOUT awaiting between them — the race.
+    const adds = ["beta", "gamma", "delta"].map((h) => registry.add(h));
+    await Promise.all(adds);
+
+    // Every host landed in memory…
+    expect(registry.hosts()).toEqual(["alpha", "beta", "gamma", "delta"]);
+    // …and the LAST write to "disk" reflects the SAME final set — serialized
+    // mutations mean the third add's persisted list was computed AFTER the first
+    // two committed, never off a stale snapshot that drops one of them. Before the
+    // fix, each add computed its next-list from the pre-mutation ["alpha"] snapshot,
+    // so the last persisted list undercounted (e.g. just ["alpha", "delta"]) even
+    // though memory held all three.
+    expect(persisted.at(-1)).toEqual(registry.hosts());
+  });
+
   it("remove() is a no-op for an unknown host", async () => {
     const { registry, persist } = harness(["alpha"]);
     await registry.remove("ghost");

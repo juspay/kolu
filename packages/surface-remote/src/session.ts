@@ -70,19 +70,18 @@ export type {
 const MAX_PROGRESS_LINES = 20;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
-/** The observable link state a session publishes (snapshot-then-delta on
- *  `onState`). Renamed from `HostSessionState` (S3/S10 — "Host" named the deleted
- *  class); the shape is unchanged so every reader (odu, drishti, kolu-server) keeps
- *  its field reads. */
-export interface SessionState<
-  Prov extends ProvisioningPhase = ProvisioningPhase,
-> {
-  /** `LocalConnectionState | Prov`: the four local phases are ALWAYS reachable
-   *  (so the session machine's internal transitions typecheck for any `Prov`), and
-   *  `Prov` widens ONLY the provisioning arm (`"copying"` for ssh, `never` for the
-   *  local endpoint). A `SessionState<never>` therefore cannot hold `"copying"`
-   *  (juspay/kolu#1716). */
-  connection: LocalConnectionState | Prov;
+/** The UP arms of {@link SessionState}'s `connection` sum — `LocalConnectionState`
+ *  minus its own down states, plus `Prov` (the provisioning phase, `"copying"` for
+ *  ssh / `never` for the local endpoint). A link in one of these phases is live or
+ *  warming — there is nothing to report, so {@link SessionState} carries NO error
+ *  fields here (not merely null ones). */
+type UpConnectionState<Prov extends ProvisioningPhase = ProvisioningPhase> =
+  | Exclude<LocalConnectionState, "disconnected" | "failed">
+  | Prov;
+
+/** The fields every {@link SessionState} arm carries, UP or DOWN. Factored out so
+ *  the union below doesn't repeat the progress-line docs on both arms. */
+interface SessionStateCommon {
   /** Free-form progress lines (last 20) — provisioning output, transport start,
    *  agent fatal-error tails. Carries BOTH parent-side (`[local] …`) and forwarded
    *  remote-stderr (`[remote] …`) lines for a unified log; a consumer that needs
@@ -91,12 +90,41 @@ export interface SessionState<
   /** The forwarded remote-agent stderr lines (last 20), WITHOUT the `[remote] `
    *  tag — the agent's own output as it wrote it. */
   remoteProgressLines: readonly string[];
-  /** Last error if `connection === "disconnected"` or `"failed"`. */
-  lastError: string | null;
-  /** Why the link is down — set alongside `disconnected`/`failed`, `null` while
-   *  `copying`/`connecting`/`connected`. */
-  failureCause: FailureCause | null;
 }
+
+/** The observable link state a session publishes (snapshot-then-delta on
+ *  `onState`) — a discriminated union over `connection`'s UP/DOWN split, so
+ *  "down with no reason" and "live with a stale error" are both UNREPRESENTABLE:
+ *
+ *   - UP (`connecting`/`connected`/the provisioning `Prov`, e.g. `"copying"`) —
+ *     no `lastError`/`failureCause` FIELDS at all (there is nothing to report).
+ *   - DOWN (`disconnected`/`failed`) — `lastError`/`failureCause` are REQUIRED,
+ *     never nullable: a down link ALWAYS has a real reason (the state machine
+ *     below only ever constructs a down arm alongside the failure that caused
+ *     it), so a consumer reading them needs no `?? "disconnected"`/`?? "failed"`
+ *     invented-text fallback — that fallback pattern is now a type error to even
+ *     write, since the up arm has no such field to read in the first place.
+ *
+ *  Mirrors the `copying`-unrepresentable split (juspay/kolu#1716) one arm over:
+ *  that pin made the WRONG PROVISIONING PHASE unconstructible; this one makes the
+ *  WRONG ERROR SHAPE unconstructible. Renamed from `HostSessionState` (S3/S10 —
+ *  "Host" named the deleted class); every reader (odu, drishti, kolu-server) keeps
+ *  its `connection`/progress-line reads unchanged, and a down-arm `lastError`/
+ *  `failureCause` read goes from nullable to always-present — a WIDENING for a
+ *  consumer that already gated the read on `connection === "failed" |
+ *  "disconnected"` (the pattern every existing reader already used to reach
+ *  them). */
+export type SessionState<Prov extends ProvisioningPhase = ProvisioningPhase> =
+  | (SessionStateCommon & { connection: UpConnectionState<Prov> })
+  | (SessionStateCommon & {
+      connection: "disconnected" | "failed";
+      /** Why the link is down — ALWAYS a real reason, never invented at a
+       *  consumer. */
+      lastError: string;
+      /** `"network"` (unreachable; retries forever) vs `"remote"` (host reached,
+       *  rejected us; terminal at `failed`). */
+      failureCause: FailureCause;
+    });
 
 /** The minimal session slot a fleet registry stores (S1): it only ever calls
  *  `destroy()` (add-rollback, remove, destroyAll), so the slot demands exactly
@@ -264,20 +292,25 @@ export interface MakeSessionOptions<
   /** The transport plug — dial once, hand back a live {@link Connection}. */
   connectOnce: Connector<Client>;
   /** The connector's OPENING phase — the fact only the connector knows (P5). Its
-   *  TYPE is `[Prov] extends [never] ? LocalConnectionState : Prov` — EXACTLY the
-   *  connector's own phase set, never the other arm's: the local `endpointConnector`
-   *  provisions NOTHING (the daemon is already here), so `Prov = never`,
-   *  `initialConnection: LocalConnectionState`, and `"copying"` is a COMPILE error —
-   *  a local session's state sequence can never contain the provisioning phase
-   *  (juspay/kolu#1716). An ssh `sshConnector` PROVISIONS (nix-copies the closure
-   *  first), so `Prov = ProvisioningPhase` and `initialConnection` narrows to
-   *  EXACTLY `Prov` (`"copying"`) — a provisioning session can no longer be
-   *  constructed with a LOCAL-set opening phase either (juspay/kolu#1808): that
-   *  constructible contradiction let `provisions` below (the runtime read of this
-   *  same fact, since `Prov` itself is erased) misclassify a provisioning session
-   *  whose initial state happened to land in `LOCAL_CONNECTION_STATES`. Both the
-   *  first dial and every reconnect re-arm at this SAME phase. */
-  initialConnection: [Prov] extends [never] ? LocalConnectionState : Prov;
+   *  TYPE is `[Prov] extends [never] ? "connecting" : Prov` — EXACTLY the
+   *  connector's own TRUE first-dial state, never a state that means "gave up
+   *  before ever dialing": the local `endpointConnector` provisions NOTHING (the
+   *  daemon is already here) and opens straight into `"connecting"`, so
+   *  `Prov = never` narrows `initialConnection` to EXACTLY `"connecting"` —
+   *  `"copying"` is a COMPILE error (a local session's state sequence can never
+   *  contain the provisioning phase, juspay/kolu#1716), and so, as of this
+   *  narrowing, are `"connected"`/`"disconnected"`/`"failed"`: a session that
+   *  hasn't dialed yet cannot legally BOOT already live or already given up (that
+   *  would publish a LYING first frame and could misclassify `provisions` below).
+   *  An ssh `sshConnector` PROVISIONS (nix-copies the closure first), so
+   *  `Prov = ProvisioningPhase` and `initialConnection` narrows to EXACTLY `Prov`
+   *  (`"copying"`) — a provisioning session can no longer be constructed with a
+   *  LOCAL-set opening phase either (juspay/kolu#1808): that constructible
+   *  contradiction let `provisions` below (the runtime read of this same fact,
+   *  since `Prov` itself is erased) misclassify a provisioning session whose
+   *  initial state happened to land in `LOCAL_CONNECTION_STATES`. Both the first
+   *  dial and every reconnect re-arm at this SAME phase. */
+  initialConnection: [Prov] extends [never] ? "connecting" : Prov;
   /** Optional SUPERVISION hook run once per dial after the transport is up — a
    *  daemon session's convergence (padi: control-core hello + skew/build decision +
    *  drain). Omit for a plain session (every connection adopted). See {@link Admit}. */
@@ -366,12 +399,13 @@ export function makeSession<
    *  arm of the null-free {@link SurfaceIdentity} sum. */
   let cachedIdentity: ServedIdentity | null = null;
 
+  // The opening frame is ALWAYS an up arm (`initialConnection`'s type now
+  // guarantees this — never a state that means "gave up before dialing"), so it
+  // carries no error fields to begin with.
   const stateCell = inMemoryCell<SessionState<Prov>>({
     connection: opts.initialConnection,
     progressLines: [],
     remoteProgressLines: [],
-    lastError: null,
-    failureCause: null,
   });
 
   const emit = (line: string): void => {
@@ -437,42 +471,78 @@ export function makeSession<
     if (from !== to) emit(`[${label} local] connection: ${from} → ${to}`);
   };
 
-  const updateState = (patch: Partial<SessionState<Prov>>): void => {
+  // Leaving `connecting` by any path disarms the connect watchdog — one
+  // choke-point both arm-transition helpers below call through, so the
+  // closed/markConnected paths don't each clear it.
+  const disarmConnectWatchdog = (
+    from: ConnectionState,
+    to: ConnectionState,
+  ): void => {
+    logTransition(from, to);
+    if (from === "connecting" && to !== "connecting") clearTimer();
+  };
+
+  /** Transition to an UP arm (`connecting`/`connected`/the provisioning `Prov`,
+   *  e.g. `"copying"`) — constructed with EXACTLY its fields: no `lastError`/
+   *  `failureCause` (the up arm has none to carry, stale or otherwise), and
+   *  `progressLines`/`remoteProgressLines` carried FORWARD from whatever arm
+   *  preceded it (a dial's log keeps growing across a reconnect, it doesn't
+   *  reset). */
+  const setUp = (connection: UpConnectionState<Prov>): void => {
     const prev = stateCell.current();
-    const next: SessionState<Prov> = { ...prev, ...patch };
-    if (patch.progressLines !== undefined) {
-      next.progressLines = patch.progressLines.slice(-MAX_PROGRESS_LINES);
-    }
-    if (patch.remoteProgressLines !== undefined) {
-      next.remoteProgressLines = patch.remoteProgressLines.slice(
-        -MAX_PROGRESS_LINES,
-      );
-    }
-    if (patch.connection !== undefined) {
-      logTransition(prev.connection, patch.connection);
-      // Leaving `connecting` by any path disarms the connect watchdog — one
-      // choke-point, so the closed/markConnected paths don't each clear it.
-      if (prev.connection === "connecting" && patch.connection !== "connecting")
-        clearTimer();
-    }
-    if (patch.lastError != null)
-      emit(`[${label}] lastError: ${patch.lastError}`);
-    stateCell.set(next);
+    disarmConnectWatchdog(prev.connection, connection);
+    stateCell.set({
+      connection,
+      progressLines: prev.progressLines,
+      remoteProgressLines: prev.remoteProgressLines,
+    });
+  };
+
+  /** Transition to a DOWN arm (`disconnected`/`failed`) — `lastError` +
+   *  `failureCause` are REQUIRED parameters, supplied EXPLICITLY by the caller
+   *  (never spread-inherited from `prev`, which may itself be an up arm with no
+   *  error fields to inherit, or carry a stale reason from an earlier episode) —
+   *  so a down transition can never omit or invent a reason.
+   *  `progressLines`/`remoteProgressLines` still carry forward. */
+  const setDown = (
+    connection: "disconnected" | "failed",
+    lastError: string,
+    failureCause: FailureCause,
+  ): void => {
+    const prev = stateCell.current();
+    disarmConnectWatchdog(prev.connection, connection);
+    emit(`[${label}] lastError: ${lastError}`);
+    stateCell.set({
+      connection,
+      progressLines: prev.progressLines,
+      remoteProgressLines: prev.remoteProgressLines,
+      lastError,
+      failureCause,
+    });
   };
 
   const localProgress = (line: string): void => {
     emit(`[${label} local] ${line}`);
-    updateState({
-      progressLines: [...stateCell.current().progressLines, `[local] ${line}`],
+    const prev = stateCell.current();
+    stateCell.set({
+      ...prev,
+      progressLines: [...prev.progressLines, `[local] ${line}`].slice(
+        -MAX_PROGRESS_LINES,
+      ),
     });
   };
 
   const remoteProgress = (line: string): void => {
     emit(`[${label} remote] ${line}`);
-    const cur = stateCell.current();
-    updateState({
-      progressLines: [...cur.progressLines, `[remote] ${line}`],
-      remoteProgressLines: [...cur.remoteProgressLines, line],
+    const prev = stateCell.current();
+    stateCell.set({
+      ...prev,
+      progressLines: [...prev.progressLines, `[remote] ${line}`].slice(
+        -MAX_PROGRESS_LINES,
+      ),
+      remoteProgressLines: [...prev.remoteProgressLines, line].slice(
+        -MAX_PROGRESS_LINES,
+      ),
     });
   };
 
@@ -508,7 +578,7 @@ export function makeSession<
     }
   };
 
-  const scheduleReconnect = (cause: FailureCause): void => {
+  const scheduleReconnect = (cause: FailureCause, reason: string): void => {
     if (destroyed || pendingTimer !== null) return;
     // A stale (rejected) `clientPromise` during backoff keeps `launchAttempt`
     // idempotent — an acquire/pin during the wait won't start a second concurrent
@@ -520,7 +590,11 @@ export function makeSession<
         `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
       clientPromise = null;
-      updateState({ connection: "failed" });
+      // EXPLICIT carry-forward: `reason` is the SAME real failure that just put
+      // the session `disconnected` (the only path into this give-up branch) —
+      // passed by the caller, never spread-inherited from `prev` (which the
+      // discriminated union no longer lets us do blindly for an up arm anyway).
+      setDown("failed", reason, cause);
       return;
     }
     const delay = Math.min(reconnectDelayMs * 2 ** attemptsSoFar, 60_000);
@@ -568,42 +642,32 @@ export function makeSession<
       cause = wasConnected || info.code === 255 ? "network" : "remote";
     }
     localProgress(reason);
-    updateState({
-      connection: "disconnected",
-      lastError: reason,
-      failureCause: cause,
-    });
+    setDown("disconnected", reason, cause);
     clientPromise = null;
     // The link is down — identity() must report `disconnected`, and the next
     // connect re-polls (a respawned server may be a different build).
     cachedIdentity = null;
-    if (!destroyed && refCount > 0) scheduleReconnect(cause);
+    if (!destroyed && refCount > 0) scheduleReconnect(cause, reason);
   };
 
   const attempt = async (): Promise<Client> => {
     dialEpoch += 1;
-    updateState({
-      connection: opts.initialConnection,
-      lastError: null,
-      failureCause: null,
-    });
+    // A fresh dial reopens at the connector's opening phase — always an up arm
+    // (no stale error to clear: there is no field for one).
+    setUp(opts.initialConnection);
     let conn: Connection<Client>;
     try {
       conn = await opts.connectOnce({
         localProgress,
         remoteProgress,
-        connecting: () => updateState({ connection: "connecting" }),
+        connecting: () => setUp("connecting"),
       });
     } catch (err) {
       const cause: FailureCause =
         err instanceof ConnectError ? err.failureCause : "network";
       const reason = err instanceof Error ? err.message : String(err);
-      updateState({
-        connection: "disconnected",
-        lastError: reason,
-        failureCause: cause,
-      });
-      scheduleReconnect(cause);
+      setDown("disconnected", reason, cause);
+      scheduleReconnect(cause, reason);
       throw err instanceof Error ? err : new Error(reason);
     }
     // Wire this connection's death once, up front, so every path below (adopt /
@@ -628,12 +692,8 @@ export function makeSession<
         // reconnect (`network` — recovery, never a give-up spiral).
         const reason = err instanceof Error ? err.message : String(err);
         conn.teardown();
-        updateState({
-          connection: "disconnected",
-          lastError: reason,
-          failureCause: "network",
-        });
-        scheduleReconnect("network");
+        setDown("disconnected", reason, "network");
+        scheduleReconnect("network", reason);
         throw err instanceof Error ? err : new Error(reason);
       }
       if (verdict.kind === "refuse") {
@@ -646,11 +706,11 @@ export function makeSession<
         current = conn;
         wireClosed();
         consecutiveFailures = 0;
-        updateState({
-          connection: "disconnected",
-          lastError: verdict.state.lastError,
-          failureCause: verdict.state.failureCause,
-        });
+        setDown(
+          "disconnected",
+          verdict.state.lastError,
+          verdict.state.failureCause,
+        );
         throw new Error(verdict.state.lastError);
       }
       if (verdict.kind === "replaced") {
@@ -661,12 +721,8 @@ export function makeSession<
         // backoff toward give-up, matching the pre-S9 markConnected-before-drain.
         consecutiveFailures = 0;
         conn.teardown();
-        updateState({
-          connection: "disconnected",
-          lastError: verdict.reason,
-          failureCause: "network",
-        });
-        scheduleReconnect("network");
+        setDown("disconnected", verdict.reason, "network");
+        scheduleReconnect("network", verdict.reason);
         throw new Error(verdict.reason);
       }
       // adopt: the hello proved the link live. Take the connection, wire its death,
@@ -757,7 +813,7 @@ export function makeSession<
     markConnected() {
       if (stateCell.current().connection !== "connecting") return;
       consecutiveFailures = 0;
-      updateState({ connection: "connected" });
+      setUp("connected");
       // Birth the liveness watchdog at the FIRST successful connect (so it can never
       // probe before the first RPC), and poll the server's identity off the fresh
       // client. Both idempotent across later reconnects.

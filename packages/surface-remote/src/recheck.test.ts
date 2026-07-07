@@ -42,6 +42,21 @@ const contract = {
  *  dropped. `onState` delivers the live value synchronously on subscribe (the
  *  cell's snapshot-then-delta), so a fresh subscribe/unsubscribe reads the
  *  current state without waiting on async delta delivery. */
+/** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
+ *  the UP arm carries no `lastError`/`failureCause` fields at all, so a test
+ *  that expects a down state asserts it here rather than reading a field that
+ *  doesn't exist on a live/warming snapshot. */
+function down(
+  s: SessionState,
+): Extract<SessionState, { connection: "disconnected" | "failed" }> {
+  if (s.connection !== "disconnected" && s.connection !== "failed") {
+    throw new Error(
+      `expected a DOWN session state, got connection=${s.connection}`,
+    );
+  }
+  return s;
+}
+
 function snap(session: {
   onState(cb: (s: SessionState) => void): () => void;
 }): SessionState {
@@ -133,7 +148,7 @@ describe("HostSession child-exit classification", () => {
     // 5 attempts of copying→connecting→exit 127→backoff (10/20/40/80ms).
     await vi.advanceTimersByTimeAsync(3000);
     expect(snap(session).connection).toBe("failed");
-    expect(snap(session).failureCause).toBe("remote");
+    expect(down(snap(session)).failureCause).toBe("remote");
 
     session.destroy();
   });
@@ -226,7 +241,7 @@ describe("HostSession.recheck", () => {
     // (unchanged) verdict: a wake-cycle mid-`connecting` is `"network"`, not the
     // bounded `"remote"` that would consume the give-up budget.
     await Promise.resolve();
-    expect(snap(session).failureCause).toBe("network");
+    expect(down(snap(session)).failureCause).toBe("network");
 
     session.destroy();
   });

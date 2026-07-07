@@ -30,6 +30,22 @@ export interface Subscription<T> extends Accessor<T | undefined> {
   readonly error: Accessor<Error | undefined>;
   /** True while waiting for the first event from the stream. */
   readonly pending: Accessor<boolean>;
+  /** True once the stream has ENDED NORMALLY (a typed end — never on abort).
+   *  Latches permanently: once true, this subscription's value is FROZEN —
+   *  it will never update again. Without this fact, an ended subscription
+   *  reads byte-identical to a healthy, currently-streaming one (no error, not
+   *  pending), so a consumer that holds onto a `Subscription` across a typed
+   *  end (e.g. one sharing slot behind the keyed cache, evicted for LATER
+   *  callers but still referenced by an earlier one) has no way to tell its
+   *  last-read value is stale-forever rather than current. Check this before
+   *  trusting `value()` as "live".
+   *
+   *  Optional (not every `Subscription`-shaped value is minted by
+   *  `createSubscription`/`createReactiveSubscription` — a hand-assembled one
+   *  built directly over `{ pending, error }`, predating this fact, has no
+   *  typed-end concept to report and legitimately omits it); every subscription
+   *  built through THIS module's factories always populates it. */
+  readonly complete?: Accessor<boolean>;
 }
 
 /** Options for createSubscription. */
@@ -105,6 +121,7 @@ export function createSubscription<T, R = T>(
   });
   const [error, setError] = createSignal<Error | undefined>();
   const [pending, setPending] = createSignal(true);
+  const [complete, setComplete] = createSignal(false);
 
   function updateValue(next: T | R): void {
     writeWrappedValue(setStore, next as T | R | undefined);
@@ -141,6 +158,7 @@ export function createSubscription<T, R = T>(
       // (disposed) subscription reports nothing.
       if (!abortSignal.aborted) {
         if (pending()) setPending(false);
+        setComplete(true);
         options?.onComplete?.();
       }
     } catch (err) {
@@ -154,6 +172,7 @@ export function createSubscription<T, R = T>(
   const sub = Object.assign(() => store.v as (T | R) | undefined, {
     error,
     pending,
+    complete,
   }) as Subscription<T | R>;
 
   if (options?.onError) {

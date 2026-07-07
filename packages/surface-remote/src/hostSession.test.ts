@@ -62,6 +62,21 @@ function snap(session: {
   return s;
 }
 
+/** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
+ *  the UP arm carries no `lastError`/`failureCause` fields at all, so a test
+ *  that expects a down state asserts it here rather than reading a field that
+ *  doesn't exist on a live/warming snapshot. */
+function down(
+  s: SessionState,
+): Extract<SessionState, { connection: "disconnected" | "failed" }> {
+  if (s.connection !== "disconnected" && s.connection !== "failed") {
+    throw new Error(
+      `expected a DOWN session state, got connection=${s.connection}`,
+    );
+  }
+  return s;
+}
+
 function failingSession() {
   return makeSession({
     initialConnection: "copying",
@@ -243,7 +258,7 @@ describe("HostSession reconnect after give-up", () => {
     // given up at (1+2+4+8s).
     await vi.advanceTimersByTimeAsync(70_000);
     expect(snap(session).connection).not.toBe("failed");
-    expect(snap(session).failureCause).toBe("network");
+    expect(down(snap(session)).failureCause).toBe("network");
 
     session.destroy();
   });
@@ -272,8 +287,8 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     session.pin().catch(() => {});
 
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(snap(session).failureCause).toBe("network");
-    expect(snap(session).lastError).toMatch(/exited 255/);
+    expect(down(snap(session)).failureCause).toBe("network");
+    expect(down(snap(session)).lastError).toMatch(/exited 255/);
     expect(snap(session).connection).not.toBe("failed");
 
     session.destroy();
@@ -291,7 +306,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // way out.
     await vi.advanceTimersByTimeAsync(70_000);
     expect(snap(session).connection).not.toBe("failed");
-    expect(snap(session).failureCause).toBe("network");
+    expect(down(snap(session)).failureCause).toBe("network");
 
     // Proof it sailed past the old MAX_CONSECUTIVE_FAILURES (=5) ceiling:
     // more than five "host unreachable" retry lines were emitted.

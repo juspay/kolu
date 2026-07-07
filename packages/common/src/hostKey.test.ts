@@ -59,6 +59,15 @@ describe("parseHostInput vs decodeHostKey — two boundaries, same string, diffe
       target: "user@localhost",
     });
   });
+
+  it("parseHostInput('') THROWS rather than mint an illegal empty-target remote", () => {
+    expect(() => parseHostInput("")).toThrow();
+    // And the schema agrees: the shape parseHostInput would otherwise have minted is
+    // exactly what HostKeySchema rejects (see the schema test above).
+    expect(
+      HostKeySchema.safeParse({ kind: "remote", target: "" }).success,
+    ).toBe(false);
+  });
 });
 
 describe("encodeHostKey / decodeHostKey — the canonical wire codec round-trips", () => {

@@ -212,8 +212,6 @@ function makeSession() {
     connection: "copying",
     progressLines: [],
     remoteProgressLines: [],
-    lastError: null,
-    failureCause: null,
   };
   const fire = (): void => {
     for (const cb of [...listeners]) cb(state);

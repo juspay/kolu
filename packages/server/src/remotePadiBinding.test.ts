@@ -252,6 +252,21 @@ function snap(session: PadiSession): SessionState {
   return s;
 }
 
+/** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
+ *  the UP arm carries no `lastError`/`failureCause` fields at all, so a test
+ *  that expects a down state asserts it here rather than reading a field that
+ *  doesn't exist on a live/warming snapshot. */
+function down(
+  s: SessionState,
+): Extract<SessionState, { connection: "disconnected" | "failed" }> {
+  if (s.connection !== "disconnected" && s.connection !== "failed") {
+    throw new Error(
+      `expected a DOWN session state, got connection=${s.connection}`,
+    );
+  }
+  return s;
+}
+
 /** Advance fake timers by `ms` and drain microtasks — runs the admit handshake, the
  *  drain poll loop, the identity poll, and (with a large enough `ms`) a reconnect. */
 async function flush(ms = 0): Promise<void> {
@@ -337,7 +352,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     // The connection cell reads a loud, honest degraded/remote frame.
     const s = snap(session);
     expect(s.connection).toBe("disconnected");
-    expect(s.failureCause).toBe("remote");
+    expect(down(s).failureCause).toBe("remote");
     // Identity is the honest `disconnected` arm (nothing adopted) — the old
     // padiSurfaceVersion()===null.
     expect(session.identity().kind).toBe("disconnected");
@@ -840,7 +855,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     p.catch(() => {});
     await flush(CEIL);
     await expect(p).rejects.toThrow(/build mismatch/i);
-    expect(snap(session).failureCause).toBe("network");
+    expect(down(snap(session)).failureCause).toBe("network");
     expect(snap(session).connection).not.toBe("failed");
   });
 
@@ -862,7 +877,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await flush();
     const s = snap(session);
     expect(s.connection).toBe("disconnected");
-    expect(s.failureCause).toBe("remote");
+    expect(down(s).failureCause).toBe("remote");
     expect(session.identity().kind).toBe("disconnected");
     // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
     // can't be ridden, unlike a build mismatch).

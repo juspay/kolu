@@ -33,7 +33,7 @@ export const IDENTITY_VERB = "identity";
 /** A build's source commit — a SUM, never `string | null`. `dev-vs-real` is
  *  explicit: a navigable commit to link to, or a dev tree with none. */
 export const BuildCommitSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("commit"), sha: z.string() }),
+  z.object({ kind: z.literal("commit"), sha: z.string().min(1) }),
   z.object({ kind: z.literal("dev") }),
 ]);
 export type BuildCommit = z.infer<typeof BuildCommitSchema>;

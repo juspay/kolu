@@ -295,7 +295,11 @@ export function useCollectionDeltas<Name extends string, K, T>(
     // `error`/`pending` are the single stream's, shared across keys.
     const read = (() =>
       (sub() as DeltasFold<K, T> | undefined)?.byKey[sk]) as Subscription<T>;
-    return Object.assign(read, { error: sub.error, pending: sub.pending });
+    return Object.assign(read, {
+      error: sub.error,
+      pending: sub.pending,
+      complete: sub.complete,
+    });
   }
 
   return { keys, byKey };

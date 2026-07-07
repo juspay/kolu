@@ -11,8 +11,16 @@
  *   - `localScan` — kolu-server's scan of the machine it ITSELF runs on, populated ONLY
  *     under a remote binding (where that machine is not the bound host, so a leak on the
  *     machine you're actually using stays visible); null under a local binding;
- *   - `boundPadi` — the bound padi's honest surfaceVersion / buildCommit / convergence
- *     off its control-core hello (works over ssh, where no local padi is active).
+ *   - `boundPadi.convergence` — the bound padi's STANDING convergence anomaly off the
+ *     binder's own probe (adopted-stale build / contract skew / drain- or link-failure);
+ *     there is no per-host wire member for this yet, so it still describes whichever ONE
+ *     padi kolu-server happens to be bound to (a padi/server-side gap, out of this fix's
+ *     file scope).
+ *
+ * `boundPadi.surfaceVersion`/`.buildCommit` are NOT read here any more (W4 "the switch"):
+ * padi's own build commit/surfaceVersion/boot time now ride its per-host `identity` cell
+ * — see `useHostInventory.ts`'s `activePadiIdentity()`/`activePadiStartedAt()`, which
+ * re-key on `activeHost` instead of describing the single legacy bind.
  *
  * Honesty (#1034): a field the server couldn't read is `null` here, rendered "—" by the
  * dialogs — never a fabricated value.
@@ -31,13 +39,16 @@ import { app } from "../wire";
 // `server/src/daemonInventory.ts` populates off the LEGACY single-bind `padiSession` —
 // under always-map that session is hardcoded to the unremovable LOCAL default
 // (`boundHost: null`, `server/src/index.ts`), so `daemonScanBoundHost`/
-// `localScanKavals`/`localScanPadis`/`activePadiSurfaceVersion`/`boundPadiBuildCommit`/
-// `boundPadiConvergence` all describe the LOCAL bind ALWAYS, never the ACTIVE (possibly
-// remote) host selected via `padiMap`/`activeHost`. This is HOST-INDEPENDENT-TODAY, not
-// by design: `padiMap`'s per-host entries carry no per-host "padi's own identity/
-// convergence" wire member yet (padi's `hello` surfaceVersion/buildCommit are read only
-// by the ONE binder session) — a padi/server-side gap, out of this fix's file scope. See
-// the classification table in `PadiInfoDialog.tsx`.
+// `localScanKavals`/`localScanPadis`/`boundPadiConvergence` all describe the LOCAL bind
+// ALWAYS, never the ACTIVE (possibly remote) host selected via `padiMap`/`activeHost`.
+// This is HOST-INDEPENDENT-TODAY, not by design: `padiMap`'s per-host entries carry no
+// per-host "padi's STANDING convergence" wire member yet (a padi/server-side gap, out of
+// this fix's file scope). See the classification table in `PadiInfoDialog.tsx`.
+//
+// `activePadiSurfaceVersion`/`boundPadiBuildCommit` USED to live here (reading
+// `boundPadi.surfaceVersion`/`.buildCommit` off this same cell) — W4 "the switch" moved
+// both onto padi's own per-host `identity` cell (`useHostInventory.ts`), which genuinely
+// re-keys on `activeHost`. Only the convergence readout remains host-independent-today.
 //
 // THE LIVE-SUBSCRIPTION FIX: same class as `useMemoryUsage.ts`'s `sub` — a bare
 // module-const `.use()` is the cache's "ownerless" path, torn down a microtask after
@@ -73,21 +84,6 @@ export function localScanKavals(): RunningKaval[] {
 export function localScanPadis(): RunningPadi[] {
   const binding = sub.value()?.binding;
   return binding?.kind === "remote" ? binding.localScan.padis : [];
-}
-
-/** The `padiSurface` version the BOUND padi serves — its honest `hello.surfaceVersion`,
- *  or `null` while unbound / before the first sample (an honest "—", never the binder's
- *  build constant). Reads the bound-session readout (`boundPadi`), so it's correct over
- *  ssh too. Read by the Padi dialog + rail chip's "contract v<x.y>" readout. */
-export function activePadiSurfaceVersion(): string | null {
-  return sub.value()?.boundPadi?.surfaceVersion ?? null;
-}
-
-/** The BOUND padi's honest navigable git build commit off its `hello`, or `null` while
- *  unbound / a survivor predating the field. Like {@link activePadiSurfaceVersion}, reads
- *  the bound-session readout so the Padi dialog's build-commit row works over ssh. */
-export function boundPadiBuildCommit(): string | null {
-  return sub.value()?.boundPadi?.buildCommit ?? null;
 }
 
 /** The BOUND padi's STANDING convergence anomaly (adopted-stale build / contract skew /

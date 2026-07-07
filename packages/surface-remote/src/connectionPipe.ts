@@ -26,13 +26,28 @@ export function seedConnectionCell(): { store: CellStore<ConnectionInfo> } {
 
 /** Project a `SessionState` onto the browser-facing {@link ConnectionInfo}
  *  — the four fields a viewer renders. Pure; the one mapping every re-serving
- *  consumer would otherwise hand-roll. */
-export const projectConnection = (s: SessionState): ConnectionInfo => ({
-  state: s.connection,
-  lastError: s.lastError,
-  failureCause: s.failureCause,
-  progressLines: [...s.progressLines],
-});
+ *  consumer would otherwise hand-roll.
+ *
+ *  `SessionState`'s `lastError`/`failureCause` live ONLY on the down arm
+ *  (`disconnected`/`failed`) — the up arm has no error fields to read at all —
+ *  so this narrows on `connection` to pick them, rather than reading fields
+ *  that don't exist on a live/warming state. `ConnectionInfo` itself stays
+ *  nullable (the wire schema every browser/drishti consumer already reads),
+ *  so an up arm projects an honest `null`, never an invented string. */
+export const projectConnection = (s: SessionState): ConnectionInfo =>
+  s.connection === "disconnected" || s.connection === "failed"
+    ? {
+        state: s.connection,
+        lastError: s.lastError,
+        failureCause: s.failureCause,
+        progressLines: [...s.progressLines],
+      }
+    : {
+        state: s.connection,
+        lastError: null,
+        failureCause: null,
+        progressLines: [...s.progressLines],
+      };
 
 /** Subscribe `session.onState` and write each frame — projected — into a cell
  *  via `set`; returns the unsubscribe. The parent's one-liner that carries

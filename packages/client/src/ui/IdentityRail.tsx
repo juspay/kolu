@@ -52,10 +52,8 @@ import { getClockNow } from "../time/clock";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { formatMBCompact, mbText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
-import {
-  activePadiSurfaceVersion,
-  daemonScanBoundHost,
-} from "./useDaemonInventory";
+import { daemonScanBoundHost } from "./useDaemonInventory";
+import { activePadiIdentity } from "./useHostInventory";
 import {
   clientHeapUsedBytes,
   kavalMemoryDisplay,
@@ -181,11 +179,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       .with(P.nullish, () => "memory unavailable")
       .exhaustive();
 
-  // The RUNNING padi's actual `padiSurface` version (off its control-core `hello`),
-  // mirroring the kaval chip's `contract v<x.y>`. Honest `undefined` (no chip / tip
-  // segment) when padi is unbound, never a fabricated build constant.
+  // The ACTIVE host's RUNNING padi's actual `padiSurface` version, off its own
+  // per-host `identity` cell (W4 "the switch" — re-keys on `activeHost`), mirroring
+  // the kaval chip's `contract v<x.y>`. Honest `undefined` (no chip / tip segment)
+  // before the cell's first frame, never a fabricated build constant.
   const padiVersion = (): string | undefined =>
-    activePadiSurfaceVersion() ?? undefined;
+    activePadiIdentity()?.surfaceVersion;
 
   // WHERE padi is: the `ssh · <host>` segment for a REMOTE binding, or null when
   // local (no host noise). Read from the same `daemonScanBoundHost()` the Padi

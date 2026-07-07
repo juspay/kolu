@@ -287,9 +287,15 @@ export interface RemotePoolOptions<S extends DestroyableSession, H> {
    *  `failed` connection state, never a throw that takes the whole registry down. */
   buildEntry: (host: string) => RemoteEntry<S, H>;
   /** Persist the next host set, awaited BEFORE `add`/`remove` commit their
-   *  in-memory + session/socket changes — so the write is transactional. Receives
-   *  the intended post-mutation host list, not the current one. Omit for a static
-   *  host set. */
+   *  in-memory + session/socket changes — so a SINGLE mutation's write is
+   *  ordered before its own commit. Receives the intended post-mutation host
+   *  list, not the current one. `add`/`remove` themselves are additionally
+   *  serialized through one internal queue (`enqueueMutation`), so this is
+   *  never invoked concurrently with itself — two `add`s (or an add+remove)
+   *  fired without awaiting between them persist and commit ONE AT A TIME, each
+   *  reading the state the prior one left, rather than racing off the same
+   *  stale pre-mutation snapshot and losing whichever host's write lands first.
+   *  Omit for a static host set. */
   persist?: (hosts: string[]) => Promise<void>;
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
@@ -365,6 +371,35 @@ export function buildRemotePool<S extends DestroyableSession, H>(
   const entries = new Map<string, RemoteEntry<S, H>>();
   const socketsByHost = new Map<string, Set<ClosableSocket>>();
   const membershipListeners = new Set<() => void>();
+
+  // Serialize EVERY persist-mutating operation (`add`/`remove`) through ONE
+  // writer: a chained promise queue, so each mutation's "read `entries` → compute
+  // the next persisted list → persist → commit" sequence runs to completion
+  // before the NEXT queued mutation reads `entries` at all. Without this, two
+  // concurrent `add`s (or an add+remove — a browser double-click races exactly
+  // this) each snapshot `entries.keys()` BEFORE their own `await persistHosts(…)`
+  // and commit AFTER it, with no ordering between them: the LAST persist to land
+  // wins and can overwrite an earlier mutation's write, silently dropping a host
+  // from disk that `hosts()` (in memory) still reports — the `persist`
+  // docstring's "transactional" claim was false under concurrency. `enqueueMutation`
+  // makes "one mutation in flight at a time" a structural invariant instead of a
+  // hope.
+  let mutationQueue: Promise<unknown> = Promise.resolve();
+  const enqueueMutation = <T>(task: () => Promise<T>): Promise<T> => {
+    // Run `task` after the queue settles, REGARDLESS of whether the prior
+    // mutation resolved or rejected (`task` as both the fulfill and reject
+    // handler) — so one failed mutation doesn't wedge every later one behind a
+    // permanently-rejected queue. `result` is what THIS caller awaits (and can
+    // reject with THIS mutation's own error); `mutationQueue` is a separate,
+    // always-settling tracker so the NEXT enqueued mutation waits for `result`
+    // without inheriting its rejection.
+    const result = mutationQueue.then(task, task);
+    mutationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
   // Fire membership listeners AFTER the `entries` Map is mutated — so a listener
   // reading `hosts()`/`has()` sees the change the notification announces (ordering).
   const notifyMembership = (): void => {
@@ -405,73 +440,83 @@ export function buildRemotePool<S extends DestroyableSession, H>(
     getHandler: (host) => entries.get(host)?.handler,
     getSession: (host) => entries.get(host)?.session,
 
-    async add(host) {
-      if (entries.has(host)) throw new Error("host already exists");
-      // Build the entry up front (so a `buildEntry` throw aborts before any
-      // commit), but persist the next host set BEFORE inserting it. If persist
-      // rejects, tear the just-built session down and DON'T insert.
-      const entry = opts.buildEntry(host);
-      try {
-        await persistHosts([...entries.keys(), host]);
-      } catch (err) {
-        // Best-effort rollback teardown — `session.destroy()` CAN throw (it kills the ssh child
-        // + clears timers; see dialAgentOnce.ts), and that must NOT pre-empt `throw err`: the
-        // persist rejection is the failure the caller needs to see, not a teardown hiccup.
+    add(host) {
+      // Queued: the `entries.has`/`entries.keys()` reads below now see EXACTLY
+      // what the prior mutation committed — never a snapshot racing another
+      // in-flight add/remove.
+      return enqueueMutation(async () => {
+        if (entries.has(host)) throw new Error("host already exists");
+        // Build the entry up front (so a `buildEntry` throw aborts before any
+        // commit), but persist the next host set BEFORE inserting it. If persist
+        // rejects, tear the just-built session down and DON'T insert.
+        const entry = opts.buildEntry(host);
         try {
-          entry.session.destroy();
-        } catch {
-          /* best-effort rollback */
+          await persistHosts([...entries.keys(), host]);
+        } catch (err) {
+          // Best-effort rollback teardown — `session.destroy()` CAN throw (it kills the ssh child
+          // + clears timers; see dialAgentOnce.ts), and that must NOT pre-empt `throw err`: the
+          // persist rejection is the failure the caller needs to see, not a teardown hiccup.
+          try {
+            entry.session.destroy();
+          } catch {
+            /* best-effort rollback */
+          }
+          throw err;
         }
-        throw err;
-      }
-      entries.set(host, entry);
-      log(`added host: ${host} (total ${entries.size})`);
-      notifyMembership();
+        entries.set(host, entry);
+        log(`added host: ${host} (total ${entries.size})`);
+        notifyMembership();
+      });
     },
 
-    async remove(host) {
-      const entry = entries.get(host);
-      if (entry === undefined) return;
-      // Persist the post-removal set FIRST. If it rejects, the host stays fully
-      // live (session intact, sockets open, still in `entries`) and matches the
-      // disk that still lists it — no destroy-but-still-on-disk split.
-      await persistHosts([...entries.keys()].filter((h) => h !== host));
-      // Persisted: now commit the destructive teardown.
-      const sockets = socketsByHost.get(host);
-      if (sockets !== undefined) {
-        for (const ws of sockets) {
-          try {
-            ws.close(1000, "host removed");
-          } catch {
-            /* best-effort — a socket already closing is fine */
+    remove(host) {
+      // Queued alongside `add` — see `enqueueMutation`: the same single writer
+      // serializes add+remove too (a remove racing an add for a DIFFERENT host
+      // must not persist off the other's pre-commit snapshot either).
+      return enqueueMutation(async () => {
+        const entry = entries.get(host);
+        if (entry === undefined) return;
+        // Persist the post-removal set FIRST. If it rejects, the host stays fully
+        // live (session intact, sockets open, still in `entries`) and matches the
+        // disk that still lists it — no destroy-but-still-on-disk split.
+        await persistHosts([...entries.keys()].filter((h) => h !== host));
+        // Persisted: now commit the destructive teardown.
+        const sockets = socketsByHost.get(host);
+        if (sockets !== undefined) {
+          for (const ws of sockets) {
+            try {
+              ws.close(1000, "host removed");
+            } catch {
+              /* best-effort — a socket already closing is fine */
+            }
           }
+          socketsByHost.delete(host);
         }
-        socketsByHost.delete(host);
-      }
-      // Drop membership + notify BEFORE destroying the session (FIX 2 paired half): so
-      // `has(host)` is already false when the destroy fault reaches the map's
-      // `forwardStream`, its error→typed-end guard fires, and each delta/fail-through
-      // iterator ends TYPED — never a raw session-death `ORPCError` delivered to the
-      // browser. (For a hold-open cell/value-stream the notify-driven typed end already
-      // fires first; this ordering closes the delta case too.) The orphaned session is
-      // destroyed LAST. Ordering also honors the MapRegistry clause: `has()` reflects the
-      // change before `onChange` fires.
-      entries.delete(host);
-      log(`removed host: ${host} (total ${entries.size})`);
-      notifyMembership();
-      // Best-effort — `session.destroy()` CAN throw (kills the ssh child + clears timers). kolu
-      // retires a guest fire-and-forget (`void pool.remove(h)`), so an UNGUARDED throw here would
-      // float an unhandledRejection → the server's deliberately-fatal handler → process.exit(1),
-      // crashing the WHOLE server on ONE guest's teardown fault (defeating the guest-isolation
-      // this feature exists to give). Membership is already dropped + notified (the typed-end the
-      // map needs has fired), so the destroy is cleanup, not the caller's concern — swallow it.
-      try {
-        entry.session.destroy();
-      } catch (err) {
-        log(
-          `host ${host} session destroy threw during removal (ignored): ${err}`,
-        );
-      }
+        // Drop membership + notify BEFORE destroying the session (FIX 2 paired half): so
+        // `has(host)` is already false when the destroy fault reaches the map's
+        // `forwardStream`, its error→typed-end guard fires, and each delta/fail-through
+        // iterator ends TYPED — never a raw session-death `ORPCError` delivered to the
+        // browser. (For a hold-open cell/value-stream the notify-driven typed end already
+        // fires first; this ordering closes the delta case too.) The orphaned session is
+        // destroyed LAST. Ordering also honors the MapRegistry clause: `has()` reflects the
+        // change before `onChange` fires.
+        entries.delete(host);
+        log(`removed host: ${host} (total ${entries.size})`);
+        notifyMembership();
+        // Best-effort — `session.destroy()` CAN throw (kills the ssh child + clears timers). kolu
+        // retires a guest fire-and-forget (`void pool.remove(h)`), so an UNGUARDED throw here would
+        // float an unhandledRejection → the server's deliberately-fatal handler → process.exit(1),
+        // crashing the WHOLE server on ONE guest's teardown fault (defeating the guest-isolation
+        // this feature exists to give). Membership is already dropped + notified (the typed-end the
+        // map needs has fired), so the destroy is cleanup, not the caller's concern — swallow it.
+        try {
+          entry.session.destroy();
+        } catch (err) {
+          log(
+            `host ${host} session destroy threw during removal (ignored): ${err}`,
+          );
+        }
+      });
     },
 
     registerConnection(host, ws) {

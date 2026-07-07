@@ -118,15 +118,37 @@ export interface UseCellResult<T, P> {
   sub: Subscription<T>;
 }
 
+/** The local-authority result: `value` is `Accessor<T>`, never `undefined` —
+ *  `useCellLocal`'s store is seeded synchronously from the required `initial`
+ *  (`UseCellLocalOptions.initial: T`), so there is no pre-first-value gap a
+ *  local-authority consumer could observe. `T | undefined` is a SERVER-authority
+ *  fact only (no first frame yet); widening it onto local authority invited dead
+ *  `value() ?? fallback` / `<Show when={value()}>` branches a local cell can
+ *  never take. Structurally assignable to {@link UseCellResult} (`Accessor<T>` is
+ *  a narrower `Accessor<T | undefined>`), so nothing that already accepts the
+ *  server-shaped result breaks. */
+export interface UseCellLocalResult<T, P>
+  extends Omit<UseCellResult<T, P>, "value"> {
+  value: Accessor<T>;
+}
+
+export function useCell<Name extends string, T extends object, P = T>(
+  cell: Cell<Name, T>,
+  options: UseCellLocalOptions<T, P>,
+): UseCellLocalResult<T, P>;
+export function useCell<Name extends string, T, P = T>(
+  cell: Cell<Name, T>,
+  options: UseCellServerOptions<T, P>,
+): UseCellResult<T, P>;
 export function useCell<Name extends string, T, P = T>(
   cell: Cell<Name, T>,
   options: UseCellOptions<T, P>,
-): UseCellResult<T, P> {
+): UseCellResult<T, P> | UseCellLocalResult<T, P> {
   if (options.authority === "local") {
     return useCellLocal(
       cell as Cell<Name, T & object>,
       options as unknown as UseCellLocalOptions<T & object, P>,
-    ) as unknown as UseCellResult<T, P>;
+    ) as unknown as UseCellLocalResult<T, P>;
   }
   return useCellServer(cell, options as UseCellServerOptions<T, P>);
 }
@@ -180,7 +202,7 @@ function useCellServer<Name extends string, T, P>(
 function useCellLocal<Name extends string, T extends object, P>(
   _cell: Cell<Name, T>,
   options: UseCellLocalOptions<T, P>,
-): UseCellResult<T, P> {
+): UseCellLocalResult<T, P> {
   const [store, setStore] = createStore<T>(options.initial);
   // Mutable guard: once any server value arrives, seed the local store
   // from it and never overwrite again. Server echoes after init must not

@@ -254,7 +254,15 @@ function serveDaemonSurfaces(
       },
     },
     {
-      padi: buildPadiSurfaceDeps({ endpoint: localEndpoint, log: padiLog }),
+      padi: buildPadiSurfaceDeps({
+        endpoint: localEndpoint,
+        log: padiLog,
+        // The SAME `startedAt`/`commit` handed to the control-core `hello` below —
+        // reused, never re-derived, so the padiSurface `identity` cell and `hello`
+        // can't drift.
+        startedAt: PADI_STARTED_AT,
+        commit: currentPadiCommitHash(),
+      }),
       control: buildControlCoreDeps({
         stateRoot,
         startedAt: PADI_STARTED_AT,

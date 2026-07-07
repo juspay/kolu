@@ -3,11 +3,13 @@
  * Info dialog) — one singleton subscription each consumer shares.
  *
  * Four figures, two sources:
- *   - `serverRssBytes` / `padiMemoryDisplay` / `kavalMemoryDisplay` ride the
- *     server-pushed `processMemory` cell. kolu-server samples its OWN RSS and
- *     FOLDS IN padi's `{ padi, kaval }` reading (padi owns kaval now, so padi is
- *     the source of that pair; see `server/src/memorySampler.ts`). Three
- *     server-side processes, one cell.
+ *   - `serverRssBytes` rides the server-pushed, host-INDEPENDENT koluSurface
+ *     `processMemory` cell — kolu-server has exactly one process, wherever the
+ *     browser tab is looking.
+ *   - `padiMemoryDisplay` / `kavalMemoryDisplay` ride padi's OWN per-host
+ *     `processMemory` cell (`padiMap.useEntry(activeHost)`, W4 "the switch") —
+ *     padi measures its own RSS + its supervised kaval's, so this re-keys when
+ *     the active host switches, instead of describing the LOCAL stack always.
  *   - `clientHeapUsedBytes` is a browser-local read off `performance.memory`,
  *     refreshed each second off the SHARED app clock (`getClockNow`) — no
  *     dedicated timer, so it never adds a visibility-blind interval (the clock
@@ -23,21 +25,9 @@ import {
   localDaemonStatus,
 } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
-import { app } from "../wire";
+import { activeHost, app, padiMap } from "../wire";
 import { readJsHeapUsedBytes } from "./memory";
 
-// HOST-SCOPING: `processMemory` is a koluSurface (host-INDEPENDENT) cell — kolu-server's
-// OWN RSS plus a fold of the LOCAL padi/kaval pair (see `server/src/memorySampler.ts`,
-// which reads the LOCAL `padiSession`, not `activeHost`). `serverRssBytes` is genuinely
-// host-independent by design (kolu-server has exactly one process, wherever the browser
-// tab is looking). `padiMemoryDisplay`/`kavalMemoryDisplay` are NOT yet re-keyed onto
-// `activeHost` — padi DOES serve its own `processMemory` per host (`padiSurface.processMemory`,
-// `padi/src/surface.ts`), but kolu-server's fold has not been wired to re-serve it per
-// active host (a padi/server-side gap, out of this fix's file scope — tracked separately,
-// not "by design"). Until that lands, this readout describes the LOCAL padi/kaval stack
-// always, mislabeled as the active host's when a REMOTE host is active; see the
-// classification table in `PadiInfoDialog.tsx`/`KavalInfoDialog.tsx`.
-//
 // THE LIVE-SUBSCRIPTION FIX: `app.cells.X.use(...)` routes through the base client's
 // ref-counted `createKeyedSubscriptionCache` (`@kolu/surface/solid/keyedSubscriptionCache`).
 // Calling `.use()` at MODULE scope with no ambient Solid owner is the "ownerless" path that
@@ -48,9 +38,20 @@ import { readJsHeapUsedBytes } from "./memory";
 // unavailable" symptom. Wrapping in an app-lifetime `createRoot` (the same idiom
 // `useDaemonStatus.ts`'s `sub`/`useHostInventory.ts`'s `sub` already use) keeps a live
 // listener for the app's whole life, so the shared slot never tears down.
+
+// kolu-server's OWN RSS — host-independent (one koluSurface cell, one process).
 const sub = createRoot(() =>
   app.cells.processMemory.use({
     onError: (err) => toast.error(`Memory readout error: ${err.message}`),
+  }),
+);
+
+// The ACTIVE host's own padi/kaval RSS pair — `padiSurface.processMemory`, rides
+// `useEntry(activeHost)` so it re-keys on a host switch (a DISTINCT standing
+// subscription from `sub` above: two different cells, two different surfaces).
+const hostSub = createRoot(() =>
+  padiMap.useEntry(activeHost).cells.processMemory.use({
+    onError: (err) => toast.error(`Padi/kaval memory error: ${err.message}`),
   }),
 );
 
@@ -78,21 +79,23 @@ function displayRss(
   return null;
 }
 
-/** The padi process's memory projected for display (see {@link displayRss}). padi
- *  measures itself, so it is `ok` whenever the server's fold has a live padi to
- *  read; `null`/`error` surface a down/unreadable padi honestly. */
+/** The ACTIVE host's padi process memory projected for display (see
+ *  {@link displayRss}). padi measures itself, so it is `ok` whenever that host's
+ *  `identity`/`processMemory` cells have a live padi to read; `null`/`error`
+ *  surface a down/unreadable padi honestly. Rides {@link hostSub} — re-keys when
+ *  the active host switches (W4 "the switch"). */
 export function padiMemoryDisplay():
   | { kind: "ok"; rssBytes: number }
   | { kind: "error" }
   | null {
-  return displayRss(sub.value()?.padi);
+  return displayRss(hostSub.value()?.padi);
 }
 
-/** The kaval daemon's memory projected for display (see {@link displayRss}), with
- *  the extra connected-NOW gate the kaval dot already applies: `daemonStatus` flips
- *  the instant the daemon leaves `connected`, but the folded RSS only clears on the
- *  next sampler tick — so gating on the live state hides a stale MB at once, keeping
- *  the memory and the dot from drifting. */
+/** The ACTIVE host's kaval daemon memory projected for display (see
+ *  {@link displayRss}), with the extra connected-NOW gate the kaval dot already
+ *  applies: `daemonStatus` flips the instant the daemon leaves `connected`, but the
+ *  padi-served RSS only clears on the next sampler tick — so gating on the live
+ *  state hides a stale MB at once, keeping the memory and the dot from drifting. */
 export function kavalMemoryDisplay():
   | { kind: "ok"; rssBytes: number }
   | { kind: "error" }
@@ -101,12 +104,12 @@ export function kavalMemoryDisplay():
   // `daemonChannelLive` = ws ∧ the active entry), so its memory folds the SAME entry leg: a
   // dead active REMOTE entry (whose re-served daemonStatus freezes at "connected") hides the
   // stale RSS rather than a definite figure beside an "unknown" dot (re-run #6 — the
-  // dot-vs-tooltip honesty split). The a34032209 rationale (processMemory is a host-INDEPENDENT
-  // local-stack diagnostic) stands for the VALUE; the DISPLAY still floors on the host-scoped
-  // channel, exactly like every other host-scoped kaval-rail consumer.
+  // dot-vs-tooltip honesty split). `hostSub` is padi's OWN per-host `processMemory` cell
+  // (W4 "the switch" — this used to fold off the host-independent koluSurface cell), so the
+  // VALUE now genuinely re-keys with the active host too, not just the display floor.
   if (!daemonChannelLive()) return null;
   if (localDaemonStatus()?.state !== "connected") return null;
-  return displayRss(sub.value()?.kaval);
+  return displayRss(hostSub.value()?.kaval);
 }
 
 /** This browser's used JS heap in bytes, refreshed every second off the shared

@@ -22,20 +22,27 @@
 
 import { z } from "zod";
 
-/** The per-host key. A nominal sum — `{ kind: "local" }` (the pool's implicit,
- *  unremovable default member) or `{ kind: "remote"; target }` (an ssh destination:
- *  an `~/.ssh/config` alias or `user@host`). Zod's `.discriminatedUnion` is the SOLE
- *  schema (`HostKeySchema`), not a hand-rolled type — the union is nominal by its
- *  `kind` tag, not a brand. */
-export type HostKey = { kind: "local" } | { kind: "remote"; target: string };
-
 /** The wire/zod schema for {@link HostKey} — validates the OBJECT (the discriminant
  *  tag makes the union nominal; there is no `.brand()` to layer on top). The wire
- *  handler re-validates every `HostKey`-shaped input through this SAME schema (P5). */
-export const HostKeySchema: z.ZodType<HostKey> = z.discriminatedUnion("kind", [
+ *  handler re-validates every `HostKey`-shaped input through this SAME schema (P5).
+ *  `target` is `.min(1)` — a remote with an empty target is not a valid `HostKey`,
+ *  which is why {@link HostKey} is DERIVED from this schema (`z.infer`) rather than a
+ *  hand-rolled type: a hand-rolled `target: string` would silently admit the empty
+ *  string the schema rejects, so the two could never disagree in the first place. The
+ *  emptiness rule itself is enforced only at the value-construction boundary
+ *  ({@link parseHostInput}) and by re-validating through this schema — TS has no
+ *  non-empty-string type to check it statically. */
+export const HostKeySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("local") }),
   z.object({ kind: z.literal("remote"), target: z.string().min(1) }),
 ]);
+
+/** The per-host key. A nominal sum — `{ kind: "local" }` (the pool's implicit,
+ *  unremovable default member) or `{ kind: "remote"; target }` (an ssh destination:
+ *  an `~/.ssh/config` alias or `user@host`). Lifted off {@link HostKeySchema} — the
+ *  SOLE schema, not a hand-rolled type — so the union is nominal by its `kind` tag
+ *  (not a brand) and can never drift from what the schema actually validates. */
+export type HostKey = z.infer<typeof HostKeySchema>;
 
 /** The canonical local-host key — the pool's implicit, UNREMOVABLE default member.
  *  A DISTINCT concept from padi's daemon-status key (`HostLocation`, encoded via
@@ -93,16 +100,29 @@ const LOOPBACK_SELF_SPELLINGS = new Set(["localhost", "127.0.0.1", "::1"]);
 
 /** PARSE — raw HUMAN/env input (the add-host picker, a `KOLU_PADI_HOST` seed token):
  *  the literal word `"local"`, or a bare loopback spelling ({@link
- *  LOOPBACK_SELF_SPELLINGS}), names the local default; EVERYTHING else is taken
- *  LITERALLY as a remote target — including a string that happens to start with
+ *  LOOPBACK_SELF_SPELLINGS}), names the local default; EVERYTHING else NON-EMPTY is
+ *  taken LITERALLY as a remote target — including a string that happens to start with
  *  `"remote:"` (unlike {@link decodeHostKey}, this codec never interprets that
  *  prefix — a user typing an ssh alias literally named `remote:zest` gets a remote
  *  target of exactly `"remote:zest"`), and including `user@localhost` (ssh as a
  *  DIFFERENT user to the loopback is a distinct remote target, not the local
- *  default). Total: unlike the old branded-string schema, there is no reserved-name
- *  reject to fail — a bare human string always parses. */
+ *  default). Total over every non-empty string: unlike the old branded-string schema,
+ *  there is no reserved-name reject to fail. An EMPTY string is the one input this
+ *  codec refuses — `{ kind: "remote", target: "" }` is not a `HostKey` {@link
+ *  HostKeySchema} would accept, so admitting it here would silently mint a value that
+ *  fails validation the moment it crosses the wire. Every real caller already filters
+ *  blank tokens before parsing (the picker's own guard, `parseKoluPadiHostSeed`'s
+ *  `.filter((h) => h.length > 0)`), so this is a defensive floor, not a path taken in
+ *  practice — but it means a FUTURE caller that forgets to filter fails loud here
+ *  instead of minting an illegal `HostKey` downstream. */
 export function parseHostInput(userStr: string): HostKey {
-  return userStr === "local" || LOOPBACK_SELF_SPELLINGS.has(userStr)
-    ? LOCAL_HOST
-    : { kind: "remote", target: userStr };
+  if (userStr === "local" || LOOPBACK_SELF_SPELLINGS.has(userStr)) {
+    return LOCAL_HOST;
+  }
+  if (userStr.length === 0) {
+    throw new Error(
+      "parseHostInput: an empty string is not a valid host — filter blank tokens before parsing",
+    );
+  }
+  return { kind: "remote", target: userStr };
 }

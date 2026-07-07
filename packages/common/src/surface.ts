@@ -309,13 +309,14 @@ export type HostMapGate = z.infer<typeof HostMapGateSchema>;
  *  here — it already rides `daemonStatus.startedAt` (the Kaval dialog's uptime source),
  *  so this cell carries only the two processes that lacked one.
  *
- *  Honesty (#1034): `server` is `0` until the first server yield — a sentinel the
- *  rail gates out on truthiness, so the pre-yield state shows nothing, never a bogus
- *  multi-decade uptime climbing off `now − 0`. `padi` is `null` whenever padi is
+ *  Honesty (#1034): `server` is `null` until the first server yield — an epoch of `0`
+ *  is a real (if absurd) timestamp, not a safe in-band "unknown" sentinel, so the
+ *  pre-yield state is the same honest `null` its `padi` sibling already uses, never a
+ *  bogus multi-decade uptime climbing off `now − 0`. `padi` is `null` whenever padi is
  *  unbound (the (re)connecting / dropped binding) — an honest "unknown", never a fake
  *  `0`, and it re-reads a FRESH boot time when a respawned padi (a new process) binds. */
 export const ProcessStartedAtSchema = z.object({
-  server: z.number(),
+  server: z.number().nullable(),
   padi: z.number().nullable(),
 });
 export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
@@ -325,26 +326,55 @@ export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
  *  healthy converged case (no banner). Rides {@link DaemonInventorySchema.boundPadi}
  *  because that is the ONE binder→dialog channel orthogonal to the liveness gate: an
  *  `adopted-stale` keeps the connection `connected` (canvas alive) yet must still say WHY,
- *  which the connection cell (gated to `state === "connected"`) structurally cannot. */
-export const PadiConvergenceSchema = z.object({
-  /** `adopted-stale`: a build-mismatched survivor we could not drain-replace within the
-   *  M1 budget (a contested host respawning the old build) — we RIDE it, canvas works.
-   *  `skew-refused`: an incompatible padiSurface contract (binder older) we won't adopt.
-   *  `unconverged`: a newer-contract drain that never provably took (canvas dead).
-   *  `link-failed`: the ssh link gave up (host unreachable / provisioning failed). */
-  state: z.enum([
-    "adopted-stale",
-    "skew-refused",
-    "unconverged",
-    "link-failed",
-  ]),
-  /** The bound padi's ACTUAL build (`hello.buildId`) for the build-mismatch state, else null. */
-  runningBuild: z.string().nullable(),
-  /** The build kolu-server EXPECTED (its baked `PADI_BUILD_ID`), else null. */
-  expectedBuild: z.string().nullable(),
-  /** A human-readable reason for the dialog banner. */
-  detail: z.string(),
-});
+ *  which the connection cell (gated to `state === "connected"`) structurally cannot.
+ *
+ *  A DISCRIMINATED UNION, not a flat struct with nullable build fields: only
+ *  `adopted-stale` is ABOUT a specific running-vs-expected build mismatch (the producer,
+ *  `remotePadiBinding.ts`'s `adoptStale`, is the one arm that ever has both builds in
+ *  hand); `skew-refused` / `unconverged` / `link-failed` are reasons that never carry a
+ *  build pair. A flat struct let `{ state: "link-failed", runningBuild: "…" }` typecheck
+ *  even though no producer ever means that — the union makes it UNREPRESENTABLE instead.
+ *  Every non-`adopted-stale` variant still DECLARES `runningBuild`/`expectedBuild` as the
+ *  literal `null` (rather than omitting the keys) so a consumer that reads
+ *  `conv.runningBuild` unconditionally (the dialog banner shows the build pair only under
+ *  `<Show when={state === "adopted-stale"}>`, but the accessor itself isn't narrowed by
+ *  that boolean) keeps seeing the same `string | null` it always has — the illegal
+ *  PAIRING is what's excluded, not the field's presence. */
+export const PadiConvergenceSchema = z.discriminatedUnion("state", [
+  z.object({
+    /** A build-mismatched survivor we could not drain-replace within the M1 budget (a
+     *  contested host respawning the old build) — we RIDE it, canvas works. */
+    state: z.literal("adopted-stale"),
+    /** The bound padi's ACTUAL build (`hello.buildId`) — always known for this state. */
+    runningBuild: z.string(),
+    /** The build kolu-server EXPECTED (its baked `PADI_BUILD_ID`) — always known too. */
+    expectedBuild: z.string(),
+    /** A human-readable reason for the dialog banner. */
+    detail: z.string(),
+  }),
+  z.object({
+    /** An incompatible padiSurface contract (binder older) we won't adopt. */
+    state: z.literal("skew-refused"),
+    /** No build pair for this reason — literal `null`, not omitted (see class doc). */
+    runningBuild: z.null(),
+    expectedBuild: z.null(),
+    detail: z.string(),
+  }),
+  z.object({
+    /** A newer-contract drain that never provably took (canvas dead). */
+    state: z.literal("unconverged"),
+    runningBuild: z.null(),
+    expectedBuild: z.null(),
+    detail: z.string(),
+  }),
+  z.object({
+    /** The ssh link gave up (host unreachable / provisioning failed). */
+    state: z.literal("link-failed"),
+    runningBuild: z.null(),
+    expectedBuild: z.null(),
+    detail: z.string(),
+  }),
+]);
 export type PadiConvergence = z.infer<typeof PadiConvergenceSchema>;
 
 /** Where kolu-server's padi is bound — and, when that is NOT the machine kolu-server
@@ -379,7 +409,15 @@ export const DaemonInventorySchema = z.object({
    *  version chip + build-commit row read THIS, not the local-scan `active` row: under a
    *  remote binding no locally-discovered padi is kolu's active one, so that row is null
    *  and the identity must instead ride the bound session's readouts (which work over
-   *  ssh). `null` before the first sample / while padi is unbound with nothing to report. */
+   *  ssh). `null` before the first sample / while padi is unbound with nothing to report.
+   *
+   *  There is EXACTLY ONE way to say "nothing to report": the top-level `null` above —
+   *  never the inner object with all three of `surfaceVersion`/`buildCommit`/`convergence`
+   *  also null. Without the `.refine` below, both shapes typecheck and mean the same
+   *  thing, so a future writer could drift between them for no reason; the publisher
+   *  (`server/src/daemonInventory.ts`) already special-cases "all three null → publish
+   *  `null` itself" for exactly this reason — the refine makes that the ONLY legal
+   *  encoding rather than a convention a future call site could quietly break. */
   boundPadi: z
     .object({
       surfaceVersion: z.string().nullable(),
@@ -391,6 +429,16 @@ export const DaemonInventorySchema = z.object({
        *  (a refused/failed bind has a reason but no adopted identity). */
       convergence: PadiConvergenceSchema.nullable(),
     })
+    .refine(
+      (v) =>
+        v.surfaceVersion !== null ||
+        v.buildCommit !== null ||
+        v.convergence !== null,
+      {
+        message:
+          "boundPadi: nothing to report is the top-level null, not an inner object with every field null",
+      },
+    )
     .nullable(),
 });
 export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
@@ -525,11 +573,12 @@ export const koluSurface = defineSurface({
      *  {@link ProcessStartedAtSchema}). Server-authored — kolu-server drives it off
      *  the bound padi session's connection state, the SAME `onState` that drives
      *  `padiLink` (`server/src/index.ts` via `koluSurfaceCtx.cells.processStartedAt.set`);
-     *  clients read-only. The `{ server: 0, padi: null }` default is the honest pre-yield
-     *  "unknown" (the rail gates a `0`/`null` out rather than rendering a bogus uptime). */
+     *  clients read-only. The `{ server: null, padi: null }` default is the honest
+     *  pre-yield "unknown" for BOTH legs — no `0` sentinel (the rail gates a `null` out
+     *  rather than rendering a bogus uptime off a fabricated boot time). */
     processStartedAt: {
       schema: ProcessStartedAtSchema,
-      default: { server: 0, padi: null } satisfies z.infer<
+      default: { server: null, padi: null } satisfies z.infer<
         typeof ProcessStartedAtSchema
       >,
       verbs: ["get"],

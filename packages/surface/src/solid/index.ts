@@ -105,6 +105,7 @@ export {
 export {
   type Authority,
   type UnaryProcedure,
+  type UseCellLocalResult,
   type UseCellOptions,
   type UseCellResult,
   useCell,

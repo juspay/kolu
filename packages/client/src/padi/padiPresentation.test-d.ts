@@ -3,8 +3,8 @@
  * `kaval/daemonPresentation.test-d.ts`): a `connected` {@link PadiPresence} without
  * `identity` is a COMPILE ERROR.
  *
- * The raw wire facts (`padiLink` + `daemonInventory.boundPadi.buildCommit`) let a
- * render site show `padiLink === "connected"` beside a `null` build commit — the exact
+ * The raw wire facts (`padiLink` + padi's per-host `identity` cell) let a render site
+ * show `padiLink === "connected"` beside a `null`/`undefined` build commit — the exact
  * overloaded-null the drain/reconnect bug rode ("status unknown / build commit — /
  * memory unavailable" while padi was provably alive). `PadiPresence` is this package's
  * own, narrower sum every render site must go through — `identity` (and its
@@ -12,6 +12,12 @@
  * unknown" is now UNREPRESENTABLE at the type level. `tsc` GREEN over this file ⇒ the
  * guarantee holds (see `surface-remote/src/localSessionPhase.test-d.ts` for the same
  * pin style).
+ *
+ * W4 "the switch" adds a SECOND distinction this file also pins: `buildCommit: null`
+ * (padi itself DECLARED "no commit" — a dev/off-nix build) is legal on the `connected`
+ * arm — it is NOT the same state as "identity unknown" (that absence is the identity
+ * CELL never having arrived, which `toPadiPresence` floors to `warming` before a
+ * `PadiPresence` is even constructed — see `padiPresentation.test.ts`'s runtime pins).
  */
 
 import type { PadiPresence } from "./padiPresentation";
@@ -26,6 +32,19 @@ const full: PadiPresence = {
   },
 };
 void full;
+
+// A `connected` PadiPresence with a DECLARED-null build commit — legal, and DISTINCT
+// from "identity unknown": a dev/off-nix padi genuinely has no commit, and padi (the
+// writer) declares exactly that, rather than the cell never having arrived.
+const declaredNoCommit: PadiPresence = {
+  kind: "connected",
+  identity: {
+    buildCommit: null,
+    surfaceVersion: "1.1",
+    convergence: null,
+  },
+};
+void declaredNoCommit;
 
 // @ts-expect-error — a `connected` PadiPresence without `identity` must not compile.
 // If this line ever compiles, the P4 escape hatch has regressed.
