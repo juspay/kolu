@@ -1,12 +1,14 @@
 /**
  * The padi surface is a keyed `SurfaceMap` since W4 ("the switch"), so a RAW HTTP call to any
- * padi entry-member procedure must fold its input into the map's `{ mapKey, input }` envelope
- * (`@kolu/surface-map`'s `MAP_KEY_FIELD` / `INPUT_FIELD`). The e2e harness bypasses the typed
- * client — which folds automatically — for its resets, so it folds here by hand. The wire route
- * is UNCHANGED (`/rpc/surface/padi/<member>/<verb>`, no double prefix); only the body gains
- * `mapKey`, which is why an un-folded body now 400s.
+ * padi entry-member procedure must fold its input into the map's `{ mapKey, input }` envelope —
+ * `@kolu/surface-map`'s own `fold()` (the ONE encoder; see `src/envelope.ts`). The e2e harness
+ * bypasses the typed client — which folds automatically — for its resets, so it calls `fold()`
+ * by hand rather than re-spelling the envelope's field literals. The wire route is UNCHANGED
+ * (`/rpc/surface/padi/<member>/<verb>`, no double prefix); only the body gains `mapKey`, which
+ * is why an un-folded body now 400s.
  */
 
+import { fold } from "@kolu/surface-map";
 import { encodeHostKey, LOCAL_HOST, parseHostInput } from "kolu-common/hostKey";
 
 /** The wire `mapKey` — the CANONICAL encoded form (`encodeHostKey`) — the e2e drives its padi
@@ -24,11 +26,12 @@ export const PADI_HOST_KEY: string =
     .map((h) => encodeHostKey(parseHostInput(h)))
     .find((enc) => enc !== LOCAL_WIRE_KEY) ?? LOCAL_WIRE_KEY;
 
-/** Fold a padi entry-member input into the map's `{ mapKey, input }` wire envelope. A
- *  VOID-input procedure (e.g. `lifecycle/killAll`) passes no argument and omits `input` — the
- *  fold's `z.void()` accepts an absent field. Pass the RPC body as `{ json: padiFold(x) }`. */
+/** Fold a padi entry-member input into the map's `{ mapKey, input }` wire envelope via the
+ *  envelope's own `fold()` encoder. A VOID-input procedure (e.g. `lifecycle/killAll`) passes
+ *  no argument — `fold(mapKey, undefined)` carries an `input: undefined` field, which
+ *  `JSON.stringify` (every `padiFold` call site serializes the body) drops entirely, so the
+ *  wire body is byte-identical to an explicitly omitted field; the fold's `z.void()` schema
+ *  accepts the resulting absent key either way. Pass the RPC body as `{ json: padiFold(x) }`. */
 export function padiFold(input?: unknown): Record<string, unknown> {
-  return input === undefined
-    ? { mapKey: PADI_HOST_KEY }
-    : { mapKey: PADI_HOST_KEY, input };
+  return fold(PADI_HOST_KEY, input) as Record<string, unknown>;
 }

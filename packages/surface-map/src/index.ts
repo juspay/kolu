@@ -21,3 +21,9 @@ export {
 // `export type … from "./client"` still makes TS typecheck the Solid client for a NODE
 // consumer of this index — surface-remote's serveHostMap imports `SurfaceMap` here — pulling
 // onWake's `window`/`document` into a DOM-less typecheck.)
+// The uniform fold envelope's field constants + encoder — dependency-free (no zod, no
+// solid), so it belongs on this node-safe default entry alongside `EntryState` rather
+// than the Solid `./client`. A hand-folding consumer OUTSIDE the typed client (e.g. the
+// e2e harness, which bypasses `connectSurfaceMap` for raw HTTP resets) reads `fold`/the
+// field names from here instead of re-spelling the envelope's own literals.
+export { fold, INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";

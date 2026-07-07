@@ -1624,6 +1624,9 @@ importers:
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
+      '@kolu/surface-map':
+        specifier: workspace:*
+        version: link:../surface-map
       get-port:
         specifier: ^7.2.0
         version: 7.2.0

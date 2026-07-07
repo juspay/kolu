@@ -38,6 +38,7 @@ import {
   type StreamingProcedure,
   type Subscription,
   wireSubscriptionError,
+  writeWrappedValue,
 } from "@kolu/surface/solid";
 import {
   type Accessor,
@@ -46,7 +47,7 @@ import {
   on,
   onCleanup,
 } from "solid-js";
-import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
+import { createStore } from "solid-js/store";
 
 export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   /** The query input; `null` = idle (no pulse subscription, no query). */
@@ -83,24 +84,6 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
    *  a file-gone predicate here so a delete-while-viewing keeps the last content
    *  until the selection changes, instead of flashing an ENOENT panel. */
   swallowError?: (err: Error) => boolean;
-}
-
-/** Reconcile-or-assign into the wrapped `{ v }` store — objects/arrays through
- *  `reconcile` for fine-grained reactivity + stable references (the treePaths
- *  memo relies on this), primitives by direct assignment. Mirrors the
- *  framework's private `writeWrappedValue`. */
-function writeValue<T>(
-  setStore: SetStoreFunction<{ v: T | undefined }>,
-  next: T,
-): void {
-  if (next !== null && typeof next === "object") {
-    setStore(
-      "v",
-      reconcile(next as Record<string, unknown>) as unknown as T | undefined,
-    );
-  } else {
-    setStore("v", next);
-  }
 }
 
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
@@ -153,7 +136,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       try {
         const result = await query(i, ctl.signal);
         if (ctl.signal.aborted) return;
-        writeValue<Result>(setStore, result);
+        writeWrappedValue<Result>(setStore, result);
         if (pending()) setPending(false);
         if (error()) setError(undefined);
       } catch (err) {

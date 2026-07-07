@@ -116,3 +116,8 @@ export {
 } from "./useCollection";
 export { type UseEventOptions, useEvent } from "./useEvent";
 export { useStream } from "./useStream";
+// The reconcile-or-assign write into a wrapped `{ v }` store — shared by
+// `createSubscription`/`createReactiveSubscription` internally and by
+// non-framework callers that stitch server data into the same wrapped-store
+// shape (e.g. `@kolu/client`'s `createPolledQuery`).
+export { writeWrappedValue } from "./writeValue";
