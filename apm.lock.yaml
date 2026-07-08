@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-08T02:31:49.774556+00:00'
+generated_at: '2026-07-08T02:39:43.838171+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agents
@@ -67,7 +67,7 @@ dependencies:
     .agents/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
     .agents/skills/codex-debate/scripts/codex-review.sh: sha256:8d97126372d6e716d9455f7e9e821c6fa717d1f55968dd82b93f9bb8999d0fc9
     .agents/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
-    .agents/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
+    .agents/skills/kolu/SKILL.md: sha256:943bb2816bf9feb5b88cb5e461cfe2fa4aceedc60b81585d284342dd3865a160
     .agents/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .agents/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
     .agents/skills/perfection-review/SKILL.md: sha256:a5464e881cdde4555218325f638289afebee4dd910772fea8efe6e06fff81bdf
@@ -83,7 +83,7 @@ dependencies:
     .claude/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
     .claude/skills/codex-debate/scripts/codex-review.sh: sha256:8d97126372d6e716d9455f7e9e821c6fa717d1f55968dd82b93f9bb8999d0fc9
     .claude/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
-    .claude/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
+    .claude/skills/kolu/SKILL.md: sha256:943bb2816bf9feb5b88cb5e461cfe2fa4aceedc60b81585d284342dd3865a160
     .claude/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .claude/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
     .claude/skills/perfection-review/SKILL.md: sha256:a5464e881cdde4555218325f638289afebee4dd910772fea8efe6e06fff81bdf
@@ -332,39 +332,19 @@ dependencies:
   content_hash: sha256:9575434ddde22cc69174ac75e2f801032dbc3dea793ff193d58f0a341b2eacb1
   declared_license: MIT
 - repo_url: srid/llm-debate
-  name: llm-debate
+  name: debate
   host: github.com
-  resolved_commit: 3a52fca8633016627e33b4fbf036c50da9e4cc2c
-  version: 0.1.0
-  package_type: apm_package
+  resolved_commit: 6e7104bc2d0e01907249c27386c25bd7516c0ab5
+  version: 1.0.0
+  virtual_path: .apm/skills/debate
+  is_virtual: true
+  package_type: claude_skill
   deployed_files:
   - .agents/skills/debate
   - .agents/skills/debate/SKILL.md
   - .claude/skills/debate
   - .claude/skills/debate/SKILL.md
-  deployed_file_hashes:
-    .agents/skills/debate/SKILL.md: sha256:af2c34cda04a8705d9c292be4a6c7b7fe53b22bb8ef526f8413638948600e825
-    .claude/skills/debate/SKILL.md: sha256:af2c34cda04a8705d9c292be4a6c7b7fe53b22bb8ef526f8413638948600e825
-  content_hash: sha256:9cf74853b4407af783799193d988f2ed028406caeb5d285f7be1a0609c0c6ed4
-- repo_url: juspay/kolu
-  name: kolu
-  host: github.com
-  resolved_commit: dbff5c22c832730e9fc7e08c23480edc64b89a1d
-  version: unknown
-  virtual_path: agents/.apm/skills/kolu
-  is_virtual: true
-  depth: 2
-  resolved_by: srid/llm-debate
-  package_type: claude_skill
-  deployed_files:
-  - .agents/skills/kolu
-  - .agents/skills/kolu/SKILL.md
-  - .claude/skills/kolu
-  - .claude/skills/kolu/SKILL.md
-  deployed_file_hashes:
-    .agents/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
-    .claude/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
-  content_hash: sha256:c457b0d11e5f706f4ace57c0fdbe510b9367ead42d5b78372b8cb805cf18e2c2
+  content_hash: sha256:56abe4fc2cbf64aa7931e3ec81287205f8da5292c145474d8711f4da727fe6be
 mcp_servers:
 - chrome-devtools
 - odu
