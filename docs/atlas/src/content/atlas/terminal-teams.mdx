@@ -1,6 +1,6 @@
 ---
-title: Terminal teams — orchestrating a crew of agent terminals on the canvas
-description: "One orchestrator agent driving a team of specialist agent terminals (implementor, architect, review watchguard) on a single task — the team's structure as first-class terminal RELATIONS rendered on the canvas. The /team skill, the small placement delta on the shipped padi-tui create verb, and the goal contract that makes silent stalls unrepresentable."
+title: Terminal teams — a crew of agent terminals on the canvas
+description: "The feature roadmap toward /team: one orchestrator agent driving specialist agent terminals (implementor, architect, watchguard) with the team's structure as terminal relations rendered on the canvas. Four features, two substrates already shipped, one skill tying them together."
 parents: [feature, padi]
 status: proposed
 maturity: seedling
@@ -9,58 +9,35 @@ updated: 2026-07-08
 
 import Svg from "../../components/Svg.astro";
 import Footnote from "../../components/Footnote.astro";
-import Callout from "../../components/Callout.astro";
 import canvas from "../../diagrams/terminal-teams-canvas.svg?raw";
+import roadmap from "../../diagrams/terminal-teams-roadmap.svg?raw";
 
-**The observation this note starts from:** the surface-map campaign (PR #1714 → W7) was already run as a one-orchestrator-many-agents operation — a coordinator terminal holding the plan of record, dispatching briefs over `kaval-tui send`, verifying claims at the tree, ruling on consults, and watchdogging idle agents. It worked, and it also exposed every seam by hand: sends whose *landing* had to be proven from transcripts, agents stalling silently mid-stage, a terminal re-keying after a kaval restart and briefs going to a dead address, and the "team" existing only in the coordinator's context window — invisible on the canvas. This note proposes making that workflow a first-class kolu feature: a **/team skill** for the orchestration, the **daemon verbs** it needs, and **terminal relations** so the team is a visible structure, not tribal knowledge.
+The surface-map campaign (PR #1714 → W7) was already a one-orchestrator-many-agents operation, run by hand: briefs over `kaval-tui send`, claims verified at the tree, watchdogs on idle agents. Every seam it exposed is a feature below. The idea: make the crew a first-class, *visible* thing — teammates spawned beside the orchestrator, the team's structure drawn on the canvas.
 
-<Svg svg={canvas} wide caption="The target: an orchestrator tile and its specialist teammates, spawned beside it, with typed relations rendered as edges. The team IS canvas structure — anyone glancing at the canvas sees who works for whom on what." />
+<Svg svg={canvas} wide caption="The target: an orchestrator tile and its specialists, spawned beside it, typed relations as edges. The team is canvas structure, not tribal knowledge in one agent's context window." />
 
-## User-facing description
+## The roadmap
 
-- **Convening a team.** In the orchestrator terminal: `/team convene implementor:worktree architect:read-only watchguard:lowy` (roles are presets — a role names the skills the teammate loads and its write posture). kolu spawns each teammate as a real terminal **positioned next to the orchestrator**, each on its declared substrate (a fresh worktree for the implementor; the repo read-only for the architect).
-- **Seeing the team.** Each teammate tile carries a role badge; **edges** on the canvas connect the orchestrator to its teammates, labeled by relation (`delegates`, `consults`, `reviews`). The minimap shows the cluster. (Edge-click affordances — e.g. focusing both ends — are P2 design questions; there is no recorded send-history substrate today, so nothing here promises one.)
-- **Living with it.** The user can watch any teammate work live (it's just a terminal), interject in any of them, or address the orchestrator only. Disbanding the team (or a teammate finishing) removes the tiles and the edges; the worktrees are reaped per the teardown discipline.
-- **Not stopping silently.** Every team member (orchestrator included) carries a **goal contract**: an agent may not end its turn while its goal is unmet unless it has posted a report or a blocked-on notice to its coordinator. Stalls become visible messages instead of silent idleness.
+<Svg svg={roadmap} wide caption="What exists, what's a delta, what's new — and /team as the composition. F1/F2/F4 are independent; F3 needs F2; each ships alone." />
 
-## Architecture-level changes
+| Feature | What it is | Status | Campaign incident it answers |
+| --- | --- | --- | --- |
+| — | `padi-tui create --worktree --parent -- <argv>` → id; tile identical to browser-created | **shipped** | (the spawn substrate) |
+| — | `kaval-tui send / wait / snapshot` — the messaging loop | **shipped** | (the wire) |
+| **F1** | `create --near <tile> --title <role>` — spawn placed next to the orchestrator | **delta** on `padi-tui create` (a `canvasLayout` metadata write; `repoIslands`' no-reshuffle rule holds) | teammates lost among 40 tiles |
+| **F2** | Terminal **relations**: `chrome.setRelation {to, kind: delegates\|consults\|reviews, label}` — persisted metadata generalizing sub-terminal `parentId`<Footnote>Why relations are kolu data, not skill state: the roster in the orchestrator's context dies at every compaction — it did, repeatedly, during the campaign. A relation on the terminal survives compaction, reconnect, and re-keying, and renders for the human. `parentId` stays separate: containment ≠ collaboration.</Footnote> | **new** (padi surface + schema) | the team existed only in my context window |
+| **F3** | Canvas renders F2: edges + role badges, cluster on the minimap | **new** (client UI; straight lines first, no routing) | same |
+| **F4** | **/goal** — a Stop-hook contract: an agent with an unmet goal cannot end its turn without posting a report or a blocked-notice (escapes: `done: true`, max-nag counter) | **new** (small skill + hook; useful solo, ships first) | the silent mid-stage stall |
+| **/team** | The skill composing F1–F4: convene (spawn + relate + brief by role), messaging contract, lifecycle, disband + reap | **new** (upstreamable to `srid/agency`) | all of the above, today done by hand |
 
-Three layers, bottom-up — each is independently useful and independently shippable:
+## Notes toward /team
 
-**1 · The spawn substrate — mostly SHIPPED, on padi.** The spawn verb already exists at the right layer: **`padi-tui create`** spawns a terminal on the host padi owns, with `--worktree <branch>` (materializes a fresh git worktree *first*, via the `git.worktreeCreate` procedure — host-correct by construction), `--parent` (split tile), `-- <argv>` (launch an agent in it), returning the new terminal's id — and it composes the same `padiSurface` procedures the browser's `useWorktreeOps` composes, so the result is a canvas tile byte-identical to a browser-created one. (kaval — the PTY daemon — has no canvas awareness and is the wrong layer for any of this; its `kaval-tui` contributes the *messaging* verbs: `send`, `wait`, `snapshot`.) The genuine delta for teams is small: **placement** ("near terminal X" — `canvasLayout` already lives in `TerminalMetadata`, so this is a metadata write relative to a reference tile, exposed through the same surface the client's `persistCanvasLayout` uses) and a **role title** on create.
-
-**2 · Terminal relations — the team as data.** Kolu already has one relation on the wire, persisted and rendered: the sub-terminal's `parentId` (the padi surface's `chrome.setParent`, called by the client). Generalize it: a terminal can carry typed relation edges `{to: TerminalId, kind: "delegates" | "consults" | "reviews" | …, label?}`, set over the same padi chrome surface (`chrome.setRelation`), persisted in session metadata, rendered by the kolu client as canvas edges (the `repoIslands` clustering is the precedent for canvas-level grouping; edges are the next primitive). Relations are **facts about terminals**, not about agents — a human pair could use them too.<Footnote>Why relations belong in kolu rather than in the skill: the skill's team roster dies with the orchestrator's context window (exactly what happened all through the surface-map campaign — the team topology lived in one agent's head and had to be re-explained after every compaction). A relation on the terminal is durable, survives compaction and reconnect, and renders for the human.</Footnote>
-
-**3 · The /team skill — the orchestration protocol.** A skill (upstreamable to `srid/agency`, like `debate`) that encodes what the campaign learned by hand:
-- **Convene**: spawn teammates via the layer-1 verb, set layer-2 relations, brief each with a role preset (architect = `/architecture-first-principles` + read-only; watchguard = a lens on every push; implementor = the task brief + test-first discipline).
-- **The messaging contract**: two-step `kaval-tui send` + `--key Enter`; large payloads via file + short pointer; **landing verified against the recipient's transcript, not the send's exit code** (the campaign's hardest-won lesson).
-- **The goal contract**: on convening, each member gets a goal file; a **Stop hook** blocks ending a turn while the goal is unmet and no report/blocked-notice was posted — with an escape (`done: true`, or a max-nag counter so a wedged agent can't loop forever). Symmetric: the orchestrator holds the mirror goal.
-- **Lifecycle**: stage-boundary reports, watchdog cycles for liveness (detection stays even with goal contracts — belt and suspenders), disband + reap (kill by captured id, remove worktrees, drop relations).
-
-## Implementation details
-
-Phased, smallest-first; each phase lands alone:
-
-1. **P1 — the placement delta on the shipped verb** (`padi-tui create --near <terminal-id> --title <role>`, extending `packages/padi-tui/src/create.ts`). Integration points: the reference tile's `canvasLayout` read + an offset write on the new terminal's `TerminalMetadata` (the path `persistCanvasLayout.ts` already writes), no auto-arrange of existing tiles — the `repoIslands` no-reshuffle rule holds. `--worktree`, `--parent`, `-- <argv>`, and id-return are ALREADY SHIPPED. Risk: placement racing the client's default-cascade placement — the DEFER/records-settled pattern from the split fix applies.
-2. **P2 — relations** (`chrome.setRelation`, schema + persistence beside `parentId`, canvas edge rendering + role badges). Risk: edge rendering on a zoomable canvas is new UI; start with straight lines + labels, no routing. Sub-terminal `parentId` stays its own thing (it's containment, not collaboration) — do *not* unify them in P2; note the possible future unification and its cost honestly instead of forcing it.
-3. **P3 — the /goal stop-hook contract** (its own small skill + hook; useful solo for any long-running agent, not just teams).
-4. **P4 — /team itself** (the skill composing P1–P3; role presets as data; the messaging/verification protocol as instructions). Done-when: a two-teammate team (implementor + reviewer) runs a real small task end-to-end — convened, visible on canvas, stage-reported, disbanded clean — with zero manual `kaval-tui` invocations by the human.
+- **Role presets are data, not code**: `implementor:worktree` (task brief, test-first, own branch) · `architect:read-only` (consults via /architecture-first-principles) · `watchguard:lowy` (reviews each push, red-flags to the orchestrator). A role names the skills loaded and the write posture.
+- **The messaging contract encodes the campaign's hardest lesson**: two-step send + Enter; large payloads as file + pointer; *landing verified against the recipient's transcript, never the send's exit code*.
+- **Disband = the teardown discipline**: kill by captured id, reap worktrees, drop relations. Watchdogs stay even with F4 — detection and prevention are belt and suspenders.
+- **Done-when for /team**: a two-teammate team runs a real small task end-to-end — convened, visible on canvas, stage-reported, disbanded clean — zero manual `kaval-tui` by the human.
 
 ## Prior art
 
-**In-repo (the load-bearing kind):**
-- **The surface-map campaign itself** — this note's requirements list is that campaign's incident log turned into features (send-landing verification, terminal re-keying, silent stalls, invisible topology).
-- **`/debate --orchestrate`** — N agent terminals coordinated by turn-files and `kaval-tui send`; proves the multi-terminal loop works, and its "each agent owns its own file, orchestrator never argues" division previews /team's role separation.
-- **`padi-tui create --worktree -- <argv>`** — the team-spawn verb, already shipped: terminal + fresh worktree + agent launched, id returned, canvas-tile-identical to browser creation. P1 is a *delta* on this, not a new verb.
-- **Sub-terminal `parentId`** — a typed, persisted, rendered terminal relation already on the wire; relations generalize it.
-- **`repoIslands`** — canvas-level grouping with an explicit no-reshuffle rule; the placement discipline P1 inherits.
-
-**External:**
-- [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) — native supervisor-plus-teammates orchestration with split-pane visibility and role assignment; the closest analogue, but panes are a *viewport*, not a persistent spatial structure — kolu's canvas + relations is the differentiator (durable, positional, human-legible after the fact).
-- [tmux-orchestrator](https://github.com/hesreallyhim/awesome-claude-code/issues/1279) — agents in tmux windows with own worktrees + two-way messaging; validates the worktree-per-implementor substrate. [Claude Squad](https://vibecodinghub.org/tools/claude-squad) — managing multiple agent instances in one terminal app.
-- [The code-agent orchestra](https://addyosmani.com/blog/code-agent-orchestra/) and [Claude Code swarms](https://addyosmani.com/blog/claude-code-agent-teams/) — task-sizing lessons (units small enough for check-ins, large enough to beat coordination overhead) that /team's stage-boundary contract encodes.
-- Role-based multi-agent frameworks (MetaGPT, ChatDev lineage) — architect/engineer/reviewer role decomposition; /team takes the roles but rejects the framework posture: kolu teammates are ordinary terminals running ordinary agents, orchestrated by prompts, not a bespoke runtime.
-
-<Callout kind="note" title="Scope honesty">
-This is a seedling proposal: the phases are ordered but not scheduled, and P2's edge-rendering plus P4's role presets each deserve their own design pass before building. What is *not* speculative: every requirement traces to a concrete incident from a real campaign run by hand, and P1+P3 are small enough to ship whenever the itch strikes.
-</Callout>
+- **In-repo**: the campaign itself (the manual prototype) · `/debate --orchestrate` (N terminals, turn-files, orchestrator-never-argues) · `padi-tui create` (the spawn verb) · sub-terminal `parentId` (a rendered relation) · `repoIslands` (canvas grouping, the no-reshuffle rule).
+- **External**: [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) — native supervisor+teammates with split-pane visibility; panes are a *viewport*, kolu's canvas is a *persistent spatial structure* (the differentiator). [tmux-orchestrator](https://github.com/hesreallyhim/awesome-claude-code/issues/1279) (worktree-per-agent, two-way messaging) · [Claude Squad](https://vibecodinghub.org/tools/claude-squad) · task-sizing lessons in [the code-agent orchestra](https://addyosmani.com/blog/code-agent-orchestra/) / [swarms](https://addyosmani.com/blog/claude-code-agent-teams/) (units small enough for check-ins → /team's stage-boundary contract). Role frameworks (MetaGPT/ChatDev lineage) supply the decomposition; /team rejects the bespoke-runtime posture — teammates are ordinary terminals running ordinary agents.
