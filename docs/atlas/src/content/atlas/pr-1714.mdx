@@ -28,6 +28,10 @@ One "approved as recommended" (or amendments) unblocks everything below marked �
 ### kolu #1714 — remaining work
 
 - ✅ **drishti fleet stuck "connecting" — SOLVED: zod version drift** (not surface-map, not the adapter): drishti's lock floated to zod 4.4.3 where `z.object({input: z.void()})` newly rejects a missing key; kolu's 4.3.6 is lenient. Fixed in PR #90 (`be56501`, zod pinned, verified live — all cells deliver). The framework falsification stands vindicated.
+- ✅ **Chip close-✕ visible at rest** (`c0e5d4cf4`, one line) — srid's twice-reported bug; landed standalone, deployable.
+- 🔄 **PadiIdentity 4-way name collision** (srid find: wire cell · build identity · hello identity · dialog projection all named `PadiIdentity`) — rename sweep QUEUED behind the header subagent (shared files).
+- 🔄 **host/ folder organization** (srid find: new host cluster flat in client/src) — mechanical move, QUEUED same reason.
+- 🔄 **remote-host-testing APM skill** — subagent distilling the testing methodology (remote-scope, prompts user for hosts + fences).
 - 🔄 **Header-bar redesign** (subagent running, own isolated instance): `Kolu | Host1, Host2 [Padi, Kaval]` — daemon chips move INTO the active host's chip (per-host facts rendered per-host); inactive chips compact; gate-off pixel-identical. Push-often; visual iteration expected.
 - ⏸ **P0 · ownership-gated drain** — `nix run` can never drain a padi a *different live* kolu owns (the production-incident fix): local boot-time gate + CLI fail-fast; remote via anti-livelock reuse (Decision 3); `KOLU_REMOTE_PADI_STATE_DIR` isolation (P0-b). Pins: two-local-kolu war repro → zero drain, first padi untouched; same-lineage upgrade still drains.
 - ⏸ **Skew-UX** — `CanvasFacts` sum (kaval facts only on the connected arm — "kaval didn't start" over a skewed remote becomes *uncompilable*); host-down card switching on the typed `cause` (no string parsing, no inert Retry); header contract badge host-scoped (running + expected pair, Decision 2).
