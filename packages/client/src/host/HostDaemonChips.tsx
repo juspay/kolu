@@ -38,17 +38,23 @@ import { getClockNow } from "../time/clock";
 import { IdentityMark, StatusDot } from "../ui/IdentityMark";
 import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
+import Tip from "../ui/Tip";
 import { activePadiIdentity } from "../ui/useHostInventory";
 import { kavalMemoryDisplay, padiMemoryDisplay } from "../ui/useMemoryUsage";
 import { activeHost, padiMap } from "../wire";
 import { dotClass, sameHost, statusTitle } from "./hostChipTone";
 
-/** Outer dual-daemon slot — fixed on every host chip (active fill / inactive empty). */
+/** Outer dual-daemon slot — fixed on every host chip (active fill / inactive empty).
+ *  No overflow-hidden: the active chip is already `bg-surface-3`, and we need the
+ *  sub-chip hover wash + focus ring to paint cleanly without being clipped. */
 const DUAL_DAEMON_SLOT_CLASS =
-  "flex h-7 w-[3.25rem] shrink-0 items-center justify-center overflow-hidden";
+  "flex h-7 w-[3.25rem] shrink-0 items-center justify-center";
 
+// Hover wash must contrast against the active host chip's `bg-surface-3` (the
+// dual slot only ever fills on the active chip). `hover:bg-surface-3/55` was
+// invisible there — use a light overlay instead, same family as other chrome.
 const subChipClass =
-  "pointer-events-auto shrink-0 relative flex h-7 items-center justify-center px-0.5 leading-4 text-fg-2 transition-colors hover:bg-surface-3/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
+  "pointer-events-auto shrink-0 relative flex h-7 w-[1.5rem] items-center justify-center rounded-md leading-4 text-fg-2 transition-colors hover:bg-white/10 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind so a
  *  new entry arm is a compile error here, not a silent `default`. */
@@ -102,23 +108,26 @@ const PadiSubChip: Component = () => {
 
   return (
     <>
-      <button
-        type="button"
-        data-testid="padi-identity-chip"
-        onClick={() => setOpen(true)}
-        class={subChipClass}
-        title={padiTip()}
-        aria-label={padiTip()}
-      >
-        <IdentityMark logoSrc={PADI_LOGO_URL}>
-          <StatusDot
-            data-padi-link={
-              daemonLive() ? (entryAsPadiLink(entry()) ?? "unknown") : "unknown"
-            }
-            class={daemonLive() ? dotClass(entry()) : "bg-fg-3/40"}
-          />
-        </IdentityMark>
-      </button>
+      <Tip label={padiTip()}>
+        <button
+          type="button"
+          data-testid="padi-identity-chip"
+          onClick={() => setOpen(true)}
+          class={subChipClass}
+          aria-label={padiTip()}
+        >
+          <IdentityMark logoSrc={PADI_LOGO_URL}>
+            <StatusDot
+              data-padi-link={
+                daemonLive()
+                  ? (entryAsPadiLink(entry()) ?? "unknown")
+                  : "unknown"
+              }
+              class={daemonLive() ? dotClass(entry()) : "bg-fg-3/40"}
+            />
+          </IdentityMark>
+        </button>
+      </Tip>
       <PadiInfoDialog
         open={open()}
         onOpenChange={setOpen}
@@ -165,23 +174,24 @@ const KavalSubChip: Component = () => {
 
   return (
     <>
-      <button
-        type="button"
-        data-testid="kaval-identity-chip"
-        onClick={() => setOpen(true)}
-        class={subChipClass}
-        title={kavalTip()}
-        aria-label={kavalTip()}
-      >
-        <IdentityMark logoSrc={KAVAL_LOGO_URL}>
-          <StatusDot
-            data-daemon-state={
-              kavalLive() ? (daemon()?.state ?? "unknown") : "unknown"
-            }
-            class={kavalDot(daemon()?.state, kavalLive())}
-          />
-        </IdentityMark>
-      </button>
+      <Tip label={kavalTip()}>
+        <button
+          type="button"
+          data-testid="kaval-identity-chip"
+          onClick={() => setOpen(true)}
+          class={subChipClass}
+          aria-label={kavalTip()}
+        >
+          <IdentityMark logoSrc={KAVAL_LOGO_URL}>
+            <StatusDot
+              data-daemon-state={
+                kavalLive() ? (daemon()?.state ?? "unknown") : "unknown"
+              }
+              class={kavalDot(daemon()?.state, kavalLive())}
+            />
+          </IdentityMark>
+        </button>
+      </Tip>
       <KavalInfoDialog open={open()} onOpenChange={setOpen} status={daemon()} />
     </>
   );
