@@ -4,10 +4,15 @@
  * Distinct from `DegradedCanvas` (a CONNECTED host whose kaval daemon died, which
  * offers a Restart): this is the ACTIVE host's map-membership entry itself failing
  * — an ssh/contract-level fault the map reports as a TYPED {@link EntryFailedCause}.
- * There is nothing on THIS side to restart (the remote never bound), so the one
- * action is `[Switch to local]` — never a Retry. Each cause gets first-class
- * plain-language copy from the pure {@link hostDownCopy} map; this component is a
- * thin renderer over that copy plus the switch button.
+ *
+ * Two actions: **[Reconnect]** (the recovery verb — `hosts.reconnect` force-cycles
+ * the held session into a fresh dial; a STANDING refuse holds degraded WITHOUT
+ * auto-reconnecting, so once the operator clears the cause named in the copy, this
+ * is the path back — it is a REAL re-dial, not the inert Retry we forbid on a
+ * transient arm that already auto-retries) and **[Switch to local]** (the escape
+ * hatch to the unremovable default). Each cause gets first-class plain-language copy
+ * from the pure {@link hostDownCopy} map; this component is a thin renderer over that
+ * copy plus the two buttons.
  *
  * `cause` + `reason` arrive as props from the resolved `host-failed` CanvasMode
  * (App.tsx reads them off the active entry's `state()`); the copy is looked up by
@@ -17,8 +22,9 @@
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { type Component, Show } from "solid-js";
+import { toast } from "solid-sonner";
 import { WarningIcon } from "../ui/Icons";
-import { activeHost, setActiveHost } from "../wire";
+import { activeHost, client, setActiveHost } from "../wire";
 import { hostDownCopy } from "./hostDownCopy";
 
 const HostDownCanvas: Component<{
@@ -47,8 +53,29 @@ const HostDownCanvas: Component<{
             <p class="mt-2 font-mono text-xs leading-relaxed text-fg-3 break-words">
               {props.reason}
             </p>
-            <Show when={!isLocal()}>
-              <div class="mt-3">
+            <div class="mt-3 flex flex-col gap-2">
+              {/* The RECOVERY verb. A standing refuse (cross-supervisor / skew /
+                  unconverged) HOLDS degraded WITHOUT auto-reconnecting — so once the
+                  operator clears the cause named above, THIS is the path back:
+                  `hosts.reconnect` force-cycles the held session (recheck()) into a
+                  fresh dial. NOT the inert-retry we forbade — the failed arm never
+                  auto-retries, so this genuinely re-dials. Shown for every cause (any
+                  down host binding can be re-dialled once its cause is addressed). */}
+              <button
+                type="button"
+                data-testid="host-reconnect"
+                onClick={() => {
+                  client.hosts
+                    .reconnect({ host: activeHost() })
+                    .catch((err: Error) =>
+                      toast.error(`Couldn't reconnect: ${err.message}`),
+                    );
+                }}
+                class="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-warning/60 bg-warning/10 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-warning/20"
+              >
+                Reconnect
+              </button>
+              <Show when={!isLocal()}>
                 <button
                   type="button"
                   data-testid="switch-to-local"
@@ -57,8 +84,8 @@ const HostDownCanvas: Component<{
                 >
                   Switch to local
                 </button>
-              </div>
-            </Show>
+              </Show>
+            </div>
           </div>
         </div>
       </div>

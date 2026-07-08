@@ -102,6 +102,76 @@ describe("admit handshake watchdog (S9 parity)", () => {
     session.destroy();
   });
 
+  it("recheck() recovers a STANDING refuse — held (no auto-reconnect), then a [Reconnect] re-dials + connects once the cause clears (P1)", async () => {
+    // srid's live latch, reproduced: a refuse verdict holds the session degraded
+    // WITHOUT auto-reconnecting (by design — a persistent skew must not spin). So
+    // after the user CLEARS the cause (kills the other kolu / sets the isolation env),
+    // nothing re-dials — the host-down card's [Reconnect], backed by recheck() (which
+    // force-cycles the HELD `current` connection), is the missing recovery verb. Note
+    // reconnect() does NOT work here (its `clientPromise !== null` guard trips on the
+    // refuse's settled-rejected client handle) — recheck() is the correct verb.
+    let causeCleared = false;
+    let dials = 0;
+    const connectOnce = (ctx: ConnectContext): Promise<Connection<unknown>> => {
+      ctx.connecting();
+      dials += 1;
+      let resolveClosed!: (i: { kind: "endpoint-down" }) => void;
+      const closed = new Promise<{ kind: "endpoint-down" }>((r) => {
+        resolveClosed = r;
+      });
+      return Promise.resolve({
+        client: {},
+        closed,
+        isAlive: () => Promise.resolve(),
+        teardown: () => resolveClosed({ kind: "endpoint-down" }),
+      });
+    };
+    // 1st dial REFUSES (a standing cross-supervisor); once the cause clears, it ADOPTS.
+    const admit = () =>
+      Promise.resolve(
+        causeCleared
+          ? ({ kind: "adopt" } as const)
+          : ({
+              kind: "refuse",
+              state: {
+                lastError: "another kolu owns this host",
+                failureCause: "remote",
+              },
+            } as const),
+      );
+
+    const states: string[] = [];
+    const session = makeSession<unknown>({
+      initialConnection: "copying",
+      connectOnce,
+      admit,
+      connectTimeoutMs: 5000,
+      reconnectDelayMs: 50,
+      label: "refuse-recover",
+    });
+    session.onState((s) => states.push(s.connection));
+
+    const p = session.pin();
+    p.catch(() => {});
+    await vi.advanceTimersByTimeAsync(20);
+    expect(states).toContain("disconnected"); // the standing refuse
+    expect(dials).toBe(1);
+
+    // HELD: it does NOT auto-reconnect on its own (the whole bug the card exposed).
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(dials).toBe(1);
+
+    // The user clears the cause and hits [Reconnect] → recheck() force-cycles the held
+    // connection → re-dial → the now-cleared cause adopts → connected.
+    causeCleared = true;
+    session.recheck();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(dials).toBe(2);
+    expect(states).toContain("connected");
+
+    session.destroy();
+  });
+
   it("adopts to CONNECTED even when the connector skipped ctx.connecting() — never a silent stall", async () => {
     // The adopt branch used to route through `markConnected`, whose `connecting`-only
     // guard SILENTLY no-ops from any other state. A connector that returned a live link

@@ -93,5 +93,15 @@ export const contract = oc.router({
      *  drops from `entries`. Removing the unremovable default (LOCAL_HOST / the first
      *  seed) is rejected loudly: the canvas must always keep a host to fall back to. */
     remove: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
+    /** Force a held host to RE-DIAL now — the host-down card's [Reconnect] verb. A
+     *  STANDING refuse (cross-supervisor / contract-skew / unconverged) holds degraded
+     *  WITHOUT auto-reconnecting by design (a persistent skew must not spin), so once
+     *  the user CLEARS the cause (kills the other kolu, sets KOLU_REMOTE_PADI_STATE_DIR,
+     *  upgrades), NOTHING re-dials on its own — this re-dials via the session's
+     *  `recheck()` (force-cycle the held connection through the reconnect loop). A
+     *  TRANSIENT disconnect already auto-retries, so this is a harmless no-op there;
+     *  it is NOT the inert-retry we forbade — it genuinely re-dials the held arm. An
+     *  unknown host is a typed reject. */
+    reconnect: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
   },
 });

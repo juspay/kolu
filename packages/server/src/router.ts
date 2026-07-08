@@ -39,6 +39,12 @@ export interface BuildAppRouterDeps {
   /** Remove a guest host from the pool (its map subs end typed, its session is
    *  destroyed). Throws `UnremovableHostError` for the unremovable default. */
   removeHost: (host: HostKey) => Promise<void>;
+  /** Force a held host to RE-DIAL now (the host-down card's [Reconnect]). Forwards
+   *  to the host's `session.recheck()` (force-cycle the held connection through the
+   *  reconnect loop) — the recovery verb a STANDING refuse needs once its cause is
+   *  cleared, since a refuse holds degraded without auto-reconnecting. Throws for an
+   *  unknown host. */
+  reconnectHost: (host: HostKey) => void;
 }
 
 /** Assemble the full host router from the surface router + the two raw RPCs.
@@ -85,6 +91,10 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
       remove: t.hosts.remove.handler(async ({ input }) => {
         log.info({ host: input.host }, "host remove requested");
         await deps.removeHost(input.host);
+      }),
+      reconnect: t.hosts.reconnect.handler(async ({ input }) => {
+        log.info({ host: input.host }, "host reconnect requested");
+        deps.reconnectHost(input.host);
       }),
     },
   });

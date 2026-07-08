@@ -485,6 +485,18 @@ const appRouter = buildAppRouter({
     assertRemovableHost(host, defaultHost);
     await pool.remove(encodeHostKey(host));
   },
+  // The host-down card's [Reconnect]: force the held session to RE-DIAL now via
+  // `recheck()` (force-cycle the held connection through the reconnect loop). A
+  // STANDING refuse (cross-supervisor / contract-skew / unconverged) holds degraded
+  // WITHOUT auto-reconnecting, so once the operator clears the cause this is the only
+  // recovery path short of remove+re-add. An unknown host is a loud throw (the strip
+  // surfaces it as a rejected call), never a silent no-op.
+  reconnectHost: (host) => {
+    const s = pool.getSession(encodeHostKey(host));
+    if (s === undefined)
+      throw new Error(`cannot reconnect unknown host "${encodeHostKey(host)}"`);
+    s.recheck();
+  },
 });
 
 // --- oRPC handlers (HTTP non-streaming + WS streaming) ---

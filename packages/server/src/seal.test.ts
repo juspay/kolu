@@ -383,6 +383,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       drainBoundPadi: async () => {},
       addHost: async () => {},
       removeHost: async () => {},
+      reconnectHost: () => {},
     }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();
