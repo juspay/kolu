@@ -28,7 +28,7 @@ One "approved as recommended" (or amendments) unblocks everything below marked �
 ### kolu #1714 — remaining work
 
 - ✅ **drishti fleet stuck "connecting" — SOLVED: zod version drift** (not surface-map, not the adapter): drishti's lock floated to zod 4.4.3 where `z.object({input: z.void()})` newly rejects a missing key; kolu's 4.3.6 is lenient. Fixed in PR #90 (`be56501`, zod pinned, verified live — all cells deliver). The framework falsification stands vindicated.
-- 🔄 **Header-bar redesign** (srid design): `Kolu | Host1, Host2 [Padi, Kaval]` — daemon chips move INTO the active host's chip (per-host facts rendered per-host); inactive chips compact; gate-off pixel-identical. Push-often; visual iteration expected.
+- 🔄 **Header-bar redesign** (subagent running, own isolated instance): `Kolu | Host1, Host2 [Padi, Kaval]` — daemon chips move INTO the active host's chip (per-host facts rendered per-host); inactive chips compact; gate-off pixel-identical. Push-often; visual iteration expected.
 - ⏸ **P0 · ownership-gated drain** — `nix run` can never drain a padi a *different live* kolu owns (the production-incident fix): local boot-time gate + CLI fail-fast; remote via anti-livelock reuse (Decision 3); `KOLU_REMOTE_PADI_STATE_DIR` isolation (P0-b). Pins: two-local-kolu war repro → zero drain, first padi untouched; same-lineage upgrade still drains.
 - ⏸ **Skew-UX** — `CanvasFacts` sum (kaval facts only on the connected arm — "kaval didn't start" over a skewed remote becomes *uncompilable*); host-down card switching on the typed `cause` (no string parsing, no inert Retry); header contract badge host-scoped (running + expected pair, Decision 2).
 - ✅ **Split-pane restore** — **shipped `c6ed48c56`** (root cause: on switch-back, tiles re-key faster than their layout metadata; the default-placement effect treated them as new and PERSISTED cascade layouts over the saved split. Fix: placement classifies existing|new|DEFER — no-layout+no-record tiles wait; only record-present no-layout tiles are genuinely new; effect re-arms on records-settled). srid's A→B→A pinned red-first. Suite 609 green. **Deploy-ready.**
@@ -60,7 +60,7 @@ One "approved as recommended" (or amendments) unblocks everything below marked �
 
 Bugs surfaced by the agent's flow-testing pass land here the moment they're reported; each row gets its fix SHA when pushed and flips to ✅ when srid confirms on a deploy.
 
-*(none reported yet — testing pass in progress)*
+*(testing pass COMPLETE — zero new bugs)*: split+switch verified across repeated A→B→A cycles incl. a live remote codex session (fix `0dbf28e0a` solid) · Code browser fully per-host (each host's own repo tree/file view, restores on switch-back) · per-host canvas tiles at saved positions confirmed. CI on the fix: clean at last check.
 
 ## Standing rules (the ones that keep binding)
 
