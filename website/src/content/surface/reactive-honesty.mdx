@@ -1,17 +1,74 @@
 ---
 title: Reactive honesty
-description: "Why a surface always opens with a snapshot, fails fast on an empty stream, and must be consumed fine-grained — the view never silently lies."
+description: "Why a surface always opens with a snapshot, fails fast on an empty stream, and must be consumed fine-grained — so the view never silently lies."
 order: 241
-section: Surface basics
+section: Basics · Explanation
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: Explanation. Content lands per-stratum. */}
+A live view has one job beyond looking right: it must not *lie*. A frozen number
+that looks like a current reading, a spinner that never resolves, an error banner
+that stays up after the system recovered — each is worse than an obvious crash,
+because the reader trusts it. The surface framework is built around a handful of
+rules whose whole purpose is to make a dishonest view hard to write. Together
+they are what we call reactive honesty.
 
-Why a surface always opens with a snapshot, fails fast on an empty stream, and must be consumed fine-grained — the view never silently lies.
+## A stream always opens with a snapshot
 
-> **Draft.** This page is being written. Planned contents:
->
-> - Snapshot-then-deltas
-> - firstFrameOrThrow vs a silent empty
-> - Fine-grained consume vs coarse-read-and-copy freeze
-> - A caught error must surface
+Every cell, collection, and stream sends a fresh full snapshot as its first
+frame, and only then deltas. This is not a nicety — it is load-bearing. The
+streaming retry plugin re-invokes the source function on **every reconnect**. If
+the first frame after a reconnect were a delta, the client would apply a change
+on top of stale state and silently diverge. Because the first frame is always a
+snapshot, a reconnect re-seeds from truth. Every server-side helper enforces
+this in code; you cannot wire a source that skips its snapshot.
+
+## An empty stream fails loud, never quiet
+
+The counterpart to "always snapshot" is "never a silent empty." When a stream is
+expected to open with a value and instead closes with nothing, that is a link
+failure, and it surfaces as one — the initial read's exception propagates to the
+client on the first frame rather than resolving to an empty view. The framework
+refuses the tempting fallback where a caught error collapses into a quietly
+empty, quietly successful result. An empty that means "the pipe broke" must look
+different from an empty that means "there is genuinely nothing here."
+
+There is a matching subtlety for keyed reads: asking a collection for a key that
+does not exist *yet* does **not** error. It holds open and yields nothing until
+the first value arrives. "Absent" is a recoverable waiting state, not a failure —
+throwing there once turned a normal empty into a non-retriable error that killed
+the subscription.
+
+## Consume fine-grained, or the view freezes
+
+The last rule is about how you *read* the surface. Use the bound hooks
+(`.cells.X.use()`, `.collections.X.use()`, `.streams.X.use()`) and each new value
+flows in through fine-grained reactivity — objects reconciled key-by-key, keyed
+list rows mounted and torn down individually as the key set changes.
+
+The anti-pattern is a coarse read that copies the whole thing into your own
+signal and hand-folds updates. Two things go wrong. First, same-shaped frames
+coalesce and the view stops updating — it looks alive and is frozen. Second, and
+worse, a hand-fold tends to grow a latch: a `?? previous` that keeps showing the
+last error even after the system recovered, because your fold never clears it.
+The framework's per-subscription error is self-clearing by construction; a
+hand-rolled one is not.
+
+## Health is a fact, not a verdict
+
+`client.health()` returns `{ live, subs }`. `live` is the honest conjunction —
+the transport is up *and* every readiness predicate passes. A subscription error
+stays in `subs`; it is never folded into `live`. That split is the whole point:
+the framework reports *what is true* and leaves the *verdict* — "show the stale
+value while degraded" versus "hard-gate until ready" — to the app. A component
+that dims a status dot reads the fact; it can never be handed a "ready" it did
+not earn.
+
+## The through-line
+
+Every rule here is the same instinct applied at a different layer: a caught error
+must surface, never collapse to an empty or default state. Snapshot-then-deltas
+keeps a reconnect from lying about state; fail-fast keeps a broken pipe from
+looking empty; fine-grained consume keeps a recovered view from staying frozen;
+health-as-fact keeps the app from mistaking "up" for "ready." The cost is that
+you give up the easy fallbacks — the `?? {}`, the swallowed error, the "just
+show nothing." In exchange, when the view says a number, the number is real.

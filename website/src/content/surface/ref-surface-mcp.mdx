@@ -1,16 +1,80 @@
 ---
 title: "@kolu/surface-mcp reference"
-description: "The MCP projection API: turn a served surface into Model Context Protocol tools and resources."
+description: "serveSurfaceAsMcp and the projection: which members become resources, which become tools, and the default-deny, fail-safe rules that govern it."
 order: 232
-section: Surface basics
+section: Basics · Reference
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: Reference. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
 
-The MCP projection API: turn a served surface into Model Context Protocol tools and resources.
+Re-expose any `@kolu/surface` as an MCP server, so a coding agent drives it with
+structured tool calls. The adapter owns the generic parts — the
+`resources/subscribe` lifecycle, the zod → JSON-Schema bridge, stdio discipline —
+and leaves the consumer in control of *what* is exposed.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - The projection entry
-> - Tool/resource mapping
-> - Import subpaths
+## `serveSurfaceAsMcp`
+
+```ts
+import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
+
+const { server, close } = await serveSurfaceAsMcp({
+  surface,
+  client: () => client,
+  expose: { /* … */ },
+});
+```
+
+`serveSurfaceAsMcp(opts): Promise<{ server, close }>`, imported from the root
+`@kolu/surface-mcp` subpath.
+
+| Option | Meaning |
+| --- | --- |
+| `surface` | the surface spec being projected |
+| `client` | a factory `() => client` for a live implementation |
+| `expose` | the default-deny allowlist (see below) |
+| `tools?` | hand-authored bespoke tools |
+| `serverInfo?` | MCP server identity |
+| `transport?` | defaults to `StdioServerTransport`; inject an in-memory half for tests |
+
+## The projection
+
+`expose` is **default-deny**: nothing crosses to the host until named, and every
+key is checked against the surface spec at boot.
+
+| Surface member | Exposed as | URI / wire name |
+| --- | --- | --- |
+| cell | resource | `surface://cells/<k>` |
+| collection | resource (+ template) | `surface://collections/<k>` · `…/<k>/{id}` |
+| stream | resource | `surface://streams/<k>` |
+| event | resource | `surface://events/<k>` |
+| procedure `"<ns>.<verb>"` | tool | `<ns>_<verb>` (`.` is illegal in a tool name) |
+
+Resources are readable and subscribable; procedures become callable tools.
+
+<Aside type="caution" title="mutates defaults to true">
+  A procedure exposed as a tool is advertised **mutating unless you say
+  otherwise** — `mutates` defaults to `true` when absent. A `readOnlyHint` can let
+  a host auto-run a tool without confirmation, so an unannotated tool must fail
+  safe. Mark a genuinely read-only tool explicitly:
+  `"run.status": { tool: { mutates: false } }`.
+</Aside>
+
+## Two shapes
+
+- **Serve fresh** — `client` is a `directLink` over an in-process `implementSurface`; the MCP server *is* the surface's backend.
+- **Bridge a live surface** — `client` dials an already-running served surface over a socket or ssh stdio; the MCP server is a *face* on an existing server (odu's `odu mcp` dials `.ci/odu.sock`).
+
+## Bespoke tools and curation
+
+- `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, input: z.object(...), mutates, handler }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle.
+- `projectSurface` (from `@kolu/surface`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
+
+## Other exports
+
+| Export | Role |
+| --- | --- |
+| `toInputSchema(schema?)` | zod → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced |
+| `resolveExpose(spec, expose)` | the default-deny resolver → `{ resources, resourceTemplates, tools }` |
+| `ExposeMap` · `BespokeTool` · `ToolResult` · `ServeSurfaceAsMcpOptions` | types |
+
+The step-by-step is in [How to expose a surface to agents](/surface/expose-to-agents).

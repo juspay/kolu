@@ -1,17 +1,91 @@
 ---
 title: How to consume a surface outside SolidJS
-description: "Read a surface from a CLI or TUI with a transport-blind connection instead of the Solid hooks."
+description: "Read a surface from a CLI or TUI with a transport-blind connection — awaited calls, iterated streams, and a live board via mirrorRemoteSurface."
 order: 221
-section: Surface basics
+section: Basics · How-to
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: How-to. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
 
-Read a surface from a CLI or TUI with a transport-blind connection instead of the Solid hooks.
+The `.use()` hooks are SolidJS. A CLI or TUI has no reactive runtime, so it reads
+the surface directly off the typed client. The trick that keeps a CLI small is to
+hold **one transport-blind connection** so every command is written once,
+whether it runs against a local unix socket or a remote box over ssh.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - The `{client, dispose}` Connection shape
-> - Awaited procedure calls
-> - Iterating streams
-> - mirrorRemoteSurface into plain callbacks
+## Hold one connection shape
+
+Model the connection as `{ client, dispose }` and dial it once. Local and remote
+differ only in which link you build; the commands downstream never branch.
+
+```ts
+type Connection = { client: SurfaceRouterClient<typeof surface.contract>; dispose: () => void };
+
+// local: dial the daemon's unix socket
+const { client, dispose } = await unixSocketLink({ socketPath });
+```
+
+## Call procedures with a plain await
+
+Procedures are ordinary async calls off the client. No hooks, no subscription.
+
+```ts
+await client.surface.proc.kill({ pid });
+const keys = await firstFrameOrThrow(client.surface.collections.processes.keys());
+```
+
+## Iterate a stream
+
+A cell, collection, or stream read is an async iterable — snapshot first, then
+deltas. Loop it and act on each frame.
+
+```ts
+for await (const frame of client.surface.streams.nodeLog.get({ nodeId })) {
+  process.stdout.write(frame.text);
+}
+```
+
+For a **raw** (non-descriptor) stream, reach for `unenrolledStreamCall`
+(`@kolu/surface/client`) rather than calling the procedure bare — it carries the
+`STREAM_RETRY` reconnect context, so a dropped transport re-subscribes
+transparently instead of ending the loop.
+
+```ts
+import { unenrolledStreamCall } from "@kolu/surface/client";
+
+const frames = await unenrolledStreamCall(client.surface.streams.nodeLog, { nodeId }, {
+  signal,
+  onRetry: () => resetView(),
+});
+for await (const frame of frames) render(frame);
+```
+
+## Drive a live board with mirrorRemoteSurface
+
+When the CLI is a live dashboard rather than a one-shot query, fold the surface
+into plain callbacks with `mirrorRemoteSurface` (`@kolu/surface/mirror`) — the
+consume-side dual of `implementSurface`. You supply a sink of collection and
+stream callbacks; it keeps them current and hands back the procedures plus a
+`done` promise.
+
+```ts
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
+
+const { procedures, done } = mirrorRemoteSurface(surface, client, {
+  collections: {
+    processes: {
+      upsert: (pid, proc) => board.set(pid, proc),
+      remove: (pid) => board.delete(pid),
+    },
+  },
+  streams: { nodeLog: { onFrame: (f) => board.appendLog(f) } },
+}, { signal, log });
+
+await procedures.proc.kill({ pid }); // same typed procedures, mirrored
+```
+
+<Aside type="caution" title="Delta-accumulate, don't coarse-copy">
+  A live board must fold deltas as they arrive — through the sink callbacks
+  above, or `createSubscription` + `reduce`. Do not read the whole collection and
+  copy it each tick: same-shaped frames coalesce and the board freezes. The
+  reasoning is in [Reactive honesty](/surface/reactive-honesty).
+</Aside>

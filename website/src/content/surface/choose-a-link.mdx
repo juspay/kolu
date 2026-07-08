@@ -1,16 +1,67 @@
 ---
 title: How to choose a link
-description: "Pick the right transport link for a surface: directLink, websocketLink, unixSocketLink, or stdioLink."
+description: "Pick the right transport for a surface — directLink, websocketLink, unixSocketLink, or stdioLink — and swap between them without touching call sites."
 order: 220
-section: Surface basics
+section: Basics · How-to
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: How-to. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
 
-Pick the right transport link for a surface: directLink, websocketLink, unixSocketLink, or stdioLink.
+A link is how a client reaches a served contract. Every link produces the *same*
+typed client, so the choice is purely about transport — and you can change it
+later without touching a single call site.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - When to use each link
-> - Import subpaths
-> - A worked swap from directLink to websocketLink
+## Pick by where the server is
+
+| Where the server runs | Link | Import |
+| --- | --- | --- |
+| In the same process (tests, single-process apps) | `directLink(router)` | `@kolu/surface/links/direct` |
+| In a browser, talking to a Node server | `websocketLink(ws)` | `@kolu/surface/links/websocket` |
+| A daemon on the same machine | `unixSocketLink({ socketPath })` | `@kolu/surface/links/unix-socket` |
+| A subprocess, or a remote box over ssh | `stdioLink({ read, write })` | `@kolu/surface/links/stdio` |
+
+Match each to its serve side: nothing for `directLink` (it wraps the router
+directly), `RPCHandler(...).upgrade(ws)` for the browser, `serveOverUnixSocket`
+for the daemon, `serveOverStdio` for the subprocess or ssh peer.
+
+- **`directLink`** is the identity element: feed it the router from
+  `implementSurface(surface, deps).router` and every call runs the handler
+  in-process. Use it for tests and for the in-process phase of a service you
+  will later put behind a socket.
+- **`unixSocketLink`** dials the socket it opens, so it is async — it returns a
+  `Promise<{ client, dispose }>`. The others hand back the client synchronously.
+- **`stdioLink`** carries both a local subprocess and an ssh peer; over ssh you
+  usually drive it through `makeSession` (see [Mirror over ssh](/surface/mirror-over-ssh))
+  rather than wiring `read`/`write` by hand.
+
+<Aside type="caution" title="A wire link needs a watchdog to reach surfaceClient">
+  `surfaceClient` / `surfaceClients` **throw** if handed a bare `websocketLink`,
+  `unixSocketLink`, or `stdioLink` — a wire link can silently half-open, and the
+  framework refuses to build a client that cannot tell live from dead. Pass a
+  watchdog-backed handle (`connectSurface` mints one for the browser;
+  `makeSession` for ssh). Only `directLink` may be passed bare, because its
+  transport is honestly always-live.
+</Aside>
+
+## Swap a link without touching call sites
+
+Because the client type is identical across links, a swap is a one-line change
+at the wiring seam. A surface that started in-process for tests:
+
+```ts
+// Was: in-process
+const app = surfaceClient(surface, directLink(fragment.router));
+```
+
+moves to the browser by changing only the link:
+
+```ts
+// Now: over a WebSocket, via the app layer's watchdog-backed connect
+const { clients } = connectSurface({ surface, url });
+const app = clients; // same bound hooks, same call sites
+```
+
+Everything downstream — `app.cells.load.use(...)`, `app.rpc.surface.proc.kill(...)`
+— is byte-identical. That is the point of the link abstraction: choose the
+nearest transport now, and let the surface follow the code out to a socket or a
+fleet later.
