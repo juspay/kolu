@@ -17,6 +17,10 @@ Legend: ✅ done · 🔄 in flight · ⏸ blocked · ⬜ not started
 
 **Decisions 1–4 RATIFIED as recommended**: `EntryStatus<Cause>` generic · typed `running`/`expected` on contract-skew · remote ownership via anti-livelock reuse (no new control-core RPC; `KOLU_REMOTE_PADI_STATE_DIR` primary defense) · per-host canvas = keyed map (already shipped). **P0 + Skew-UX unlocked for full implementation.** New product forks overnight: recommended option taken + logged here for morning review.
 
+**Overnight log (for morning review)**:
+- `f8d98fb12` — apm: `srid/llm-debate` REMOVED entirely (fallback ruling). Finding: no APM ref form works for a *package* repo — the skill-path form (fine for apm.yml-less repos like `juspay/skills`) doesn't emit, the whole-repo form drags the closure whose stale kolu self-pin clobbers kolu's own skill. `/debate` (was #1622) returns in a future PR once llm-debate bumps its kolu pin past the padi rename. kolu skill verified correct.
+- Held batch STARTED: types foundation first (D1 `EntryStatus<Cause>` + D2 typed version pair — the critical path both P0 and Skew-UX depend on), then P0 server + Skew-UX client in parallel once types + header-v2 land.
+
 **The night sequence**: current slew (apm `/debate` emission, header-v2 stationary slot) → held-batch implementation (P0 ownership-gated drain + Skew-UX CanvasFacts/card/badge) → full CI green (do.md) → coordinator's architecture review (types + framework electricity, both consumers, "is this a perfect framework") → every finding fixed → CI green again → user-flow re-test (local↔sincereintent) → morning report.
 
 ### kolu #1714 — remaining work

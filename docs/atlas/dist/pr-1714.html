@@ -4,6 +4,11 @@
 <p>Legend: ✅ done · 🔄 in flight · ⏸ blocked · ⬜ not started</p>
 <h3 id="overnight-run-srid-ratified-all-four-decisions-before-bed-2026-07-07-2245">Overnight run (srid ratified all four decisions before bed, 2026-07-07 ~22:45)</h3>
 <p><strong>Decisions 1–4 RATIFIED as recommended</strong>: <code>EntryStatus&lt;Cause&gt;</code> generic · typed <code>running</code>/<code>expected</code> on contract-skew · remote ownership via anti-livelock reuse (no new control-core RPC; <code>KOLU_REMOTE_PADI_STATE_DIR</code> primary defense) · per-host canvas = keyed map (already shipped). <strong>P0 + Skew-UX unlocked for full implementation.</strong> New product forks overnight: recommended option taken + logged here for morning review.</p>
+<p><strong>Overnight log (for morning review)</strong>:</p>
+<ul>
+<li><code>f8d98fb12</code> — apm: <code>srid/llm-debate</code> REMOVED entirely (fallback ruling). Finding: no APM ref form works for a <em>package</em> repo — the skill-path form (fine for apm.yml-less repos like <code>juspay/skills</code>) doesn’t emit, the whole-repo form drags the closure whose stale kolu self-pin clobbers kolu’s own skill. <code>/debate</code> (was #1622) returns in a future PR once llm-debate bumps its kolu pin past the padi rename. kolu skill verified correct.</li>
+<li>Held batch STARTED: types foundation first (D1 <code>EntryStatus&lt;Cause&gt;</code> + D2 typed version pair — the critical path both P0 and Skew-UX depend on), then P0 server + Skew-UX client in parallel once types + header-v2 land.</li>
+</ul>
 <p><strong>The night sequence</strong>: current slew (apm <code>/debate</code> emission, header-v2 stationary slot) → held-batch implementation (P0 ownership-gated drain + Skew-UX CanvasFacts/card/badge) → full CI green (do.md) → coordinator’s architecture review (types + framework electricity, both consumers, “is this a perfect framework”) → every finding fixed → CI green again → user-flow re-test (local↔sincereintent) → morning report.</p>
 <h3 id="kolu-1714--remaining-work">kolu #1714 — remaining work</h3>
 <ul>
