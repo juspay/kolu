@@ -53,7 +53,7 @@ export function padiDot(link: PadiLink | undefined, live: boolean): string {
  *  identity unknown" stays IMPOSSIBLE TO CONSTRUCT, while "connected with a
  *  DECLARED-null commit" is legal and distinct — see `padiPresentation.test-d.ts`'s
  *  pins for both. */
-export type PadiIdentity = {
+export type PadiIdentityView = {
   buildCommit: string | null;
   surfaceVersion: string;
   convergence: PadiConvergence | null;
@@ -68,7 +68,7 @@ export type PadiIdentity = {
  *  Every render site must go through {@link toPadiPresence}, never read
  *  `padiLink`/the identity cell's raw value etc. directly. */
 export type PadiPresence =
-  | { kind: "connected"; identity: PadiIdentity }
+  | { kind: "connected"; identity: PadiIdentityView }
   | { kind: "warming" }
   | { kind: "down" };
 

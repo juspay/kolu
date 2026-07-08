@@ -98,7 +98,7 @@ export function scopePadiSurface(client: PadiDaemonClient): PadiSurfaceClient {
  *  `identity` entirely via `identity?: never`), and {@link connectPadi} always
  *  builds a full object — so a connected padi's identity is never absent, and
  *  the absent case already has its own representation one level up. */
-export type PadiIdentity = {
+export type PadiHelloIdentity = {
   stateRoot: string;
   surfaceVersion: string;
   commit?: string;
@@ -109,7 +109,7 @@ export type PadiConnectionMetadata = {
 };
 export type PadiConnection = DaemonConnection<
   PadiDaemonClient,
-  PadiIdentity,
+  PadiHelloIdentity,
   PadiConnectionMetadata
 >;
 

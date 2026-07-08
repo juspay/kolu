@@ -54,7 +54,7 @@ import {
   connectPadi,
   type PadiConnectionMetadata,
   type PadiDaemonClient,
-  type PadiIdentity,
+  type PadiHelloIdentity,
   type PadiSurfaceClient,
   scopePadiSurface,
 } from "@kolu/padi/dial";
@@ -442,7 +442,7 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   let currentClosed: ((info: ClosedInfo) => void) | null = null;
   const ep = createEndpoint<
     PadiDaemonClient,
-    PadiIdentity,
+    PadiHelloIdentity,
     PadiConnectionMetadata
   >({
     hostId: PADI_HOST_ID,
