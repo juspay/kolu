@@ -49,7 +49,7 @@ import {
 export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
 
 /** Tiebreak ordering for rows with equal `ts` (typically never-touched
- *  shells whose `lastActivityAt === 0`). Pure-recency sort dominates
+ *  shells whose `lastActivityAt === null`). Pure-recency sort dominates
  *  everywhere else; this table only decides the order of rows that
  *  carry no recency signal at all, so the result stays deterministic.
  *  Lower number = shown first. The three agent-state buckets inherit the
@@ -101,7 +101,7 @@ function classifyDockRow(
     case "work":
       return "working";
     case "idle":
-      return meta.lastActivityAt > 0 ? "idle" : "none";
+      return meta.lastActivityAt !== null ? "idle" : "none";
   }
 }
 
@@ -125,11 +125,11 @@ function paintDockRow(meta: TerminalMetadata, parked: boolean): DockRowBucket {
   const agent = activeArm(meta)?.agent;
   // No live agent → no pip colour to share with the title; keep the order
   // bucket's plain-shell triage (`idle` if touched, else `none`).
-  if (!agent) return meta.lastActivityAt > 0 ? "idle" : "none";
+  if (!agent) return meta.lastActivityAt !== null ? "idle" : "none";
   const paint = agentPaintClass(agent.state);
   // An unknown state paints `none`; surface it as `idle` (a quiet dot) when the
   // row has activity rather than an empty cell, matching the order fold.
-  return paint === "none" && meta.lastActivityAt > 0 ? "idle" : paint;
+  return paint === "none" && meta.lastActivityAt !== null ? "idle" : paint;
 }
 
 export type RankedDockRow = {
@@ -142,33 +142,43 @@ export type RankedDockRow = {
    *  so it reads identically to the tile title's pip. Reads `agentPaintClass`,
    *  so a fresh `waiting` agent is `awaiting` here (it keeps its glow). */
   pip: DockRowBucket;
-  ts: number;
+  ts: number | null;
 };
 
 /** The recency timestamp the dock keys a row on — WHEN YOU PUT IT TO SLEEP
  *  (`sleptAt`) for a sleeping tile, else its last agent transition
- *  (`lastActivityAt`). A sleeping tile's recency is the deliberate, recent
+ *  (`lastActivityAt`, honest `null` for a never-active shell — see
+ *  `AgentMemorySchema`). A sleeping tile's recency is the deliberate, recent
  *  sleep action, not its stale agent clock: `sleptAt` is always ≥
  *  `lastActivityAt` (you sleep a terminal after its agent last moved), so
  *  keying the activity window on `lastActivityAt` instead would (a) never park
- *  a plain shell slept long ago — `isStale` exempts `lastActivityAt === 0`, so
- *  an agent-less dormant tile would pile up forever — and (b) instantly drop a
- *  JUST-slept tile whose agent last transitioned outside the window,
+ *  a plain shell slept long ago — `isStale` exempts `lastActivityAt === null`,
+ *  so an agent-less dormant tile would pile up forever — and (b) instantly
+ *  drop a JUST-slept tile whose agent last transitioned outside the window,
  *  contradicting "a freshly-slept one still shows with its ☾".
  *
  *  This is the ONE source for that derivation: `rankDockRows` feeds it to the
  *  window predicate AND the sort key, and the row's `RecencyCell` displays it,
  *  so the "Xs ago" a row shows is the exact age the window acts on — a 4h
  *  window never hides a row that reads "1h ago" or keeps one that reads "3d
- *  ago". */
-export function rowRecencyAt(meta: TerminalMetadata): number {
+ *  ago". `null` (never-active, never-slept) passes through honestly — the
+ *  sort below ranks it last rather than forging a fake epoch. */
+export function rowRecencyAt(meta: TerminalMetadata): number | null {
   return sleepingArm(meta)?.sleptAt ?? meta.lastActivityAt;
+}
+
+/** `ts`'s sort rank for a most-recent-first order — `null` (never-active)
+ *  sorts LAST, mirroring `agentProjection.ts`'s `recencyRank`. Exported so
+ *  `dockTree.ts`'s cluster/group/row recency sorts share the SAME null
+ *  handling rather than re-deriving it. */
+export function tsRank(ts: number | null): number {
+  return ts ?? Number.NEGATIVE_INFINITY;
 }
 
 /** Project a terminal id list into the recency-sorted, bucket-classified
  *  row order the dock paints. Secondary key is bucket priority so
  *  never-touched plain shells don't outrank an idle terminal with the
- *  same `ts === 0`. `isStale` is a pure-temporal predicate over a recency
+ *  same `ts === null`. `isStale` is a pure-temporal predicate over a recency
  *  timestamp — `rowRecencyAt` (`lastActivityAt` for an active tile, `sleptAt`
  *  for a sleeping one). Identity for stale-but-still-awaiting agents lives at
  *  the render layer (`QuietRowBody` paints `AgentIndicator` when `meta.agent`
@@ -176,7 +186,7 @@ export function rowRecencyAt(meta: TerminalMetadata): number {
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
-  isStale: (lastActivityAt: number) => boolean,
+  isStale: (lastActivityAt: number | null) => boolean,
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
   for (const id of ids) {
@@ -189,7 +199,7 @@ export function rankDockRows(
     rows.push({ id, bucket, pip, ts: recencyAt });
   }
   rows.sort((a, b) => {
-    if (a.ts !== b.ts) return b.ts - a.ts;
+    if (a.ts !== b.ts) return tsRank(b.ts) - tsRank(a.ts);
     return (
       DOCK_ROW_BUCKET_PRIORITY[a.bucket] - DOCK_ROW_BUCKET_PRIORITY[b.bucket]
     );

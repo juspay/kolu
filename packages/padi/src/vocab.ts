@@ -90,11 +90,16 @@ export const RightPanelPerTerminalStateSchema = z.object({
  * `~/.ssh/config` is `{ kind: "remote", hostId: "local" }`, which can never
  * be confused with the in-process endpoint `{ kind: "local" }`. `hostId`
  * matches the rest of the system's host-identity spelling (`getHostSession`,
- * the daemon-status keys).
+ * the daemon-status keys). `hostId` is `.min(1)` — an empty remote hostId is
+ * not a value {@link encodeHostLocation}/{@link decodeHostLocation} can
+ * round-trip (the codec's wire form for it, `"remote:"`, collides with no
+ * hostId at all and `decodeHostLocation` already throws on it) — mirrors
+ * kolu-common/hostKey's `HostKeySchema.target: z.string().min(1)` fix for the
+ * same shape of bug.
  */
 export const HostLocationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("local") }),
-  z.object({ kind: z.literal("remote"), hostId: z.string() }),
+  z.object({ kind: z.literal("remote"), hostId: z.string().min(1) }),
 ]);
 
 export type HostLocation = z.infer<typeof HostLocationSchema>;
@@ -109,6 +114,48 @@ export type HostLocation = z.infer<typeof HostLocationSchema>;
 export const LOCAL_LOCATION: HostLocation = Object.freeze({
   kind: "local",
 } as const);
+
+/** The `"remote:"` wire prefix for a `HostLocation`'s encoded form — guarantees a
+ *  remote host whose `hostId` happens to be literally `"local"` encodes to
+ *  `"remote:local"`, never colliding with the bare `"local"` key the in-process
+ *  endpoint reports under (exactly the bug class {@link HostLocationSchema}'s doc
+ *  above calls out, made unconstructible-as-local by the prefix rather than left to
+ *  convention). Mirrors kolu-common/hostKey's `encodeHostKey`/`decodeHostKey`
+ *  discipline — a SEPARATE codec for a SEPARATE axis (padi's daemon-status host,
+ *  never the map key a browser tab selects). */
+const REMOTE_LOCATION_WIRE_PREFIX = "remote:";
+
+/** ENCODE — the canonical wire form of a `HostLocation`: `"local"` for the
+ *  in-process endpoint, `"remote:" + hostId` for a dialed host. This is the key
+ *  format padi's `daemonStatus` collection is keyed by — the sum lives in the
+ *  TYPES ({@link HostLocation}), this codec is the encode half at the wire
+ *  boundary (the collection key stays a plain string). Sole producer of the
+ *  string {@link decodeHostLocation} accepts. */
+export function encodeHostLocation(l: HostLocation): string {
+  return l.kind === "local"
+    ? "local"
+    : `${REMOTE_LOCATION_WIRE_PREFIX}${l.hostId}`;
+}
+
+/** DECODE — the canonical wire form's inverse: `"local"` → `{ kind: "local" }`,
+ *  `"remote:<hostId>"` → `{ kind: "remote", hostId }` (an empty hostId after the
+ *  prefix is rejected). Anything else is not a value this codec ever produced —
+ *  THROW loudly rather than guess a meaning for it (a corrupt/hand-edited key).
+ *  Use this ONLY for a value that already passed through `encodeHostLocation`
+ *  (a `daemonStatus` collection key) — never for a raw scanned/dialed hostId
+ *  string, which constructs `{ kind: "remote", hostId }` directly (the separate
+ *  human/discovery-input boundary, mirroring `parseHostInput`'s split from
+ *  `decodeHostKey`). */
+export function decodeHostLocation(s: string): HostLocation {
+  if (s === "local") return LOCAL_LOCATION;
+  if (s.startsWith(REMOTE_LOCATION_WIRE_PREFIX)) {
+    const hostId = s.slice(REMOTE_LOCATION_WIRE_PREFIX.length);
+    if (hostId.length > 0) return { kind: "remote", hostId };
+  }
+  throw new Error(
+    `decodeHostLocation: "${s}" is not a canonical host location (expected "local" or "remote:<hostId>")`,
+  );
+}
 
 // ── Terminal metadata fields, organized by who OBSERVES vs who REMEMBERS ──
 //
@@ -446,8 +493,16 @@ export const SavedTerminalSchema = z.discriminatedUnion("state", [
 
 export const SavedSessionSchema = z.object({
   terminals: z.array(SavedTerminalSchema),
-  /** Which terminal was active at save time. */
-  activeTerminalId: z.string().nullable().optional(),
+  /** Which terminal was active at save time. ONE absence spelling —
+   *  `.nullable()` with a `null` default, not the redundant
+   *  `.nullable().optional()` double-absence a prior type audit flagged: every
+   *  writer here already states `null` explicitly (never omits the key) and
+   *  every reader already normalizes with `?? null`, so a MISSING key and an
+   *  explicit `null` were always the same domain fact wearing two spellings.
+   *  `.default(null)` keeps `.parse()` total over a legacy blob that omits the
+   *  key (pre-dates this field) — the OUTPUT type is a required `string | null`,
+   *  never `undefined`. */
+  activeTerminalId: z.string().nullable().default(null),
   savedAt: z.number(),
 });
 

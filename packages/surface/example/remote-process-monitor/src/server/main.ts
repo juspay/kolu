@@ -36,7 +36,7 @@ import {
   parseAllowedOrigins,
   type UpgradeSocket,
 } from "@kolu/surface/ws-origin";
-import { makeSession, sshConnector } from "@kolu/surface-nix-host";
+import { makeSession, sshConnector } from "@kolu/surface-remote";
 import { RPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
@@ -68,13 +68,14 @@ async function main(): Promise<void> {
   log(`host=${HOST}, agent drv=${DRV_PATH}`);
 
   const session = makeSession({
+    initialConnection: "copying",
     connectOnce: sshConnector<typeof surface.contract>({
       host: HOST,
       binary: "process-monitor-agent",
       // This example takes the .drv straight from the environment (no arch
       // probe), so the resolver is a constant. Consumers that pick the .drv
       // per host's nix-system pass an async probe here instead — see
-      // `resolveSystem` in @kolu/surface-nix-host.
+      // `resolveSystem` in @kolu/surface-remote.
       resolveDrvPath: () => Promise.resolve(DRV_PATH),
     }),
     label: `host:${HOST}`,

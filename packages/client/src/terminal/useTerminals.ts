@@ -10,12 +10,13 @@
  *  not back into this composition root. See #221, #242. */
 
 import { ORPCError } from "@orpc/client";
+import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { daemonConnected } from "../kaval/useDaemonStatus";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
-import { padi } from "../wire";
+import { activeHost, padiMap } from "../wire";
 import { terminalSubject } from "./terminalSubject";
 import { useActiveReconcile } from "./useActiveReconcile";
 import { useSessionRestore } from "./useSessionRestore";
@@ -59,7 +60,7 @@ export function useTerminals() {
    *  shouldRetry in rpc.ts), where the terminal is still removed via the list
    *  subscription. */
   function subscribeExit(id: TerminalId) {
-    padi.events.terminalExit.use(
+    padiMap.useEntry(activeHost).events.terminalExit.use(
       () => ({ id }),
       (code) => {
         const subject = getSubject(id);
@@ -105,6 +106,9 @@ export function useTerminals() {
   useActiveReconcile({
     rawList: () => store.listSub()?.map((t) => t.id) ?? [],
     parentOf: (id) => store.getMetadata(id)?.parentId ?? null,
+    // Host-scope the reconcile: a switch replaces the whole list, and the baseline
+    // must reset rather than evict the departed host's tiles (no wrong-host writes).
+    activeHostKey: () => encodeHostKey(activeHost()),
     evictDeparted: crud.evictDeparted,
     // Only react to a departure when the daemon is genuinely connected — during a
     // supervised recycle/restart the drain empties the list and restore undoes it,

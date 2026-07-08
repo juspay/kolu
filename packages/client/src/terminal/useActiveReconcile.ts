@@ -169,6 +169,13 @@ export function useActiveReconcile(deps: {
   rawList: Accessor<TerminalId[]>;
   /** Live parentId for a listed id (`null` for top-level). */
   parentOf: (id: TerminalId) => TerminalId | null;
+  /** The canonical ACTIVE-host key. The list is host-scoped (`terminalListSub`
+   *  re-keys on switch), so a host SWITCH replaces the WHOLE list with a disjoint
+   *  id space. Without this the reconcile would read every prior-host id as a mass
+   *  departure and fire wrong-host `setParent`/auto-switch writes against the
+   *  newly-active host. Carried in the snapshot so a switch RESETS the baseline
+   *  (like the first run) instead of evicting the departed host's tiles. */
+  activeHostKey: () => string;
   /** Run the full cleanup for a naturally-departed terminal (dedup-guarded). */
   evictDeparted: (
     id: TerminalId,
@@ -184,20 +191,33 @@ export function useActiveReconcile(deps: {
   // A live snapshot of every listed terminal's parentId, in key order — so a
   // DEPARTED terminal's tree relationship (parent? which parent?) survives its
   // removal, when its metadata is already gone. Rebuilt on any record change but
-  // gated to parentId/membership changes by `sameParentSnapshot`.
-  const snapshot = createMemo<Map<TerminalId, TerminalId | null>>(
+  // gated to parentId/membership changes (and host switch) by `equals` below. The
+  // host rides ALONG so a switch is one atomic snapshot step, never seen as
+  // departures of the prior host's tiles.
+  const snapshot = createMemo<{
+    host: string;
+    map: Map<TerminalId, TerminalId | null>;
+  }>(
     () => {
       const m = new Map<TerminalId, TerminalId | null>();
       for (const id of deps.rawList()) m.set(id, deps.parentOf(id));
-      return m;
+      return { host: deps.activeHostKey(), map: m };
     },
-    new Map(),
-    { equals: sameParentSnapshot },
+    { host: "", map: new Map() },
+    {
+      equals: (a, b) => a.host === b.host && sameParentSnapshot(a.map, b.map),
+    },
   );
 
   createEffect(
-    on(snapshot, (curr, prev) => {
-      if (prev === undefined) return; // first run — nothing has departed
+    on(snapshot, (currSnap, prevSnap) => {
+      if (prevSnap === undefined) return; // first run — nothing has departed
+      // Host SWITCH — the list re-keyed to a disjoint host. Advance the baseline
+      // WITHOUT evicting the departed host's tiles (they didn't close; the tab just
+      // looked away). Any wrong-host promote/auto-switch write is thus unspellable.
+      if (currSnap.host !== prevSnap.host) return;
+      const curr = currSnap.map;
+      const prev = prevSnap.map;
       const departed: TerminalId[] = [];
       for (const id of prev.keys()) if (!curr.has(id)) departed.push(id);
       if (departed.length === 0) return; // a parentId change with no departure

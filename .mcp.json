@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "chrome-devtools": {
+      "type": "stdio",
       "command": ".claude/skills/nix-chrome-devtools-mcp/bin/serve",
-      "args": [],
-      "type": "stdio"
+      "args": []
     },
     "odu": {
       "type": "stdio",

@@ -38,7 +38,7 @@ export type PipelineSpec = z.infer<typeof PipelineSpecSchema>;
 
 /** The zero-config pipeline — **real CI for the remote-process-monitor
  *  example**: type-check its dependency closure (the `@kolu/surface` framework
- *  and `@kolu/surface-nix-host` in parallel, then the example itself). These
+ *  and `@kolu/surface-remote` in parallel, then the example itself). These
  *  are the same `tsc --noEmit` gates the repo's CI runs.
  *
  *  Tasks run against the workspace the `mini-ci-runner` closure bundles
@@ -60,7 +60,7 @@ export const DEFAULT_PIPELINE: PipelineSpec = {
     },
     {
       id: "nix-host",
-      command: "pnpm --filter @kolu/surface-nix-host typecheck",
+      command: "pnpm --filter @kolu/surface-remote typecheck",
       needs: [],
     },
     {

@@ -1,0 +1,170 @@
+---
+/**
+ * Docs sidebar — reads the `docs` collection and lists its pages, grouped by the
+ * optional `section` frontmatter and ordered by `order` (ties by title). Pages
+ * without a `section` fall in a default "Documentation" group. The grouping is
+ * ready for future Diátaxis quadrants, but a group only appears once a page opts
+ * into it — no empty sections are ever rendered.
+ *
+ * On narrow viewports it collapses into a <details> disclosure so it doesn't
+ * push the content down (the current page's title labels the summary).
+ */
+import { getCollection } from "astro:content";
+
+interface Props {
+  current: string;
+  currentTitle: string;
+}
+const { current, currentTitle } = Astro.props;
+
+const DEFAULT_GROUP = "Documentation";
+const entries = await getCollection("docs");
+entries.sort((a, b) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title));
+
+// Preserve first-seen group order, so sections appear in the order their first
+// page's `order` puts them.
+const groups: { label: string; items: typeof entries }[] = [];
+for (const entry of entries) {
+  const label = entry.data.section ?? DEFAULT_GROUP;
+  let group = groups.find((g) => g.label === label);
+  if (!group) {
+    group = { label, items: [] };
+    groups.push(group);
+  }
+  group.items.push(entry);
+}
+---
+
+<nav class="docs-sidebar docs-sidebar__nav docs-sidebar--desktop" aria-label="Documentation">
+  {
+    groups.map((group) => (
+      <div class="docs-sidebar__group">
+        <p class="docs-sidebar__grouplabel">{group.label}</p>
+        <ul>
+          {group.items.map((entry) => (
+            <li>
+              <a
+                href={`/${entry.id}`}
+                aria-current={entry.id === current ? "page" : undefined}
+              >
+                {entry.data.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))
+  }
+</nav>
+
+<details class="docs-sidebar docs-sidebar--mobile">
+  <summary class="docs-sidebar__summary">
+    <span>On this site</span>
+    <span class="docs-sidebar__current">{currentTitle}</span>
+  </summary>
+  <nav class="docs-sidebar__nav" aria-label="Documentation">
+    {
+      groups.map((group) => (
+        <div class="docs-sidebar__group">
+          <p class="docs-sidebar__grouplabel">{group.label}</p>
+          <ul>
+            {group.items.map((entry) => (
+              <li>
+                <a
+                  href={`/${entry.id}`}
+                  aria-current={entry.id === current ? "page" : undefined}
+                >
+                  {entry.data.title}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))
+    }
+  </nav>
+</details>
+
+<style>
+  .docs-sidebar {
+    font-size: 0.9rem;
+  }
+  .docs-sidebar--mobile {
+    display: none;
+  }
+  .docs-sidebar__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.7rem 0.95rem;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--color-ink-dim);
+    list-style: none;
+  }
+  .docs-sidebar__summary::-webkit-details-marker {
+    display: none;
+  }
+  .docs-sidebar__current {
+    color: var(--color-kolu-primary);
+  }
+  .docs-sidebar__grouplabel {
+    margin: 0 0 0.6rem;
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    font-weight: 650;
+    color: var(--color-ink);
+  }
+  .docs-sidebar__group + .docs-sidebar__group {
+    margin-top: 1.5rem;
+  }
+  .docs-sidebar__nav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    border-left: 1px solid var(--color-rule);
+  }
+  .docs-sidebar__nav a {
+    display: block;
+    padding: 0.35rem 0.75rem;
+    margin-left: -1px;
+    border-left: 2px solid transparent;
+    color: var(--color-ink-dim);
+    text-decoration: none;
+    transition:
+      color 120ms ease,
+      border-color 120ms ease;
+  }
+  .docs-sidebar__nav a:hover {
+    color: var(--color-ink);
+  }
+  .docs-sidebar__nav a[aria-current="page"] {
+    color: var(--color-kolu-primary);
+    border-left-color: var(--color-kolu-primary);
+    background: color-mix(in srgb, var(--color-kolu-primary) 8%, transparent);
+    font-weight: 500;
+  }
+
+  /* On narrow viewports the sidebar becomes a collapsible disclosure above the
+     content, using the same idiom as the site's other panels. */
+  @media (max-width: 60rem) {
+    .docs-sidebar--desktop {
+      display: none;
+    }
+    .docs-sidebar--mobile {
+      display: block;
+      border: 1px solid var(--color-rule);
+      border-radius: 0.6rem;
+      background: color-mix(in srgb, var(--color-void-raised) 70%, transparent);
+      margin-bottom: 1.75rem;
+    }
+    .docs-sidebar__nav {
+      padding: 0 0.95rem 0.95rem;
+    }
+  }
+</style>

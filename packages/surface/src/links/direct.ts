@@ -28,6 +28,24 @@
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import { createRouterClient } from "@orpc/server";
 
+// A `directLink` is the identity element of the link family — in-process, no wire, so it
+// physically CANNOT half-open; its constant-`true` transport liveness is sound BY
+// CONSTRUCTION. Brand it (the sibling of `_wire.ts`'s `HALF_OPEN_LINKS`) so a consumer
+// that must tell a sound constant-`true` transport from an unbranded/pre-sliced wire slice
+// — e.g. `connectSurfaceMap`, which now owns slicing and REFUSES a bare wire link so it
+// can't floor a green dot over a dead transport — can recognize it structurally.
+const DIRECT_LINKS = new WeakSet<object>();
+
+/** Whether `link` is a `directLink` (in-process, half-open-exempt — a sound
+ *  constant-`true` transport, unlike a bare/pre-sliced wire link). */
+export function isDirectLink(link: unknown): boolean {
+  return (
+    (typeof link === "object" || typeof link === "function") &&
+    link !== null &&
+    DIRECT_LINKS.has(link as object)
+  );
+}
+
 /** Build a direct (no-wire) client over a served router — the in-process
  *  member of the link family.
  *
@@ -49,5 +67,7 @@ import { createRouterClient } from "@orpc/server";
 export function directLink<C extends AnyContractRouter>(
   router: Parameters<typeof createRouterClient>[0],
 ): ContractRouterClient<C> {
-  return createRouterClient(router) as ContractRouterClient<C>;
+  const client = createRouterClient(router) as ContractRouterClient<C>;
+  DIRECT_LINKS.add(client as object);
+  return client;
 }

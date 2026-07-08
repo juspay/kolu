@@ -22,10 +22,13 @@
  * Every padi + its detached kaval is reaped (SIGKILL via the gate files).
  */
 
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+// `connectPadi` moved into the shared dial kit in W2.3; the supervision it feeds
+// (bind/drain convergence, drivers, the reconnect session) stays in the binder.
+import { connectPadi } from "@kolu/padi/dial";
 import {
   padiGatePath,
   padiKavalSocketPath,
@@ -37,21 +40,31 @@ import {
   padiSurface,
 } from "@kolu/padi/surface";
 import {
+  type ConvergenceOutcome,
   converge,
   createBuildDrainFence,
   createEndpoint,
   daemonBuild,
 } from "@kolu/surface-daemon-supervisor";
-import { reServeSurface } from "@kolu/surface-nix-host";
+import { ConnectError, reServeSurface } from "@kolu/surface-remote";
 import { createRouterClient } from "@orpc/server";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-// `connectPadi` moved into the shared dial kit in W2.3; the supervision it feeds
-// (bind/drain convergence, drivers, the reconnect session) stays in the binder.
-import { connectPadi } from "@kolu/padi/dial";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   ensurePadiBinding,
+  handlePadiBootFailure,
   localPadiDriver,
   PADI_HOST_ID,
+  PadiAdoptionRefusedError,
+  padiConnectFailure,
+  reportAdoptionRefusal,
   resolvePadiLaunch,
 } from "./padiBinding.ts";
 // padi's convergence declaration + probe moved to `./padiConvergence.ts` in L6.
@@ -72,6 +85,13 @@ const silentLog = {
   warn() {},
   error() {},
 };
+
+/** Set (or, given `undefined`, unset) `$XDG_RUNTIME_DIR` — the single-source pin
+ *  below flips this between a simulated wait-time and serve-time read. */
+function setXdgRuntimeDir(v: string | undefined): void {
+  if (v === undefined) delete process.env.XDG_RUNTIME_DIR;
+  else process.env.XDG_RUNTIME_DIR = v;
+}
 
 // tsx must resolve so the spawned padi (and its kaval) launch from source.
 createRequire(import.meta.url).resolve("tsx");
@@ -191,6 +211,9 @@ async function bootReServedPadi(stateRoot: string): Promise<{
     // The re-targeted "restart" is now the session's `renew()` (the drain verb), not the
     // deleted `drainBoundPadi()`.
     drainBoundPadi: () => session.renew(),
+    addHost: async () => {},
+    removeHost: async () => {},
+    reconnectHost: () => {},
   });
   // `directLink` internally; drive the assembled router in-process and walk it
   // structurally (`surface.padi.<member>`).
@@ -263,8 +286,17 @@ describe("kolu-server padi binder — cutover acceptance", () => {
 
   it("reconnects when padi dies, and the re-served surface round-trips again", async () => {
     const stateRoot = makeStateRoot();
-    const { padi } = await bootReServedPadi(stateRoot);
+    const { session, padi } = await bootReServedPadi(stateRoot);
     await roundTripTerminal(padi, "FIRST");
+
+    // Capture progress lines across the kill+reconnect — the producer pin below
+    // reads this to prove the ENDPOINT link death (no child process: the
+    // `Endpoint`'s `onStatus` degraded/dead callback, not a real `exit` event)
+    // renders honestly, never as a fabricated process exit.
+    const seenLines: string[] = [];
+    const unsub = session.onState((s) => {
+      seenLines.push(...s.progressLines);
+    });
 
     // Kill the bound padi (its detached kaval survives). The socket close flips the
     // endpoint to degraded → the session schedules `adoptOrSpawnOrRefuse` → a fresh
@@ -276,6 +308,16 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // The re-served surface round-trips a fresh terminal again once the binder has
     // re-established the link (roundTripTerminal retries create across the gap).
     await roundTripTerminal(padi, "SECOND");
+    unsub();
+
+    // THE PIN (task d): `ensurePadiBinding`'s `onStatus` degraded/dead handler used
+    // to resolve `{kind: "exit", code: null, signal: null}` — a fabricated process
+    // exit for a link death that was never a process exit — which `handleClosed`
+    // rendered as "agent exited (code=null, signal=null)". It now emits the honest
+    // `{kind: "endpoint-down"}` variant, rendered "endpoint link down (no process
+    // exit)". Assert the honest line appeared and the fabricated one never did.
+    expect(seenLines.some((l) => l.includes("endpoint link down"))).toBe(true);
+    expect(seenLines.some((l) => l.includes("agent exited"))).toBe(false);
   }, 90000);
 
   it("a kolu-server (binder) restart keeps padi's registry WARM — adopts, never respawns (done-criterion b)", async () => {
@@ -551,6 +593,7 @@ describe("kolu-server padi binder — cutover acceptance", () => {
       socketPath,
       driver: localPadiDriver(
         stateRoot,
+        socketPath,
         "default",
         undefined,
         false,
@@ -604,7 +647,7 @@ describe("kolu-server padi binder — cutover acceptance", () => {
 describe("ensurePadiBinding — the LOCAL arm's members before any connect (pure, no real padi)", () => {
   // Post-S9 the boot-time lifecycle is no longer a bespoke `padiStartedAt()` on a wrapper
   // class; it rides the base `session.identity()` (padi's `system.identity`), which is
-  // proven generically by surface-nix-host's session tests. What is padi-LOCAL-arm
+  // proven generically by surface-remote's session tests. What is padi-LOCAL-arm
   // specific — and unit-testable with NO real padi (the session is side-effect-free until
   // the first pin) — is: the arm surfaces NO convergence (local has none), `identity()`
   // is the honest `disconnected` arm while unbound (never a fabricated 0), and `renew()`
@@ -643,10 +686,17 @@ describe("ensurePadiBinding — the LOCAL arm's members before any connect (pure
 
 describe("resolvePadiLaunch — the legacy-kaval-socket adopt-hint (binder hints its OWN port)", () => {
   const stateRoot = "/state/root";
+  const socketPath = "/run/user/1000/padi-deadbeef/padi.sock";
 
   it("forwards `--legacy-kaval-socket <path>` VERBATIM when the binder hints one (its own listen port's legacy socket)", () => {
     const hint = "/run/user/1000/kaval-7681/pty-host.sock";
-    const { args } = resolvePadiLaunch(stateRoot, undefined, undefined, hint);
+    const { args } = resolvePadiLaunch(
+      stateRoot,
+      socketPath,
+      undefined,
+      undefined,
+      hint,
+    );
     const i = args.indexOf("--legacy-kaval-socket");
     expect(i).toBeGreaterThanOrEqual(0);
     expect(args[i + 1]).toBe(hint); // exactly what the binder passed — padi never guesses
@@ -655,10 +705,291 @@ describe("resolvePadiLaunch — the legacy-kaval-socket adopt-hint (binder hints
   it("OMITS the flag entirely for a standalone bring-up (no hint) — so a padi with no binder never adopts a stray port kaval", () => {
     const { args } = resolvePadiLaunch(
       stateRoot,
+      socketPath,
       undefined,
       undefined,
       undefined,
     );
     expect(args).not.toContain("--legacy-kaval-socket");
   });
+});
+
+describe("resolvePadiLaunch — single-source the padi socket path (#1713 pattern)", () => {
+  const stateRoot = "/state/root";
+
+  it("ALWAYS forwards `--socket <path>` VERBATIM — the exact path the binder already computed with padiSocketPath, so padi's own process never re-derives it from its own env", () => {
+    const socketPath = padiSocketPath(stateRoot);
+    const { args } = resolvePadiLaunch(
+      stateRoot,
+      socketPath,
+      undefined,
+      undefined,
+      undefined,
+    );
+    const i = args.indexOf("--socket");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(args[i + 1]).toBe(socketPath);
+  });
+
+  it("wait-path === serve-path EVEN WHEN the two sides read $XDG_RUNTIME_DIR at genuinely different moments (SET at wait-time, UNSET at serve-time, and vice versa) — the real shape of the bug, where a transient systemd-run unit's own default env can differ from the binder's. Without the fix, padi's own `padiSocketPath(stateRoot, opts.socketOverride)` (daemonMain.ts) would re-read its OWN env and diverge from what the binder dials; with the fix the override makes the serve side ignore its env entirely", () => {
+    const prevXdg = process.env.XDG_RUNTIME_DIR;
+    try {
+      for (const [waitXdg, serveXdg] of [
+        ["/run/user/1000", undefined],
+        [undefined, "/run/user/1000"],
+        [undefined, undefined],
+        ["/run/user/1000", "/run/user/1000"],
+      ] as const) {
+        // Wait-time: the binder resolves its own endpoint/dial path under ITS env.
+        setXdgRuntimeDir(waitXdg);
+        const waitPath = padiSocketPath(stateRoot);
+        const { args } = resolvePadiLaunch(
+          stateRoot,
+          waitPath,
+          undefined,
+          undefined,
+          undefined,
+        );
+        const socketOverride = args[args.indexOf("--socket") + 1];
+
+        // Serve-time: padi's OWN process (daemonMain.ts) calls
+        // `padiSocketPath(stateRoot, opts.socketOverride)` under WHATEVER env IT
+        // sees — simulated here as possibly different from wait-time.
+        setXdgRuntimeDir(serveXdg);
+        const servePath = padiSocketPath(stateRoot, socketOverride);
+
+        expect(servePath).toBe(waitPath);
+      }
+    } finally {
+      setXdgRuntimeDir(prevXdg);
+    }
+  });
+});
+
+describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-refused vs. everything-else-retries)", () => {
+  const stateRoot = "/state/root";
+  const socketPath = "/run/user/1000/padi-deadbeef/padi.sock";
+
+  it("a genuine `refused` outcome (never adopted) is FATAL — a PadiAdoptionRefusedError naming the state dir + socket + remedy", () => {
+    const outcome: ConvergenceOutcome = { kind: "refused", adopted: false };
+    const err = padiConnectFailure(outcome, stateRoot, socketPath);
+    expect(err).toBeInstanceOf(PadiAdoptionRefusedError);
+    expect(err.message).toContain(stateRoot);
+    expect(err.message).toContain(socketPath);
+    expect(err.message).toContain("KOLU_STATE_DIR"); // the remedy
+  });
+
+  it("every other reason `conn` is undefined stays the pre-existing retryable ConnectError — never fatal", () => {
+    const outcomes: ConvergenceOutcome[] = [
+      { kind: "not-adopted" },
+      { kind: "recycled", adopted: false },
+      {
+        kind: "drained-replacing",
+        axis: "build",
+        running: {
+          contractVersion: PADI_SURFACE_VERSION,
+          build: daemonBuild(""),
+        },
+        adopted: false,
+      },
+    ];
+    for (const outcome of outcomes) {
+      const err = padiConnectFailure(outcome, stateRoot, socketPath);
+      expect(err).toBeInstanceOf(ConnectError);
+      expect(err).not.toBeInstanceOf(PadiAdoptionRefusedError);
+    }
+  });
+});
+
+describe("reportAdoptionRefusal — a refusal reported on EVERY dial, not just the first (delta-re-review finding 2)", () => {
+  it("invokes the hook for a genuine PadiAdoptionRefusedError", () => {
+    const err = new PadiAdoptionRefusedError(
+      "a padi is already serving this workspace",
+    );
+    const seen: PadiAdoptionRefusedError[] = [];
+    reportAdoptionRefusal(err, (e) => seen.push(e));
+    expect(seen).toEqual([err]);
+  });
+
+  it("does NOT invoke the hook for a non-fatal (retryable) classification", () => {
+    const err = new ConnectError("padi did not come up", "network");
+    const seen: unknown[] = [];
+    reportAdoptionRefusal(err, (e) => seen.push(e));
+    expect(seen).toEqual([]);
+  });
+
+  it("is a no-op when no hook is supplied (the option is optional)", () => {
+    expect(() =>
+      reportAdoptionRefusal(new PadiAdoptionRefusedError("x"), undefined),
+    ).not.toThrow();
+  });
+
+  // THE PIN: session.ts's own reconnect loop (`@kolu/surface-remote`'s
+  // `launchAttempt`) only lets the composition root's boot `pin()` observe the
+  // FIRST dial's rejection — every dial after that is fire-and-forget, silently
+  // swallowing whatever `connectOnce` throws. Before this fix, a refusal reached on
+  // a LATER (reconnect) dial was retried as "network" forever — the exact silent
+  // spinner the boot-time fail-fast was meant to kill. `reportAdoptionRefusal` is
+  // called directly at the connector's throw site (not left to whichever dial's
+  // promise happens to be awaited), so calling it a SECOND time — simulating a
+  // reconnect dial that now hits a refusal a first dial didn't — must report just
+  // as loudly as the first ever would.
+  it("PIN: a refuse reached on a SIMULATED RECONNECT dial (a second, later call) still reports — never silently swallowed", () => {
+    const seen: PadiAdoptionRefusedError[] = [];
+    const onAdoptionRefused = (e: PadiAdoptionRefusedError): void => {
+      seen.push(e);
+    };
+
+    // Dial 1: a transient, retryable hiccup — no report (matches today's fail-open
+    // reconnect stance for everything except a genuine refusal).
+    reportAdoptionRefusal(
+      padiConnectFailure({ kind: "not-adopted" }, "/sr", "/sock"),
+      onAdoptionRefused,
+    );
+    expect(seen).toHaveLength(0);
+
+    // Dial 2 — a RECONNECT: the survivor now at this socket is a genuine contract
+    // skew this binder must never touch (#1313). This is the exact case the
+    // session's fire-and-forget reconnect loop would otherwise swallow silently.
+    const err = padiConnectFailure(
+      { kind: "refused", adopted: false },
+      "/sr",
+      "/sock",
+    );
+    reportAdoptionRefusal(err, onAdoptionRefused);
+    expect(seen).toEqual([err]);
+  });
+});
+
+describe("handlePadiBootFailure — the composition root's boot-pin catch (exits ONLY on the fatal classification)", () => {
+  it("a PadiAdoptionRefusedError logs FATAL and exits non-zero, naming the conflict + remedy", () => {
+    const err = new PadiAdoptionRefusedError(
+      "a padi is already serving this workspace — state dir /x, socket /y. " +
+        "run with KOLU_STATE_DIR=<dir> for a second instance.",
+    );
+    const fatal = vi.fn();
+    const error = vi.fn();
+    const exit = vi.fn();
+    handlePadiBootFailure(err, {
+      log: { fatal, error },
+      exit: exit as unknown as (code: number) => void,
+    });
+    expect(fatal).toHaveBeenCalledTimes(1);
+    expect(fatal.mock.calls[0]?.[1]).toContain("KOLU_STATE_DIR");
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("every other error (transient boot hiccup) logs error and does NOT exit — the fail-open stance", () => {
+    const fatal = vi.fn();
+    const error = vi.fn();
+    const exit = vi.fn();
+    handlePadiBootFailure(new ConnectError("padi did not come up", "network"), {
+      log: { fatal, error },
+      exit: exit as unknown as (code: number) => void,
+    });
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(fatal).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+  });
+});
+
+describe("ensurePadiBinding — ADOPTS a resident registered under a MISMATCHED drawer (#1713 adopt-path sibling, the live repro)", () => {
+  // The live repro: a resident padi is registered under ONE runtime drawer; a fresh
+  // `ensurePadiBinding` for the SAME state-root, whose OWN env computes a DIFFERENT
+  // drawer, must DISCOVER + ADOPT it (fast, no redundant second spawn) rather than
+  // wait/hang at its own-env-computed (empty) drawer. Uses the /tmp-vs-XDG direction
+  // deterministically reproducible in ANY CI (no dependency on a real login
+  // session's `/run/user/$UID`): the resident's OWN env has `$XDG_RUNTIME_DIR`
+  // UNSET at spawn time (so it binds at the real `/tmp/padi-<digest>-$UID/`
+  // fallback), and the waiter's OWN env is SET to an entirely different temp dir —
+  // the exact mirror of the reported bug (an XDG-unset kolu against an XDG-SET
+  // resident), proving the SAME cross-regime manifest read-back mechanism.
+  it("a waiter whose own env computes a different drawer than a real resident still ADOPTS it — fast, no redundant spawn", async () => {
+    const stateRoot = makeStateRoot();
+    const waiterDrawer = mkdtempSync(
+      join(tmpdir(), "padi-bind-waiter-drawer-"),
+    );
+    const savedXdg = process.env.XDG_RUNTIME_DIR;
+    let residentSession: PadiSession | undefined;
+    let waiterSession: PadiSession | undefined;
+    try {
+      // The RESIDENT: XDG UNSET at spawn time → binds at the real `/tmp` fallback
+      // drawer, a drawer the waiter's own env (set below) will NOT compute.
+      delete process.env.XDG_RUNTIME_DIR;
+      residentSession = ensurePadiBinding({
+        stateRoot,
+        nixShellWhitelist: "default", // the test runs inside the nix devshell
+        reconnectDelayMs: 400,
+      });
+      // `pin()` resolves with the padi surface client ONLY once the endpoint has
+      // actually connected + handshaken — no re-serve/pump needed (this dials padi
+      // directly), so its resolution alone proves the resident is genuinely live.
+      // biome-ignore lint/suspicious/noExplicitAny: the raw session client is walked structurally, like `roundTripTerminal`'s `padi`.
+      const residentClient: any = await residentSession.pin();
+      const residentPid = gatePid(padiGatePath(padiSocketPath(stateRoot)));
+      expect(residentPid).toBeDefined();
+
+      // Create a terminal through the RESIDENT — the fact the WAITER can read it
+      // back below is the proof the waiter reached the SAME live registry, not a
+      // fresh empty one.
+      const { id } = await residentClient.surface.lifecycle.create({
+        cwd: makeStateRoot(),
+      });
+      expect(id).toMatch(/^[0-9a-f-]{36}$/);
+
+      // The WAITER: a FRESH binding for the SAME state root, but its OWN env
+      // computes a DIFFERENT (empty) drawer.
+      process.env.XDG_RUNTIME_DIR = waiterDrawer;
+      waiterSession = ensurePadiBinding({
+        stateRoot,
+        nixShellWhitelist: "default",
+        reconnectDelayMs: 400,
+      });
+      const startedAt = Date.now();
+      // biome-ignore lint/suspicious/noExplicitAny: see `residentClient` above.
+      const waiterClient: any = await waiterSession.pin();
+      const elapsedMs = Date.now() - startedAt;
+
+      // FAST — never the 30s "daemon socket never came up" hang the bug produced.
+      expect(elapsedMs).toBeLessThan(10_000);
+
+      // ADOPTED the resident: the waiter reads the SAME terminal the resident
+      // created — a fresh (unadopted) spawn would have an EMPTY registry and this
+      // would throw ("terminal not found"), not resolve.
+      const screen = await waiterClient.surface.screen.state({ id });
+      expect(typeof screen).toBe("string");
+
+      // NEVER spawned a redundant second padi at the waiter's own (empty) drawer.
+      expect(gatePid(padiGatePath(padiSocketPath(stateRoot)))).toBeUndefined();
+
+      // The ORIGINAL resident is still the SAME pid — never killed/replaced.
+      delete process.env.XDG_RUNTIME_DIR;
+      expect(gatePid(padiGatePath(padiSocketPath(stateRoot)))).toBe(
+        residentPid,
+      );
+    } finally {
+      waiterSession?.destroy();
+      residentSession?.destroy();
+      // Reap the resident (real `/tmp` drawer) + its detached kaval by gate pid.
+      delete process.env.XDG_RUNTIME_DIR;
+      reap(stateRoot);
+      await sleep(50);
+      // Unlike the shared `RUNTIME_ROOT` (a mkdtemp'd wrapper other tests leave
+      // behind too), the resident's drawer here is the real top-level `/tmp` — a
+      // SIGKILL doesn't unlink it, so remove it explicitly rather than littering
+      // `/tmp`'s root with digest-named dirs across test runs.
+      rmSync(dirname(padiSocketPath(stateRoot)), {
+        recursive: true,
+        force: true,
+      });
+      rmSync(dirname(padiKavalSocketPath(stateRoot)), {
+        recursive: true,
+        force: true,
+      });
+      rmSync(waiterDrawer, { recursive: true, force: true });
+      if (savedXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = savedXdg;
+    }
+  }, 60000);
 });

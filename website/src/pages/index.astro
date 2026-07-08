@@ -1,6 +1,6 @@
 ---
-import BaseLayout from '../layouts/BaseLayout.astro';
 import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
 import { KOLU_VERSION } from '../site';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -11,25 +11,30 @@ const posts = (await getCollection('blog')).sort(
 );
 const latest = posts[0];
 
-// Decision aid for the remote section — three tunnels, three intents.
-const tunnels = [
+const docCards = [
   {
-    name: 'Tailscale Serve',
-    intent: 'just my devices',
-    note: 'tailnet-only, real HTTPS, zero config once MagicDNS is on. The default.',
-    accent: 'var(--color-live-teal)',
+    title: 'Quickstart',
+    href: '/quickstart',
+    eyebrow: 'start',
+    copy: 'Run kolu with Nix, open the local workspace, and create the first terminal.',
   },
   {
-    name: 'Cloudflare Tunnel + Access',
-    intent: 'public + identity-gated',
-    note: 'expose to the world, but force a login (SSO / email) before anyone reaches it.',
-    accent: 'var(--color-kolu-primary)',
+    title: 'First five minutes',
+    href: '/first-five-minutes',
+    eyebrow: 'workflow',
+    copy: 'Open a repo, name a worktree, launch an agent, and read the dock.',
   },
   {
-    name: 'ngrok',
-    intent: 'throwaway public URL',
-    note: 'a quick share link for a demo. No auth — tear it down after.',
-    accent: 'var(--color-kolu-top-strong)',
+    title: 'Install as an app',
+    href: '/install-pwa',
+    eyebrow: 'pwa',
+    copy: 'Pin kolu as a desktop/mobile app and unlock badges and notifications.',
+  },
+  {
+    title: 'Remote access',
+    href: '/remote-access',
+    eyebrow: 'https',
+    copy: 'Reach kolu from another device with a private Tailscale Serve URL.',
   },
 ];
 
@@ -39,7 +44,7 @@ const systemNodes = [
     role: 'browser workspace',
     copy: 'the canvas, dock, code browser, PWA shell, and everything you look at.',
     logo: href('/favicon.svg'),
-    href: href('/'),
+    href: href('/quickstart'),
     accent: 'primary',
   },
   {
@@ -59,13 +64,10 @@ const systemNodes = [
     accent: 'top',
   },
 ];
-
 ---
 
-<BaseLayout title="kolu">
+<BaseLayout title="kolu" searchSection="Site">
   <Fragment slot="head">
-    {/* The hero poster is the LCP element — preload it so it paints fast,
-        ahead of the (deferred, in-view-only) demo video bytes. */}
     <link
       rel="preload"
       as="image"
@@ -73,100 +75,103 @@ const systemNodes = [
       fetchpriority="high"
     />
   </Fragment>
-  <!-- ── HERO ─────────────────────────────────────────────────────────────
-       Centered copy; the real product video (next section) is the visual.
-       No hand-coded mockups — the live capture carries the "this is real" feel.
-  -->
-  <section class="mx-auto max-w-[72rem] px-6 pt-20 pb-8 md:pt-24 md:pb-10 relative">
-    <span
-      aria-hidden="true"
-      class="absolute top-10 left-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
-    >
-      ┌ kolu
-    </span>
-    <span
-      aria-hidden="true"
-      class="absolute top-10 right-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
-    >
-      v{KOLU_VERSION} ┐
-    </span>
 
-    <div class="mt-8 mx-auto max-w-3xl text-center">
-      <!-- Centered hero copy; the big demo video is the centerpiece, full-width
-           in its own section just below. -->
-      <div class="reveal reveal-1 flex flex-col items-center">
-        <p class="eyebrow flex items-center justify-center gap-2">
-          <span class="text-kolu-primary-muted">$</span>
-          <span>kolu — the terminal, done right</span>
-        </p>
+  <section class="hero">
+    <span class="hero-corner hero-corner-left" aria-hidden="true">┌ kolu</span>
+    <span class="hero-corner hero-corner-right" aria-hidden="true">v{KOLU_VERSION} ┐</span>
 
-        <h1
-          class="display reveal reveal-2 mt-5 text-[3rem] sm:text-[3.6rem] md:text-[4.4rem]"
-        >
-          The terminal<br />built for <span class="text-kolu-primary">many</span>.<span
-            class="cursor"
-            aria-hidden="true"></span>
-        </h1>
+    <div class="hero-copy">
+      <p class="eyebrow hero-eyebrow">
+        <span aria-hidden="true">$</span>
+        <span>kolu — the terminal, done right</span>
+      </p>
 
-        <p
-          class="reveal reveal-3 mt-6 mono text-[0.78rem] text-ink-muted leading-relaxed"
-        >
-          Not a chat-UI wrapper.<br />Not an editor fork.<br />A real terminal — just better at scale.
-        </p>
+      <h1 class="display hero-title">
+        The terminal<br />built for <span>many</span>.<span class="cursor" aria-hidden="true"></span>
+      </h1>
 
-        <p
-          class="reveal reveal-3 mt-6 mx-auto max-w-2xl text-lg leading-relaxed text-ink-dim"
-        >
-          Real <span class="mono text-ink">xterm.js</span> tiles on an infinite
-          canvas — backed by a host daemon and a PTY daemon, so the browser can
-          come and go without losing the terminals underneath.
-          <span class="mono text-ink">claude</span>, <span class="mono text-ink">codex</span>, <span
-            class="mono text-ink">opencode</span
-          > — anything you can run in a shell, runs in kolu.
-        </p>
+      <p class="hero-kicker mono">
+        Not a chat-UI wrapper.<br />Not an editor fork.<br />A real terminal — just better at scale.
+      </p>
 
-        <div class="reveal reveal-4 mt-8 flex flex-wrap items-center justify-center gap-3">
-          <a
-            href="#quickstart"
-            class="inline-flex items-center gap-2 rounded-sm bg-kolu-primary text-void px-5 py-2.5 mono text-[0.82rem] font-medium hover:bg-kolu-primary-hover transition-colors"
-          >
-            Get started <span aria-hidden="true">→</span>
-          </a>
-          <a
-            href="https://github.com/juspay/kolu"
-            rel="noopener"
-            class="inline-flex items-center gap-2 rounded-sm border border-rule-strong px-5 py-2.5 mono text-[0.82rem] text-ink hover:border-ink-dim hover:bg-void-raised transition-colors"
-          >
-            <svg viewBox="0 0 16 16" class="size-3.5 fill-current" aria-hidden="true">
-              <path
-                d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.82 1.23.82.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.58.82-2.14-.08-.2-.36-1.01.08-2.11 0 0 .67-.21 2.2.82a7.63 7.63 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.91.08 2.11.51.56.82 1.27.82 2.14 0 3.06-1.86 3.75-3.64 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"
-              ></path>
-            </svg>
-            juspay/kolu
-          </a>
-        </div>
+      <p class="hero-body">
+        Real <span class="mono">xterm.js</span> tiles on an infinite canvas,
+        backed by padi and kaval so the browser can come and go without losing
+        the shells underneath. <span class="mono">claude</span>, <span class="mono">codex</span>,
+        <span class="mono">opencode</span> — anything you run in a shell runs in kolu.
+      </p>
+
+      <div class="hero-actions">
+        <a href={href('/quickstart')} class="hero-primary">
+          Get started <span aria-hidden="true">→</span>
+        </a>
+        <a href="https://github.com/juspay/kolu" rel="noopener" class="hero-secondary">
+          <svg viewBox="0 0 16 16" class="size-3.5 fill-current" aria-hidden="true">
+            <path d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.82 1.23.82.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.58.82-2.14-.08-.2-.36-1.01.08-2.11 0 0 .67-.21 2.2.82a7.63 7.63 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.91.08 2.11.51.56.82 1.27.82 2.14 0 3.06-1.86 3.75-3.64 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"></path>
+          </svg>
+          juspay/kolu
+        </a>
       </div>
     </div>
   </section>
 
-  <!-- ── SYSTEM MAP — one product, three programs ─────────────────────── -->
-  <section class="mx-auto max-w-[72rem] px-6 pb-12 md:pb-14">
-    <div class="system-shell reveal reveal-4">
+  <section class="demo-section" aria-label="Kolu product demo">
+    <figure class="full-demo">
+      <div class="full-demo-frame">
+        <video
+          class="demo-video"
+          muted
+          loop
+          playsinline
+          preload="none"
+          poster="/demo/hero-demo.webp"
+        >
+          <source src="/demo/hero-demo.webm" type="video/webm" />
+          <source src="/demo/hero-demo.mp4" type="video/mp4" />
+        </video>
+      </div>
+      <figcaption class="hero-demo-cap">
+        The dock finds what you cannot see: two agents in two repos, and one
+        buried behind another tile asking for you.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section class="home-band">
+    <div class="section-head">
+      <p class="eyebrow">docs</p>
+      <h2 class="display-sm">Start in the guide.</h2>
+      <p>
+        The durable setup and workflow material now lives in the docs, where it
+        has sidebar navigation, search, code copy, and next-page flow.
+      </p>
+    </div>
+
+    <div class="doc-card-grid">
+      {
+        docCards.map((card) => (
+          <a href={href(card.href)} class="doc-entry-card">
+            <span class="doc-entry-eyebrow">{card.eyebrow}</span>
+            <strong>{card.title}</strong>
+            <span>{card.copy}</span>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="home-band">
+    <div class="system-shell">
       <div class="system-intro">
         <p class="eyebrow">the system</p>
-        <h2 class="display-sm text-[1.8rem] md:text-[2.15rem] text-ink mt-2">
-          one terminal experience,<br class="hidden sm:block" /> split at the right owners.
-        </h2>
-        <p class="mt-4 text-ink-dim leading-relaxed">
+        <h2 class="display-sm">One terminal experience, split at the right owners.</h2>
+        <p>
           Kolu is what you use. Padi remembers the workspace on the host. Kaval
           owns the shells. That split is why the tab, web server, and PTYs can
           fail or restart on different clocks.
         </p>
-        <a
-          href={href('/architecture')}
-          class="system-link"
-        >
-          see the architecture <span aria-hidden="true">→</span>
+        <a href={href('/architecture')} class="system-link">
+          See the architecture <span aria-hidden="true">→</span>
         </a>
       </div>
 
@@ -194,941 +199,15 @@ const systemNodes = [
     </div>
   </section>
 
-  <!-- ── HERO DEMO — the real product, full-width centerpiece ─────────────
-       A real kolu session, shown big right under the hero copy: two agents in
-       two repos, and the dock flagging the one (buried behind another tile)
-       that needs you. Poster-first / reduced-motion-gated (.demo-video → the
-       inline script at the end of the file governs autoplay). -->
-  <section class="mx-auto max-w-[82rem] px-6 pt-2 pb-14 md:pb-16">
-    <figure class="reveal reveal-4 full-demo">
-      <div class="full-demo-frame">
-        <video
-          class="demo-video"
-          muted
-          loop
-          playsinline
-          preload="none"
-          poster="/demo/hero-demo.webp"
-        >
-          <source src="/demo/hero-demo.webm" type="video/webm" />
-          <source src="/demo/hero-demo.mp4" type="video/mp4" />
-        </video>
-      </div>
-      <figcaption class="hero-demo-cap mx-auto max-w-2xl">
-        The dock finds what you can't see: two agents in two repos, and one —
-        buried behind another tile — asking for you. The dock still says so.
-      </figcaption>
-    </figure>
-  </section>
-
-  <!-- ── 01 · QUICKSTART ──────────────────────────────────────────────── -->
-  <!-- ── ON THIS PAGE — sticky scroll-spy rail over the guide sections ──── -->
-  <nav class="section-rail" aria-label="On this page">
-    <ol>
-      <li><a href="#quickstart"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Quickstart</span></a></li>
-      <li><a href="#first"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">First 5 minutes</span></a></li>
-      <li><a href="#concepts"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Core concepts</span></a></li>
-      <li><a href="#install"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Pin it as an app</span></a></li>
-      <li><a href="#remote"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Reach it anywhere</span></a></li>
-      <li><a href="#power"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Power features</span></a></li>
-      <li><a href="#faq"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">FAQ</span></a></li>
-    </ol>
-  </nav>
-
-  <!-- ── 01 · QUICKSTART ──────────────────────────────────────────────── -->
-  <section id="quickstart" class="guide-section scroll-mt-20">
-    <div class="guide-head">
-      <span class="guide-num">01</span>
-      <div>
-        <p class="eyebrow mb-2">quickstart</p>
-        <h2 class="display-sm text-[2rem] md:text-[2.4rem] text-ink">
-          From zero to running.
-        </h2>
-      </div>
-    </div>
-
-    <p class="guide-lede">
-      kolu is packaged with Nix. <a
-        href="https://nixos.asia/en/install"
-        rel="noopener"
-        class="guide-link">Install Nix</a
-      > with flakes enabled, then run a single command. The same command runs kolu
-      <em>and</em> updates it — <code>--refresh</code> busts Nix's flake cache so
-      you always pull the latest commit.
-    </p>
-
-    <div class="term-frame">
-      <div class="term-bar">
-        <span class="term-dot" style="background:var(--color-dot-close)"></span>
-        <span class="term-dot" style="background:var(--color-dot-minimize)"
-        ></span>
-        <span class="term-dot" style="background:var(--color-dot-maximize)"
-        ></span>
-        <span class="term-bar-label">~/dev — zsh</span>
-      </div>
-      <pre class="term-body"><code><span class="c-comment"># run (or update) kolu — serves on 127.0.0.1:7681</span>
-<span class="c-prompt">$</span> nix --refresh run github:juspay/kolu
-
-<span class="c-comment"># expose on LAN with a custom host / port</span>
-<span class="c-prompt">$</span> nix --refresh run github:juspay/kolu -- --host 0.0.0.0 --port 8080</code></pre>
-    </div>
-
-    <p class="guide-body">
-      Open <a
-        href="http://127.0.0.1:7681"
-        rel="noopener"
-        class="guide-link mono">http://127.0.0.1:7681</a
-      > (or the address you chose). You should see kolu open with an empty canvas.
-    </p>
-
-    <aside class="callout callout-ok">
-      <strong>Next.</strong> An empty canvas is the welcome — it always shows when
-      no terminals are open. The way you "dismiss" it is to open one; come back to
-      zero and it returns. Double-click any empty spot on the canvas to open the
-      <em>New terminal</em> menu — the same flow as the dock's <kbd>+</kbd>.
-    </aside>
-  </section>
-
-  <!-- ── 02 · FIRST 5 MINUTES ─────────────────────────────────────────── -->
-  <section id="first" class="guide-section scroll-mt-20">
-    <div class="guide-head">
-      <span class="guide-num">02</span>
-      <div>
-        <p class="eyebrow mb-2">first 5 minutes</p>
-        <h2 class="display-sm text-[2rem] md:text-[2.4rem] text-ink">
-          Open a repo, launch an agent.
-        </h2>
-      </div>
-    </div>
-
-    <p class="guide-lede">
-      The whole point lands in one move: open a repository and start an agent in
-      its own tile. kolu watches what you do, so you barely configure anything.
-    </p>
-
-    <ol class="step-list">
-      <li>
-        <span class="step-n">1</span>
-        <div>
-          <p class="step-t">Open the command palette</p>
-          <p class="step-b">
-            Press <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd>. This is kolu's canonical
-            search surface — terminals, themes, actions, repos, all from one box.
-          </p>
-        </div>
-      </li>
-      <li>
-        <span class="step-n">2</span>
-        <div>
-          <p class="step-t">Drill into <em>New terminal → your repo</em></p>
-          <p class="step-b">
-            Recent repos appear automatically — kolu tracks the directories you
-            <code>cd</code> into. Pick one and the worktree-naming leaf opens with
-            a name pre-filled (a random <span class="mono">adj-noun</span>) and an
-            agent picker below.
-          </p>
-        </div>
-      </li>
-      <li>
-        <span class="step-n">3</span>
-        <div>
-          <p class="step-t">Pick an agent — or just hit Enter</p>
-          <p class="step-b">
-            Any agent CLI you've run before (<code>claude</code>, <code
-              >codex</code
-            >, <code>opencode</code>, …) shows as a launch option. Choose one and
-            kolu creates a fresh worktree <em>and</em> launches the agent in one
-            step. Or hit <kbd>Enter</kbd> to land in a plain shell.
-          </p>
-        </div>
-      </li>
-      <li>
-        <span class="step-n">4</span>
-        <div>
-          <p class="step-t">Watch the dock</p>
-          <p class="step-b">
-            The new tile's dock row pulses while the agent is working and breathes
-            when it's waiting on you — so a glance tells you who needs attention,
-            even across many tiles.
-          </p>
-        </div>
-      </li>
-    </ol>
-
-    <aside class="callout callout-note">
-      <strong>Zero setup is real.</strong> You never registered that agent. Run any
-      CLI once in any kolu terminal and it appears in the palette the next time you
-      create a worktree — no adapter, no config file.
-    </aside>
-  </section>
-
-  <!-- ── 03 · CORE CONCEPTS ───────────────────────────────────────────── -->
-  <section id="concepts" class="guide-section scroll-mt-20">
-    <div class="guide-head">
-      <span class="guide-num">03</span>
-      <div>
-        <p class="eyebrow mb-2">core concepts</p>
-        <h2 class="display-sm text-[2rem] md:text-[2.4rem] text-ink">
-          The vocabulary.
-        </h2>
-      </div>
-    </div>
-
-    <p class="guide-lede">
-      Eight ideas cover almost everything. Learn these and the rest of kolu reads
-      like plain language.
-    </p>
-
-    <dl class="concept-grid">
-      <div class="concept">
-        <dt>Canvas</dt>
-        <dd>
-          An infinite, mode-less 2D plane. Pan with two-finger scroll, zoom with
-          pinch or <kbd>Ctrl</kbd> + scroll, snap to a 24px grid. No boundaries —
-          spread terminals out like Figma or Excalidraw.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Tiles</dt>
-        <dd>
-          Every terminal is a draggable, resizable tile — a real xterm.js
-          instance: WebGL rendering, clickable URLs, inline images (sixel /
-          iTerm2 / kitty), splits, 200+ themes, and a mobile key bar. Double-click
-          the title bar to maximize.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Dock</dt>
-        <dd>
-          The left-edge navigator — the canonical at-a-glance list of every live
-          terminal. Repo-tinted rows show branch, agent state, and PR/CI status;
-          the state pip's shape tells you who's working vs. awaiting you.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Worktrees</dt>
-        <dd>
-          Creating a terminal in a repo branches a fresh git worktree under the
-          hood. The name you type becomes the branch and shows verbatim on the
-          dock row, so parallel work stays identifiable.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Command &amp; sub-palette</dt>
-        <dd>
-          <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> opens the unified palette; drilling into
-          a row opens a sub-palette (e.g. repo → worktree name → agent). <kbd
-            >Cmd/Ctrl</kbd
-          > + <kbd>Shift</kbd> + <kbd>K</kbd> jumps straight to the workspace grid.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Auto-detection</dt>
-        <dd>
-          kolu populates itself by watching you — recent repos from <code
-            >cd</code
-          > events, recent agents from shell command marks, branch / PR / CI from
-          each terminal's working directory. If kolu knows it, the shell told it.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Git &amp; GitHub</dt>
-        <dd>
-          Each terminal knows its repo: branch, PR number, and CI status are read
-          from its working directory and shown right on the dock row — no token
-          pasting, no config. Creating a worktree and launching the agent in it is
-          a single palette step.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Comment on any file</dt>
-        <dd>
-          Select text in the Code tab — source, a branch diff, or a rendered
-          artifact — and pin a quoted note to it. The per-terminal tray flushes to
-          Markdown you paste straight back into the agent, which re-locates each
-          comment by quote-matching even after the file changes.
-        </dd>
-      </div>
-    </dl>
-
-    <!-- Growable deep-dives — collapsed by default. -->
-    <details class="deep">
-      <summary>
-        <span class="deep-tag">how-to</span>
-        Using the code browser
-      </summary>
-      <div class="deep-body">
-        <p>
-          The right-hand panel carries an <strong>Inspector</strong> tab and a
-          <strong>Code</strong> tab. The Code tab is a full file browser scoped to
-          the active terminal's repo: a Pierre file tree with git-status tinting
-          (modified / added / untracked, with every changed subtree's ancestors
-          tinted too) over a syntax-highlighted source view.
-        </p>
-        <ul>
-          <li>
-            Click a <code>path/to/file.ts:42</code> reference in terminal output to
-            jump straight to that line.
-          </li>
-          <li>
-            Markdown renders as a reading document with a <strong
-              >Source ⇄ Rendered</strong
-            > toggle; repo-relative links open the target file right in the tab.
-          </li>
-          <li>
-            Agent-generated <code>.html</code> / <code>.svg</code> / <code
-              >.pdf</code
-            > artifacts preview inline in a sandboxed iframe, live-reloading on
-            change.
-          </li>
-          <li>
-            Select text in any file — source, branch diff, or rendered artifact —
-            and leave a quoted comment; the tray flushes to Markdown you paste back
-            into the agent.
-          </li>
-        </ul>
-      </div>
-    </details>
-
-    <details class="deep">
-      <summary>
-        <span class="deep-tag">how-to</span>
-        Working the canvas view
-      </summary>
-      <div class="deep-body">
-        <p>
-          The desktop workspace is mode-less — there's no separate "edit" mode.
-          Terminals are tiles you arrange freely.
-        </p>
-        <ul>
-          <li>
-            <strong>Pan</strong> with two-finger scroll; hold <kbd>Shift</kbd> to force
-            pan even when the cursor is over a tile (hand-tool style).
-          </li>
-          <li>
-            <strong>Zoom</strong> with pinch or <kbd>Ctrl</kbd> + scroll; tiles snap
-            to a 24px grid on drag and resize.
-          </li>
-          <li>
-            <strong>Maximize</strong> a tile by double-clicking its title bar; the
-            posture persists across reload.
-          </li>
-          <li>
-            <strong>Arrange canvas by repo</strong> (from the palette) clusters each
-            repo's tiles into an island — a one-shot action that leaves new tiles where
-            they open.
-          </li>
-          <li>
-            The <strong>minimap heatmap</strong> dots any tile whose agent is waiting
-            or thinking, so you can scan a 20-tile workspace for "who needs me".
-          </li>
-        </ul>
-      </div>
-    </details>
-  </section>
-
-  <!-- ── 04 · PIN IT AS AN APP ────────────────────────────────────────── -->
-  <section id="install" class="guide-section scroll-mt-20">
-    <div class="guide-head">
-      <span class="guide-num">04</span>
-      <div>
-        <p class="eyebrow mb-2">pin it as an app</p>
-        <h2 class="display-sm text-[2rem] md:text-[2.4rem] text-ink">
-          Install kolu as a PWA.
-        </h2>
-      </div>
-    </div>
-
-    <p class="guide-lede">
-      Pinning kolu gives it its own window, a dock / home-screen icon, and — on
-      a secure context — a live badge plus desktop notifications for finished
-      agents. But there's one rule that trips everyone up, so read this first.
-    </p>
-
-    <aside class="callout callout-note">
-      <strong>You can pin kolu over plain HTTP — only <em>one-click</em> install needs
-      HTTPS.</strong> The automatic Install prompt and the address-bar Install icon
-      appear only on a <em>secure context</em> (<code>https://…</code> or loopback /
-      <code>localhost</code>), so on a plain <code>http://</code> LAN
-      (<code>192.168.x.x</code>) or Tailscale <code>100.x</code> address they won't
-      show — and the OS app badge, desktop notifications, and service workers are
-      unavailable there too (notifications ride a service worker). You
-      can still <strong>install manually</strong> (Chrome's <em>Create shortcut →
-      Open as window</em>, iOS <em>Add to Home Screen</em>) — see each browser below.
-      For the frictionless one-click path <em>plus</em> the live badge, give kolu a
-      real HTTPS URL via Tailscale —
-      <a href="#remote" class="guide-link">jump to Reach it anywhere ↓</a>.
-    </aside>
-
-    <p class="guide-body">
-      Install per browser — the <strong>one-click</strong> paths need HTTPS or
-      <code>localhost</code>; the <strong>manual</strong> paths work over plain
-      <code>http://</code> too:
-    </p>
-
-    <div class="browser-grid">
-      <div class="browser">
-        <h4>Chromium desktop / Android</h4>
-        <p>
-          Chrome, Edge, Brave, Arc. On HTTPS/localhost: the <strong>Install</strong>
-          icon in the address bar, or <strong>⋮ menu → Install app</strong> (the
-          one-click path). Over plain <code>http://</code>: <strong>⋮ → Save and
-          share → Create shortcut…</strong> and tick <strong>Open as window</strong>
-          for the same app window.
-        </p>
-      </div>
-      <div class="browser">
-        <h4>iOS — Safari / Chrome / Edge / Firefox</h4>
-        <p>
-          Tap <strong>Share ⬆ → Add to Home Screen</strong>. iOS has no install
-          API, so this is the only path — and since iOS 16.4 it works from any of
-          these browsers, not just Safari.
-        </p>
-      </div>
-      <div class="browser">
-        <h4>Safari desktop (macOS Sonoma+)</h4>
-        <p>
-          Safari 17 on macOS Sonoma or newer: <strong>File → Add to Dock</strong>.
-          Works on any page; no install event needed.
-        </p>
-      </div>
-      <div class="browser">
-        <h4>Firefox desktop</h4>
-        <p>
-          No native PWA install yet (Taskbar Tabs is still experimental). Use
-          <strong>Chrome or Edge</strong> to install, then keep using Firefox for
-          browsing if you like.
-        </p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── 05 · REACH IT ANYWHERE ───────────────────────────────────────── -->
-  <section id="remote" class="guide-section scroll-mt-20">
-    <div class="guide-head">
-      <span class="guide-num">05</span>
-      <div>
-        <p class="eyebrow mb-2">reach it anywhere</p>
-        <h2 class="display-sm text-[2rem] md:text-[2.4rem] text-ink">
-          Tailscale: HTTPS + your phone, one command.
-        </h2>
-      </div>
-    </div>
-
-    <p class="guide-lede">
-      Here's the payoff that ties the last two sections together: the <em
-        >same</em
-      > Tailscale command that makes kolu reachable from your phone is what gives it
-      the HTTPS secure context that unlocks <em>one-click</em> install and the app
-      badge. One move unlocks both.
-    </p>
-
-    <ol class="step-list">
-      <li>
-        <span class="step-n">1</span>
-        <div>
-          <p class="step-t">Install Tailscale on both devices</p>
-          <p class="step-b">
-            Put Tailscale on the dev box <em>and</em> the phone / laptop, signed into
-            the <strong>same account</strong>. They join one private tailnet.
-          </p>
-        </div>
-      </li>
-      <li>
-        <span class="step-n">2</span>
-        <div>
-          <p class="step-t">Enable MagicDNS + HTTPS Certificates</p>
-          <p class="step-b">
-            In the admin console → DNS, turn on <strong>MagicDNS</strong>, then
-            <strong>HTTPS Certificates</strong> (a one-time toggle). This lets
-            Tailscale issue a real Let's Encrypt cert for your machine.
-          </p>
-        </div>
-      </li>
-      <li>
-        <span class="step-n">3</span>
-        <div>
-          <p class="step-t">Serve the port</p>
-          <p class="step-b">
-            On the dev box, point Serve at kolu's port (<code>--bg</code> keeps it
-            running across reboots):
-          </p>
-          <div class="term-frame term-frame-sm">
-            <div class="term-bar">
-              <span class="term-dot" style="background:var(--color-dot-close)"
-              ></span>
-              <span
-                class="term-dot"
-                style="background:var(--color-dot-minimize)"></span>
-              <span
-                class="term-dot"
-                style="background:var(--color-dot-maximize)"></span>
-              <span class="term-bar-label">dev box</span>
-            </div>
-            <pre class="term-body"><code><span class="c-prompt">$</span> tailscale serve --bg 7681
-
-<span class="c-arrow">→</span> Available within your tailnet:
-  <span class="c-ok">https://your-box.your-tailnet.ts.net/</span></code></pre>
-          </div>
-        </div>
-      </li>
-      <li>
-        <span class="step-n">4</span>
-        <div>
-          <p class="step-t">Open the printed URL on your phone — and install</p>
-          <p class="step-b">
-            Visit the full <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code>
-            address. It's a genuine HTTPS secure context, so the Install / Add to
-            Home Screen affordance now appears. Pin it from there.
-          </p>
-        </div>
-      </li>
-    </ol>
-
-    <aside class="callout callout-note">
-      <strong>The full FQDN is mandatory.</strong> Use the complete
-      <code>…ts.net</code> hostname. The bare machine name and the
-      <code>100.x</code> IP stay plain HTTP — no secure context, so no one-click
-      install or app badge (manual pinning still works, as everywhere).
-    </aside>
-
-    <aside class="callout callout-danger">
-      <strong>Default to Serve, not Funnel.</strong> <code>tailscale serve</code>
-      keeps kolu <em>tailnet-only</em> — just your devices. <code>tailscale funnel</code>
-      makes it <strong>public with no authentication</strong>; a single flag flips
-      a port open to the whole internet. Keep the dev server bound to <code
-        >127.0.0.1</code
-      > and let Serve be the only exposed surface.
-    </aside>
-
-    <p class="guide-body">
-      One more honesty note: your <code>…ts.net</code> hostname lands in public
-      Certificate Transparency logs (that's how the public web verifies certs), so
-      don't bake secrets into machine names. Manage everything with <code
-        >tailscale serve status</code
-      >, <code>tailscale serve reset</code>, and <code>tailscale serve off</code>.
-    </p>
-
-    <h3 class="guide-subhead">Which tunnel? A decision aid.</h3>
-    <p class="guide-body">
-      Serve covers "just my devices." If you need something else, match the intent:
-    </p>
-
-    <div class="tunnel-grid">
-      {
-        tunnels.map((t) => (
-          <div class="tunnel" style={`--tun-accent:${t.accent}`}>
-            <div class="tunnel-intent">{t.intent}</div>
-            <div class="tunnel-name">{t.name}</div>
-            <p class="tunnel-note">{t.note}</p>
-          </div>
-        ))
-      }
-    </div>
-
-    <details class="deep">
-      <summary>
-        <span class="deep-tag">how-to</span>
-        Worktrees — the parallel-work model
-      </summary>
-      <div class="deep-body">
-        <p>
-          Each terminal you create in a repo is backed by its own git worktree, so
-          several branches check out side by side without stashing or re-cloning.
-        </p>
-        <ul>
-          <li>
-            Press <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> to open
-            the <em>New terminal</em> menu, then pick a recent repo and name the
-            worktree — kolu branches it and (optionally) launches the agent in one
-            step. (The command palette → <em>New terminal</em> is the same flow.)
-          </li>
-          <li>
-            The worktree name you type in the palette becomes the branch name and
-            shows verbatim on the dock row.
-          </li>
-          <li>
-            Branch, PR number, and CI status are derived from each terminal's
-            working directory — no manual wiring.
-          </li>
-          <li>
-            Run five agents on five branches at once; the dock keeps every one
-            distinct, suffixing a stable id when two share a repo + branch.
-          </li>
-        </ul>
-      </div>
-    </details>
-  </section>
-
-  <!-- ── 06 · POWER FEATURES ──────────────────────────────────────────── -->
-  <section id="power" class="guide-section scroll-mt-20">
-    <div class="guide-head">
-      <span class="guide-num">06</span>
-      <div>
-        <p class="eyebrow mb-2">power features</p>
-        <h2 class="display-sm text-[2rem] md:text-[2.4rem] text-ink">
-          Run many, lose none.
-        </h2>
-      </div>
-    </div>
-
-    <p class="guide-lede">
-      kolu is built for the moment you're running five agents at once. These are
-      the tools that keep that legible.
-    </p>
-
-    <dl class="concept-grid">
-      <div class="concept">
-        <dt>Multi-agent at scale</dt>
-        <dd>
-          The dock pulses for working agents and breathes for awaiting ones; a
-          finished background agent fires a loud rose ping plus a toast with a
-          <strong>Switch</strong> action that pans the canvas straight to it —
-          and, on an HTTPS/<code>localhost</code> kolu with notifications
-          granted, a native <strong>OS notification</strong> you can click to
-          jump to that terminal, even when kolu is in the background.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Keybindings</dt>
-        <dd>
-          <kbd>Cmd</kbd> + <kbd>T</kbd> new terminal, <kbd>Cmd</kbd> + <kbd>Shift</kbd>
-          + <kbd>Enter</kbd> opens the New terminal menu (worktree creation),
-          <kbd>Cmd</kbd> + <kbd>1…9</kbd> jump, <kbd>Ctrl</kbd> + <kbd>Tab</kbd>
-          cycles in MRU order, <kbd>Cmd</kbd> + <kbd>/</kbd> shows the full shortcut
-          help. Splits: <kbd>Ctrl</kbd> + <kbd>`</kbd>.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Sessions</dt>
-        <dd>
-          Layout, themes, and maximized posture persist across reloads via
-          localStorage, so you land back exactly where you left off. The
-          activity-window filter hides stale rows without killing them.
-        </dd>
-      </div>
-      <div class="concept">
-        <dt>Sleep &amp; wake <span class="mono">☾</span></dt>
-        <dd>
-          Done with a tile for now? Hit <strong>☾</strong> on its title bar to
-          put it to sleep — its PTY, agent process, and WebGL context are
-          released, exactly as if closed, while the tile stays on the canvas,
-          moonlit and dormant. <strong>Wake</strong> it and kolu re-spawns in
-          the same directory and resumes the agent right where it left off — the
-          conversation returns, not a blank shell. Park many long-lived sessions
-          without paying their live cost.
-        </dd>
-      </div>
-    </dl>
-
-    <details class="deep">
-      <summary>
-        <span class="deep-tag">how-to</span>
-        Sessions — save, restore, and tidy
-      </summary>
-      <div class="deep-body">
-        <p>
-          kolu remembers your workspace without a save button — but you stay in
-          control of what's on screen.
-        </p>
-        <ul>
-          <li>
-            Reopening kolu restores your tiles, their themes, and the maximized
-            tile if you had one.
-          </li>
-          <li>
-            The <strong>activity window</strong> (<span class="mono"
-              >All / 4h / 12h / 24h / 48h</span
-            >, default 24h) hides rows older than the cutoff from the dock; "show
-            all" brings them back. Hidden tiles stop counting toward the dock
-            badge.
-          </li>
-          <li>
-            A fresh agent transition automatically resurfaces a hidden terminal,
-            so nothing important stays buried.
-          </li>
-        </ul>
-      </div>
-    </details>
-
-    <details class="deep">
-      <summary>
-        <span class="deep-tag">how-to</span>
-        Sleep a terminal — park it without paying its cost
-      </summary>
-      <div class="deep-body">
-        <p>
-          Sleeping is how you keep many agent sessions parked while only the ones
-          you're using stay live. A sleeping tile is a full canvas citizen — only
-          the live shell goes dark.
-        </p>
-        <ul>
-          <li>
-            <strong>Put it to sleep.</strong> Click <strong>☾</strong> on the
-            title bar, or run <em>Sleep terminal</em> from the palette. The PTY,
-            agent process, and GPU/WebGL context are released — exactly as if
-            you'd closed it — and the tile goes moonlit and dormant in place.
-          </li>
-          <li>
-            <strong>Still a citizen.</strong> Drag, resize, rename, and re-theme a
-            sleeping tile like any other; only typing is fenced off, since there's
-            no live shell behind it.
-          </li>
-          <li>
-            <strong>Last-known metadata stays put.</strong> The dormant tile keeps
-            showing what it was working — its working directory, git branch, and
-            GitHub PR — so a parked session never loses its identity.
-          </li>
-          <li>
-            <strong>Wake resumes the agent.</strong> Wake it and kolu re-spawns
-            the terminal in the same directory and resumes the agent right where
-            it left off — the same restore path terminals come back through after
-            a restart. The conversation returns, not a blank shell.
-          </li>
-          <li>
-            <strong>Survives a full restart</strong> and reads moonlit in the dock
-            and minimap. Closing a sleeping tile simply <strong>discards</strong>
-            it — there's nothing running to kill.
-          </li>
-        </ul>
-      </div>
-    </details>
-
-    <details class="deep">
-      <summary>
-        <span class="deep-tag">how-to</span>
-        Export &amp; record what your agent did
-      </summary>
-      <div class="deep-body">
-        <p>Two ways to share a session beyond the live workspace:</p>
-        <ul>
-          <li>
-            <strong>Transcript export</strong> — save any Claude Code, Codex, or
-            OpenCode session as self-contained <code>.html</code>: a lightweight
-            chat log for sharing, a full collapsed transcript for audit, or both.
-            No external assets. Opens offline anywhere.
-          </li>
-          <li>
-            <strong>Workspace recording</strong> — one click in the chrome bar
-            captures the whole kolu tab with mic and optional webcam PiP, streamed
-            to a local <code>.webm</code>. Pause / resume with <kbd>⌘⇧.</kbd>.
-          </li>
-        </ul>
-      </div>
-    </details>
-
-    <aside class="callout callout-note">
-      <strong>Drive it all from your shell.</strong> Every terminal kolu opens is
-      reachable from a plain shell too: <code>kaval-tui</code> can list, snapshot,
-      attach, or <em>send a prompt</em> to an agent running in one — so one agent
-      can drive another, with no adapter and no config. It's the same PTY daemon
-      (<strong>kaval</strong>, spawned and supervised by kolu's per-host
-      <strong>padi</strong>) exposed as a CLI, locally or over ssh.
-      <a href={href('/padi')} class="guide-link">Meet padi →</a>{" "}
-      <a href={href('/kaval')} class="guide-link">Meet kaval &amp; kaval-tui →</a>
-    </aside>
-  </section>
-
-  <!-- ── 07 · FAQ ─────────────────────────────────────────────────────── -->
-  <section id="faq" class="guide-section scroll-mt-20">
-    <div class="guide-head">
-      <span class="guide-num">07</span>
-      <div>
-        <p class="eyebrow mb-2">faq / troubleshooting</p>
-        <h2 class="display-sm text-[2rem] md:text-[2.4rem] text-ink">
-          Common snags.
-        </h2>
-      </div>
-    </div>
-
-    <div class="faq-list">
-      <details class="deep" open>
-        <summary>
-          <span class="deep-tag deep-tag-alert">#1</span>
-          I see no one-click Install button
-        </summary>
-        <div class="deep-body">
-          <p>
-            You're almost certainly on plain <code>http://</code> — a LAN IP or a
-            Tailscale <code>100.x</code> address. The <em>automatic</em> Install
-            prompt needs an HTTPS secure context, so it's hidden there — but you can
-            still pin manually: <strong>Chrome ⋮ → Save and share → Create shortcut →
-            Open as window</strong>, or <strong>iOS Share → Add to Home Screen</strong>.
-            For the one-click prompt plus the live app badge, open the
-            <code>https://…ts.net</code> URL from <a href="#remote" class="guide-link"
-              >Reach it anywhere</a
-            >.
-          </p>
-        </div>
-      </details>
-
-      <details class="deep">
-        <summary>
-          <span class="deep-tag deep-tag-alert">#2</span>
-          I'm not getting desktop notifications when an agent finishes
-        </summary>
-        <div class="deep-body">
-          <p>
-            kolu fires a native OS notification when an agent finishes in a
-            terminal you're <em>not</em> actively watching — a background
-            terminal, or any time kolu isn't the focused window. If you're
-            looking right at that terminal as it finishes, the on-canvas dock
-            surfaces it instead and no banner fires (by design). Past that, work
-            these in order:
-          </p>
-          <ul>
-            <li>
-              <strong>Secure context.</strong> Notifications ride a service
-              worker, which only registers over HTTPS or <code>localhost</code> —
-              the same rule as the app badge. Over plain <code>http://</code> (a
-              LAN IP or Tailscale <code>100.x</code>) there's no worker, so no
-              banner. Give kolu an <code>https://…ts.net</code> URL — <a
-                href="#remote"
-                class="guide-link">Reach it anywhere ↑</a
-              >.
-            </li>
-            <li>
-              <strong>Grant permission.</strong> The browser asks once; if it was
-              dismissed, re-enable it via the address-bar lock icon →
-              <strong>Notifications</strong>.
-            </li>
-            <li>
-              <strong>Let the OS through — the step that trips everyone.</strong>
-              The site toggle being on is <em>not</em> enough: your browser must
-              itself be allowed to post notifications at the OS level. On macOS:
-              <strong>System Settings → Notifications → Google Chrome</strong> (or
-              the pinned kolu app — it gets its <em>own</em> entry, separate from
-              Chrome) → <strong>Allow</strong>, style Banners or Alerts, and turn
-              off Focus / Do Not Disturb. Relaunching the browser after toggling
-              helps it take effect.
-            </li>
-          </ul>
-          <p>
-            Quick check: open DevTools console on kolu and run
-            <code
-              >navigator.serviceWorker.getRegistration().then(r =&gt;
-              r.showNotification('test'))</code
-            >. If <em>that</em> banner shows, the OS layer is fine and it's the
-            "not watching" rule above; if it doesn't, it's the OS-level setting.
-          </p>
-        </div>
-      </details>
-
-      <details class="deep">
-        <summary>
-          <span class="deep-tag">q</span>
-          Can I use it without Tailscale?
-        </summary>
-        <div class="deep-body">
-          <p>
-            Yes — locally over <code>localhost</code> everything works, including
-            one-click install (loopback is an HTTPS exemption). Tailscale only
-            matters when you want to reach kolu from another device — and want the
-            frictionless one-click install plus app badge there (manual pinning
-            works over plain HTTP regardless).
-          </p>
-        </div>
-      </details>
-
-      <details class="deep">
-        <summary>
-          <span class="deep-tag">q</span>
-          Which agents does kolu support?
-        </summary>
-        <div class="deep-body">
-          <p>
-            <strong>Run any agent.</strong> The terminal is the interface, so
-            <code>aider</code>, <code>gemini</code>, or whatever ships next week
-            works the moment you run it — and any CLI you've run joins the
-            palette's recent-agents list with no adapter and no config file.
-          </p>
-          <p>
-            <strong>Three get first-class integration today</strong> —
-            <code>claude</code> (Claude Code), <code>codex</code>, and <code
-              >opencode</code
-            >. For these, kolu reads <em>live</em> agent state into the dock
-            (working ▸ / awaiting ⏵ / idle ☾) and can export the session as a
-            self-contained HTML chat log or full transcript. Any other agent
-            still runs in its tile — it just doesn't light up the dock.
-          </p>
-        </div>
-      </details>
-
-      <details class="deep">
-        <summary>
-          <span class="deep-tag">q</span>
-          How do I update kolu?
-        </summary>
-        <div class="deep-body">
-          <p>
-            Re-run the same command: <code>nix --refresh run github:juspay/kolu</code>.
-            The <code>--refresh</code> flag busts Nix's flake cache so you always pull
-            the latest commit. For a long-lived service, wire it into a home-manager
-            module (see the
-            <a
-              href="https://github.com/juspay/kolu#deployment-home-manager"
-              rel="noopener"
-              class="guide-link">deployment guide</a
-            >).
-          </p>
-        </div>
-      </details>
-
-      <details class="deep">
-        <summary>
-          <span class="deep-tag">q</span>
-          I closed the welcome — how do I get it back?
-        </summary>
-        <div class="deep-body">
-          <p>
-            Open the palette (<kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd>) and run
-            <strong>Tutorial</strong> (alias "Welcome"). It re-summons the welcome
-            overlay anytime, even while you're working.
-          </p>
-        </div>
-      </details>
-    </div>
-
-    <div class="faq-cta">
-      <p class="text-ink-dim">
-        Still stuck? The source, issues, and full README live on GitHub.
-      </p>
-      <a
-        href="https://github.com/juspay/kolu"
-        rel="noopener"
-        class="faq-cta-btn"
-      >
-        <svg viewBox="0 0 16 16" class="size-4 fill-current" aria-hidden="true">
-          <path
-            d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.82 1.23.82.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.58.82-2.14-.08-.2-.36-1.01.08-2.11 0 0 .67-.21 2.2.82a7.63 7.63 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.91.08 2.11.51.56.82 1.27.82 2.14 0 3.06-1.86 3.75-3.64 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"
-          ></path>
-        </svg>
-        juspay/kolu
-      </a>
-    </div>
-  </section>
-
-  <!-- ── LATEST POST ──────────────────────────────────────────────────── -->
   {
     latest && (
-      <section class="mx-auto max-w-[68rem] px-6 py-20">
-        <div class="mb-10 flex items-baseline justify-between">
+      <section class="home-band latest-band">
+        <div class="latest-head">
           <p class="eyebrow">from the blog</p>
-          <a
-            href={href('/blog')}
-            class="mono text-[0.72rem] text-ink-dim hover:text-kolu-primary transition-colors"
-          >
-            all posts →
-          </a>
+          <a href={href('/blog')} class="latest-all">all posts →</a>
         </div>
-        <a
-          href={href(`/blog/${latest.id}`)}
-          class="block group relative border-t border-b border-rule py-10 hover:border-kolu-primary-muted transition-colors"
-        >
-          <time
-            class="mono text-[0.72rem] text-ink-muted tracking-widest"
-            datetime={latest.data.pubDate.toISOString()}
-          >
+        <a href={href(`/blog/${latest.id}`)} class="latest-card">
+          <time datetime={latest.data.pubDate.toISOString()}>
             {latest.data.pubDate
               .toLocaleDateString('en-US', {
                 year: 'numeric',
@@ -1137,77 +216,127 @@ const systemNodes = [
               })
               .toUpperCase()}
           </time>
-          <h3 class="display-sm text-[2rem] md:text-[2.4rem] mt-3 text-ink group-hover:text-kolu-primary transition-colors">
-            {latest.data.title}
-          </h3>
-          <p class="mt-4 text-ink-dim leading-relaxed max-w-2xl">
-            {latest.data.description}
-          </p>
-          <span class="mt-6 inline-block mono text-[0.76rem] text-ink-dim group-hover:text-kolu-primary transition-colors">
-            read →
-          </span>
+          <h2 class="display-sm">{latest.data.title}</h2>
+          <p>{latest.data.description}</p>
+          <span>read →</span>
         </a>
       </section>
     )
   }
 </BaseLayout>
 
-<!-- ── Component-scoped styles ─────────────────────────────────────────
-     Page-local: only the hero terminal frame and canvas demo strip
-     consume these classes. The reusable live-state vocabulary
-     (.live-chip-*, .live-badge, .live-dot, .live-spinner) lives in
-     global.css alongside its keyframes and reduced-motion override.
--->
 <style>
-  /* ── Hero terminal frame ─────────────────────────────────────────── */
-
-  /* Per-tile theme palettes. Real Kolu ships 200+ xterm themes and each
-     terminal can pick its own — the demo mirrors that with three
-     distinct palettes across the page so the hero, canvas main tile,
-     and canvas side tile each read as a separate terminal.
-     The shared block pins cool-neutral ink + middle-step primary tokens
-     *inside* the terminal regardless of page theme, so light-mode
-     visitors still see legible terminal output on the dark theme bg
-     without washing out the terminal palettes. */
-  .theme-phala,
-  .theme-solarized,
-  .theme-hax0r {
-    --color-ink: #e8e8ed;
-    --color-ink-dim: #a8a8b2;
-    --color-ink-muted: #6e6e78;
-    --color-ink-faint: #3a3a42;
-    --color-kolu-primary: var(--color-kolu-logo-middle);
-    --color-kolu-primary-hover: var(--color-kolu-logo-middle-hover);
-    --color-kolu-primary-muted: var(--color-kolu-logo-middle-muted);
-    --color-kolu-top: var(--color-kolu-logo-top);
-    --color-kolu-top-strong: var(--color-kolu-logo-top-strong);
-    --color-kolu-top-muted: var(--color-kolu-logo-top-muted);
-    --color-kolu-bottom: var(--color-kolu-logo-bottom);
-    --color-kolu-bottom-strong: var(--color-kolu-logo-bottom-strong);
-    --color-kolu-bottom-deep: var(--color-kolu-logo-bottom-deep);
-    --color-rule: #18181d;
-    --color-rule-strong: #28282f;
+  .hero {
+    position: relative;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 5rem 1.5rem 2rem;
+  }
+  .hero-corner {
+    position: absolute;
+    top: 2.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.12em;
+    color: var(--color-ink-faint);
+  }
+  .hero-corner-left {
+    left: 1.5rem;
+  }
+  .hero-corner-right {
+    right: 1.5rem;
+  }
+  .hero-copy {
+    max-width: 48rem;
+    margin: 2rem auto 0;
+    text-align: center;
+  }
+  .hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .hero-eyebrow span:first-child {
+    color: var(--color-kolu-primary);
+  }
+  .hero-title {
+    margin-top: 1.25rem;
+    color: var(--color-ink);
+    font-size: clamp(3rem, 2.1rem + 4vw, 5rem);
+  }
+  .hero-title span {
+    color: var(--color-kolu-primary);
+  }
+  .hero-kicker {
+    margin-top: 1.45rem;
+    color: var(--color-ink-muted);
+    font-size: 0.78rem;
+    line-height: 1.75;
+  }
+  .hero-body {
+    max-width: 44rem;
+    margin: 1.6rem auto 0;
+    color: var(--color-ink-dim);
+    font-size: 1.08rem;
+    line-height: 1.75;
+  }
+  .hero-body .mono {
     color: var(--color-ink);
   }
-  .theme-phala {
-    --term-bg: #160721;
-    --term-bg-bar: #1f0a2e;
-    --term-glow: var(--color-kolu-primary);
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 2rem;
   }
-  .theme-solarized {
-    --term-bg: #02161c;
-    --term-bg-bar: #032936;
-    --term-glow: var(--color-live-teal);
+  .hero-primary,
+  .hero-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.25rem;
+    padding: 0.7rem 1.15rem;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    text-decoration: none;
+    transition:
+      border-color 120ms ease,
+      background 120ms ease,
+      color 120ms ease;
   }
-  .theme-hax0r {
-    --term-bg: #1a0a04;
-    --term-bg-bar: #2a1208;
-    --term-glow: var(--color-live-alert);
+  .hero-primary {
+    background: var(--color-kolu-primary);
+    color: var(--color-void);
   }
-
-  /* ── Hero demo video (the real captured kolu session) ────────────────────
-     The full-width centerpiece right under the hero copy. The clip carries
-     kolu's own chrome, so this is just a bordered, primary-glowing 16:9 frame. */
+  .hero-primary:hover {
+    background: var(--color-kolu-primary-hover);
+  }
+  .hero-secondary {
+    border: 1px solid var(--color-rule-strong);
+    color: var(--color-ink);
+  }
+  .hero-secondary:hover {
+    border-color: var(--color-ink-dim);
+    background: var(--color-void-raised);
+  }
+  .demo-section {
+    max-width: 82rem;
+    margin: 0 auto;
+    padding: 1rem 1.5rem 4rem;
+  }
+  .full-demo {
+    margin: 0;
+  }
+  .full-demo-frame {
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 0.65rem;
+    overflow: hidden;
+    background: var(--color-void-sunk);
+    box-shadow: 0 0 90px -30px
+      color-mix(in srgb, var(--color-kolu-primary) 35%, transparent);
+    line-height: 0;
+  }
   .demo-video {
     display: block;
     width: 100%;
@@ -1215,29 +344,82 @@ const systemNodes = [
     aspect-ratio: 16 / 9;
   }
   .hero-demo-cap {
-    margin-top: 0.9rem;
-    font-size: 0.85rem;
-    line-height: 1.55;
+    max-width: 42rem;
+    margin: 0.9rem auto 0;
     color: var(--color-ink-muted);
+    font-size: 0.86rem;
+    line-height: 1.55;
     text-align: center;
   }
-  .full-demo {
-    margin: 0;
+  .home-band {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem;
+    border-top: 1px solid var(--color-rule);
   }
-  .full-demo-frame {
-    border: 1px solid var(--color-rule-strong);
-    border-radius: 0.7rem;
-    overflow: hidden;
-    background: var(--color-void-sunk);
-    box-shadow: 0 0 90px -30px
-      color-mix(in srgb, var(--color-kolu-primary) 35%, transparent);
-    line-height: 0;
+  .section-head {
+    max-width: 42rem;
+    margin-bottom: 1.8rem;
   }
-
-  /* ── System map — kolu + padi + kaval ──────────────────────────────── */
+  .section-head h2,
+  .system-intro h2,
+  .latest-card h2 {
+    margin-top: 0.45rem;
+    color: var(--color-ink);
+    font-size: clamp(1.9rem, 1.35rem + 2vw, 2.5rem);
+  }
+  .section-head p,
+  .system-intro p,
+  .latest-card p {
+    margin-top: 0.9rem;
+    color: var(--color-ink-dim);
+    line-height: 1.7;
+  }
+  .doc-card-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+  .doc-entry-card {
+    min-height: 12rem;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-rule);
+    border-top: 2px solid var(--color-kolu-primary);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    background: var(--color-void-raised);
+    text-decoration: none;
+    transition:
+      transform 140ms ease,
+      border-color 140ms ease,
+      background 140ms ease;
+  }
+  .doc-entry-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--color-kolu-primary);
+    background: color-mix(in srgb, var(--color-kolu-primary) 7%, var(--color-void-raised));
+  }
+  .doc-entry-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-kolu-primary);
+  }
+  .doc-entry-card strong {
+    margin-top: 0.75rem;
+    color: var(--color-ink);
+    font-size: 1.05rem;
+    line-height: 1.25;
+  }
+  .doc-entry-card span:last-child {
+    margin-top: 0.55rem;
+    color: var(--color-ink-dim);
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
   .system-shell {
-    border-block: 1px solid var(--color-rule);
-    padding-block: 2.2rem;
     display: grid;
     grid-template-columns: minmax(16rem, 0.72fr) minmax(0, 1.28fr);
     gap: 2rem;
@@ -1246,18 +428,17 @@ const systemNodes = [
   .system-intro {
     max-width: 24rem;
   }
-  .system-link {
+  .system-link,
+  .latest-all {
     display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
     margin-top: 1.15rem;
     font-family: var(--font-mono);
     font-size: 0.78rem;
     color: var(--color-kolu-primary);
     text-decoration: none;
-    transition: color 120ms ease;
   }
-  .system-link:hover {
+  .system-link:hover,
+  .latest-all:hover {
     color: var(--color-kolu-primary-hover);
   }
   .system-flow {
@@ -1280,7 +461,7 @@ const systemNodes = [
     gap: 1rem;
     border: 1px solid var(--node-rule);
     border-top-width: 2px;
-    border-radius: 0.55rem;
+    border-radius: 0.5rem;
     padding: 1rem;
     background: color-mix(in srgb, var(--node-color) 5%, var(--color-void-raised));
     text-decoration: none;
@@ -1358,468 +539,58 @@ const systemNodes = [
     font-family: var(--font-mono);
     font-size: 0.88rem;
   }
-
-  /* ── Copy-to-clipboard button on the primary nix-run command ──────── */
-  .copy-cli-btn {
-    position: absolute;
-    top: -0.15rem;
-    right: 0;
-    font-family: var(--font-mono);
-    font-size: 0.6rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    padding: 0.15rem 0.5rem;
-    border-radius: 3px;
-    border: 1px solid var(--color-rule-strong);
-    background: color-mix(in srgb, var(--color-void-raised) 70%, transparent);
-    color: var(--color-ink-muted);
-    cursor: pointer;
-    transition:
-      color 120ms ease,
-      border-color 120ms ease,
-      background 120ms ease;
+  .latest-band {
+    max-width: 68rem;
   }
-  .copy-cli-btn:hover {
-    color: var(--color-kolu-primary);
-    border-color: var(--color-kolu-primary);
-  }
-  .copy-cli-btn.is-done {
-    color: var(--color-live-lime);
-    border-color: var(--color-live-lime);
-    background: color-mix(in srgb, var(--color-live-lime) 12%, transparent);
-  }
-
-  /* ── Getting-started guide (merged from /welcome) ────────────────────
-     Section scaffold: each numbered guide section shares a head (oversized
-     ghost number + eyebrow + title), a lede, and body rhythm. Page-local. */
-  .guide-section {
-    max-width: 52rem;
-    margin-inline: auto;
-    padding-inline: 1.5rem;
-    padding-block: 3.5rem;
-    border-top: 1px solid var(--color-rule);
-  }
-
-  .guide-head {
+  .latest-head {
     display: flex;
-    align-items: flex-start;
-    gap: 1.1rem;
-    margin-bottom: 1.6rem;
-  }
-  .guide-num {
-    font-family: var(--font-mono);
-    font-size: 1.6rem;
-    font-weight: 700;
-    line-height: 1;
-    color: var(--color-rule-strong);
-    letter-spacing: -0.04em;
-    flex-shrink: 0;
-    padding-top: 0.15rem;
-  }
-
-  .guide-lede {
-    font-size: 1.15rem;
-    line-height: 1.65;
-    color: var(--color-ink-dim);
-    max-width: 42rem;
-    margin-bottom: 1.6rem;
-  }
-  .guide-body {
-    line-height: 1.7;
-    color: var(--color-ink-dim);
-    margin-block: 1.3rem;
-  }
-  .guide-subhead {
-    font-family: var(--font-sans);
-    font-weight: 650;
-    letter-spacing: -0.02em;
-    font-size: 1.3rem;
-    color: var(--color-ink);
-    margin-top: 2.6rem;
-    margin-bottom: 0.5rem;
-  }
-  .guide-link {
-    color: var(--color-ink);
-    border-bottom: 1px solid var(--color-kolu-primary-muted);
-    transition: border-color 120ms ease;
-  }
-  .guide-link:hover {
-    border-bottom-color: var(--color-kolu-primary);
-  }
-
-  .guide-section :not(pre) > code {
-    font-family: var(--font-mono);
-    background: var(--color-void-raised);
-    border: 1px solid var(--color-rule);
-    border-radius: 0.25rem;
-    padding: 0.08rem 0.38rem;
-    font-size: 0.86em;
-    color: var(--color-kolu-top-strong);
-  }
-  .guide-section kbd {
-    font-family: var(--font-mono);
-    font-size: 0.78em;
-    background: var(--color-void-raised);
-    border: 1px solid var(--color-rule-strong);
-    border-bottom-width: 2px;
-    border-radius: 0.25rem;
-    padding: 0.05rem 0.35rem;
-    color: var(--color-ink);
-    white-space: nowrap;
-  }
-
-  /* ── Terminal frame (reused for command blocks) ─────────────────────── */
-  .term-frame {
-    border: 1px solid var(--color-rule-strong);
-    border-radius: 0.5rem;
-    overflow: hidden;
-    background: var(--color-void-sunk);
-    box-shadow: 0 0 60px -25px color-mix(in srgb, var(--color-kolu-primary) 30%, transparent);
-    margin-block: 1.5rem;
-  }
-  .term-frame-sm {
-    margin-block: 1rem;
-    box-shadow: none;
-  }
-  .term-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 0.85rem;
-    border-bottom: 1px solid var(--color-rule);
-    background: var(--color-void-raised);
-  }
-  .term-dot {
-    width: 0.62rem;
-    height: 0.62rem;
-    border-radius: 50%;
-    display: inline-block;
-  }
-  .term-bar-label {
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    letter-spacing: 0.06em;
-    color: var(--color-ink-muted);
-    margin-left: 0.6rem;
-  }
-  .term-body {
-    margin: 0;
-    padding: 1rem 1.15rem;
-    font-family: var(--font-mono);
-    font-variant-ligatures: none;
-    font-size: 0.82rem;
-    line-height: 1.7;
-    color: var(--color-ink);
-    overflow-x: auto;
-  }
-  .term-body code {
-    font-family: inherit;
-    background: none;
-    border: none;
-    padding: 0;
-    color: inherit;
-    font-size: inherit;
-  }
-  .c-comment {
-    color: var(--color-kolu-primary);
-  }
-  .c-prompt {
-    color: var(--color-kolu-primary-muted);
-    user-select: none;
-  }
-  .c-arrow {
-    color: var(--color-ink-faint);
-    user-select: none;
-  }
-  .c-ok {
-    color: var(--color-live-lime);
-  }
-
-  /* ── Callouts ───────────────────────────────────────────────────────── */
-  .callout {
-    border: 1px solid var(--color-rule);
-    border-left-width: 3px;
-    border-radius: 0.5rem;
-    padding: 0.95rem 1.15rem;
-    margin-block: 1.6rem;
-    line-height: 1.6;
-    color: var(--color-ink-dim);
-    background: var(--color-void-raised);
-  }
-  .callout strong {
-    color: var(--color-ink);
-  }
-  .callout-note {
-    border-left-color: var(--color-kolu-primary);
-    background: color-mix(in srgb, var(--color-kolu-primary) 5%, var(--color-void-raised));
-  }
-  .callout-ok {
-    border-left-color: var(--color-live-lime);
-    background: color-mix(in srgb, var(--color-live-lime) 6%, var(--color-void-raised));
-  }
-  .callout-danger {
-    border-left-color: var(--color-live-alert);
-    background: color-mix(in srgb, var(--color-live-alert) 6%, var(--color-void-raised));
-  }
-
-  /* ── Step lists ─────────────────────────────────────────────────────── */
-  .step-list {
-    list-style: none;
-    margin: 1.5rem 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1.4rem;
-  }
-  .step-list > li {
-    display: flex;
-    gap: 1rem;
-    align-items: flex-start;
-  }
-  .step-n {
-    flex-shrink: 0;
-    width: 1.8rem;
-    height: 1.8rem;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    border: 1px solid var(--color-rule-strong);
-    font-family: var(--font-mono);
-    font-size: 0.8rem;
-    color: var(--color-kolu-primary);
-    background: var(--color-void-raised);
-  }
-  .step-t {
-    font-weight: 600;
-    color: var(--color-ink);
-    margin-bottom: 0.25rem;
-  }
-  .step-b {
-    color: var(--color-ink-dim);
-    line-height: 1.6;
-  }
-
-  /* ── Concept grid (definition list) ─────────────────────────────────── */
-  .concept-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1px;
-    background: var(--color-rule);
-    border: 1px solid var(--color-rule);
-    border-radius: 0.5rem;
-    overflow: hidden;
-    margin: 1.5rem 0;
-  }
-  .concept {
-    background: var(--color-void);
-    padding: 1.1rem 1.2rem;
-    transition: background 120ms ease;
-  }
-  .concept:hover {
-    background: var(--color-void-raised);
-  }
-  .concept dt {
-    font-weight: 650;
-    color: var(--color-ink);
-    margin-bottom: 0.4rem;
-    font-size: 1.02rem;
-    letter-spacing: -0.01em;
-  }
-  .concept dd {
-    margin: 0;
-    color: var(--color-ink-dim);
-    font-size: 0.92rem;
-    line-height: 1.6;
-  }
-
-  /* ── Browser grid ───────────────────────────────────────────────────── */
-  .browser-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-    margin: 1.5rem 0;
-  }
-  .browser {
-    border: 1px solid var(--color-rule);
-    border-radius: 0.5rem;
-    padding: 1rem 1.15rem;
-    background: var(--color-void-raised);
-  }
-  .browser h4 {
-    font-weight: 650;
-    color: var(--color-ink);
-    margin-bottom: 0.4rem;
-    font-size: 0.98rem;
-  }
-  .browser p {
-    color: var(--color-ink-dim);
-    font-size: 0.9rem;
-    line-height: 1.6;
-  }
-
-  /* ── Tunnel decision grid ───────────────────────────────────────────── */
-  .tunnel-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
-    margin: 1.5rem 0;
-  }
-  .tunnel {
-    border: 1px solid var(--color-rule);
-    border-top: 2px solid var(--tun-accent);
-    border-radius: 0.5rem;
-    padding: 1rem 1.1rem;
-    background: var(--color-void-raised);
-  }
-  .tunnel-intent {
-    font-family: var(--font-mono);
-    font-size: 0.66rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tun-accent);
-    margin-bottom: 0.45rem;
-  }
-  .tunnel-name {
-    font-weight: 650;
-    color: var(--color-ink);
-    margin-bottom: 0.4rem;
-    font-size: 0.98rem;
-  }
-  .tunnel-note {
-    color: var(--color-ink-dim);
-    font-size: 0.88rem;
-    line-height: 1.55;
-  }
-
-  /* ── Collapsible deep-dives (built to grow) ─────────────────────────── */
-  .deep {
-    border: 1px solid var(--color-rule);
-    border-radius: 0.5rem;
-    background: var(--color-void-raised);
-    margin-block: 0.8rem;
-    overflow: hidden;
-  }
-  .deep > summary {
-    list-style: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    padding: 0.85rem 1.1rem;
-    font-weight: 600;
-    color: var(--color-ink);
-    user-select: none;
-    transition: background 120ms ease;
-  }
-  .deep > summary::-webkit-details-marker {
-    display: none;
-  }
-  .deep > summary::after {
-    content: "+";
-    margin-left: auto;
-    font-family: var(--font-mono);
-    font-size: 1.1rem;
-    color: var(--color-ink-muted);
-    transition: transform 160ms ease;
-  }
-  .deep[open] > summary::after {
-    content: "−";
-    color: var(--color-kolu-primary);
-  }
-  .deep > summary:hover {
-    background: var(--color-void-sunk);
-  }
-  .deep-tag {
-    font-family: var(--font-mono);
-    font-size: 0.6rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-kolu-primary);
-    border: 1px solid var(--color-kolu-primary-muted);
-    border-radius: 0.25rem;
-    padding: 0.1rem 0.4rem;
-    flex-shrink: 0;
-  }
-  .deep-tag-alert {
-    color: var(--color-live-alert);
-    border-color: var(--color-live-alert);
-  }
-  .deep-body {
-    padding: 0 1.1rem 1.1rem;
-    color: var(--color-ink-dim);
-    line-height: 1.65;
-    border-top: 1px solid var(--color-rule);
-    padding-top: 0.9rem;
-  }
-  .deep-body p {
-    margin-bottom: 0.8rem;
-  }
-  .deep-body ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-  }
-  .deep-body li {
-    position: relative;
-    padding-left: 1.1rem;
-  }
-  .deep-body li::before {
-    content: "›";
-    position: absolute;
-    left: 0;
-    color: var(--color-kolu-primary-muted);
-    font-family: var(--font-mono);
-  }
-  .deep-body strong {
-    color: var(--color-ink);
-    font-weight: 600;
-  }
-
-  /* ── FAQ ────────────────────────────────────────────────────────────── */
-  .faq-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-    margin-top: 0.5rem;
-  }
-  .faq-cta {
-    margin-top: 2.5rem;
-    padding-top: 1.6rem;
-    border-top: 1px solid var(--color-rule);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
     gap: 1rem;
+    margin-bottom: 1.6rem;
   }
-  .faq-cta-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    border: 1px solid var(--color-rule-strong);
-    border-radius: 0.25rem;
-    padding: 0.6rem 1.1rem;
+  .latest-all {
+    margin-top: 0;
+  }
+  .latest-card {
+    display: block;
+    border-block: 1px solid var(--color-rule);
+    padding-block: 2.3rem;
+    text-decoration: none;
+    transition: border-color 120ms ease;
+  }
+  .latest-card:hover {
+    border-color: var(--color-kolu-primary-muted);
+  }
+  .latest-card time,
+  .latest-card span {
     font-family: var(--font-mono);
-    font-size: 0.82rem;
-    color: var(--color-ink);
-    transition:
-      border-color 120ms ease,
-      background 120ms ease;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
   }
-  .faq-cta-btn:hover {
-    border-color: var(--color-ink-dim);
-    background: var(--color-void-raised);
+  .latest-card:hover h2,
+  .latest-card:hover span {
+    color: var(--color-kolu-primary);
   }
-
-  /* ── Responsive ─────────────────────────────────────────────────────── */
-  @media (max-width: 640px) {
-    .system-shell {
-      grid-template-columns: 1fr;
-      padding-block: 1.7rem;
+  .latest-card p {
+    max-width: 42rem;
+  }
+  .latest-card span {
+    display: inline-block;
+    margin-top: 1.3rem;
+    transition: color 120ms ease;
+  }
+  @media (max-width: 760px) {
+    .hero-corner {
+      display: none;
     }
+    .hero {
+      padding-top: 3.6rem;
+    }
+    .doc-card-grid,
+    .system-shell,
     .system-flow {
       grid-template-columns: 1fr;
     }
@@ -1836,137 +607,15 @@ const systemNodes = [
       bottom: -1.18rem;
       transform: rotate(90deg);
     }
-    .concept-grid,
-    .browser-grid,
-    .tunnel-grid {
-      grid-template-columns: 1fr;
-    }
-    .guide-head {
-      gap: 0.8rem;
-    }
   }
-
-  /* ── On-this-page rail — sticky scroll-spy over the guide sections ─────── */
-  .section-rail {
-    position: fixed;
-    top: 50%;
-    left: 1.5rem;
-    transform: translateY(-50%);
-    z-index: 30;
-    display: none;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease;
-  }
-  .section-rail.is-visible {
-    opacity: 1;
-    pointer-events: auto;
-  }
-  .section-rail ol {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-  .section-rail a {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-    padding: 0.28rem 0.4rem;
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    letter-spacing: 0.04em;
-    color: var(--color-ink-faint);
-    text-decoration: none;
-    white-space: nowrap;
-    transition: color 0.2s ease;
-  }
-  .section-rail a:hover {
-    color: var(--color-ink-dim);
-  }
-  .section-rail a.is-active {
-    color: var(--color-kolu-primary);
-  }
-  .rail-dot {
-    flex: none;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-    opacity: 0.55;
-    transition:
-      opacity 0.2s ease,
-      box-shadow 0.2s ease;
-  }
-  .section-rail a.is-active .rail-dot {
-    opacity: 1;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-kolu-primary) 22%, transparent);
-  }
-  .rail-label {
-    opacity: 0;
-    transform: translateX(-4px);
-    transition:
-      opacity 0.2s ease,
-      transform 0.2s ease;
-  }
-  .section-rail:hover .rail-label,
-  .section-rail a.is-active .rail-label {
-    opacity: 1;
-    transform: none;
-  }
-  /* Only when the centered 52rem guide column leaves room in the left margin. */
-  @media (min-width: 1200px) {
-    .section-rail {
-      display: block;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .section-rail,
-    .section-rail a,
-    .rail-dot,
-    .rail-label {
-      transition: none;
+  @media (min-width: 761px) and (max-width: 1050px) {
+    .doc-card-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 </style>
 
-<script>
-  // Wire up the copy-to-clipboard button on the primary CLI snippet.
-  // Plain DOM script — Astro hoists this and ships it as a module.
-  document.querySelectorAll<HTMLButtonElement>(".copy-cli-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const text = btn.getAttribute("data-clipboard");
-      if (!text) return;
-      const label = btn.querySelector<HTMLElement>(".copy-cli-label");
-      const original = label?.textContent ?? "copy";
-      try {
-        await navigator.clipboard.writeText(text);
-        if (label) label.textContent = "copied";
-        btn.classList.add("is-done");
-      } catch {
-        if (label) label.textContent = "press ⌘C";
-      }
-      window.setTimeout(() => {
-        if (label) label.textContent = original;
-        btn.classList.remove("is-done");
-      }, 1400);
-    });
-  });
-</script>
-
 <script is:inline>
-  // Reduced-motion gate for the hero demo clip. The markup ships WITHOUT
-  // `autoplay`, so nothing plays until this decides — no race against first
-  // playback.
-  //  - motion allowed → enable autoplay + .play() (with a .catch so iOS
-  //    low-power-mode rejection falls back to the poster gracefully).
-  //  - motion reduced → leave the poster standing and expose native `controls`
-  //    so the visitor has a visible play affordance.
-  // The clip ships with preload="none", so its bytes never race the LCP
-  // poster — playback starts only once it scrolls into view (below).
-  // Re-evaluated on preference change while the page stays open.
   (function () {
     var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
     var io = null;
@@ -2011,54 +660,4 @@ const systemNodes = [
     if (mq.addEventListener) mq.addEventListener("change", apply);
     else if (mq.addListener) mq.addListener(apply);
   })();
-</script>
-
-<script>
-  // Scroll-spy for the on-this-page rail: show it only while a guide section
-  // is on screen, and highlight whichever section the reader is currently in.
-  const rail = document.querySelector<HTMLElement>(".section-rail");
-  const sections = Array.from(
-    document.querySelectorAll<HTMLElement>(".guide-section"),
-  );
-  if (rail && sections.length) {
-    const links = new Map<string, HTMLAnchorElement>(
-      Array.from(rail.querySelectorAll("a")).map((a) => [
-        a.getAttribute("href")?.slice(1) ?? "",
-        a,
-      ]),
-    );
-    let ticking = false;
-    function update() {
-      ticking = false;
-      const line = window.innerHeight * 0.3;
-      let activeId: string | null = null;
-      let inGuide = false;
-      for (const s of sections) {
-        const r = s.getBoundingClientRect();
-        if (r.top < window.innerHeight && r.bottom > 0) inGuide = true;
-        if (r.top <= line) activeId = s.id;
-      }
-      // Before any section crosses the line, treat the topmost on-screen
-      // section as active so a visible rail never highlights nothing.
-      if (!activeId && inGuide) {
-        for (const s of sections) {
-          if (s.getBoundingClientRect().bottom > 0) {
-            activeId = s.id;
-            break;
-          }
-        }
-      }
-      rail!.classList.toggle("is-visible", inGuide);
-      links.forEach((a, id) => a.classList.toggle("is-active", id === activeId));
-    }
-    function onScroll() {
-      if (!ticking) {
-        ticking = true;
-        requestAnimationFrame(update);
-      }
-    }
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll, { passive: true });
-    update();
-  }
 </script>

@@ -3,7 +3,7 @@
  * contract router AND its static type, in lockstep.
  *
  * The load-bearing case is a read-only cell (`verbs: ["get"]`, e.g.
- * `@kolu/surface-nix-host`'s connection-health cell). It must expose `get` and
+ * `@kolu/surface-remote`'s connection-health cell). It must expose `get` and
  * NOTHING else: a leaked `set` would let a remote RPC client forge the parent
  * host's link health to `connected` and defeat the very stale-health gate the
  * cell exists to power. This file pins that the narrowing holds on both sides,

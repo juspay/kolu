@@ -1,0 +1,321 @@
+---
+title: Architecture
+description: "How kolu is built: a stack of daemons that each survive a different failure. Close the tab, restart the server, redeploy — your terminals and the agents in them keep running. The daemon stack (PWA client · kolu-server · padi · kaval) and the @kolu/surface framework underneath it."
+order: 100
+section: System
+koluHero:
+  eyebrow: architecture
+  headline: How {kolu} is built
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+kolu splits the terminal problem across daemons, and each one survives a different
+failure. Close the browser tab, restart the web server, redeploy the whole thing —
+your shells, and the agents running in them, keep going. Here's the stack that
+makes that true, and the one contract that ties it together.
+
+## The stack
+
+Four layers, each with one job. The top two are _faces_ — they come and go. The
+bottom two are _daemons_ — [padi](/padi) holds the workspace record, and
+[kaval](/kaval) owns the live PTYs. The arrows are transports: a websocket to the
+browser, a unix socket between the daemons. Kill any layer and everything below
+it keeps running.
+
+<figure class="doc-figure">
+  <svg viewBox="0 0 720 412" role="img" aria-labelledby="ax-stack-title">
+    <title id="ax-stack-title">The kolu stack, top to bottom: the PWA client in your browser talks over a websocket to kolu-server (the web shell), which binds padi (the per-host workspace daemon), which owns kaval (the PTY daemon) over a unix socket. The client and kolu-server are faces that come and go; padi and kaval are daemons that survive restarts. kaval holds the live PTYs — zsh, claude, nvim.</title>
+    <defs>
+      <marker id="ax-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
+      </marker>
+    </defs>
+
+    <path d="M160,40 H150 V178 H160" class="ax-d-bracket"></path>
+    <text x="86" y="102" text-anchor="middle" class="ax-d-cap">FACES</text>
+    <text x="86" y="119" text-anchor="middle" class="ax-d-sub2">come &amp; go</text>
+    <path d="M160,236 H150 V374 H160" class="ax-d-bracket"></path>
+    <text x="86" y="298" text-anchor="middle" class="ax-d-cap">DAEMONS</text>
+    <text x="86" y="315" text-anchor="middle" class="ax-d-sub2">survive</text>
+
+    <path d="M188,207 H700" class="ax-d-socket"></path>
+    <text x="694" y="200" text-anchor="end" class="ax-d-sub2">state lives below the line</text>
+
+    <path d="M360,92 V126" class="ax-d-flow" marker-start="url(#ax-arrow)" marker-end="url(#ax-arrow)"></path>
+    <text x="374" y="113" class="ax-d-tlabel">websocket</text>
+    <path d="M360,190 V224" class="ax-d-flow" marker-start="url(#ax-arrow)" marker-end="url(#ax-arrow)"></path>
+    <text x="374" y="211" class="ax-d-tlabel">bind · unix socket</text>
+    <path d="M360,288 V322" class="ax-d-flow" marker-start="url(#ax-arrow)" marker-end="url(#ax-arrow)"></path>
+    <text x="374" y="309" class="ax-d-tlabel">unix socket</text>
+
+    <rect x="190" y="28" width="340" height="64" rx="10" class="ax-d-box"></rect>
+    <image href="/favicon.svg" x="208" y="42" width="36" height="36" preserveAspectRatio="xMidYMid meet" class="ax-d-logo"></image>
+    <text x="360" y="54" text-anchor="middle" class="ax-d-label">PWA client</text>
+    <text x="360" y="74" text-anchor="middle" class="ax-d-sub">the view in your browser</text>
+
+    <rect x="190" y="126" width="340" height="64" rx="10" class="ax-d-box"></rect>
+    <image href="/favicon.svg" x="208" y="140" width="36" height="36" preserveAspectRatio="xMidYMid meet" class="ax-d-logo"></image>
+    <text x="360" y="152" text-anchor="middle" class="ax-d-label">kolu-server</text>
+    <text x="360" y="172" text-anchor="middle" class="ax-d-sub">the web shell</text>
+
+    <rect x="190" y="224" width="340" height="64" rx="10" class="ax-d-daemon"></rect>
+    <image href="/padi-logo.svg" x="208" y="238" width="36" height="36" preserveAspectRatio="xMidYMid meet" class="ax-d-logo"></image>
+    <text x="360" y="250" text-anchor="middle" class="ax-d-daemon-label">padi</text>
+    <text x="360" y="270" text-anchor="middle" class="ax-d-sub">workspace daemon — remembers</text>
+
+    <rect x="190" y="322" width="340" height="64" rx="10" class="ax-d-daemon"></rect>
+    <image href="/kaval-logo.svg" x="208" y="336" width="36" height="36" preserveAspectRatio="xMidYMid meet" class="ax-d-logo"></image>
+    <text x="360" y="348" text-anchor="middle" class="ax-d-daemon-label">kaval</text>
+    <text x="360" y="368" text-anchor="middle" class="ax-d-sub">PTY daemon — keeps shells alive</text>
+
+    <text x="628" y="312" text-anchor="middle" class="ax-d-cap">OWNS THE PTYS</text>
+    <path d="M530,354 H556" class="ax-d-flow"></path>
+    <path d="M548,354 V332 H564" class="ax-d-flow" marker-end="url(#ax-arrow)"></path>
+    <path d="M548,354 H564" class="ax-d-flow" marker-end="url(#ax-arrow)"></path>
+    <path d="M548,354 V376 H564" class="ax-d-flow" marker-end="url(#ax-arrow)"></path>
+    <rect x="564" y="323" width="132" height="20" rx="6" class="ax-d-pty"></rect>
+    <text x="576" y="337" class="ax-d-pty-text">▸ zsh</text>
+    <rect x="564" y="345" width="132" height="20" rx="6" class="ax-d-pty"></rect>
+    <text x="576" y="359" class="ax-d-pty-text">▸ claude</text>
+    <rect x="564" y="367" width="132" height="20" rx="6" class="ax-d-pty"></rect>
+    <text x="576" y="381" class="ax-d-pty-text">▸ nvim</text>
+  </svg>
+</figure>
+
+| layer | its one job | killing it does _not_ lose |
+| --- | --- | --- |
+| [`PWA client`](/install-pwa) | the view in your browser — one surface consumer per pane | Reload the tab, switch devices: it re-subscribes. It holds no state to lose. |
+| `kolu-server` | the web shell — HTTP, the PWA, websockets; dials and binds padi | Restart it and no terminal metadata is lost — padi's registry stays warm. |
+| [`padi`](/padi) | the per-host workspace daemon — session, awareness, restore | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds. |
+| [`kaval`](/kaval) | the PTY survivor — owns the shells and their live screens | Kill everything above it and the live shells and scrollback keep running — they live in kaval's memory. |
+
+## A deploy _adopts_ what's running
+
+Upgrading kolu doesn't kill your daemons. A new build _adopts_ the compatible
+ones — and their live PTYs — rather than reaping and restarting them. Restore is
+the path for a daemon that's actually _dead_, never for one that's still running.
+So the agents in your terminals survive the upgrade: they never stopped.
+
+<figure class="doc-figure">
+  <svg viewBox="0 0 720 286" role="img" aria-labelledby="ax-survive-title">
+    <title id="ax-survive-title">A deploy timeline. In the top lane, the running padi vX drains — saves its session and exits — and the new build padi vY starts and adopts the same kaval. In the bottom lane, kaval runs unbroken straight through the deploy, holding every live PTY, so shells and agents never stop.</title>
+    <defs>
+      <marker id="ax-arrow2" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
+      </marker>
+    </defs>
+
+    <path d="M370,34 V156" class="ax-d-socket"></path>
+    <text x="370" y="26" text-anchor="middle" class="ax-d-cap">DEPLOY</text>
+
+    <rect x="48" y="64" width="150" height="50" rx="9" class="ax-d-box"></rect>
+    <image href="/padi-logo.svg" x="60" y="75" width="26" height="26" preserveAspectRatio="xMidYMid meet" class="ax-d-logo"></image>
+    <text x="136" y="86" text-anchor="middle" class="ax-d-label2">padi · vX</text>
+    <text x="136" y="103" text-anchor="middle" class="ax-d-sub">running</text>
+
+    <path d="M198,89 H522" class="ax-d-flow" marker-end="url(#ax-arrow2)"></path>
+    <text x="360" y="80" text-anchor="middle" class="ax-d-tlabel">drain → respawn</text>
+    <text x="360" y="107" text-anchor="middle" class="ax-d-sub2">save session · exit · PTYs untouched</text>
+
+    <rect x="522" y="64" width="150" height="50" rx="9" class="ax-d-daemon"></rect>
+    <image href="/padi-logo.svg" x="534" y="75" width="26" height="26" preserveAspectRatio="xMidYMid meet" class="ax-d-logo"></image>
+    <text x="610" y="86" text-anchor="middle" class="ax-d-daemon-label2">padi · vY</text>
+    <text x="610" y="103" text-anchor="middle" class="ax-d-sub">the new build</text>
+
+    <path d="M597,114 V176" class="ax-d-flow" marker-end="url(#ax-arrow2)"></path>
+    <text x="609" y="150" class="ax-d-tlabel">adopts</text>
+
+    <rect x="48" y="176" width="624" height="58" rx="10" class="ax-d-daemon"></rect>
+    <image href="/kaval-logo.svg" x="70" y="187" width="34" height="34" preserveAspectRatio="xMidYMid meet" class="ax-d-logo"></image>
+    <text x="116" y="200" class="ax-d-daemon-label2">kaval</text>
+    <text x="116" y="217" class="ax-d-sub">one process · never restarts here</text>
+
+    <path d="M232,205 H648" class="ax-d-stream"></path>
+    <text x="240" y="209" class="ax-d-tick">▸</text>
+    <text x="330" y="209" class="ax-d-tick">▸</text>
+    <text x="420" y="209" class="ax-d-tick">▸</text>
+    <text x="510" y="209" class="ax-d-tick">▸</text>
+    <text x="600" y="209" class="ax-d-tick">▸</text>
+
+    <text x="360" y="266" text-anchor="middle" class="ax-d-sub2">your shells + agents stream straight through — scrollback intact</text>
+  </svg>
+</figure>
+
+<Aside type="tip" title="Newest wins, and nothing is force-killed">
+  A newer client that meets an older padi asks it to _drain_ — save its session
+  and exit, while the PTYs stay alive in kaval — then starts the new build in its
+  place. An older client meeting a newer padi is refused, loudly. The version
+  handshake runs over a tiny side channel that never changes, so upgrades converge
+  on their own. A redeploy that changes padi's _build_ but not its version
+  converges the same way — the server drains the old build once at boot and brings
+  up its own — so a code change reaches you at deploy cadence, not only a version
+  bump.
+</Aside>
+
+## Compared to tmux and zellij
+
+tmux and zellij fold the PTYs, the layout, and the session into _one_ server
+process. kolu splits them — kaval owns the PTYs, padi owns the workspace — so the
+layer you restart or redeploy isn't the layer holding your shells.
+
+<div class="doc-scroll">
+  <table class="ax-cmp">
+    <thead>
+      <tr>
+        <th></th>
+        <th>tmux</th>
+        <th>zellij</th>
+        <th>kolu</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Detach / close the client</td>
+        <td class="c-yes">survives</td>
+        <td class="c-yes">survives</td>
+        <td class="c-yes">survives — the client holds no state</td>
+      </tr>
+      <tr>
+        <td>Redeploy / restart the session-UI layer</td>
+        <td class="c-na">n/a — no separate layer</td>
+        <td class="c-na">n/a — no separate layer</td>
+        <td class="c-yes">PTYs keep running; the deploy adopts them</td>
+      </tr>
+      <tr>
+        <td>Upgrade the binary under live sessions</td>
+        <td class="c-mid">attach breaks on a protocol-version bump</td>
+        <td class="c-mid">sessions orphaned on a contract-version change</td>
+        <td class="c-yes">compatible daemon + live PTYs adopted; a skewed one is drained, not killed</td>
+      </tr>
+      <tr>
+        <td>Machine reboot</td>
+        <td class="c-mid">nothing native (a plugin re-runs commands)</td>
+        <td class="c-mid">re-runs commands (built-in)</td>
+        <td class="c-mid">re-spawns from padi's saved session</td>
+      </tr>
+      <tr>
+        <td>Knows git · PR/CI · agent state</td>
+        <td class="c-no">no — status-bar scripting only</td>
+        <td class="c-no">no — plugin scripting only</td>
+        <td class="c-yes">yes — padi derives it</td>
+      </tr>
+      <tr>
+        <td>Persisted to disk</td>
+        <td class="c-no">none native; plugins add layout + cwd</td>
+        <td class="c-mid">layout + cwd + each pane's command</td>
+        <td class="c-yes">records · session · restore target · agent memory</td>
+      </tr>
+      <tr>
+        <td>Reach</td>
+        <td class="c-mid">terminal TUI · single host</td>
+        <td class="c-mid">terminal TUI · single host</td>
+        <td class="c-yes">browser PWA + kaval-tui; kaval-tui reaches remote hosts over ssh today</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<Aside type="note" title="The honest caveat: a reboot is the equalizer">
+  No multiplexer keeps a _live_ process across a machine reboot — a PTY can't
+  outlive the kernel, so all three re-create rather than resume. kolu just
+  remembers more about _how_: the layout, the working directory, the agent that
+  was running, and where to pick it up. Where kolu actually differs is the everyday
+  case — restarting or redeploying the workspace layer, which for tmux and zellij
+  is the same process that holds your shells, and for kolu is not.
+</Aside>
+
+## One contract — `@kolu/surface`
+
+<LinkCard title="Announcing @kolu/surface" href="/blog/surface-framework" description="read the story behind the one contract every layer talks over" />
+
+Every layer talks over the same thing: a _typed reactive surface_. You declare
+what a daemon exposes — a handful of primitives plus the verbs to change them — and
+get a client that stays in sync. Four primitives cover almost everything:
+
+<CardGrid>
+  <Card title="Cell<T>">
+    **what's the current X?** — one value, snapshot then live deltas — the
+    session, the version.
+  </Card>
+  <Card title="Collection<K,T>">
+    **what's the current X per key?** — many keyed rows, each independently
+    observable — the terminals registry.
+  </Card>
+  <Card title="Stream<I,T>">
+    **what's the live view for input I?** — computed over outside state (fs, git),
+    snapshot + deltas, never stored — a file preview.
+  </Card>
+  <Card title="Event<I,T>">
+    **has X happened yet?** — point-in-time, no snapshot, no current value — a
+    terminal exited.
+  </Card>
+</CardGrid>
+
+Alongside them sit _procedures_ — the imperative verbs (create a terminal, kill
+one, restore a session) you call and await. That's the whole contract, and it's
+served over **any transport**: in-process with no wire at all, over a local unix
+socket, over a browser websocket, or over ssh. That ssh transport is **already
+live** — it's how `kaval-tui --host` and drishti reach a daemon on another
+machine; what's still coming is kolu itself using it to bind a `padi` on a remote
+host. Swap the transport; the client code doesn't change. That's exactly how
+`padi` grew up: it ran in-process inside kolu-server, then moved out into its own
+process behind a unix socket, and the client never noticed.
+
+<Aside type="note" title="The framework stands alone">
+  It isn't kolu-shaped — a separate app,
+  [drishti](https://github.com/srid/drishti), is built on the same
+  `@kolu/surface`, and every change to the framework must ship with drishti's own
+  tests green against it. If the contract only fit kolu, drishti couldn't hold.
+</Aside>
+
+## Identity is a `folder`, not a port
+
+A daemon _is_ its data folder. padi's identity is its _state-root_ — a durable
+directory on the host that holds its session, its memory, its activity feed. The
+socket it listens on is named by a digest of that folder and lives in a scratch
+dir that's wiped on every boot. The port is config; the folder is the daemon.
+
+<div class="doc-term">
+  <span class="note">// identity — durable, IS the daemon</span>
+  <span class="cmd">$XDG_STATE_HOME/padi</span>
+  <span class="note">// address — config, wiped on boot</span>
+  <span class="cmd">$XDG_RUNTIME_DIR/padi-&lt;digest&gt;/sock</span>
+  <span class="note"> where &lt;digest&gt; = hash(state-root path)</span>
+</div>
+
+- A stale lock can never make a **dead daemon look alive** — its socket lives in
+  the boot-wiped dir, gone the moment the machine restarts.
+- A dev or test kolu gets **its own state-root** — so its own padi, its own kaval.
+  It cannot touch your production terminals, ever.
+- The host decides its own default state-root. A client never computes it and
+  never sends it over the wire — so two ways into one machine can't split its
+  terminals across two daemons.
+
+## Next — your `other` machines
+
+The same surface contract already runs over ssh: it's how
+[`kaval-tui --host`](/kaval) drives a daemon on another machine with nothing
+pre-installed there. Pointing kolu's browser at a `padi` on a remote host — a host
+switcher, remote agents surfacing in your dock — is the next phase. **Coming, not
+here yet.** That is separate from [Remote Access](/remote-access), which serves
+today's browser UI over private HTTPS.
+
+## Explore
+
+Start with the site pages for the named programs; the atlas links go deeper into
+the working notes behind each piece.
+
+<CardGrid>
+  <LinkCard title="padi" href="/padi" description="the workspace daemon & its shell client — on the site" />
+  <LinkCard title="kaval" href="/kaval" description="the PTY daemon & its shell client — on the site" />
+  <LinkCard title="the padi note" href="https://kolu.dev/atlas/padi.html" description="layers, identity, restore, and phase history" />
+  <LinkCard title="the PTY daemon note" href="https://kolu.dev/atlas/pty-daemon.html" description="kaval's architecture and phasing" />
+  <LinkCard title="surface: live data" href="https://kolu.dev/atlas/surface-live-data.html" description="the reactive-surface model, up close" />
+  <LinkCard title="electricity" href="https://kolu.dev/atlas/electricity.html" description="the volatility boundaries the packages follow" />
+  <LinkCard title="remote terminals" href="https://kolu.dev/atlas/remote-terminals.html" description="the full arc, including what's still coming" />
+  <LinkCard title="the repo — juspay/kolu" href="https://github.com/juspay/kolu" description="every daemon, in one tree" />
+</CardGrid>

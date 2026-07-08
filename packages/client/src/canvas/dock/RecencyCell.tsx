@@ -23,8 +23,10 @@ import { formatTimeAgo } from "../../terminal/staleness";
 
 const RecencyCell: Component<{
   /** The row's recency timestamp (`rowRecencyAt`) — `lastActivityAt` for a
-   *  live tile, `sleptAt` for a sleeping one. The age the window acts on. */
-  recencyAt: number;
+   *  live tile, `sleptAt` for a sleeping one. The age the window acts on.
+   *  `null` — never-active — renders as the empty string
+   *  (`formatTimeAgo`'s honest "nothing to report"). */
+  recencyAt: number | null;
   /** Tailwind text-size token — the only thing the desktop and touch rows
    *  differ by (e.g. `text-[0.6rem]` vs `text-[0.65rem]`). */
   textSize: string;

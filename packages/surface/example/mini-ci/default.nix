@@ -8,7 +8,7 @@
 #                     remote-process-monitor example run against it on whatever
 #                     host the closure lands on. Needs nodejs + pnpm.
 #   mini-ci         — `nix run .#mini-ci [host]`. The TUI. Drives the runner
-#                     the drishti way via @kolu/surface-nix-host's HostSession:
+#                     the drishti way via @kolu/surface-remote's HostSession:
 #                     `nix copy` the mini-ci-runner closure to the host (skipped
 #                     for localhost), realise + run it over ssh. Needs nix +
 #                     openssh, and bakes the current system's runner `.drv` as

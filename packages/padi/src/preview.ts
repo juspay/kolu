@@ -5,7 +5,7 @@
  *
  * ONE serve-dir read (`previewFile`), two forms, two callers:
  *   - `previewFile` (STREAMING `ServeResult`) — kolu-server's Hono preview route
- *     (`server/src/index.ts`) re-backs its `/api/terminals/:id/file/*` mount onto
+ *     (`server/src/index.ts`) re-backs its `/api/terminals/:host/:id/file/*` mount onto
  *     it (forwarding the browser's `Range`) instead of a direct `createDirServer`,
  *     streaming disk→socket with bounded heap exactly as before;
  *   - `readPreview` (BASE64 wire-form, = `previewFile` + buffer) —

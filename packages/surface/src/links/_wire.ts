@@ -44,7 +44,7 @@ export function wireRetryPlugins(): ClientRetryPlugin<ClientRetryPluginContext>[
 // pipe whose peer partitioned with no FIN — so a client over it has NO honest
 // transport-liveness of its own; that signal must come from a watchdog (the
 // heartbeat `connectSurface`/`connectSurfaces` wire in, or, over ssh stdio,
-// `surface-nix-host`'s `hostSession.startLiveness`). Recording the brand HERE —
+// `surface-remote`'s `hostSession.startLiveness`). Recording the brand HERE —
 // the one chokepoint EVERY wire link crosses (`websocketLink`, `stdioLink`, and
 // so `unixSocketLink`, which wraps `stdioLink`) — means a NEW wire link inherits
 // the guard BY CONSTRUCTION and can't forget to brand itself. The in-process

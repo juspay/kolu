@@ -29,3 +29,4 @@ packages/client/public/fonts
 .be-review-comments/
 # /self-improve skill: per-worktree scratch (mined transcript signals)
 .self-improve/
+.be-review-state/

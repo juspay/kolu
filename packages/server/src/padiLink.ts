@@ -13,7 +13,7 @@
  * `koluSurfaceCtx.cells.padiLink.set` off it.
  */
 
-import type { ConnectionState } from "@kolu/surface-nix-host";
+import type { ConnectionState } from "@kolu/surface-remote";
 import type { PadiLink } from "kolu-common/surface";
 import { match } from "ts-pattern";
 

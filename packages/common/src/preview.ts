@@ -112,7 +112,7 @@ export function isMarkdown(filePath: string): boolean {
 }
 
 /** Per-segment codec for the repo-relative path embedded in the iframe-preview
- *  URL (`/api/terminals/{id}/file/{encoded/path}`). Same kolu-common rationale
+ *  URL (`/api/terminals/{host}/{id}/file/{encoded/path}`). Same kolu-common rationale
  *  as the classifiers above: both sides of the wire must agree. The CLIENT
  *  builds the URL (`buildTerminalFileUrl` in `right-panel/BrowseFileDispatcher.tsx`)
  *  and also inverts it (`@kolu/solid-browser`'s `pathFromPreviewPathname`, with
@@ -149,17 +149,23 @@ export const previewPathCodec: {
  *  HTTP route registration (re-backed by padi's `preview.read`), the client's
  *  URL builder, and the client (which resolves repo-relative Markdown image
  *  srcs) all agree on one shape —
- *  `${BASE}/{terminalId}/${FILE}/{encoded/path}`. */
+ *  `${BASE}/{host}/{terminalId}/${FILE}/{encoded/path}`. The leading `{host}`
+ *  segment names WHICH padi in the pool owns the terminal, so a tab viewing a
+ *  remote host reads that host's bytes (not the local default's). */
 export const TERMINAL_FILE_ROUTE_BASE = "/api/terminals";
 export const TERMINAL_FILE_ROUTE_FILE_SEGMENT = "file";
 
 /** Build the per-terminal file-route URL for a repo-relative path (no cache
- *  key). The client appends `?v=<mtime>` (from `fs.statFileMtimeMs`, in
- *  `BrowseFileDispatcher`) for the iframe surface; the rendered-Markdown image
- *  path uses the bare URL to point at the actual repo file it references. */
+ *  key). `host` is the pool key of the padi that owns the terminal (the tab's
+ *  active host) — it rides as a leading path segment so the HTTP route resolves
+ *  the bytes against the RIGHT host, and an in-iframe relative link keeps it in
+ *  the path prefix. The client appends `?v=<mtime>` (from `fs.statFileMtimeMs`,
+ *  in `BrowseFileDispatcher`) for the iframe surface; the rendered-Markdown
+ *  image path uses the bare URL to point at the actual repo file it references. */
 export function buildTerminalFileUrl(
+  host: string,
   terminalId: string,
   repoRelPath: string,
 ): string {
-  return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodePreviewPath(repoRelPath)}`;
+  return `${TERMINAL_FILE_ROUTE_BASE}/${encodeURIComponent(host)}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodePreviewPath(repoRelPath)}`;
 }

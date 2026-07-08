@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type { PwaIdentity } from "kolu-common/contract";
-import { remotePadiHost } from "./remotePadiBinding.ts";
 
 const THEME_COLORS = [
   "#0f766e",
@@ -17,39 +16,26 @@ const THEME_COLORS = [
   "#9a3412",
 ] as const;
 
-/** The app's display name — the string the browser tab title, the About dialog,
- *  and the installed PWA all read.
+/** The app's display name — the string the browser tab title, the About dialog, and
+ *  the installed PWA all read: `Kolu [<host>]`, always this kolu-server's own hostname.
  *
- *  - LOCAL binding (`remoteHost` unset): `Kolu [<host>]`, byte-identical to today —
- *    no arrow, no remote noise.
- *  - REMOTE binding (`remoteHost` set): `Kolu [<serverHost> → <remoteHost>]`. Under
- *    a remote binding the whole canvas IS the remote host, so the identity carries
- *    BOTH ends and reads unambiguously as remote — the arrow points at the host the
- *    canvas became.
- *
- *  Pure in its two inputs, so the identity test drives both arms without env. */
-export function appName(
-  hostname: string,
-  remoteHost: string | undefined,
-): string {
-  return remoteHost
-    ? `Kolu [${hostname} → ${remoteHost}]`
-    : `Kolu [${hostname}]`;
+ *  Under ALWAYS-MAP the canvas boots on the LOCAL default (`KOLU_PADI_HOST` seeds a POOL,
+ *  it no longer makes "the whole canvas become a remote host"), and *which* host a tab
+ *  views is a client-side selection surfaced by the ChromeBar strip — not a server fact.
+ *  So the identity no longer folds a remote host into the name (the old single-host
+ *  `Kolu [<server> → <remote>]` arrow read a comma-seed-list as one remote and was wrong);
+ *  it is the server's own host, byte-identical to a local single-host boot. */
+export function appName(hostname: string): string {
+  return `Kolu [${hostname}]`;
 }
 
-/** kolu-server's PWA identity — display {@link appName}, per-host theme color, and
- *  the raw hostname. `remoteHost` defaults to the live `remotePadiHost()` knob so
- *  BOTH surfaces that build the identity carry the bound remote host with no extra
- *  wiring: the `server.info` probe (browser tab title + About dialog) and the PWA
- *  manifest name. The identity unit test passes `remoteHost` explicitly to drive the
- *  local (byte-identical) and remote arms deterministically. */
-export function pwaIdentityForHostname(
-  hostname: string,
-  remoteHost: string | undefined = remotePadiHost(),
-): PwaIdentity {
+/** kolu-server's PWA identity — display {@link appName}, per-host theme color, and the
+ *  raw hostname. Consumed by the `server.info` probe (browser tab title + About dialog)
+ *  and the PWA manifest name. */
+export function pwaIdentityForHostname(hostname: string): PwaIdentity {
   return {
     hostname,
-    name: appName(hostname, remoteHost),
+    name: appName(hostname),
     themeColor: themeColorForHostname(hostname),
   };
 }

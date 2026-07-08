@@ -11,6 +11,9 @@ export type MicState =
   | { kind: "error"; message: string }
   | { kind: "live" };
 
+// HOST-SCOPING: host-INDEPENDENT by design — browser-local hardware facts (the
+// user's chosen input device, local capture state), not per-remote-host facts; a
+// host switch must not reset the mic pick or interrupt an in-progress recording.
 const [devices, setDevices] = createSignal<MediaDeviceInfo[]>([]);
 const [selectedId, setSelectedId] = createSignal<string>("default");
 const [state, setState] = createSignal<MicState>({ kind: "off" });

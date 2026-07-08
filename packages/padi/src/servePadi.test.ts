@@ -28,7 +28,11 @@ import {
 } from "./padiSurfaceCtx.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
-import { PadiParkedTerminalSchema } from "./surface.ts";
+import {
+  PADI_SURFACE_VERSION,
+  type PadiIdentity,
+  PadiParkedTerminalSchema,
+} from "./surface.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
@@ -166,7 +170,12 @@ function terminalsBacking(): {
   readOne: (key: string) => unknown;
   readAll: () => Map<string, unknown>;
 } {
-  const deps = buildPadiSurfaceDeps({ endpoint: fakeEndpoint, log: stubLog });
+  const deps = buildPadiSurfaceDeps({
+    endpoint: fakeEndpoint,
+    log: stubLog,
+    startedAt: 0,
+    commit: "",
+  });
   const t = deps.collections?.terminals;
   if (!t?.readOne || !t?.readAll) {
     throw new Error("padi deps must serve the terminals collection reads");
@@ -188,6 +197,42 @@ const parkedProjection = () =>
     ...PersistedSnapshotSchema.parse(parkedSnapshot),
     ...parkedMeta,
   });
+
+describe("padi's own `identity` cell — the per-host hello twin (W4 host-scoping)", () => {
+  /** The `identity` cell's in-memory backing, narrowed out of the deps shape. */
+  function identityBacking(opts: {
+    startedAt: number;
+    commit: string;
+  }): PadiIdentity {
+    const deps = buildPadiSurfaceDeps({
+      endpoint: fakeEndpoint,
+      log: stubLog,
+      startedAt: opts.startedAt,
+      commit: opts.commit,
+    });
+    const store = deps.cells?.identity?.store;
+    if (!store) throw new Error("padi deps must back the identity cell");
+    return store.get() as PadiIdentity;
+  }
+
+  it("reuses the caller's startedAt/commit VERBATIM — the same constants `hello` reads, never re-derived", () => {
+    expect(
+      identityBacking({ startedAt: 1_700_000_000_000, commit: "abc1234" }),
+    ).toEqual({
+      commit: "abc1234",
+      surfaceVersion: PADI_SURFACE_VERSION,
+      startedAt: 1_700_000_000_000,
+    });
+  });
+
+  it("maps an off-nix empty commit to a DECLARED `null` — never a blank string a render site must re-interpret", () => {
+    expect(identityBacking({ startedAt: 42, commit: "" })).toEqual({
+      commit: null,
+      surfaceVersion: PADI_SURFACE_VERSION,
+      startedAt: 42,
+    });
+  });
+});
 
 describe("padi terminals collection backing == the deleted client reader-join", () => {
   it("readOne produces exactly composeTerminalMetadata(meta, snapshot) for each arm", () => {
@@ -242,7 +287,12 @@ describe("padi terminals collection backing == the deleted client reader-join", 
 function scratchWrite(): (args: {
   input: { terminalId: string; name: string; data: string };
 }) => { path: string } {
-  const deps = buildPadiSurfaceDeps({ endpoint: fakeEndpoint, log: stubLog });
+  const deps = buildPadiSurfaceDeps({
+    endpoint: fakeEndpoint,
+    log: stubLog,
+    startedAt: 0,
+    commit: "",
+  });
   const w = deps.procedures?.scratch?.write;
   if (!w) throw new Error("padi deps must serve scratch.write");
   return w as unknown as (args: {
@@ -352,7 +402,12 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
 
   /** The `session` cell's backing store, narrowed out of the deps shape. */
   function sessionBacking(): { get: () => SavedSession | null } {
-    const deps = buildPadiSurfaceDeps({ endpoint: fakeEndpoint, log: stubLog });
+    const deps = buildPadiSurfaceDeps({
+      endpoint: fakeEndpoint,
+      log: stubLog,
+      startedAt: 0,
+      commit: "",
+    });
     const s = deps.cells?.session?.store;
     if (!s) throw new Error("padi deps must back the session cell");
     return s as { get: () => SavedSession | null };
@@ -460,7 +515,12 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
   });
 
   function serve() {
-    const deps = buildPadiSurfaceDeps({ endpoint: fakeEndpoint, log: stubLog });
+    const deps = buildPadiSurfaceDeps({
+      endpoint: fakeEndpoint,
+      log: stubLog,
+      startedAt: 0,
+      commit: "",
+    });
     const create = deps.procedures?.lifecycle?.create as
       | ((a: { input: Record<string, never> }) => unknown)
       | undefined;

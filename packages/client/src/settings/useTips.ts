@@ -19,6 +19,9 @@ const ambientPool = AMBIENT_TIPS.filter(
   (t) => !(isPWA && t.id === "amb-pwa-install"),
 );
 
+// HOST-SCOPING: host-INDEPENDENT by design — tips derive from the host-independent
+// `preferences().seenTips`/`.startupTips` and browser `matchMedia`; onboarding has no
+// per-host fact (no terminal ids/layout/focus/MRU).
 const [activeTipSignal, setActiveTip] = createSignal<Tip | null>(null);
 
 /** Reactive accessor for the tip currently displayed by `<TipBanner />`. */

@@ -1,7 +1,7 @@
 /**
  * mini-ci — a CI-runner TUI over oRPC stdio.
  *
- * Connects to the runner via `@kolu/surface-nix-host`'s `HostSession` (the
+ * Connects to the runner via `@kolu/surface-remote`'s `HostSession` (the
  * drishti way: `nix copy` the runner closure + realise + run over ssh;
  * localhost runs it directly) and paints a live dashboard: a node-status
  * table (from the `nodes` cell) plus the attached node's log tail (from the

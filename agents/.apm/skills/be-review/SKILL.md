@@ -135,7 +135,7 @@ the workflow's notification arrives or it has provably errored.
    (the task / main-agent context, so the codex **author inherits what you know —
    not just the diff** — every round) and `rationale` (so codex doesn't flag
    deliberate decisions at the source) straight through. **When the diff makes an
-   API-facing change to the shared surface stack** (`packages/surface{,-app,-nix-host}`
+   API-facing change to the shared surface stack** (`packages/surface{,-app,-remote}`
    per `.claude/rules/surface.md`), it trips the drishti companion-repo gate, which is
    satisfiable **only against the *final* post-gauntlet kolu HEAD** — never mid-review,
    by construction. Seed that into the `rationale` explicitly (e.g. *"the surface.md

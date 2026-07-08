@@ -18,6 +18,9 @@ export type { ColorScheme };
 // Lazily-initialised on first `useColorScheme()` call. Module-level so the
 // .dark class effect runs once across all consumers (singleton — see
 // solidjs.md "State per domain"). Once non-null it stays non-null.
+// HOST-SCOPING: host-INDEPENDENT by design — resolves purely from the
+// host-independent `preferences().colorScheme` and a browser media query; no host
+// input at all.
 let sharedIsDark: (() => boolean) | null = null;
 
 export function useColorScheme() {

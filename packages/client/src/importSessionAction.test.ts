@@ -15,7 +15,13 @@ import type { SavedSession } from "@kolu/padi/surface";
 import { createImportSessionAction } from "./importSessionAction";
 
 // A minimal valid session — the action only reads `terminals.length`.
-const session: SavedSession = { terminals: [], savedAt: 1 };
+// `activeTerminalId` is the collapsed single-absence form (`.nullable()`,
+// never `.optional()`) — a literal built without `.parse()` must name it.
+const session: SavedSession = {
+  terminals: [],
+  activeTerminalId: null,
+  savedAt: 1,
+};
 
 describe("createImportSessionAction", () => {
   beforeEach(() => {

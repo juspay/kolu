@@ -32,16 +32,36 @@ function fakeStorage(): Storage {
  *  same key, fallback, and `parse` — over an injected `storage`, so a future
  *  mis-key or dropped persist of `setReattachAnnouncedAt` fails a test here. */
 function persistedMark(storage: Storage) {
-  return persistedPref<number>({
+  return persistedPref<Record<string, number>>({
     name: "kolu.kaval.reattachAnnouncedAt",
-    fallback: 0,
+    fallback: {},
     storage,
     parse: (raw) => {
-      const n = Number(raw);
-      if (!Number.isFinite(n)) throw new Error(`non-numeric: ${raw}`);
-      return n;
+      const v: unknown = JSON.parse(raw);
+      if (v === null || typeof v !== "object" || Array.isArray(v))
+        throw new Error(`not a per-host record: ${raw}`);
+      for (const n of Object.values(v as Record<string, unknown>))
+        if (typeof n !== "number" || !Number.isFinite(n))
+          throw new Error(`non-numeric mark in ${raw}`);
+      return v as Record<string, number>;
     },
   });
+}
+
+/** The per-ACTIVE-host projection `useDaemonStatus`'s effect applies over the record:
+ *  read `record[host] ?? 0`, commit `{ ...prev, [host]: mark }`. Recompute per call (each
+ *  effect run reads the mark fresh), so it mirrors the app exactly. */
+function markFor(
+  mark: () => Record<string, number>,
+  setMark: (
+    fn: (prev: Record<string, number>) => Record<string, number>,
+  ) => void,
+  host: string,
+): [number, (m: number) => void] {
+  return [
+    mark()[host] ?? 0,
+    (m) => setMark((prev) => ({ ...prev, [host]: m })),
+  ];
 }
 
 const adoptedStatus = (adoptedAt: number): DaemonStatus => ({
@@ -141,40 +161,75 @@ describe("announceReattach — the persisted high-water mark", () => {
     const [mark, setMark] = persistedMark(storage);
     const notify = vi.fn();
 
-    // First adoption: announces once and persists the mark.
-    announceReattach(adoptedStatus(1000), mark(), setMark, notify);
+    // First adoption on the active host (local): announces once and persists the mark.
+    const [m0, set0] = markFor(mark, setMark, "local");
+    announceReattach(adoptedStatus(1000), m0, set0, notify);
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify).toHaveBeenCalledWith(3);
-    expect(mark()).toBe(1000);
-    // It was written THROUGH to storage under the app's key — a mis-key fails here.
-    expect(storage.getItem("kolu.kaval.reattachAnnouncedAt")).toBe("1000");
+    expect(mark().local).toBe(1000);
+    // Written THROUGH to storage under the app's key, HOST-KEYED — a mis-key fails here.
+    expect(storage.getItem("kolu.kaval.reattachAnnouncedAt")).toBe(
+      '{"local":1000}',
+    );
 
-    // `localDaemonStatus()` re-emits on every transition; the same snapshot must
-    // not re-toast — the mark now equals adoptedAt, so the decision is null.
-    announceReattach(adoptedStatus(1000), mark(), setMark, notify);
+    // `localDaemonStatus()` re-emits on every transition; the same snapshot must not
+    // re-toast — the (recomputed) mark now equals adoptedAt, so the decision is null.
+    const [m1, set1] = markFor(mark, setMark, "local");
+    announceReattach(adoptedStatus(1000), m1, set1, notify);
     expect(notify).toHaveBeenCalledTimes(1);
   });
 
   it("stays silent when a fresh context replays the same adoption (the reload bug)", () => {
     const storage = fakeStorage();
-    // The pre-reload context announced adoptedAt=1000 and persisted it.
+    // The pre-reload context announced adoptedAt=1000 on local and persisted it.
     {
       const [mark, setMark] = persistedMark(storage);
-      announceReattach(adoptedStatus(1000), mark(), setMark, vi.fn());
+      const [m, s] = markFor(mark, setMark, "local");
+      announceReattach(adoptedStatus(1000), m, s, vi.fn());
     }
 
-    // The reload: a BRAND-NEW signal reads the surviving mark from storage, and
-    // the server replays the SAME sticky snapshot. The old module boolean reset
-    // here and re-fired (juspay/kolu#1365); the persisted mark keeps it silent.
+    // The reload: a BRAND-NEW signal reads the surviving mark from storage, and the
+    // server replays the SAME sticky snapshot. The old module boolean reset here and
+    // re-fired (juspay/kolu#1365); the persisted per-host mark keeps it silent.
     const [mark, setMark] = persistedMark(storage);
-    expect(mark()).toBe(1000);
+    expect(mark().local).toBe(1000);
     const notify = vi.fn();
-    announceReattach(adoptedStatus(1000), mark(), setMark, notify);
+    const [m, s] = markFor(mark, setMark, "local");
+    announceReattach(adoptedStatus(1000), m, s, notify);
     expect(notify).not.toHaveBeenCalled();
 
     // …but a genuinely newer adoption after the reload still announces.
-    announceReattach(adoptedStatus(2000), mark(), setMark, notify);
+    const [m2, s2] = markFor(mark, setMark, "local");
+    announceReattach(adoptedStatus(2000), m2, s2, notify);
     expect(notify).toHaveBeenCalledTimes(1);
-    expect(mark()).toBe(2000);
+    expect(mark().local).toBe(2000);
+  });
+
+  it("is PER-HOST: a remote ahead-clock toast does NOT suppress a later local re-adoption on switch-back (re-run #6)", () => {
+    // adoptedAt is a RAW foreign epoch on each host's OWN clock (deliberately unreprojected — a
+    // monotonic dedup key, never compared to the browser). Per-host clocks are not mutually
+    // monotonic, so the mark is a per-HOST record: one shared scalar would let a remote
+    // ahead-clock adoption raise the bar above a genuine later LOCAL re-adoption and swallow it.
+    const storage = fakeStorage();
+    const [mark, setMark] = persistedMark(storage);
+    const notify = vi.fn();
+
+    // Remote "srid@zest" (clock way AHEAD) adopts at 10_000 → toast; only zest's mark advances.
+    const [mz, sz] = markFor(mark, setMark, "srid@zest");
+    announceReattach(adoptedStatus(10_000), mz, sz, notify);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(mark()).toEqual({ "srid@zest": 10_000 });
+
+    // Switch back to local; local re-adopts at 5_000 (< zest's 10_000, but its OWN clock) →
+    // STILL toasts, because local's own mark is 0. A shared scalar (10_000) would suppress it.
+    const [ml, sl] = markFor(mark, setMark, "local");
+    announceReattach(adoptedStatus(5_000), ml, sl, notify);
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(mark()).toEqual({ "srid@zest": 10_000, local: 5_000 });
+
+    // Re-run local on the same snapshot → silent (5_000 not > local's OWN 5_000).
+    const [ml2, sl2] = markFor(mark, setMark, "local");
+    announceReattach(adoptedStatus(5_000), ml2, sl2, notify);
+    expect(notify).toHaveBeenCalledTimes(2);
   });
 });

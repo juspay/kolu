@@ -26,7 +26,7 @@ odu (Tamil ஓடு — *run*) is a CI runner. You tag one [`just`](https://jus
   </figcaption>
 </figure>
 
-The whole thing stands on four pieces, and naming them up front is the fastest way to say what odu is: [oRPC](https://orpc.io/) for the transport, `@kolu/surface` for the typed reactive state, [`@kolu/surface-nix-host`](https://github.com/juspay/kolu/tree/master/packages/surface-nix-host) to provision the build machines over ssh with nothing installed, and [`@kolu/surface-mcp`](https://github.com/juspay/kolu/tree/master/packages/surface-mcp) to hand the whole thing to an agent. The rest of this post is what each of those buys.
+The whole thing stands on four pieces, and naming them up front is the fastest way to say what odu is: [oRPC](https://orpc.io/) for the transport, `@kolu/surface` for the typed reactive state, [`@kolu/surface-nix-host`](https://github.com/juspay/kolu/tree/master/packages/surface-remote) to provision the build machines over ssh with nothing installed, and [`@kolu/surface-mcp`](https://github.com/juspay/kolu/tree/master/packages/surface-mcp) to hand the whole thing to an agent. The rest of this post is what each of those buys.
 
 ## Why CI should be a live service
 
@@ -209,4 +209,4 @@ If you've read the [surface](/blog/surface-framework) and [ssh](/blog/orpc-over-
 
 ---
 
-[odu](https://github.com/juspay/odu) · [`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface) · [`@kolu/surface-nix-host`](https://github.com/juspay/kolu/tree/master/packages/surface-nix-host) · [`@kolu/surface-mcp`](https://github.com/juspay/kolu/tree/master/packages/surface-mcp) · [oRPC](https://orpc.io/) · the earlier chapters: [Announcing @kolu/surface](/blog/surface-framework) and [Apps that ship themselves over ssh](/blog/orpc-over-ssh)
+[odu](https://github.com/juspay/odu) · [`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface) · [`@kolu/surface-nix-host`](https://github.com/juspay/kolu/tree/master/packages/surface-remote) · [`@kolu/surface-mcp`](https://github.com/juspay/kolu/tree/master/packages/surface-mcp) · [oRPC](https://orpc.io/) · the earlier chapters: [Announcing @kolu/surface](/blog/surface-framework) and [Apps that ship themselves over ssh](/blog/orpc-over-ssh)

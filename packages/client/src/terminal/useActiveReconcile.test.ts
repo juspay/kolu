@@ -1,5 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { batch, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import {
   createEvictionDedup,
@@ -158,6 +158,10 @@ function setupReconcile(init: {
   /** Daemon-connected gate (FIX 1). Defaults to CONNECTED so the existing
    *  cleanup tests are unchanged; a supervised-drain test flips it false. */
   connected?: boolean;
+  /** Active-host key. Defaults to a stable "local" so the existing single-host
+   *  cleanup tests are unchanged; the host-switch test flips it to prove a switch
+   *  resets the baseline rather than evicting the departed host's tiles. */
+  host?: string;
 }) {
   const state = {
     active: init.activeId ?? null,
@@ -167,6 +171,7 @@ function setupReconcile(init: {
     setRawIds: (v: TerminalId[]) => void;
     setParents: (v: Record<string, TerminalId | null>) => void;
     setConnected: (v: boolean) => void;
+    setHost: (v: string) => void;
     evictImperatively: ReturnType<
       typeof createEvictionDedup
     >["evictImperatively"];
@@ -177,6 +182,7 @@ function setupReconcile(init: {
     const [rawIds, setRawIds] = createSignal<TerminalId[]>(init.rawIds);
     const [parents, setParents] = createSignal(init.parents);
     const [connected, setConnected] = createSignal(init.connected ?? true);
+    const [host, setHost] = createSignal(init.host ?? "local");
     const { ports, calls } = makePorts({
       getSubTerminalIds: (pid) =>
         rawIds().filter((id) => (parents()[id] ?? null) === pid),
@@ -192,6 +198,7 @@ function setupReconcile(init: {
     useActiveReconcile({
       rawList: rawIds,
       parentOf: (id) => parents()[id] ?? null,
+      activeHostKey: host,
       evictDeparted: eviction.evictDeparted,
       isDaemonConnected: connected,
     });
@@ -199,6 +206,7 @@ function setupReconcile(init: {
       setRawIds,
       setParents,
       setConnected,
+      setHost,
       evictImperatively: eviction.evictImperatively,
       calls,
       dispose,
@@ -334,6 +342,40 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
     expect(h.calls.removeSub).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
+    h.dispose();
+  });
+
+  it("(f) a HOST SWITCH resets the baseline — the departed host's tiles are NOT evicted", async () => {
+    // Host A active: a parent P with sub S, plus top-level Q; P is the active tile.
+    const h = setupReconcile({
+      rawIds: [T("P"), T("S"), T("Q")],
+      parents: { P: null, S: T("P"), Q: null },
+      activeId: T("P"),
+      host: "local",
+    });
+    await tick();
+
+    // Switch to host B: the host token flips AND the list re-keys to a DISJOINT id
+    // space together (one atomic switch — `activeHost` and the host-scoped list
+    // re-key in lockstep). Every host-A id "leaves" the list, but they didn't
+    // close — the tab just looked away. NONE of the departure cleanup may fire:
+    // no wrong-host promote (setParent) of P's sub, no auto-switch off P.
+    batch(() => {
+      h.setParents({ B1: null, B2: null });
+      h.setRawIds([T("B1"), T("B2")]);
+      h.setHost("remote:B");
+    });
+
+    expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
+    expect(h.calls.dropFromMru).not.toHaveBeenCalled();
+    expect(h.calls.activate).not.toHaveBeenCalled();
+
+    // And a REAL close on host B still reconciles normally (baseline advanced to B).
+    batch(() => {
+      h.setParents({ B1: null });
+      h.setRawIds([T("B1")]);
+    });
+    expect(h.calls.dropFromMru).toHaveBeenCalledWith(T("B2"));
     h.dispose();
   });
 });

@@ -65,7 +65,6 @@ export {
 // ── kaval supervision ───────────────────────────────────────────────────
 export {
   ensureLocalEndpoint,
-  LOCAL_HOST_ID,
   ptyHostClient,
   setSpawnServerVersion,
 } from "./ptyHost/index.ts";
@@ -100,6 +99,7 @@ export {
   padiLogPath,
   padiSocketPath,
   padiStderrLogPath,
+  residentPadiSocket,
   resolvePadiStateRoot,
 } from "./stateRoot.ts";
 export type {

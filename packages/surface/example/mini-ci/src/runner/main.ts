@@ -7,7 +7,7 @@
  * the workspace root (auto-detected by walking up to `pnpm-workspace.yaml`,
  * or `--workspace` / `MINI_CI_WORKSPACE`). The `mini-ci-runner` nix closure
  * bundles that workspace, so the TUI can `nix copy` it to a remote host and
- * run this there over ssh — the drishti way, via `@kolu/surface-nix-host`'s
+ * run this there over ssh — the drishti way, via `@kolu/surface-remote`'s
  * `HostSession`.
  *
  * **Stdout is the protocol channel** (lesson #4): all diagnostics go to

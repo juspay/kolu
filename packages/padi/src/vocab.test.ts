@@ -21,6 +21,9 @@ import {
   type AuthoredActiveTerminal,
   type AuthoredSleepingTerminal,
   composeTerminalMetadata,
+  decodeHostLocation,
+  encodeHostLocation,
+  HostLocationSchema,
   LOCAL_LOCATION,
 } from "./vocab.ts";
 
@@ -118,5 +121,53 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
     expect(wire.pr).toEqual({ kind: "absent" });
     expect(wire.agent).toEqual(claude("ses-A"));
     expect(wire.foreground).toEqual({ name: "vim", title: null });
+  });
+});
+
+describe("encodeHostLocation / decodeHostLocation — the daemon-status key codec", () => {
+  it("round-trips the local variant through LOCAL_LOCATION", () => {
+    expect(encodeHostLocation(LOCAL_LOCATION)).toBe("local");
+    expect(decodeHostLocation(encodeHostLocation(LOCAL_LOCATION))).toEqual(
+      LOCAL_LOCATION,
+    );
+  });
+
+  it("round-trips a remote variant through the `remote:` prefix", () => {
+    const remote = { kind: "remote", hostId: "zest" } as const;
+    expect(encodeHostLocation(remote)).toBe("remote:zest");
+    expect(decodeHostLocation(encodeHostLocation(remote))).toEqual(remote);
+  });
+
+  it('a remote hostId literally "local" encodes to "remote:local" — never confused with the local variant', () => {
+    const remote = { kind: "remote", hostId: "local" } as const;
+    expect(encodeHostLocation(remote)).toBe("remote:local");
+    expect(decodeHostLocation("remote:local")).toEqual(remote);
+    expect(decodeHostLocation("remote:local")).not.toEqual(LOCAL_LOCATION);
+  });
+
+  it("decodeHostLocation throws loudly on a non-canonical string", () => {
+    expect(() => decodeHostLocation("")).toThrow();
+    expect(() => decodeHostLocation("zest")).toThrow();
+    expect(() => decodeHostLocation("remote:")).toThrow();
+    expect(() => decodeHostLocation("Local")).toThrow();
+  });
+
+  it("HostLocationSchema rejects an empty remote hostId — the shape the codec can't round-trip", () => {
+    expect(HostLocationSchema.safeParse({ kind: "local" }).success).toBe(true);
+    expect(
+      HostLocationSchema.safeParse({ kind: "remote", hostId: "zest" }).success,
+    ).toBe(true);
+    expect(
+      HostLocationSchema.safeParse({ kind: "remote", hostId: "" }).success,
+    ).toBe(false);
+    // PIN: an empty hostId is exactly what `encodeHostLocation` would turn into
+    // the bare "remote:" prefix, which `decodeHostLocation` already throws on —
+    // the schema now refuses to mint the value in the first place. (`hostId:
+    // string` is unrefined at the TYPE level — Zod's `.min(1)` is a runtime-only
+    // check — so this literal still typechecks as a `HostLocation`; the schema
+    // is the one guard that actually rejects it.)
+    const emptyRemote = { kind: "remote" as const, hostId: "" };
+    expect(encodeHostLocation(emptyRemote)).toBe("remote:");
+    expect(() => decodeHostLocation(encodeHostLocation(emptyRemote))).toThrow();
   });
 });

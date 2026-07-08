@@ -4,7 +4,6 @@
  *  state via the typed RPC client directly. Callers (App.tsx, palette,
  *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
-import { padiRpc } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { shuffleMode } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
@@ -21,7 +20,7 @@ import {
 import { createSharedRoot } from "./createSharedRoot";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-import { padi, preferences } from "./wire";
+import { activePadiRpc, preferences } from "./wire";
 
 function init() {
   const store = useTerminalStore();
@@ -33,6 +32,9 @@ function init() {
     return (id !== null && getThemeName(id)) || DEFAULT_THEME_NAME;
   });
 
+  // HOST-SCOPING: host-INDEPENDENT by design — a transient live-preview overlay
+  // (theme is the canonical non-per-host category); writes go to the active host
+  // correctly via `activePadiRpc.surface.chrome.setTheme`.
   const [previewThemeName, setPreviewThemeName] = createSignal<
     string | undefined
   >(undefined);
@@ -61,8 +63,8 @@ function init() {
   }
 
   function setThemeName(id: TerminalId, name: string) {
-    void padiRpc(padi)
-      .surface.chrome.setTheme({ id, themeName: name })
+    void activePadiRpc.surface.chrome
+      .setTheme({ id, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
       );

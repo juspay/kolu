@@ -17,6 +17,10 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  collectionDeltasChannel,
+  collectionKeysetChannel,
+} from "./channelNames";
+import {
   type CollectionDelta,
   type CollectionDeltasMsg,
   defineSurface,
@@ -90,8 +94,9 @@ function buildDeltasFragment() {
 describe("collection deltas — server coalescing", () => {
   it("flushes a tick of N upserts as ONE frame", async () => {
     const { fragment, channel } = buildDeltasFragment();
-    const bus =
-      channel<CollectionDelta<number, { name: string }>>("items:deltas");
+    const bus = channel<CollectionDelta<number, { name: string }>>(
+      collectionDeltasChannel("items"),
+    );
     const frames: CollectionDelta<number, { name: string }>[] = [];
     const ac = new AbortController();
     collectFrames(bus, ac, frames);
@@ -111,8 +116,9 @@ describe("collection deltas — server coalescing", () => {
 
   it("coalesces last-op-wins per key (upsert then remove → remove)", async () => {
     const { fragment, channel } = buildDeltasFragment();
-    const bus =
-      channel<CollectionDelta<number, { name: string }>>("items:deltas");
+    const bus = channel<CollectionDelta<number, { name: string }>>(
+      collectionDeltasChannel("items"),
+    );
     const frames: CollectionDelta<number, { name: string }>[] = [];
     const ac = new AbortController();
     collectFrames(bus, ac, frames);
@@ -131,8 +137,9 @@ describe("collection deltas — server coalescing", () => {
 
   it("coalesces a resurrection (remove then re-upsert → upsert wins)", async () => {
     const { fragment, channel } = buildDeltasFragment();
-    const bus =
-      channel<CollectionDelta<number, { name: string }>>("items:deltas");
+    const bus = channel<CollectionDelta<number, { name: string }>>(
+      collectionDeltasChannel("items"),
+    );
     const frames: CollectionDelta<number, { name: string }>[] = [];
     const ac = new AbortController();
     collectFrames(bus, ac, frames);
@@ -151,8 +158,9 @@ describe("collection deltas — server coalescing", () => {
 
   it("separate ticks publish separate frames", async () => {
     const { fragment, channel } = buildDeltasFragment();
-    const bus =
-      channel<CollectionDelta<number, { name: string }>>("items:deltas");
+    const bus = channel<CollectionDelta<number, { name: string }>>(
+      collectionDeltasChannel("items"),
+    );
     const frames: CollectionDelta<number, { name: string }>[] = [];
     const ac = new AbortController();
     collectFrames(bus, ac, frames);
@@ -174,7 +182,7 @@ describe("collection deltas — server coalescing", () => {
     // redundant snapshot (and a spurious re-render). Membership-gating keeps the
     // producer honest to the `keysBus` doc contract ("broadcasts on add/remove").
     const { fragment, channel } = buildDeltasFragment();
-    const keysBus = channel<number[]>("items:keys");
+    const keysBus = channel<number[]>(collectionKeysetChannel("items"));
     const sets: number[][] = [];
     const ac = new AbortController();
     collectFrames(keysBus, ac, sets);

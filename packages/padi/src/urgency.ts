@@ -34,16 +34,14 @@ export function recomputeUrgency(): PadiUrgency {
     const agent = entry.snapshot.agent;
     if (agent && agentBucket(agent.state) === "awaiting") awaitingIds.push(id);
   }
-  return { awaiting: awaitingIds.length, awaitingIds };
+  return { awaitingIds };
 }
 
-/** Two urgency readings are equal when they carry the same awaiting count AND
- *  the same awaiting ids in the same order — the cell's `equals`, so the
- *  ~150 ms agent firehose (R1's write-triggers) can't re-publish an unchanged
- *  projection. */
+/** Two urgency readings are equal when they carry the same awaiting ids in the
+ *  same order — the cell's `equals`, so the ~150 ms agent firehose (R1's
+ *  write-triggers) can't re-publish an unchanged projection. The count is
+ *  derived (`awaitingIds.length`), so comparing ids alone is already complete. */
 export function urgencyEqual(a: PadiUrgency, b: PadiUrgency): boolean {
-  // `recomputeUrgency` always sets `awaiting = awaitingIds.length`, so the length
-  // check below fully subsumes an `awaiting` comparison — no separate count check.
   if (a.awaitingIds.length !== b.awaitingIds.length) return false;
   for (let i = 0; i < a.awaitingIds.length; i++) {
     if (a.awaitingIds[i] !== b.awaitingIds[i]) return false;

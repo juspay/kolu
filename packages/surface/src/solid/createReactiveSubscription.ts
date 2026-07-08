@@ -38,6 +38,7 @@ export function createReactiveSubscription<I, T>(
   const [store, setStore] = createStore<{ v: T | undefined }>({ v: undefined });
   const [error, setError] = createSignal<Error | undefined>();
   const [pending, setPending] = createSignal(true);
+  const [complete, setComplete] = createSignal(false);
 
   function toError(err: unknown): Error {
     return err instanceof Error ? err : new Error(String(err));
@@ -46,10 +47,13 @@ export function createReactiveSubscription<I, T>(
   createEffect(
     on(inputFn, (input) => {
       // Reset state on every input change; the prior iterator is being
-      // torn down so the previously-yielded value is no longer authoritative.
+      // torn down so the previously-yielded value is no longer authoritative —
+      // including `complete`: a fresh input opens a fresh iterator, so the
+      // PRIOR typed end no longer describes the current one.
       setStore("v", undefined);
       setError(undefined);
       setPending(true);
+      setComplete(false);
       if (input === null) return;
 
       const controller = new AbortController();
@@ -64,6 +68,13 @@ export function createReactiveSubscription<I, T>(
             if (pending()) setPending(false);
             if (error()) setError(undefined);
           }
+          // Normal completion — mirrors `createSubscription`'s typed-end handling:
+          // an aborted loop takes the `break` above with `aborted` already true,
+          // so reaching here means the iterable ended on its own.
+          if (!controller.signal.aborted) {
+            if (pending()) setPending(false);
+            setComplete(true);
+          }
         } catch (err) {
           if (controller.signal.aborted) return;
           setError(toError(err));
@@ -76,6 +87,7 @@ export function createReactiveSubscription<I, T>(
   const sub = Object.assign((() => store.v) as Accessor<T | undefined>, {
     error,
     pending,
+    complete,
   }) as Subscription<T>;
 
   // Route `onError` through the SAME self-clearing EDGE effect `createSubscription`

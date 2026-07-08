@@ -13,7 +13,7 @@
  * (exported as `client`) are `server` + `daemon` — `client.server.info(...)`,
  * `client.daemon.restart(...)`. The root `terminal.*` / `git.*` namespaces were
  * DELETED at W1.R7; terminal/git mutations now go through
- * `padiRpc(padi).surface.*` (padiSurface). None of these are on `app.rpc`.
+ * `activePadiRpc.surface.*` (padiSurface). None of these are on `app.rpc`.
  *
  * The `preferences` / `recentRepos` / `savedSession` accessors below
  * collapse what used to be hand-rolled `usePreferences` / `useActivityFeed`
@@ -21,25 +21,40 @@
  * consumer reads the same singleton without per-component lookups.
  */
 
-import {
-  padiRpc,
-  type RecentAgent,
-  type RecentRepo,
-  type SavedSession,
+import type {
+  padiSurface,
+  RecentAgent,
+  RecentRepo,
+  SavedSession,
 } from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
-import { createSubscription, type Subscription } from "@kolu/surface/solid";
+import {
+  createReactiveSubscription,
+  type Subscription,
+} from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
+import { connectSurfaceMap } from "@kolu/surface-map/client";
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
+import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
+import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
   type PreferencesPatch,
+  surfaces,
   type TerminalId,
 } from "kolu-common/surface";
-import { surfacesWithPadi } from "kolu-common/surfacesWithPadi";
+import {
+  type HostKey,
+  LOCAL_HOST,
+  padiHostMap,
+} from "kolu-common/surfacesWithPadi";
 import type { WebSocket as PartySocket } from "partysocket";
+import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
+import { hostReconcileTarget } from "./host/hostReconcile.ts";
+import { persistedPref } from "./persistedPref.ts";
 
 const { protocol, host } = window.location;
 const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
@@ -66,15 +81,12 @@ const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 // given too or it would fall back to its loose default and untype `conn.clients`.
 //
 // `C` and `E` are INDEPENDENT: `conn.clients` types off `E`, `conn.link` off `C`.
-// So we feed a padi-FUL `E` (`surfacesWithPadi`, which the server serves at
-// `/surface/padi/*`) while keeping `C` the padi-LESS kolu-common `contract` — the
-// client thus builds a `clients.padi` (the PRIMARY source of the terminal record,
-// urgency, daemon status, session, activity feed, and `terminalExit`), and the raw
-// `conn.link` stays typed off the unchanged root contract. Object spread preserves
-// order, so `surfacesWithPadi`'s first key is still `kolu` (the watchdog's probe
-// sibling) — no behavior change.
-const conn = connectSurfaces<typeof contract, typeof surfacesWithPadi>({
-  surfaces: surfacesWithPadi,
+// kolu feeds the padi-LESS sibling set (`surfaces` = { kolu, surfaceApp }) — padi is no
+// longer a single sibling but a keyed MAP of remote surfaces (`padiMap` below), dialled
+// over a SCOPED slice of `conn.link`. `kolu` stays the first sibling (the watchdog's
+// `system.live` probe channel).
+const conn = connectSurfaces<typeof contract, typeof surfaces>({
+  surfaces,
   url: wsBaseUrl,
 });
 const { ws, echo } = conn;
@@ -129,103 +141,214 @@ export const app = clients.kolu;
  *  path). Handed to `<SurfaceAppProvider controlPlane=...>` + `createServerLifecycle`. */
 export const surfaceApp = clients.surfaceApp;
 
-/** The `@kolu/padi` surface client (`padiSurface` served natively beside the
- *  siblings) — the PRIMARY source of every terminal-derived member:
- *  `padi.collections.terminals` (the composed record + the terminal-list keys
- *  stream), `.daemonStatus` (kaval liveness), `padi.cells.status`/`.urgency`/
- *  `.session`/`.activityFeed`, the `padi.events.terminalExit` event, and every
- *  lifecycle/chrome/screen/fs/git/session procedure via `padiRpc(padi)`. Its
- *  subscriptions ride the SAME socket as `app` (siblings over one transport), so
- *  `app.health().live` is the shared-socket liveness for padi's members too. */
-export const padi = clients.padi;
+// ── The padi MAP — a keyed map of remote surfaces: ONE entry surface (`padiSurface`)
+//    served N times, keyed by host. `padi` is no longer a single client — every host's
+//    padi rides `padiMap.entry(host)` (a pure point lens) or `padiMap.useEntry(activeHost)`
+//    (a reactive lens that re-keys on switch). The map is dialled over the `padi` SIBLING
+//    of `conn`'s BRANDED transport handle: `connectSurfaceMap` slices `padi` from it and
+//    recovers the parent `connectSurfaces` watchdog `live` by construction (the handle is
+//    unforgeable), so every chip floors on the real socket — there is no raw `{ live }`
+//    seam to pass a green-over-dead accessor through.
+export const padiMap = connectSurfaceMap(padiHostMap, conn.transport, "padi");
+
+/** The ONE membership-error handler for `padiMap.entries` — shared by BOTH whole-collection
+ *  consumers (this module's reconcile sub + `HostSelectorStrip`'s strip) so a membership-stream
+ *  failure toasts once, not twice. The whole-collection dedup slot now supports a per-consumer
+ *  `onError` REGISTRY (`surfaceClient.ts`), so two distinct handlers — or a bare `.use()` racing
+ *  ahead of this one — would each still fire independently regardless of registration order;
+ *  sharing this one reference is a choice for a single toast, not a requirement to avoid a
+ *  crash. */
+export const onHostMembershipError = (err: Error): void => {
+  toast.error(`Host membership error: ${err.message}`);
+};
+
+/** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Backed by
+ *  `sessionStorage` (per-tab, never shared across tabs). The persisted value is the
+ *  CANONICAL wire string (`encodeHostKey`/`decodeHostKey` — NOT the default
+ *  `JSON.stringify`, which would write `{"kind":"local"}` instead of `"local"`),
+ *  defaulting to the unremovable LOCAL default. Switching it re-keys every
+ *  `useEntry(activeHost)` readout — the canvas live-switches, no reload. */
+export const [activeHost, setActiveHost] = persistedPref<HostKey>({
+  name: "kolu-active-host",
+  fallback: LOCAL_HOST,
+  parse: (raw) => decodeHostKey(raw),
+  serialize: encodeHostKey,
+  storage: sessionStorage,
+  // Surface a corrupt/invalid stored host rather than silently collapsing to the local
+  // default — otherwise "the stored active host was garbage" reads identically to "this tab
+  // has always been local." Resetting to LOCAL_HOST is benign, so a warn is the right level
+  // (matches useDaemonStatus's reattachAnnouncedAt pref). caught-error-must-not-collapse.
+  onInvalid: (err, raw) =>
+    console.warn(
+      `[wire] stored active-host "${raw}" is invalid; resetting to the local default:`,
+      err,
+    ),
+});
+
+/** The active-host PROCEDURE client, typed as the concrete padi contract client (the
+ *  generic map types `entry(k).rpc` as `unknown`, so the one concrete cast lives HERE).
+ *  Kept for the (currently hypothetical) FIXED-host caller — one that must reach a
+ *  host other than whichever is active. Every real call site instead wants
+ *  `activePadiRpc` below, which fuses this with `activeHost()` so it never has to be
+ *  spelled out. */
+type PadiRpc = ContractRouterClient<
+  typeof padiSurface.contract,
+  ClientRetryPluginContext
+>;
+export const padiRpcOf = (host: HostKey): PadiRpc =>
+  padiMap.entry(host).rpc as PadiRpc;
 
 /** Convenience alias — the FULL combined link. `client.server.info(...)` /
  *  `client.daemon.restart(...)` reach the only raw oRPC procedures left at the
  *  link root (the `terminal.*` / `git.*` roots were deleted at W1.R7 — those
- *  mutations go through `padiRpc(padi).surface.*`);
+ *  mutations go through `activePadiRpc.surface.*`);
  *  `client.surface.kolu.preferences.patch(...)` /
  *  `client.surface.surfaceApp.identity.info(...)` reach the sibling surfaces.
  *  (Note: the surface-bound `.use(...)` hooks come off `app`/`surfaceApp`, which
  *  wrap a SCOPED slice of this same link.) */
 export const client = link;
 
-// ── Module-level singleton subscriptions ───────────────────────────────
+// Preferences (host-INDEPENDENT) rides the ONE app-scope reader below, beside the
+// host-scoped readouts — there is NO import-time module-const subscription (the
+// sharing-by-convention singleton this PR deletes). Its `preferences()` /
+// `updatePreferences()` accessors are defined just after that `createRoot`.
 
-const _preferences = app.cells.preferences.use({
-  authority: "local",
-  initial: DEFAULT_PREFERENCES,
-  // Debounce window for size writes that opt in via `{ coalesce: true }`. The
-  // rightPanel splitter's `onSizesChange` fires a patch per frame during a drag
-  // (and re-fires on Corvu panel re-registration), which storms the server.
-  // Coalescing is per-write, so discrete toggles (colorScheme, scrollLock) keep
-  // flushing immediately and survive a quick reload. See #1041.
-  coalesceMs: 150,
-  // Covers both subscription drops and coalesced-flush failures — a coalesced
-  // write's `mutate` failure surfaces here, not on `patch`'s returned promise.
-  onError: (err) => toast.error(`Preferences error: ${err.message}`),
+// ── The ONE app-scope reader for standing readouts ──────────────────────
+//
+// activityFeed, saved-session, and the terminal-list keys are per-HOST facts — they ride
+// `padiMap.useEntry(activeHost)`, so switching the active host must RE-KEY them (the
+// canvas live-switches, no reload). `useEntry` demands a reactive owner and re-keys on
+// switch (disposing the old host's subs, rebuilding the new host's synchronously); a
+// single `createRoot` at module init IS that owner — app-lifetime, never disposed. This
+// is the "one deliberate app-scope reader": import-time module-const subs are GONE (a
+// const built from `entry(activeHost())` would read the host ONCE at import and never
+// re-key — the boot-host-capture hazard). kolu's own host-INDEPENDENT `preferences`
+// (above) stays a plain kolu sub — it has no host to capture.
+//
+// WHY INLINE (do not extract): this owner reads `padiMap`/`activeHost` (defined above)
+// AND its readouts are re-exported below beside them, so lifting it into a separate
+// `useActiveHostSurface.ts` would make that module import wire.ts and wire.ts import it
+// back — a manufactured import cycle. One app-scope owner beside its dependencies IS the
+// intent; a module split buys nothing here and only re-introduces the cycle.
+const hostScoped = createRoot(() => {
+  const active = padiMap.useEntry(activeHost);
+  const activityFeed = active.cells.activityFeed.use({
+    onError: (err: Error) =>
+      toast.error(`Activity feed subscription error: ${err.message}`),
+  });
+  const session = active.cells.session.use({
+    onError: (err: Error) =>
+      toast.error(`Saved-session subscription error: ${err.message}`),
+  });
+  // The terminal-list keys stream carries STREAM_RETRY via `unenrolledStreamCall` (the
+  // #1591 health carve-out — a re-attach must never flicker the health gate). It is a
+  // `createReactiveSubscription` keyed on `activeHost`, so a host switch tears down the old
+  // host's keys stream and opens the NEW host's — re-keying in lockstep with the
+  // activityFeed/session readouts above (which re-key through the reactive entry). A plain
+  // `createSubscription` here would read `activeHost()` ONCE at init and strand the keys
+  // stream on the boot host, so the switched-to host's terminals never render (the
+  // boot-host-capture hazard). Each id is shaped `{ id }` so `.map(t => t.id)` consumers
+  // stay unchanged; between switches the stream resets to pending (not stale boot-host ids).
+  const terminalKeys = createReactiveSubscription(
+    activeHost,
+    (host, signal) =>
+      unenrolledStreamCall(padiRpcOf(host).surface.terminals.keys, undefined, {
+        signal,
+      }),
+    { onError: (err) => toast.error(`Terminal list error: ${err.message}`) },
+  );
+  // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
+  // owner rather than a bare import-time module-const sub — the sharing-by-convention
+  // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader
+  // folds onto it (the base-client dedup would share it even if opened per-consumer, but
+  // imperative module-level readers like useTips have no reactive owner of their own).
+  const preferences = app.cells.preferences.use({
+    authority: "local",
+    initial: DEFAULT_PREFERENCES,
+    // Debounce window for size writes that opt in via `{ coalesce: true }` (#1041): the
+    // rightPanel splitter fires a patch per drag frame; discrete toggles flush immediately.
+    coalesceMs: 150,
+    // Covers subscription drops + coalesced-flush failures.
+    onError: (err: Error) => toast.error(`Preferences error: ${err.message}`),
+  });
+  // Host-membership reconcile: if the ACTIVE host leaves the pool — the user ✕'d their own
+  // guest chip, or the server auto-retired it on re-serve-pump death (`pool.remove`) —
+  // `useEntry(activeHost)` does NOT re-key on its own, so the tab would be stranded on a
+  // dead host (every `activePadiRpc` call throws `MAP_KEY_UNKNOWN`, canvas frozen,
+  // no chip lit). Mirror the terminal auto-switch at the host level: once a membership
+  // snapshot has landed, a departed active host falls back to the unremovable LOCAL default,
+  // LOUDLY (the server-driven auto-retire is otherwise silent). The `entries` sub dedups
+  // with the selector strip's via the base-client ref-count.
+  // Both whole-collection `entries` consumers (this sub + HostSelectorStrip's strip) bake the
+  // SAME `onHostMembershipError` reference into the shared dedup slot's per-consumer registry,
+  // so a membership-stream failure surfaces once (not twice) regardless of which consumer
+  // registers first — each registered handler now fires independently either way, so sharing
+  // this reference is just to avoid a duplicate toast, never to dodge a crash.
+  const members = padiMap.entries.use({ onError: onHostMembershipError });
+  createEffect(() => {
+    const target = hostReconcileTarget(
+      members.keys(),
+      activeHost(),
+      LOCAL_HOST,
+    );
+    if (target === null) return;
+    const departed = activeHost();
+    setActiveHost(target);
+    toast.warning(
+      `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
+    );
+  });
+  return { activityFeed, session, terminalKeys, preferences, rpc: active.rpc };
 });
 
-/** Local-store accessor for user preferences — authoritative after the
- *  first server yield. */
+/** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
+ *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive
+ *  lens already re-keys on switch; its `rpc` reads the CURRENT key per call, so this
+ *  single client always routes to whichever host is active). Every lifecycle / chrome
+ *  / screen / fs / git / session procedure call site should read
+ *  `activePadiRpc.surface.<ns>.<verb>(...)` instead of re-deriving the host by hand via
+ *  `padiRpcOf(activeHost())`. */
+export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
+
+export const recentRepos = (): RecentRepo[] =>
+  hostScoped.activityFeed.value()?.recentRepos ?? [];
+export const recentAgents = (): RecentAgent[] =>
+  hostScoped.activityFeed.value()?.recentAgents ?? [];
+
+/** Local-store accessor for user preferences — authoritative after the first server yield. */
 export const preferences = (): Preferences =>
-  _preferences.value() ?? DEFAULT_PREFERENCES;
+  hostScoped.preferences.value() ?? DEFAULT_PREFERENCES;
 
-/** Streaming subscription handle. Use this when callers need
- *  `.pending()` / `.error()` (e.g. boot gating) rather than the value. */
-export const preferencesSub = _preferences.sub;
-
-/** Patch user preferences; reports failures via `toast`. Pass
- *  `{ coalesce: true }` for high-frequency writes (panel-size drags) to
- *  trailing-debounce the server round-trip — see the cell's `coalesceMs`. */
+/** Patch user preferences; reports failures via `toast`. Pass `{ coalesce: true }` for
+ *  high-frequency writes (panel-size drags) to trailing-debounce the server round-trip —
+ *  see the cell's `coalesceMs`. */
 export function updatePreferences(
   patch: PreferencesPatch,
   opts?: { coalesce?: boolean },
 ): void {
-  void _preferences
+  void hostScoped.preferences
     .patch(patch, opts)
     .catch((err: Error) =>
       toast.error(`Failed to save preferences: ${err.message}`),
     );
 }
 
-// Activity feed + saved session ride `padi` now (they relocated off koluSurface).
-const _activityFeed = padi.cells.activityFeed.use({
-  onError: (err) =>
-    toast.error(`Activity feed subscription error: ${err.message}`),
-});
-export const recentRepos = (): RecentRepo[] =>
-  _activityFeed.value()?.recentRepos ?? [];
-export const recentAgents = (): RecentAgent[] =>
-  _activityFeed.value()?.recentAgents ?? [];
-
-const _savedSession = padi.cells.session.use({
-  onError: (err) =>
-    toast.error(`Saved-session subscription error: ${err.message}`),
-});
-/** The persisted saved-session, or null when none exists / no yield yet. */
+/** The persisted saved-session for the active host, or null when none exists / no yield
+ *  yet. Re-keys when the active host switches. */
 export const savedSession = (): SavedSession | null =>
-  _savedSession.value() ?? null;
-export const savedSessionSub = _savedSession.sub;
+  hostScoped.session.value() ?? null;
+export const savedSessionSub = hostScoped.session.sub;
 
-// Live terminal list — DERIVED from padi's `terminals` collection keys stream (the
-// `terminalList` cell was retired: the collection IS the terminal-membership source
-// now). The keys stream yields the full id set in server (Map-insertion) order,
-// snapshot-first then membership deltas on create/kill. We shape each id as
-// `{ id }` so the `.map(t => t.id)` / `for (const t of …)` consumers stay
-// unchanged, and preserve the `Subscription` contract (`()`, `.pending`, `.error`)
-// they read. `unenrolledStreamCall` carries STREAM_RETRY (transparent re-subscribe
-// on reconnect, the same snapshot-then-deltas re-seed every surface stream gets);
-// it is deliberately un-enrolled because kolu ignores the fold health gate and
-// surfaces failure per-cell (the `onError` toast).
-const _terminalKeys = createSubscription<TerminalId[]>(
-  () => unenrolledStreamCall(padiRpc(padi).surface.terminals.keys, undefined),
-  { onError: (err) => toast.error(`Terminal list error: ${err.message}`) },
-);
-/** Subscription handle for the live terminal list — `{ id }` rows in server order,
- *  derived from padi's `terminals` collection keys. Consumers read `.map(t => t.id)`
- *  / `.pending()` exactly as they did the retired `terminalList` cell. */
+/** Subscription handle for the live terminal list of the active host — `{ id }` rows in
+ *  server order, derived from padi's `terminals` collection keys. Consumers read
+ *  `.map(t => t.id)` / `.pending()` exactly as they did the retired `terminalList` cell. */
 export const terminalListSub: Subscription<{ id: TerminalId }[]> =
-  Object.assign(() => _terminalKeys()?.map((id) => ({ id })), {
-    pending: _terminalKeys.pending,
-    error: _terminalKeys.error,
+  Object.assign(() => hostScoped.terminalKeys()?.map((id) => ({ id })), {
+    pending: hostScoped.terminalKeys.pending,
+    error: hostScoped.terminalKeys.error,
+    // Forwarded, not dropped: `terminalKeys` is a `createReactiveSubscription`, which
+    // always populates `complete` — omitting it here would silently strand a consumer
+    // that checks it (there is none today, but the field-audit rule is "populate what
+    // the source has," not "only what today's readers use").
+    complete: hostScoped.terminalKeys.complete,
   });

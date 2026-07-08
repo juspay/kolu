@@ -19,6 +19,8 @@
 import { controlByte, metaByte } from "@kolu/terminal-protocol";
 import { createSignal } from "solid-js";
 
+// HOST-SCOPING: host-INDEPENDENT by design — a keystroke-composition arm flag with
+// no terminal id or host dimension; it folds into whichever host's terminal has focus.
 const [ctrlArmed, setCtrlArmed] = createSignal(false);
 const [altArmed, setAltArmed] = createSignal(false);
 
