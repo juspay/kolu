@@ -81,7 +81,8 @@ export const entryStatusSchema = z.discriminatedUnion("kind", [
 //
 // Each mirrors a per-primitive builder in `@kolu/surface/define`, wrapping the
 // member's input `S` in a UNIFORM ENVELOPE — `z.object({ mapKey, input: S })` —
-// before `oc.input(...)`; a member with NO input carries `input: z.void()`.
+// before `oc.input(...)`; a member with NO input carries NO `input` field at all
+// (`z.object({ mapKey })`), NOT `input: z.void()` (see `foldInput` / the envelope).
 // Outputs are untouched. The envelope (not a spread merge) is deliberate: ONE
 // wire shape for every proc regardless of `S` (object, primitive, or none — a
 // primitive `terminalAttach`/`cell.set` input rides `input` verbatim), and,
@@ -94,12 +95,31 @@ export const entryStatusSchema = z.discriminatedUnion("kind", [
 // re-derives + re-validates the real `K` from it (`codec.decode` + `keySchema.parse`,
 // the P5 gate); these builders never see `K` at all.
 
-/** The fold envelope `z.object({ mapKey, input })` — `input` is the member's own
- *  input schema (or `z.void()` when it has none). The single home of the shape. */
-function foldInput(inner?: ZodType<unknown>): ZodType {
+/** True for `z.void()` / `z.undefined()` — a member whose input carries no wire
+ *  payload. Checked via zod v4's stable `.def.type`. Such a member's envelope
+ *  OMITS the input field entirely (see {@link foldInput}), so validation never
+ *  depends on zod accepting a MISSING key for `z.void()` — a leniency zod
+ *  tightened in >=4.3.7 (`z.object({ input: z.void() }).parse({})` now throws
+ *  "expected nonoptional"). Without this, a consumer's lockfile drifting onto a
+ *  later zod patch silently breaks every void-input fold over the wire. */
+function isVoidInput(inner: ZodType<unknown>): boolean {
+  const type = (inner as { def?: { type?: string } }).def?.type;
+  return type === "void" || type === "undefined";
+}
+
+/** The fold envelope schema. For a member WITH input: `z.object({ mapKey, input })`.
+ *  For a VOID member (no input, or an explicit `z.void()`/`z.undefined()`):
+ *  `z.object({ mapKey })` with NO input field — `{ mapKey }` is the ONE valid wire
+ *  shape, and a schema without an `input` field cannot strict-reject its absence,
+ *  so the fold is independent of zod's missing-key leniency (see `isVoidInput`).
+ *  The single home of the shape. Exported for the round-trip pin. */
+export function foldInput(inner?: ZodType<unknown>): ZodType {
+  if (inner === undefined || isVoidInput(inner)) {
+    return z.object({ [MAP_KEY_FIELD]: z.string() }) as ZodType;
+  }
   return z.object({
     [MAP_KEY_FIELD]: z.string(),
-    [INPUT_FIELD]: inner ?? z.void(),
+    [INPUT_FIELD]: inner,
   }) as ZodType;
 }
 
