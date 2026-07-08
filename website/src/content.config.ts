@@ -1,6 +1,33 @@
 import { defineCollection, z } from "astro:content";
 import { glob } from "astro/loaders";
 
+// Shared schema for the doc-shaped collections (docs + surface). Both render
+// through DocsLayout, so they carry the same frontmatter: a sidebar-orderable
+// page with an optional section group and an optional bespoke hero.
+const docPage = z.object({
+  title: z.string(),
+  description: z.string().optional(),
+  // Sidebar ordering (ascending; ties broken by title).
+  order: z.number().default(0),
+  // Optional grouping label for the sidebar. The mechanism supports the
+  // Diátaxis quadrants (tutorials / how-to / reference / explanation) — but we
+  // ship no empty sections: a group appears only once a page opts into it.
+  section: z.string().optional(),
+  // Optional bespoke hero (eyebrow · accent-word headline · product mark),
+  // rendered by KoluHero. OPTIONAL by design: a plain page with only `title`
+  // still gets a kolu-styled headline, so a new .md needs zero per-page work.
+  koluHero: z
+    .object({
+      eyebrow: z.string().optional(),
+      // Wrap a word in {curly braces} to paint it in the accent colour; use
+      // line breaks for a multi-line headline.
+      headline: z.string(),
+      image: z.string().optional(),
+      imageAlt: z.string().optional(),
+    })
+    .optional(),
+});
+
 // The docs collection, mounted at the site ROOT: src/content/docs/<slug>.mdx is
 // rendered by src/pages/[slug].astro at /<slug>, so padi/kaval/architecture keep
 // their exact URLs. Same glob-loader shape as the blog collection — the docs are
@@ -8,29 +35,17 @@ import { glob } from "astro/loaders";
 // with no separate docs framework.
 const docs = defineCollection({
   loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/docs" }),
-  schema: z.object({
-    title: z.string(),
-    description: z.string().optional(),
-    // Sidebar ordering (ascending; ties broken by title).
-    order: z.number().default(0),
-    // Optional grouping label for the sidebar. The mechanism supports future
-    // Diátaxis quadrants (tutorials / how-to / reference / explanation) — but we
-    // ship no empty sections: a group appears only once a page opts into it.
-    section: z.string().optional(),
-    // Optional bespoke hero (eyebrow · accent-word headline · product mark),
-    // rendered by KoluHero. OPTIONAL by design: a plain page with only `title`
-    // still gets a kolu-styled headline, so a new .md needs zero per-page work.
-    koluHero: z
-      .object({
-        eyebrow: z.string().optional(),
-        // Wrap a word in {curly braces} to paint it in the accent colour; use
-        // line breaks for a multi-line headline.
-        headline: z.string(),
-        image: z.string().optional(),
-        imageAlt: z.string().optional(),
-      })
-      .optional(),
-  }),
+  schema: docPage,
+});
+
+// The Surface collection — the four-quadrant Diátaxis home for the @kolu/surface
+// framework, mounted under its OWN top-level prefix: src/content/surface/<slug>.mdx
+// renders at /surface/<slug> (and index.mdx at /surface) via src/pages/surface/.
+// A sibling of `docs` rather than a nested section so it carries its own sidebar
+// and top-nav entry, keeping the product docs and the framework docs distinct.
+const surface = defineCollection({
+  loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/surface" }),
+  schema: docPage,
 });
 
 const blog = defineCollection({
@@ -66,4 +81,4 @@ const changelog = defineCollection({
   }),
 });
 
-export const collections = { docs, blog, changelog };
+export const collections = { docs, surface, blog, changelog };
