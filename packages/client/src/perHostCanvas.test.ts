@@ -98,22 +98,25 @@ vi.mock("./wire", async () => {
   };
 });
 
-// `useViewState`'s `canvasMaximized` pref — stub to a plain in-memory
-// signal-shaped pair so the test doesn't need a real `localStorage`.
-vi.mock("./persistedPref", () => ({
-  boolPref: () => {
-    let v = false;
+// `createViewState`'s per-host prefs (`showSleeping` via `boolPref`, `activityWindow`
+// via `persistedPref`) — stub both to a plain in-memory signal-shaped pair honoring
+// the passed `fallback`, so the test needs no real `localStorage`. The three blocks
+// below exercise only `activeId`/`mruOrder`, so these prefs' values are never asserted.
+vi.mock("./persistedPref", () => {
+  const stub = <T>(fallback: T) => {
+    let v = fallback;
     return [
       () => v,
-      (next: boolean | ((prev: boolean) => boolean)) => {
-        v =
-          typeof next === "function"
-            ? (next as (p: boolean) => boolean)(v)
-            : next;
+      (next: T | ((prev: T) => T)) => {
+        v = typeof next === "function" ? (next as (p: T) => T)(v) : next;
       },
     ];
-  },
-}));
+  };
+  return {
+    boolPref: (opts: { fallback: boolean }) => stub(opts.fallback),
+    persistedPref: <T>(opts: { fallback: T }) => stub(opts.fallback),
+  };
+});
 
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {

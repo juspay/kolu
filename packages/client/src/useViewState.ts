@@ -10,10 +10,12 @@
  *  a new per-host fact is a plain signal inside `createViewState`, per-host by
  *  construction, never a field to remember here.
  *
- *  Two members stay HOST-INDEPENDENT (they must NOT swap on a host switch), so
- *  they remain app-level signals in this facade rather than owner state:
- *  `canvasMaximized` (a per-TAB view posture) and `centerActiveRequest` (a
- *  momentary viewport command).
+ *  One member stays HOST-INDEPENDENT (it must NOT swap on a host switch), so it
+ *  remains an app-level signal in this facade rather than owner state:
+ *  `centerActiveRequest` (a momentary write-and-consume viewport command).
+ *  `canvasMaximized` moved INTO the owner at W7 TIER A — it parameterizes the
+ *  VIEW OF this host's tiles, so it is per-host by THE RULE; the facade re-points
+ *  it at `activeScope()?.view.canvasMaximized` like every other per-host fact.
  *
  *  Removal-race flooring: `hostScopes.active()` is `undefined` for one tick when
  *  the active host is removed from the pool (the `wire.ts` membership reconcile
@@ -25,7 +27,6 @@
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { activeScope } from "./hostScope/hostScopes";
-import { boolPref } from "./persistedPref";
 
 /** A canvas camera pose — the viewport's pan offset (canvas-space) and zoom.
  *  Owned per host by `hostScope/createCamera`; the type lives here (beside the
@@ -40,15 +41,10 @@ export function useViewState() {
   const activeId = () => view()?.activeId() ?? null;
   const mruOrder = () => view()?.mruOrder() ?? [];
 
-  /** Whether the workspace is in fullscreen-one-tile mode. */
-  // HOST-SCOPING: host-INDEPENDENT by design — a per-TAB view posture (which tile
-  // is fullscreen), not a per-host selection fact; it must NOT swap on host switch.
-  // `boolPref` carries the strict `"true"`/`"false"` parse — the default coercion
-  // read the stored string `"false"` as truthy, latching the posture on once persisted.
-  const [canvasMaximized, setCanvasMaximizedSignal] = boolPref({
-    name: "kolu-canvas-maximized",
-    fallback: false,
-  });
+  /** Whether the workspace is in fullscreen-one-tile mode — the ACTIVE host's
+   *  per-host posture (born in `createViewState`, in-memory). Floors the removal
+   *  race to `false`, exactly like the view-selection reads above. */
+  const canvasMaximized = (): boolean => view()?.canvasMaximized() ?? false;
 
   /** Canvas "pan to this tile" intent — see `canvas/useCanvasFocus.ts` for the
    *  consumer seam. `equals: false` so back-to-back requests for the same id
@@ -84,7 +80,7 @@ export function useViewState() {
   ): void => view()?.setMruOrder(next);
 
   function toggleCanvasMaximized() {
-    setCanvasMaximizedSignal((prev) => !prev);
+    view()?.setCanvasMaximized((prev) => !prev);
   }
 
   const markUnread = (id: TerminalId) => view()?.markUnread(id);
@@ -95,11 +91,11 @@ export function useViewState() {
     view()?.hasBadgeAttention(id) ?? false;
 
   /** Clear the ACTIVE host's selection record (handleCloseAll closes every tile
-   *  on the active host). Other hosts' records are untouched. `canvasMaximized`
-   *  (per-tab posture) is reset too, matching the pre-per-host behavior. */
+   *  on the active host). Other hosts' records are untouched. The owner's `reset`
+   *  also drops this host's `canvasMaximized` posture back to tiled, matching the
+   *  pre-per-host behavior. */
   function reset() {
     view()?.reset();
-    setCanvasMaximizedSignal(false);
   }
 
   return {

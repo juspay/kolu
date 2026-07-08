@@ -2,9 +2,13 @@
  *
  *  Three storage layers because the right panel has three volatilities:
  *
- *  - **Workspace chrome** (collapsed, size, codeTabTreeSize) lives on
+ *  - **Workspace chrome** (size, codeTabTreeSize) lives on
  *    `preferences.rightPanel` — global to the user, set once and forgotten.
- *    Drives the desktop Resizable's collapsed/expanded geometry.
+ *    Drives the desktop Resizable's geometry. The **collapsed** bit was pulled
+ *    OUT of that global pref at W7 TIER A: it parameterizes the VIEW OF a host's
+ *    content (per-host by THE RULE), so it now lives PER HOST in the host scope
+ *    (`createViewState`) as an in-memory override seeded from the global
+ *    `preferences.rightPanel.collapsed`. See `collapsed`/`setCollapsed` below.
  *  - **Touch-layout drawer open state** (phone + compact) is session-local, NOT
  *    persisted. Dismissing the bottom-drawer host on a handheld is an ephemeral
  *    gesture; persisting it into account prefs would mean the next desktop
@@ -34,6 +38,7 @@ import {
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
+import { activeScope } from "../hostScope/hostScopes";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { isDesktop } from "../useMobile";
@@ -186,6 +191,19 @@ export function useRightPanel() {
    *  gap) and the toggle reads as open with nothing behind it. */
   const hasTerminals = () => tileStore.tileCount() > 0;
 
+  /** Effective desktop collapsed bit for the ACTIVE host. W7 TIER A made the
+   *  desktop panel visibility per-host: switching hosts remembers whether the
+   *  panel was collapsed on THAT host, rather than one global bit bleeding across
+   *  hosts. The per-host value lives in the host scope (`createViewState`) as an
+   *  in-memory override; `undefined` means "not yet touched on this host", so we
+   *  SEED the read from the existing global `preferences().rightPanel.collapsed`.
+   *  CHOICE (see the commit message): an in-memory per-host signal seeded from the
+   *  global pref, NOT a per-host field on the server preferences schema — the
+   *  lower-risk option (no server-schema widening; reload re-inherits the global,
+   *  matching the camera/posture tier). Floors the removal race to the global. */
+  const collapsed = (): boolean =>
+    activeScope()?.view.rightPanelCollapsed() ?? rp().collapsed;
+
   /** Read the per-terminal record for the active terminal, falling back
    *  to defaults when no terminal is active or the terminal has no record
    *  yet. The returned object is read-only — write through the mutators. */
@@ -220,20 +238,23 @@ export function useRightPanel() {
     reportToServer(id);
   }
 
-  /** Write the persisted desktop `collapsed` bit. No-op on an empty
-   *  workspace — the EmptyState owns the screen and there's no panel host,
-   *  so flipping the bit would just persist a ghost state. Every
+  /** Write the ACTIVE host's desktop `collapsed` bit (per-host, in-memory).
+   *  No-op on an empty workspace — the EmptyState owns the screen and there's no
+   *  panel host, so flipping the bit would just record a ghost state. Every
    *  collapsed-mutating path (toggle/collapse/expand and `reveal`'s desktop
-   *  branch) routes through here so the empty-workspace rule lives in one
-   *  place rather than per-caller. */
-  const setCollapsed = (collapsed: boolean) => {
+   *  branch) routes through here so the empty-workspace rule lives in one place
+   *  rather than per-caller. Also a no-op during the one-tick removal race (no
+   *  active scope to write). */
+  const setCollapsed = (next: boolean) => {
     if (!hasTerminals()) return;
-    updatePreferences({ rightPanel: { collapsed } });
+    activeScope()?.view.setRightPanelCollapsed(next);
   };
 
   return {
-    // ── Workspace chrome (global) ────────────────────────────────────
-    collapsed: () => rp().collapsed,
+    // ── Workspace chrome ─────────────────────────────────────────────
+    // `collapsed` is PER-HOST now (W7 TIER A); `size`/`codeTabTreeSize` stay
+    // global server prefs — viewer-density taste, per-tab by THE RULE.
+    collapsed,
     panelSize: () => rp().size,
     /** At least one terminal exists, so the desktop panel host is mounted
      *  (rather than the EmptyState). Desktop chrome gates its panel
@@ -244,8 +265,8 @@ export function useRightPanel() {
      *  when it isn't collapsed AND a terminal exists. ChromeBar keys its
      *  width offset and toggle state off this (not raw `collapsed`) so an
      *  empty workspace shows no ghost panel. */
-    panelOpen: () => hasTerminals() && !rp().collapsed,
-    togglePanel: () => setCollapsed(!rp().collapsed),
+    panelOpen: () => hasTerminals() && !collapsed(),
+    togglePanel: () => setCollapsed(!collapsed()),
     collapsePanel: () => setCollapsed(true),
     expandPanel: () => setCollapsed(false),
     setPanelSize: (size: number) => {
@@ -282,7 +303,7 @@ export function useRightPanel() {
      *  persisted `collapsed`) stay separate and are resolved here in one place. */
     reveal: () => {
       if (!isDesktop()) setDrawerOpen(true);
-      else if (rp().collapsed) setCollapsed(false);
+      else if (collapsed()) setCollapsed(false);
     },
 
     // ── Per-terminal task state ──────────────────────────────────────

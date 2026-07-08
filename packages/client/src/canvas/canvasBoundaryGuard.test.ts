@@ -15,6 +15,14 @@
  * into this test: a module-scope constructor here is a VIOLATION unless it declares
  * itself host-INDEPENDENT with the sanctioned marker + a reason.
  *
+ * THE RULE (the per-host-vs-per-tab decision every new UI-state fact answers):
+ *   UI state that parameterizes a VIEW OF per-host content is per-host; state that
+ *   parameterizes the VIEWER (eyes, hardware, density taste) is per-tab.
+ * Per-host facts (canvas-maximized posture, the dock's activity-window + ☾ filters,
+ * the right-panel collapsed bit, camera, focus/MRU) go in the `scopedByEntry` owner
+ * (`hostScope/*`). Per-tab facts (panel size / codeTabTreeSize density, dock rail-vs-
+ * cards, font size — the viewer's screen taste) stay app-level, persisted per browser.
+ *
  * Scope: `canvas/**` (the canvas subtree) + `useViewState.ts` (the view-state facade
  * that co-owns the camera type + host-independent posture). Column-0 `const` is this
  * biome-formatted tree's signal for "module scope" — an indented constructor is
