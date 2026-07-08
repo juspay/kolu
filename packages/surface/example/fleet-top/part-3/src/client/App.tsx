@@ -13,6 +13,7 @@ import type { Pid } from "../common/surface";
 import { app } from "./wire";
 
 export default function App() {
+  // #region mapped
   const entries = app.entries.use();
   const [activeHost, setActiveHost] = createSignal<string>(
     entries.keys()[0] ?? "localhost",
@@ -44,6 +45,7 @@ export default function App() {
   const kill = async (pid: Pid): Promise<void> => {
     await (active.rpc as KillRpc).surface.process.kill({ pid, signal: "TERM" });
   };
+  // #endregion
 
   const gb = (bytes: number): string => (bytes / 1e9).toFixed(1);
 

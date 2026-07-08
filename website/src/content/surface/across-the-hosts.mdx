@@ -1,18 +1,94 @@
 ---
 title: Across the hosts
-description: "Mirror fleet-top from another box over ssh — the remote agent's frames folded into a local re-serve that your existing client reads unchanged."
+description: "Mirror fleet-top from another box over ssh — the remote agent's frames folded into a local re-serve your browser reads as if the surface were local."
 order: 400
 section: Multi-host · Tutorial
+koluHero:
+  eyebrow: tutorial
+  headline: "Across the {hosts}."
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: Tutorial. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+import Steps from "../../components/docs/Steps.astro";
 
-Mirror fleet-top from another box over ssh — the remote agent's frames folded into a local re-serve that your existing client reads unchanged.
+So far fleet-top has watched *your* machine. Now we reach one running on
+**another** box, over ssh, and show its `top` in your browser — using the exact
+same surface. The trick is a **mirror**: the remote box serves the surface, a
+local parent folds its frames into a local copy of the same surface and re-serves
+*that*, and the browser only ever talks to the local copy. Swap the box behind it
+and the browser never notices.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - Grab fleet-top part 2
-> - Dial the host with makeSession + sshConnector
-> - Pump the remote surface inward
-> - Re-serve locally
-> - One dead box = one honest failed state
+<Aside type="note" title="Grab part 2">
+  The mirror code for this page lives at
+  `packages/surface/example/fleet-top/part-3`; it typechecks in CI, so the
+  snippets are the real files. This step needs ssh access to a box and a Nix
+  derivation of the agent — `localhost` works as the "remote" (a real ssh hop to
+  your own machine), which is exactly how the repo's own ssh tests run.
+</Aside>
+
+## The agent — what runs on the far box
+
+The remote side is tiny: it serves the same `top` surface over stdin/stdout. This
+is what `ssh <host> fleet-top-agent --stdio` runs. It is ephemeral — a fresh one
+per link — which is the right shape for a re-run-fresh reader like `top`.
+
+<Snippet src="packages/surface/example/fleet-top/part-3/src/agent/main.ts" />
+
+## The three-hop mirror
+
+On the parent, each host is one binding. First, **dial** it —
+`makeSession({ connectOnce: sshConnector(...) })` provisions the agent closure
+onto the box and runs it over ssh, reconnecting on drop.
+
+<Snippet src="packages/surface/example/fleet-top/part-3/src/server/hosts.ts" region="dial" />
+
+Then **pump** the agent's frames *inward*, folding each into a local
+`implementSurface` of the same surface. The local copy is what browser
+subscribers read; `makeSink` writes the incoming frames through its `ctx`.
+
+<Snippet src="packages/surface/example/fleet-top/part-3/src/server/hosts.ts" region="pump" />
+
+Finally **re-serve**: a `directLink` over the local fragment's flattened router is
+the link the browser reaches. Three hops — dial, pump, re-serve — and the surface
+that started on another machine now serves from this process.
+
+<Aside type="caution" title="The parent owns the connection state">
+  The remote box cannot report whether *your* link to it is healthy — so that
+  state is the parent's to own. While the closure is copying or the session is
+  reconnecting, the parent projects `warming`; a bounded remote fault projects
+  `failed`. One dead box becomes exactly one honest state, not a crash — the idea
+  behind [The server half](/surface/the-server-half).
+</Aside>
+
+## Watch it arrive
+
+<Steps>
+
+1. Point the parent at one host and start it. `HOST` is the ssh target;
+   `FLEET_TOP_AGENT_DRV` is the agent's Nix derivation, shipped and realised on
+   the box.
+
+   ```sh
+   HOST=localhost FLEET_TOP_AGENT_DRV=/nix/store/…-fleet-top-agent.drv pnpm run dev
+   ```
+
+   ```text
+   fleet-top part 3 serving 1 host(s) on http://localhost:7740
+   ```
+
+2. Open **http://localhost:5175**. The header chip shows the host warming while
+   the agent closure copies, then flips to connected — and the same live `top`
+   you built in part 1 fills in, this time streaming from across an ssh hop.
+
+</Steps>
+
+You changed nothing about the surface or the browser code. The box could be a
+laptop across the room; the mirror makes it read like local state.
+
+## Next
+
+One box is a mirror. Many boxes is a **map**. In
+[A fleet of surfaces](/surface/a-fleet-of-surfaces) you gather N hosts into one
+keyed surface, render them as chips, and watch a single dead box fail on its own
+— the moment fleet-top becomes a mini-drishti.

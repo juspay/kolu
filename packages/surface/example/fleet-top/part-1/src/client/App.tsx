@@ -13,6 +13,7 @@ import type { Pid } from "../common/surface";
 import { app } from "./wire";
 
 export default function App() {
+  // #region hooks
   const load = app.cells.load.use();
   const memory = app.cells.memory.use();
   const processes = app.collections.processes.use({
@@ -31,6 +32,7 @@ export default function App() {
   const kill = async (pid: Pid): Promise<void> => {
     await app.rpc.surface.process.kill({ pid, signal: "TERM" });
   };
+  // #endregion
 
   const gb = (bytes: number): string => (bytes / 1e9).toFixed(1);
 

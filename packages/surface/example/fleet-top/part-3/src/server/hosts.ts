@@ -71,6 +71,7 @@ function projectState(s: SessionState): EntryConnectionState<"copying"> {
 }
 
 export function buildHostBinding(host: string, agentDrv: string): HostBinding {
+  // #region dial
   const session: Session<AgentClient<typeof surface.contract>> = makeSession({
     initialConnection: "copying",
     connectOnce: sshConnector<typeof surface.contract>({
@@ -83,6 +84,7 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
     }),
     label: `host:${host}`,
   });
+  // #endregion
 
   // The local surface implementation this host's browser subscribers read. The
   // pump folds the agent's frames into these stores/caches.
@@ -126,6 +128,7 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   // Pump the agent's frames into the local fragment. `makeSink` is rebuilt per
   // spawn (state resets on reconnect); the first `load` frame is the handshake
   // that flips the session to `connected`.
+  // #region pump
   let firstLoad = true;
   void pumpRemoteSurface({
     source: surface,
@@ -152,6 +155,7 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
       };
     },
   });
+  // #endregion
 
   const router = implement(surface.contract).router({ ...fragment.router });
   const link = directLink<typeof surface.contract>(router);

@@ -1,19 +1,101 @@
 ---
 title: A fleet of surfaces
-description: "Fan out to N boxes through a surface map: entries, chips, useEntry, and an honest failed chip when one box dies — you have built a mini-drishti."
+description: "Fan out to N boxes through a surface map — entries, chips, useEntry, and one honest failed chip when a box dies. You have built a mini-drishti."
 order: 401
 section: Multi-host · Tutorial
+koluHero:
+  eyebrow: tutorial
+  headline: "A fleet of {surfaces}."
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: Tutorial. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+import Steps from "../../components/docs/Steps.astro";
 
-Fan out to N boxes through a surface map: entries, chips, useEntry, and an honest failed chip when one box dies — you have built a mini-drishti.
+One mirror gives you one remote box. A **surface map** gives you a whole fleet:
+the same `top` surface, keyed by host, reached through one object. Membership is
+one authoritative list, each host is a chip, and when a single box dies it
+becomes exactly one `failed` chip while the rest keep serving. By the end of this
+page you will be looking at a miniature [drishti](https://github.com/srid/drishti).
 
-> **Draft.** This page is being written. Planned contents:
->
-> - Grab fleet-top part 3
-> - Build a MapRegistry over N hosts
-> - Render entries as chips
-> - useEntry for one box
-> - Kill a box, watch the chip go failed
-> - The punchline: a mini-drishti
+<Aside type="note" title="Same code as part 3">
+  This is the same `packages/surface/example/fleet-top/part-3` you ran in
+  [Across the hosts](/surface/across-the-hosts) — now we point it at more than one
+  box and look at the client that renders them.
+</Aside>
+
+## Type the surface once, key it by host
+
+`defineSurfaceMap` folds the host key into every entry-member call, so the client
+reaches *any* host's cells and collections through one object and membership is a
+single authoritative collection. The key here is just a hostname, so its codec is
+the identity pair.
+
+<Snippet src="packages/surface/example/fleet-top/part-3/src/common/map.ts" />
+
+## One registry, one writer of membership
+
+On the parent, a `MapRegistry` is the single writer of membership. It lists the
+hosts, and its `resolve(host)` hands the map each host's link plus its projected
+connection state — or a `fault` for an unknown key. `serveSurfaceMap(hostMap, registry)`
+publishes the `entries` membership collection and forwards every key-folded call
+to the right host's link. That forwarding is why one dead box surfaces as one
+`failed` chip rather than taking down the page. (The registry lives in
+`src/server/main.ts`; it is a plain object with `members`, `subscribe`, `has`,
+and `resolve`.)
+
+## Render the fleet
+
+The client consumes the map through three hooks: `app.entries.use()` for the chip
+strip, `app.entry(host).state()` for each chip's status, and `app.useEntry(host)`
+for the selected host's canvas — which re-keys on switch, disposing the old
+host's subscriptions and populating the new one's.
+
+<Snippet src="packages/surface/example/fleet-top/part-3/src/client/App.tsx" region="mapped" />
+
+<Aside type="caution" title="entry.rpc is unknown — cast it once">
+  On a generic map, `entry.rpc` is typed `unknown` (a fully generic client type
+  would overflow TypeScript's union budget). The consumer casts it once to its
+  own surface's procedure shape — the `KillRpc` cast above. This is the one place
+  the map hands you an untyped edge; see [Entry contracts](/surface/entry-contracts).
+</Aside>
+
+## Watch a box fail on its own
+
+<Steps>
+
+1. Point the parent at several hosts.
+
+   ```sh
+   HOST=boxA,boxB,boxC FLEET_TOP_AGENT_DRV=/nix/store/…-fleet-top-agent.drv pnpm run dev
+   ```
+
+   ```text
+   fleet-top part 3 serving 3 host(s) on http://localhost:7740
+   ```
+
+2. Open **http://localhost:5175**. Each host is a chip; click one to bring its
+   `top` onto the canvas. Switch between them — the canvas re-keys instantly.
+
+3. Now break one box — stop its sshd, pull its network, or kill the agent. Its
+   chip turns `failed` and stays there. Every other host keeps streaming, and the
+   canvas for a live host is untouched.
+
+</Steps>
+
+That last step is the whole point. There is no global error state, no fleet-wide
+spinner: presence is per-entry, and a fault is isolated to the entry that owns it.
+
+## You built a mini-drishti
+
+Look back at what fleet-top became. A surface you declared once (part 1) now runs
+as a durable daemon (part 2), is mirrored from remote boxes over ssh (part 3),
+and is presented as a live, keyed fleet where each host stands or falls on its
+own. Swap "top" for "an agent session" and you have drishti; swap it for
+"terminals" and you have kolu's own multi-host canvas. The surface is the part
+that did not change.
+
+Where to go next: [The client half](/surface/the-client-half) for why the fleet
+is shaped this way, [Serve a map](/surface/serve-a-map) and
+[Operate a fleet safely](/surface/operate-a-fleet-safely) for the how-to, and
+[the map reference](/surface/ref-surface-map) for the wire contracts underneath.
