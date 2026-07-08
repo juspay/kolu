@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-08T02:39:43.838171+00:00'
+generated_at: '2026-07-08T02:50:49.479506+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agents
@@ -331,20 +331,6 @@ dependencies:
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
   content_hash: sha256:9575434ddde22cc69174ac75e2f801032dbc3dea793ff193d58f0a341b2eacb1
   declared_license: MIT
-- repo_url: srid/llm-debate
-  name: debate
-  host: github.com
-  resolved_commit: 6e7104bc2d0e01907249c27386c25bd7516c0ab5
-  version: 1.0.0
-  virtual_path: .apm/skills/debate
-  is_virtual: true
-  package_type: claude_skill
-  deployed_files:
-  - .agents/skills/debate
-  - .agents/skills/debate/SKILL.md
-  - .claude/skills/debate
-  - .claude/skills/debate/SKILL.md
-  content_hash: sha256:56abe4fc2cbf64aa7931e3ec81287205f8da5292c145474d8711f4da727fe6be
 mcp_servers:
 - chrome-devtools
 - odu
