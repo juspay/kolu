@@ -95,9 +95,9 @@
     <text x="715" y="410" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">only the pipe behind it swaps</text>
   </svg>
   <figcaption>
-    The remote agent serves over stdio; the parent
+    The remote agent serves over stdio; the parent{" "}
     <strong>① dials</strong> it over ssh, <strong>② pumps</strong> its frames
-    into a local <code>implementSurface</code>, and <strong>③ re-serves</strong>
+    into a local <code>implementSurface</code>, and <strong>③ re-serves</strong>{" "}
     that copy to the browser. The browser only ever talks to the local copy —
     only the ssh pipe behind it swaps.
   </figcaption>
