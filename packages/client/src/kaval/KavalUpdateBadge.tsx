@@ -1,11 +1,8 @@
 /** Accessors for "the running kaval daemon is a build behind the kaval the
- *  server would spawn" (B3.4 — currency), plus an optional amber "⬆ update"
- *  chip component. Host-first chrome keeps the dual-daemon slot icon+dot only
- *  (update detail rides the Kaval tooltip and {@link KavalInfoDialog}); the
- *  chip component remains for dialog/surfaces that still want an inline nudge.
- *
- *  Session-preserving Restart-kaval lives in `KavalInfoDialog` (inline confirm
- *  + running-vs-expected detail), reusing `RestartKavalButton` unchanged.
+ *  server would spawn" (B3.4 — currency). Host-first chrome keeps the dual-daemon
+ *  slot icon+dot only; update detail rides the Kaval tooltip and
+ *  {@link KavalInfoDialog}. Session-preserving Restart-kaval lives in that
+ *  dialog (`RestartKavalButton`).
  *
  *  The derivation ({@link kavalStale}) is a read-site join of two raw facts —
  *  `expected` (padi's `status.expectedKaval`) and `reported` (the connected
@@ -13,7 +10,7 @@
  *  client-vs-server `≠ srv` signal (which stays the commit comparison). */
 
 import type { PadiStatus } from "@kolu/padi/surface";
-import { type Component, createRoot } from "solid-js";
+import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { activeHost, padiMap } from "../wire";
 import { kavalStale } from "./kavalCurrency";
@@ -41,15 +38,9 @@ export const expectedKaval = (): PadiStatus["expectedKaval"] =>
 
 /** True when the running kaval daemon is provably a build behind the server's
  *  expected build. Reads padi's `status` cell (`status.expectedKaval`) and the
- *  live `daemonStatus`. Gate the nudge on this:
- *  `<Show when={kavalUpdatePending()}><KavalUpdateBadge /></Show>`. */
+ *  live `daemonStatus`. Floored on transport liveness: over a dead/half-open
+ *  link the retained daemon identity is stale, so the nudge cannot honestly fire. */
 export const kavalUpdatePending = (): boolean => {
-  // Floored on transport liveness like the kaval dot beside it: over a dead/half-open
-  // link the retained daemon identity is stale, so the "a newer build is available;
-  // click to restart" nudge can't honestly fire — the grey "unknown" dot must not sit
-  // next to an amber "connected and behind" chip whose restart would fail loudly. The
-  // floor rides INSIDE `kavalStale` (a required `live` leg), so the dialog's own banner
-  // (KavalInfoDialog) can't re-derive the verdict without it.
   const status = localDaemonStatus();
   return kavalStale(
     expectedKaval()?.staleKey,
@@ -58,11 +49,3 @@ export const kavalUpdatePending = (): boolean => {
     daemonChannelLive(),
   );
 };
-
-/** The compact amber "⬆ update" nudge chip — kolu's own chrome. Passive: the
- *  kaval column it sits in opens the dialog where the restart lives. */
-export const KavalUpdateBadge: Component = () => (
-  <span class="self-center whitespace-nowrap rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning">
-    ⬆ update
-  </span>
-);

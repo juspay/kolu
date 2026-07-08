@@ -60,6 +60,7 @@
  *
  *  A trailing "+ add" opens an inline input → `client.hosts.add`. */
 
+import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
   decodeHostKey,
@@ -101,6 +102,10 @@ import {
  *  dual-daemon slot CSS — measurement is truth; this only avoids dumping
  *  every chip into overflow on the very first paint. */
 const FIRST_FRAME_CHIP_WIDTH_GUESS: number = 148;
+
+/** Tailwind `md` (768px) — chip row vs dropdown. Real Solid media signal so
+ *  only ONE dual-daemon fill mounts (CSS `hidden` does not unmount). */
+const atMd = createMediaQuery("(min-width: 48rem)");
 /** The "⋯ +N" overflow trigger's own rendered width + gap — reserved from
  *  the fit budget only once chips don't all fit (see `hostOverflow.ts`). */
 const OVERFLOW_TRIGGER_RESERVE: number = 44;
@@ -469,37 +474,27 @@ const HostSelectorStrip: Component = () => {
           </For>
         }
       >
-        {/* `md` and up: the fit row — active chip + as-many-as-fit, rest in
-         *  the "⋯ +N" menu. Strictly one row, fixed height: never wraps.
-         *
-         *  The split below is keyed on `md` (768px), NOT `sm` (640px):
-         *  `ChromeBar` (and this whole component) never mounts at all below
-         *  `sm` — `useMobile.ts`'s `layoutMode` swaps to an entirely
-         *  different phone chrome (`MobileChromeSheet`) at that width, a
-         *  fork this file has no say over. So `sm` is this component's own
-         *  WIDEST point of extinction, not a stage within it — pegging stage
-         *  4 there would make it unreachable dead code. `640..768px` is
-         *  this component's actual narrowest LIVE range (a real desktop
-         *  window resized narrow, or a `compact`-mode handheld above `sm`),
-         *  so that is where "mobile-extreme" lands. */}
-        <div
-          class="hidden md:flex items-center gap-1.5 min-w-0 flex-nowrap"
-          data-testid="host-chip-row"
+        {/* `md` and up vs `sm..md`: mount ONLY one layout (media signal, not
+         *  CSS-only hide). Both used to stay mounted with `hidden md:flex` /
+         *  `md:hidden`, which double-filled dual-daemon slots on the active
+         *  host. Split is keyed on `md` (768px), not `sm` — ChromeBar never
+         *  mounts below `sm` (phone chrome). */}
+        <Show
+          when={atMd()}
+          fallback={<HostDropdownSwitcher hosts={renderableHosts()} />}
         >
-          <For each={hostFit().visible}>
-            {(key) => <HostChip host={decodeHostKey(key)} />}
-          </For>
-          <Show when={hostFit().overflowed.length > 0}>
-            <HostOverflowMenu hosts={hostFit().overflowed} />
-          </Show>
-        </div>
-
-        {/* `sm..md` (mobile-extreme, narrow-window stage 4 — this
-         *  component's actual narrowest reachable range, see above): one
-         *  dropdown unit (select + dual-daemon) replaces the chip row. */}
-        <div class="flex md:hidden">
-          <HostDropdownSwitcher hosts={renderableHosts()} />
-        </div>
+          <div
+            class="flex items-center gap-1.5 min-w-0 flex-nowrap"
+            data-testid="host-chip-row"
+          >
+            <For each={hostFit().visible}>
+              {(key) => <HostChip host={decodeHostKey(key)} />}
+            </For>
+            <Show when={hostFit().overflowed.length > 0}>
+              <HostOverflowMenu hosts={hostFit().overflowed} />
+            </Show>
+          </div>
+        </Show>
       </Show>
 
       {/* Hidden measuring row — off-screen (position absolute, so it never

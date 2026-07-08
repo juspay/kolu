@@ -5,13 +5,12 @@
  *  the content always matches the host whose facts the children read. Inactive
  *  chips leave the same outer box empty — host-switch reflow is impossible.
  *
- *  COMPACTION: resting state is icon + status dot only. Steady versions and
- *  mem/update detail live in tooltips and the info dialogs. The sole bar
- *  exception is the contract-skew pair on Padi when the active entry failed
- *  with `contract-skew-refused` (clipped inside the fixed slot if needed).
+ *  COMPACTION: resting state is icon + status dot only. Steady versions, skew
+ *  pairs, mem/update detail live in tooltips and the info dialogs — never as
+ *  always-on bar chrome inside the fixed slot.
  *
- *  Padi glance status is the ACTIVE host's map entry (`activeEntryState` /
- *  `padiMap.entry(host)`), not kolu-server's host-independent local `padiLink`. */
+ *  Padi glance status is the ACTIVE host's map entry (`activeEntryState`), not
+ *  kolu-server's host-independent local `padiLink`. */
 
 import type { EntryState } from "@kolu/surface-map";
 import type { HostKey } from "kolu-common/hostKey";
@@ -44,54 +43,41 @@ import { kavalMemoryDisplay, padiMemoryDisplay } from "../ui/useMemoryUsage";
 import { activeHost, padiMap } from "../wire";
 import { dotClass, sameHost, statusTitle } from "./hostChipTone";
 
-/**
- * Outer dual-daemon slot width — fixed on every host chip (active fill and
- * inactive empty). Sized for two compact icon+dot marks; skew text, when
- * present, lives inside and clips rather than growing the chip.
- */
-export const DUAL_DAEMON_SLOT_CLASS =
+/** Outer dual-daemon slot — fixed on every host chip (active fill / inactive empty). */
+const DUAL_DAEMON_SLOT_CLASS =
   "flex h-7 w-[3.25rem] shrink-0 items-center justify-center overflow-hidden";
 
 const subChipClass =
   "pointer-events-auto shrink-0 relative flex h-7 items-center justify-center px-0.5 leading-4 text-fg-2 transition-colors hover:bg-surface-3/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
-/** Map entry → dialog's legacy `PadiLink` vocabulary so {@link PadiInfoDialog}
- *  still receives a status it understands, keyed off the ACTIVE host's entry. */
+/** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind so a
+ *  new entry arm is a compile error here, not a silent `default`. */
+const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
+  connected: "connected",
+  warming: "connecting",
+  failed: "degraded",
+  "not-a-member": undefined,
+};
 function entryAsPadiLink(state: EntryState): PadiLink | undefined {
-  switch (state.kind) {
-    case "connected":
-      return "connected";
-    case "warming":
-      return "connecting";
-    case "failed":
-      return "degraded";
-    default:
-      return undefined;
-  }
+  return ENTRY_AS_PADI_LINK[state.kind];
 }
 
-/** Contract-skew running→expected pair — only when the active host's padi
- *  entry failed with `contract-skew-refused`. */
-const SkewVersionSpan: Component<SkewVersionPair> = (props) => (
-  <span class="max-w-[2.75rem] truncate whitespace-nowrap tabular-nums text-[9px] leading-4 text-warning">
-    {`v${props.running}→v${props.expected}`}
-  </span>
-);
+/** Active-host contract skew pair, when the map entry failed that way. Tip-only. */
+function activeSkewPair(): SkewVersionPair | undefined {
+  const state = padiMap.entry(activeHost()).state() as PadiEntryStatus;
+  if (state.kind !== "failed" || state.cause !== "contract-skew-refused")
+    return undefined;
+  const { running, expected } = state as SkewVersionPair;
+  return { running, expected };
+}
 
-/** The Padi sub-chip — icon + active-host entry dot (+ skew pair when broken). */
+/** The Padi sub-chip — icon + active-host entry dot. */
 const PadiSubChip: Component = () => {
   const [open, setOpen] = createSignal(false);
   const daemonLive = daemonTransportLive;
   const entry = activeEntryState;
   const padiVersion = (): string | undefined =>
     activePadiIdentity()?.surfaceVersion;
-  const skewPair = (): SkewVersionPair | undefined => {
-    const state = padiMap.entry(activeHost()).state() as PadiEntryStatus;
-    if (state.kind !== "failed" || state.cause !== "contract-skew-refused")
-      return undefined;
-    const { running, expected } = state as SkewVersionPair;
-    return { running, expected };
-  };
   const padiMemoryText = (): string =>
     match(padiMemoryDisplay())
       .with({ kind: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
@@ -99,7 +85,7 @@ const PadiSubChip: Component = () => {
       .with(P.nullish, () => "memory unavailable")
       .exhaustive();
   const padiTip = (): string => {
-    const skew = skewPair();
+    const skew = activeSkewPair();
     return joinTip(
       `padi ${daemonLive() ? statusTitle(entry()) : "unknown"}`,
       skew
@@ -132,14 +118,6 @@ const PadiSubChip: Component = () => {
             class={daemonLive() ? dotClass(entry()) : "bg-fg-3/40"}
           />
         </IdentityMark>
-        <Show when={skewPair()}>
-          {(pair) => (
-            <SkewVersionSpan
-              running={pair().running}
-              expected={pair().expected}
-            />
-          )}
-        </Show>
       </button>
       <PadiInfoDialog
         open={open()}
@@ -150,7 +128,7 @@ const PadiSubChip: Component = () => {
   );
 };
 
-/** The Kaval sub-chip — icon + daemon-state dot. Click opens {@link KavalInfoDialog}. */
+/** The Kaval sub-chip — icon + daemon-state dot. */
 const KavalSubChip: Component = () => {
   const [open, setOpen] = createSignal(false);
   const clockNow = getClockNow();
@@ -213,8 +191,7 @@ const KavalSubChip: Component = () => {
  *
  *  `host` is the host this control represents. Fill is derived — never a free
  *  boolean — so content always re-keys with the same host the parent paints.
- *  `measure` forces empty (hidden measuring-row twins: width reserve without a
- *  second live Padi/Kaval mount). */
+ *  `measure` forces empty (hidden measuring-row twins). */
 export const HostDualDaemonSlot: Component<{
   host: HostKey;
   measure?: boolean;
