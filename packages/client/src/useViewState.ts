@@ -5,8 +5,9 @@
  *  Terminal grid dimensions are per-instance — each xterm measures its
  *  own container via FitAddon.
  *
- *  HOST-SCOPING (shape B): the SELECTION facts — active tile, MRU order, and
- *  per-tile attention — are PER HOST. Each host the tab has viewed keeps its own
+ *  HOST-SCOPING (shape B): the SELECTION facts — active tile, MRU order,
+ *  per-tile attention, and the canvas CAMERA (pan/zoom) it was last viewed at —
+ *  are PER HOST. Each host the tab has viewed keeps its own
  *  `HostView` record IN MEMORY, keyed by the canonical host string; switching the
  *  active host SWAPS which record every accessor reads/writes, so a host's focus +
  *  MRU + unread survive a switch-away and are restored verbatim on switch-back
@@ -24,18 +25,32 @@ import { activeHost, activePadiRpc } from "./wire";
 
 type TerminalAttention = "unread" | "badge-only";
 
-/** One host's selection state — the active tile, its MRU order, and per-tile
- *  attention. Held in memory per host and swapped on switch. */
+/** A canvas camera pose — the viewport's pan offset (canvas-space) and zoom.
+ *  The LIVE camera lives in `canvas/viewport/useCanvasViewport.ts`'s module
+ *  signals (that is where the #1308 rAF write-coalescing writes); this is the
+ *  durable PER-HOST snapshot of it, saved/restored around a host switch. The
+ *  type lives HERE, beside its per-host storage, so `useViewState` (view state)
+ *  never takes a reverse dep on `canvas/` — the viewport imports the type
+ *  DOWN-arrow instead (canvas → view state). */
+export type Camera = { panX: number; panY: number; zoom: number };
+
+/** One host's selection state — the active tile, its MRU order, per-tile
+ *  attention, and the canvas camera it was last viewed at. Held in memory per
+ *  host and swapped on switch. `camera` is `null` until the host has been
+ *  viewed once (FIRST VISIT), which is the signal the switch-in center uses to
+ *  decide "seed the camera on the active tile" vs. "restore the saved pose". */
 type HostView = {
   activeId: TerminalId | null;
   mruOrder: TerminalId[];
   attention: Record<TerminalId, TerminalAttention>;
+  camera: Camera | null;
 };
 
 const emptyHostView = (): HostView => ({
   activeId: null,
   mruOrder: [],
   attention: {},
+  camera: null,
 });
 
 export function useViewState() {
@@ -124,6 +139,32 @@ export function useViewState() {
    *  by default. */
   const setActiveSilently = writeActive;
 
+  /** Fire the "pan to the active tile" impulse for the CURRENT host without
+   *  touching the active selection or reporting anything to the server. This is
+   *  the switch-in center-on-active path (B): a pure host SWITCH changes which
+   *  record `activeId()` reads but runs none of `writeActive`'s side effects, so
+   *  it never re-centers on its own. `centerActiveRequest` is a LOCAL viewport
+   *  command — firing it is never a wrong-host `chrome.setActive` write. A
+   *  no-op when the host has no active tile. */
+  function requestCenterActive(): void {
+    const id = activeId();
+    if (id !== null) setCenterActiveRequest(id);
+  }
+
+  /** Read a host's saved camera pose (or `null` if the host has never been
+   *  viewed). Keyed by the EXPLICIT `encodeHostKey` string — the switch seam
+   *  restores the INCOMING host's pose, which is no longer `hostKey()` by the
+   *  time the swap runs. */
+  const readCamera = (k: string): Camera | null => hosts[k]?.camera ?? null;
+
+  /** Save a host's camera pose. Keyed EXPLICITLY (see {@link readCamera}) so the
+   *  switch seam can snapshot the OUTGOING host, which `hostKey()` no longer
+   *  names once `activeHost()` has flipped. */
+  function writeCamera(k: string, camera: Camera): void {
+    ensureHost(k);
+    setHosts(k, "camera", camera);
+  }
+
   function setMruOrder(
     next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
   ): void {
@@ -201,6 +242,9 @@ export function useViewState() {
     mruOrder,
     setMruOrder,
     centerActiveRequest,
+    requestCenterActive,
+    readCamera,
+    writeCamera,
     markUnread,
     markBadgeAttention,
     clearBadgeAttention,
