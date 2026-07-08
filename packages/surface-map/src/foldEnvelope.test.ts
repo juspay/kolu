@@ -36,7 +36,10 @@ describe("fold envelope — void input carries no key, independent of zod versio
     expect(INPUT_FIELD in voidFrame).toBe(false);
     expect(voidFrame[MAP_KEY_FIELD]).toBe("remote:B");
 
-    const inputFrame = fold("remote:B", { key: "k" }) as Record<string, unknown>;
+    const inputFrame = fold("remote:B", { key: "k" }) as Record<
+      string,
+      unknown
+    >;
     expect(inputFrame[INPUT_FIELD]).toEqual({ key: "k" });
   });
 
