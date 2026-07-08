@@ -23,6 +23,8 @@ Legend: ✅ done · 🔄 in flight · ⏸ blocked · ⬜ not started
 - Header-v2 **LANDED** (`76e22ab24`): stationary daemon slot + responsive strip, host-switch never reflows.
 - ⚠ MORNING-REVIEW items: (1) `serveHostMap` gained an *optional* `causeFor` hook (additive) — my architecture review judges it against the no-knobs bar; (2) the drishti pairing for the API ripples rides the planned pin-bump of #90 (must adapt `EntryStatus<Cause>` + any serveHostMap ripple) before merge.
 
+**Architecture review verdict (step 4, 23 agents · 6 lenses · adversarially verified)**: **16 findings refuted, ONE confirmed framework defect, 2 minors** — the framework substantially held srid's "perfect" bar. The confirmed defect (P4, found via the consumer-witness lens): `projectStatus` collapses retriable `disconnected` into terminal `failed`, so a healthy host's reconnect window renders as a steady red dead-host chip in both consumers. Fix ordered (recommended + logged): `disconnected → warming`, `failed` strictly terminal — keeps the 3-arm vocabulary, zero API ripple. Minors: tag the `EntrySession|EntryFault` sum; make the adopt-path's silent `markConnected` no-op loud. All never-defer; batching with the AbortError disposal fix → one CI → re-test.
+
 **The night sequence**: current slew (apm `/debate` emission, header-v2 stationary slot) → held-batch implementation (P0 ownership-gated drain + Skew-UX CanvasFacts/card/badge) → full CI green (do.md) → coordinator's architecture review (types + framework electricity, both consumers, "is this a perfect framework") → every finding fixed → CI green again → user-flow re-test (local↔sincereintent) → morning report.
 
 ### kolu #1714 — remaining work
