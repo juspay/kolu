@@ -35,7 +35,7 @@ A surface has five member kinds. The first four are the reactive primitives;
 Cells, collections, and streams are *state* — a current value to render. An
 event is an *occurrence* — a handler fires per yield and there is no current
 value. Anything genuinely outside these shapes (bidirectional binary streams,
-commands) stays as raw oRPC. For why these four and not one, see
+commands) stays as raw [oRPC](https://orpc.dev/docs/contract-first/define-contract). For why these four and not one, see
 [Why surfaces](/surface/why-surfaces).
 
 The `Surface<S>` value carries `surface.contract` (the typed oRPC router that

@@ -8,9 +8,9 @@ section: Basics · Reference
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-Re-expose any `@kolu/surface` as an MCP server, so a coding agent drives it with
+Re-expose any `@kolu/surface` as an [MCP](https://modelcontextprotocol.io) server, so a coding agent drives it with
 structured tool calls. The adapter owns the generic parts — the
-`resources/subscribe` lifecycle, the zod → JSON-Schema bridge, stdio discipline —
+`resources/subscribe` lifecycle, the [zod](https://zod.dev) → JSON-Schema bridge, stdio discipline —
 and leaves the consumer in control of *what* is exposed.
 
 ## `serveSurfaceAsMcp`

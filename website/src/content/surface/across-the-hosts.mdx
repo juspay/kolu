@@ -66,8 +66,9 @@ that started on another machine now serves from this process.
 </Aside>
 
 <Aside type="caution" title="Prerequisites for running it">
-  Multi-host needs two things the earlier parts did not. **(1) The agent as a Nix
-  derivation.** `sshConnector` ships a realised closure to each host, so it needs
+  Multi-host needs two things the earlier parts did not. **(1) The agent as a
+  [Nix derivation](https://nixos.org/manual/nix/stable/language/derivations.html).**
+  `sshConnector` ships a realised closure to each host, so it needs
   the agent's `.drv` path in `FLEET_TOP_AGENT_DRV` — the server refuses to boot
   without it (no fallback). fleet-top ships the agent as a flake output, so you
   resolve it in one command: `nix eval --raw .#fleet-top-agent.drvPath` (from the

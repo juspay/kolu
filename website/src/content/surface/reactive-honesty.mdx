@@ -42,7 +42,7 @@ the subscription.
 
 The last rule is about how you *read* the surface. Use the bound hooks
 (`.cells.X.use()`, `.collections.X.use()`, `.streams.X.use()`) and each new value
-flows in through fine-grained reactivity — objects reconciled key-by-key, keyed
+flows in through [fine-grained reactivity](https://docs.solidjs.com/concepts/intro-to-reactivity) — objects reconciled key-by-key, keyed
 list rows mounted and torn down individually as the key set changes.
 
 The anti-pattern is a coarse read that copies the whole thing into your own

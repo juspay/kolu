@@ -24,7 +24,7 @@ client hooks from that one declaration. The declaration is the contract.
 
 `defineSurface` takes a spec and returns a `Surface`. From it:
 
-- the **contract** is a compile-time oRPC router — a typed literal, not runtime reflection, because the typed client has to know the shape at compile time;
+- the **contract** is a compile-time [oRPC](https://orpc.dev/docs/contract-first/define-contract) router — a typed literal, not runtime reflection, because the typed client has to know the shape at compile time;
 - the **server** is `implementSurface(surface, deps)`, which wires every handler and hands you a `ctx` for mutations;
 - the **client** is `surfaceClient(surface, link)`, whose bound hooks you just read.
 

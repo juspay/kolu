@@ -105,7 +105,7 @@ the cell ships browser-safe from `@kolu/surface-remote/connection`.
 - **State progression.** `copying → connecting → connected`; on drop, `disconnected → copying → …` at exponential backoff capped at 60s.
 
 <Aside type="note" title="Nix is the contract, not the implementation">
-  Provisioning ships a `.drv` (build instructions, platform-neutral), so the
+  Provisioning ships a `.drv` (a [Nix derivation](https://nixos.org/manual/nix/stable/language/derivations.html) — build instructions, platform-neutral), so the
   remote realises target-arch-correct binaries — parent darwin can front target
   linux. A warm host collapses the copy/realise/pin to a single realise-probe.
   There is no tarball, Docker, or prebuilt fallback. The parent's user must be in
