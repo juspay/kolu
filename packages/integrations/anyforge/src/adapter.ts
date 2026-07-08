@@ -7,7 +7,7 @@
  *  synchronous `onEvent` contract is never crossed by an awaited
  *  detection (see the anyforge Atlas note, decision D3). */
 
-import type { Logger } from "kolu-shared";
+import type { Logger } from "@kolu/log";
 import type { PrResult, PrUnavailableSourceBase } from "./schemas.ts";
 
 /** The git state a resolve needs — handed through `PrWatcher.setGit` and

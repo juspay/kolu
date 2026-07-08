@@ -1,7 +1,7 @@
 /** Shared log-level policy for a failed PR resolve — forge-neutral, so every
  *  adapter routes its failures the same way instead of re-deciding per forge. */
 
-import type { Logger } from "kolu-shared";
+import type { Logger } from "@kolu/log";
 import type { PrResult } from "./schemas.ts";
 
 /** Route a failed PR resolve to the right log level:

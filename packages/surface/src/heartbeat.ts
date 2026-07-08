@@ -83,6 +83,16 @@ const monotonicNow = (): number =>
     ? performance.now()
     : Date.now();
 
+type TimerHandle =
+  | ReturnType<typeof setTimeout>
+  | ReturnType<typeof setInterval>;
+
+function unrefTimer(handle: TimerHandle): void {
+  if (handle === null || typeof handle !== "object") return;
+  const unref = (handle as { unref?: unknown }).unref;
+  if (typeof unref === "function") unref.call(handle);
+}
+
 /** The app-facing knob to TUNE (never disable) the watchdog the connect seams /
  *  `createLiveSignal` wire. Framework-free (no solid) so the framework-free
  *  `@kolu/surface-app/connect` can build its `HeartbeatConfig` on it too. `onStale`
@@ -322,7 +332,7 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       }
       settled(true, gen);
     }, timeoutMs);
-    probeTimer.unref?.();
+    unrefTimer(probeTimer);
     // A SYNCHRONOUS throw from `probe` means NO round-trip was made at all — the
     // probe is miswired (a bad client cast, a missing method), not a liveness
     // signal — so it must NOT be silently classified as alive the way a genuine
@@ -395,7 +405,7 @@ export function createHeartbeat(opts: HeartbeatOptions): {
     tick();
   }
   const handle = setInterval(tick, intervalMs);
-  handle.unref?.();
+  unrefTimer(handle);
   return {
     dispose: () => {
       disposed = true;

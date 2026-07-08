@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 /** Guards the "App.tsx is a thin layout shell" invariant (#1340). App.tsx
  *  mounts layout and composes domain singletons — it must not OWN domain state.
  *  New reactive primitives (createSignal / createMemo / createEffect) in the

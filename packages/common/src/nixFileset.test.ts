@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 /**
  * GUARD TEST (C7): `default.nix`'s workspace-typecheck `src` fileset is a MANUALLY
  * maintained `lib.fileset.unions` — a package omitted there is silently type-checked

@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /// <reference types="@kolu/surface-app/client" />
 
 // The build commit rides the no-store shell as `window.__SURFACE_APP_COMMIT__`
