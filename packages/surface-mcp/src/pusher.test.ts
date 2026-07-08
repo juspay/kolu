@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 /**
  * `ResourcePusher` lifecycle — driven generically with a fake client that
  * emits frames on demand. Pins the spine's contract: a frame fires a

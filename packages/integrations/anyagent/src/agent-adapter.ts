@@ -17,7 +17,7 @@
  * equality function suffices for every adapter.
  */
 
-import type { Logger } from "kolu-shared";
+import type { Logger } from "@kolu/log";
 import type { TaskProgress } from "./schemas.ts";
 
 /** Snapshot of a terminal's observable state, passed to `resolveSession`.

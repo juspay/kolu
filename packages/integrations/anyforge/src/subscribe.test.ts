@@ -1,4 +1,6 @@
-import type { Logger } from "kolu-shared";
+/// <reference types="node" />
+
+import type { Logger } from "@kolu/log";
 import {
   afterEach,
   beforeEach,

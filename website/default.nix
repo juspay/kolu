@@ -70,7 +70,7 @@ let
         libc: ["glibc", "musl"]
       }' package.json | sponge package.json
     '';
-    hash = "sha256-dImxGuv6F6btbxVINDEK+zzorIEi9cq4Juce3IcZHu8=";
+    hash = "sha256-8lcRg4LcWAWwWaJ3xKQ3b92bYYwFD+XRgVyslzvTazc=";
     fetcherVersion = 3;
   };
 
@@ -107,10 +107,10 @@ let
     '';
   };
 
-  # The type gate for website/ (juspay/kolu#1049): `astro check`. `pnpm build`
-  # (astro build) transpiles without typechecking, exactly like the main app,
-  # so a type error in the site would otherwise deploy green. The root flake
-  # exposes this as checks.${system}.website-typecheck.
+  # The type gate for website/ (juspay/kolu#1049): `astro sync && tsc --noEmit`.
+  # `pnpm build` (astro build) transpiles TS without typechecking, exactly like
+  # the main app, so a type error in the site's TS/TSX would otherwise deploy
+  # green. The root flake exposes this as checks.${system}.website-typecheck.
   typecheck = import ../nix/pnpm-typecheck.nix {
     inherit pkgs src pnpmDeps version;
     pname = "kolu-website-typecheck";

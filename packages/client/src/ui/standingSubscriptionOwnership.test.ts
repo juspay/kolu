@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 /**
  * REGRESSION PIN (the ownerless-standing-subscription class): a bare module-const
  * `.use()` on a surface cell/collection/stream/event — with NO ambient Solid owner —

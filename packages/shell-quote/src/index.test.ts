@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import { execFileSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";

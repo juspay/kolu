@@ -12,7 +12,7 @@
  * `git.*` namespace is reintroduced on the contract.
  *
  * Modeled on `@kolu/surface-daemon-supervisor`'s `deps.closure.test.ts` (the
- * import-graph walk via `ts.preProcessFile`), extended with the file-list
+ * parser-backed import-graph walk), extended with the file-list
  * allowlist (a), the root-namespace assertion (c), and the two REVERSE arms that
  * prove the dependency ARROW POINTS OUT of `@kolu/padi` (the terminal-domain
  * AUTHORITY): (d) no `packages/padi/src` file references the `koluSurface`
@@ -24,8 +24,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "@babel/parser";
 import { contract } from "kolu-common/contract";
-import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { buildAppRouter } from "./router.ts";
 
@@ -215,70 +215,115 @@ function declaredDeps(pkgJsonPath: string): string[] {
   ];
 }
 
+type AstNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+const isAstNode = (value: unknown): value is AstNode =>
+  value !== null &&
+  typeof value === "object" &&
+  "type" in value &&
+  typeof (value as { type?: unknown }).type === "string";
+
+function parseTsFile(file: string): AstNode {
+  return parse(readFileSync(file, "utf8"), {
+    sourceFilename: file,
+    sourceType: "module",
+    createImportExpressions: true,
+    plugins: file.endsWith(".tsx") ? ["typescript", "jsx"] : ["typescript"],
+  }) as unknown as AstNode;
+}
+
+function visitAst(node: AstNode, visit: (node: AstNode) => void): void {
+  visit(node);
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const item of value) if (isAstNode(item)) visitAst(item, visit);
+    } else if (isAstNode(value)) {
+      visitAst(value, visit);
+    }
+  }
+}
+
+const stringLiteralValue = (node: unknown): string | null =>
+  isAstNode(node) &&
+  (node.type === "StringLiteral" || node.type === "DirectiveLiteral") &&
+  typeof node.value === "string"
+    ? node.value
+    : null;
+
+const identifierName = (node: unknown): string | null =>
+  isAstNode(node) && node.type === "Identifier" && typeof node.name === "string"
+    ? node.name
+    : stringLiteralValue(node);
+
+const nodeList = (value: unknown): AstNode[] =>
+  Array.isArray(value) ? value.filter(isAstNode) : [];
+
 /** The two ways a module could BIND the `koluSurface` surface value: a named
  *  import of it, or a `typeof koluSurface` type-query. Parsed off the AST, so a
  *  comment or string that merely MENTIONS "koluSurface" is NOT a hit (the arrow
  *  ban is about a real dependency, not the word). */
 function koluSurfaceBindings(file: string): string[] {
-  const src = ts.createSourceFile(
-    file,
-    readFileSync(file, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
-  );
   const hits: string[] = [];
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isImportDeclaration(node) &&
-      node.importClause?.namedBindings &&
-      ts.isNamedImports(node.importClause.namedBindings)
-    ) {
-      for (const el of node.importClause.namedBindings.elements) {
-        if ((el.propertyName ?? el.name).text === "koluSurface") {
-          hits.push(`import { koluSurface } (as ${el.name.text})`);
+  visitAst(parseTsFile(file), (node) => {
+    if (node.type === "ImportDeclaration") {
+      for (const specifier of nodeList(node.specifiers)) {
+        if (
+          specifier.type === "ImportSpecifier" &&
+          identifierName(specifier.imported) === "koluSurface"
+        ) {
+          hits.push(
+            `import { koluSurface } (as ${identifierName(specifier.local) ?? "?"})`,
+          );
         }
       }
     }
     if (
-      ts.isTypeQueryNode(node) &&
-      ts.isIdentifier(node.exprName) &&
-      node.exprName.text === "koluSurface"
+      node.type === "TSTypeQuery" &&
+      identifierName(node.exprName) === "koluSurface"
     ) {
       hits.push("typeof koluSurface");
     }
     // Namespace access: `import * as ns from "…"; ns.koluSurface` — reaching the
     // surface value through a namespace member (value position).
     if (
-      ts.isPropertyAccessExpression(node) &&
-      node.name.text === "koluSurface"
+      (node.type === "MemberExpression" ||
+        node.type === "OptionalMemberExpression") &&
+      identifierName(node.property) === "koluSurface"
     ) {
       hits.push("ns.koluSurface (namespace member)");
     }
     // Qualified type: `typeof ns.koluSurface` / `ns.koluSurface[…]` in type position.
-    if (ts.isQualifiedName(node) && node.right.text === "koluSurface") {
+    if (
+      node.type === "TSQualifiedName" &&
+      identifierName(node.right) === "koluSurface"
+    ) {
       hits.push("ns.koluSurface (qualified type)");
     }
     // Re-export FROM another module — a padi barrel forwarding the surface value:
     //   `export { koluSurface } from "…"`   (named re-export)
     //   `export * from "kolu-common/surface"` (star re-export of the module that
     //                                          owns koluSurface)
-    if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
-      const spec = ts.isStringLiteral(node.moduleSpecifier)
-        ? node.moduleSpecifier.text
-        : "";
-      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
-        for (const el of node.exportClause.elements) {
-          if ((el.propertyName ?? el.name).text === "koluSurface") {
-            hits.push(`export { koluSurface } from "${spec}"`);
-          }
+    if (node.type === "ExportNamedDeclaration") {
+      const spec = stringLiteralValue(node.source) ?? "";
+      for (const el of nodeList(node.specifiers)) {
+        if (
+          el.type === "ExportSpecifier" &&
+          identifierName(el.local) === "koluSurface"
+        ) {
+          hits.push(`export { koluSurface } from "${spec}"`);
         }
-      } else if (!node.exportClause && /^kolu-common\/surface$/.test(spec)) {
-        hits.push(`export * from "${spec}"`);
       }
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(src);
+    if (
+      node.type === "ExportAllDeclaration" &&
+      stringLiteralValue(node.source) === "kolu-common/surface"
+    ) {
+      hits.push('export * from "kolu-common/surface"');
+    }
+  });
   return hits;
 }
 
@@ -298,8 +343,26 @@ const ALLOWED_PADI = [
 ];
 
 function importsOf(file: string): string[] {
-  const pre = ts.preProcessFile(readFileSync(file, "utf8"), true, true);
-  return pre.importedFiles.map((f) => f.fileName);
+  const specs = new Set<string>();
+  visitAst(parseTsFile(file), (node) => {
+    if (
+      node.type === "ImportDeclaration" ||
+      node.type === "ExportNamedDeclaration" ||
+      node.type === "ExportAllDeclaration"
+    ) {
+      const spec = stringLiteralValue(node.source);
+      if (spec) specs.add(spec);
+    }
+    if (node.type === "ImportExpression") {
+      const spec = stringLiteralValue(node.source);
+      if (spec) specs.add(spec);
+    }
+    if (node.type === "TSImportType") {
+      const spec = stringLiteralValue(node.argument);
+      if (spec) specs.add(spec);
+    }
+  });
+  return [...specs];
 }
 
 function resolveRelative(from: string, spec: string): string {

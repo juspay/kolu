@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 /**
  * `scopedByEntry` — per-key CLIENT-side state whose lifetime is `entries`
  * MEMBERSHIP, not the wire.

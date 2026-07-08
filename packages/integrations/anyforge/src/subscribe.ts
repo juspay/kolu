@@ -15,7 +15,7 @@
  *  watcher is forge-agnostic without ever naming a forge, mirroring how
  *  `startAgentSensor` takes one `AgentAdapter`. */
 
-import type { Logger } from "kolu-shared";
+import type { Logger } from "@kolu/log";
 import type { PrGitContext, ForgeAdapter } from "./adapter.ts";
 import {
   type PrResult,

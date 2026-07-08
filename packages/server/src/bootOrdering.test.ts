@@ -23,21 +23,40 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as ts from "typescript";
+import { parse } from "@babel/parser";
 import { describe, expect, it } from "vitest";
 
 const ENTRY = resolve(dirname(fileURLToPath(import.meta.url)), "index.ts");
+const SOURCE = readFileSync(ENTRY, "utf8");
 
-function parseTopLevelStatements(): ts.Statement[] {
-  const source = readFileSync(ENTRY, "utf8");
-  const sourceFile = ts.createSourceFile(
-    ENTRY,
-    source,
-    ts.ScriptTarget.Latest,
-    /* setParentNodes */ true,
-    ts.ScriptKind.TS,
-  );
-  return [...sourceFile.statements];
+type AstNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+const isAstNode = (value: unknown): value is AstNode =>
+  value !== null &&
+  typeof value === "object" &&
+  "type" in value &&
+  typeof (value as { type?: unknown }).type === "string";
+
+const isIdentifierNamed = (value: unknown, name: string): boolean =>
+  isAstNode(value) && value.type === "Identifier" && value.name === name;
+
+function nodeText(node: AstNode): string {
+  if (typeof node.start !== "number" || typeof node.end !== "number") {
+    throw new Error(`Babel node missing range: ${node.type}`);
+  }
+  return SOURCE.slice(node.start, node.end);
+}
+
+function parseTopLevelStatements(): AstNode[] {
+  return parse(SOURCE, {
+    sourceFilename: ENTRY,
+    sourceType: "module",
+    plugins: ["typescript"],
+    createParenthesizedExpressions: true,
+  }).program.body as unknown as AstNode[];
 }
 
 /** Does this statement's (possibly parenthesized) expression textually reach a
@@ -45,9 +64,9 @@ function parseTopLevelStatements(): ts.Statement[] {
  *  kick? Text-contains rather than a full call-chain walk: robust to the exact
  *  chain shape (optional-chaining `?.`, multi-line formatting) while still narrow
  *  enough that it can't accidentally match an unrelated statement. */
-function isLocalPinStatement(stmt: ts.Statement): boolean {
-  if (!ts.isExpressionStatement(stmt)) return false;
-  const text = stmt.getText();
+function isLocalPinStatement(stmt: AstNode): boolean {
+  if (stmt.type !== "ExpressionStatement") return false;
+  const text = nodeText(stmt);
   return (
     text.includes("pool") &&
     text.includes(".getSession(") &&
@@ -59,27 +78,32 @@ function isLocalPinStatement(stmt: ts.Statement): boolean {
  *  statement actually SUSPEND the module's top-level execution here? Unwraps one
  *  level of parens (`(await x)` written as a bare statement), which is all a
  *  `ts.isExpressionStatement` can legally wrap. */
-function isAwaitStatement(stmt: ts.Statement): boolean {
-  if (!ts.isExpressionStatement(stmt)) return false;
-  let expr: ts.Expression = stmt.expression;
-  while (ts.isParenthesizedExpression(expr)) expr = expr.expression;
-  return ts.isAwaitExpression(expr);
+function isAwaitStatement(stmt: AstNode): boolean {
+  if (stmt.type !== "ExpressionStatement") return false;
+  let expr = stmt.expression;
+  while (isAstNode(expr) && expr.type === "ParenthesizedExpression") {
+    expr = expr.expression;
+  }
+  return isAstNode(expr) && expr.type === "AwaitExpression";
 }
 
 /** Is this the `const server = serve(...)` declaration that starts accepting
  *  HTTP connections? Matched by the declared name (`server`) + the initializer
  *  textually calling `serve(` — robust to `serve`'s exact argument shape. */
-function isServeListenStatement(stmt: ts.Statement): boolean {
-  if (!ts.isVariableStatement(stmt)) return false;
-  return stmt.declarationList.declarations.some((decl) => {
-    if (!ts.isIdentifier(decl.name) || decl.name.text !== "server")
-      return false;
-    const init = decl.initializer;
+function isServeListenStatement(stmt: AstNode): boolean {
+  if (
+    stmt.type !== "VariableDeclaration" ||
+    !Array.isArray(stmt.declarations)
+  ) {
+    return false;
+  }
+  return stmt.declarations.some((decl) => {
+    if (!isAstNode(decl) || !isIdentifierNamed(decl.id, "server")) return false;
+    const init = decl.init;
     return (
-      init !== undefined &&
-      ts.isCallExpression(init) &&
-      ts.isIdentifier(init.expression) &&
-      init.expression.text === "serve"
+      isAstNode(init) &&
+      init.type === "CallExpression" &&
+      isIdentifierNamed(init.callee, "serve")
     );
   });
 }
@@ -95,7 +119,7 @@ describe("index.ts boot ordering — the LOCAL padi arm's pin never blocks serve
   });
 
   it("the LOCAL arm's pin is NOT an `await` — reaching it can never suspend module boot", () => {
-    expect(isAwaitStatement(statements[pinIndex] as ts.Statement)).toBe(false);
+    expect(isAwaitStatement(statements[pinIndex] as AstNode)).toBe(false);
   });
 
   it("the LOCAL arm's pin is kicked off BEFORE `serve()` starts listening — the pin is reached, but never blocks reaching serve()", () => {
