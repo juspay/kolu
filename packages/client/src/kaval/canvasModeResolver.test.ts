@@ -113,9 +113,29 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     ).toEqual({ kind: "connecting" });
   });
 
-  it("a REMOTE host past the ceiling resolves to down/dead once its entry is PROVEN failed", () => {
-    // A genuine ssh dial/handshake failure — not "still provisioning" — earns the
-    // honest down/dead verdict during the pending window, exactly like a local host.
+  it("a FAILED entry reaches host-failed even with daemonPending + past the ceiling — the loading gate never intercepts a failed host (step-5 fix)", () => {
+    // A failed host BINDING has no daemon-status coming (`daemonPending` stays true
+    // forever), so the loading gate must NOT strand it at connecting/down — it falls
+    // straight through to the cause-typed host-down card. Regression: a real
+    // cross-supervisor host rendered "Connecting…" / the kaval-dead card instead of
+    // "Another kolu owns this host" because the gate's `entry === "failed"` ceiling
+    // intercepted it before the `failed` arm (caught driving a live sincereintent).
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "failed",
+        cause: "cross-supervisor",
+        reason: "another kolu owns this host",
+        daemonPending: true,
+        pendingTimedOut: true,
+        isLocalHost: false,
+      }),
+    ).toEqual({
+      kind: "host-failed",
+      cause: "cross-supervisor",
+      reason: "another kolu owns this host",
+    });
+    // And a link-failed host binding likewise reaches its card, not the kaval-dead one.
     expect(
       resolveCanvasMode({
         ...liveness,
@@ -126,7 +146,11 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
         pendingTimedOut: true,
         isLocalHost: false,
       }),
-    ).toEqual({ kind: "down", state: "dead" });
+    ).toEqual({
+      kind: "host-failed",
+      cause: "link-failed",
+      reason: "host unreachable",
+    });
   });
 });
 

@@ -124,21 +124,28 @@ export type CanvasFacts =
  *  #1034 / restart-drain precedence is unit-testable without mounting the
  *  daemon-status subscription. */
 export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
-  // Neutral "connecting" until BOTH the session cell AND the daemon-status
-  // stream have produced their first value — reads only the liveness facts every
-  // arm carries, so it runs BEFORE the entry-state switch below. Gating on
-  // daemon-status-pending (not just the entry state) stops a `dead` boot from
+  // A `failed` entry is decided by the entry-state switch below, NEVER this loading
+  // gate: the host BINDING itself failed (cause-typed), so no daemon-status is ever
+  // coming (`daemonPending` stays true forever) and the correct surface is the
+  // cause-typed host-down card — not a "Connecting…" spinner, and not the kaval-dead
+  // `down` card. Fall straight through so `case "failed"` renders the Skew-UX card.
+  // (This is why the guard excludes it: a `failed` host has no daemon-status to wait
+  // for, so the loading gate would otherwise strand it at connecting/down forever.)
+  //
+  // For every OTHER entry: neutral "connecting" until BOTH the session cell AND the
+  // daemon-status stream have produced their first value — reads only the liveness
+  // facts every arm carries, so it runs BEFORE the entry-state switch below. Gating
+  // on daemon-status-pending (not just the entry state) stops a `dead` boot from
   // flashing the normal empty workspace first (#1034). BOUNDED: once the wait has
   // run past the local endpoint's own connect timeout, "still pending" no longer
   // means "about to arrive" — nothing will ever be published (a local padi that
   // never came up), so resolve honestly to `down`/`dead` instead of spinning at
   // "Connecting…" forever (the #1713 adopt-path sibling's canvas symptom). The 30s
   // ceiling only earns that verdict for a LOCAL host (whose own connect watchdog it
-  // mirrors) or an entry PROVEN `failed` — never a remote merely still provisioning
-  // (`warming`), whose ssh dial + nix copy + build can genuinely outlast 30s.
-  if (facts.isLoading || facts.daemonPending) {
-    const ceilingApplies = facts.isLocalHost || facts.entry === "failed";
-    return facts.pendingTimedOut && ceilingApplies
+  // mirrors) — never a remote merely still provisioning (`warming`), whose ssh dial +
+  // nix copy + build can genuinely outlast 30s, and never a `failed` entry (above).
+  if ((facts.isLoading || facts.daemonPending) && facts.entry !== "failed") {
+    return facts.pendingTimedOut && facts.isLocalHost
       ? { kind: "down", state: "dead" }
       : { kind: "connecting" };
   }
