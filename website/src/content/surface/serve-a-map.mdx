@@ -30,7 +30,8 @@ Hold one binding per host: a `makeSession` over `sshConnector` (per
 [Mirror over ssh](/surface/mirror-over-ssh)), a pump that folds the agent's frames
 into a local mirror, and an in-process `link` the map forwards member calls to.
 Its `state()` projects the session's connection state onto the map's per-entry
-state, so one dead box surfaces as exactly one `failed` chip.
+state, so a fault on one box surfaces on exactly that box's chip — `warming` while
+it retries, `failed` only on a standing fault — never as a fleet-wide crash.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="binding" />
 
