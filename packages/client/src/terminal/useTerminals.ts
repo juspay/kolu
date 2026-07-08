@@ -10,6 +10,7 @@
  *  not back into this composition root. See #221, #242. */
 
 import { ORPCError } from "@orpc/client";
+import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
@@ -105,6 +106,9 @@ export function useTerminals() {
   useActiveReconcile({
     rawList: () => store.listSub()?.map((t) => t.id) ?? [],
     parentOf: (id) => store.getMetadata(id)?.parentId ?? null,
+    // Host-scope the reconcile: a switch replaces the whole list, and the baseline
+    // must reset rather than evict the departed host's tiles (no wrong-host writes).
+    activeHostKey: () => encodeHostKey(activeHost()),
     evictDeparted: crud.evictDeparted,
     // Only react to a departure when the daemon is genuinely connected — during a
     // supervised recycle/restart the drain empties the list and restore undoes it,
