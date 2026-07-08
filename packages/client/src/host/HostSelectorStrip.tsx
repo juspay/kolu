@@ -1,13 +1,19 @@
 /** HostSelectorStrip — the multi-host selector, the visible face of the keyed padi
- *  host map (W4 "the switch").
+ *  host map (W4 "the switch"), AND (W4 header redesign) the home of the per-host
+ *  Padi/Kaval status chips that used to sit in the host-independent IdentityRail.
  *
- *  GATED on the server-authored `hostMapGate` cell: the strip renders ONLY when
- *  `KOLU_PADI_HOST` seeded more than the local default (`isMultiHost()` at boot). The
- *  client NEVER reads env — the cell is the sole cue, and the gate is purely
- *  presentational: with it closed (the single-host default) nothing renders, so the
- *  canvas is pixel-identical to before. There is no dual code path.
+ *  ALWAYS renders at least one chip — the active host's — regardless of the
+ *  server-authored `hostMapGate` cell. Padi/Kaval are per-host facts, and the
+ *  active host always exists (the unremovable LOCAL default at minimum), so the
+ *  chip carrying them is no longer optional chrome. What the gate still controls
+ *  is MULTIPLE-host chrome: every chip beyond the active one, and the trailing
+ *  "+ add a host" affordance, render only once `KOLU_PADI_HOST` seeded more than
+ *  the local default (`isMultiHost()` at boot) — see {@link shouldRenderHostChip}.
+ *  The client never reads env; the cell is the sole cue, and `undefined` (before
+ *  the first cell frame) reads closed, so multi-host chrome never flashes in
+ *  during warm-up.
  *
- *  Open, it is a compact chip row — one chip per pool member, each reading, at a glance:
+ *  Each chip reads, at a glance:
  *    · the host label (LOCAL_HOST shows as "local");
  *    · a connection dot colored from the map's `EntryStatus` FACT — green ONLY for
  *      `connected` (which `connectSurfaceMap` floors on real transport liveness, so a
@@ -16,11 +22,14 @@
  *      `EntryStatus`, not a `SurfaceHealth`, so we color from that);
  *    · an urgency badge — the host's `awaiting` count (its FIRST client consumer), hidden
  *      when zero;
- *    · the active host highlighted; a click switches the canvas (a synchronous signal
- *      write — `useEntry(activeHost)` re-keys, no reload);
+ *    · for the ACTIVE host only, the Padi + Kaval sub-chips (`DaemonSubChips`) — their
+ *      own icon + status dot, reading the active host's daemon state directly (they
+ *      re-key on `activeHost` by construction, no host param to pass);
  *    · a remove ✕ for GUEST hosts (never LOCAL_HOST) → `client.hosts.remove` (an
- *      UnremovableHostError surfaces LOUD via toast, never a silent no-op).
- *  A trailing "+ add" opens an inline input → `client.hosts.add`. */
+ *      UnremovableHostError surfaces LOUD via toast, never a silent no-op) — visible
+ *      dimmed at rest, not hidden until hover, so it never reads as a blank gap.
+ *  A click switches the canvas (a synchronous signal write — `useEntry(activeHost)`
+ *  re-keys, no reload). A trailing "+ add" opens an inline input → `client.hosts.add`. */
 
 import {
   encodeHostKey,
@@ -29,7 +38,14 @@ import {
 } from "kolu-common/hostKey";
 import { type Component, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
-import { dotClass, hostGateOpen, sameHost, statusTitle } from "./hostChipTone";
+import DaemonSubChips from "./HostDaemonChips";
+import {
+  dotClass,
+  hostGateOpen,
+  sameHost,
+  shouldRenderHostChip,
+  statusTitle,
+} from "./hostChipTone";
 import {
   activeHost,
   app,
@@ -109,8 +125,20 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
           </span>
         </Show>
       </button>
+      {/* The daemon rail's last single-host vestige, retired (W4 header redesign):
+       *  Padi/Kaval are per-host facts, so they expand INTO the active host's own
+       *  chip rather than sitting beside it as host-independent chrome. Inactive
+       *  chips stay the compact label+dot they always were. */}
+      <Show when={isActive()}>
+        <DaemonSubChips />
+      </Show>
       {/* Remove — guest hosts only. The local default is unremovable (the server
-       *  rejects it LOUD; we also hide the affordance so it never invites the error). */}
+       *  rejects it LOUD; we also hide the affordance so it never invites the error).
+       *  Visible DIMMED at rest (opacity-60 on the muted text-fg-3 tone, never
+       *  opacity-0 — a fully-invisible-until-hover ✕ reads as a blank gap, the
+       *  bug srid's screenshot flagged), brightening to opacity-100/text-red-400
+       *  on hover/focus. Landed standalone ahead of this redesign — see
+       *  c0e5d4cf4 — kept identical here rather than re-deriving a second tone. */}
       <Show when={!isLocal()}>
         <button
           type="button"
@@ -161,25 +189,36 @@ const HostSelectorStrip: Component = () => {
       );
   };
 
-  // The ENTIRE render is gated by `hostGateOpen(gate.value())` — the SINGLE predicate
-  // that decides whether any strip/chip exists at all. Keep it the SOLE gate path: the
-  // gate-closed done-criterion pin (`HostSelectorStrip.test.ts`) proves "closed ⇒ zero
-  // multi-host UI" by pinning THIS predicate, so a second gate path (a CSS hide, an early
-  // return, another `when` condition) would silently void that pin. Closed ⇒ the `<Show>`
-  // mounts nothing (absent from the DOM, not hidden) ⇒ pixel-identical single-host canvas.
-  return (
-    <Show when={hostGateOpen(gate.value())}>
-      <div
-        class="pointer-events-auto flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar"
-        data-testid="host-selector-strip"
-      >
-        <For
-          each={padiMap.entries.use({ onError: onHostMembershipError }).keys()}
-        >
-          {(host) => <HostChip host={host} />}
-        </For>
+  // The strip itself is NEVER gated off (W4 header redesign — see the file header
+  // comment): it always mounts, at minimum showing the active host's chip. Per-chip
+  // visibility is `shouldRenderHostChip(gateOpen, isActive)` — the active chip always
+  // renders, every other pool member only once the gate is open — and the "+ add"
+  // affordance is gated the same way the extra chips are.
+  const gateOpen = () => hostGateOpen(gate.value());
 
-        {/* Add a host at runtime — an inline input toggled from a "+" affordance. */}
+  return (
+    <div
+      class="pointer-events-auto flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar"
+      data-testid="host-selector-strip"
+    >
+      <For
+        each={padiMap.entries.use({ onError: onHostMembershipError }).keys()}
+      >
+        {(host) => (
+          <Show
+            when={shouldRenderHostChip(
+              gateOpen(),
+              sameHost(activeHost(), host),
+            )}
+          >
+            <HostChip host={host} />
+          </Show>
+        )}
+      </For>
+
+      {/* Add a host at runtime — an inline input toggled from a "+" affordance.
+       *  Multiple-host chrome, so it shares the extra chips' gate. */}
+      <Show when={gateOpen()}>
         <Show
           when={adding()}
           fallback={
@@ -216,8 +255,8 @@ const HostSelectorStrip: Component = () => {
             }}
           />
         </Show>
-      </div>
-    </Show>
+      </Show>
+    </div>
   );
 };
 

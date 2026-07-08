@@ -22,15 +22,30 @@ export function sameHost(a: HostKey, b: HostKey): boolean {
   return encodeHostKey(a) === encodeHostKey(b);
 }
 
-/** The gate DECISION — whether the selector strip renders AT ALL. The strip is purely
- *  presentational with NO dual code path: with the gate closed (env-unset single-host
- *  default) the whole component renders nothing — a Solid `<Show>`, so it is ABSENT from
- *  the DOM, not CSS-hidden — and the single-host canvas stays pixel-identical. `undefined`
- *  (before the first cell frame) reads CLOSED, so the strip never flashes in during warm-
- *  up. (Real-DOM absence on an env-unset boot is captured as E2E evidence; this pins the
- *  sole predicate that governs the render.) */
+/** The gate DECISION — whether MULTIPLE-host chrome (the guest chips beyond the
+ *  active one, plus the "+ add a host" affordance) renders. The strip itself is
+ *  NEVER gated off entirely any more (W4 header redesign — "gate-off consistent
+ *  with gate-on"): a single always-visible host chip, carrying the Padi/Kaval
+ *  sub-chips, is the header's resting state whether or not the gate is open —
+ *  see {@link shouldRenderHostChip}. `undefined` (before the first cell frame)
+ *  reads CLOSED, so multi-host chrome never flashes in during warm-up. */
 export function hostGateOpen(gate: HostMapGate | undefined): boolean {
   return gate?.enabled === true;
+}
+
+/** Whether a GIVEN host's chip renders. The active host's chip is ALWAYS shown
+ *  (it is the header's one mandatory status chip, carrying the Padi/Kaval
+ *  sub-chips) regardless of the gate; every other pool member's chip — and the
+ *  "+ add" affordance beside them — is MULTIPLE-host chrome, shown only when
+ *  {@link hostGateOpen}. With the gate closed the pool has no member but the
+ *  local default anyway (env-unset boot never seeds a guest), so this reduces to
+ *  "show exactly the local chip" — but the predicate holds even in a transient
+ *  gate-closed-with-a-stray-guest state, rather than assuming that invariant. */
+export function shouldRenderHostChip(
+  gateOpen: boolean,
+  isActive: boolean,
+): boolean {
+  return gateOpen || isActive;
 }
 
 /** The connection dot's tailwind tone. Green (`bg-emerald-400`) is emitted ONLY for

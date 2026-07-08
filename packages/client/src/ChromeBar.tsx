@@ -123,11 +123,12 @@ const ChromeBar: Component<{
         <IdentityRail status={props.status} />
       </div>
 
-      {/* Middle slot — the gated multi-host selector strip. In the single-host
-       *  default the gate is closed and nothing renders, so the slot stays a
-       *  pointer-events-none spacer and clicks pass through to the canvas underneath;
-       *  when multi-host, the chip row lives here and scrolls rather than pushing the
-       *  control cluster off-screen. */}
+      {/* Middle slot — the host selector strip. It ALWAYS carries at least the
+       *  active host's chip (with its Padi/Kaval sub-chips — the daemon rail's
+       *  last single-host vestige moved in here, W4 header redesign); the
+       *  `hostMapGate` cell only controls whether ADDITIONAL host chips + the
+       *  "+ add" affordance appear beside it. The slot scrolls rather than
+       *  pushing the control cluster off-screen when multi-host. */}
       <div class="flex-1 min-w-0 flex items-center pointer-events-none">
         <HostSelectorStrip />
       </div>
