@@ -37,7 +37,7 @@ import {
   onHostMembershipError,
   padiMap,
   setActiveHost,
-} from "./wire";
+} from "../wire";
 
 const HostChip: Component<{ host: HostKey }> = (props) => {
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`

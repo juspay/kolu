@@ -10,7 +10,7 @@
 import type { PwaIdentity } from "kolu-common/contract";
 import { createSignal } from "solid-js";
 import { createSharedRoot } from "./createSharedRoot";
-import { hostTitle } from "./hostTitle";
+import { hostTitle } from "./host/hostTitle";
 import { activeHost, client } from "./wire";
 
 export const useServerIdentity = createSharedRoot(() => {

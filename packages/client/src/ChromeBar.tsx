@@ -23,7 +23,7 @@
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
-import HostSelectorStrip from "./HostSelectorStrip";
+import HostSelectorStrip from "./host/HostSelectorStrip";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";

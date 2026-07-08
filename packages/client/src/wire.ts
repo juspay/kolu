@@ -53,7 +53,7 @@ import {
 import type { WebSocket as PartySocket } from "partysocket";
 import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { hostReconcileTarget } from "./hostReconcile.ts";
+import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
 const { protocol, host } = window.location;
