@@ -5,14 +5,124 @@ order: 432
 section: Multi-host · Explanation
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: Explanation. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
-Why the map's wire is shaped the way it is: EntryStatus arms, the warming=in-motion / failed=needs-intervention split, void-input, and the clock seam.
+The [client half](/surface/the-client-half) rests on a small wire contract: the
+shape of one entry's membership and status, and the shape of the frames that carry
+its calls. This page is the deepest *why* under that wire. Every choice here is
+the same principle applied at a different spot — the framework owns the keyed
+volatility, and the app owns policy — and every one is paid for by giving up an
+easy shortcut.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - `EntryStatus<Cause>` and its arms
-> - warming = in motion, failed = needs intervention
-> - The fold envelope + void-input rule
-> - KeyCodec and typed sub ends
-> - The clock seam
+## Why the status is a sum, not a flag
+
+The map publishes each entry's status as `EntryStatus<Cause>`, a sum of exactly
+three arms:
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="entrystatus" />
+
+There is no fourth arm for `absent`, and this is the first commitment: **absence
+means absence.** A collection already says "not a member" by not containing the
+key. Adding an `absent` status would be a second way to encode the same fact, and
+two encodings of one fact is two writers waiting to disagree. So membership lives
+in the collection's key set, status lives in its value, and one writer publishes
+both.
+
+The three live arms exist because the client needs to tell apart states that
+*look* alike but demand opposite responses. This is a projection contract, not
+vibes:
+
+- **warming** — the system is doing something and will resolve on its own. First provision and a transient reconnect-backoff both land here. The right UI is a spinner; the wrong one is an alarm.
+- **connected** — live. `clockOffset` is this entry's clock seam (below).
+- **failed** — it will *not* resolve without someone acting: a bounded give-up, or a standing refuse ("another owner holds this host"). The right UI is an actionable card; the wrong one is an eternal spinner.
+
+The line between `warming` and `failed` is drawn by the session's **domain cause**.
+A *specific* cause — a contract skew, a cross-supervisor refusal — is a standing
+condition, so it projects `failed`. *No* specific cause is a transient drop, so it
+projects `warming`. Collapsing the two would reproduce two real, opposite bugs:
+render a retriable reconnect as a steady red "failed" and a live system looks
+dead; render a standing refuse as `warming` and a permanently-stuck host spins
+forever. The sum is the fix that makes both unrepresentable.
+
+<Aside type="note" title="The domain owns its causes; the framework owns the discriminant">
+  `Cause` is a type parameter (`extends string`, defaulting to `string`), not a
+  baked-in list. The generic package cannot know a domain's failure taxonomy, so
+  it carries the discriminant and nothing more; a domain instantiates
+  `EntryStatus<PadiEntryFailedCause>` at its own map and rides typed extras through
+  the loose `failed` arm. Domain vocabulary stays in the domain — the dependency
+  arrow points *out*.
+</Aside>
+
+## Why the fold envelope omits void
+
+Every member's call folds to one wire shape: `{ mapKey, input }`. One envelope for
+any input — an object, a primitive, or none — and because the folded key rides
+*outside* `input`, an entry input that itself has a `mapKey` field can't collide
+with it. Misroute-by-collision isn't unlikely; it is unconstructible.
+
+The subtle clause is void. A member that takes no input carries **no** `input`
+field at all — `{ mapKey }`, never `{ mapKey, input: undefined }`. The tempting
+version relies on two accidents: that JSON drops an `undefined` value, and that
+the validator accepts the resulting missing key. Both are quicksand — a validator
+tightened `z.object({ input: z.void() })` to *reject* a missing key, and every
+void-input call would have broken the moment a lockfile drifted onto it. Omitting
+the field makes "void = no input key" the one representation on both encode and
+validate, independent of any validator's mood. It is a small thing that exists so
+a dependency bump can't silently break the wire.
+
+## Why keys are codecs, not strings
+
+A `Key` can be anything the schema validates — kolu's `HostKey` is a
+discriminated-sum object, not a string. But every channel name, dedup key, and
+membership entry is keyed on a *string*. `KeyCodec<K>` bridges the two:
+
+```ts
+interface KeyCodec<K> { encode(key: K): string; decode(wire: string): K; }
+```
+
+Keeping the codec explicit keeps two boundaries from merging. Parsing loose human
+input (`localhost`, `127.0.0.1`, `user@host`) is a *separate* function from
+decoding a canonical wire key — so a lax parse can never leak into the wire
+vocabulary. `encode` is a bare, cheap call because it sits on the hottest paths
+(a per-key cache lookup on every `entry(key)`, a fold on every `entries` read);
+`decode` is paired with `keySchema.parse` and need not validate alone, because the
+server re-derives and re-validates the real key on arrival.
+
+The typed sub end is the same discipline one level up. A call to an absent key is
+not a thrown socket error; it is a **typed rejection** (`MAP_KEY_UNKNOWN`) for a
+procedure, and an **immediate typed end** for a stream. And a key that *leaves*
+membership mid-stream ends its subscriptions with a typed `{ reason: "removed" }`
+**before** the session is torn down — so a consumer sees a clean, expected end,
+never a socket-error frame arriving after a typed end. Absence is always a value
+you handle, never an exception that surprises you.
+
+## Why the clock is per entry
+
+A timestamp stamped on a remote host is meaningless read against the browser's own
+wall clock — the two clocks disagree. So `connected` carries the entry's measured
+`clockOffset`, and the only honest way to read a host-stamped time is through that
+entry's seam: `entry(key).clock.toLocal(remoteMs)`, which is `remoteMs − offset`.
+
+The seam's signature is where the honesty lives. It returns `number | null`, and
+it returns **`null`** — never a silent identity — whenever the entry has no offset
+yet (warming, failed, not-a-member). The `null` is deliberately contagious:
+`now − null` is a type error, so a caller *cannot* forget to handle the pending
+case and fall back to the raw remote value. Falling back to the raw value is
+precisely the silent foreign-clock lie the seam exists to prevent, and the type
+makes it uncompilable rather than merely discouraged. This is
+[reactive honesty](/surface/reactive-honesty)'s rule — a caught absence must
+surface, never collapse to a plausible default — pushed into a type.
+
+## Where it costs you
+
+The through-line is one trade made five times: the map's wire refuses the
+convenient shortcut in exchange for a lie it cannot tell. No `absent` arm, so you
+read status through a total lens instead of a nullable one. A per-entry clock, so
+you thread every host-stamped time through a seam and render a "—" while it warms.
+A typed cause on `failed`, so the app must enumerate what its failures *mean*
+instead of showing one red dot. Each is more ceremony than a single-host client
+would need. The bet is that in a fleet — where the set changes underfoot and every
+fact belongs to one host — the ceremony is the only thing that stays true. If a
+future addition ever encodes an opinion about *which* host matters, that is policy
+wearing a framework costume, and it belongs in the app, not here.

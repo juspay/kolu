@@ -5,13 +5,79 @@ order: 431
 section: Multi-host · Explanation
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: Explanation. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
 
-How the browser consumes a fleet: one contract across many hosts, entries as the unit of presence, and liveness by construction.
+The [server half](/surface/the-server-half) teaches how *one* surface crosses a
+machine. The client half is the other problem: a browser facing *many* surfaces
+of the same shape, keyed by host, with the set changing while you watch. drishti —
+one browser fronting an ssh fleet — is the exemplar; this page is about what its
+client can and cannot take for granted.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - One contract, many hosts
-> - Entries as presence
-> - connectSurface's default liveness
-> - Why the client never hand-rolls a probe
+## One contract, many hosts
+
+Every host serves the identical entry surface. That is the leverage: you type the
+surface once, and the map form keys every member so one socket can carry all
+instances. A client reaches any host's cells or streams *through* the entry lens —
+`app.entry("zest").cells.daemonStatus.use(…)` — and the type is the same for every
+host because the contract is the same for every host. There is no per-host client
+to write, no N-way branch. The fleet is the single-surface client, keyed.
+
+The hard part a fleet adds is not the plumbing; it is a single invariant:
+**the UI must never show host A's data under host B's name.** Every fact on the
+wire is true *of one host*. The client half exists to make that misattribution
+unconstructible rather than merely avoided by care.
+
+## `entries` is the one authority on presence
+
+The map publishes exactly one collection of membership: `entries`. It is the
+single authority on who is in the fleet, and it makes one uncompromising
+commitment — **absence means absence.** A host not in `entries` is not in the map.
+There is no `absent` status arm to keep in sync, because a collection already
+expresses absence by not containing the key. One writer publishes membership and
+status together, so the two can never disagree; dual-authority for membership is
+simply not expressible.
+
+Reading one host stays *total*. Ask `entry(key).state()` for any key — present or
+not — and you get an honest value, `not-a-member` included; you never get a
+nullable `entry()` you might forget to guard. Existence is a value you render, not
+an exception you catch. Switching which host a tab views is then a plain app
+signal: `useEntry(activeHost)` re-keys the whole readout when the signal changes,
+the old host's subscriptions dispose, the new host's populate — "switch the chip,
+every readout follows" is true by wiring, not by discipline.
+
+## Liveness on by construction
+
+A fleet client faces a subtler lie than a broken pipe: a host the server *last
+saw* as connected, presented as green while **our** link to the server is dead. A
+`connected` published by the server is only as trustworthy as the transport
+carrying it. So the map floors every status on real transport liveness — with the
+link dead, a stale `connected` downgrades to `warming`. No status renders green
+over a dead transport, and `live` is a required input to the fold so it can't be
+forgotten.
+
+This is why the client **never hand-rolls a probe.** The framework-reserved
+liveness round-trip is the one probe, and the watchdog-backed handle from
+[`connectSurface`](/surface/ref-surface-app) carries it by default; the map slices
+its scoped view *after* that guard, so every entry inherits the parent's watchdog
+by construction. A hand-rolled "is this host up?" check would be a second opinion
+about liveness — and two opinions about liveness is exactly how a green dot ends
+up floating over a dead socket.
+
+<Aside type="note" title="Framework owns the keyed volatility; the app owns policy">
+  The client half owns membership, per-key lifecycle, and dedup — the *keyed
+  volatility*. It does not own *which* hosts exist or *which one* is shown; those
+  are app policy, one signal each. If a proposed client feature encodes an opinion
+  about which key matters, it is policy wearing a framework costume.
+</Aside>
+
+## Where it costs you
+
+Making misattribution unconstructible has a price: you read every per-host fact
+*through* the entry lens, never off a bare client you cached yourself. That is one
+more indirection on every read, and it forbids the shortcut of stashing "the
+current host's client" in a variable — because a stashed client is exactly how
+host B's data ends up under host A's name after a switch. The framework trades the
+convenience of a flat client for a guarantee the flat client can't make. For a
+single host it is overhead; for a fleet, it is the only version that stays honest
+when the set changes underfoot. Why `entries` carries the arms it does is
+[Entry contracts](/surface/entry-contracts).

@@ -1,17 +1,75 @@
 ---
 title: "@kolu/surface-daemon reference"
-description: "The daemon lifecycle API: the single-instance pid gate, gate→serve→teardown, identity, and unix-socket/stdio serving."
+description: "The daemon binary half: the single-instance pid gate, the gate→serve→teardown skeleton, fronting over stdio, and baked identity."
 order: 320
 section: Daemons · Reference
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: Reference. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
-The daemon lifecycle API: the single-instance pid gate, gate→serve→teardown, identity, and unix-socket/stdio serving.
+The daemon *binary* half — the code that runs inside the long-lived process. It
+carries no `@kolu/*` app dependency; the client half lives separately in
+[@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor). Single entry
+point, no subpaths.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - The pid gate / single-instance guard
-> - gate → serve → teardown
-> - Identity baking
-> - serveOverUnixSocket / serveOverStdio
+## The lifecycle
+
+`daemonMain(spec)` is the gate → serve → teardown skeleton. It claims a
+single-instance gate, serves the router over a unix socket, waits for the
+lifetime to end, then closes the socket, releases the gate, and **returns** a
+`DaemonExit` — it never calls `process.exit`, so the whole lifecycle is drivable
+in-process from a test.
+
+<Snippet src="packages/surface/example/snippets/daemon.ts" region="lifecycle" />
+
+| Export | Role |
+| --- | --- |
+| `daemonMain(spec)` | the gate → serve → teardown skeleton; resolves a `DaemonExit` |
+| `acquirePidGate(gatePath)` | atomic single-instance claim via `link(2)`; returns `{ kind: "acquired", release }` or `{ kind: "held", pid }` |
+| `gatePid(gatePath)` · `isHolderLive(pid)` | the gate-file primitives (pid parse · liveness probe) the supervisor composes |
+| `daemonExitCode(exit)` · `stderrLogger()` · `Logger` · `DaemonExit` | exit-code classification and the structural logging contract |
+
+`lifetime` is the policy that distinguishes the two tenants: kaval (a PTY daemon)
+uses `{ kind: "forever" }`; `odu serve` uses `{ kind: "idleTimeout", ms, isIdle }`.
+
+## Serving the surface
+
+The listener is `serveOverUnixSocket({ socketPath, router, log })` from
+`@kolu/surface/unix-socket` — a `@kolu/surface` subpath, not this package. It
+never crashes: every failure mode resolves to a no-op listener with a
+machine-readable `outcome`.
+
+| `outcome.kind` | Meaning |
+| --- | --- |
+| `listening` | bound and serving |
+| `dir-not-private` · `not-a-socket` · `bind-failed` | could not bind |
+| `already-served` · `probe-failed` | another holder is (or may be) live |
+
+## Fronting over stdio
+
+`frontDaemonOverStdio(opts)` is the front half: it adopts-or-spawns the
+gate-held daemon and raw-byte-relays this process's stdio onto its socket, so a
+remote (ssh) session survives the link — the durable counterpart to
+`serveOverStdio`. It relays with `node:net` only, no surface import, keeping the
+daemon closure contract-blind.
+
+<Snippet src="packages/surface/example/snippets/daemon.ts" region="front" />
+
+`reExecAsDetachedDaemon({ stripArgs, stderrLog? })` re-execs this binary minus
+the front flag as a detached, `unref`'d process, so it survives the SIGHUP that
+drops the link.
+
+## Baked identity
+
+`readBakedIdentity(prefix)` reads a Nix-baked env pair
+(`<PREFIX>_BUILD_ID` / `<PREFIX>_COMMIT_HASH`) into `{ staleKey, navigableCommit }`,
+and returns empty strings off-nix rather than inventing an identity. See
+[How to bake an identity](/surface/bake-an-identity).
+
+<Aside type="note" title="Two convergence axes live here">
+  `contractIsNewer` / `contractIsCompatible` (ordered) and `buildIdMatches`
+  (match-only, no ordering) live in this package and are re-exported by the
+  supervisor, so the supervisor stays `@kolu/surface`-free. Their use is in
+  [How to recycle and upgrade a daemon](/surface/recycle-and-upgrade).
+</Aside>

@@ -5,14 +5,114 @@ order: 420
 section: Multi-host · Reference
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: Reference. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
-The remote-mirroring API: makeSession, sshConnector, buildRemotePool, dialAgentOnce, pumpRemoteSurface, and the sink.
+Run a typed `@kolu/surface` agent on a remote machine over ssh. The package owns
+provisioning (ship a `.drv`, realise it on the target), the long-lived ssh
+subprocess (ref-counting, reconnect, backoff), and a reactive cell for the link's
+own lifecycle. It has two subpaths: `@kolu/surface-remote` and
+`@kolu/surface-remote/connection`.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - `makeSession({connectOnce})`
-> - `sshConnector({host,binary,resolveDrvPath})`
-> - buildRemotePool / dialAgentOnce
-> - `pumpRemoteSurface({source,session,makeSink})`
-> - SurfaceSink / makeSink
+## The session
+
+A session is the reconnect appliance: `makeSession` is the transport-agnostic
+loop, `sshConnector` the ssh plug you hand it. You own each session — there is no
+shared pool; key your own map and `destroy()` them yourself.
+
+| Export | Subpath | Role |
+| --- | --- | --- |
+| `makeSession<C>(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient<C>>`. Owns no transport — you supply `connectOnce` |
+| `sshConnector<C>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, wire stdio to a typed client |
+| `dialAgentOnce<C>(opts)` | `.` | one-shot CLI dial: validate the baked `{ system → drv }` env map, pin, probe, return `{ client, dispose }` with the link already proven live |
+| `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport |
+| `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
+
+`sshConnector` opts are `{ host, binary, resolveDrvPath }`: `host` is any ssh
+target (`"localhost"` short-circuits), `binary` the exe name inside the realised
+closure, `resolveDrvPath: () => Promise<string>` resolves the agent `.drv` for the
+*target* arch. `dialAgentOnce`'s `dispose()` tears down only its own session; it
+is what `kaval-tui --host` and `pulam-tui --host` use.
+
+<Aside type="caution" title="resolveDrvPath is deferred by contract">
+  Pass `resolveDrvPath` as a thunk. Eager resolution runs the ssh probe before the
+  session exists, so an unreachable host throws out of construction instead of
+  becoming a retryable `network` fault inside the spawn cycle.
+</Aside>
+
+## The mirror pump
+
+`pumpRemoteSurface` is the consume-side companion to `makeSession`: it pins the
+session, loops over each successive client, and folds the agent's frames into
+your sink until the link dies.
+
+| Export | Subpath | Role |
+| --- | --- | --- |
+| `pumpRemoteSurface(opts)` | `.` | pin → per-spawn `mirrorRemoteSurface` into `makeSink()` until each link dies, then await the next spawn |
+| `SurfaceSink` / `makeSink` | `.` | the sink role and its caller-supplied factory; members receive folded frames (`cells.<n>.set(v)`, `collections.<n>.{upsert,remove}`) |
+| `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, returns `{ surface, router, done }` |
+| `makeClientCursor(session)` | `.` | stateful cursor; `cursor.next()` blocks until a fresh client (post-reconnect) — the raw-loop primitive under the pump |
+| `measureClockOffset(client, log?)` | `.` | sample the bound process's wall-clock offset (ms), RTT-halved; call once at hello. A probe failure is rethrown, never faked |
+
+`pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection? }`.
+`makeSink` takes `{ seq }` (the spawn counter, **not** a client) and is rebuilt
+every spawn, so no per-client state survives a reconnect. `onLinkDown` fires after
+holders clear — the cue to drop any per-link local fold so the next spawn rebuilds
+from a fresh snapshot.
+
+`reServeSurface`'s `policy` (`Record<member, "value" | "delta">`) splits members:
+a `value` member (cell, collection, value pulse) is held open and **replayed**
+across an upstream drop; a `delta` member (byte or liveness stream) **fails
+through** — the drop ends the downstream stream so the client re-subscribes
+end-to-end. Holding open a byte stream is a compile error.
+
+## The fleet fan-out
+
+| Export | Subpath | Role |
+| --- | --- | --- |
+| `buildRemotePool(opts)` | `.` | keyed `Map<host, { session, handler }>` a `?host=` dispatcher reads; `add`/`remove`/`reconnect`/`recheckAll` + per-host socket eviction |
+| `serveHostMap(map, pool, opts)` | `.` | adapt a pool into a `@kolu/surface-map` `MapRegistry`: fuse membership with each session's `onState`, project each state (folding `clockOffset()`) into an entry status |
+
+`buildRemotePool` takes `{ buildEntry, persist?, controls? }`; `buildEntry(host)`
+returns the host's `{ session, handler }`. `serveHostMap` takes `{ linkFor, causeFor? }`;
+`linkFor(host, session)` is built once per host and evicted on removal. Together
+they are the server half of a host map — see
+[How to serve a map](/surface/serve-a-map).
+
+## The connection cell
+
+Connection health is state the remote agent cannot report (it can't observe the
+link *to* itself), so the parent authors it. This is the one graduated exception —
+the cell ships browser-safe from `@kolu/surface-remote/connection`.
+
+| Export | Subpath | Role |
+| --- | --- | --- |
+| `mirroredSurface(base)` | `/connection` | the public composition path: adds the gate-closed, get-only `connection` cell and reserves the name (throws on a base that already declares one) |
+| `connectionCell` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the exported fragment — read to seed a store or assert the shape, not to spread yourself |
+| `pipeSessionStateToCell(session, set)` | `/connection` | the node-side pump that drives the cell off `session.onState` (`pumpRemoteSurface` wires it for you when the mirrored surface carries `connection`) |
+
+## A mirror, end to end
+
+<Snippet src="packages/surface/example/snippets/remote.ts" region="endtoend" />
+
+## Lifecycle invariants
+
+- **Snapshot-then-delta on `onState`.** A listener attached at any point sees the current state synchronously before any later transition — the same contract `useCell` consumers expect.
+- **`pin()` is parent-lifetime intent.** It bumps the ref-count unconditionally, so the session keeps reconnecting even if the first spawn fails, and resolves with the first client. `destroy()` drops it regardless of the count.
+- **Network faults retry forever; remote faults are bounded.** A `network` fault (host unreachable) never terminates — it retries at capped backoff (60s). A `remote` fault (host answered but rejected the closure) is bounded by a max consecutive-failure count, then surfaces terminal `failed`.
+- **`recheck()` versus `reconnect()`.** `reconnect()` re-arms a `failed`/idle session and won't disturb a live link (the manual button). `recheck()` force-cycles whatever is there, including a `connected` link (the wake/network-change companion, since a post-sleep link is often stale).
+- **Liveness watchdog, default-on.** While `connected`, it probes the reserved `system.live` round-trip on an interval. A timeout means a silently-wedged remote and force-cycles the child; a rejection still counts as alive. Opt out with `liveness: false`.
+- **State progression.** `copying → connecting → connected`; on drop, `disconnected → copying → …` at exponential backoff capped at 60s.
+
+<Aside type="note" title="Nix is the contract, not the implementation">
+  Provisioning ships a `.drv` (build instructions, platform-neutral), so the
+  remote realises target-arch-correct binaries — parent darwin can front target
+  linux. A warm host collapses the copy/realise/pin to a single realise-probe.
+  There is no tarball, Docker, or prebuilt fallback. The parent's user must be in
+  the remote's `trusted-users`.
+</Aside>
+
+<Aside type="caution" title="Shared library">
+  `@kolu/surface-remote` is consumed by drishti as well as kolu. Any API-facing
+  change requires a paired, CI-green drishti PR (`.claude/rules/surface.md`).
+</Aside>

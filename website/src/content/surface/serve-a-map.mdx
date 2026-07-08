@@ -5,13 +5,72 @@ order: 411
 section: Multi-host · How-to
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: How-to. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
-Aggregate many host surfaces into one map with MapRegistry — drishti's adapter as the worked example.
+[Mirroring one surface](/surface/mirror-over-ssh) fronts a single host. A fleet
+app fronts *N* of them, of the same shape, with the set changing at runtime. This
+guide serves that fleet as one `@kolu/surface-map` map: define the entry surface
+once, hold a binding per host, and bridge those bindings into the map's
+`MapRegistry`. drishti — a browser fronting an ssh fleet — is the worked example
+throughout.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - MapRegistry
-> - buildRemotePool over N hosts
-> - Projecting entries
-> - drishti's adapter, worked
+## 1. Define the map
+
+`defineSurfaceMap(keySchema, entry, codec)` takes the per-host entry surface and
+produces its map form: every member's input gains a key so one socket carries all
+instances. The `codec` bridges your `Key` to the wire string every channel is
+keyed on; for a plain-string key it is the identity pair.
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="define" />
+
+## 2. Build one binding per host
+
+Hold one binding per host: a `makeSession` over `sshConnector` (per
+[Mirror over ssh](/surface/mirror-over-ssh)), a pump that folds the agent's frames
+into a local mirror, and an in-process `link` the map forwards member calls to.
+Its `state()` projects the session's connection state onto the map's per-entry
+state, so one dead box surfaces as exactly one `failed` chip.
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="binding" />
+
+<Aside type="tip" title="The warm-pool helpers do this for you">
+  For a production fan-out, `@kolu/surface-remote`'s `buildRemotePool` keys one
+  `{ session, handler }` per host and `serveHostMap(map, pool, { linkFor, causeFor })`
+  adapts the pool straight into a served map — folding each host's measured clock
+  offset. This guide builds the registry by hand to show the seam; the helpers are
+  in the [@kolu/surface-remote reference](/surface/ref-surface-remote).
+</Aside>
+
+## 3. Bridge the bindings into a MapRegistry
+
+`serveSurfaceMap` takes a `MapRegistry` — the one writer of membership. Build it
+over your bindings: `members()`/`has()` answer from the binding set, `subscribe`
+fires on any host's state change, and `resolve(host)` hands the map that host's
+`link` + projected state (or a `fault` for an unknown key). There is no second
+writer of membership.
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="registry" />
+
+## 4. Serve the map
+
+`serveSurfaceMap(map, registry)` publishes `entries` and derives each entry's
+`EntryStatus` by projecting its session's connection state — you never write
+status yourself. It returns a **finalized top-level router** — hand it straight to
+a transport (a `directLink` in-process, or an HTTP+WebSocket serve path); do *not*
+flatten it further with `implement(...).router({...})` (that flatten is only for
+an `implementSurface` fragment).
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="serve" />
+
+<Aside type="note" title="Status is projected, never authored">
+  `serveSurfaceMap` folds each resolved session's state into the entry status:
+  `copying`/`connecting` becomes `warming`, `connected` becomes `connected` (with
+  the clock offset), a bounded remote fault becomes `failed`. Membership and
+  status ship from one writer, so the two can never disagree. The reasoning is in
+  [Entry contracts](/surface/entry-contracts).
+</Aside>
+
+The client half — reading this map back as chips and a switchable canvas — is
+[The client half](/surface/the-client-half); the exact registry and wire types
+are in the [@kolu/surface-map reference](/surface/ref-surface-map).

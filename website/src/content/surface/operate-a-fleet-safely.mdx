@@ -5,12 +5,59 @@ order: 412
 section: Multi-host · How-to
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: How-to. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
-Run a multi-host fleet without surprises: version skew, entry ownership, and per-host isolation.
+A fleet multiplies the ways a surface can be quietly wrong: one host runs an
+older agent, two writers disagree about who is a member, one dead host drags the
+whole map down. This guide covers the three habits that keep a fleet honest.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - Gate on isContractVersionCompatible (skew)
-> - Entry ownership
-> - Per-host isolation of failures
+## Gate every host on contract compatibility
+
+Each host serves its own contract version. A fleet holds hosts at different
+versions at once, so never compare version strings with `==` — an additive minor
+bump is still compatible, and a bare string compare would flag a working host as
+broken. Gate on `isContractVersionCompatible(reported, expected)`, which passes
+when the majors match and the reported minor is at or above yours.
+
+<Snippet src="packages/surface/example/snippets/remote.ts" region="compat" />
+
+Read the version off the host's identity cell, check it **before** invoking
+anything else, and turn a mismatch into an honest "restart the other side"
+message rather than an opaque schema error from deep in the RPC layer. Surface the
+mismatch as the entry's `failed` cause so the chip shows an actionable card.
+
+## Keep one writer of membership
+
+Membership must have exactly one author. In a map, that author is the
+`MapRegistry`: `entries` is the truth it publishes, and status is *derived* from
+each session's connection state — there is no second writer. Do not maintain a
+parallel record of "which hosts exist" beside it.
+
+- A key absent from `entries` **is** "not a member" — there is no `absent` status arm to keep in sync.
+- Add or remove a host through the pool's `add`/`remove`; `entries` follows.
+- When a host leaves mid-stream, its subscriptions end with a typed `{ reason: "removed" }` **before** the session is destroyed — so a consumer sees a clean typed end, never a socket-error frame after it.
+
+<Aside type="caution" title="Do not hand-roll a membership probe">
+  The registry's `subscribe` fires only after `members()` and `has()` reflect the
+  change, so `entries` is always consistent with membership. A second hand-rolled
+  probe re-introduces exactly the dual-authority drift the single-writer rule
+  exists to make unconstructible.
+</Aside>
+
+## Isolate each host's failures
+
+A fleet's failures must stay local to the host that had them. The session state
+machine already isolates two kinds:
+
+- A **network** fault (host asleep, roaming, VPN down) is *never* terminal: the session retries at capped backoff forever, so a laptop that closes at home reconnects on its own at a café. It projects as `warming` — in motion, no action needed.
+- A **remote** fault (host answered but rejected the closure — e.g. the user isn't in `trusted-users`) is bounded: after a few consecutive failures the session surfaces terminal `failed`, and the map shows that one host's chip as needing intervention. The other hosts are untouched.
+
+On a long-running parent, call `recheck()` on every session when the machine
+wakes or regains connectivity — a post-sleep link is often stale (the far end
+dropped the socket but local ssh won't notice for ~30s), and `recheck()`
+force-cycles even a `connected` link. Use `reconnect()` for the manual
+"Reconnect" button; it re-arms a `failed` session without disturbing a live one.
+
+For why `warming` and `failed` mean exactly this, see
+[Entry contracts](/surface/entry-contracts).

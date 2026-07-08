@@ -5,13 +5,88 @@ order: 430
 section: Multi-host · Explanation
 ---
 
-{/* DRAFT SKELETON — Diátaxis quadrant: Explanation. Content lands per-stratum. */}
+import Aside from "../../components/docs/Aside.astro";
 
-How a host mirror fronts a plain server: dialing a remote agent, pumping its frames inward, and re-serving the same contract locally.
+A [surface](/surface/why-surfaces) is a typed menu a server offers: cells,
+collections, procedures, streams. In the basics, that server and its browser sit
+on the same machine, one WebSocket between them. The multi-host problem starts
+where that stops being true: the thing serving the surface runs on *another*
+machine, on a unix socket your browser can't reach. Something has to bridge the
+gap. That something is the server half.
 
-> **Draft.** This page is being written. Planned contents:
->
-> - The mirror/pump mental model
-> - Fronting a plain server (daemon variant is a callout)
-> - Parent-authoritative state
-> - Why the parent implements the same surface
+## The mirror is a pump
+
+The bridge does two things at once. It **subscribes to everything** the remote
+source serves and keeps a live local copy — the mirror. And it **serves that copy
+onward** to browsers, forwarding writes back up. The coined verb is
+`reServeSurface`: mirror it, then serve it again.
+
+The point of the mirror is a single load-bearing sentence: *the browser always
+talks to the local copy; only the pipe behind the copy changes.* The same canvas
+works whether the source is on this machine or across an ocean, because the
+browser never knows the difference. It faces a plain local server. Behind that
+server, a pump keeps the copy current — and if the pipe drops and respawns, the
+browser's view reconciles without the browser re-wiring anything.
+
+That is why the parent implements the *same* surface the agent does. It isn't
+proxying bytes; it is re-serving a real, locally-implemented surface whose stores
+happen to be fed by a remote pump. The contract is identical on both hops, so a
+consumer written against the local copy is byte-identical to one written against
+the agent directly — the [link abstraction](/surface/choose-a-link) all over
+again, one machine boundary further out.
+
+## One safety rule, per member
+
+A pump that blindly replayed everything would lie. The mirror's whole honesty
+rests on one rule, declared per contract member:
+
+> Values may be held and replayed; live byte streams must break loudly.
+
+If the pipe to the source blips, the mirror keeps showing the last known *value* —
+the list of terminals, the connection preferences. Replaying a value across a
+blip is honest; the value is still true. But a live *byte stream* — your
+terminal's actual screen — must **end and reattach fresh**. Replaying stale bytes
+would silently paint a dead screen as a live one. So a re-serve marks each member
+`value` (held open and replayed) or `delta` (failed through: the drop ends the
+downstream stream, the client re-subscribes, and a snapshot only ever leads a
+*fresh* stream). This is the same instinct as
+[reactive honesty](/surface/reactive-honesty)'s "an empty must not lie," carried
+across the machine boundary.
+
+## The session owns the pipe
+
+The pump doesn't own the connection; a **session** does. A session is a durable,
+supervised relationship the parent keeps to one remote: it holds the link open
+across reconnects, watches health, and hands the pump a fresh client each time the
+agent respawns. The pump loops over those clients; the session decides when there
+is a new one. That division is deliberate — the session is the transport-agnostic
+part (reconnect, backoff, give-up, the liveness watchdog), and the pump is the
+surface-shaped part (fold these frames into those stores). Swap ssh for a unix
+socket and the pump doesn't notice.
+
+## Fronting a plain server
+
+Nothing about the mirror requires the far end to be exotic. The ssh mirror fronts
+a **plain** surface server: the agent runs `implementSurface` and serves over
+stdio, exactly as a local process would. drishti — a browser fronting an ssh
+fleet, one session per host — is the multi-host exemplar, and each host in it is
+just an ordinary agent. The session and pump are what make it remote; the agent
+is oblivious.
+
+<Aside type="note" title="The daemon variant adds supervision, not a new model">
+  A long-lived daemon behind the mirror layers *supervision* on the session —
+  version convergence, drain-on-replace, an identity handshake. That is a
+  [separate stratum](/surface/the-daemon-spine); the mirror model here is
+  unchanged. A daemon is a session with more verbs, not a different pipe.
+</Aside>
+
+## Where it costs you
+
+The mirror buys transport-indifference, and it pays for it in latency and a copy.
+Every value now lives twice — once on the source, once in the parent's stores —
+and every write takes two hops. For a value that changes slowly, that copy is
+free honesty. For a firehose byte stream, the fail-through rule means a
+reconnect is a visible reattach, not a seamless resume — the framework chooses an
+honest flicker over a smooth-looking lie. That is the trade: you give up the
+illusion of a single continuous connection, and in return the browser can never be
+shown a stale screen dressed as a live one.

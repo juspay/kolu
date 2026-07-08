@@ -1694,9 +1694,21 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../../../surface-app
+      '@kolu/surface-daemon':
+        specifier: workspace:*
+        version: link:../../../surface-daemon
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../../../surface-daemon-supervisor
+      '@kolu/surface-map':
+        specifier: workspace:*
+        version: link:../../../surface-map
       '@kolu/surface-mcp':
         specifier: workspace:*
         version: link:../../../surface-mcp
+      '@kolu/surface-remote':
+        specifier: workspace:*
+        version: link:../../../surface-remote
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13

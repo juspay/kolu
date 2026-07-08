@@ -10,7 +10,11 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
+    "@kolu/surface-daemon": "workspace:*",
+    "@kolu/surface-daemon-supervisor": "workspace:*",
+    "@kolu/surface-map": "workspace:*",
     "@kolu/surface-mcp": "workspace:*",
+    "@kolu/surface-remote": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "solid-js": "^1.9.0",
     "zod": "^4.3.6"
