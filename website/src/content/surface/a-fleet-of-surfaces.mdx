@@ -73,7 +73,9 @@ host's subscriptions and populating the new one's.
    one entry, not three chips). Each must be able to realise the agent derivation.
 
    ```sh
-   HOST=boxA,boxB,boxC FLEET_TOP_AGENT_DRV=<agent-drv-path> pnpm run dev
+   export FLEET_TOP_AGENT_DRV="$(nix eval --raw "$(git rev-parse --show-toplevel)#fleet-top-agent.drvPath")"
+
+   HOST=boxA,boxB,boxC pnpm run dev
    ```
 
    ```text

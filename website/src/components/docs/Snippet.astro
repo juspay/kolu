@@ -17,12 +17,13 @@
  * dedents — so one compilable file can host several doc blocks.
  */
 import { Code } from "astro:components";
+import type { CodeLanguage } from "astro";
 import { readFileSync } from "node:fs";
 
 interface Props {
   src: string;
   region?: string;
-  lang?: string;
+  lang?: CodeLanguage;
 }
 const { src, region, lang = "ts" } = Astro.props;
 

@@ -1,0 +1,32 @@
+# Nix derivation for the fleet-top tutorial agent.
+#
+# The multi-host tutorials (Across the hosts / A fleet of surfaces) mirror a
+# `top` surface from another box: `@kolu/surface-remote`'s `sshConnector` ships
+# this agent's `.drv` to each host, realises it, and runs
+# `<out>/bin/fleet-top-agent --stdio`. The tutorials read its drvPath with
+# `nix eval --raw .#fleet-top-agent.drvPath` and pass it as FLEET_TOP_AGENT_DRV.
+#
+# Same makeWrapper-over-tsx shape as the remote-process-monitor example agent;
+# reuses the workspace-wide `src` + `pnpmDeps` (passed through from the root
+# composer) so the pnpm fetch is cached once. Agent-only — the tutorials run the
+# parent server + Vite client from source via `pnpm run dev`.
+{ pkgs, src, pnpmDeps }:
+let
+  # Shared "workspace tree + pnpm install, tsx-runnable" base (../base.nix),
+  # the same one remote-process-monitor and mini-ci build against.
+  surfaceExampleBase = import ../base.nix { inherit pkgs src pnpmDeps; };
+
+  fleetTopAgent = pkgs.runCommand "fleet-top-agent"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "fleet-top-agent";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/fleet-top-agent \
+      --add-flags "${surfaceExampleBase}/packages/surface/example/fleet-top/part-3/src/agent/main.ts" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+  '';
+in
+{
+  fleet-top-agent = fleetTopAgent;
+}

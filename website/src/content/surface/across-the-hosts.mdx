@@ -69,12 +69,11 @@ that started on another machine now serves from this process.
   Multi-host needs two things the earlier parts did not. **(1) The agent as a Nix
   derivation.** `sshConnector` ships a realised closure to each host, so it needs
   the agent's `.drv` path in `FLEET_TOP_AGENT_DRV` — the server refuses to boot
-  without it (no fallback). Package the agent the way the sibling
-  [`remote-process-monitor`](https://github.com/juspay/kolu/tree/master/packages/surface/example/remote-process-monitor)
-  example does — a `makeWrapper` over `tsx` and the agent entry, exposed through
-  the flake — then pass its `drvPath`. **(2) A reachable host.** `localhost` is the
-  easy one: `sshConnector` detects it and runs the realised binary **directly, with
-  no ssh and no sshd**; a non-local `HOST` is a genuine ssh hop.
+  without it (no fallback). fleet-top ships the agent as a flake output, so you
+  resolve it in one command: `nix eval --raw .#fleet-top-agent.drvPath` (from the
+  repo root). **(2) A reachable host.** `localhost` is the easy one: `sshConnector`
+  detects it and runs the realised binary **directly, with no ssh and no sshd**; a
+  non-local `HOST` is a genuine ssh hop.
 </Aside>
 
 ## Watch it arrive
@@ -82,11 +81,14 @@ that started on another machine now serves from this process.
 <Steps>
 
 1. Point the parent at one host and start it. `HOST` is the target (`localhost`
-   here — no ssh needed); `FLEET_TOP_AGENT_DRV` is the agent derivation from the
-   prerequisites above.
+   here — no ssh needed); `FLEET_TOP_AGENT_DRV` is the agent's flake output,
+   resolved in place.
 
    ```sh
-   HOST=localhost FLEET_TOP_AGENT_DRV=<agent-drv-path> pnpm run dev
+   # resolve the agent .drv (works from anywhere in the repo):
+   export FLEET_TOP_AGENT_DRV="$(nix eval --raw "$(git rev-parse --show-toplevel)#fleet-top-agent.drvPath")"
+
+   HOST=localhost pnpm run dev
    ```
 
    ```text
