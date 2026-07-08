@@ -41,6 +41,6 @@ them is in [The daemon spine](/surface/the-daemon-spine).
 The supervisor's convergence kit makes three classes of mistake unrepresentable
 rather than merely discouraged:
 
-1. **A drainless daemon cannot declare a drain policy.** The `drain-and-replace` policy arms exist only for a drain-capable handshake; a drainless daemon (kaval) declaring one is a compile error.
+1. **A drainless daemon cannot declare a drain policy.** The `drain-and-replace` policy arms exist only for a drain-capable handshake; a drainless daemon ([kaval](/kaval)) declaring one is a compile error.
 2. **Contracts order, builds do not.** The ordering predicate exists for contract versions and is simply absent for build ids — you cannot ask whether one build "is newer than" another.
 3. **Identity precedes the handshake.** The control-core identity is probed pre-connect, so a version skew can never hide it.

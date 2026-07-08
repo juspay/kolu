@@ -47,7 +47,7 @@ ref you surface as a clickable identity in the UI.
 There is one policy choice: whether the daemon-spine code is inside the hashed
 closure.
 
-- If a contract-compatible spine change is behaviourally interchangeable — because the wire contract version is itself hashed — you can **exclude** the spine from the build id (kaval does this; the contract version carries the compatibility signal).
+- If a contract-compatible spine change is behaviourally interchangeable — because the wire contract version is itself hashed — you can **exclude** the spine from the build id ([kaval](/kaval) does this; the contract version carries the compatibility signal).
 - If you prefer a cheap auto-drain where over-firing is harmless, **include** the whole closure (padi does this).
 
 Either way, the identity a client reads is now stable and meaningful across

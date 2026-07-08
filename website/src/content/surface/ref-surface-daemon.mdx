@@ -30,7 +30,7 @@ in-process from a test.
 | `gatePid(gatePath)` · `isHolderLive(pid)` | the gate-file primitives (pid parse · liveness probe) the supervisor composes |
 | `daemonExitCode(exit)` · `stderrLogger()` · `Logger` · `DaemonExit` | exit-code classification and the structural logging contract |
 
-`lifetime` is the policy that distinguishes the two tenants: kaval (a PTY daemon)
+`lifetime` is the policy that distinguishes the two tenants: [kaval](/kaval) (a PTY daemon)
 uses `{ kind: "forever" }`; `odu serve` uses `{ kind: "idleTimeout", ms, isIdle }`.
 
 ## Serving the surface

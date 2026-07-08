@@ -68,7 +68,7 @@ socket and the pump doesn't notice.
 
 Nothing about the mirror requires the far end to be exotic. The ssh mirror fronts
 a **plain** surface server: the agent runs `implementSurface` and serves over
-stdio, exactly as a local process would. drishti — a browser fronting an ssh
+stdio, exactly as a local process would. [drishti](https://github.com/srid/drishti) — a browser fronting an ssh
 fleet, one session per host — is the multi-host exemplar, and each host in it is
 just an ordinary agent. The session and pump are what make it remote; the agent
 is oblivious.

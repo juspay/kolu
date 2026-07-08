@@ -66,7 +66,7 @@ build, because the supervisor is not in the build id at all.
 ## A daemon is not a fleet
 
 It is tempting to assume that "long-lived" and "runs on other machines" travel
-together. They do not. **kaval** is the proof: a daemon on your own box, one
+together. They do not. **[kaval](/kaval)** is the proof: a daemon on your own box, one
 process, no ssh, no map — everything in this stratum, none of the
 [multi-host](/surface/across-the-hosts) one. The spine is what a daemon needs to
 be recycled honestly; it says nothing about *where* the daemon runs. That is a
