@@ -86,8 +86,10 @@ describe("supervisorGatePath", () => {
   it("names `supervisor.pid` in the padi runtime dir (beside padi.pid)", () => {
     const p = supervisorGatePath(join(tmpdir(), "some-state-root"));
     expect(p.endsWith(`/${SUPERVISOR_GATE_FILE}`)).toBe(true);
-    // Same `padi-<digest>` drawer padi's own socket + gate live in.
-    expect(p).toMatch(/padi-[0-9a-f]+\/supervisor\.pid$/);
+    // Same `padi-<digest>` drawer padi's own socket + gate live in. The `-<uid>`
+    // suffix is the `/tmp` fallback decoration `getRuntimeSocketPath` adds when
+    // `$XDG_RUNTIME_DIR` is unset (e.g. macOS), so allow it optionally.
+    expect(p).toMatch(/padi-[0-9a-f]+(-\d+)?\/supervisor\.pid$/);
   });
 });
 
