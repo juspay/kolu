@@ -1,25 +1,21 @@
-/** Active-host Padi + Kaval dual marks for the host chip (Proposal A / host-first).
+/** Active-host Padi + Kaval dual marks for the host chip (host-first chrome).
  *
- *  Mounted INSIDE every `HostChip` as a FIXED-width dual-daemon slot. Only the
- *  ACTIVE host fills the slot with live sub-chips; inactive hosts leave the
- *  same outer box empty. That is what keeps host-switch reflow impossible:
- *  measured chip width never depends on `isActive()` — only the slot's CONTENT
- *  re-keys. Iteration 1 put the pair inside the active chip WITHOUT a reserved
- *  empty box on siblings and reflowed the strip; iteration 2 pulled the pair
- *  into a stationary ChromeBar slot. This module is iteration 3: back on the
- *  host chip, with the reserved-width invariant baked in.
+ *  Mounted INSIDE every `HostChip` as a FIXED-width dual-daemon slot. Fill is
+ *  derived from the chip's `host` vs `activeHost()` (never a free boolean) so
+ *  the content always matches the host whose facts the children read. Inactive
+ *  chips leave the same outer box empty — host-switch reflow is impossible.
  *
- *  Padi and Kaval are PER-HOST facts read through ACTIVE-host accessors
- *  (`useDaemonStatus`, `useHostInventory`, `padiPresentation`). Sub-chips mount
- *  only on the active chip, so there is no N× subscription cost and no host
- *  param to thread.
+ *  COMPACTION: resting state is icon + status dot only. Steady versions and
+ *  mem/update detail live in tooltips and the info dialogs. The sole bar
+ *  exception is the contract-skew pair on Padi when the active entry failed
+ *  with `contract-skew-refused` (clipped inside the fixed slot if needed).
  *
- *  COMPACTION: resting state is icon + status dot only. Steady versions live in
- *  tooltips/dialogs. The sole bar exception is the contract-skew pair
- *  ({@link SkewVersionSpan}) on Padi when the active entry failed with
- *  `contract-skew-refused` — painted inside the fixed slot (overflow-hidden)
- *  so a healthy↔skew host switch still cannot grow the outer box. */
+ *  Padi glance status is the ACTIVE host's map entry (`activeEntryState` /
+ *  `padiMap.entry(host)`), not kolu-server's host-independent local `padiLink`. */
 
+import type { EntryState } from "@kolu/surface-map";
+import type { HostKey } from "kolu-common/hostKey";
+import type { PadiLink } from "kolu-common/surface";
 import type {
   PadiEntryStatus,
   SkewVersionPair,
@@ -28,41 +24,30 @@ import type { Component } from "solid-js";
 import { createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
+import { kavalUpdatePending } from "../kaval/KavalUpdateBadge";
 import {
-  KavalUpdateBadge,
-  kavalUpdatePending,
-} from "../kaval/KavalUpdateBadge";
-import {
+  activeEntryState,
   DAEMON_STATE_PRESENTATION,
   daemonChannelLive,
   daemonTransportLive,
   formatUptime,
   kavalDot,
   localDaemonStatus,
-  padiLinkState,
 } from "../kaval/useDaemonStatus";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
-import {
-  PADI_LINK_PRESENTATION,
-  padiBoundHostSegment,
-  padiDot,
-} from "../padi/padiPresentation";
 import { getClockNow } from "../time/clock";
 import { IdentityMark, StatusDot } from "../ui/IdentityMark";
 import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
-import { daemonScanBoundHost } from "../ui/useDaemonInventory";
 import { activePadiIdentity } from "../ui/useHostInventory";
 import { kavalMemoryDisplay, padiMemoryDisplay } from "../ui/useMemoryUsage";
 import { activeHost, padiMap } from "../wire";
+import { dotClass, sameHost, statusTitle } from "./hostChipTone";
 
 /**
- * Outer dual-daemon slot width — MUST match on every host chip (active fill
- * and inactive empty). Sized for two compact icon+dot marks; skew text, when
+ * Outer dual-daemon slot width — fixed on every host chip (active fill and
+ * inactive empty). Sized for two compact icon+dot marks; skew text, when
  * present, lives inside and clips rather than growing the chip.
- *
- * Keep in lockstep with `HostSelectorStrip`'s `DEFAULT_CHIP_WIDTH_ESTIMATE`
- * bump (the estimate includes this reservation).
  */
 export const DUAL_DAEMON_SLOT_CLASS =
   "flex h-7 w-[3.25rem] shrink-0 items-center justify-center overflow-hidden";
@@ -70,59 +55,42 @@ export const DUAL_DAEMON_SLOT_CLASS =
 const subChipClass =
   "pointer-events-auto shrink-0 relative flex h-7 items-center justify-center px-0.5 leading-4 text-fg-2 transition-colors hover:bg-surface-3/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
-/** Contract-skew running→expected pair — only painted when the active host's
- *  padi entry failed with `contract-skew-refused`. Lives inside the fixed dual
- *  slot (may clip); full pair remains in the Padi tooltip/dialog. */
+/** Map entry → dialog's legacy `PadiLink` vocabulary so {@link PadiInfoDialog}
+ *  still receives a status it understands, keyed off the ACTIVE host's entry. */
+function entryAsPadiLink(state: EntryState): PadiLink | undefined {
+  switch (state.kind) {
+    case "connected":
+      return "connected";
+    case "warming":
+      return "connecting";
+    case "failed":
+      return "degraded";
+    default:
+      return undefined;
+  }
+}
+
+/** Contract-skew running→expected pair — only when the active host's padi
+ *  entry failed with `contract-skew-refused`. */
 const SkewVersionSpan: Component<SkewVersionPair> = (props) => (
   <span class="max-w-[2.75rem] truncate whitespace-nowrap tabular-nums text-[9px] leading-4 text-warning">
     {`v${props.running}→v${props.expected}`}
   </span>
 );
 
-const PadiMemReadout: Component = () => (
-  <Show when={padiMemoryDisplay()?.kind === "error"}>
-    <span
-      data-testid="padi-memory-error"
-      class="rounded-full border border-warning/40 px-1 text-[9px] leading-4 text-warning"
-    >
-      mem ?
-    </span>
-  </Show>
-);
-
-const KavalMemReadout: Component = () => (
-  <Show when={kavalMemoryDisplay()?.kind === "error"}>
-    <span
-      data-testid="kaval-memory-error"
-      class="rounded-full border border-warning/40 px-1 text-[9px] leading-4 text-warning"
-    >
-      mem ?
-    </span>
-  </Show>
-);
-
-/** The Padi sub-chip — icon + link-state dot (+ skew pair when broken).
- *  Click opens {@link PadiInfoDialog}. */
+/** The Padi sub-chip — icon + active-host entry dot (+ skew pair when broken). */
 const PadiSubChip: Component = () => {
   const [open, setOpen] = createSignal(false);
   const daemonLive = daemonTransportLive;
+  const entry = activeEntryState;
   const padiVersion = (): string | undefined =>
     activePadiIdentity()?.surfaceVersion;
-  // Skew-UX: when the ACTIVE host's entry failed on `contract-skew-refused`, the
-  // typed D2 version pair rides that `failed` arm (`PadiEntryStatus`).
   const skewPair = (): SkewVersionPair | undefined => {
     const state = padiMap.entry(activeHost()).state() as PadiEntryStatus;
     if (state.kind !== "failed" || state.cause !== "contract-skew-refused")
       return undefined;
     const { running, expected } = state as SkewVersionPair;
     return { running, expected };
-  };
-  const padiHostSegment = (): string | null =>
-    padiBoundHostSegment(daemonScanBoundHost());
-  const padiStateText = (): string => {
-    if (!daemonLive()) return "unknown";
-    const link = padiLinkState();
-    return link ? PADI_LINK_PRESENTATION[link].label : "unknown";
   };
   const padiMemoryText = (): string =>
     match(padiMemoryDisplay())
@@ -133,8 +101,7 @@ const PadiSubChip: Component = () => {
   const padiTip = (): string => {
     const skew = skewPair();
     return joinTip(
-      `padi ${padiStateText()}`,
-      padiHostSegment() ?? undefined,
+      `padi ${daemonLive() ? statusTitle(entry()) : "unknown"}`,
       skew
         ? `contract skew v${skew.running} → v${skew.expected}`
         : padiVersion()
@@ -144,6 +111,8 @@ const PadiSubChip: Component = () => {
       "click for details",
     );
   };
+  const linkForDialog = (): PadiLink | undefined =>
+    daemonLive() ? entryAsPadiLink(entry()) : undefined;
 
   return (
     <>
@@ -158,9 +127,9 @@ const PadiSubChip: Component = () => {
         <IdentityMark logoSrc={PADI_LOGO_URL}>
           <StatusDot
             data-padi-link={
-              daemonLive() ? (padiLinkState() ?? "unknown") : "unknown"
+              daemonLive() ? (entryAsPadiLink(entry()) ?? "unknown") : "unknown"
             }
-            class={padiDot(padiLinkState(), daemonLive())}
+            class={daemonLive() ? dotClass(entry()) : "bg-fg-3/40"}
           />
         </IdentityMark>
         <Show when={skewPair()}>
@@ -171,12 +140,11 @@ const PadiSubChip: Component = () => {
             />
           )}
         </Show>
-        <PadiMemReadout />
       </button>
       <PadiInfoDialog
         open={open()}
         onOpenChange={setOpen}
-        link={padiLinkState()}
+        link={linkForDialog()}
       />
     </>
   );
@@ -235,30 +203,34 @@ const KavalSubChip: Component = () => {
             class={kavalDot(daemon()?.state, kavalLive())}
           />
         </IdentityMark>
-        <KavalMemReadout />
-        <Show when={kavalUpdatePending()}>
-          <KavalUpdateBadge />
-        </Show>
       </button>
       <KavalInfoDialog open={open()} onOpenChange={setOpen} status={daemon()} />
     </>
   );
 };
 
-/** Fixed-width dual-daemon slot for one host chip.
+/** Fixed-width dual-daemon slot for one host control.
  *
- *  `filled` is true only for the active host. Outer classes NEVER branch on
- *  fill — only children do — so measured width is identical for every chip. */
-export const HostDualDaemonSlot: Component<{ filled: boolean }> = (props) => (
-  <div
-    class={DUAL_DAEMON_SLOT_CLASS}
-    data-testid="host-dual-daemon-slot"
-    data-filled={props.filled ? "" : undefined}
-    aria-hidden={props.filled ? undefined : true}
-  >
-    <Show when={props.filled}>
-      <PadiSubChip />
-      <KavalSubChip />
-    </Show>
-  </div>
-);
+ *  `host` is the host this control represents. Fill is derived — never a free
+ *  boolean — so content always re-keys with the same host the parent paints.
+ *  `measure` forces empty (hidden measuring-row twins: width reserve without a
+ *  second live Padi/Kaval mount). */
+export const HostDualDaemonSlot: Component<{
+  host: HostKey;
+  measure?: boolean;
+}> = (props) => {
+  const filled = () => !props.measure && sameHost(activeHost(), props.host);
+  return (
+    <div
+      class={DUAL_DAEMON_SLOT_CLASS}
+      data-testid="host-dual-daemon-slot"
+      data-filled={filled() ? "" : undefined}
+      aria-hidden={filled() ? undefined : true}
+    >
+      <Show when={filled()}>
+        <PadiSubChip />
+        <KavalSubChip />
+      </Show>
+    </div>
+  );
+};

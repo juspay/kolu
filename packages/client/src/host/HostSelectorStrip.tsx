@@ -96,12 +96,11 @@ import {
   setActiveHost,
 } from "../wire";
 
-/** A chip's width before its first real measurement lands (the hidden
- *  measuring row's `ResizeObserver` callback is async) — a deliberately
- *  generous guess (dot + short label + dual-daemon reserve + padding) so the
- *  very first frame doesn't dump every chip into overflow before real widths
- *  settle in. Includes the fixed dual-daemon slot (`DUAL_DAEMON_SLOT_CLASS`). */
-const DEFAULT_CHIP_WIDTH_ESTIMATE: number = 148;
+/** First-frame guess for a chip's width before the measuring row's
+ *  ResizeObserver lands real DOM widths (jsdom/async). Independent of the
+ *  dual-daemon slot CSS — measurement is truth; this only avoids dumping
+ *  every chip into overflow on the very first paint. */
+const FIRST_FRAME_CHIP_WIDTH_GUESS: number = 148;
 /** The "⋯ +N" overflow trigger's own rendered width + gap — reserved from
  *  the fit budget only once chips don't all fit (see `hostOverflow.ts`). */
 const OVERFLOW_TRIGGER_RESERVE: number = 44;
@@ -142,11 +141,6 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
   const isActive = () => sameHost(activeHost(), props.host);
-  // Measure-row twins keep the dual-daemon slot EMPTY: the outer box is fixed-width
-  // either way, so empty is enough for width, and we avoid mounting a second
-  // Padi/Kaval pair (duplicate testids / dialogs) behind `aria-hidden`.
-  const fillDaemons = () => !props.measure && isActive();
-
   // A non-interactive CONTAINER holding real buttons — SELECT, optional dual-
   // daemon marks (active only), and guest REMOVE. Nested buttons stay siblings
   // so a11y stays valid (no button-in-button).
@@ -208,15 +202,14 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           </span>
         </Show>
       </button>
-      {/* Fixed-width dual-daemon slot — Padi + Kaval fill only when active
-       *  (and never on the hidden measure-row twin — see `fillDaemons`). */}
+      {/* Fixed-width dual-daemon slot — fill derived from host vs activeHost. */}
       <div
         classList={{
           "bg-surface-3": isActive(),
           "bg-surface-2/70": !isActive(),
         }}
       >
-        <HostDualDaemonSlot filled={fillDaemons()} />
+        <HostDualDaemonSlot host={props.host} measure={props.measure} />
       </div>
       {/* Remove — guest hosts only. The local default is unremovable (the server
        *  rejects it LOUD; we also hide the affordance so it never invites the error).
@@ -297,10 +290,9 @@ const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
   );
 };
 
-/** Narrow-window stage 4 (below `sm`) — the whole chip row collapses to ONE
- *  trigger showing the active host; an `OptionMenu` lists every pool host to
- *  switch to. The daemon dots stay visible regardless — they live in the
- *  stationary slot elsewhere (`ChromeBar.tsx`), unaffected by this. */
+/** Narrow multi-host range (`sm..md`): one bordered unit — select trigger +
+ *  dual-daemon slot for the active host (same composition shape as `HostChip`,
+ *  without per-host chips). `OptionMenu` lists every pool host to switch to. */
 const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl: HTMLButtonElement | undefined;
@@ -310,24 +302,31 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
 
   return (
     <>
-      <button
-        type="button"
-        ref={triggerEl}
+      <div
+        class="flex items-stretch rounded-lg border border-accent/60 ring-1 ring-accent/30 bg-surface-3 overflow-hidden shrink-0"
         data-testid="host-dropdown-switcher"
-        class="pointer-events-auto flex shrink-0 items-center gap-1.5 h-7 pl-2 pr-1.5 rounded-lg border border-accent/60 ring-1 ring-accent/30 bg-surface-3 text-xs text-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        aria-label={`Switch host — currently ${label(active())}`}
-        title={`Switch host — currently ${label(active())}`}
-        onClick={() => setOpen((v) => !v)}
       >
-        <span
-          class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(padiMap.entry(active()).state())}`}
-          aria-hidden="true"
-        />
-        <span class="truncate max-w-[5rem] font-medium">{label(active())}</span>
-        <span aria-hidden="true" class="text-fg-3">
-          ▾
-        </span>
-      </button>
+        <button
+          type="button"
+          ref={triggerEl}
+          class="pointer-events-auto flex items-center gap-1.5 h-7 pl-2 pr-1.5 text-xs text-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          aria-label={`Switch host — currently ${label(active())}`}
+          title={`Switch host — currently ${label(active())}`}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span
+            class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(padiMap.entry(active()).state())}`}
+            aria-hidden="true"
+          />
+          <span class="truncate max-w-[5rem] font-medium">
+            {label(active())}
+          </span>
+          <span aria-hidden="true" class="text-fg-3">
+            ▾
+          </span>
+        </button>
+        <HostDualDaemonSlot host={active()} />
+      </div>
       <OptionMenu
         triggerRef={() => triggerEl}
         open={open}
@@ -398,7 +397,7 @@ const HostSelectorStrip: Component = () => {
   const chipFits = createMemo<HostFit[]>(() =>
     renderableHosts().map((h) => {
       const key = encodeHostKey(h);
-      return { key, width: chipWidths[key] ?? DEFAULT_CHIP_WIDTH_ESTIMATE };
+      return { key, width: chipWidths[key] ?? FIRST_FRAME_CHIP_WIDTH_GUESS };
     }),
   );
   const chipsBudget = createMemo(
@@ -497,14 +496,9 @@ const HostSelectorStrip: Component = () => {
 
         {/* `sm..md` (mobile-extreme, narrow-window stage 4 — this
          *  component's actual narrowest reachable range, see above): one
-         *  dropdown switcher chip replaces the whole row. Dual-daemon fill
-         *  still sits beside it (the dropdown is not a HostChip, so the
-         *  in-chip slot isn't available). */}
-        <div class="flex md:hidden items-center gap-1">
+         *  dropdown unit (select + dual-daemon) replaces the chip row. */}
+        <div class="flex md:hidden">
           <HostDropdownSwitcher hosts={renderableHosts()} />
-          <div class="rounded-lg border border-accent/60 bg-surface-3 overflow-hidden">
-            <HostDualDaemonSlot filled />
-          </div>
         </div>
       </Show>
 

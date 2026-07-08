@@ -1,13 +1,11 @@
-/** The amber "⬆ update" nudge chip + kolu's accessor for "the running kaval
- *  daemon is a build behind the kaval the server would spawn" (B3.4 — currency).
+/** Accessors for "the running kaval daemon is a build behind the kaval the
+ *  server would spawn" (B3.4 — currency), plus an optional amber "⬆ update"
+ *  chip component. Host-first chrome keeps the dual-daemon slot icon+dot only
+ *  (update detail rides the Kaval tooltip and {@link KavalInfoDialog}); the
+ *  chip component remains for dialog/surfaces that still want an inline nudge.
  *
- *  Mirrors {@link StaleBadge}'s shape — a passive chip gated by an accessor. It
- *  lives INSIDE the rail's kaval-column button (a `<span>`, not a nested button),
- *  so a click opens `KavalInfoDialog` — where the session-preserving Restart-kaval
- *  action already lives (its inline confirm + the running-vs-expected detail).
- *  Routing the destructive recycle through the dialog (not a cramped rail
- *  inline-confirm) keeps the rail a glanceable strip and reuses `RestartKavalButton`
- *  unchanged.
+ *  Session-preserving Restart-kaval lives in `KavalInfoDialog` (inline confirm
+ *  + running-vs-expected detail), reusing `RestartKavalButton` unchanged.
  *
  *  The derivation ({@link kavalStale}) is a read-site join of two raw facts —
  *  `expected` (padi's `status.expectedKaval`) and `reported` (the connected
