@@ -4,7 +4,7 @@ description: The architecture that replaces the R9/R10 finale plan for remote te
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-07-05
+updated: 2026-07-08
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -348,6 +348,18 @@ The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios t
 kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
 - **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
 - *Field note (2026-07-08, srid on the W4 deploy):* the asymmetry is now user-visible — OS notifications escape the app (cross-host reach), but unread marks land in per-host `HostView.attention`, whose only render surface is the active host's dock, so a background host's attention is invisible. W5's chip counts are the missing rollup. One wiring fact for the implementer: `useTerminalAlerts`'s transition watcher rides the ACTIVE host's swapped store — the urgency-projection member (this phase's wire design) is what makes background hosts observable, not the client-side watcher.
+
+<a id="w7"></a>
+
+### W7 — per-host state by ownership, not enumeration *(the class fix for the "forgotten field" bug family; ratified 2026-07-08; its own post-merge PR)*
+
+**In simple words:** W4 made kolu multi-host, and a whole family of bugs followed the same shape: some piece of canvas state — the focused terminal, the split layout, the camera position — quietly lived at app lifetime while the tiles around it became per-host, so switching hosts showed the wrong host's leftovers (blank canvas, lost splits, a viewport panned to empty space). Each was found live by srid, one at a time, because today per-host-ness is **opt-in**: the `HostView` record enumerates fields (`activeId, mruOrder, attention, …`), and every new fact must be *remembered* into it — the camera bug is literally a forgotten field. Host-independence, meanwhile, is a code comment nothing enforces, and ~62 client files can mint bare signals without ever being asked which axis they live on.
+
+**The ratified fix (per /architecture-first-principles P4 + /perfection-review — make the class unconstructible, not detected):** flip the default from **enumeration to ownership**. The canvas subtree mounts inside a **per-host reactive owner** — a `Map<HostKey, Owner>` of live roots; switching hosts swaps which owner renders (shape B generalized: state survives switch-away in its owner, GL/xterm stay active-host-only per the existing release/re-acquire discipline). Then *everything* born inside the subtree is per-host **by construction** — there is no record to forget a field in, and the `HostView` enumeration dissolves into the owner. App-level state requires deliberately stepping outside the subtree.
+
+- **The boundary guard (part of this phase, not a substitute for it):** ownership covers what is born inside the owner; state born *outside* (module scope in a shared util — exactly `useCanvasViewport.ts`'s three module-scope signals, the camera bug's birthplace) stays expressible. So the phase ships a convention test at the door (`keyboard.test.ts` precedent): no module/hook-lifetime state constructors in the canvas domain outside a declared owner; app-level state declares itself with a reason the test can see. The comment-only `HOST-SCOPING:` convention retires into that test.
+- **Done when:** the `HostView` record is gone (owner-held state replaces every enumerated field incl. the W4-era migrations: focus, MRU, attention, restore latches, splits, camera); a new `createSignal` added anywhere in the canvas subtree is per-host with zero ceremony (proven by a test that adds one and switches hosts); the boundary test is red on a module-scope signal in the canvas domain; UX byte-identical to the shipped W4 behavior (the per-host semantics are already right — this phase changes where they come from, not what they are).
+- *Why not sooner:* the instance fixes (focus `621ea2c48`, splits `0dbf28e0a`/`c6ed48c56`, camera — in flight) are all shipped in #1714 with pins; this phase deletes the mechanism that made them findable-only-by-srid. Detection-only alternatives (lint lists, sanctioned factories) were considered and rejected as the fix — the defect stays expressible under them (P5: a syntax gate can't see meaning); the slim factory/test residue survives only as the owner's boundary guard above.
 
 <a id="w6"></a>
 
