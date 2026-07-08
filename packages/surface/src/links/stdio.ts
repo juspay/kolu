@@ -123,20 +123,28 @@ export class LinkStdioClient<T extends ClientContext>
    *
    *  IDEMPOTENT: multiple teardown paths converge here — the outbound
    *  `write.on("error")` (EPIPE) AND the inbound stream's end/error both fire on
-   *  a dropped transport — so a second call must no-op. `peer.close()` aborts the
-   *  response queue; if a request is mid-pull (or the queue is already closed by a
-   *  prior teardown), it throws an `AbortError` synchronously. That's expected on
-   *  teardown — the link is already dead — so swallow it rather than let it
-   *  surface as an unhandled rejection through the discarded `.then` handlers that
-   *  drive this (which felled a padi-reconnect unit test on the close race). */
+   *  a dropped transport — so a second call must no-op.
+   *
+   *  The `try/catch` is a DEFENSIVE guard against a SYNCHRONOUS throw out of
+   *  `peer.close()` — e.g. an in-flight request's `AbortController.abort()` listener
+   *  throwing as the peer aborts its controllers. It does NOT — and cannot — catch the
+   *  teardown race it once claimed to: `peer.close()` → orpc's `AsyncIdQueue.close()`
+   *  calls `reject(new AbortError(...))` on every PENDING pull, and those rejections
+   *  deliver ASYNCHRONOUSLY on the pull awaiters. A consumer that parked a `.next()`
+   *  and was then abandoned floats that `AbortError` as an unhandled rejection — and a
+   *  sync `catch` here is powerless over an async rejection scheduled elsewhere. That
+   *  rare teardown race (the intermittent padi-reconnect flake) is tracked with its
+   *  full mechanism + a deterministic repro in juspay/kolu#1719; the real fix is a
+   *  teardown-swallow-contract change in the consumer layer, not here. */
   private handleTransportClosed(): void {
     if (this.closed) return;
     this.closed = true;
     try {
       this.peer.close();
     } catch {
-      // Queue already closed / aborted mid-pull — the transport is gone; nothing
-      // to reject that the close didn't already reject.
+      // A synchronous throw out of `close()` (an abort listener) — the transport is
+      // gone; nothing to reject that the close didn't already reject. (The ASYNC
+      // parked-pull rejections are NOT caught here — see the doc above + #1719.)
     }
   }
 
