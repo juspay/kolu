@@ -4,7 +4,7 @@ description: The architecture that replaces the R9/R10 finale plan for remote te
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-07-05
+updated: 2026-07-08
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -36,6 +36,7 @@ export const ROADMAP = [
   { d: 1, g: "▶", c: "prog", l: "W3.4 · remote e2e parity in CI — machinery DONE; gate parked on the parity tail", m: "#1689 parked → remote-bind-parity note", h: "#w34" },
   { d: 0, g: "○", c: "prog", l: "W4 · the switch — 2 PRs: pick-your-host (reload-apply) → switch-without-reload", m: "READY after L23 merges", h: "#w4" },
   { d: 0, g: "○", c: "prog", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "needs W4", h: "#w5" },
+  { d: 0, g: "○", c: "prog", l: "W6 · the honest connect — surface the copying phase + live build progress (no more mute 'Connecting…')", m: "data already flows; client-only", h: "#w6" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "L6 L14 in flight · → the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -346,6 +347,39 @@ The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios t
 
 kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
 - **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
+- *Field note (2026-07-08, srid on the W4 deploy):* the asymmetry is now user-visible — OS notifications escape the app (cross-host reach), but unread marks land in per-host `HostView.attention`, whose only render surface is the active host's dock, so a background host's attention is invisible. W5's chip counts are the missing rollup. One wiring fact for the implementer: `useTerminalAlerts`'s transition watcher rides the ACTIVE host's swapped store — the urgency-projection member (this phase's wire design) is what makes background hosts observable, not the client-side watcher.
+
+<a id="w7"></a>
+
+### W7 — per-host state by ownership, not enumeration *(the class fix for the "forgotten field" bug family; ratified 2026-07-08; its own post-merge PR)*
+
+**In simple words:** W4 made kolu multi-host, and a whole family of bugs followed the same shape: some piece of canvas state — the focused terminal, the split layout, the camera position — quietly lived at app lifetime while the tiles around it became per-host, so switching hosts showed the wrong host's leftovers (blank canvas, lost splits, a viewport panned to empty space). Each was found live by srid, one at a time, because today per-host-ness is **opt-in**: the `HostView` record enumerates fields (`activeId, mruOrder, attention, …`), and every new fact must be *remembered* into it — the camera bug is literally a forgotten field. Host-independence, meanwhile, is a code comment nothing enforces, and ~62 client files can mint bare signals without ever being asked which axis they live on.
+
+**The ratified fix (per /architecture-first-principles P4 + /perfection-review — make the class unconstructible, not detected):** flip the default from **enumeration to ownership**. The framework design — `scopedByEntry` over `@solid-primitives/keyed`'s `keyArray` (the ecosystem already ships the retained-per-key-root primitive; only the map-tied glue is ours), the kolu and drishti adoption snippets, and the settled defaults — lives in [surface-map-101 § "Where this goes next"](surface-map-101.html); this entry holds the phase (scope, gates, done-criteria). The canvas subtree mounts inside a **per-host reactive owner** — a `Map<HostKey, Owner>` of live roots; switching hosts swaps which owner renders (shape B generalized: state survives switch-away in its owner, GL/xterm stay active-host-only per the existing release/re-acquire discipline). Then *everything* born inside the subtree is per-host **by construction** — there is no record to forget a field in, and the `HostView` enumeration dissolves into the owner. App-level state requires deliberately stepping outside the subtree.
+
+- **The boundary guard (part of this phase, not a substitute for it):** ownership covers what is born inside the owner; state born *outside* (module scope in a shared util — exactly `useCanvasViewport.ts`'s three module-scope signals, the camera bug's birthplace) stays expressible. So the phase ships a convention test at the door (`keyboard.test.ts` precedent): no module/hook-lifetime state constructors in the canvas domain outside a declared owner; app-level state declares itself with a reason the test can see. The comment-only `HOST-SCOPING:` convention retires into that test.
+- **The timing boundary (why instance fixes keep failing — from the 013e369b1 post-mortem):** the reactive/deterministic test proves the *logic* (decision + geometry as fixed inputs) but structurally cannot see the *timing* — host-switch → tile unmount/remount → DOM/FitAddon measurement → camera restore/center is emergent from the real render pipeline. Any fix that BRIDGES two independently-timed lifecycles (app-lifetime camera ↔ per-host tile mount) is a race a defer-guard narrows but never closes. Ownership closes it **by construction**: the camera lives WITH the tiles it centers on — co-owned, co-mounted, co-measured under one host boundary — so the ordering is intrinsic, not bridged. (Same boundary beat the split fix's round 1; twice is the pattern.)
+- **Acceptance leg from the field (2026-07-08):** srid's live camera symptom — switch hosts → viewport pans to empty instead of the active terminal — SURVIVED the instance fix `013e369b1` (the second deterministic-test-passed/reality-failed miss in this family; splits round 1 was the first). W7's done includes srid confirming this symptom gone on a real deploy, not a model.
+- **Done when:** the `HostView` record is gone (owner-held state replaces every enumerated field incl. the W4-era migrations: focus, MRU, attention, restore latches, splits, camera); a new `createSignal` added anywhere in the canvas subtree is per-host with zero ceremony (proven by a test that adds one and switches hosts); the boundary test is red on a module-scope signal in the canvas domain; UX byte-identical to the shipped W4 behavior (the per-host semantics are already right — this phase changes where they come from, not what they are).
+- *Why not sooner:* the instance fixes (focus `621ea2c48`, splits `0dbf28e0a`/`c6ed48c56`, camera — in flight) are all shipped in #1714 with pins; this phase deletes the mechanism that made them findable-only-by-srid. Detection-only alternatives (lint lists, sanctioned factories) were considered and rejected as the fix — the defect stays expressible under them (P5: a syntax gate can't see meaning); the slim factory/test residue survives only as the owner's boundary guard above.
+
+<a id="w6"></a>
+
+### W6 — the honest connect *(client-only; the data already flows — a small, high-value UX phase)*
+
+**In simple words:** connecting to a remote host can compile+copy padi onto that machine over ssh — on a first connect to a fresh host that Nix build takes **minutes**. Today the whole canvas shows one dead word, **"Connecting…"**, indistinguishable from a hang (srid hit exactly this live — twice: on the original W4, and re-confirmed 2026-07-07 on the surface-map redesign, where the remote chip shows amber but the canvas stays mute). Drishti already narrates this window properly ("copying derivation…"); kolu should match. After this phase the overlay tells the truth: *which* phase it's in (provisioning vs connecting), a live tail of the actual build output, and an elapsed timer — so "it's working, first-time setup takes a moment" is unmistakable, and a real failure shows the real reason.
+
+**The reason this is cheap — the signal already exists and already reaches the browser; only the UI discards it.** The session lifecycle has a **distinct `copying` state** separate from `connecting` (`CONNECTION_STATES` in `packages/surface-remote/src/connection.ts` — and after the P4 type-split, `copying` is *remote-arm-only by type*, which makes the narration honest by construction), and the connection info already carries **`progressLines`** — the live `nix copy` / realise stderr, forwarded by `nixCopy.ts`'s `onProgress` and piped browser-ward by `connectionPipe.ts`. It also distinguishes **`failureCause`** — `network` (unreachable, retries) vs `remote` (reached, rejected, terminal). Under the surface-map redesign this all rides the **`entries` collection's per-host `EntryConnectionState`** (`serveHostMap`'s projection preserves `copying` distinctly), so the strip's chip and the canvas overlay read the same one authority. The bug is purely that the connect overlay collapses this rich state into `"Connecting…"`.
+
+**The work (client-only, no daemon change; lands as its own follow-up PR after surface-map merges — srid-phased):** the connect overlay reads the active entry's state from `entries` and renders honestly —
+- **`copying`** → a distinct message naming the host and the act ("Provisioning padi on `zest`… first connect builds it, this can take a few minutes"), with a **live tail** of the last N `progressLines` (dimmed monospace) and an **elapsed timer** so long-but-progressing never reads as hung;
+- **`connecting`** → the brief post-copy handshake, distinct from copying;
+- **`failed`** → the real `lastError` + the `progressLines` tail (the actual "why"), with `network` ("`zest` unreachable — retrying") read differently from `remote` ("`zest` rejected the connection");
+- the **fast path stays calm** — a warm reconnect (no copy) shows `connected` immediately with no alarming build UI; the heavy provisioning treatment appears only when `copying` actually fires.
+
+**Design care:** show a *tail* (last few lines) + elapsed, not a firehose of the whole Nix log, and **not** a fake percentage bar (a Nix build has no honest progress %); the reassurance is "named phase + real output + elapsed + 'first-time setup'", which is truthful where a progress bar would lie.
+
+- **Done:** connect to a fresh remote host (cold Nix build) → the overlay names the provisioning phase, streams live build lines, and shows elapsed — never a mute "Connecting…"; a warm reconnect connects fast with no build UI; a genuine failure shows the real error tail, and unreachable reads differently from rejected.
 
 <a id="cleanup"></a>
 
@@ -361,6 +395,8 @@ W2 and W3 ship at pace (a deliberate call); W4 pays the pace's debts — refacto
 <a id="future"></a>
 
 ### Future work — demand-driven
+
+*(The researched, tiered menu for everything below — ecosystem survey × shipped primitives, plus the promoted [port-preview](port-preview.html) and [shared-canvas](shared-canvas.html) notes — lives in [remote-terminals-future](remote-terminals-future.html).)*
 
 **Cross-host dock** (B-lite: foreign hosts' rows, urgency-ranked, click = switch + focus — the host axis is already in the contract) is the first escalation if switching proves insufficient. **kolu-tui** — the graduation proof: consume padiSurface over the socket/ssh *without kolu-server*; done only when that named path renders a live canvas (the path, not the feature, is the unit of done). **Hybrid canvas** (model B) only if one-window side-by-side proves a recurring demand — it stays an aggregation layer over N bindings, zero daemon changes.
 

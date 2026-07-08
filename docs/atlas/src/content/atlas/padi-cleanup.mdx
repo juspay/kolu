@@ -24,7 +24,7 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L26 · L17 (+ video-ext table, was L5b) · L18 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
+- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L26 · L17 (+ video-ext table, was L5b) · L18 · L27 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
 - **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
 - **Shipped:** L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
@@ -104,6 +104,18 @@ terminal-workspace was born as "one library, two homes" (kolu + pulam). After W2
 **Where:** `packages/terminal-workspace/src/*` (check `index.ts` export map for the node/browser split already present); importers: `packages/padi/src/*`, `packages/client/src/canvas/dock/*`, `packages/common`.
 
 **Steps:** (1) map real post-burial imports (an Explore agent, not grep-by-hand); (2) propose the cut to the coordinator with the import evidence; (3) execute as pure motion (rename-detection reviewable), seal green.
+
+<a id="l27"></a>
+
+### L27 — re-cut `packages/server/src` into `padi/` + a thin shell (it's the flat holdout)
+
+*Status: READY (best done after W4 + W5/W6 stop concentrating growth in the padi cluster, so the cut is made once against the settled shape — but the boundary is already real) · Lens: lowy (a directory that hides a volatility axis) · Gate: none (READMEs don't cross the drishti gate; verify no import path a consumer hardcodes)*
+
+`server/src` is ~20 flat files while the rest of the repo nests by concern (`client/src` has `binding/`·`kaval/`·`right-panel/`·`terminal/`·`ui/`; `padi/src` has `ptyHost/`·`terminalEndpoint/`). The growth is **lopsided**: the padi hosting arm — `padiBinding` · `remotePadiBinding` · `padiConvergence` · `padiSession` · `padiLink` · `daemonInventory` · `hostPool` · `perHostKoluCells` — is the majority of files, changes *together* on every remote/switch phase (W3/W4, and the queued W5/W6 will add more), and changes *independently* of the HTTP shell. That co-variation IS the volatility a subdirectory should encapsulate; the flat list hides "server = the padi hosting layer + a thin http shell + a few leaves."
+
+**Target shape (verify against real structure first):** a **`padi/`** (or `hosting/`) subdir for the arm cluster + pool + convergence + per-host cells; the serving shell (`index` composition root · `router` · `surface` · `iframePreviewRoute` · `routeErrors`) stays at the top. **Hickey guard: cut by genuine concern, never a `misc/`/`util/` bucket** — if `hostname`·`tls`·`state`·`log`·`memorySampler` share no real concern, they stay top-level rather than getting a fake home.
+
+**Where:** `packages/server/src/*`. **Steps:** (1) confirm the cluster against real cross-imports (Explore, not grep); (2) propose the exact grouping to the coordinator; (3) pure motion (rename-detection reviewable), no logic change, seal + full CI green. Its own small PR — NOT bolted onto a feature PR (it would fight rename-detection review for zero functional gain).
 
 **Done when:** every terminal-workspace export has a consumer on the correct side of the node/browser line; no export with zero consumers survives; the seal's dependency-cone arm still green.
 

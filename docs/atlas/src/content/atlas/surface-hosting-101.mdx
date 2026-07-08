@@ -1,10 +1,12 @@
 ---
 title: The surface framework's hosting side, taught
 description: A plain-words primer on how a surface travels between machines — serve, mirror, re-serve, sessions, and the host registry — ending at the exact type-vs-volatility fork the W4 switch ran into.
-parents: [reference, padi]
+parents: [pedagogy, padi]
 maturity: seedling
 updated: 2026-07-05
 ---
+
+*(This primer teaches the machinery behind [the padi plan](padi.html)’s W4 switch; the post-switch feature menu is [remote-terminals-future](remote-terminals-future.html).)*
 
 import Svg from "../../components/Svg.astro";
 import Footnote from "../../components/Footnote.astro";
@@ -211,7 +213,7 @@ The fleet — **with** controls, so the fleet verbs exist, typed:
 const fleet = buildHostRegistry<HostSession<AgentContract>, WsRpcHandler>({
   initialHosts: cfg.hosts,
   buildEntry: (host) => {
-    const session = getHostSession<AgentContract>({ host, binary: "drishti-agent" });
+    const session = makeSession({ connectOnce: sshConnector<AgentContract>({ host, binary: "drishti-agent" }) });
     return { session, handler: agentHandler(session) };
   },
   controls: { reconnect: (s) => s.reconnect(), recheck: (s) => s.recheck() },
