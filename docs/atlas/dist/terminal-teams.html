@@ -143,7 +143,7 @@
 <tr>
 <td><strong>F1</strong></td>
 <td><code>create --near &lt;tile&gt; --title &lt;role&gt;</code> — spawn placed next to the orchestrator</td>
-<td><strong>delta</strong> on <code>padi-tui create</code> (a <code>canvasLayout</code> metadata write; <code>repoIslands</code>’ no-reshuffle rule holds)</td>
+<td><strong>delta</strong> on <code>padi-tui create</code>, zero new wire surface: read the reference tile’s stored <code>canvasLayout</code> (the terminals collection), offset it, pass it in the EXISTING create input (<code>InitialTerminalMetadataSchema</code> already carries optional <code>canvasLayout</code> — placement atomic with creation, no default-cascade race; <code>repoIslands</code>’ no-reshuffle rule holds)</td>
 <td>teammates lost among 40 tiles</td>
 </tr>
 <tr>
