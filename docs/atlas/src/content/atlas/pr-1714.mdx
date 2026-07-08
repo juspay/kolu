@@ -19,7 +19,9 @@ Legend: ✅ done · 🔄 in flight · ⏸ blocked · ⬜ not started
 
 **Overnight log (for morning review)**:
 - `f8d98fb12` — apm: `srid/llm-debate` REMOVED entirely (fallback ruling). Finding: no APM ref form works for a *package* repo — the skill-path form (fine for apm.yml-less repos like `juspay/skills`) doesn't emit, the whole-repo form drags the closure whose stale kolu self-pin clobbers kolu's own skill. `/debate` (was #1622) returns in a future PR once llm-debate bumps its kolu pin past the padi rename. kolu skill verified correct.
-- Held batch STARTED: types foundation first (D1 `EntryStatus<Cause>` + D2 typed version pair — the critical path both P0 and Skew-UX depend on), then P0 server + Skew-UX client in parallel once types + header-v2 land.
+- Held batch **IMPLEMENTED + PUSHED** (`e40d79b19`): types foundation `47591c2b8` (D1 generic + D2 typed pair, full producer chain) → P0 `24e8b6831` (local supervisor.pid gate → boot fail-fast w/ remedy; dead-predecessor still drains; remote anti-livelock surfaces typed cross-supervisor + fail-honest both axes; `KOLU_REMOTE_PADI_STATE_DIR`; dev/E2E always isolated) → Skew-UX `e40d79b19` (CanvasFacts sum w/ type-level pin; `hostDownCopy` total over causes; single [Switch to local], no Retry; skew badge in stationary slot). Local green: workspace tsc, 194+623 tests, nix build, fmt.
+- Header-v2 **LANDED** (`76e22ab24`): stationary daemon slot + responsive strip, host-switch never reflows.
+- ⚠ MORNING-REVIEW items: (1) `serveHostMap` gained an *optional* `causeFor` hook (additive) — my architecture review judges it against the no-knobs bar; (2) the drishti pairing for the API ripples rides the planned pin-bump of #90 (must adapt `EntryStatus<Cause>` + any serveHostMap ripple) before merge.
 
 **The night sequence**: current slew (apm `/debate` emission, header-v2 stationary slot) → held-batch implementation (P0 ownership-gated drain + Skew-UX CanvasFacts/card/badge) → full CI green (do.md) → coordinator's architecture review (types + framework electricity, both consumers, "is this a perfect framework") → every finding fixed → CI green again → user-flow re-test (local↔sincereintent) → morning report.
 
