@@ -40,7 +40,7 @@ One "approved as recommended" (or amendments) unblocks everything below marked �
 ### Paired PRs
 
 - ✅ **odu** — [juspay/odu#40](https://github.com/juspay/odu/pull/40) (draft): 4 imports → `@kolu/surface-remote`, nix pkg rename, gates green incl a real localhost-lane e2e. Needs only a **pin-bump + re-green at kolu's final SHA**.
-- 🔄 **drishti** — adoption-as-deletion building (hostRegistry + admin-surface → `@kolu/surface-map`; carries all wire ripples: fold envelope, channel namespacing, SessionState sum, `Subscription.complete`, KeyCodec, `buildRemotePool`). `EntryStatus` consumption seam kept thin pending Decision 1. No screenshot evidence — srid tests drishti live himself; the deletion diff is the acceptance artifact. Then pin-bump at kolu's final SHA.
+- ✅ **drishti** — [srid/drishti#90](https://github.com/srid/drishti/pull/90) (draft): adoption-as-deletion done (hostRegistry 204→127, core files shrink; a hand-written `hostMapRegistry.ts` adapter avoids the unused ClockableSession primitive, clockOffset 0 documented-inert); green (143 tests, nix build). EntryStatus seam = `entryStatusTone.ts` (one file for Decision 1). **Deploy-ready.** Pin-bump at kolu's final SHA. — was building (hostRegistry + admin-surface → `@kolu/surface-map`; carries all wire ripples: fold envelope, channel namespacing, SessionState sum, `Subscription.complete`, KeyCodec, `buildRemotePool`). `EntryStatus` consumption seam kept thin pending Decision 1. No screenshot evidence — srid tests drishti live himself; the deletion diff is the acceptance artifact. Then pin-bump at kolu's final SHA.
 
 ### Done (the short version — the archaeology is in git and the PR's review trail)
 
