@@ -66,16 +66,12 @@ Everything above keys the **wire** reads. The remaining hole is the client's **o
 
 **Why `useEntry` can't be the answer.** `useEntry` is built on `createKeyedRoot`, whose contract is *dispose-on-key-change* — on a switch it synchronously tears down the old key's root and rebuilds (that ordering is what makes swaps leak-free for *wire* subscriptions, which are cheap to re-open). App state needs the opposite lifetime: **retained on switch-away, restored on switch-back, disposed only when the host leaves the map**. Today kolu fakes that with an enumerated record (`useViewState`'s `HostView = {activeId, mruOrder, attention}`, swapped by hand at the switch seam) — and *enumeration is the bug*: the camera was a forgotten field, and nothing asks a new `createSignal` which axis it lives on.
 
-**The proposed primitive — `createKeyedRoot`'s retained sibling** (`@kolu/surface/solid`), then its map-tied form (`@kolu/surface-map/solid`) where the living set is `entries` itself:
+**The primitive is not ours to write** — the ecosystem survey (mandatory after `createKeyedRoot` turned out to be `mapArray` in a trenchcoat) found it: [`@solid-primitives/keyed`](https://primitives.solidjs.community/package/keyed)'s **`keyArray`** already has exactly the retained-owner contract — *a key that persists keeps its reactive root even as data changes; the root is disposed when the key leaves the source list*. Retained across switches, disposed on membership exit. So layer 1 is `keyArray` over the map's member list plus a small `get(key)` index — a dependency, not an invention.<Footnote>The near-miss worth recording: `rootless`'s `createRootPool` (already a dependency) passes its factory an `active` signal — the exact `ScopeCtx.isActive` ergonomic — but a *pool* reuses roots by availability across different args, so per-*key* state retention isn't its contract. Right shape, wrong lifetime model; `keyArray` keys by identity, which is the lifetime W7 needs.</Footnote> What remains framework work is only the map-tied glue (`@kolu/surface-map/solid`):
 
 ```ts
-// Layer 1 (solid-generic): N live keyed owners; dispose on RETIREMENT, not on switch.
-createRetainedRoots<K, T>(keys: Accessor<readonly K[]>, build: (key: K, ctx: ScopeCtx) => T)
-  : { get(key: K): T | undefined }
-type ScopeCtx = { isActive: Accessor<boolean> };
-
-// Layer 2 (map-tied): membership drives the key set; "active" stays app policy.
-scopedByEntry<K, T>(map: SurfaceMapClient<…>, active: Accessor<K>, build): {
+// Layer 2: membership drives the key set (via keyArray); "active" stays app policy.
+scopedByEntry<K, T>(map: SurfaceMapClient<…>, active: Accessor<K>,
+                    build: (key: K, ctx: { isActive: Accessor<boolean> }) => T): {
   active: Accessor<T>;              // the active key's world — re-keys on switch
   get(key: K): T | undefined;       // background peek (attention rollups, W5)
 }
