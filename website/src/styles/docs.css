@@ -116,6 +116,10 @@
 .doc-copy:focus-visible {
   opacity: 1;
 }
+/* biome-ignore lint/style/noDescendingSpecificity: the base hidden state is
+   authored AFTER the higher-specificity :hover / :focus-visible reveal on
+   purpose — the reveal always wins regardless of source order, and reordering
+   would only trade this for a descending pair against `.doc-copy:hover` below. */
 .doc-copy {
   position: absolute;
   top: 0.55rem;

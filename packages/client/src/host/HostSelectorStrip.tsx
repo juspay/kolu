@@ -244,7 +244,7 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
  *  the active one), so `value` is a sentinel that matches no option.
  *
  *  Takes CANONICAL encoded keys (not `HostKey` objects) — `props.hosts` is
- *  `fit().overflowed` straight from `computeVisibleHosts`, and staying with
+ *  `hostFit().overflowed` straight from `computeVisibleHosts`, and staying with
  *  its string identity all the way to `OptionMenu`'s own `<For>` matters:
  *  `<For>` keys by `===`, and every `HostKey` decode mints a fresh object,
  *  so decoding a level higher would make the menu's own option list
@@ -390,7 +390,7 @@ const HostSelectorStrip: Component = () => {
   const chipsBudget = createMemo(
     () => containerWidth() - (gateOpen() ? ADD_BUTTON_RESERVE : 0),
   );
-  // `fit()` returns fresh `{visible, overflowed}` arrays of CANONICAL string
+  // `hostFit()` returns fresh `{visible, overflowed}` arrays of CANONICAL string
   // keys on every recompute (it re-runs whenever `activeHost()` changes, even
   // when the outcome is identical). Rendering directly off those STRINGS
   // (never decoding to `HostKey` objects before a `<For>`) is deliberate:
@@ -401,7 +401,7 @@ const HostSelectorStrip: Component = () => {
   // file. Each `HostChip` decodes its OWN key exactly once, inside its own
   // `<For>` item callback, so the resulting `HostKey` stays referentially
   // stable for that chip's lifetime.
-  const fit = createMemo(() =>
+  const hostFit = createMemo(() =>
     computeVisibleHosts(
       chipFits(),
       encodeHostKey(activeHost()),
@@ -440,7 +440,7 @@ const HostSelectorStrip: Component = () => {
       // (flex-shrink only caps it downward when content overflows; it never
       // grows to fill when content is narrower). Without `flex-1` here, this
       // root's own `getBoundingClientRect().width` — what `containerWidth`
-      // above measures — would just echo back whatever `fit()` already chose
+      // above measures — would just echo back whatever `hostFit()` already chose
       // to render, a circular "available width" that can never grow back
       // once narrowed. `flex-1` makes this box == the header's true leftover
       // space, independent of content, so the overflow computation has a
@@ -473,11 +473,11 @@ const HostSelectorStrip: Component = () => {
           class="hidden md:flex items-center gap-1.5 min-w-0 flex-nowrap"
           data-testid="host-chip-row"
         >
-          <For each={fit().visible}>
+          <For each={hostFit().visible}>
             {(key) => <HostChip host={decodeHostKey(key)} />}
           </For>
-          <Show when={fit().overflowed.length > 0}>
-            <HostOverflowMenu hosts={fit().overflowed} />
+          <Show when={hostFit().overflowed.length > 0}>
+            <HostOverflowMenu hosts={hostFit().overflowed} />
           </Show>
         </div>
 
