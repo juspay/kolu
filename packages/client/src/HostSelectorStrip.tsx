@@ -114,7 +114,7 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
       <Show when={!isLocal()}>
         <button
           type="button"
-          class="pointer-events-auto shrink-0 px-1.5 inline-flex items-center justify-center text-fg-3 hover:text-red-400 hover:bg-surface-3 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none transition-opacity"
+          class="pointer-events-auto shrink-0 px-1.5 inline-flex items-center justify-center text-fg-3 hover:text-red-400 hover:bg-surface-3 opacity-60 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none transition-opacity"
           data-testid="host-remove"
           aria-label={`Remove host ${label()}`}
           title={`Remove ${label()}`}
