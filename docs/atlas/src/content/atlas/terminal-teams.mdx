@@ -1,6 +1,6 @@
 ---
 title: Terminal teams — orchestrating a crew of agent terminals on the canvas
-description: "One orchestrator agent driving a team of specialist agent terminals (implementor, architect, review watchguard) on a single task — with the team's structure as first-class terminal RELATIONS rendered on the canvas. The /team skill, the padi-tui/kaval-tui verbs it needs, and the goal contract that makes silent stalls unrepresentable."
+description: "One orchestrator agent driving a team of specialist agent terminals (implementor, architect, review watchguard) on a single task — the team's structure as first-class terminal RELATIONS rendered on the canvas. The /team skill, the small placement delta on the shipped padi-tui create verb, and the goal contract that makes silent stalls unrepresentable."
 parents: [feature, padi]
 status: proposed
 maturity: seedling
@@ -19,7 +19,7 @@ import canvas from "../../diagrams/terminal-teams-canvas.svg?raw";
 ## User-facing description
 
 - **Convening a team.** In the orchestrator terminal: `/team convene implementor:worktree architect:read-only watchguard:lowy` (roles are presets — a role names the skills the teammate loads and its write posture). kolu spawns each teammate as a real terminal **positioned next to the orchestrator**, each on its declared substrate (a fresh worktree for the implementor; the repo read-only for the architect).
-- **Seeing the team.** Each teammate tile carries a role badge; **edges** on the canvas connect the orchestrator to its teammates, labeled by relation (`delegates`, `consults`, `reviews`). The minimap shows the cluster. Clicking an edge focuses the conversation between those two ends (the send history).
+- **Seeing the team.** Each teammate tile carries a role badge; **edges** on the canvas connect the orchestrator to its teammates, labeled by relation (`delegates`, `consults`, `reviews`). The minimap shows the cluster. (Edge-click affordances — e.g. focusing both ends — are P2 design questions; there is no recorded send-history substrate today, so nothing here promises one.)
 - **Living with it.** The user can watch any teammate work live (it's just a terminal), interject in any of them, or address the orchestrator only. Disbanding the team (or a teammate finishing) removes the tiles and the edges; the worktrees are reaped per the teardown discipline.
 - **Not stopping silently.** Every team member (orchestrator included) carries a **goal contract**: an agent may not end its turn while its goal is unmet unless it has posted a report or a blocked-on notice to its coordinator. Stalls become visible messages instead of silent idleness.
 
