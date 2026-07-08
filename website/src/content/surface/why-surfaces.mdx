@@ -5,6 +5,8 @@ order: 240
 section: Basics · Explanation
 ---
 
+import SurfaceAnatomy from "../../components/docs/diagrams/SurfaceAnatomy.astro";
+
 Most of what a client shows is live state that lives somewhere else — a load
 average on a server, a list of processes, the tail of a log. The honest way to
 render it is "fetch the current value, subscribe to changes, reconcile each
@@ -25,6 +27,8 @@ client hooks from that one declaration. The declaration is the contract.
 - the **contract** is a compile-time oRPC router — a typed literal, not runtime reflection, because the typed client has to know the shape at compile time;
 - the **server** is `implementSurface(surface, deps)`, which wires every handler and hands you a `ctx` for mutations;
 - the **client** is `surfaceClient(surface, link)`, whose bound hooks you just read.
+
+<SurfaceAnatomy />
 
 The payoff is a rule the codebase actually enforces: adding a piece of live
 state is a **two-file change** — one entry in the shared spec, one entry in the

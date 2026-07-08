@@ -7,12 +7,15 @@ section: Multi-host · How-to
 
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
+import ThreeHopMirror from "../../components/docs/diagrams/ThreeHopMirror.astro";
 
 An agent serves its surface on the machine it runs on. A browser can't reach
 that process. This guide fronts the remote surface with a **local mirror**: you
 dial the host, keep a live local copy of everything it serves, and re-serve that
 copy to browsers over the same contract. The browser only ever talks to the
 local copy; the ssh pipe swaps invisibly behind it.
+
+<ThreeHopMirror />
 
 You need the remote agent's `defineSurface(…)` contract and its binary's `.drv`.
 

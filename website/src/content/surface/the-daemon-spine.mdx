@@ -5,11 +5,15 @@ order: 330
 section: Daemons · Explanation
 ---
 
+import DaemonLifecycle from "../../components/docs/diagrams/DaemonLifecycle.astro";
+
 A surface in a browser tab lives and dies with the tab. A surface in a **daemon**
 outlives every client that connects to it — and, more awkwardly, outlives its own
 code. You will ship a new build while a client is mid-session, and the old
 process is still there, holding the socket, serving the old surface. The daemon
 stratum exists to make that moment safe.
+
+<DaemonLifecycle />
 
 ## The problem a daemon has that a page does not
 

@@ -1,0 +1,117 @@
+---
+// SurfaceAnatomy — one surface, declared once, derives one contract/wire,
+// with the five member kinds. The reactive four push server->client (teal);
+// a procedure is a round-trip (primary).
+---
+
+<figure class="doc-diagram">
+  <svg
+    viewBox="0 0 900 600"
+    width="100%"
+    height="auto"
+    role="img"
+    aria-labelledby="anat-title anat-desc"
+  >
+    <title id="anat-title">The anatomy of one surface</title>
+    <desc id="anat-desc">
+      One surface declared once derives a single contract, server, and client.
+      Four reactive members — cell, collection, stream, event — push from server
+      to client. The fifth member, a procedure, is an imperative request and
+      response round-trip.
+    </desc>
+
+    <defs>
+      <marker id="sa-arr" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="context-stroke" />
+      </marker>
+    </defs>
+
+    <!-- hub: declare once -->
+    <rect x="60" y="22" width="780" height="70" rx="12"
+      fill="color-mix(in srgb, var(--color-kolu-top-strong) 10%, var(--color-void-raised))"
+      stroke="var(--color-kolu-top-strong)" stroke-width="1.7" />
+    <text x="450" y="52" text-anchor="middle" font-family="var(--font-sans)" font-size="16" font-weight="700" fill="var(--color-ink)">declare once → contract · server · client</text>
+    <text x="450" y="76" text-anchor="middle" font-family="var(--font-sans)" font-size="12.5" fill="var(--color-ink-muted)">one <tspan font-family="var(--font-mono)">defineSurface</tspan> derives one wire contract, both ends of it</text>
+
+    <!-- derive arrows into the two side panels -->
+    <line x1="250" y1="92" x2="200" y2="140" stroke="var(--color-kolu-top-strong)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#sa-arr)" />
+    <line x1="650" y1="92" x2="740" y2="140" stroke="var(--color-kolu-top-strong)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#sa-arr)" />
+    <text x="205" y="116" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--color-ink-muted)">derives</text>
+    <text x="700" y="116" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--color-ink-muted)">derives</text>
+
+    <!-- server panel -->
+    <rect x="60" y="140" width="185" height="420" rx="12" fill="var(--color-void-raised)" stroke="var(--color-rule-strong)" stroke-width="1.4" />
+    <text x="152" y="168" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-ink)">server</text>
+    <text x="152" y="187" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-ink-muted)">implementSurface</text>
+
+    <!-- client panel -->
+    <rect x="655" y="140" width="185" height="420" rx="12" fill="var(--color-void-raised)" stroke="var(--color-rule-strong)" stroke-width="1.4" />
+    <text x="747" y="168" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-ink)">client</text>
+    <text x="747" y="187" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-ink-muted)">.use() hooks</text>
+
+    <!-- ── five member flows ────────────────────────────────── -->
+    <!-- Cell -->
+    <text x="450" y="228" text-anchor="middle" font-family="var(--font-sans)" font-size="13.5" font-weight="700" fill="var(--color-ink)">Cell</text>
+    <text x="450" y="245" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">one value · snapshot → deltas</text>
+    <line x1="248" y1="222" x2="652" y2="222" stroke="var(--color-live-teal)" stroke-width="2" marker-end="url(#sa-arr)" />
+    <line x1="652" y1="258" x2="248" y2="258" stroke="var(--color-kolu-primary)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#sa-arr)" />
+    <text x="450" y="273" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-kolu-primary)">set — client-mutable</text>
+
+    <!-- Collection -->
+    <text x="450" y="313" text-anchor="middle" font-family="var(--font-sans)" font-size="13.5" font-weight="700" fill="var(--color-ink)">Collection</text>
+    <text x="450" y="330" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">keyed · per-key snapshot → deltas</text>
+    <line x1="248" y1="307" x2="652" y2="307" stroke="var(--color-live-teal)" stroke-width="2" marker-end="url(#sa-arr)" />
+
+    <!-- Stream -->
+    <text x="450" y="378" text-anchor="middle" font-family="var(--font-sans)" font-size="13.5" font-weight="700" fill="var(--color-ink)">Stream</text>
+    <text x="450" y="395" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">derived · read-only</text>
+    <line x1="248" y1="372" x2="652" y2="372" stroke="var(--color-live-teal)" stroke-width="2" marker-end="url(#sa-arr)" />
+
+    <!-- Event -->
+    <text x="450" y="443" text-anchor="middle" font-family="var(--font-sans)" font-size="13.5" font-weight="700" fill="var(--color-ink)">Event</text>
+    <text x="450" y="460" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">occurrence · no snapshot · handler fires</text>
+    <line x1="248" y1="437" x2="652" y2="437" stroke="var(--color-live-teal)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#sa-arr)" />
+
+    <!-- Procedure — round-trip -->
+    <text x="450" y="512" text-anchor="middle" font-family="var(--font-sans)" font-size="13.5" font-weight="700" fill="var(--color-ink)">Procedure</text>
+    <text x="450" y="529" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">imperative call · request → response</text>
+    <line x1="248" y1="506" x2="652" y2="506" stroke="var(--color-kolu-primary)" stroke-width="2" marker-end="url(#sa-arr)" />
+    <line x1="652" y1="542" x2="248" y2="542" stroke="var(--color-kolu-primary)" stroke-width="2" marker-end="url(#sa-arr)" />
+
+    <!-- legend -->
+    <line x1="285" y1="576" x2="315" y2="576" stroke="var(--color-live-teal)" stroke-width="2.4" />
+    <text x="322" y="580" font-family="var(--font-sans)" font-size="11" fill="var(--color-ink-muted)">live push (server → client)</text>
+    <line x1="520" y1="576" x2="550" y2="576" stroke="var(--color-kolu-primary)" stroke-width="2.4" />
+    <text x="557" y="580" font-family="var(--font-sans)" font-size="11" fill="var(--color-ink-muted)">round-trip / mutation</text>
+  </svg>
+  <figcaption>
+    One declaration derives one contract, one server, one client. The reactive
+    four — <strong>cell</strong>, <strong>collection</strong>,
+    <strong>stream</strong>, <strong>event</strong> — push from server to client;
+    a <strong>procedure</strong> is the imperative request-and-response
+    round-trip. An event carries no snapshot, so its push is dashed.
+  </figcaption>
+</figure>
+
+<style>
+  .doc-diagram {
+    margin: 1.75rem 0;
+    max-width: 100%;
+    text-align: center;
+  }
+  .doc-diagram svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.75rem;
+    background: var(--color-void-sunk);
+  }
+  .doc-diagram figcaption {
+    margin: 0.6rem 0 0;
+    color: var(--color-ink-muted);
+    font-size: 0.86rem;
+    line-height: 1.55;
+    text-align: left;
+  }
+</style>

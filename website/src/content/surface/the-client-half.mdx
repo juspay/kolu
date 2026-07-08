@@ -6,12 +6,15 @@ section: Multi-host · Explanation
 ---
 
 import Aside from "../../components/docs/Aside.astro";
+import MapShape from "../../components/docs/diagrams/MapShape.astro";
 
 The [server half](/surface/the-server-half) teaches how *one* surface crosses a
 machine. The client half is the other problem: a browser facing *many* surfaces
 of the same shape, keyed by host, with the set changing while you watch. drishti —
 one browser fronting an ssh fleet — is the exemplar; this page is about what its
 client can and cannot take for granted.
+
+<MapShape />
 
 ## One contract, many hosts
 
