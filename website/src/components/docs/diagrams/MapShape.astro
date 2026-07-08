@@ -7,7 +7,7 @@
 
 <figure class="doc-diagram">
   <svg
-    viewBox="0 0 940 470"
+    viewBox="0 0 940 392"
     width="100%"
     height="auto"
     role="img"
@@ -31,77 +31,72 @@
     <rect x="26" y="180" width="150" height="108" rx="12"
       fill="color-mix(in srgb, var(--color-kolu-primary) 8%, var(--color-void-raised))"
       stroke="var(--color-kolu-primary)" stroke-width="1.8" />
-    <text x="101" y="228" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-ink)">browser</text>
-    <text x="101" y="250" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">one tab</text>
+    <text x="101" y="228" text-anchor="middle" font-family="var(--font-sans)" font-size="16.8" font-weight="700" fill="var(--color-ink)">browser</text>
+    <text x="101" y="250" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">one tab</text>
 
     <!-- the one socket, enveloping frames -->
-    <rect x="222" y="188" width="128" height="92" rx="14"
+    <rect x="205" y="188" width="162" height="92" rx="14"
       fill="color-mix(in srgb, var(--color-kolu-top-strong) 11%, var(--color-void-raised))"
       stroke="var(--color-kolu-top-strong)" stroke-width="1.7" />
-    <text x="286" y="220" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="700" fill="var(--color-ink)">ONE socket</text>
-    <text x="286" y="244" text-anchor="middle" font-family="var(--font-mono)" font-size="12" fill="var(--color-kolu-top-strong)">{"{ mapKey, input }"}</text>
-    <text x="286" y="262" text-anchor="middle" font-family="var(--font-sans)" font-size="10.5" fill="var(--color-ink-muted)">every frame enveloped</text>
+    <text x="286" y="220" text-anchor="middle" font-family="var(--font-sans)" font-size="15.6" font-weight="700" fill="var(--color-ink)">ONE socket</text>
+    <text x="286" y="244" text-anchor="middle" font-family="var(--font-mono)" font-size="14.4" fill="var(--color-kolu-top-strong)">{"{ mapKey, input }"}</text>
+    <text x="286" y="262" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">every frame enveloped</text>
 
     <!-- browser <-> socket -->
-    <line x1="176" y1="226" x2="220" y2="226" stroke="var(--color-kolu-primary)" stroke-width="2" marker-end="url(#ms-arr)" />
-    <line x1="220" y1="246" x2="176" y2="246" stroke="var(--color-kolu-primary)" stroke-width="2" marker-end="url(#ms-arr)" />
+    <line x1="176" y1="226" x2="203" y2="226" stroke="var(--color-kolu-primary)" stroke-width="2" marker-end="url(#ms-arr)" />
+    <line x1="203" y1="246" x2="176" y2="246" stroke="var(--color-kolu-primary)" stroke-width="2" marker-end="url(#ms-arr)" />
 
     <!-- socket -> map -->
-    <path d="M350 234 C 378 234, 388 200, 414 190" fill="none" stroke="var(--color-kolu-primary)" stroke-width="2.2" marker-end="url(#ms-arr)" />
-    <text x="388" y="270" text-anchor="middle" font-family="var(--font-sans)" font-size="10.5" fill="var(--color-ink-muted)">routed by mapKey</text>
+    <path d="M367 234 C 388 234, 396 200, 414 190" fill="none" stroke="var(--color-kolu-primary)" stroke-width="2.2" marker-end="url(#ms-arr)" />
 
     <!-- the map container -->
-    <rect x="418" y="40" width="496" height="392" rx="14" fill="var(--color-void)" stroke="var(--color-rule-strong)" stroke-width="1.4" />
-    <text x="666" y="66" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="700" fill="var(--color-ink-dim)">the map — <tspan font-family="var(--font-mono)">app</tspan></text>
+    <rect x="418" y="40" width="496" height="322" rx="14" fill="var(--color-void)" stroke="var(--color-rule-strong)" stroke-width="1.4" />
+    <text x="666" y="66" text-anchor="middle" font-family="var(--font-sans)" font-size="15.6" font-weight="700" fill="var(--color-ink-dim)">the map — <tspan font-family="var(--font-mono)">app</tspan></text>
 
     <!-- entries: the one authority -->
     <rect x="440" y="80" width="452" height="64" rx="11"
       fill="color-mix(in srgb, var(--color-live-teal) 11%, var(--color-void-raised))"
       stroke="var(--color-kolu-bottom-strong)" stroke-width="1.8" />
-    <text x="666" y="106" text-anchor="middle" font-family="var(--font-mono)" font-size="13" font-weight="700" fill="var(--color-ink)">entries</text>
-    <text x="666" y="126" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">the ONE authority on membership · absence = not a member</text>
+    <text x="666" y="106" text-anchor="middle" font-family="var(--font-mono)" font-size="15.6" font-weight="700" fill="var(--color-ink)">entries</text>
+    <text x="666" y="126" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">the ONE authority on membership · absence = not a member</text>
 
-    <text x="440" y="176" font-family="var(--font-sans)" font-size="11.5" font-weight="700" fill="var(--color-ink-muted)">per-key slots — <tspan font-family="var(--font-mono)" font-weight="400">app.entry(host)…</tspan></text>
+    <text x="440" y="176" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-ink-muted)">per-key slots — <tspan font-family="var(--font-mono)" font-weight="400">app.entry(host)…</tspan></text>
 
     <!-- slot: zest connected -->
     <rect x="440" y="188" width="218" height="72" rx="10"
       fill="color-mix(in srgb, var(--color-live-teal) 8%, var(--color-void-raised))"
       stroke="var(--color-kolu-bottom-strong)" stroke-width="1.5" />
-    <text x="456" y="212" font-family="var(--font-mono)" font-size="12.5" font-weight="700" fill="var(--color-ink)">zest</text>
-    <text x="456" y="232" font-family="var(--font-sans)" font-size="10.5" fill="var(--color-ink-muted)">cells · collections</text>
+    <text x="456" y="212" font-family="var(--font-mono)" font-size="15.0" font-weight="700" fill="var(--color-ink)">zest</text>
+    <text x="456" y="232" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">cells · collections</text>
     <rect x="562" y="199" width="84" height="22" rx="11" fill="color-mix(in srgb, var(--color-live-teal) 20%, var(--color-void-raised))" />
-    <text x="604" y="215" text-anchor="middle" font-family="var(--font-sans)" font-size="10.5" font-weight="700" fill="var(--color-kolu-bottom-strong)">connected</text>
+    <text x="604" y="215" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-kolu-bottom-strong)">connected</text>
 
     <!-- slot: lab connected -->
     <rect x="674" y="188" width="218" height="72" rx="10"
       fill="color-mix(in srgb, var(--color-live-teal) 8%, var(--color-void-raised))"
       stroke="var(--color-kolu-bottom-strong)" stroke-width="1.5" />
-    <text x="690" y="212" font-family="var(--font-mono)" font-size="12.5" font-weight="700" fill="var(--color-ink)">lab</text>
-    <text x="690" y="232" font-family="var(--font-sans)" font-size="10.5" fill="var(--color-ink-muted)">cells · collections</text>
+    <text x="690" y="212" font-family="var(--font-mono)" font-size="15.0" font-weight="700" fill="var(--color-ink)">lab</text>
+    <text x="690" y="232" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">cells · collections</text>
     <rect x="796" y="199" width="84" height="22" rx="11" fill="color-mix(in srgb, var(--color-live-teal) 20%, var(--color-void-raised))" />
-    <text x="838" y="215" text-anchor="middle" font-family="var(--font-sans)" font-size="10.5" font-weight="700" fill="var(--color-kolu-bottom-strong)">connected</text>
+    <text x="838" y="215" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-kolu-bottom-strong)">connected</text>
 
     <!-- slot: naiveintent warming -->
     <rect x="440" y="272" width="218" height="72" rx="10"
       fill="color-mix(in srgb, var(--color-kolu-top-strong) 8%, var(--color-void-raised))"
       stroke="var(--color-kolu-top-strong)" stroke-width="1.6" stroke-dasharray="6 4" />
-    <text x="456" y="296" font-family="var(--font-mono)" font-size="12.5" font-weight="700" fill="var(--color-ink)">naiveintent</text>
-    <text x="456" y="316" font-family="var(--font-sans)" font-size="10.5" fill="var(--color-ink-muted)">unreachable — retrying</text>
+    <text x="456" y="296" font-family="var(--font-mono)" font-size="15.0" font-weight="700" fill="var(--color-ink)">naiveintent</text>
+    <text x="456" y="316" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">unreachable — retrying</text>
     <rect x="566" y="283" width="80" height="22" rx="11" fill="color-mix(in srgb, var(--color-kolu-top-strong) 20%, var(--color-void-raised))" />
-    <text x="606" y="299" text-anchor="middle" font-family="var(--font-sans)" font-size="10.5" font-weight="700" fill="var(--color-kolu-top-strong)">warming</text>
+    <text x="606" y="299" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-kolu-top-strong)">warming</text>
 
     <!-- slot: stale-box failed -->
     <rect x="674" y="272" width="218" height="72" rx="10"
       fill="color-mix(in srgb, var(--color-kolu-primary) 8%, var(--color-void-raised))"
       stroke="var(--color-kolu-primary)" stroke-width="1.6" stroke-dasharray="6 4" />
-    <text x="690" y="296" font-family="var(--font-mono)" font-size="12.5" font-weight="700" fill="var(--color-ink)">stale-box</text>
-    <text x="690" y="316" font-family="var(--font-sans)" font-size="10.5" fill="var(--color-ink-muted)">a standing fault</text>
+    <text x="690" y="296" font-family="var(--font-mono)" font-size="15.0" font-weight="700" fill="var(--color-ink)">stale-box</text>
+    <text x="690" y="316" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">a standing fault</text>
     <rect x="820" y="283" width="60" height="22" rx="11" fill="color-mix(in srgb, var(--color-kolu-primary) 18%, var(--color-void-raised))" />
-    <text x="850" y="299" text-anchor="middle" font-family="var(--font-sans)" font-size="10.5" font-weight="700" fill="var(--color-kolu-primary)">failed</text>
-
-    <!-- moral -->
-    <text x="666" y="380" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">One socket, one authority. A slot may warm or fail on its own —</text>
-    <text x="666" y="400" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">the others stay connected, and no fact ever lands under the wrong host's name.</text>
+    <text x="850" y="299" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-kolu-primary)">failed</text>
   </svg>
   <figcaption>
     One browser, one socket carrying enveloped <code>{'{ mapKey, input }'}</code>{" "}

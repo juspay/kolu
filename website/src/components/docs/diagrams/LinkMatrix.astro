@@ -30,35 +30,35 @@
     <rect x="34" y="40" width="230" height="66" rx="11"
       fill="color-mix(in srgb, var(--color-live-teal) 10%, var(--color-void-raised))"
       stroke="var(--color-kolu-bottom-strong)" stroke-width="1.6" />
-    <text x="149" y="64" text-anchor="middle" font-family="var(--font-mono)" font-size="13.5" font-weight="700" fill="var(--color-ink)">directLink</text>
-    <text x="149" y="82" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">in-process · no wire</text>
-    <text x="149" y="98" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-kolu-bottom-strong)">always-live · usable bare</text>
+    <text x="149" y="64" text-anchor="middle" font-family="var(--font-mono)" font-size="16.2" font-weight="700" fill="var(--color-ink)">directLink</text>
+    <text x="149" y="82" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">in-process · no wire</text>
+    <text x="149" y="98" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-kolu-bottom-strong)">always-live · usable bare</text>
 
     <!-- wire links -->
     <rect x="34" y="150" width="230" height="58" rx="11" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
-    <text x="149" y="174" text-anchor="middle" font-family="var(--font-mono)" font-size="13.5" font-weight="700" fill="var(--color-ink)">websocketLink</text>
-    <text x="149" y="193" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">browser ⇄ Node</text>
+    <text x="149" y="174" text-anchor="middle" font-family="var(--font-mono)" font-size="16.2" font-weight="700" fill="var(--color-ink)">websocketLink</text>
+    <text x="149" y="193" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">browser ⇄ Node</text>
 
     <rect x="34" y="230" width="230" height="58" rx="11" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
-    <text x="149" y="254" text-anchor="middle" font-family="var(--font-mono)" font-size="13.5" font-weight="700" fill="var(--color-ink)">unixSocketLink</text>
-    <text x="149" y="273" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">same-machine daemon</text>
+    <text x="149" y="254" text-anchor="middle" font-family="var(--font-mono)" font-size="16.2" font-weight="700" fill="var(--color-ink)">unixSocketLink</text>
+    <text x="149" y="273" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">same-machine daemon</text>
 
     <rect x="34" y="310" width="230" height="58" rx="11" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
-    <text x="149" y="334" text-anchor="middle" font-family="var(--font-mono)" font-size="13.5" font-weight="700" fill="var(--color-ink)">stdioLink</text>
-    <text x="149" y="353" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">subprocess / ssh</text>
+    <text x="149" y="334" text-anchor="middle" font-family="var(--font-mono)" font-size="16.2" font-weight="700" fill="var(--color-ink)">stdioLink</text>
+    <text x="149" y="353" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">subprocess / ssh</text>
 
     <!-- watchdog gate -->
     <rect x="380" y="150" width="150" height="218" rx="12"
       fill="color-mix(in srgb, var(--color-kolu-top-strong) 10%, var(--color-void-raised))"
       stroke="var(--color-kolu-top-strong)" stroke-width="1.7" />
-    <text x="455" y="240" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-ink)">watchdog</text>
-    <text x="455" y="262" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--color-ink-muted)">connectSurface /</text>
-    <text x="455" y="278" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--color-ink-muted)">makeSession</text>
-    <text x="455" y="298" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--color-kolu-top-strong)">tells live from dead</text>
+    <text x="455" y="240" text-anchor="middle" font-family="var(--font-sans)" font-size="16.8" font-weight="700" fill="var(--color-ink)">watchdog</text>
+    <text x="455" y="262" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">connectSurface /</text>
+    <text x="455" y="278" text-anchor="middle" font-family="var(--font-mono)" font-size="14" fill="var(--color-ink-muted)">makeSession</text>
+    <text x="455" y="298" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-kolu-top-strong)">tells live from dead</text>
 
     <!-- directLink straight to client (bypasses gate) -->
     <path d="M264 73 L 636 73" fill="none" stroke="var(--color-kolu-bottom-strong)" stroke-width="2.2" marker-end="url(#lm-arr)" />
-    <text x="450" y="63" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--color-ink-muted)">no watchdog needed</text>
+    <text x="450" y="63" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">no watchdog needed</text>
 
     <!-- wire links into the gate -->
     <path d="M264 179 C 320 179, 330 210, 378 219" fill="none" stroke="var(--color-kolu-primary)" stroke-width="1.8" marker-end="url(#lm-arr)" />
@@ -72,16 +72,16 @@
     <rect x="638" y="168" width="228" height="150" rx="12"
       fill="color-mix(in srgb, var(--color-kolu-primary) 8%, var(--color-void-raised))"
       stroke="var(--color-kolu-primary)" stroke-width="2" />
-    <text x="752" y="200" text-anchor="middle" font-family="var(--font-mono)" font-size="14" font-weight="700" fill="var(--color-ink)">surfaceClient</text>
-    <text x="752" y="220" text-anchor="middle" font-family="var(--font-sans)" font-size="11.5" fill="var(--color-ink-muted)">the SAME typed client</text>
+    <text x="752" y="200" text-anchor="middle" font-family="var(--font-mono)" font-size="16.8" font-weight="700" fill="var(--color-ink)">surfaceClient</text>
+    <text x="752" y="220" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">the SAME typed client</text>
     <line x1="662" y1="234" x2="842" y2="234" stroke="var(--color-rule)" stroke-width="1" />
-    <text x="752" y="258" text-anchor="middle" font-family="var(--font-mono)" font-size="11.5" fill="var(--color-ink-dim)">app.cells.load.use(…)</text>
-    <text x="752" y="280" text-anchor="middle" font-family="var(--font-mono)" font-size="11.5" fill="var(--color-ink-dim)">app.rpc.surface.proc.kill(…)</text>
-    <text x="752" y="304" text-anchor="middle" font-family="var(--font-sans)" font-size="11" fill="var(--color-kolu-primary)">byte-identical across links</text>
+    <text x="752" y="258" text-anchor="middle" font-family="var(--font-mono)" font-size="14" fill="var(--color-ink-dim)">app.cells.load.use(…)</text>
+    <text x="752" y="280" text-anchor="middle" font-family="var(--font-mono)" font-size="13" fill="var(--color-ink-dim)">app.rpc.surface.proc.kill(…)</text>
+    <text x="752" y="304" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-kolu-primary)">byte-identical across links</text>
 
     <!-- caption strip -->
-    <text x="450" y="420" text-anchor="middle" font-family="var(--font-sans)" font-size="12" fill="var(--color-ink-muted)">Four different pipes, one identical client shape. Choose the nearest transport now; swap it later without touching a call site.</text>
-    <text x="450" y="442" text-anchor="middle" font-family="var(--font-sans)" font-size="12" fill="var(--color-ink-muted)">A <tspan fill="var(--color-kolu-top-strong)">wire link</tspan> can silently half-open, so it needs the watchdog. <tspan font-family="var(--font-mono)">directLink</tspan> is honestly always-live and may go bare.</text>
+    <text x="450" y="420" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" fill="var(--color-ink-muted)">Four different pipes, one identical client shape. Choose the nearest transport now; swap it later without touching a call site.</text>
+    <text x="450" y="442" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" fill="var(--color-ink-muted)">A <tspan fill="var(--color-kolu-top-strong)">wire link</tspan> can silently half-open, so it needs the watchdog. <tspan font-family="var(--font-mono)">directLink</tspan> is honestly always-live and may go bare.</text>
   </svg>
   <figcaption>
     Every link produces the <strong>same typed client</strong>, so the choice is
