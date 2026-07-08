@@ -658,7 +658,8 @@ export function makeSession<
       // The ssh TRANSPORT itself failed (a connection error, ssh's own exit 255,
       // or a dropped link — the connector classified it, so no magic literal
       // lives here). Transport → retry forever.
-      reason = "ssh transport connection failed — host unreachable or link dropped";
+      reason =
+        "ssh transport connection failed — host unreachable or link dropped";
       cause = "network";
     } else if (info.kind === "endpoint-down") {
       // A non-process endpoint link death (no child, so no exit code/signal). A
