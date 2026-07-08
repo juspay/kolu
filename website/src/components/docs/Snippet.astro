@@ -1,0 +1,75 @@
+---
+/**
+ * Embeds a REAL, typechecked-in-CI TypeScript file (or a named region of one)
+ * as a syntax-highlighted code block. The docs never hand-write snippets: the
+ * text shown here IS the source file on disk, read at build time with node:fs
+ * (the same cross-package read astro.config does for the server version), so a
+ * snippet can never drift from — or be invented against — the real API. The
+ * files live in the workspace (`packages/surface/example/snippets/`) and are
+ * typechecked by the repo's `pnpm -r typecheck` gate; a wrong call fails CI.
+ *
+ * Usage in an .mdx page:
+ *   import Snippet from "../../components/docs/Snippet.astro";
+ *   <Snippet src="packages/surface/example/snippets/consume-cli.ts" region="calls" />
+ *
+ * `src` is repo-root-relative. `region` (optional) slices between
+ * `// #region <name>` and `// #endregion` markers, strips the marker lines, and
+ * dedents — so one compilable file can host several doc blocks.
+ */
+import { Code } from "astro:components";
+import { readFileSync } from "node:fs";
+
+interface Props {
+  src: string;
+  region?: string;
+  lang?: string;
+}
+const { src, region, lang = "ts" } = Astro.props;
+
+// Structural guard: a snippet may ONLY be embedded from a workspace location that
+// the repo's `pnpm -r typecheck` gate actually compiles. Reading an arbitrary
+// repo file would reopen the invention hole this component exists to close — an
+// "embedded but untypechecked" snippet must be unrepresentable, not merely
+// discouraged. `example/` is the surface examples workspace (snippets/,
+// fleet-top/, …), every subpackage of which carries a `typecheck` script.
+const SNIPPET_ROOTS = ["packages/surface/example/"];
+if (src.includes("..") || !SNIPPET_ROOTS.some((root) => src.startsWith(root))) {
+  throw new Error(
+    `<Snippet>: "${src}" is outside the typechecked snippet roots ` +
+      `(${SNIPPET_ROOTS.join(", ")}). A snippet must live in a workspace package ` +
+      `covered by \`pnpm -r typecheck\`, or it could drift from the real API.`,
+  );
+}
+
+// website/src/components/docs/ → repo root is four levels up.
+const abs = new URL(`../../../../${src}`, import.meta.url);
+let code: string;
+try {
+  code = readFileSync(abs, "utf8");
+} catch {
+  throw new Error(`<Snippet>: cannot read "${src}" (resolved ${abs.pathname})`);
+}
+
+if (region) {
+  const lines = code.split("\n");
+  const start = lines.findIndex((l) => l.trim() === `// #region ${region}`);
+  if (start === -1) throw new Error(`<Snippet>: region "${region}" not found in ${src}`);
+  const end = lines.findIndex((l, i) => i > start && l.trim().startsWith("// #endregion"));
+  if (end === -1) throw new Error(`<Snippet>: region "${region}" is not closed in ${src}`);
+  const body = lines.slice(start + 1, end);
+  // Dedent by the least-indented non-blank line so the region reads flush-left.
+  const indent = Math.min(
+    ...body.filter((l) => l.trim().length > 0).map((l) => l.match(/^\s*/)![0].length),
+  );
+  code = body.map((l) => l.slice(indent)).join("\n");
+}
+
+code = code.replace(/\s+$/, "");
+---
+
+<Code
+  code={code}
+  lang={lang}
+  themes={{ light: "vitesse-light", dark: "vitesse-black" }}
+  defaultColor={false}
+/>

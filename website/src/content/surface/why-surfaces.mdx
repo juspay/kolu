@@ -42,9 +42,11 @@ should not lie about what the state *is*:
 - A **stream** is a derived view computed from an input the server does not own. You cannot `set` a stream's output without turning it into a cache of unmanaged state — so streams are read-only by construction.
 - An **event** is an occurrence, not a value. Modelling `terminal.onExit` as a stream would force the consumer to render an iterator that yields once and closes; the wire shape would misrepresent the cardinality. Events therefore carry no snapshot and no current value — a handler fires per occurrence.
 
-Anything genuinely outside these four shapes — a bidirectional binary stream, a
-one-off command — stays as raw oRPC. The surface is not trying to be the whole
-protocol; it is the typed, reactive slice of it.
+A one-off command is not outside these shapes — that is what the fifth member,
+`procedures`, is for: the imperative escape hatch for a plain request/response
+call. What stays as raw oRPC is only what is genuinely outside the model — a
+bidirectional binary stream, bespoke retry plumbing. The surface is not trying to
+be the whole protocol; it is the typed, reactive slice of it.
 
 ## The same shape, everywhere
 
@@ -65,9 +67,12 @@ does exactly that — and the same shape carries all the way out to a fleet.
 
 The compile-time literal is what makes the end-to-end types work, and it is also
 the constraint: the spec is a **versioned wire contract**, not a place for casual
-edits. A cell's `patch` function runs on both the server and the client, so
-changing it changes the wire format — server and client must redeploy together,
-and a drift between them shows up as a view that is quietly wrong rather than an
-error. The framework buys you honesty about live data at the price of treating
-the surface declaration with the seriousness of a protocol. That is the trade,
-and for anything a client renders live, it is a good one.
+edits. Two distinct fields carry that weight. A cell's `patchSchema` sets the
+*wire format* of its patch verb — changing it changes what crosses the socket. A
+cell's `patch` merge function is subtler: it runs on **both** the server and the
+client, so if the two sides deploy different versions of it, neither errors —
+they simply compute divergent state, and the drift surfaces as a view that is
+quietly wrong. Either way the lesson is the same: server and client redeploy
+together, and the surface declaration is treated with the seriousness of a
+protocol. The framework buys you honesty about live data at that price. For
+anything a client renders live, it is a good trade.

@@ -6,6 +6,7 @@ section: Basics · How-to
 ---
 
 import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
 `directLink` is the identity transport: it wraps the served router and invokes
 handlers in-process, with no socket and no subprocess. That makes it the tool for
@@ -18,22 +19,7 @@ Implement the surface, flatten the fragment, and wrap it in `directLink`. Pass
 it bare — `directLink` is the one link `surfaceClient` accepts without a watchdog,
 because its transport is always-live.
 
-```ts
-import { implementSurface, inMemoryStore, inMemoryChannelByName, implement } from "@kolu/surface/server";
-import { directLink } from "@kolu/surface/links/direct";
-import { surface } from "../common/surface";
-
-function makeTestClient() {
-  const fragment = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
-    cells: { load: { store: inMemoryStore(ZERO) } },
-    collections: { processes: { readAll, upsert, remove } },
-    procedures: { proc: { kill: async ({ input, ctx }) => ctx.collections.processes.delete(input) } },
-  });
-  const router = implement(surface.contract).router({ ...fragment.router });
-  return directLink(router); // the raw typed client — the wire client, in-process
-}
-```
+<Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="client" />
 
 ## Assert on a snapshot
 
@@ -42,25 +28,14 @@ iterable. To assert on the current value, take the first frame. `firstFrameOrThr
 (`@kolu/surface/first-frame`) does exactly that, and throws if the stream closes
 empty — so a broken read fails the test instead of asserting on `undefined`.
 
-```ts
-import { firstFrameOrThrow } from "@kolu/surface/first-frame";
-
-const client = makeTestClient();
-const load = await firstFrameOrThrow(client.surface.cells.load.get({}));
-expect(load).toEqual(ZERO);
-```
+<Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="snapshot" />
 
 ## Drive a procedure and assert the effect
 
 Procedures are plain awaited calls. Call one, then read the affected cell or
 collection back and assert the new snapshot.
 
-```ts
-await client.surface.proc.kill({ pid: 4321 });
-
-const alive = await firstFrameOrThrow(client.surface.collections.processes.keys());
-expect(alive).not.toContain(4321);
-```
+<Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="procedure" />
 
 ## Read a run of stream frames
 
@@ -68,14 +43,7 @@ When the value under test is a stream that emits over time, iterate it and
 collect the frames you care about. Because there is no socket, delivery is
 deterministic — no timers, no flushing.
 
-```ts
-const frames: LogFrame[] = [];
-for await (const frame of client.surface.streams.nodeLog.get({ nodeId })) {
-  frames.push(frame);
-  if (frame.done) break;
-}
-expect(frames[0].kind).toBe("snapshot");
-```
+<Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="stream" />
 
 <Aside type="tip" title="Same client, real transport later">
   Nothing above changes when the surface moves to a socket — the call sites are

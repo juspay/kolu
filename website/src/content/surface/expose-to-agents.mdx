@@ -6,6 +6,7 @@ section: Basics · How-to
 ---
 
 import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
 An agent (Claude Code, Codex, opencode) drives a surface through the Model
 Context Protocol: your cells and streams become readable resources, your
@@ -18,11 +19,7 @@ decide what to expose.
 { "dependencies": { "@kolu/surface-mcp": "workspace:*" } }
 ```
 
-```ts
-import { implementSurface } from "@kolu/surface/server";
-import { directLink } from "@kolu/surface/links/direct";
-import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
-```
+<Snippet src="packages/surface/example/snippets/mcp.ts" region="imports" />
 
 ## 2. Build a client for the surface
 
@@ -31,28 +28,14 @@ Choose one of two shapes:
 - **Serve fresh** when the MCP server is the backend — wrap an in-process `implementSurface` in a `directLink`.
 - **Bridge a live surface** when a server is already running — dial it over its socket or ssh stdio instead.
 
-```ts
-const { router } = implementSurface(surface, deps);
-const client = directLink(router); // serve-fresh
-```
+<Snippet src="packages/surface/example/snippets/mcp.ts" region="client" />
 
 ## 3. Name what to expose
 
 `expose` is default-deny: an unlisted member never reaches the agent. Map each
 key to `"resource"` (cells, collections, streams, events) or a tool (procedures).
 
-```ts
-await serveSurfaceAsMcp({
-  surface,
-  client: () => client,
-  expose: {
-    load: "resource",                          // cell   → readable, subscribable
-    nodeLog: "resource",                        // stream → readable, subscribable
-    "proc.kill": { tool: { mutates: true } },   // procedure → mutating tool
-    // "proc.configure" omitted → never reaches the agent
-  },
-});
-```
+<Snippet src="packages/surface/example/snippets/mcp.ts" region="expose" />
 
 <Aside type="caution" title="Leave mutating tools unmarked; mark read-only ones">
   `mutates` defaults to `true`, so a destructive procedure is safe even if you
@@ -64,7 +47,7 @@ await serveSurfaceAsMcp({
 ## 4. Curate a dangerous surface (optional)
 
 If the surface has procedures no agent should reach, do not rely on omission
-alone — project a safe view with `projectSurface` (from `@kolu/surface`): drop
+alone — project a safe view with `projectSurface` (from `@kolu/surface/project`): drop
 the dangerous procedures, bound the logs, derive read-only verdicts, and expose
 *that* second surface. It is the difference between hiding a control and not
 wiring it at all.

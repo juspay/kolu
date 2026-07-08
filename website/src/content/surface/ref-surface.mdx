@@ -6,6 +6,7 @@ section: Basics · Reference
 ---
 
 import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
 The core package. You declare a surface with `defineSurface`, serve it with
 `implementSurface`, and consume it with `surfaceClient`. Everything below is
@@ -18,17 +19,7 @@ and returns a `Surface<S>`. The contract is a compile-time literal built from
 the spec — the framework does not reflect it at runtime, because the typed
 client needs the literal at compile time.
 
-```ts
-import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-
-export const surface = defineSurface({
-  cells: { load: { schema: Load, default: ZERO } },
-  collections: { processes: { keySchema: Pid, schema: Proc } },
-  streams: { nodeLog: { inputSchema: NodeId, outputSchema: LogFrame } },
-  events: { autosave: { inputSchema: DocId, outputSchema: SavedAt } },
-  procedures: { proc: { kill: { input: Pid, output: Killed } } },
-});
-```
+<Snippet src="packages/surface/example/snippets/surface.ts" region="define" />
 
 A surface has five member kinds. The first four are the reactive primitives;
 `procedures` is the imperative escape hatch.
@@ -51,9 +42,10 @@ The `Surface<S>` value carries `surface.contract` (the typed oRPC router that
 replaces a hand-written `oc.router`), `surface.descriptors`, and `surface.spec`.
 Read member types back with `SurfaceTypes<typeof surface.spec>`.
 
-Every surface also carries one framework-reserved procedure, `surface.system.live`,
-injected by `defineSurface` and auto-answered by the server — no app declares or
-implements it (see [Liveness](#liveness-and-health)).
+Every surface also carries two framework-reserved procedures,
+`surface.system.live` and `surface.system.identity`, both injected by
+`defineSurface` and auto-answered by the server — no app declares or implements
+them (see [Liveness](#liveness-and-health)).
 
 To key several standalone surfaces under one namespace over one transport, use
 `composeSurfaceContracts({ <key>: surface })`.
@@ -64,17 +56,7 @@ To key several standalone surfaces under one namespace over one transport, use
 fragment plus a `ctx` for typed mutations. Persistence and pub/sub are supplied
 as dependencies.
 
-```ts
-import { implementSurface, inMemoryStore, inMemoryChannelByName } from "@kolu/surface/server";
-
-const fragment = implementSurface(surface, {
-  channel: inMemoryChannelByName(),
-  cells: { load: { store: inMemoryStore(ZERO) } },
-  collections: { processes: { readAll, upsert, remove } },
-  streams: { nodeLog: { source } },
-  procedures: { proc: { kill: async ({ input, ctx }) => ctx.collections.processes.delete(input) } },
-});
-```
+<Snippet src="packages/surface/example/snippets/serve.ts" region="implement" />
 
 Dependency shapes, per member:
 
@@ -101,9 +83,7 @@ transport, keyed the same as the map.
   Passing it straight to a transport double-prefixes the matcher tree
   (`/surface/surface/…`) and every request 404s. Wrap it once:
 
-  ```ts
-  const router = implement(surface.contract).router({ ...fragment.router });
-  ```
+  <Snippet src="packages/surface/example/snippets/serve.ts" region="flatten" />
 
   (`implement` is re-exported from `@kolu/surface/peer-server`.)
 </Aside>
@@ -114,17 +94,7 @@ transport, keyed the same as the map.
 member. It replaces the `source` / `mutate` / `keyToInput` refs you would
 otherwise thread at every hook.
 
-```ts
-import { surfaceClient } from "@kolu/surface/solid";
-
-const app = surfaceClient(surface, link);
-
-const load = app.cells.load.use({ authority: "server" });        // Accessor<Load>
-const procs = app.collections.processes.use();                    // .byKey(id) / .keys()
-const log = app.streams.nodeLog.use(nodeId, { onError });         // .pending() / .error()
-app.events.autosave.use(docId, handler, { onError });             // returns nothing
-await app.rpc.surface.proc.kill({ pid });
-```
+<Snippet src="packages/surface/example/snippets/consume-solid.ts" region="solid" />
 
 | Member | Hook | Returns |
 | --- | --- | --- |

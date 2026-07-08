@@ -6,6 +6,7 @@ section: Basics · Reference
 ---
 
 import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
 Re-expose any `@kolu/surface` as an MCP server, so a coding agent drives it with
 structured tool calls. The adapter owns the generic parts — the
@@ -14,15 +15,7 @@ and leaves the consumer in control of *what* is exposed.
 
 ## `serveSurfaceAsMcp`
 
-```ts
-import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
-
-const { server, close } = await serveSurfaceAsMcp({
-  surface,
-  client: () => client,
-  expose: { /* … */ },
-});
-```
+<Snippet src="packages/surface/example/snippets/mcp.ts" region="serve" />
 
 `serveSurfaceAsMcp(opts): Promise<{ server, close }>`, imported from the root
 `@kolu/surface-mcp` subpath.
@@ -67,7 +60,7 @@ Resources are readable and subscribable; procedures become callable tools.
 ## Bespoke tools and curation
 
 - `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, input: z.object(...), mutates, handler }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle.
-- `projectSurface` (from `@kolu/surface`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
+- `projectSurface` (from `@kolu/surface/project`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
 
 ## Other exports
 

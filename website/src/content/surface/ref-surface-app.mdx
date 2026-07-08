@@ -6,6 +6,7 @@ section: Basics · Reference
 ---
 
 import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
 The shell delivered *around* a `@kolu/surface` app — the static, installable
 layer for apps you run against your own server (kolu, drishti). Surface is the
@@ -57,11 +58,7 @@ single- and multi-surface seams: each builds a socket, a `websocketLink`, the
 heartbeat probe defaults to the framework-reserved `system.live`
 (`@kolu/surface/liveness`), so no app supplies — or forgets — a probe.
 
-```ts
-import { connectSurface } from "@kolu/surface-app/solid";
-
-const { ws, clients, status, health, dispose } = connectSurface({ surface, url });
-```
+<Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
 
 `createServerLifecycle({ ws, probe })` derives the connection lifecycle
 (`connecting → connected → disconnected → reconnected / restarted`) from

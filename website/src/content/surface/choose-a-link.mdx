@@ -6,6 +6,7 @@ section: Basics · How-to
 ---
 
 import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
 
 A link is how a client reaches a served contract. Every link produces the *same*
 typed client, so the choice is purely about transport — and you can change it
@@ -48,18 +49,11 @@ for the daemon, `serveOverStdio` for the subprocess or ssh peer.
 Because the client type is identical across links, a swap is a one-line change
 at the wiring seam. A surface that started in-process for tests:
 
-```ts
-// Was: in-process
-const app = surfaceClient(surface, directLink(fragment.router));
-```
+<Snippet src="packages/surface/example/snippets/links.ts" region="direct" />
 
 moves to the browser by changing only the link:
 
-```ts
-// Now: over a WebSocket, via the app layer's watchdog-backed connect
-const { clients } = connectSurface({ surface, url });
-const app = clients; // same bound hooks, same call sites
-```
+<Snippet src="packages/surface/example/snippets/links.ts" region="swap" />
 
 Everything downstream — `app.cells.load.use(...)`, `app.rpc.surface.proc.kill(...)`
 — is byte-identical. That is the point of the link abstraction: choose the
