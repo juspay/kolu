@@ -1,6 +1,8 @@
 ---
 title: Architecture
 description: "How kolu is built: a stack of daemons that each survive a different failure. Close the tab, restart the server, redeploy — your terminals and the agents in them keep running. The daemon stack (PWA client · kolu-server · padi · kaval) and the @kolu/surface framework underneath it."
+order: 100
+section: System
 koluHero:
   eyebrow: architecture
   headline: How {kolu} is built
@@ -19,9 +21,10 @@ makes that true, and the one contract that ties it together.
 ## The stack
 
 Four layers, each with one job. The top two are _faces_ — they come and go. The
-bottom two are _daemons_ — they hold the state and stay up. The arrows are
-transports: a websocket to the browser, a unix socket between the daemons. Kill
-any layer and everything below it keeps running.
+bottom two are _daemons_ — [padi](/padi) holds the workspace record, and
+[kaval](/kaval) owns the live PTYs. The arrows are transports: a websocket to the
+browser, a unix socket between the daemons. Kill any layer and everything below
+it keeps running.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 720 412" role="img" aria-labelledby="ax-stack-title">
@@ -85,10 +88,10 @@ any layer and everything below it keeps running.
 
 | layer | its one job | killing it does _not_ lose |
 | --- | --- | --- |
-| `PWA client` | the view in your browser — one surface consumer per pane | Reload the tab, switch devices: it re-subscribes. It holds no state to lose. |
+| [`PWA client`](/install-pwa) | the view in your browser — one surface consumer per pane | Reload the tab, switch devices: it re-subscribes. It holds no state to lose. |
 | `kolu-server` | the web shell — HTTP, the PWA, websockets; dials and binds padi | Restart it and no terminal metadata is lost — padi's registry stays warm. |
-| `padi` | the per-host workspace daemon — session, awareness, restore | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds. |
-| `kaval` | the PTY survivor — owns the shells and their live screens | Kill everything above it and the live shells and scrollback keep running — they live in kaval's memory. |
+| [`padi`](/padi) | the per-host workspace daemon — session, awareness, restore | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds. |
+| [`kaval`](/kaval) | the PTY survivor — owns the shells and their live screens | Kill everything above it and the live shells and scrollback keep running — they live in kaval's memory. |
 
 ## A deploy _adopts_ what's running
 
@@ -298,7 +301,8 @@ The same surface contract already runs over ssh: it's how
 [`kaval-tui --host`](/kaval) drives a daemon on another machine with nothing
 pre-installed there. Pointing kolu's browser at a `padi` on a remote host — a host
 switcher, remote agents surfacing in your dock — is the next phase. **Coming, not
-here yet.**
+here yet.** That is separate from [Remote Access](/remote-access), which serves
+today's browser UI over private HTTPS.
 
 ## Explore
 

@@ -8,7 +8,7 @@
  * collapses gracefully as width drops.
  */
 import type { MarkdownHeading } from "astro";
-import type { CollectionEntry } from "astro:content";
+import { getCollection, type CollectionEntry } from "astro:content";
 import KoluHero from "../components/KoluHero.astro";
 import Sidebar from "../components/docs/Sidebar.astro";
 import Toc from "../components/docs/Toc.astro";
@@ -20,25 +20,84 @@ interface Props {
   headings: MarkdownHeading[];
 }
 const { entry, headings } = Astro.props;
+
+const docs = await getCollection("docs");
+docs.sort((a, b) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title));
+const currentIndex = docs.findIndex((doc) => doc.id === entry.id);
+const prev = currentIndex > 0 ? docs[currentIndex - 1] : undefined;
+const next = currentIndex >= 0 && currentIndex < docs.length - 1 ? docs[currentIndex + 1] : undefined;
 ---
 
 <BaseLayout
   title={entry.data.title}
   description={entry.data.description}
-  ogImageRoute="site"
+  ogImageRoute={`docs/${entry.id}`}
+  searchSection="Docs"
 >
   <div class="docs-shell">
-    <aside class="docs-shell__sidebar">
+    <aside class="docs-shell__sidebar" data-pagefind-ignore>
       <Sidebar current={entry.id} currentTitle={entry.data.title} />
     </aside>
-    <article class="docs-shell__main" data-pagefind-body>
+    <article class="docs-shell__main">
       <KoluHero hero={entry.data.koluHero} title={entry.data.title} />
+      <div class="docs-shell__mobile-toc" data-pagefind-ignore>
+        <Toc headings={headings} variant="inline" />
+      </div>
       <div class="docs-prose"><slot /></div>
+      {
+        (prev || next) && (
+          <nav class="docs-pager" aria-label="Docs pages" data-pagefind-ignore>
+            <div>
+              {prev && (
+                <a href={`/${prev.id}`} rel="prev">
+                  <span>Previous</span>
+                  {prev.data.title}
+                </a>
+              )}
+            </div>
+            <div>
+              {next && (
+                <a href={`/${next.id}`} rel="next">
+                  <span>Next</span>
+                  {next.data.title}
+                </a>
+              )}
+            </div>
+          </nav>
+        )
+      }
     </article>
-    <div class="docs-shell__toc">
+    <div class="docs-shell__toc" data-pagefind-ignore>
       <Toc headings={headings} />
     </div>
   </div>
+
+  <script>
+    const blocks = document.querySelectorAll<HTMLPreElement>(".docs-prose pre");
+    blocks.forEach((block) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "doc-copy";
+      button.textContent = "Copy";
+      button.setAttribute("aria-label", "Copy code");
+      block.append(button);
+
+      button.addEventListener("click", async () => {
+        const code = block.querySelector("code")?.textContent ?? "";
+        try {
+          await navigator.clipboard.writeText(code);
+          button.textContent = "Copied";
+          button.classList.add("is-copied");
+        } catch {
+          button.textContent = "Select";
+        }
+        window.setTimeout(() => {
+          button.textContent = "Copy";
+          button.classList.remove("is-copied");
+        }, 1400);
+      });
+    });
+  </script>
 </BaseLayout>
 
 <style>
@@ -58,6 +117,46 @@ const { entry, headings } = Astro.props;
   .docs-shell__main {
     min-width: 0;
   }
+  .docs-shell__mobile-toc {
+    display: none;
+  }
+  .docs-pager {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 3.25rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-rule);
+  }
+  .docs-pager > div:last-child {
+    text-align: right;
+  }
+  .docs-pager a {
+    display: block;
+    min-height: 5.2rem;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.55rem;
+    padding: 0.85rem 1rem;
+    background: var(--color-void-raised);
+    color: var(--color-ink);
+    text-decoration: none;
+    transition:
+      border-color 120ms ease,
+      background 120ms ease;
+  }
+  .docs-pager a:hover {
+    border-color: var(--color-kolu-primary);
+    background: color-mix(in srgb, var(--color-kolu-primary) 7%, var(--color-void-raised));
+  }
+  .docs-pager span {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+  }
 
   /* Drop the TOC first (wide-but-not-huge), then fold the sidebar into its
      mobile disclosure and go single-column. */
@@ -68,6 +167,9 @@ const { entry, headings } = Astro.props;
     .docs-shell__toc {
       display: none;
     }
+    .docs-shell__mobile-toc {
+      display: block;
+    }
   }
   @media (max-width: 60rem) {
     .docs-shell {
@@ -77,6 +179,12 @@ const { entry, headings } = Astro.props;
     }
     .docs-shell__sidebar {
       position: static;
+    }
+    .docs-pager {
+      grid-template-columns: 1fr;
+    }
+    .docs-pager > div:last-child {
+      text-align: left;
     }
   }
 </style>

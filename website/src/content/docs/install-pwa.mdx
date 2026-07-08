@@ -1,0 +1,65 @@
+---
+title: Install as an App
+description: "Pin kolu as a PWA, understand secure contexts, and make badges and notifications available."
+order: 40
+section: Use Kolu
+koluHero:
+  eyebrow: pwa
+  headline: Pin {kolu} as an app.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+Pinning kolu gives it its own window, a dock or home-screen icon, and, on a
+[secure context](/remote-access), a live badge plus
+[desktop notifications](/troubleshooting#i-am-not-getting-desktop-notifications)
+for finished agents.
+
+<Aside type="note" title="HTTP can still be pinned">
+  The automatic Install prompt and address-bar Install icon need a secure
+  context: `https://...` or loopback/`localhost`. Plain `http://` LAN and
+  Tailscale `100.x` URLs can still be pinned manually, but app badges,
+  notifications, and service workers are unavailable there. Use
+  [Remote Access](/remote-access) for the private HTTPS route.
+</Aside>
+
+## Browser paths
+
+<CardGrid>
+  <Card title="Chromium desktop / Android">
+    Chrome, Edge, Brave, and Arc show the one-click Install path on HTTPS or
+    localhost. On plain HTTP, use the menu's Create shortcut flow and choose
+    "Open as window".
+  </Card>
+  <Card title="iOS">
+    Use Share → Add to Home Screen. iOS has no install API, so this is the path
+    from Safari, Chrome, Edge, and Firefox.
+  </Card>
+  <Card title="Safari desktop">
+    Safari 17 on macOS Sonoma or newer can use File → Add to Dock.
+  </Card>
+  <Card title="Firefox desktop">
+    Firefox has no native PWA install path. Use Chrome or Edge for the pinned app
+    window, then keep using Firefox for normal browsing if you want.
+  </Card>
+</CardGrid>
+
+## Why HTTPS matters
+
+Manual pinning gives you the window. HTTPS gives you the rest:
+
+- the automatic Install prompt;
+- the OS app badge;
+- desktop notifications through the service worker;
+- a stable secure context when you open kolu from another device.
+
+For the private HTTPS path, put kolu behind
+[Tailscale Serve](/remote-access).
+
+<CardGrid>
+  <LinkCard title="Reach it anywhere" href="/remote-access" description="serve kolu at a private https://...ts.net URL" />
+  <LinkCard title="Troubleshooting" href="/troubleshooting" description="no install button, missing notifications, and update questions" />
+</CardGrid>

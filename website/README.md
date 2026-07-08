@@ -1,16 +1,35 @@
 # kolu website
 
-Marketing + blog + changelog for [kolu](https://github.com/juspay/kolu). Astro +
-Tailwind v4, deployed to <https://kolu.dev> via GitHub Pages.
+Marketing, docs, blog, and changelog for [kolu](https://github.com/juspay/kolu).
+Astro + Tailwind v4, deployed to <https://kolu.dev> via GitHub Pages.
 
 ## Develop
 
 ```sh
 just website::dev          # HMR on http://127.0.0.1:4321
+just website::search-preview # production build + Pagefind search preview
 just website::nix-build    # reproducible Nix build → /nix/store/...
 ```
 
-Blog posts: `src/content/blog/*.md` (schema in `src/content.config.ts`).
+Docs: `src/content/docs/*.{md,mdx}`, rendered at root-level URLs by
+`src/pages/[slug].astro` (`quickstart.mdx` → `/quickstart`). Required
+frontmatter is `title`; `description`, `order`, `section`, and `koluHero` are
+optional. `order` controls sidebar and previous/next order; `section` groups the
+sidebar. Docs render through `DocsLayout`, which provides the native site header,
+sidebar, mobile docs menu, on-this-page TOC, previous/next links, Pagefind
+metadata, and code-copy buttons.
+
+Docs component kit: `src/components/docs/Aside.astro`, `Card.astro`,
+`CardGrid.astro`, `LinkCard.astro`, and `Steps.astro`. Use normal Markdown first;
+reach for these when the page needs callouts, repeated cards, navigation cards,
+or numbered setup steps. Product screenshots can live under `public/` and be
+wrapped in `<figure class="doc-shot">`.
+
+Search: `pnpm build` runs `astro build && pagefind --site dist`. Search is not
+available during `astro dev`; use `just website::search-preview` to build the
+index and serve `dist` locally.
+
+Blog posts: `src/content/blog/*.{md,mdx}` (schema in `src/content.config.ts`).
 Frontmatter `title`, `description`, `pubDate`, optional `author` +
 `authorUrl`. Don't include a leading `# ` heading — it comes from the
 frontmatter `title`.

@@ -1,0 +1,102 @@
+---
+title: Remote Access
+description: "Reach kolu from another device with Tailscale Serve, and choose the right tunnel for the job."
+order: 50
+section: Use Kolu
+koluHero:
+  eyebrow: remote
+  headline: Reach {kolu} anywhere.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+Tailscale Serve gives kolu a private HTTPS URL. That single move lets your phone
+or laptop reach the workspace and also unlocks the secure-context features used
+by [install prompts and app badges](/install-pwa), notifications, and service
+workers.
+
+<Steps>
+
+1. Install Tailscale on both devices.
+
+   Put Tailscale on the dev box and the phone or laptop, signed into the same
+   account. They join one private tailnet.
+
+2. Enable MagicDNS and HTTPS Certificates.
+
+   In the Tailscale admin console, turn on MagicDNS, then HTTPS Certificates.
+
+3. Serve kolu's port from the dev box.
+
+   ```sh
+   tailscale serve --bg 7681
+   ```
+
+   Tailscale prints a tailnet URL:
+
+   ```text
+   https://your-box.your-tailnet.ts.net/
+   ```
+
+4. Open the printed URL on the other device and pin it there.
+
+   Use the full `https://<machine>.<tailnet>.ts.net` address.
+
+</Steps>
+
+<Aside type="caution" title="Use the full hostname">
+  The bare machine name and the `100.x` address stay plain HTTP. They are useful
+  for manual access, but they do not provide the secure context used by the
+  one-click install prompt or app badge. The browser-specific install paths are
+  in [Install as an App](/install-pwa).
+</Aside>
+
+<Aside type="caution" title="Default to Serve, not Funnel">
+  `tailscale serve` keeps kolu tailnet-only. `tailscale funnel` makes a port
+  public. Keep kolu bound to `127.0.0.1` and let Serve be the only exposed
+  surface unless you have a deliberate public-access setup.
+</Aside>
+
+One more honesty note: the `...ts.net` hostname is visible in public Certificate
+Transparency logs because that is how public certificates are audited. Do not put
+secrets in machine names.
+
+## Which tunnel?
+
+<CardGrid>
+  <Card title="Tailscale Serve">
+    For "just my devices." Tailnet-only, real HTTPS, and the default path for a
+    private kolu.
+  </Card>
+  <Card title="Cloudflare Tunnel + Access">
+    For a public URL that still requires identity before anyone reaches kolu.
+  </Card>
+  <Card title="ngrok">
+    For a throwaway public URL during a demo. No auth by default, so tear it down
+    after.
+  </Card>
+</CardGrid>
+
+This page is about reaching the browser app. For shell-level remote terminals
+over ssh, use [`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh)
+instead.
+
+## Manage the serve
+
+```sh
+tailscale serve status
+tailscale serve reset
+tailscale serve off
+```
+
+## Related
+
+<CardGrid>
+  <LinkCard title="Install as an App" href="/install-pwa" description="browser install paths, secure contexts, badges, and notifications" />
+  <LinkCard title="Troubleshooting" href="/troubleshooting" description="missing install buttons, notification permissions, and update checks" />
+  <LinkCard title="Kaval remote terminals" href="/kaval#reach-a-remote-kaval--over-ssh" description="drive a PTY daemon on another machine over ssh" />
+</CardGrid>

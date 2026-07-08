@@ -4,8 +4,8 @@
  * search button appears in the header on every page. It drives the Pagefind UI
  * (@pagefind/default-ui) directly, loading the /pagefind/ index the postbuild
  * step emits (see package.json `build`). Pagefind indexes the docs pages (they
- * carry data-pagefind-body on the DocsLayout content), so this searches the
- * documentation from anywhere on the site.
+ * carry data-pagefind-body on the DocsLayout content), and every page carries a
+ * Pagefind `section` filter so results read as Docs / Blog / Changelog / Site.
  *
  * The trigger and modal are themed with the site's own --color-* tokens so the
  * button sits flush with the mono nav and the toggle beside it.
@@ -28,7 +28,7 @@
       {
         import.meta.env.DEV ? (
           <div class="nav-search-dev">
-            <p>Search is powered by an index built at production build time, so it is unavailable in dev. Run a production build (or preview) to try it.</p>
+            <p>Search is powered by an index built at production build time, so it is unavailable in dev. Run <code>just website::search-preview</code> to try it locally.</p>
           </div>
         ) : (
           <div class="nav-search-container">
@@ -109,9 +109,37 @@
             element: "#nav-search__pagefind",
             baseUrl: import.meta.env.BASE_URL,
             bundlePath: import.meta.env.BASE_URL.replace(/\/$/, "") + "/pagefind/",
+            filters: {
+              section: "Type",
+            },
+            processResult(result: { meta?: { section?: string; title?: string } }) {
+              const section = result.meta?.section;
+              if (
+                section &&
+                typeof result.meta?.title === "string" &&
+                !result.meta.title.startsWith(`${section} · `)
+              ) {
+                result.meta.title = `${section} · ${result.meta.title}`;
+              }
+              return result;
+            },
             showImages: false,
             showSubResults: true,
           });
+          const labelPagefindInput = () => {
+            const input = this.querySelector<HTMLInputElement>(".pagefind-ui__search-input");
+            if (!input) return false;
+            input.id = "nav-search-input";
+            input.name = "q";
+            input.setAttribute("aria-label", "Search this site");
+            return true;
+          };
+          if (!labelPagefindInput()) {
+            const observer = new MutationObserver(() => {
+              if (labelPagefindInput()) observer.disconnect();
+            });
+            observer.observe(this, { childList: true, subtree: true });
+          }
         });
       });
     }
@@ -262,5 +290,11 @@
     --pagefind-ui-tag: var(--color-void-sunk);
     --pagefind-ui-border-width: 1px;
     --pagefind-ui-font: var(--font-sans);
+  }
+  #nav-search__pagefind .pagefind-ui__filter-name {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 </style>

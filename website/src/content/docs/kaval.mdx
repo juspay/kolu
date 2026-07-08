@@ -1,10 +1,12 @@
 ---
 title: Kaval
 description: "kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, send input to, and kill your terminals from the shell."
+order: 120
+section: Daemons
 koluHero:
   eyebrow: "the PTY daemon & its client · alpha"
   headline: |
-    a watch over
+    {Kaval}: a watch over
     your {terminals}.
   image: /kaval-logo.svg
   imageAlt: "kaval — a watch over your terminals"
@@ -29,18 +31,20 @@ come and go. `kaval-tui` is its terminal client: list your shells, **create** ne
 ones, dump their scrollback, attach and type, **send** a prompt to an agent
 running in one, or **kill** them — locally, or on a remote machine over ssh
 (`--host`). Run the pair on a box where kolu has never been installed — a
-tmux/zellij-shaped duo, minus the multiplexer's session model.
+tmux/zellij-shaped duo, minus the multiplexer's session model. In kolu's full
+stack, [padi](/padi) is the workspace daemon above kaval, and
+[Architecture](/architecture) shows how the layers survive restarts.
 
 ## How it fits together
 
 One daemon owns the terminals; everything else is a client. `kolu` no longer runs
-PTYs in-process — its per-host daemon, `padi` (Tamil _paḍi_ — the stepped stand a
-_koḷu_ sits on), spawns and supervises its _own_ `kaval` and dials it over a unix
-socket, exactly as `kaval-tui` does from the shell (the kolu-server is just the
-web shell your browser talks to in front of padi). Same daemon, same terminals,
-many faces — and the link runs _both_ ways: kaval streams live updates back to
-every client, so a terminal you `kaval-tui create` from the shell shows up in
-`kolu` the moment it's born.
+PTYs in-process — its per-host daemon, [`padi`](/padi) (Tamil _paḍi_ — the
+stepped stand a _koḷu_ sits on), spawns and supervises its _own_ `kaval` and
+dials it over a unix socket, exactly as `kaval-tui` does from the shell (the
+kolu-server is just the web shell your browser talks to in front of padi). Same
+daemon, same terminals, many faces — and the link runs _both_ ways: kaval streams
+live updates back to every client, so a terminal you `kaval-tui create` from the
+shell shows up in `kolu` the moment it's born.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 760 276" role="img" aria-labelledby="kv-diagram-title">
@@ -118,10 +122,10 @@ every client, so a terminal you `kaval-tui create` from the shell shows up in
 
 ## Drive a running `kolu`
 
-kolu doesn't run terminals in-process anymore — its per-host daemon `padi` spawns
-a kaval of its own and dials it, so kolu is just another consumer of it. So the
-same `kaval-tui` reaches the terminals you have open in kolu, from the shell,
-with **no flags**:
+kolu doesn't run terminals in-process anymore — its per-host daemon
+[`padi`](/padi) spawns a kaval of its own and dials it, so kolu is just another
+consumer of it. So the same `kaval-tui` reaches the terminals you have open in
+kolu, from the shell, with **no flags**:
 
 ```sh
 kaval-tui list                     # the terminals open in your kolu
@@ -140,7 +144,8 @@ automatically. More than one → kaval-tui lists them and asks you to choose wit
 `--host <ssh>` drives a kaval on **another machine**, with nothing to install
 there first. kaval-tui provisions the daemon with Nix (ships the right-arch build
 over ssh, realises it), runs it, and dials it — every subcommand works exactly as
-it does locally, just pointed at the remote.
+it does locally, just pointed at the remote. This is shell-level remote terminal
+control; [Remote Access](/remote-access) is the separate browser-HTTPS path.
 
 ```sh
 kaval-tui create --host nix@prod
@@ -167,7 +172,8 @@ any number of PTYs; each PTY is a real shell child paired with a headless screen
 mirror, fanned out to any number of consumers. It owns **only** the PTY: it knows
 nothing about git, pull requests, agent detection, or any wire protocol — those
 compose on top. The same primitive backs kolu's terminals; kaval just serves it
-over a socket.
+over a socket. The system split is why [padi](/padi) handles workspace meaning
+while kaval handles terminal survival.
 
 <CardGrid>
   <Card title="race-free attach">

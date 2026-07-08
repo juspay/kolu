@@ -1,0 +1,76 @@
+---
+title: Power Features
+description: "Run many agents, keep sessions legible, sleep terminals, export transcripts, record workspaces, and drive kolu from the shell."
+order: 60
+section: Use Kolu
+koluHero:
+  eyebrow: at scale
+  headline: Run many, lose {none}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+kolu is built for the moment you are running five agents at once. These are the
+tools that keep that legible.
+
+<CardGrid>
+  <Card title="Multi-agent dock">
+    The dock pulses for working agents and changes for awaiting ones. A finished
+    background agent can fire a toast and
+    [native notification](/troubleshooting#i-am-not-getting-desktop-notifications)
+    that jumps straight to the terminal.
+  </Card>
+  <Card title="Keybindings">
+    <kbd>Cmd</kbd> + <kbd>T</kbd> opens a terminal, <kbd>Cmd</kbd> +
+    <kbd>Shift</kbd> + <kbd>Enter</kbd> opens New terminal, <kbd>Cmd</kbd> +
+    <kbd>1...9</kbd> jumps, and <kbd>Cmd</kbd> + <kbd>/</kbd> shows shortcuts.
+  </Card>
+  <Card title="Sessions">
+    Layout, themes, maximized posture, and the activity-window filter persist
+    across reloads so the workspace comes back where you left it; that durable
+    workspace memory lives in [padi](/padi).
+  </Card>
+  <Card title="Sleep & wake">
+    Sleep parks a tile without keeping its live PTY, agent, or WebGL context
+    alive. Wake respawns it in the same directory and resumes the agent through
+    the same restore path described in [Architecture](/architecture).
+  </Card>
+</CardGrid>
+
+## Sleep a terminal
+
+Sleeping is how you keep many agent sessions parked while only the ones you are
+using stay live. A sleeping tile is still a canvas citizen: drag, resize, rename,
+and re-theme it like any other tile.
+
+- Click the moon button on the title bar, or run **Sleep terminal** from the
+  palette.
+- The PTY, agent process, and GPU/WebGL context are released.
+- Last-known metadata stays visible: directory, git branch, and GitHub PR.
+- Wake brings the conversation back through the same restore path used after a
+  restart.
+- Closing a sleeping tile discards it because nothing is running behind it.
+
+## Export and record
+
+- **Transcript export** saves Claude Code, Codex, or OpenCode sessions as
+  self-contained `.html`: a lightweight chat log, a full collapsed transcript,
+  or both.
+- **Workspace recording** captures the whole kolu tab with mic and optional
+  webcam PiP, streamed to a local `.webm`.
+
+<Aside type="note" title="Drive it from the shell">
+  Every terminal kolu opens is reachable from [`kaval-tui`](/kaval): list,
+  snapshot, attach, send a prompt, or kill. It is the same PTY daemon,
+  [`kaval`](/kaval), exposed as a CLI locally or
+  [over ssh](/kaval#reach-a-remote-kaval--over-ssh).
+</Aside>
+
+<CardGrid>
+  <LinkCard title="Padi" href="/padi" description="workspace memory, agent state, and the shell-facing padi-tui" />
+  <LinkCard title="Kaval" href="/kaval" description="the PTY daemon and kaval-tui commands" />
+  <LinkCard title="Troubleshooting" href="/troubleshooting" description="install, notifications, updates, and agent support" />
+</CardGrid>

@@ -86,7 +86,19 @@
   color: var(--color-kolu-top-strong);
   font-weight: 500;
 }
+.docs-prose kbd {
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.35rem;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
 .docs-prose pre {
+  position: relative;
   margin: 1.4rem 0;
   padding: 0.95rem 1.1rem;
   border: 1px solid var(--color-rule);
@@ -100,6 +112,39 @@
   font-family: var(--font-mono);
   font-variant-ligatures: none;
 }
+.docs-prose pre:hover .doc-copy,
+.doc-copy:focus-visible {
+  opacity: 1;
+}
+.doc-copy {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--color-void-raised) 86%, transparent);
+  color: var(--color-ink-muted);
+  padding: 0.22rem 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+.doc-copy:hover {
+  color: var(--color-kolu-primary);
+  border-color: var(--color-kolu-primary);
+}
+.doc-copy.is-copied {
+  color: var(--color-live-lime);
+  border-color: var(--color-live-lime);
+}
 
 .docs-prose ul,
 .docs-prose ol {
@@ -112,6 +157,28 @@
 }
 .docs-prose li::marker {
   color: var(--color-kolu-primary);
+}
+.docs-prose details {
+  margin: 1rem 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.55rem;
+  background: var(--color-void-raised);
+  overflow: hidden;
+}
+.docs-prose summary {
+  cursor: pointer;
+  padding: 0.82rem 1rem;
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.docs-prose details[open] summary {
+  border-bottom: 1px solid var(--color-rule);
+}
+.docs-prose details > :not(summary) {
+  margin-inline: 1rem;
+}
+.docs-prose details > :last-child {
+  margin-bottom: 1rem;
 }
 
 /* Markdown tables (the command references + the survival table). */
@@ -166,6 +233,28 @@
 }
 .doc-figure text {
   font-family: var(--font-mono);
+}
+.doc-shot {
+  margin: 1.75rem 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.75rem;
+  background: var(--color-void-sunk);
+  overflow: hidden;
+  box-shadow: 0 0 70px -34px
+    color-mix(in srgb, var(--color-kolu-primary) 35%, transparent);
+}
+.doc-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.doc-shot figcaption {
+  margin: 0;
+  padding: 0.75rem 0.95rem;
+  border-top: 1px solid var(--color-rule);
+  color: var(--color-ink-muted);
+  font-size: 0.86rem;
+  line-height: 1.55;
 }
 
 /* ── padi stack diagram ─────────────────────────────────────────────── */

@@ -24,18 +24,14 @@ const normalized = pathname.replace(new RegExp(`^${base}`), '') || '/';
 const isActive = (p: string) =>
   p === '/' ? normalized === '/' : normalized.startsWith(p);
 
-// `hideOnMobile` drops the longest, most-redundant labels below `sm` so the
-// single-row nav fits narrow phones without overflowing. The brand logo already
-// links home, and architecture is linked prominently from the system sections.
+// `hideOnMobile` drops the longest labels below `sm` so the single-row nav fits
+// narrow phones without overflowing. Product pages such as Padi and Kaval now
+// live in the docs sidebar and the homepage system map.
 const nav = [
-  { label: 'Get started', href: `${href('/')}#quickstart`, path: '/', hideOnMobile: true },
-  // Docs entry point — architecture is the broad overview and the docs front
-  // door; landing on any docs page reveals the full docs sidebar.
-  { label: 'Docs', href: href('/architecture'), path: '/architecture', hideOnMobile: true },
-  { label: 'Padi', href: href('/padi'), path: '/padi' },
-  { label: 'Kaval', href: href('/kaval'), path: '/kaval' },
-  { label: 'Changelog', href: href('/changelog'), path: '/changelog', hideOnMobile: true },
+  { label: 'Docs', href: href('/quickstart'), path: '/quickstart' },
+  { label: 'Architecture', href: href('/architecture'), path: '/architecture', hideOnMobile: true },
   { label: 'Blog', href: href('/blog'), path: '/blog' },
+  { label: 'Changelog', href: href('/changelog'), path: '/changelog', hideOnMobile: true },
   { label: 'Discord', href: 'https://discord.com/invite/9acjNV8nmS', external: true, hideOnMobile: true },
   { label: 'GitHub', href: 'https://github.com/juspay/kolu', external: true },
 ];
