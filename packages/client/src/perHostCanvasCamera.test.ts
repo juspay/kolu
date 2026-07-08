@@ -23,7 +23,6 @@
 
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
-import type { TerminalId } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { isTileInViewport, switchInNeedsCenter } from "./canvas/cameraSwap";
