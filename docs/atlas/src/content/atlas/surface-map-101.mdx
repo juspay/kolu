@@ -59,3 +59,44 @@ The server side takes an explicit **`MapRegistry`** — `members` / `subscribe` 
 **Survived:** `createKeyedRoot` (the dispose-on-key-change atom — still under everything that re-keys), the shared-singleton reading pattern (now *inside* the cache instead of at call sites), and the teardown invariant. **Died:** the active-connection manager and its whole vocabulary — retire-on-switch, pick epochs, `bindingScoped` — because once the framework owns a keyed map and the app owns one `activeHost` signal, "switching" stops being machinery and becomes *changing which key you read*. The moral, which is also the test for the next addition: **the framework owns keyed volatility; the app owns policy.** If a proposed framework feature encodes an opinion about which key matters, it's policy wearing a framework costume.
 
 **The consumers as proof.** kolu consumes the map unconditionally (the always-map wire — the gate only controls whether the UI offers more than `local`). drishti adopted it by **deletion** (its hand-rolled host membership replaced by the map; net shrink in the core files). odu consumes only `@kolu/surface-remote` — the boundary between "keyed map" and "remote session" is cut so that taking one without the other is natural. Two-and-a-half consumers, no escape hatches: the framework earned the noun.
+
+## Where this goes next: per-host state by *ownership* (W7)
+
+Everything above keys the **wire** reads. The remaining hole is the client's **own** state — and W4 shipped a bug family proving it: the focused terminal, the split layout, and the camera each quietly lived at app lifetime while the tiles around them became per-host, found one at a time by switching hosts live ([padi W7](padi.html#w7) is the ratified phase; this section is the framework design it will land).
+
+**Why `useEntry` can't be the answer.** `useEntry` is built on `createKeyedRoot`, whose contract is *dispose-on-key-change* — on a switch it synchronously tears down the old key's root and rebuilds (that ordering is what makes swaps leak-free for *wire* subscriptions, which are cheap to re-open). App state needs the opposite lifetime: **retained on switch-away, restored on switch-back, disposed only when the host leaves the map**. Today kolu fakes that with an enumerated record (`useViewState`'s `HostView = {activeId, mruOrder, attention}`, swapped by hand at the switch seam) — and *enumeration is the bug*: the camera was a forgotten field, and nothing asks a new `createSignal` which axis it lives on.
+
+**The proposed primitive — `createKeyedRoot`'s retained sibling** (`@kolu/surface/solid`), then its map-tied form (`@kolu/surface-map/solid`) where the living set is `entries` itself:
+
+```ts
+// Layer 1 (solid-generic): N live keyed owners; dispose on RETIREMENT, not on switch.
+createRetainedRoots<K, T>(keys: Accessor<readonly K[]>, build: (key: K, ctx: ScopeCtx) => T)
+  : { get(key: K): T | undefined }
+type ScopeCtx = { isActive: Accessor<boolean> };
+
+// Layer 2 (map-tied): membership drives the key set; "active" stays app policy.
+scopedByEntry<K, T>(map: SurfaceMapClient<…>, active: Accessor<K>, build): {
+  active: Accessor<T>;              // the active key's world — re-keys on switch
+  get(key: K): T | undefined;       // background peek (attention rollups, W5)
+}
+```
+
+The load-bearing line: **the owner's lifetime is `entries` membership** — the same authority that ends a removed host's subscriptions disposes its state world; no second lifecycle to reconcile. And `ctx.isActive` is where the active-only discipline (WebGL release/re-acquire, center-on-activate) stops being a bridge between two independently-timed lifecycles — the camera's post-mortem showed such a bridge is a race a guard narrows but never closes; inside the scope the ordering is intrinsic.
+
+**kolu adopts it** by dissolving the enumeration:
+
+```ts
+export const hostScopes = scopedByEntry(padiMap, activeHost, (host, ctx) => ({
+  view: createViewState(),          // activeId / mru / attention — plain signals now
+  camera: createCamera(ctx),        // born per-host; centers on ctx.isActive
+  tiles: createTileStore(host),
+  restore: createSessionRestore(host),
+}));
+hostScopes.active().view.activeId; // always the ACTIVE host's — by construction
+```
+
+The `HostView` record, `ensureHost`, the hand-swap at the seam, the per-host restore latches — deleted. A future dev's bare `createSignal` inside `build` is per-host with zero ceremony; a slim boundary test (no module-scope state constructors in the host/canvas domain) fences the one place ownership can't reach.
+
+**drishti adopts it** for a different prize. Its per-host view state (e.g. `selectedPid`, the process expanded in a host's detail panel) is already *safe* — but by hand-rolled discipline: documented-ephemeral, cleared by an effect when the pid leaves the live set, and simply **lost** on every tab switch. Under `scopedByEntry(hostMap, selectedHost, …)` each host's selection/sort/expansion **survives tab-away and restores verbatim** (the shape-B behavior kolu's users already have), the manual clearing effect dissolves into the scope's disposal, and a removed host's view state dies with its subscriptions. Same primitive, `selectedHost` instead of `activeHost` — the "active" slot staying app policy is the proof it belongs in the framework.
+
+**Two settled defaults, one open question.** Settled: owners are created **lazily** (first activation) and retained thereafter — background hosts you never visit cost nothing, and W5's attention rollups read the *wire* (the urgency projection), not the scope. Settled: the app-level state that is genuinely host-independent (theme, palette, dialog stack — the audited seventeen) stays outside; nobody scopes the whole app. Open: whether `get()` should *create* a scope on background access (an attention badge wanting to write into an unvisited host's world) — today's answer is no, revisit when a real consumer demands it.
