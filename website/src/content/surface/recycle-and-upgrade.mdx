@@ -19,7 +19,7 @@ A `ConvergencePolicy<Cap>` says what to do per trigger — a contract skew versu
 same-contract build change. The two shipped shapes:
 
 - **`recycle-on-skew`** (kaval): a mismatched daemon is killed and respawned.
-- **`drain-newer-else-refuse`** (padi): a newer build is drained in and replaces the old; anything else is refused. This arm is only available to a drain-capable handshake.
+- **`drain-newer-else-refuse`** (padi): the daemon with the strictly-newer *contract version* wins — it is drained in and replaces the old; an older or equal contract refuses. (It keys on ordered contract versions, never on builds, which are match-only.) This arm is only available to a drain-capable handshake.
 
 ## 2. Converge before you connect
 

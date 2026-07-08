@@ -42,7 +42,7 @@ to its own surfaces.
 | `converge(args)` | probe → decide → enact; returns a `ConvergenceOutcome` |
 | `decide(baked, running, policy, fenceSpent)` | the pure, zero-I/O decision fold — the policy table, unit-tested directly |
 | `ConvergencePolicy<Cap>` · `createBuildDrainFence()` · `outcomeAdopted(outcome)` | the declared policy, the once-per-boot drain fence, the uniform "was a survivor adopted?" reader |
-| `contractIsNewer` · `contractIsCompatible` · `buildIdMatches` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
+| `contractIsNewer` · `contractIsCompatible` · `buildsMatch` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
 
 <Aside type="note" title="Two policies in the wild">
   kaval declares `recycle-on-skew`; padi declares `drain-newer-else-refuse` with

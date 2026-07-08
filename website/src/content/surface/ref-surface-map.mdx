@@ -75,7 +75,7 @@ link still folds `{ mapKey }` into every call, so the caller never passes the ke
 <Snippet src="packages/surface/example/snippets/map.ts" region="entrystatus" />
 
 - **Absence from `entries` is "not a member".** There is no `absent` arm — a collection already expresses absence by not carrying the key. Client reads stay total via an explicit `{ kind: "not-a-member" }` value; the wire never carries it.
-- **The projection contract.** Status is a projection of the resolved session's state, never a second writer: `copying`/`connecting` project to `warming`, `connected` to `connected`, `disconnected`/`failed` to `failed`. `warming` means in motion (self-heals); `failed` means it needs intervention.
+- **The projection contract.** Status is a projection of the resolved session's state, never a second writer: `copying`/`connecting` → `warming`; `connected` → `connected`; a `disconnected` carrying a standing domain cause, or a terminal `failed`, → `failed`; a plain transient `disconnected` (no specific cause) → `warming`. `warming` means in motion (self-heals — an unreachable box retrying at backoff is warming, not failed); `failed` means it needs intervention.
 - **`Cause` is a type parameter.** It defaults to `string` so existing consumers keep compiling; a domain instantiates `EntryStatus<PadiEntryFailedCause>` at its own map so `.cause` narrows there. The package carries the discriminant, never the enumeration.
 - **The `failed` arm is a loose object** (`cause: z.string()`), so domain extras (a typed `running`/`expected` version pair on a contract-skew cause) ride through untouched.
 - **`reason` is a human string**, never parsed for control flow; `kind` is the outer discriminant; `cause` is a sibling field on the same `failed` arm, not a second `kind`.

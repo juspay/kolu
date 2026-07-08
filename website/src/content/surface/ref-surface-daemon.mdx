@@ -68,7 +68,7 @@ and returns empty strings off-nix rather than inventing an identity. See
 [How to bake an identity](/surface/bake-an-identity).
 
 <Aside type="note" title="Two convergence axes live here">
-  `contractIsNewer` / `contractIsCompatible` (ordered) and `buildIdMatches`
+  `contractIsNewer` / `contractIsCompatible` (ordered) and `buildsMatch`
   (match-only, no ordering) live in this package and are re-exported by the
   supervisor, so the supervisor stays `@kolu/surface`-free. Their use is in
   [How to recycle and upgrade a daemon](/surface/recycle-and-upgrade).

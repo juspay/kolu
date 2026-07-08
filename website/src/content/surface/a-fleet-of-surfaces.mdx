@@ -14,14 +14,17 @@ import Steps from "../../components/docs/Steps.astro";
 
 One mirror gives you one remote box. A **surface map** gives you a whole fleet:
 the same `top` surface, keyed by host, reached through one object. Membership is
-one authoritative list, each host is a chip, and when a single box dies it
-becomes exactly one `failed` chip while the rest keep serving. By the end of this
-page you will be looking at a miniature [drishti](https://github.com/srid/drishti).
+one authoritative list and each host is a chip; when one box drops, its chip —
+and only its chip — reflects the trouble (`warming` while it retries, `failed`
+if it needs you), while the rest keep serving. By the end of this page you will
+be looking at a miniature [drishti](https://github.com/srid/drishti).
 
 <Aside type="note" title="Same code as part 3">
   This is the same `packages/surface/example/fleet-top/part-3` you ran in
-  [Across the hosts](/surface/across-the-hosts) — now we point it at more than one
-  box and look at the client that renders them.
+  [Across the hosts](/surface/across-the-hosts) — now pointed at more than one box.
+  Same setup (`cd …/fleet-top/part-3 && pnpm install`) and the same prerequisites
+  (the agent packaged as a Nix derivation, and reachable hosts) — see that page's
+  **Prerequisites** note.
 </Aside>
 
 ## Type the surface once, key it by host
@@ -39,8 +42,8 @@ On the parent, a `MapRegistry` is the single writer of membership. It lists the
 hosts, and its `resolve(host)` hands the map each host's link plus its projected
 connection state — or a `fault` for an unknown key. `serveSurfaceMap(hostMap, registry)`
 publishes the `entries` membership collection and forwards every key-folded call
-to the right host's link. That forwarding is why one dead box surfaces as one
-`failed` chip rather than taking down the page. (The registry lives in
+to the right host's link. That forwarding is why a fault on one box is confined
+to that box's chip rather than taking down the page. (The registry lives in
 `src/server/main.ts`; it is a plain object with `members`, `subscribe`, `has`,
 and `resolve`.)
 
@@ -64,27 +67,35 @@ host's subscriptions and populating the new one's.
 
 <Steps>
 
-1. Point the parent at several hosts.
+1. Point the parent at several hosts. The map is keyed by hostname, so the
+   targets must be **distinct** — three real ssh hosts, or three `~/.ssh/config`
+   aliases pointing at the same box (a repeated `localhost,localhost` collapses to
+   one entry, not three chips). Each must be able to realise the agent derivation.
 
    ```sh
-   HOST=boxA,boxB,boxC FLEET_TOP_AGENT_DRV=/nix/store/…-fleet-top-agent.drv pnpm run dev
+   HOST=boxA,boxB,boxC FLEET_TOP_AGENT_DRV=<agent-drv-path> pnpm run dev
    ```
 
    ```text
    fleet-top part 3 serving 3 host(s) on http://localhost:7740
    ```
 
-2. Open **http://localhost:5175**. Each host is a chip; click one to bring its
+2. Open **http://localhost:5176**. Each host is a chip; click one to bring its
    `top` onto the canvas. Switch between them — the canvas re-keys instantly.
 
-3. Now break one box — stop its sshd, pull its network, or kill the agent. Its
-   chip turns `failed` and stays there. Every other host keeps streaming, and the
-   canvas for a live host is untouched.
+3. Now break one box — pull its network or kill the agent. Its chip turns
+   `warming` and stays there, retrying at backoff: an unreachable box is *in
+   motion*, not *failed*, so bring it back and it reconnects on its own. Only a
+   box that answers-but-refuses, or gives up terminally, turns `failed` (needs
+   intervention). Either way, every other host keeps streaming and a live host's
+   canvas is untouched.
 
 </Steps>
 
 That last step is the whole point. There is no global error state, no fleet-wide
-spinner: presence is per-entry, and a fault is isolated to the entry that owns it.
+spinner: presence is per-entry, and a fault is isolated to the entry that owns
+it — which is exactly why the projection distinguishes `warming` (self-heals)
+from `failed` (needs you). See [Entry contracts](/surface/entry-contracts).
 
 ## You built a mini-drishti
 

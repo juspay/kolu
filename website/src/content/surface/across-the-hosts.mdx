@@ -19,19 +19,20 @@ local parent folds its frames into a local copy of the same surface and re-serve
 *that*, and the browser only ever talks to the local copy. Swap the box behind it
 and the browser never notices.
 
-<Aside type="note" title="Grab part 2">
-  The mirror code for this page lives at
-  `packages/surface/example/fleet-top/part-3`; it typechecks in CI, so the
-  snippets are the real files. This step needs ssh access to a box and a Nix
-  derivation of the agent — `localhost` works as the "remote" (a real ssh hop to
-  your own machine), which is exactly how the repo's own ssh tests run.
+<Aside type="note" title="The code for this page (part 3)">
+  Multi-host builds on the **basics** surface (part 1), not the daemon stratum —
+  so we continue from the `top` surface you already know, no daemon required. The
+  mirror + map code lives at `packages/surface/example/fleet-top/part-3`; it
+  typechecks in CI, so the snippets are the real files. Set up like the earlier
+  parts: `cd packages/surface/example/fleet-top/part-3 && pnpm install`.
 </Aside>
 
 ## The agent — what runs on the far box
 
 The remote side is tiny: it serves the same `top` surface over stdin/stdout. This
-is what `ssh <host> fleet-top-agent --stdio` runs. It is ephemeral — a fresh one
-per link — which is the right shape for a re-run-fresh reader like `top`.
+is what the parent runs on each target — `ssh <host> fleet-top-agent --stdio` for
+a remote box, the realised binary directly for `localhost`. It is ephemeral — a
+fresh one per link — which is the right shape for a re-run-fresh reader like `top`.
 
 <Snippet src="packages/surface/example/fleet-top/part-3/src/agent/main.ts" />
 
@@ -39,7 +40,8 @@ per link — which is the right shape for a re-run-fresh reader like `top`.
 
 On the parent, each host is one binding. First, **dial** it —
 `makeSession({ connectOnce: sshConnector(...) })` provisions the agent closure
-onto the box and runs it over ssh, reconnecting on drop.
+onto the box and runs it (over ssh for a remote host, directly for `localhost`),
+reconnecting on drop.
 
 <Snippet src="packages/surface/example/fleet-top/part-3/src/server/hosts.ts" region="dial" />
 
@@ -56,30 +58,45 @@ that started on another machine now serves from this process.
 <Aside type="caution" title="The parent owns the connection state">
   The remote box cannot report whether *your* link to it is healthy — so that
   state is the parent's to own. While the closure is copying or the session is
-  reconnecting, the parent projects `warming`; a bounded remote fault projects
-  `failed`. One dead box becomes exactly one honest state, not a crash — the idea
-  behind [The server half](/surface/the-server-half).
+  reconnecting, the parent projects `warming` (in motion, self-heals); only a
+  bounded remote fault — a box that answers-but-refuses, or gives up terminally —
+  projects `failed` (needs intervention). One box's trouble becomes exactly one
+  honest chip, never a crash — the idea behind
+  [The server half](/surface/the-server-half).
+</Aside>
+
+<Aside type="caution" title="Prerequisites for running it">
+  Multi-host needs two things the earlier parts did not. **(1) The agent as a Nix
+  derivation.** `sshConnector` ships a realised closure to each host, so it needs
+  the agent's `.drv` path in `FLEET_TOP_AGENT_DRV` — the server refuses to boot
+  without it (no fallback). Package the agent the way the sibling
+  [`remote-process-monitor`](https://github.com/juspay/kolu/tree/master/packages/surface/example/remote-process-monitor)
+  example does — a `makeWrapper` over `tsx` and the agent entry, exposed through
+  the flake — then pass its `drvPath`. **(2) A reachable host.** `localhost` is the
+  easy one: `sshConnector` detects it and runs the realised binary **directly, with
+  no ssh and no sshd**; a non-local `HOST` is a genuine ssh hop.
 </Aside>
 
 ## Watch it arrive
 
 <Steps>
 
-1. Point the parent at one host and start it. `HOST` is the ssh target;
-   `FLEET_TOP_AGENT_DRV` is the agent's Nix derivation, shipped and realised on
-   the box.
+1. Point the parent at one host and start it. `HOST` is the target (`localhost`
+   here — no ssh needed); `FLEET_TOP_AGENT_DRV` is the agent derivation from the
+   prerequisites above.
 
    ```sh
-   HOST=localhost FLEET_TOP_AGENT_DRV=/nix/store/…-fleet-top-agent.drv pnpm run dev
+   HOST=localhost FLEET_TOP_AGENT_DRV=<agent-drv-path> pnpm run dev
    ```
 
    ```text
    fleet-top part 3 serving 1 host(s) on http://localhost:7740
    ```
 
-2. Open **http://localhost:5175**. The header chip shows the host warming while
-   the agent closure copies, then flips to connected — and the same live `top`
-   you built in part 1 fills in, this time streaming from across an ssh hop.
+2. Open **http://localhost:5176**. The header chip shows the host warming while
+   the agent closure is realised, then flips to connected — and the same live
+   `top` you built in part 1 fills in, this time streaming from the agent the
+   parent stood up (on `localhost`, directly; on a remote box, over ssh).
 
 </Steps>
 

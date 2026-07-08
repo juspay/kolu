@@ -51,15 +51,20 @@ from part 1, served verbatim.
    fleet-top daemon listening on /run/user/1000/fleet-top.sock (pid 48213)
    ```
 
+   That friendly line comes from `onReady`; `stderrLogger` also writes a
+   structured JSON line per event to stderr, so you will see a `{…"msg":"daemon
+   listening"…}` line alongside it. Leave this running.
+
 2. In a second terminal, start it **again**.
 
    ```sh
    pnpm run daemon
    ```
 
-   It exits immediately and silently — the gate is held, so a second instance
-   sees a live daemon already serving this scope and steps aside. That is the
-   single-instance guarantee: `acquirePidGate` is an atomic `link(2)` claim.
+   It exits immediately, logging one line that a live daemon already holds the
+   gate (`daemon already running; yielding to the live instance`), and steps
+   aside. That is the single-instance guarantee: `acquirePidGate` is an atomic
+   `link(2)` claim.
 
 </Steps>
 
@@ -92,8 +97,16 @@ carries real per-host state.
    [supervisor] local: connecting
    [supervisor] local: connected
    [supervisor] connected — daemon reports 8 cores, 9.2 GB used
+   [supervisor] local: connecting
+   [supervisor] local: connected
    [supervisor] live recycle complete
    ```
+
+   The second `connecting` / `connected` pair is the live recycle itself:
+   `restart` re-runs `ensure()`, so the endpoint reconnects to the fresh daemon
+   and re-fires its status. (`stderrLogger` also emits a structured JSON line per
+   event to stderr; the `[supervisor]`-prefixed lines above are the ones to
+   read.)
 
 </Steps>
 
