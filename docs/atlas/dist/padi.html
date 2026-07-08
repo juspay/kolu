@@ -315,6 +315,7 @@
 <p>kolu-server subscribes each warm binding’s <strong>urgency-projection member</strong> (the one thing it reads from every pool host) and sums it onto the shell surface: PWA <strong>app badge</strong> aggregated across bindings; per-host <strong>switcher-chip counts</strong>; <strong>OS notification whose click = switch + focus</strong> (1 action). <strong>Urgency-only</strong> on any multi-host wire — no recency, no snapshots.</p>
 <ul>
 <li><strong>Done:</strong> an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B’s link degrades its chip, never the app.</li>
+<li><em>Field note (2026-07-08, srid on the W4 deploy):</em> the asymmetry is now user-visible — OS notifications escape the app (cross-host reach), but unread marks land in per-host <code>HostView.attention</code>, whose only render surface is the active host’s dock, so a background host’s attention is invisible. W5’s chip counts are the missing rollup. One wiring fact for the implementer: <code>useTerminalAlerts</code>’s transition watcher rides the ACTIVE host’s swapped store — the urgency-projection member (this phase’s wire design) is what makes background hosts observable, not the client-side watcher.</li>
 </ul>
 <a id="w6"></a>
 <h3 id="w6--the-honest-connect-client-only-the-data-already-flows--a-small-high-value-ux-phase">W6 — the honest connect <em>(client-only; the data already flows — a small, high-value UX phase)</em></h3>
