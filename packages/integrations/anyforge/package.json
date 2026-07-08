@@ -16,13 +16,13 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "kolu-shared": "workspace:*",
+    "@kolu/log": "workspace:*",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.8.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }
 }

@@ -37,8 +37,8 @@
     "@orpc/experimental-publisher": "^1.13.13",
     "@orpc/server": "^1.13.13",
     "anyagent": "workspace:*",
-    "conf": "^15.1.0",
     "anyforge": "workspace:*",
+    "conf": "^15.1.0",
     "kaval": "workspace:*",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
@@ -54,9 +54,10 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.2",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.8.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }
 }

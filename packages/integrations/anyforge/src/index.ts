@@ -1,6 +1,6 @@
 /** anyforge — the forge-neutral PR kernel.
  *
- *  Leaf package (deps: kolu-shared types + zod + ts-pattern) owning the
+ *  Leaf package (deps: @kolu/log types + zod + ts-pattern) owning the
  *  things that are stable while forges vary: the wire vocabulary
  *  (`./schemas.ts`), the adapter contract (`ForgeAdapter`), and the generic
  *  poll loop (`subscribePr`). Forge adapters — kolu-github today — implement
