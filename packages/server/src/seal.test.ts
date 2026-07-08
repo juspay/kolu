@@ -88,6 +88,11 @@ const WEB_SHELL_FILES = [
   "routeErrors",
   "router",
   "state",
+  // The P0 local-supervisor ownership gate — the web shell's own "only one
+  // kolu-server supervises this padi state root" fence (a `supervisor.pid` claim
+  // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
+  // ownership; runs no terminal domain), so it lives beside the binder.
+  "supervisorClaim",
   "surface",
   "tls",
 ].sort();

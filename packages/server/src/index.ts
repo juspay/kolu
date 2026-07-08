@@ -12,6 +12,7 @@ import {
   previewFile,
   probeKavalStatus,
   publisherSize,
+  resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 import {
   PADI_FORWARDING_POLICY,
@@ -85,6 +86,10 @@ import {
 import { pruneToMembers } from "./reServeEviction.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
 import { buildAppRouter } from "./router.ts";
+import {
+  claimLocalSupervisor,
+  supervisorConflictError,
+} from "./supervisorClaim.ts";
 import { koluSurfaceCtx, koluSurfaceRouter } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
@@ -174,6 +179,13 @@ app.use(
   }),
 );
 
+// The local-supervisor gate's release (set once the gate is claimed at boot,
+// below). Released on a clean shutdown so a same-lineage restart re-claims
+// immediately rather than reaping a stale (still-correct-but-tidier) gate. `null`
+// until the claim lands; a crash skips it and the next boot's liveness reap
+// handles the stale pid.
+let releaseLocalSupervisor: (() => void) | null = null;
+
 // --- Graceful shutdown ---
 // Signals map to a clean exit; the fatal handlers make a floating promise or a
 // sync throw as terminal as each other (the supervisor restarts clean). There is
@@ -183,6 +195,7 @@ app.use(
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(sig, () => {
     log.info({ signal: sig }, "shutting down");
+    releaseLocalSupervisor?.();
     process.exit(0);
   });
 }
@@ -246,6 +259,29 @@ const seed = parseKoluPadiHostSeed();
 // LOCAL_HOST — the unremovable default the canvas boots on (always `seed[0]`; the `??`
 // only satisfies the indexed-access optional — the parser always prepends it).
 const defaultHost = seed[0] ?? LOCAL_HOST;
+
+// ── P0: the local-supervisor ownership gate ────────────────────────────────────
+// kolu-server SUPERVISES the local padi (spawns / adopts / drains it). A SECOND
+// kolu-server pointed at the SAME state root would co-supervise the one padi and
+// the two would drain-and-respawn it in a livelock (the two-local-kolu war). Claim
+// a `supervisor.pid` gate BEFORE building the pool (so a foreign owner fails fast
+// before we touch padi at all); a LIVE foreign holder is structurally unresolvable
+// (retrying can't make it go away), so — exactly like a `PadiAdoptionRefusedError`
+// — exit loud with the remedy rather than fight. A same-lineage restart (dead
+// predecessor pid) reaps the stale gate and claims `self`, so it still drains. The
+// REMOTE arm's twin is `remotePadiBinding.ts`'s anti-livelock fight-detection →
+// `cross-supervisor` cause (D3), with `KOLU_REMOTE_PADI_STATE_DIR` the isolation lever.
+const localSupervisorStateRoot = resolvePadiStateRoot();
+const supervisorClaim = claimLocalSupervisor(localSupervisorStateRoot);
+if (supervisorClaim.kind !== "self") {
+  const err = supervisorConflictError(
+    supervisorClaim,
+    localSupervisorStateRoot,
+  );
+  log.fatal({ err }, err.message);
+  process.exit(1);
+}
+releaseLocalSupervisor = supervisorClaim.release;
 
 // The warm padi pool — one session per seed host. `buildRemotePool`'s host set is ALWAYS
 // a plain string (the ssh pool's own key), so the seed's `HostKey` objects are ENCODED

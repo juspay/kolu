@@ -671,7 +671,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     );
   });
 
-  it("a DIFFERENT instance still build-mismatched after a drain → ADOPTS LOUDLY (anti-livelock, never treadmills)", async () => {
+  it("D3: a DIFFERENT instance still build-mismatched after a drain → CROSS-SUPERVISOR fail-honest (another supervisor is fighting; stop, never ride a contested build)", async () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
@@ -684,33 +684,40 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/build mismatch|link death/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // reconnect brings up a DIFFERENT instance (2000) STILL build-OLD — two supervisors,
-    // or the absent-id dev loop. Do NOT treadmill: ADOPT LOUDLY the resident, no fresh drain.
+    // reconnect brings up a DIFFERENT instance (2000) STILL build-OLD — another supervisor
+    // is respawning its OWN build (the remote twin of the local supervisor.pid war). D3:
+    // STOP + fail-honest with the TYPED `cross-supervisor` cause, never ADOPT the contested
+    // build (the build we'd ride is the loser of a race). No fresh drain; the host goes down
+    // and the Skew-UX card offers [Switch to local] / isolate via KOLU_REMOTE_PADI_STATE_DIR.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
-    const client = await session.currentClient();
-    expect(client).toBeTruthy();
+    await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
+      /anti-livelock|respawning/i,
+    );
     expect(handles[1]!.drainCount).toBe(0);
-    const conv = session.convergence();
-    expect(conv?.state).toBe("adopted-stale");
-    expect(conv?.detail).toMatch(/anti-livelock|respawning/i);
+    // Parked under the `unconverged` convergence banner, but the TYPED map cause is
+    // `cross-supervisor` (the dedicated flag wins over `unconverged` in the detail hook).
+    expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
   it("renew() restarts an ADOPTED-STALE resident (a live adopted daemon), not a false 'not bound' error", async () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
+      maxBuildDrainsPerInstance: 1,
       drainTeardownCeilingMs: CEIL,
       drainPollMs: POLL,
     });
-    // Reach adopted-stale via anti-livelock: drain 1000, then a DIFFERENT instance 2000
-    // is still mismatched → adopt-stale the resident (no fresh drain).
-    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
+    // Reach adopted-stale via BUDGET exhaustion (a flapping SAME instance — a link blip, NOT
+    // a cross-supervisor fight): drain 7000 once, the blip reconnects the SAME 7000 still
+    // mismatched → budget (1) spent → adopt-stale the resident (a LIVE daemon).
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 7000 })));
     const p = session.pin();
     p.catch(() => {});
     await flush(CEIL);
     await expect(p).rejects.toThrow(/build mismatch|link death/i);
-    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 2000 })));
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 7000 })));
     await flush(RECONNECT);
     await flush();
     await session.currentClient(); // adopts-stale the resident (a LIVE daemon)
@@ -812,7 +819,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(session.convergence()).toBeNull(); // healthy — no degraded banner
   });
 
-  it("contract-skew TREADMILL: a DIFFERENT skewed instance after a drain → degrades LOUDLY (anti-livelock), never drains forever (M1)", async () => {
+  it("D3: contract-skew TREADMILL — a DIFFERENT skewed instance after a drain → CROSS-SUPERVISOR fail-honest (anti-livelock), never drains forever (M1)", async () => {
     const { session, enqueue, handles } = makeArm({
       binderVersion: "9.0",
       binderBuildId: "b",
@@ -827,16 +834,19 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/newer contract/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // reconnect brings up a DIFFERENT instance (2000), STILL old contract. Do NOT re-drain:
-    // LOUD terminal unconverged.
+    // reconnect brings up a DIFFERENT instance (2000), STILL old contract — another
+    // supervisor is respawning it. Do NOT re-drain: STOP + fail-honest with the TYPED
+    // `cross-supervisor` cause (parked under the `unconverged` banner). The isolation
+    // lever is KOLU_REMOTE_PADI_STATE_DIR; the client card offers [Switch to local].
     enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
     await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
-      /anti-livelock|treadmill/i,
+      /anti-livelock|treadmill|respawning/i,
     );
     expect(handles[1]!.drainCount).toBe(0);
     expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
   it("an INTENDED drain resets the give-up budget — its disconnect is classified 'network', never the bounded 'remote'", async () => {
@@ -939,6 +949,23 @@ describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", ()
   it("is EMPTY when no spawn version is set — and still carries no --stdio", () => {
     expect(composePadiExtraArgs(null)).toEqual([]);
     expect(composePadiExtraArgs(undefined)).toEqual([]);
+  });
+
+  it("D3: forwards KOLU_REMOTE_PADI_STATE_DIR as --state-root so two kolus isolate their remote padis", () => {
+    // The primary defense against a remote cross-supervisor war: a per-kolu remote
+    // state-root → distinct digest → distinct socket → no shared padi to fight over.
+    expect(composePadiExtraArgs("1.2.3", "/srv/kolu-a/padi")).toEqual([
+      "--state-root",
+      "/srv/kolu-a/padi",
+      "--spawn-version",
+      "1.2.3",
+    ]);
+    // Unset / empty → omitted (single-kolu common case: the remote padi picks its own default).
+    expect(composePadiExtraArgs("1.2.3", undefined)).toEqual([
+      "--spawn-version",
+      "1.2.3",
+    ]);
+    expect(composePadiExtraArgs(null, "")).toEqual([]);
   });
 });
 

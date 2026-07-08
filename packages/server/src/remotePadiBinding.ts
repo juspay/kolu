@@ -91,6 +91,18 @@ const PADI_AGENT_DRVS_ENV = "PADI_AGENT_DRVS_JSON";
  *  Unset → the LOCAL padi binding (byte-identical to today). */
 export const KOLU_PADI_HOST_ENV = "KOLU_PADI_HOST";
 
+/** P0 / D3 PRIMARY DEFENSE — the REMOTE padi's state-root, forwarded as this
+ *  kolu-server's `--state-root <dir>` to every remote padi it binds. Two kolus
+ *  binding the SAME remote host with DIFFERENT `KOLU_REMOTE_PADI_STATE_DIR` values
+ *  reach two DISTINCT remote padis (distinct state-root digest → distinct socket),
+ *  so they never co-supervise one remote daemon — the remote twin of the local
+ *  `supervisor.pid` gate's isolation remedy. Unset → the remote padi picks its own
+ *  default state-root on the host (the single-kolu common case). The value is a
+ *  path ON THE REMOTE host; ssh carries only the command line, so it rides
+ *  `--state-root` in `extraArgs`, never an env var (there is no env channel over
+ *  the ssh exec). dev / e2e that bind a remote host set this to an isolated path. */
+export const KOLU_REMOTE_PADI_STATE_DIR_ENV = "KOLU_REMOTE_PADI_STATE_DIR";
+
 /** Parse `KOLU_PADI_HOST` as a comma-separated SEED list of pool hosts (W4 "the
  *  switch"). `LOCAL_HOST` is ALWAYS the implicit, unremovable default — prepended.
  *  Every token parses via `parseHostInput` (the HUMAN-input codec: the literal word
@@ -229,11 +241,14 @@ function makeResolvePadiDrv(host: string): () => Promise<string> {
 }
 
 /** {@link admitDrain}'s verdict: drain this instance (with the attempt number), or GIVE
- *  UP draining it (with the reason). The caller decides what give-up MEANS per axis —
- *  build ADOPTS the resident stale build, contract goes `unconverged`. */
+ *  UP draining it. Give-up carries `why` so the caller can distinguish the two
+ *  anti-livelock exits — `cross-supervisor` (a DIFFERENT live instance keeps replacing
+ *  the one we drained: another supervisor is fighting us → D3 fail-honest, both axes),
+ *  vs `budget` (the SAME instance survived every drain: a flapping link → the axis's own
+ *  fallback, `unconverged` for contract / `adopt-stale` for build). */
 type DrainAdmission =
   | { kind: "drain"; attempt: number }
-  | { kind: "giveUp"; reason: string };
+  | { kind: "giveUp"; why: "cross-supervisor" | "budget"; reason: string };
 
 /** The convergence deps — the binder's side of the two-axis drain decision + the
  *  instance-keyed drain budget. All default to production values; injected in tests. */
@@ -247,14 +262,22 @@ export interface RemotePadiSessionDeps {
 
 /**
  * The remote padi front's `extraArgs`, which `sshConnector`/`buildAgentCommand` appends
- * AFTER the `--stdio` it already runs the binary with. F2: this must NEVER re-add
- * `--stdio`. Only `--spawn-version` (the kolu app version) rides through to
- * `runPadiDaemon`.
+ * AFTER the `--stdio` it already runs the binary with (POSIX-quoted). F2: this must NEVER
+ * re-add `--stdio`. Carries `--spawn-version` (the kolu app version) and, when this
+ * kolu-server isolates its remote padis ({@link KOLU_REMOTE_PADI_STATE_DIR_ENV}),
+ * `--state-root <dir>` — so two kolus binding one host reach two distinct remote padis.
  */
 export function composePadiExtraArgs(
   spawnVersion: string | null | undefined,
+  remoteStateDir?: string | null,
 ): string[] {
-  return spawnVersion != null ? ["--spawn-version", spawnVersion] : [];
+  const args: string[] = [];
+  // `--state-root` first so the remote padi resolves its digest/socket before the
+  // version stamp is applied; both are order-insensitive to padi's CLI parser.
+  if (remoteStateDir != null && remoteStateDir !== "")
+    args.push("--state-root", remoteStateDir);
+  if (spawnVersion != null) args.push("--spawn-version", spawnVersion);
+  return args;
 }
 
 export interface EnsureRemotePadiBindingOptions {
@@ -284,7 +307,10 @@ export function ensureRemotePadiBinding(
   // not brick boot for the whole pool (F6). `ensureRemotePadiBinding` therefore never
   // throws at seed — it always returns a session that warms, then fails loud if the map
   // is missing.
-  const extraArgs = composePadiExtraArgs(opts.spawnVersion);
+  const extraArgs = composePadiExtraArgs(
+    opts.spawnVersion,
+    process.env[KOLU_REMOTE_PADI_STATE_DIR_ENV],
+  );
 
   const binderVersion = deps.binderVersion ?? PADI_SURFACE_VERSION;
   const binderBuildId = deps.binderBuildId ?? currentPadiBuildId();
@@ -318,6 +344,13 @@ export function ensureRemotePadiBinding(
   // cleared alongside it on "adopt". `entryFailedDetail()` (below) attaches it as the
   // TYPED sidecar on the `contract-skew-refused` cause (D2's "zero string-scans").
   let skewVersions: { running: string; expected: string } | null = null;
+  // D3: a STANDING cross-supervisor verdict's detail (a DIFFERENT live supervisor is
+  // respawning this host's padi — `admitDrain`'s different-instance fight-detection),
+  // or `null`. Set alongside `convergence` in `crossSupervisor()`, cleared everywhere a
+  // NON-cross convergence lands (each set-site owns it, mirroring `skewVersions`). Drives
+  // the map's TYPED `cross-supervisor` cause (checked FIRST in `computeEntryFailedDetail`,
+  // since `crossSupervisor` parks under the `unconverged` convergence banner).
+  let crossSupervisorDetail: string | null = null;
   // D1: the drv-resolution fault this instance's LAST dial attempt hit, or `null` —
   // set by the `resolveDrvPath` wrapper below (via `PadiDrvFault`), reset at the START
   // of every attempt so a later successful resolve clears a stale fault.
@@ -332,6 +365,10 @@ export function ensureRemotePadiBinding(
    *  with `convergence()`'s own (already-correct) lifecycle. `cross-supervisor` is
    *  RESERVED (see `EntryFailedCause`'s doc) — never returned here yet. */
   function computeEntryFailedDetail(): PadiEntryFailedDetail | null {
+    // FIRST: a cross-supervisor fight parks under the `unconverged` convergence banner
+    // (no dedicated PadiConvergence state), so its dedicated flag must win over the
+    // `unconverged` cause below — else a genuine cross-supervisor would misreport.
+    if (crossSupervisorDetail !== null) return { cause: "cross-supervisor" };
     if (convergence?.state === "skew-refused") {
       return skewVersions
         ? { cause: "contract-skew-refused", ...skewVersions }
@@ -411,12 +448,14 @@ export function ensureRemotePadiBinding(
     if (drainedInstance !== null && instance !== drainedInstance) {
       return {
         kind: "giveUp",
+        why: "cross-supervisor",
         reason: `${why}: a DIFFERENT padi instance (startedAt ${instance}) is still wrong after draining ${drainedInstance} this boot — another supervisor is respawning it (anti-livelock)`,
       };
     }
     if (instance === drainedInstance && drainAttempts >= maxDrains) {
       return {
         kind: "giveUp",
+        why: "budget",
         reason: `${why}: instance startedAt ${instance} survived ${drainAttempts} drain attempts without exiting — a flapping link / respawn loop that will not converge`,
       };
     }
@@ -463,6 +502,7 @@ export function ensureRemotePadiBinding(
         drainAttempts = 0;
         convergence = null;
         skewVersions = null;
+        crossSupervisorDetail = null;
         return { kind: "adopt" };
 
       case "refuse": {
@@ -483,6 +523,7 @@ export function ensureRemotePadiBinding(
         // D2: the TYPED contract-version pair — never re-scanned from `msg` by a
         // consumer (kills the last version string-scan).
         skewVersions = { running, expected: binderVersion };
+        crossSupervisorDetail = null;
         return {
           kind: "refuse",
           state: { lastError: msg, failureCause: "remote" },
@@ -512,7 +553,10 @@ export function ensureRemotePadiBinding(
       instance,
       `contract skew (binder ${binderVersion} newer than running ${running})`,
     );
-    if (admission.kind === "giveUp") return unconverged(admission.reason);
+    if (admission.kind === "giveUp")
+      return admission.why === "cross-supervisor"
+        ? crossSupervisor(admission.reason)
+        : unconverged(admission.reason);
     const c = combined;
     if (c === null)
       throw new Error("remote padi: combined client gone mid-drain");
@@ -525,6 +569,7 @@ export function ensureRemotePadiBinding(
     if (drain.took) {
       // The reconnect brings up the newer closure; the cursor waits for it.
       convergence = null;
+      crossSupervisorDetail = null;
       return {
         kind: "replaced",
         reason:
@@ -551,7 +596,13 @@ export function ensureRemotePadiBinding(
       `build mismatch (running=${runningBuild} expected=${binderBuildId})`,
     );
     if (admission.kind === "giveUp") {
-      return adoptStale(runningBuild, admission.reason);
+      // A DIFFERENT instance keeps replacing the one we drained → another supervisor
+      // is fighting us (D3): STOP + fail-honest with `cross-supervisor`, do NOT ride a
+      // contested build (`adoptStale`) — the build we'd adopt is the loser of a race.
+      // Only the SAME-instance budget exhaustion (a flapping link) adopts-stale.
+      return admission.why === "cross-supervisor"
+        ? crossSupervisor(admission.reason)
+        : adoptStale(runningBuild, admission.reason);
     }
     log.info(
       {
@@ -600,7 +651,32 @@ export function ensureRemotePadiBinding(
       expectedBuild: binderBuildId,
       detail,
     };
+    crossSupervisorDetail = null;
     return { kind: "adopt" };
+  }
+
+  /** D3 — a DIFFERENT live supervisor is respawning this host's padi (the remote twin
+   *  of the local `supervisor.pid` gate). The EXISTING anti-livelock fight-detection
+   *  (`admitDrain`'s different-instance give-up) IS the signal; rather than spin
+   *  (`unconverged`) or ride a contested build (`adoptStale`), STOP and fail HONEST with
+   *  the TYPED `cross-supervisor` cause — the primary isolation lever is
+   *  {@link KOLU_REMOTE_PADI_STATE_DIR_ENV}. REFUSE so the pump keeps the entry down +
+   *  degraded and re-decides on the next handshake (never a kill). Parked under the
+   *  `unconverged` convergence banner (no dedicated PadiConvergence state); the dedicated
+   *  `crossSupervisorDetail` flag is what makes the map's cause `cross-supervisor`. */
+  function crossSupervisor(msg: string): AdmitVerdict {
+    log.error({ host }, `remote padi CROSS-SUPERVISOR — ${msg}`);
+    convergence = {
+      state: "unconverged",
+      runningBuild: null,
+      expectedBuild: null,
+      detail: msg,
+    };
+    crossSupervisorDetail = msg;
+    return {
+      kind: "refuse",
+      state: { lastError: msg, failureCause: "remote" },
+    };
   }
 
   /** LOUD DEGRADED for the CONTRACT axis only — a NEWER-contract skew we could not
@@ -614,6 +690,7 @@ export function ensureRemotePadiBinding(
       expectedBuild: null,
       detail: msg,
     };
+    crossSupervisorDetail = null;
     return {
       kind: "refuse",
       state: { lastError: msg, failureCause: "remote" },
@@ -646,6 +723,9 @@ export function ensureRemotePadiBinding(
         expectedBuild: null,
         detail: s.lastError,
       };
+      // A genuine ssh link death supersedes a standing cross-supervisor verdict — the
+      // link is now the honest failure; a reconnect re-decides ownership from scratch.
+      crossSupervisorDetail = null;
       combined = null;
     } else if (s.connection === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the

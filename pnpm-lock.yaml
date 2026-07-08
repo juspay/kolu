@@ -822,6 +822,9 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../surface-app
+      '@kolu/surface-daemon':
+        specifier: workspace:*
+        version: link:../surface-daemon
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
