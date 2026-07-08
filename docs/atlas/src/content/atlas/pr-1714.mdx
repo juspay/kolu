@@ -13,11 +13,21 @@ updated: 2026-07-07
 
 Legend: ✅ done · 🔄 in flight · ⏸ blocked · ⬜ not started
 
-### Overnight run (srid ratified all four decisions before bed, 2026-07-07 ~22:45)
+### ☀️ MORNING REPORT (2026-07-08, read this first)
 
-**Decisions 1–4 RATIFIED as recommended**: `EntryStatus<Cause>` generic · typed `running`/`expected` on contract-skew · remote ownership via anti-livelock reuse (no new control-core RPC; `KOLU_REMOTE_PADI_STATE_DIR` primary defense) · per-host canvas = keyed map (already shipped). **P0 + Skew-UX unlocked for full implementation.** New product forks overnight: recommended option taken + logged here for morning review.
+**The night sequence completed, all five steps. HEAD `6ccbbf5c4`, CI green both platforms (29 checks), tree clean, production untouched throughout (PID-verified). Deploy and judge.**
 
-**Overnight log (for morning review)**:
+1. **Held batch shipped** (your 4 decisions, as recommended): types foundation (`EntryStatus<Cause>` generic + typed skew version pair) → **P0 ownership-gated drain** (local `supervisor.pid` gate → boot fail-fast with remedy; same-lineage restart still drains; remote cross-supervisor via anti-livelock reuse; `KOLU_REMOTE_PADI_STATE_DIR` isolation lever; dev/E2E always isolated) → **Skew-UX** (CanvasFacts sum — kaval-death-over-a-failed-host is now uncompilable; cause-typed host-down card, `[Switch to local]` only; skew badge in the stationary header slot).
+2. **Architecture review** (23 agents · 6 lenses · both consumers): **16 findings refuted, 1 confirmed defect + 2 minors — all fixed + pinned**. The framework substantially held your "perfect" bar; the confirmed defect (retriable `disconnected` collapsing into terminal `failed`) was found via the consumer-witness lens.
+3. **Step-5 live retest caught TWO real bugs** the whole unit suite couldn't see: the finding-#1 fix masked *standing-refuse* causes as warming (`66d52190a` — semantics now: **warming = in motion · failed = needs intervention**, invariant pinned at the session layer), and the canvas loading-gate stranded failed hosts so the card never rendered (`6ccbbf5c4`). Both pinned.
+4. **End-to-end validation against a REAL contested host**: sincereintent had a foreign-supervised padi — **D3 fired for real** (drain once → detect fight → fail-honest refuse), the cross-supervisor card rendered verbatim (naming the isolation remedy), `[Switch to local]` worked, and setting `KOLU_REMOTE_PADI_STATE_DIR` made the same host connect cleanly with its own padi. Screenshots captured. All happy-path legs pass: remote terminal (real ssh shell), split + split-survives-switchback, per-host code inspector, per-host daemon slot, no wrong-host RPCs.
+5. **Adjudications + honest flags for your eyes**: the padiBinding AbortError → **#1719** (deterministic mechanism repro built; every consumer audited-guarded; the only quick fix would itself be an escape hatch — tracked with mechanism + hypotheses, rides the #90 gate). `/debate` skill **removed** from apm.yml (no APM ref form works for a package repo without dragging its stale closure; re-add after llm-debate bumps its kolu pin). darwin `worktreeCreate` flake → flaky-test-tracker. **Teardown lapse (agent, self-reported)**: its reap swept all non-production isolated daemon digests instead of only its own captured PIDs — production provably untouched, blast radius recoverable-by-design, fence re-affirmed.
+
+**Remaining to merge**: you deploy + judge → drishti #90 pin-bump at final HEAD (absorbs `EntryStatus<Cause>`, the `kind`-tag, `causeFor`, zod unpin) → odu #40 pin-bump → PR body final pass → undraft → you merge.
+
+### Overnight log (detail, chronological)
+
+
 - `f8d98fb12` — apm: `srid/llm-debate` REMOVED entirely (fallback ruling). Finding: no APM ref form works for a *package* repo — the skill-path form (fine for apm.yml-less repos like `juspay/skills`) doesn't emit, the whole-repo form drags the closure whose stale kolu self-pin clobbers kolu's own skill. `/debate` (was #1622) returns in a future PR once llm-debate bumps its kolu pin past the padi rename. kolu skill verified correct.
 - Held batch **IMPLEMENTED + PUSHED** (`e40d79b19`): types foundation `47591c2b8` (D1 generic + D2 typed pair, full producer chain) → P0 `24e8b6831` (local supervisor.pid gate → boot fail-fast w/ remedy; dead-predecessor still drains; remote anti-livelock surfaces typed cross-supervisor + fail-honest both axes; `KOLU_REMOTE_PADI_STATE_DIR`; dev/E2E always isolated) → Skew-UX `e40d79b19` (CanvasFacts sum w/ type-level pin; `hostDownCopy` total over causes; single [Switch to local], no Retry; skew badge in stationary slot). Local green: workspace tsc, 194+623 tests, nix build, fmt.
 - Header-v2 **LANDED** (`76e22ab24`): stationary daemon slot + responsive strip, host-switch never reflows.
