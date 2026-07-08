@@ -29,6 +29,9 @@ const MetadataInspector: Component<{
 }> = (props) => {
   // Reactive elapsed-since formatter for the agent's "Running for" row; reads
   // the shared 60s tick so it advances on its own while the panel is open.
+  // `startedAt` is already reprojected to the browser clock at the metadata ingestion
+  // boundary (`useTerminalMetadata.reprojectClock`), so a plain local-clock duration +
+  // instant are correct here — the boundary owns reprojection (warming ⇒ startedAt 0).
   const runningFor = useDuration();
   return (
     <Show

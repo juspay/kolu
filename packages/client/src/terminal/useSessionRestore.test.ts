@@ -34,10 +34,12 @@ const rpc = vi.hoisted(() => ({
 }));
 
 // Spread the REAL (browser-safe) module so every schema kolu-common/surface pulls from
-// here — e.g. `HostDaemonInventorySchema` — stays present; override only `padiRpc`.
-vi.mock("@kolu/padi/surface", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@kolu/padi/surface")>()),
-  padiRpc: () => ({
+// here — e.g. `HostDaemonInventorySchema` — stays present; override only `activePadiRpc`.
+// Keep the REAL (browser-safe) `@kolu/padi/surface` — its schemas
+// (`HostDaemonInventorySchema`, …) must stay present; the RPC double moved to
+// `../wire`'s `activePadiRpc` (production now calls `activePadiRpc.surface.*`).
+vi.mock("../wire", () => ({
+  activePadiRpc: {
     surface: {
       session: {
         restore: rpc.restore,
@@ -50,13 +52,12 @@ vi.mock("@kolu/padi/surface", async (importOriginal) => ({
         sendInput: rpc.sendInput,
       },
     },
-  }),
-}));
-
-vi.mock("../wire", () => ({
-  padi: {},
+  },
   savedSessionSub: { pending: () => h.sessionPending },
   savedSession: () => h.savedSession,
+  // Per-host latch keying (shape B). These tests are single-host — a stable local
+  // key keeps the latch behavior identical to the pre-per-host app-lifetime latch.
+  activeHost: () => ({ kind: "local" }),
 }));
 vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({

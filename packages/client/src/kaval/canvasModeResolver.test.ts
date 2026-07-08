@@ -1,67 +1,218 @@
 /** Pins the canvas-surface precedence the App shell delegates to
- *  `resolveCanvasMode` (#1340 thin-shell extraction). The arm ORDER is
- *  load-bearing correctness — `down` and `warming` must each beat `empty` so a
- *  dead/degraded or restarting kaval never masquerades as "you have no
- *  terminals" (#1034 empty-canvas lie + restart-drain). Imports the pure
- *  resolver only, so the precedence is exercised without mounting the
- *  daemon-status subscription. */
+ *  `resolveCanvasMode` (#1340 thin-shell extraction; Skew-UX discriminated
+ *  facts). The facts are keyed on the ACTIVE entry's connection state, and the
+ *  arm ORDER is load-bearing correctness — the loading guard beats every arm; on
+ *  the `connected` arm `down` and `warming` each beat `empty` so a dead/degraded
+ *  or restarting kaval never masquerades as "you have no terminals" (#1034
+ *  empty-canvas lie + restart-drain). Imports the pure resolver only, so the
+ *  precedence is exercised without mounting the daemon-status subscription. */
 
 import type { DaemonState } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import { type CanvasFacts, resolveCanvasMode } from "./canvasModeResolver";
 
-/** A fully "ready" snapshot — daemon up, session loaded, one terminal — that
- *  resolves to `workspace`. Each test overrides only the facts under test, so
- *  the precedence (not an incidental field) is what flips the outcome. */
-function facts(overrides: Partial<CanvasFacts> = {}): CanvasFacts {
+/** The liveness facts every arm carries — daemon up, session loaded, not timed
+ *  out, local host. Each factory below spreads these and adds its arm's own
+ *  facts, so only the fact under test flips the outcome. */
+const liveness = {
+  isLoading: false,
+  daemonPending: false,
+  pendingTimedOut: false,
+  isLocalHost: true,
+} as const;
+
+/** A fully "ready" CONNECTED-arm snapshot — one terminal — that resolves to
+ *  `workspace`. Each test overrides only the connected-arm facts under test. */
+function connected(
+  overrides: Partial<Extract<CanvasFacts, { entry: "connected" }>> = {},
+): CanvasFacts {
   return {
-    isLoading: false,
-    daemonPending: false,
+    ...liveness,
+    entry: "connected",
     down: undefined,
     warming: false,
     warmingLabel: "Connecting…",
     daemonState: "connected",
     terminalCount: 1,
     recordsAwaited: 0,
-    transportLive: true,
+    channelLive: true,
     ...overrides,
   };
 }
 
-describe("resolveCanvasMode precedence (#1340)", () => {
-  it("connecting wins while the session is loading, regardless of all else", () => {
+describe("resolveCanvasMode loading guard (#1340)", () => {
+  it("connecting wins while the session is loading, ahead of any connected-arm fact", () => {
+    // Without the guard these connected facts would resolve to `down`…
     expect(
       resolveCanvasMode(
-        facts({
-          isLoading: true,
-          down: "dead",
-          warming: true,
+        connected({ down: "dead", warming: true, terminalCount: 0 }),
+      ),
+    ).toEqual({ kind: "down", state: "dead" });
+    // …but with isLoading the guard fires first.
+    expect(
+      resolveCanvasMode(
+        connected({ isLoading: true, down: "dead", terminalCount: 0 }),
+      ),
+    ).toEqual({ kind: "connecting" });
+  });
+
+  it("connecting wins while daemon status is still pending", () => {
+    // The #1034 gate: pending must beat a not-yet-arrived down/empty so a dead
+    // boot never flashes the normal empty workspace first.
+    expect(
+      resolveCanvasMode(connected({ daemonPending: true, terminalCount: 0 })),
+    ).toEqual({ kind: "connecting" });
+  });
+
+  it("a still-pending daemon status resolves to down/dead once past the connect timeout — never an eternal spinner", () => {
+    // The #1713 adopt-path sibling's canvas symptom: a local padi that never comes
+    // up at boot leaves `daemonPending` true FOREVER (no value ever published).
+    // Bounded by `pendingTimedOut`, the canvas resolves honestly to `down` (dead).
+    expect(
+      resolveCanvasMode(
+        connected({
+          daemonPending: true,
+          pendingTimedOut: true,
+          terminalCount: 0,
+        }),
+      ),
+    ).toEqual({ kind: "down", state: "dead" });
+    // The SAME facts before the timeout still hold the neutral connecting surface.
+    expect(
+      resolveCanvasMode(
+        connected({
+          daemonPending: true,
+          pendingTimedOut: false,
           terminalCount: 0,
         }),
       ),
     ).toEqual({ kind: "connecting" });
   });
 
-  it("connecting wins while daemon status is still pending", () => {
-    // The #1034 gate: pending must beat a not-yet-arrived `down`/empty so a
-    // dead boot never flashes the normal empty workspace first.
+  it("isLoading past the timeout also resolves to down/dead (the same bounded gate)", () => {
     expect(
-      resolveCanvasMode(facts({ daemonPending: true, terminalCount: 0 })),
+      resolveCanvasMode(
+        connected({ isLoading: true, pendingTimedOut: true, terminalCount: 0 }),
+      ),
+    ).toEqual({ kind: "down", state: "dead" });
+  });
+
+  it("a REMOTE host past the local 30s ceiling stays `connecting` while its entry is merely provisioning (warming) — never a false 'kaval didn't start'", () => {
+    // srid's exact class: `copying`/`warming` (nix-copy + build) legitimately
+    // outlasts the LOCAL connect watchdog the ceiling mirrors. The entry is
+    // `warming` (not `failed`), so the ceiling must NOT fire for a remote host.
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "warming",
+        warmingLabel: "Connecting…",
+        daemonPending: true,
+        pendingTimedOut: true,
+        isLocalHost: false,
+      }),
     ).toEqual({ kind: "connecting" });
   });
 
+  it("a FAILED entry reaches host-failed even with daemonPending + past the ceiling — the loading gate never intercepts a failed host (step-5 fix)", () => {
+    // A failed host BINDING has no daemon-status coming (`daemonPending` stays true
+    // forever), so the loading gate must NOT strand it at connecting/down — it falls
+    // straight through to the cause-typed host-down card. Regression: a real
+    // cross-supervisor host rendered "Connecting…" / the kaval-dead card instead of
+    // "Another kolu owns this host" because the gate's `entry === "failed"` ceiling
+    // intercepted it before the `failed` arm (caught driving a live sincereintent).
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "failed",
+        cause: "cross-supervisor",
+        reason: "another kolu owns this host",
+        daemonPending: true,
+        pendingTimedOut: true,
+        isLocalHost: false,
+      }),
+    ).toEqual({
+      kind: "host-failed",
+      cause: "cross-supervisor",
+      reason: "another kolu owns this host",
+    });
+    // And a link-failed host binding likewise reaches its card, not the kaval-dead one.
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "failed",
+        cause: "link-failed",
+        reason: "host unreachable",
+        daemonPending: true,
+        pendingTimedOut: true,
+        isLocalHost: false,
+      }),
+    ).toEqual({
+      kind: "host-failed",
+      cause: "link-failed",
+      reason: "host unreachable",
+    });
+  });
+});
+
+describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
+  it("a warming entry (host binding coming up) shows the warming surface with no kaval daemonState", () => {
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "warming",
+        warmingLabel: "Connecting…",
+      }),
+    ).toEqual({
+      kind: "warming",
+      label: "Connecting…",
+      daemonState: undefined,
+    });
+  });
+
+  it("a failed entry resolves to host-failed carrying the typed cause + reason (never `down`, which is a dead KAVAL)", () => {
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "failed",
+        cause: "contract-skew-refused",
+        reason: "remote padi contract skew",
+      }),
+    ).toEqual({
+      kind: "host-failed",
+      cause: "contract-skew-refused",
+      reason: "remote padi contract skew",
+    });
+    // cross-supervisor rides the SAME arm — it is a first-class cause, not `other`.
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "failed",
+        cause: "cross-supervisor",
+        reason: "another supervisor owns this host",
+      }),
+    ).toMatchObject({ kind: "host-failed", cause: "cross-supervisor" });
+  });
+
+  it("a not-a-member entry (mid host-switch) holds the neutral connecting surface", () => {
+    expect(resolveCanvasMode({ ...liveness, entry: "not-a-member" })).toEqual({
+      kind: "connecting",
+    });
+  });
+});
+
+describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
   it("down beats empty and carries its dead/degraded sub-state", () => {
     expect(
-      resolveCanvasMode(facts({ down: "dead", terminalCount: 0 })),
+      resolveCanvasMode(connected({ down: "dead", terminalCount: 0 })),
     ).toEqual({ kind: "down", state: "dead" });
     expect(
-      resolveCanvasMode(facts({ down: "degraded", terminalCount: 5 })),
+      resolveCanvasMode(connected({ down: "degraded", terminalCount: 5 })),
     ).toEqual({ kind: "down", state: "degraded" });
   });
 
   it("down beats warming when both are set", () => {
     expect(
-      resolveCanvasMode(facts({ down: "degraded", warming: true })),
+      resolveCanvasMode(connected({ down: "degraded", warming: true })),
     ).toEqual({ kind: "down", state: "degraded" });
   });
 
@@ -69,7 +220,7 @@ describe("resolveCanvasMode precedence (#1340)", () => {
     const daemonState: DaemonState = "restarting";
     expect(
       resolveCanvasMode(
-        facts({
+        connected({
           warming: true,
           warmingLabel: "Restarting kaval…",
           daemonState,
@@ -85,64 +236,58 @@ describe("resolveCanvasMode precedence (#1340)", () => {
 
   it("warming preserves an undefined daemonState (pre-first-yield label)", () => {
     expect(
-      resolveCanvasMode(facts({ warming: true, daemonState: undefined })),
+      resolveCanvasMode(connected({ warming: true, daemonState: undefined })),
     ).toMatchObject({ kind: "warming", daemonState: undefined });
   });
 
   it("empty wins once up and idle with zero terminals", () => {
-    expect(resolveCanvasMode(facts({ terminalCount: 0 }))).toEqual({
+    expect(resolveCanvasMode(connected({ terminalCount: 0 }))).toEqual({
       kind: "empty",
     });
   });
 
   it("workspace is the ready default with terminals present", () => {
-    expect(resolveCanvasMode(facts({ terminalCount: 3 }))).toEqual({
+    expect(resolveCanvasMode(connected({ terminalCount: 3 }))).toEqual({
       kind: "workspace",
     });
   });
 
   it("reload: records still awaited hold `connecting`, then workspace once they compose", () => {
-    // The restore-card-flash fix. On a browser reload the 7 live terminals' records
+    // The restore-card-flash fix. On a browser reload the live terminals' records
     // are in flight after the key list resolves — `terminalCount` is transiently 0
-    // (metadata hasn't composed) while `recordsAwaited` is 7. `empty` here would flash
-    // the restore card; the census holds `connecting` above it instead.
+    // while `recordsAwaited` is 7. `empty` here would flash the restore card; the
+    // census holds `connecting` above it instead.
     expect(
-      resolveCanvasMode(facts({ terminalCount: 0, recordsAwaited: 7 })),
+      resolveCanvasMode(connected({ terminalCount: 0, recordsAwaited: 7 })),
     ).toEqual({ kind: "connecting" });
-    // A beat later every record has composed live → the tiles show. No card was seen.
     expect(
-      resolveCanvasMode(facts({ terminalCount: 7, recordsAwaited: 0 })),
+      resolveCanvasMode(connected({ terminalCount: 7, recordsAwaited: 0 })),
     ).toEqual({ kind: "workspace" });
   });
 
   it("reboot: records all settled (parked) with zero tiles resolves to `empty`/restore", () => {
-    // The case the card EXISTS for, and the reason `recordsAwaited` (not a bare
-    // count==0) is the gate: a genuine reboot's records arrive PARKED, so they're
-    // fully settled (`recordsAwaited === 0`) yet contribute no tile (`terminalCount`
-    // 0). This must fall THROUGH the reload arm to `empty` so the restore card shows.
+    // The case the card EXISTS for: a genuine reboot's records arrive PARKED, so
+    // they're fully settled (`recordsAwaited === 0`) yet contribute no tile
+    // (`terminalCount` 0). This falls THROUGH the reload arm to `empty`.
     expect(
-      resolveCanvasMode(facts({ terminalCount: 0, recordsAwaited: 0 })),
+      resolveCanvasMode(connected({ terminalCount: 0, recordsAwaited: 0 })),
     ).toEqual({ kind: "empty" });
   });
 
-  it("floors `empty` on transport-live — a dead link never paints a stale 'no terminals'", () => {
-    // The round-3 relocation of the #1568 SHAPE A class (the canvas counterpart of
-    // the rail dot's kavalDot floor): "no terminals" is a claim the dead channel
-    // can't confirm, so over a not-live link the canvas shows the neutral connecting
+  it("floors `empty` on channel liveness — a dead channel never paints a stale 'no terminals'", () => {
+    // The #1568 SHAPE A class: "no terminals" is a claim a dead channel can't
+    // confirm, so over a not-live channel the canvas shows the neutral connecting
     // surface (0 terminals) or the last-good workspace (terminals on screen) — never
-    // `empty` with its active Restore / new-terminal affordances. The post-grace
-    // TransportOverlay owns the disconnect messaging. (`down`/`warming` arrive
-    // pre-floored from their source accessors, so this gates the remaining arm.)
+    // `empty` with its active Restore / new-terminal affordances.
     expect(
-      resolveCanvasMode(facts({ transportLive: false, terminalCount: 0 })),
+      resolveCanvasMode(connected({ channelLive: false, terminalCount: 0 })),
     ).toEqual({ kind: "connecting" });
     expect(
-      resolveCanvasMode(facts({ transportLive: false, terminalCount: 3 })),
+      resolveCanvasMode(connected({ channelLive: false, terminalCount: 3 })),
     ).toEqual({ kind: "workspace" });
-    // Sanity: the SAME facts over a LIVE link still resolve to `empty` — the floor
-    // only withholds the claim when the link is dead, never otherwise.
+    // Sanity: the SAME facts over a LIVE channel still resolve to `empty`.
     expect(
-      resolveCanvasMode(facts({ transportLive: true, terminalCount: 0 })),
+      resolveCanvasMode(connected({ channelLive: true, terminalCount: 0 })),
     ).toEqual({ kind: "empty" });
   });
 });

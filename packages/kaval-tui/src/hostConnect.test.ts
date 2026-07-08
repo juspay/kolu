@@ -1,7 +1,7 @@
 /**
  * Unit tests for the kaval-tui `--host` wrapper. The one-shot dial composition
  * (drv-map parse, arch-probe + lookup, pin → probe → markConnected → destroy)
- * lives in `@kolu/surface-nix-host`'s `dialAgentOnce` and is tested there; here
+ * lives in `@kolu/surface-remote`'s `dialAgentOnce` and is tested there; here
  * we mock `dialAgentOnce` and prove the thin seam this wrapper owns: it passes
  * kaval's volatile values (binary, env var, drvNoun) and nominates NO `probe` —
  * the dial defaults to the framework-reserved `system.live` round-trip, so kaval
@@ -15,10 +15,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ dialAgentOnce: vi.fn() }));
 
-vi.mock("@kolu/surface-nix-host", () => ({ dialAgentOnce: h.dialAgentOnce }));
+vi.mock("@kolu/surface-remote", () => ({ dialAgentOnce: h.dialAgentOnce }));
 
 import { createInProcessPtyHost, type InProcessPtyHostDeps } from "kaval";
-import { dialAgentOnce } from "@kolu/surface-nix-host";
+import { dialAgentOnce } from "@kolu/surface-remote";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
 
 const silentLog = {

@@ -85,8 +85,14 @@ lint: install
 # per-port 0700 dir so the always-recycle boot policy never SIGTERMs a production
 # kolu.service's daemon (which holds the default $XDG_RUNTIME_DIR/kaval socket)
 # — and a second worktree's dev server (its own port) likewise gets its own.
+# KOLU_PADI_STATE_DIR isolates this dev instance's PADI state root the same way:
+# without it, dev would share the default `~/.local/state/padi` with production,
+# and the P0 supervisor gate (one supervisor per padi state root) would refuse to
+# boot beside a live `kolu.service` (its padi is already supervised). A per-port
+# dev state root gives each dev instance its OWN padi to supervise — the local
+# twin of the KOLU_REMOTE_PADI_STATE_DIR isolation the remote arm uses.
 server:
-    {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d" && chmod 700 "$d"; cd packages/server && KOLU_KAVAL_SOCKET="$d/pty-host.sock" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
+    {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/server && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
 
 # Run client with Vite dev server (HMR)
 client:
@@ -146,7 +152,11 @@ e2e-ssh-2box boxB port='7099': install
     # 2) FINDING 1 over ssh: a full kolu-server bound to <boxB> must publish boundHost + boundPadi.
     sr="${TMPDIR:-/tmp}/kolu-2box-$$/state"; log="${TMPDIR:-/tmp}/kolu-2box-$$.log"
     echo "e2e-ssh-2box: standing up kolu-server (KOLU_PADI_HOST=$boxB) on :$port"
-    KOLU_STATE_DIR="$sr" KOLU_PADI_HOST="$boxB" {{ nix_shell }} nix run .#koluBin -- --port "$port" >"$log" 2>&1 &
+    # Isolate the LOCAL padi state root so this full-boot server's P0 supervisor gate
+    # never collides with any other kolu on the box. NOT KOLU_REMOTE_PADI_STATE_DIR:
+    # this recipe DELIBERATELY binds (and drains) <boxB>'s REAL padi — isolating the
+    # remote would spawn a fresh padi there instead of exercising the live one.
+    KOLU_STATE_DIR="$sr" KOLU_PADI_STATE_DIR="$sr/padi" KOLU_PADI_HOST="$boxB" {{ nix_shell }} nix run .#koluBin -- --port "$port" >"$log" 2>&1 &
     srv=$!; trap 'kill $srv 2>/dev/null || true' EXIT
     # Readiness gate = the daemonInventory read itself (a subscription; grep -m1 = first
     # frame), NON-destructive, polled until the ssh binding has warmed enough to publish

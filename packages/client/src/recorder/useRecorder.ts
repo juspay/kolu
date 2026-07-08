@@ -75,6 +75,9 @@ const TIMESLICE_MS = 2000;
 
 export type Phase = "idle" | "setup" | "recording" | "paused";
 
+// HOST-SCOPING: host-INDEPENDENT by design — browser-tab capture (records whatever
+// the canvas paints); switching the active host mid-recording is captured correctly,
+// no per-host dimension at all.
 const [phase, setPhase] = createSignal<Phase>("idle");
 
 /** Recording clock. `anchor` is the logical start; `pausedAt` freezes

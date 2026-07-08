@@ -13,6 +13,8 @@ export type WebcamState =
   | { kind: "error"; message: string }
   | { kind: "active"; stream: MediaStream };
 
+// HOST-SCOPING: host-INDEPENDENT by design — a browser-local device pref (the
+// client machine's camera inventory/selection), not tied to any remote host.
 const [devices, setDevices] = createSignal<MediaDeviceInfo[]>([]);
 const [selectedId, setSelectedId] = createSignal<string>("default");
 const [state, setState] = createSignal<WebcamState>({ kind: "off" });

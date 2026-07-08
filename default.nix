@@ -75,8 +75,9 @@ let
       ./pnpm-lock.yaml
       ./tsconfig.base.json
       ./packages/surface
+      ./packages/surface-map
       ./packages/surface-mcp
-      ./packages/surface-nix-host
+      ./packages/surface-remote
       ./packages/surface-app
       ./packages/surface-daemon
       ./packages/surface-daemon-supervisor

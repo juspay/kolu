@@ -10,6 +10,8 @@
 import { createSignal } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 
+// HOST-SCOPING: host-INDEPENDENT by design — a modal-depth counter with no
+// host/terminal/repo data; identical across hosts.
 export const useDialogStack = createSharedRoot(() => {
   const [count, setCount] = createSignal(0);
   return {

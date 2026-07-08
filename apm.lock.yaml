@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-06-29T20:18:33.699425+00:00'
-apm_version: 0.23.0
+generated_at: '2026-07-08T02:50:49.479506+00:00'
+apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agents
   name: agents
@@ -57,8 +57,8 @@ dependencies:
   - .claude/skills/surface/SKILL.md
   deployed_file_hashes:
     .agents/skills/architecture-first-principles/SKILL.md: sha256:7ed2b3c42710a666fbdb0be0279ff33df24d1454bbb59b2f20c36f3073b84f65
-    .agents/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
-    .agents/skills/be/SKILL.md: sha256:1af763c957b9cfa5f4810c48bc8fe906a7843c6c8878422211799f9cb874590a
+    .agents/skills/be-review/SKILL.md: sha256:1b2df655da5ee3c01eb59d60af72c0a88b2276620d864c38e03a964d4c5ce580
+    .agents/skills/be/SKILL.md: sha256:97e551c967623e70b758576b9c8f8f7486336b920a40f416208cdf7e686359a2
     .agents/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
     .agents/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
     .agents/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
@@ -67,14 +67,14 @@ dependencies:
     .agents/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
     .agents/skills/codex-debate/scripts/codex-review.sh: sha256:8d97126372d6e716d9455f7e9e821c6fa717d1f55968dd82b93f9bb8999d0fc9
     .agents/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
-    .agents/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
+    .agents/skills/kolu/SKILL.md: sha256:943bb2816bf9feb5b88cb5e461cfe2fa4aceedc60b81585d284342dd3865a160
     .agents/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .agents/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
     .agents/skills/perfection-review/SKILL.md: sha256:a5464e881cdde4555218325f638289afebee4dd910772fea8efe6e06fff81bdf
-    .agents/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
+    .agents/skills/surface/SKILL.md: sha256:407652ca44fc119dba06be3816009eaa4331189f9bf3807c6b65e95f95b0cbad
     .claude/skills/architecture-first-principles/SKILL.md: sha256:7ed2b3c42710a666fbdb0be0279ff33df24d1454bbb59b2f20c36f3073b84f65
-    .claude/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
-    .claude/skills/be/SKILL.md: sha256:1af763c957b9cfa5f4810c48bc8fe906a7843c6c8878422211799f9cb874590a
+    .claude/skills/be-review/SKILL.md: sha256:1b2df655da5ee3c01eb59d60af72c0a88b2276620d864c38e03a964d4c5ce580
+    .claude/skills/be/SKILL.md: sha256:97e551c967623e70b758576b9c8f8f7486336b920a40f416208cdf7e686359a2
     .claude/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
     .claude/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
     .claude/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
@@ -83,11 +83,11 @@ dependencies:
     .claude/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
     .claude/skills/codex-debate/scripts/codex-review.sh: sha256:8d97126372d6e716d9455f7e9e821c6fa717d1f55968dd82b93f9bb8999d0fc9
     .claude/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
-    .claude/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
+    .claude/skills/kolu/SKILL.md: sha256:943bb2816bf9feb5b88cb5e461cfe2fa4aceedc60b81585d284342dd3865a160
     .claude/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .claude/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
     .claude/skills/perfection-review/SKILL.md: sha256:a5464e881cdde4555218325f638289afebee4dd910772fea8efe6e06fff81bdf
-    .claude/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
+    .claude/skills/surface/SKILL.md: sha256:407652ca44fc119dba06be3816009eaa4331189f9bf3807c6b65e95f95b0cbad
   source: local
   local_path: ./agents
 - repo_url: anthropics/skills
@@ -133,7 +133,7 @@ dependencies:
 - repo_url: juspay/odu
   name: odu
   host: github.com
-  resolved_commit: f3a3e553c00486e7e2999d79495e2e52f6192703
+  resolved_commit: b0386d33f395c74030e7411380db2ac2d2a66000
   version: 1.0.0
   package_type: apm_package
   deployed_files:
@@ -154,11 +154,11 @@ dependencies:
     .claude/skills/ci/SKILL.md: sha256:7f22aaac4676523525430c9208a000b7eb8e9e03b506e55350dcfdf3367d05cd
     .claude/skills/odu-mcp/SKILL.md: sha256:25cd14d47aa082fb4061e793d3b74095eeb6749672356eea6b9acde9f9de6863
     .claude/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
-  content_hash: sha256:07ac573bff03b3ce4df3dffa5b5a15095acf5ac8131a77c2b23ee7a22dd67a58
+  content_hash: sha256:83ea53ce3e1b658ebe6d75f9f11322d325a819a1dca9494844e90b88b8f1df0c
 - repo_url: juspay/project-unknown
   name: project-unknown
   host: github.com
-  resolved_commit: 27c4973ae3837eaa54b0439faa5346a3320ac379
+  resolved_commit: 8823d4842abffa97fe10cb2f897cc5419722a627
   version: 1.0.0
   package_type: apm_package
   deployed_files:
@@ -169,7 +169,7 @@ dependencies:
   deployed_file_hashes:
     .agents/skills/pu/SKILL.md: sha256:7760fd56daed8ef793d2dd1b7409652b414a098fcc13cbd079bbfb1394aaf781
     .claude/skills/pu/SKILL.md: sha256:7760fd56daed8ef793d2dd1b7409652b414a098fcc13cbd079bbfb1394aaf781
-  content_hash: sha256:3694a4feafcb2a8e33364e0eacd9ef5ab37f893733769570e2f18e4eb13ae3c8
+  content_hash: sha256:9accaa713ae0f6a1bc62e78487b34f675e500c0f29ab217f6aaf6d1ed08f441e
   declared_license: MIT
 - repo_url: juspay/skills
   name: skills
@@ -229,7 +229,7 @@ dependencies:
 - repo_url: srid/agency
   name: agency
   host: github.com
-  resolved_commit: 81455051ccca654c57ad6088838c85e7248ac159
+  resolved_commit: bf60fb6eef7e4bcf62db2b7111e8b278991bcba1
   resolved_ref: master
   version: 1.0.0
   package_type: apm_package
@@ -283,6 +283,11 @@ dependencies:
   - .claude/skills/talk
   - .claude/skills/talk/SKILL.md
   - .codex/hooks/agency/scripts/do-stop-guard.sh
+  - .github/agents/hickey.agent.md
+  - .github/agents/lowy.agent.md
+  - .github/hooks/agency-do-stop-guard.json
+  - .github/hooks/scripts/agency/scripts/do-stop-guard.sh
+  - .github/instructions/apm-sources.instructions.md
   - .opencode/agents/hickey.md
   - .opencode/agents/lowy.md
   deployed_file_hashes:
@@ -296,7 +301,7 @@ dependencies:
     .agents/skills/forge-pr/SKILL.md: sha256:78c66fbcb5146dbd83d856540eb810978fd9236e2d66cb4ebf14a2a012b9cda6
     .agents/skills/hickey/SKILL.md: sha256:6eccc8ef4a2368c8ca898abde4b8a94451b844bb9cc082767a718fa2796c29ef
     .agents/skills/hickey/transcript.md: sha256:c7da3fda455cc17adc5788984954baf95a354f2e83367bff0efd1b01f45a96a3
-    .agents/skills/lowy/SKILL.md: sha256:082aa643189b3b31fa90fb185a01239cfb5e437cdd7b1afb122de1e533ac48eb
+    .agents/skills/lowy/SKILL.md: sha256:9f17781cbe4f3e912f6a9d493e218e14cd1324d20228c64ba7ef07b7258d76db
     .agents/skills/ralph/SKILL.md: sha256:1b2c547102584c87384b90b291536bedc0494dcb8382ac776bd0a3cec0fe1b4a
     .agents/skills/talk/SKILL.md: sha256:ba059751cd4b3c1c52221554719bfe1fc5da56540694cb8e793ae0c19e210377
     .claude/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
@@ -313,48 +318,19 @@ dependencies:
     .claude/skills/forge-pr/SKILL.md: sha256:78c66fbcb5146dbd83d856540eb810978fd9236e2d66cb4ebf14a2a012b9cda6
     .claude/skills/hickey/SKILL.md: sha256:6eccc8ef4a2368c8ca898abde4b8a94451b844bb9cc082767a718fa2796c29ef
     .claude/skills/hickey/transcript.md: sha256:c7da3fda455cc17adc5788984954baf95a354f2e83367bff0efd1b01f45a96a3
-    .claude/skills/lowy/SKILL.md: sha256:082aa643189b3b31fa90fb185a01239cfb5e437cdd7b1afb122de1e533ac48eb
+    .claude/skills/lowy/SKILL.md: sha256:9f17781cbe4f3e912f6a9d493e218e14cd1324d20228c64ba7ef07b7258d76db
     .claude/skills/ralph/SKILL.md: sha256:1b2c547102584c87384b90b291536bedc0494dcb8382ac776bd0a3cec0fe1b4a
     .claude/skills/talk/SKILL.md: sha256:ba059751cd4b3c1c52221554719bfe1fc5da56540694cb8e793ae0c19e210377
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
+    .github/agents/hickey.agent.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
+    .github/agents/lowy.agent.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
+    .github/hooks/agency-do-stop-guard.json: sha256:a164a7556359cea31c7e1fcad6cef8bc99be8df0125dbd5b63058f15b734aa50
+    .github/hooks/scripts/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
+    .github/instructions/apm-sources.instructions.md: sha256:7082aa4ccc36ea4f394488623927ea4350efb0312514d35154ed2d9a3b569dcd
     .opencode/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
-  content_hash: sha256:e2144eca9c2932044bde96b74db5a546a2cec052f747be926abfc638ab684db9
+  content_hash: sha256:9575434ddde22cc69174ac75e2f801032dbc3dea793ff193d58f0a341b2eacb1
   declared_license: MIT
-- repo_url: srid/llm-debate
-  name: llm-debate
-  host: github.com
-  resolved_commit: 3a52fca8633016627e33b4fbf036c50da9e4cc2c
-  version: 0.1.0
-  package_type: apm_package
-  deployed_files:
-  - .agents/skills/debate
-  - .agents/skills/debate/SKILL.md
-  - .claude/skills/debate
-  - .claude/skills/debate/SKILL.md
-  deployed_file_hashes:
-    .agents/skills/debate/SKILL.md: sha256:af2c34cda04a8705d9c292be4a6c7b7fe53b22bb8ef526f8413638948600e825
-    .claude/skills/debate/SKILL.md: sha256:af2c34cda04a8705d9c292be4a6c7b7fe53b22bb8ef526f8413638948600e825
-  content_hash: sha256:9cf74853b4407af783799193d988f2ed028406caeb5d285f7be1a0609c0c6ed4
-- repo_url: juspay/kolu
-  name: kolu
-  host: github.com
-  resolved_commit: dbff5c22c832730e9fc7e08c23480edc64b89a1d
-  version: unknown
-  virtual_path: agents/.apm/skills/kolu
-  is_virtual: true
-  depth: 2
-  resolved_by: srid/llm-debate
-  package_type: claude_skill
-  deployed_files:
-  - .agents/skills/kolu
-  - .agents/skills/kolu/SKILL.md
-  - .claude/skills/kolu
-  - .claude/skills/kolu/SKILL.md
-  deployed_file_hashes:
-    .agents/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
-    .claude/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
-  content_hash: sha256:c457b0d11e5f706f4ace57c0fdbe510b9367ead42d5b78372b8cb805cf18e2c2
 mcp_servers:
 - chrome-devtools
 - odu
@@ -386,10 +362,13 @@ local_deployed_files:
 - .agents/skills/pierre/SKILL.md
 - .agents/skills/release
 - .agents/skills/release/SKILL.md
+- .agents/skills/remote-host-testing
+- .agents/skills/remote-host-testing/SKILL.md
 - .agents/skills/self-improve
 - .agents/skills/self-improve/SKILL.md
 - .agents/skills/test
 - .agents/skills/test/SKILL.md
+- .claude/commands/whatchanged.md
 - .claude/rules/apm-sources.md
 - .claude/rules/apm-workflow.md
 - .claude/rules/architecture.md
@@ -422,44 +401,83 @@ local_deployed_files:
 - .claude/skills/pierre/SKILL.md
 - .claude/skills/release
 - .claude/skills/release/SKILL.md
+- .claude/skills/remote-host-testing
+- .claude/skills/remote-host-testing/SKILL.md
 - .claude/skills/self-improve
 - .claude/skills/self-improve/SKILL.md
 - .claude/skills/test
 - .claude/skills/test/SKILL.md
+- .github/instructions/apm-sources.instructions.md
+- .github/instructions/apm-workflow.instructions.md
+- .github/instructions/architecture.instructions.md
+- .github/instructions/atlas.instructions.md
+- .github/instructions/be-workflow-atlas.instructions.md
+- .github/instructions/conventions.instructions.md
+- .github/instructions/dock-fleet-mirror.instructions.md
+- .github/instructions/docs.instructions.md
+- .github/instructions/e2e-testing.instructions.md
+- .github/instructions/logo.instructions.md
+- .github/instructions/nix.instructions.md
+- .github/instructions/solidjs.instructions.md
+- .github/instructions/state.instructions.md
+- .github/instructions/streaming.instructions.md
+- .github/instructions/surface.instructions.md
+- .github/instructions/toast-conventions.instructions.md
+- .github/prompts/whatchanged.prompt.md
 local_deployed_file_hashes:
-  .agents/skills/atlas/SKILL.md: sha256:5e28d3d1a09019db2e4b64a7958382f8b672aeb47946bb4fca1d0d44296b96d9
+  .agents/skills/atlas/SKILL.md: sha256:ca4a28dc9d8eb6029e562b538f28c0455ca4a818e564a83f1f9fee2534440acb
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .agents/skills/dev-server/SKILL.md: sha256:1b56467bc51ddafa778997d1f7a8774f7364e55543d71e3ebf62af47efdcc13a
+  .agents/skills/dev-server/SKILL.md: sha256:f4f9e6479103ceec2c90496c85fca5c5bdd57c79bd59e80852307c6b9d286617
   .agents/skills/evidence/SKILL.md: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
-  .agents/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
+  .agents/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
   .agents/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .agents/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
   .agents/skills/release/SKILL.md: sha256:9ecdcae3c7e44df8984f5edb877d8fb3c613fde4abd80e230bc5f83dbec5a8e4
+  .agents/skills/remote-host-testing/SKILL.md: sha256:79bc6e13318390539f270d60b205a8c051b5470e4ec125ddfdb15fe0f482d262
   .agents/skills/self-improve/SKILL.md: sha256:0f8c6bacddfe459b60265bc7de5b148a3a66750271f3264f1fad131f9bf870bd
   .agents/skills/test/SKILL.md: sha256:ab8421b6937ad1687b6670fca17eacb908bdf637d7cddd4cc734f2a0e3c16c53
+  .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
-  .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
+  .claude/rules/apm-workflow.md: sha256:4b45e346a878fb8029e48679e7fba1a9a2d6f0af311f38c60f59321eaca3ce99
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
   .claude/rules/atlas.md: sha256:952a49f91d233d35fa8fc1f731cbff874161df7491b5696edc1e91da588c6d90
   .claude/rules/be-workflow-atlas.md: sha256:c16190acae27d8f1b8b8fc10e508701ea5d216c83807156df081b52a75341ae5
   .claude/rules/conventions.md: sha256:33edfa92cf1a1bbbf6c205a45f9f91a9d5c15b6f0355002993987bde5a5e7d47
-  .claude/rules/dock-fleet-mirror.md: sha256:29422ee3a47826a73d7586d8b3d5afbc3b2d06bf05536c91852f65f11ec8977c
+  .claude/rules/dock-fleet-mirror.md: sha256:24481c4a8e696b29533f1f2b2624c10b2d462da06f9a4cd13cc2658fc89f38a3
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
-  .claude/rules/logo.md: sha256:75baa0fff11e5fe06f6e230ef6d9400be78b419f640619bb673e8f73633160aa
+  .claude/rules/logo.md: sha256:05f412b96dcdd5a7e6de9bce3cdb164a89cabe5da6ed0c865662b33743470e25
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
-  .claude/rules/solidjs.md: sha256:7f477877a1baeeeb9ea9b894094e4e4dc9cf2de6c0ca93b0f27ebcfc7462f26f
+  .claude/rules/solidjs.md: sha256:5147f3895503bda5895fd9deb042d4e286e26ea60a0ecdf4471a9d21e44c1d39
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
-  .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
-  .claude/rules/surface.md: sha256:2f96cb3cd96e5e985130c5baae68ac4f6d4c91097085dcb96979b8bd9353db8d
+  .claude/rules/streaming.md: sha256:fc1ce230fedf39a045f7172afc23539de79ee5620258add61d84bedda8fe5209
+  .claude/rules/surface.md: sha256:ffe9a98799804d4065549143cb9df65b5d2a83fbedf93ee86727d404b2f85e7d
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
-  .claude/skills/atlas/SKILL.md: sha256:5e28d3d1a09019db2e4b64a7958382f8b672aeb47946bb4fca1d0d44296b96d9
+  .claude/skills/atlas/SKILL.md: sha256:ca4a28dc9d8eb6029e562b538f28c0455ca4a818e564a83f1f9fee2534440acb
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .claude/skills/dev-server/SKILL.md: sha256:1b56467bc51ddafa778997d1f7a8774f7364e55543d71e3ebf62af47efdcc13a
+  .claude/skills/dev-server/SKILL.md: sha256:f4f9e6479103ceec2c90496c85fca5c5bdd57c79bd59e80852307c6b9d286617
   .claude/skills/evidence/SKILL.md: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
-  .claude/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
+  .claude/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
   .claude/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .claude/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
   .claude/skills/release/SKILL.md: sha256:9ecdcae3c7e44df8984f5edb877d8fb3c613fde4abd80e230bc5f83dbec5a8e4
+  .claude/skills/remote-host-testing/SKILL.md: sha256:79bc6e13318390539f270d60b205a8c051b5470e4ec125ddfdb15fe0f482d262
   .claude/skills/self-improve/SKILL.md: sha256:0f8c6bacddfe459b60265bc7de5b148a3a66750271f3264f1fad131f9bf870bd
   .claude/skills/test/SKILL.md: sha256:ab8421b6937ad1687b6670fca17eacb908bdf637d7cddd4cc734f2a0e3c16c53
+  .github/instructions/apm-sources.instructions.md: sha256:7082aa4ccc36ea4f394488623927ea4350efb0312514d35154ed2d9a3b569dcd
+  .github/instructions/apm-workflow.instructions.md: sha256:637fbb4e1c0347881e843d77eb383e4e69ef2842ea96435bf3b9f7c88f0fc8bf
+  .github/instructions/architecture.instructions.md: sha256:b0a1988ef8ed0d77ba272b978ffad2ce6ad7969634e4080220acf85b4f2c96d8
+  .github/instructions/atlas.instructions.md: sha256:0c6b59b47665d621e34025ee89170cc325c8ba39c000b77ae913edbed4edec2f
+  .github/instructions/be-workflow-atlas.instructions.md: sha256:23d5417f9c5c58e113b8fde2439c098cd361cda37a65dc1536a5bd984003b781
+  .github/instructions/conventions.instructions.md: sha256:612de82602d340b0dba40b25ff23e09ed5f52d6de237c66bba6d94d17b20d9ab
+  .github/instructions/dock-fleet-mirror.instructions.md: sha256:688dec288cf2a561bfffd838b126b8d5755a8ae94fe99dcdaaf72175feb16bb7
+  .github/instructions/docs.instructions.md: sha256:6531b382b85895bdc1c82c3fe1318532416931594d21eec5eede9d5987b6a7dd
+  .github/instructions/e2e-testing.instructions.md: sha256:aa31ec79280131165e7222580efa1f06854671f0ad99fade365819e0b3266c17
+  .github/instructions/logo.instructions.md: sha256:7f8a4887630bc2501b03b2ca63183bd0dd529469b3311b67e664bf121a291c89
+  .github/instructions/nix.instructions.md: sha256:7740d887bc068251d1032dd51dda7cf567f147e70ef5b125c00ca7eb469012e4
+  .github/instructions/solidjs.instructions.md: sha256:3acadd661732dc1f758b6abce9dc957a72c17bc8bf48505e6cefa99dc1ca3cbe
+  .github/instructions/state.instructions.md: sha256:ece1a667ee7e9a5445800eb1c6d52d8835647aafcba0ebc6308165b596a8243d
+  .github/instructions/streaming.instructions.md: sha256:8cc85d2fe2e370f95dfb4c0595cd19780e7bcd519a100b02023b73e2e707d373
+  .github/instructions/surface.instructions.md: sha256:4206d45c6c15ab8a44e3cb9c7efe6e8c06db01367f55d93692bce965669fc7ba
+  .github/instructions/toast-conventions.instructions.md: sha256:c29f15c0c1c1412022b5a34d2f0aabc268902f08b61582698f0eaa40bae058de
+  .github/prompts/whatchanged.prompt.md: sha256:2b33d9088ca503e3517530363a8fb6fb227cf235461418a80d696dea4606204c

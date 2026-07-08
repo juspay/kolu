@@ -65,6 +65,12 @@ const WEB_SHELL_FILES = [
   // the SAME `reServeSurface` seam. Web-shell code (it runs no terminal domain — it
   // re-serves a remote padi's), so it lives beside the shell, not in @kolu/padi.
   "remotePadiBinding",
+  // The stale-reserve-on-flap eviction: prunes `index.ts`'s per-host `reServeSurface`
+  // mirror cache to the pool's live membership (wired to `pool.subscribe`), so a guest
+  // remove→re-add of the same key builds a FRESH mirror over the new session rather than
+  // reusing the dead one pinned to the destroyed session (#1708). Web-shell glue (a cache
+  // prune keyed by pool membership), not terminal domain.
+  "reServeEviction",
   // The padi SESSION shape both arms return (post-S9): a base `Session` from
   // `makeSession` + the daemon-supervision members by spread — no `BoundPadi`, no
   // wrapper class. Web-shell glue (the arms' shared session type + spread helper).
@@ -82,6 +88,11 @@ const WEB_SHELL_FILES = [
   "routeErrors",
   "router",
   "state",
+  // The P0 local-supervisor ownership gate — the web shell's own "only one
+  // kolu-server supervises this padi state root" fence (a `supervisor.pid` claim
+  // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
+  // ownership; runs no terminal domain), so it lives beside the binder.
+  "supervisorClaim",
   "surface",
   "tls",
 ].sort();
@@ -116,7 +127,12 @@ function serverSrcModules(): string[] {
   // as a `sub/mod` key that isn't in the flat WEB_SHELL_FILES set.
   return readdirSync(SRC, { recursive: true })
     .map((f) => String(f).split(sep).join("/"))
-    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+    .filter(
+      (f) =>
+        f.endsWith(".ts") &&
+        !f.endsWith(".test.ts") &&
+        !f.endsWith(".test-d.ts"),
+    )
     .map((f) => f.replace(/\.ts$/, ""))
     .sort();
 }
@@ -357,7 +373,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       Object.keys(contract)
         .filter((k) => k !== "surface")
         .sort(),
-    ).toEqual(["daemon", "server"]);
+    ).toEqual(["daemon", "hosts", "server"]);
 
     // `appRouter` is assembled in `index.ts`'s async boot now (the padi sibling is
     // an `await`ed re-serve), so build it here with stub deps to assert the same
@@ -365,6 +381,9 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     const r = buildAppRouter({
       surfaceRouter: { surface: {} },
       drainBoundPadi: async () => {},
+      addHost: async () => {},
+      removeHost: async () => {},
+      reconnectHost: () => {},
     }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();

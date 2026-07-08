@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { padiFold } from "../support/padiEnvelope.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
@@ -24,7 +25,7 @@ async function setCanvasLayout(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: { id, layout } }),
+      data: JSON.stringify({ json: padiFold({ id, layout }) }),
     },
   );
   assert.ok(resp.ok(), `chrome/setCanvasLayout failed: ${resp.status()}`);

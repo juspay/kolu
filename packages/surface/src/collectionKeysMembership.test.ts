@@ -21,11 +21,11 @@
  * membership stream.
  */
 
+import { implement } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
-import { implement } from "@orpc/server";
 import { implementSurface, inMemoryChannelByName } from "./server";
 
 const surface = defineSurface({

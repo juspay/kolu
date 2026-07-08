@@ -31,8 +31,8 @@
 import {
   AgentIdentitySchema,
   AgentKindSchema,
-  resumableCommand,
   RestoreTargetSchema,
+  resumableCommand,
 } from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
@@ -59,8 +59,8 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
 export {
   AgentIdentitySchema,
   AgentKindSchema,
-  resumableCommand,
   RestoreTargetSchema,
+  resumableCommand,
 };
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
@@ -174,9 +174,17 @@ export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
  *  narrowed writer), so the on-disk JSON path for these two is unchanged. */
 export const AgentMemorySchema = z.object({
   /** Workspace-switcher recency: epoch-millis of the last LIVE agent-IDENTITY
-   *  change (start / finish / new session), on kolu's clock. Idle terminals
-   *  stay at `0`. */
-  lastActivityAt: z.number().default(0),
+   *  change (start / finish / new session), on kolu's clock. HONEST form: an
+   *  idle/never-active terminal is `null` — a real absence, not an in-band `0`.
+   *  The old `0` sentinel did TWO jobs at once (a genuine — if absurd —
+   *  Unix-epoch reading, AND "never active") and collided with a THIRD: the
+   *  client's own "not yet clock-reprojected" absent form
+   *  (`useTerminalMetadata.ts`'s `reprojectClock`, which used to special-case
+   *  `0` to avoid forging a garbage offset timestamp). `null` disambiguates all
+   *  three: it can never be produced by a real clock reading, so a reader that
+   *  needs "is there a recency to compare?" tests `!== null`, not `> 0`.
+   *  A required key (never absent) — always `null` or a real epoch. */
+  lastActivityAt: z.number().nullable().default(null),
   /** Normalized agent CLI invocation last observed (e.g. `"claude --model
    *  sonnet"`). Preserved across intervening non-agent input; drives the "resume
    *  agent on restore" offer. Absent for terminals that never ran a known agent. */
@@ -225,11 +233,12 @@ export function seedSnapshot(cwd: string): TerminalSnapshot {
   };
 }
 
-/** A fresh terminal's empty memory — recency at 0, no command yet. The ONE home
- *  for the memory-default set (a fresh spawn seeds zero memory; wake/adopt seed
- *  from the durable record). */
+/** A fresh terminal's empty memory — no recency yet (honest `null`: a fresh
+ *  terminal has never had an agent transition), no command yet. The ONE home
+ *  for the memory-default set (a fresh spawn seeds empty memory; wake/adopt
+ *  seed from the durable record). */
 export function seedMemory(): AgentMemory {
-  return { lastActivityAt: 0 };
+  return { lastActivityAt: null };
 }
 
 // ── Process resident-set size — an honest three-way readout ────────────────

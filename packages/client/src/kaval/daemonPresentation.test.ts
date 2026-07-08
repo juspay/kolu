@@ -1,14 +1,14 @@
-import type { DaemonState } from "@kolu/padi/surface";
+import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import {
+  channelLive,
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
   kavalDot,
   liveDownState,
-  liveDownStateWithPadiLink,
   liveWarming,
-  liveWarmingWithPadiLink,
   serverDot,
+  toKavalPresence,
   toneDot,
 } from "./daemonPresentation";
 
@@ -101,72 +101,140 @@ describe("liveWarming / liveDownState — daemon-state claims FLOORED on transpo
   });
 });
 
-describe("the padi-link leg — the SECOND floor on the re-served kaval daemonStatus (#1034)", () => {
-  // The kaval daemonStatus rides padi's RE-SERVED surface, so its true liveness is BOTH
-  // legs: the browser↔kolu-server ws AND kolu-server's binding to padi (`padiLink`). The
-  // re-targeted "restart kaval" DRAINS padi, dropping the binding for the whole drain
-  // window — during which the re-serve value-fold HOLDS the last kaval status STALE. The
-  // fold treats a not-`connected` padi link as the honest "coming up" (warming true) AND
-  // suppresses the stale "kaval is down" claim, so the canvas shows the neutral warming
-  // surface over the whole drain window instead of a frozen re-served `degraded`.
+describe("the active-entry leg — the SECOND floor on the host-scoped kaval daemonStatus (#1568, remote)", () => {
+  // W4 scopes daemonStatus to `useEntry(activeHost)`. On a remote ssh flap the browser↔
+  // kolu-server ws stays up while the remote entry's own ssh link dies and its re-served
+  // daemonStatus FREEZES at `connected`. Without this leg the kaval dot paints green
+  // "running" over a dead remote beside a red host chip — the #1568 lie.
 
-  it("liveWarmingWithPadiLink: warming whenever the padi link is not `connected` (over a live transport)", () => {
-    // A (re)connecting or dropped binding is itself 'coming up', regardless of the
-    // (frozen) re-served kaval state.
-    expect(liveWarmingWithPadiLink("connecting", "connected", true)).toBe(true);
-    expect(liveWarmingWithPadiLink("degraded", "connected", true)).toBe(true);
-    // Even a stale re-served `degraded` kaval status reads WARMING (not down) while the
-    // padi link is down — this is the whole-drain-window honesty the fix delivers.
-    expect(liveWarmingWithPadiLink("degraded", "degraded", true)).toBe(true);
-    // Pre-first-yield padiLink (undefined) is treated as not-connected → warming.
-    expect(liveWarmingWithPadiLink(undefined, "connected", true)).toBe(true);
+  it("channelLive: the channel is live ONLY when the transport AND the active entry are both connected", () => {
+    expect(channelLive(true, true)).toBe(true);
+    // The active entry is NOT connected (remote ssh flap): the channel is dead even though
+    // the browser transport is live — this is the exact defect the leg closes.
+    expect(channelLive(true, false)).toBe(false);
+    // A dead transport floors regardless of the entry.
+    expect(channelLive(false, true)).toBe(false);
+    expect(channelLive(false, false)).toBe(false);
   });
 
-  it("liveWarmingWithPadiLink: falls through to the kaval-state warming logic when the padi link is `connected`", () => {
-    // padi bound → the kaval state alone decides, exactly as `liveWarming` did.
-    expect(liveWarmingWithPadiLink("connected", "restarting", true)).toBe(true);
-    expect(liveWarmingWithPadiLink("connected", "connecting", true)).toBe(true);
-    expect(liveWarmingWithPadiLink("connected", "connected", true)).toBe(false);
-    expect(liveWarmingWithPadiLink("connected", "dead", true)).toBe(false);
-    expect(liveWarmingWithPadiLink("connected", undefined, true)).toBe(false);
-  });
-
-  it("liveWarmingWithPadiLink: FLOORS to false over a dead browser transport — no warming off a stale padiLink", () => {
-    // The browser↔server leg dead: the whole readout is stale, so even a not-connected
-    // padi link claims no warming — mirroring `liveWarming`'s transport floor exactly.
-    expect(liveWarmingWithPadiLink("connecting", "connected", false)).toBe(
-      false,
+  it("kavalDot: a `connected` daemon over a live transport but a non-connected active entry reads UNKNOWN, not green", () => {
+    // The concrete defect: server-published `connected` + live ws, but the active REMOTE
+    // entry is not connected → the dot must be grey "unknown", never bg-ok "running".
+    expect(kavalDot("connected", channelLive(true, false))).toBe(
+      DAEMON_UNKNOWN_DOT,
     );
-    expect(liveWarmingWithPadiLink("degraded", "degraded", false)).toBe(false);
-    expect(liveWarmingWithPadiLink("connected", "restarting", false)).toBe(
-      false,
+    expect(kavalDot("connected", channelLive(true, false))).not.toBe(
+      toneDot.ok,
     );
+    // Both legs live → the daemon state refines the tone as before.
+    expect(kavalDot("connected", channelLive(true, true))).toBe(toneDot.ok);
   });
 
-  it("liveDownStateWithPadiLink: suppresses a stale kaval down claim while the padi link is not `connected`", () => {
-    // This is what lets the WARMING arm win the canvas precedence over a padi drop:
-    // without it a frozen re-served `degraded` would light DegradedCanvas (which beats
-    // warming). Unknown ≠ down.
-    expect(
-      liveDownStateWithPadiLink("connecting", "degraded", true),
-    ).toBeUndefined();
-    expect(liveDownStateWithPadiLink("degraded", "dead", true)).toBeUndefined();
-    expect(
-      liveDownStateWithPadiLink(undefined, "degraded", true),
-    ).toBeUndefined();
+  it("liveDownState/liveWarming, fed channelLive directly: a non-connected entry ⇒ unknown, not down/warming", () => {
+    // `downState`/`daemonWarming` (useDaemonStatus.ts) feed `daemonChannelLive()` straight
+    // into these — no intermediate padi-link fold any more (W4 daemon-rail unification, see
+    // the describe block below). A dead entry reads unknown (undefined down-state,
+    // not-warming) — `daemonConnected()` therefore reads false.
+    const dead = channelLive(true, false);
+    expect(liveDownState("dead", dead)).toBeUndefined();
+    expect(liveWarming("restarting", dead)).toBe(false);
+  });
+});
+
+describe("the daemon-rail floor is now host-UNIFORM (W4 daemon-rail unification — the padi-link leg retired)", () => {
+  // Before this fix, `downState`/`daemonWarming` folded a THIRD, host-gated signal — the
+  // local session's re-served `padiLink` cell, masked to a no-op for a remote active host
+  // by `localPadiLinkOnly` — alongside `channelLive`. But `padiLink` and `channelLive` are
+  // BOTH projections of the exact SAME underlying session state for LOCAL_HOST (the local
+  // padi's `Session`, shared verbatim by `serveHostMap`'s per-host `entries` projection and
+  // kolu-server's `padiLink` cell — see `packages/server/src/padiBinding.ts` /
+  // `packages/surface-remote/src/serveHostMap.ts`): whenever `padiLink !== "connected"`,
+  // the LOCAL_HOST entry is ALSO not `connected`, so `channelLive` is ALSO already false —
+  // the padi-link fold's extra "OR" term was multiplied by an already-false floor and could
+  // never fire. `channelLive` alone was always the complete, sufficient fact; the extra
+  // fold was dead weight (and a false promise the doc comments made but the composition
+  // didn't keep). Retiring it removes a host special-case with NO behavior change: a LOCAL
+  // `daemon.restart` drain and a REMOTE ssh flap now read through the exact same function,
+  // with no host key anywhere in this module — `liveWarming`/`liveDownState` don't even
+  // HAVE a host parameter to special-case.
+  it("liveWarming/liveDownState take no host input — a LOCAL padi drain and a REMOTE ssh flap (identical channelLive) verdict identically", () => {
+    const localDrain = channelLive(true, false); // local session leaves `connected`
+    const remoteFlap = channelLive(true, false); // remote entry leaves `connected`
+    expect(liveWarming("connected", localDrain)).toBe(
+      liveWarming("connected", remoteFlap),
+    );
+    expect(liveDownState("degraded", localDrain)).toBe(
+      liveDownState("degraded", remoteFlap),
+    );
+    // Concretely: neither reads a stale claim over the dropped channel — unknown, not a
+    // frozen "running"/"degraded" (the #1034 never-show-a-stale-verdict invariant, now
+    // enforced identically for every host by construction, not by a per-host gate).
+    expect(liveWarming("connected", localDrain)).toBe(false);
+    expect(liveDownState("degraded", localDrain)).toBeUndefined();
+  });
+});
+
+describe("toKavalPresence — P4: connected ⇒ identity present, by construction", () => {
+  const connectedStatus = (identity: DaemonStatus["identity"]): DaemonStatus =>
+    ({
+      state: "connected",
+      identity,
+      contractVersion: "5.0",
+      startedAt: 1000,
+      socketPath: "/run/user/1000/kaval-abcd/pty-host.sock",
+    }) as DaemonStatus;
+
+  it("a genuinely connected, identified daemon over a live channel reads `connected` with its identity", () => {
+    const status = connectedStatus({
+      staleKey: "abc",
+      navigableCommit: "deadbeef",
+    });
+    expect(toKavalPresence(status, true)).toEqual({
+      kind: "connected",
+      identity: { staleKey: "abc", navigableCommit: "deadbeef" },
+      contractVersion: "5.0",
+      startedAt: 1000,
+      socketPath: "/run/user/1000/kaval-abcd/pty-host.sock",
+    });
   });
 
-  it("liveDownStateWithPadiLink: defers to the kaval down logic when the padi link is `connected` (a genuine kaval death over a live binding still surfaces)", () => {
-    expect(liveDownStateWithPadiLink("connected", "dead", true)).toBe("dead");
-    expect(liveDownStateWithPadiLink("connected", "degraded", true)).toBe(
-      "degraded",
-    );
+  it("RED→GREEN repro: a `connected` status whose identity has not (yet) arrived NEVER reads `connected` — it folds to `warming`, never a synthesized dash beside a claimed-live daemon", () => {
+    // The pre-identity-survivor case `@kolu/padi`'s backward-compat seam allows at the
+    // wire level. Before P4, the dialog read `props.status?.identity?.navigableCommit`
+    // directly and rendered a bare "—" while the dot/label still said "running" — the
+    // exact "connected but identity unknown" escape hatch. `toKavalPresence` makes that
+    // combination unrepresentable: it is never `{ kind: "connected", identity: undefined }`
+    // (a type that does not exist), so the dialog can only show "—" for a NON-connected
+    // presence, never beside a connected one.
+    const status = connectedStatus(undefined);
+    const presence = toKavalPresence(status, true);
+    expect(presence.kind).toBe("warming");
+    expect(presence).not.toMatchObject({ kind: "connected" });
+  });
+
+  it("RED→GREEN repro: the drain/reconnect class — a dead/half-open channel never reads `connected`, even over a retained `connected` wire status", () => {
+    // The reproduced live bug: an AbortError drain burst kills the channel; the retained
+    // (stale) `connected` status must not be shown as a confirmed-connected identity.
+    const status = connectedStatus({
+      staleKey: "abc",
+      navigableCommit: "deadbeef",
+    });
+    expect(toKavalPresence(status, false)).toEqual({ kind: "warming" });
+    // Reconnect (channel live again, status unchanged) — identity is confirmed again.
+    expect(toKavalPresence(status, true)).toMatchObject({ kind: "connected" });
+  });
+
+  it("pre-first-value (status undefined) and a genuinely down daemon each read their own honest kind — never `connected`", () => {
+    expect(toKavalPresence(undefined, true)).toEqual({ kind: "warming" });
+    expect(toKavalPresence({ state: "dead" } as DaemonStatus, true)).toEqual({
+      kind: "down",
+      state: "dead",
+    });
     expect(
-      liveDownStateWithPadiLink("connected", "connected", true),
-    ).toBeUndefined();
-    // Still floored on the browser transport leg too (both legs must be live).
+      toKavalPresence({ state: "degraded" } as DaemonStatus, true),
+    ).toEqual({ kind: "down", state: "degraded" });
     expect(
-      liveDownStateWithPadiLink("connected", "dead", false),
-    ).toBeUndefined();
+      toKavalPresence({ state: "connecting" } as DaemonStatus, true),
+    ).toEqual({ kind: "warming" });
   });
 });

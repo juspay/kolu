@@ -27,7 +27,7 @@
  */
 
 import { debounce } from "@solid-primitives/scheduled";
-import { type Accessor, createEffect, createRoot, on } from "solid-js";
+import { type Accessor, createEffect, on } from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
 import { STREAM_RETRY, type StreamingProcedure } from "../client";
 import type { Cell } from "../index";
@@ -43,6 +43,9 @@ export interface UseCellServerOptions<T, P = T> {
   authority?: "server";
   mutate?: UnaryProcedure<P, unknown> | ((patch: P) => Promise<void> | void);
   onError?: (err: Error) => void;
+  /** Fired when the cell's stream ends NORMALLY (typed end) — the surface client
+   *  threads the keyed cache's slot eviction here so a re-served cell rebuilds. */
+  onComplete?: () => void;
 }
 
 export interface UseCellLocalOptions<T extends object, P = T> {
@@ -90,6 +93,9 @@ export interface UseCellLocalOptions<T extends object, P = T> {
    *  Flush failures surface via `onError`, not the returned promise. */
   coalesceMs?: number;
   onError?: (err: Error) => void;
+  /** Fired when the cell's stream ends NORMALLY (typed end) — the surface client
+   *  threads the keyed cache's slot eviction here so a re-served cell rebuilds. */
+  onComplete?: () => void;
 }
 
 export type UseCellOptions<T, P = T> =
@@ -112,15 +118,37 @@ export interface UseCellResult<T, P> {
   sub: Subscription<T>;
 }
 
+/** The local-authority result: `value` is `Accessor<T>`, never `undefined` —
+ *  `useCellLocal`'s store is seeded synchronously from the required `initial`
+ *  (`UseCellLocalOptions.initial: T`), so there is no pre-first-value gap a
+ *  local-authority consumer could observe. `T | undefined` is a SERVER-authority
+ *  fact only (no first frame yet); widening it onto local authority invited dead
+ *  `value() ?? fallback` / `<Show when={value()}>` branches a local cell can
+ *  never take. Structurally assignable to {@link UseCellResult} (`Accessor<T>` is
+ *  a narrower `Accessor<T | undefined>`), so nothing that already accepts the
+ *  server-shaped result breaks. */
+export interface UseCellLocalResult<T, P>
+  extends Omit<UseCellResult<T, P>, "value"> {
+  value: Accessor<T>;
+}
+
+export function useCell<Name extends string, T extends object, P = T>(
+  cell: Cell<Name, T>,
+  options: UseCellLocalOptions<T, P>,
+): UseCellLocalResult<T, P>;
+export function useCell<Name extends string, T, P = T>(
+  cell: Cell<Name, T>,
+  options: UseCellServerOptions<T, P>,
+): UseCellResult<T, P>;
 export function useCell<Name extends string, T, P = T>(
   cell: Cell<Name, T>,
   options: UseCellOptions<T, P>,
-): UseCellResult<T, P> {
+): UseCellResult<T, P> | UseCellLocalResult<T, P> {
   if (options.authority === "local") {
     return useCellLocal(
       cell as Cell<Name, T & object>,
       options as unknown as UseCellLocalOptions<T & object, P>,
-    ) as unknown as UseCellResult<T, P>;
+    ) as unknown as UseCellLocalResult<T, P>;
   }
   return useCellServer(cell, options as UseCellServerOptions<T, P>);
 }
@@ -131,22 +159,26 @@ function toError(err: unknown): Error {
 
 /** Wrap a streaming procedure ref into the thunk shape `createSubscription`
  *  expects, threading `STREAM_RETRY` context so transport drops re-subscribe
- *  transparently. */
+ *  transparently, AND the subscription's own abort signal — so disposing the
+ *  cell (the last consumer of a shared dedup slot leaving) cancels the wire
+ *  stream instead of leaving it open with nothing left to read it. */
 function streamingThunk<T>(
   source: StreamingProcedure<undefined, T>,
-): () => Promise<AsyncIterable<T>> {
-  return () => source(undefined, { context: STREAM_RETRY });
+): (signal: AbortSignal) => Promise<AsyncIterable<T>> {
+  return (signal) => source(undefined, { signal, context: STREAM_RETRY });
 }
 
 function useCellServer<Name extends string, T, P>(
   _cell: Cell<Name, T>,
   options: UseCellServerOptions<T, P>,
 ): UseCellResult<T, P> {
-  const sub = createRoot(() =>
-    createSubscription(streamingThunk(options.source), {
-      onError: options.onError,
-    }),
-  );
+  // No wrapping `createRoot`: the subscription runs under the CALLER's owner — the
+  // keyed-cache slot when the surface client shares it, else the consumer's own
+  // owner — so it aborts when that owner disposes instead of leaking app-lifetime.
+  const sub = createSubscription(streamingThunk(options.source), {
+    onError: options.onError,
+    onComplete: options.onComplete,
+  });
 
   async function callMutate(p: P): Promise<void> {
     if (!options.mutate) {
@@ -170,7 +202,7 @@ function useCellServer<Name extends string, T, P>(
 function useCellLocal<Name extends string, T extends object, P>(
   _cell: Cell<Name, T>,
   options: UseCellLocalOptions<T, P>,
-): UseCellResult<T, P> {
+): UseCellLocalResult<T, P> {
   const [store, setStore] = createStore<T>(options.initial);
   // Mutable guard: once any server value arrives, seed the local store
   // from it and never overwrite again. Server echoes after init must not
@@ -179,23 +211,24 @@ function useCellLocal<Name extends string, T extends object, P>(
   // unnecessary effects for a one-time transition.
   let initialized = false;
 
-  const sub = createRoot(() => {
-    const s = createSubscription(streamingThunk(options.source), {
-      onError: options.onError,
-    });
-    createEffect(
-      on(
-        () => s(),
-        (server) => {
-          if (server !== undefined && !initialized) {
-            initialized = true;
-            setStore(reconcile(server as T));
-          }
-        },
-      ),
-    );
-    return s;
+  // No wrapping `createRoot`: the subscription + its seed effect run under the
+  // CALLER's owner (the keyed-cache slot when shared, else the consumer's own owner),
+  // so they dispose with that owner instead of leaking app-lifetime.
+  const sub = createSubscription(streamingThunk(options.source), {
+    onError: options.onError,
+    onComplete: options.onComplete,
   });
+  createEffect(
+    on(
+      () => sub(),
+      (server) => {
+        if (server !== undefined && !initialized) {
+          initialized = true;
+          setStore(reconcile(server as T));
+        }
+      },
+    ),
+  );
 
   function applyLocal(p: P): void {
     if (options.mergeIntoStore) {

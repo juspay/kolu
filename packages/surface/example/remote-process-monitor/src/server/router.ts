@@ -36,7 +36,7 @@ import {
   pipeSessionStateToCell,
   type Session,
   seedConnectionCell,
-} from "@kolu/surface-nix-host";
+} from "@kolu/surface-remote";
 import { implement } from "@orpc/server";
 import {
   type CoreId,

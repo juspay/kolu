@@ -2,7 +2,7 @@
  * The lifted half-open-link watchdog (`@kolu/surface/heartbeat`) — the algorithm
  * both legs share. The browser leg's partysocket-shaped wrapper is exercised
  * end-to-end in `@kolu/surface-app`'s `connect.test.ts`, and the ssh leg in
- * `@kolu/surface-nix-host`'s `liveness.test.ts`; here we pin the two injected
+ * `@kolu/surface-remote`'s `liveness.test.ts`; here we pin the two injected
  * variation points directly — the `isLive` GATE and the `onStale` ACTION — plus
  * the race/settle/skip-overlap/dispose invariants, framework-free.
  */

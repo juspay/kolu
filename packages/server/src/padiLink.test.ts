@@ -1,4 +1,4 @@
-import type { ConnectionState } from "@kolu/surface-nix-host";
+import type { ConnectionState } from "@kolu/surface-remote";
 import { describe, expect, it } from "vitest";
 import { mapConnectionToPadiLink } from "./padiLink.ts";
 

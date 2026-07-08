@@ -1,10 +1,18 @@
-/** KavalInfoDialog - compact identity panel for the Kaval rail chip. */
+/** KavalInfoDialog - compact identity panel for the Kaval rail chip.
+ *
+ *  See `PadiInfoDialog.tsx`'s header for the shared HOST-SCOPING CLASSIFICATION TABLE
+ *  (every per-host field either re-keys on `activeHost` or is host-independent with a
+ *  reason). This dialog's own fields are ALL host-scoped: `props.status` rides
+ *  `localDaemonStatus()` (`padiMap.useEntry(activeHost).collections.daemonStatus`),
+ *  `daemonChannelLive()` reads `padiMap.entry(activeHost())` directly, and
+ *  `boundHostKavals()`/`localScanKavals()` ride `useHostInventory`/`useDaemonInventory`
+ *  per that same table. */
 
 import type { DaemonStatus } from "@kolu/padi/surface";
 import { isCleanRef } from "@kolu/surface-app";
 import type { RunningKaval } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "../ui/Commit";
@@ -18,13 +26,14 @@ import {
   boundHostKavals,
 } from "../ui/useHostInventory";
 import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
+import { type KavalPresence, toKavalPresence } from "./daemonPresentation";
 import { expectedKaval } from "./KavalUpdateBadge";
 import { kavalStale } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
-  daemonTransportLive,
+  daemonChannelLive,
   formatUptime,
   kavalDot,
 } from "./useDaemonStatus";
@@ -99,12 +108,27 @@ const KavalInfoDialog: Component<{
   status: DaemonStatus | undefined;
 }> = (props) => {
   const clockNow = getClockNow();
+  // The client's own honest presence sum (P4 — retires the "unknown"/"—" escape hatch):
+  // `identity` is MANDATORY on the `connected` arm, so a render can never show a
+  // synthesized dash beside a confirmed-connected kaval. Floored on `daemonChannelLive`
+  // exactly like the dot/label below — a dead/half-open channel folds to `warming`, never
+  // a stale `connected` claim over a frozen identity. See `daemonPresentation.ts`'s
+  // `toKavalPresence` + its `@ts-expect-error` pin in `daemonPresentation.test.ts`.
+  const presence = createMemo<KavalPresence>(() =>
+    toKavalPresence(props.status, daemonChannelLive()),
+  );
+  const connected = ():
+    | Extract<KavalPresence, { kind: "connected" }>
+    | undefined => {
+    const p = presence();
+    return p.kind === "connected" ? p : undefined;
+  };
   const pending = (): boolean =>
     kavalStale(
       expectedKaval()?.staleKey,
       props.status?.identity?.staleKey,
       props.status?.state,
-      daemonTransportLive(),
+      daemonChannelLive(),
     );
   // The bound host's active kaval is still at the pre-padi legacy address (adopted on
   // upgrade) — so the Restart-kaval button (which recycles the BOUND host's kaval via
@@ -148,10 +172,10 @@ const KavalInfoDialog: Component<{
           {(s) => (
             <div class="flex min-w-0 items-center gap-2">
               <span
-                class={`inline-block h-2 w-2 rounded-full ${kavalDot(s().state, daemonTransportLive())}`}
+                class={`inline-block h-2 w-2 rounded-full ${kavalDot(s().state, daemonChannelLive())}`}
               />
               <Show
-                when={daemonTransportLive()}
+                when={daemonChannelLive()}
                 fallback={
                   <span class="text-xs font-medium text-fg-3">unknown</span>
                 }
@@ -160,7 +184,7 @@ const KavalInfoDialog: Component<{
                   {DAEMON_STATE_PRESENTATION[s().state].label}
                 </span>
               </Show>
-              <Show when={daemonTransportLive() && s().startedAt}>
+              <Show when={daemonChannelLive() && s().startedAt}>
                 {(t) => (
                   <span class="truncate text-[11px] tabular-nums text-fg-3">
                     up {formatUptime(clockNow() - t())}
@@ -174,7 +198,12 @@ const KavalInfoDialog: Component<{
 
       <div class="space-y-1">
         <DetailRow label="build commit">
-          <Commit sha={props.status?.identity?.navigableCommit} />
+          {/* Routed through `connected()` (P4): a confirmed-connected kaval's build
+              commit is present BY CONSTRUCTION (no `??`/ternary escape hatch); a
+              non-connected/not-yet-identified/channel-dead kaval passes `undefined`,
+              which `<Commit>` renders as an honest "—" — never a synthesized dash
+              beside a claimed-connected state. */}
+          <Commit sha={connected()?.identity.navigableCommit} />
         </DetailRow>
         <DetailRow label="socket">
           {/* Local bind → the bound kaval's unix socket. Remote bind → the kaval lives on

@@ -24,6 +24,9 @@ export type ScrollRequest = {
   surface?: "source" | "prose";
 };
 
+// HOST-SCOPING: host-INDEPENDENT by design — one-shot, consumed-and-cleared within
+// the same navigation frame; a request left unconsumed targets an unmounted surface
+// and is simply dropped, never floats across a host switch.
 const [scrollReq, setScrollReq] = createSignal<ScrollRequest | null>(null);
 
 export function useCommentScrollRequest() {

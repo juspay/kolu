@@ -61,10 +61,15 @@ export function rawTargetFromContext(c: Context): string | undefined {
 }
 
 /** Extract the still-encoded path tail for a terminal's preview route from a
- *  RAW request URL. Slices off `${BASE}/{terminalId}/${FILE}/`, returning the
- *  remaining percent-encoded segments (or `""` when the URL doesn't match the
+ *  RAW request URL. Slices off `${BASE}/{host}/{terminalId}/${FILE}/`, returning
+ *  the remaining percent-encoded segments (or `""` when the URL doesn't match the
  *  prefix — the route registration guarantees it does, but the guard keeps this
  *  pure and total).
+ *
+ *  `host` is the DECODED route param (`c.req.param("host")`); the client encodes
+ *  it with `encodeURIComponent` (see `buildTerminalFileUrl`), so re-encoding it
+ *  here reproduces the exact raw segment the pathname carries — the same canonical
+ *  round-trip the caller relies on.
  *
  *  The un-normalized pathname comes from serve-dir's `rawPathname`, NOT
  *  `new URL(rawUrl).pathname` / Hono's `c.req.path` / `c.req.param("*")` — see
@@ -73,9 +78,10 @@ export function rawTargetFromContext(c: Context): string | undefined {
  *  kolu-specific prefix slice on top of that raw pathname. */
 export function previewTailFromRawUrl(
   rawUrl: string,
+  host: string,
   terminalId: string,
 ): string {
-  const prefix = `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/`;
+  const prefix = `${TERMINAL_FILE_ROUTE_BASE}/${encodeURIComponent(host)}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/`;
   const pathname = rawPathname(rawUrl);
   return pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "";
 }

@@ -324,11 +324,9 @@ describe("parseNameStatus", () => {
     expect(parseNameStatus(raw)).toEqual([{ path: "link.txt", status: "T" }]);
   });
 
-  it("falls back to '?' for unknown status letters", () => {
+  it("throws on an unrecognized status letter instead of silently bucketing it as untracked", () => {
     const raw = "X\0unknown.txt\0";
-    expect(parseNameStatus(raw)).toEqual([
-      { path: "unknown.txt", status: "?" },
-    ]);
+    expect(() => parseNameStatus(raw)).toThrow(/unrecognized change-status/i);
   });
 
   it("returns empty array for empty input", () => {

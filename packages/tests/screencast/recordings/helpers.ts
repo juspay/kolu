@@ -1,5 +1,6 @@
 // Shared kolu-domain helpers for authoring recordings. (Kolu domain — knows
 // about claude/terminals; depends on the World, never on the engine.)
+import { padiFold } from "../../support/padiEnvelope.ts";
 import type { KoluWorld } from "../../support/world";
 
 /** Sleep `ms` — paces a recording at human speed. */
@@ -48,13 +49,18 @@ export async function clearCanvas(
   beatMs = 800,
 ): Promise<void> {
   await world.waitForReady();
+  // Folded {mapKey,input} envelope computed here (node) and passed INTO the browser eval —
+  // padiFold reads process.env, which the page context lacks (W4 keyed-map adoption).
+  const killBody = JSON.stringify({ json: padiFold() });
   await world.page
-    .evaluate(() =>
-      fetch("/rpc/surface/padi/lifecycle/killAll", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      }),
+    .evaluate(
+      (body) =>
+        fetch("/rpc/surface/padi/lifecycle/killAll", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        }),
+      killBody,
     )
     .catch(() => undefined);
   for (let i = 0; i < 20; i++) {
@@ -110,17 +116,15 @@ export async function setTerminalThemeRpc(
   id: string,
   themeName: string,
 ): Promise<void> {
+  const themeBody = JSON.stringify({ json: padiFold({ id, themeName }) });
   await world.page
-    .evaluate(
-      async ({ id, themeName }) => {
-        await fetch("/rpc/surface/padi/chrome/setTheme", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ json: { id, themeName } }),
-        });
-      },
-      { id, themeName },
-    )
+    .evaluate(async (body) => {
+      await fetch("/rpc/surface/padi/chrome/setTheme", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+    }, themeBody)
     .catch(() => undefined);
 }
 

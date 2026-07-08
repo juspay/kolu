@@ -6,7 +6,7 @@
  * Post-S9 there is no `RemotePadiSession` class: the arm is
  * `makeSession({ connectOnce: sshConnector({ binary: "padi" }), admit: padiAdmit })`
  * plus the daemon-supervision spread. So the transport is mocked at the ssh seam —
- * `sshConnector` is replaced (via `vi.mock` of `@kolu/surface-nix-host`) with a fake
+ * `sshConnector` is replaced (via `vi.mock` of `@kolu/surface-remote`) with a fake
  * connector that hands the loop a fake PADI DAEMON client per (re)dial, exactly the way
  * `recheck.test.ts` / `liveness.test.ts` mock the child. Everything ELSE — the real
  * `makeSession` reconnect loop, the real `admit` hook, the real `decide()` table — runs
@@ -40,23 +40,25 @@
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
   type ClosedInfo,
-  ConnectError,
   type ConnectContext,
+  ConnectError,
   type Connection,
   type SessionState,
-} from "@kolu/surface-nix-host";
+} from "@kolu/surface-remote";
+import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PadiSession } from "./padiSession.ts";
 import {
   composePadiExtraArgs,
   ensureRemotePadiBinding,
+  KOLU_PADI_HOST_ENV,
+  parseKoluPadiHostSeed,
   type RemotePadiSessionDeps,
-  remotePadiHost,
 } from "./remotePadiBinding.ts";
 
 // ── Mock the ssh transport ONLY ──────────────────────────────────────────────
 // Replace `sshConnector` with a fake connector the per-test harness drives; keep the
-// rest of `@kolu/surface-nix-host` (the REAL `makeSession` loop, `ConnectError`, …)
+// rest of `@kolu/surface-remote` (the REAL `makeSession` loop, `ConnectError`, …)
 // intact via `importOriginal`. This is the ssh seam the arm layers padi's admit over —
 // mocking it is the exact analog of `recheck`/`liveness` mocking `node:child_process`.
 const hoisted = vi.hoisted(() => ({
@@ -64,9 +66,8 @@ const hoisted = vi.hoisted(() => ({
     | null
     | ((ctx: ConnectContext) => Promise<Connection<unknown>>),
 }));
-vi.mock("@kolu/surface-nix-host", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@kolu/surface-nix-host")>();
+vi.mock("@kolu/surface-remote", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kolu/surface-remote")>();
   return {
     ...actual,
     // Ignore the ssh opts; delegate to the harness's queue-driven connector.
@@ -204,6 +205,12 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
               handle.drainCount += 1;
               drained = true;
             },
+            // The frozen control-core's clock-probe member `measureClockOffset` samples
+            // at every admit — real padi's is `() => ({ epochMs: Date.now() })`
+            // (controlCore.ts); mirrored here so admit's probe succeeds like production.
+            clockNow: async (): Promise<{ epochMs: number }> => ({
+              epochMs: Date.now(),
+            }),
           },
         },
         padi: {
@@ -242,6 +249,21 @@ function snap(session: PadiSession): SessionState {
   session.onState((state) => {
     s = state;
   })();
+  return s;
+}
+
+/** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
+ *  the UP arm carries no `lastError`/`failureCause` fields at all, so a test
+ *  that expects a down state asserts it here rather than reading a field that
+ *  doesn't exist on a live/warming snapshot. */
+function down(
+  s: SessionState,
+): Extract<SessionState, { connection: "disconnected" | "failed" }> {
+  if (s.connection !== "disconnected" && s.connection !== "failed") {
+    throw new Error(
+      `expected a DOWN session state, got connection=${s.connection}`,
+    );
+  }
   return s;
 }
 
@@ -330,7 +352,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     // The connection cell reads a loud, honest degraded/remote frame.
     const s = snap(session);
     expect(s.connection).toBe("disconnected");
-    expect(s.failureCause).toBe("remote");
+    expect(down(s).failureCause).toBe("remote");
     // Identity is the honest `disconnected` arm (nothing adopted) — the old
     // padiSurfaceVersion()===null.
     expect(session.identity().kind).toBe("disconnected");
@@ -345,6 +367,15 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     // …and the reason is a STANDING, surfaced convergence state so the Padi dialog shows WHY.
     expect(session.convergence()?.state).toBe("skew-refused");
     expect(session.convergence()?.detail).toMatch(/contract skew|refusing/i);
+
+    // THE PROJECTION INVARIANT (`@kolu/surface-map`'s `projectStatus` discriminates the
+    // `disconnected` arm on cause-specificity): a REFUSE verdict sets a SPECIFIC domain
+    // cause on the DOWN state — so the standing refuse projects to `failed` + card, never
+    // masked as a transient `warming`. D2's typed running/expected pair rides along.
+    expect(session.entryFailedDetail()).toMatchObject({
+      cause: "contract-skew-refused",
+      running: "99.0",
+    });
   });
 
   it("a TERMINAL link failure (host unreachable / provisioning failed) surfaces as a standing link-failed state, canvas dead", async () => {
@@ -649,7 +680,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     );
   });
 
-  it("a DIFFERENT instance still build-mismatched after a drain → ADOPTS LOUDLY (anti-livelock, never treadmills)", async () => {
+  it("D3: a DIFFERENT instance still build-mismatched after a drain → CROSS-SUPERVISOR fail-honest (another supervisor is fighting; stop, never ride a contested build)", async () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
@@ -662,33 +693,40 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/build mismatch|link death/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // reconnect brings up a DIFFERENT instance (2000) STILL build-OLD — two supervisors,
-    // or the absent-id dev loop. Do NOT treadmill: ADOPT LOUDLY the resident, no fresh drain.
+    // reconnect brings up a DIFFERENT instance (2000) STILL build-OLD — another supervisor
+    // is respawning its OWN build (the remote twin of the local supervisor.pid war). D3:
+    // STOP + fail-honest with the TYPED `cross-supervisor` cause, never ADOPT the contested
+    // build (the build we'd ride is the loser of a race). No fresh drain; the host goes down
+    // and the Skew-UX card offers [Switch to local] / isolate via KOLU_REMOTE_PADI_STATE_DIR.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
-    const client = await session.currentClient();
-    expect(client).toBeTruthy();
+    await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
+      /anti-livelock|respawning/i,
+    );
     expect(handles[1]!.drainCount).toBe(0);
-    const conv = session.convergence();
-    expect(conv?.state).toBe("adopted-stale");
-    expect(conv?.detail).toMatch(/anti-livelock|respawning/i);
+    // Parked under the `unconverged` convergence banner, but the TYPED map cause is
+    // `cross-supervisor` (the dedicated flag wins over `unconverged` in the detail hook).
+    expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
   it("renew() restarts an ADOPTED-STALE resident (a live adopted daemon), not a false 'not bound' error", async () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
+      maxBuildDrainsPerInstance: 1,
       drainTeardownCeilingMs: CEIL,
       drainPollMs: POLL,
     });
-    // Reach adopted-stale via anti-livelock: drain 1000, then a DIFFERENT instance 2000
-    // is still mismatched → adopt-stale the resident (no fresh drain).
-    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
+    // Reach adopted-stale via BUDGET exhaustion (a flapping SAME instance — a link blip, NOT
+    // a cross-supervisor fight): drain 7000 once, the blip reconnects the SAME 7000 still
+    // mismatched → budget (1) spent → adopt-stale the resident (a LIVE daemon).
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 7000 })));
     const p = session.pin();
     p.catch(() => {});
     await flush(CEIL);
     await expect(p).rejects.toThrow(/build mismatch|link death/i);
-    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 2000 })));
+    enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 7000 })));
     await flush(RECONNECT);
     await flush();
     await session.currentClient(); // adopts-stale the resident (a LIVE daemon)
@@ -790,7 +828,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(session.convergence()).toBeNull(); // healthy — no degraded banner
   });
 
-  it("contract-skew TREADMILL: a DIFFERENT skewed instance after a drain → degrades LOUDLY (anti-livelock), never drains forever (M1)", async () => {
+  it("D3: contract-skew TREADMILL — a DIFFERENT skewed instance after a drain → CROSS-SUPERVISOR fail-honest (anti-livelock), never drains forever (M1)", async () => {
     const { session, enqueue, handles } = makeArm({
       binderVersion: "9.0",
       binderBuildId: "b",
@@ -805,16 +843,19 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/newer contract/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // reconnect brings up a DIFFERENT instance (2000), STILL old contract. Do NOT re-drain:
-    // LOUD terminal unconverged.
+    // reconnect brings up a DIFFERENT instance (2000), STILL old contract — another
+    // supervisor is respawning it. Do NOT re-drain: STOP + fail-honest with the TYPED
+    // `cross-supervisor` cause (parked under the `unconverged` banner). The isolation
+    // lever is KOLU_REMOTE_PADI_STATE_DIR; the client card offers [Switch to local].
     enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
     await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
-      /anti-livelock|treadmill/i,
+      /anti-livelock|treadmill|respawning/i,
     );
     expect(handles[1]!.drainCount).toBe(0);
     expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
   it("an INTENDED drain resets the give-up budget — its disconnect is classified 'network', never the bounded 'remote'", async () => {
@@ -833,7 +874,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     p.catch(() => {});
     await flush(CEIL);
     await expect(p).rejects.toThrow(/build mismatch/i);
-    expect(snap(session).failureCause).toBe("network");
+    expect(down(snap(session)).failureCause).toBe("network");
     expect(snap(session).connection).not.toBe("failed");
   });
 
@@ -855,15 +896,37 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await flush();
     const s = snap(session);
     expect(s.connection).toBe("disconnected");
-    expect(s.failureCause).toBe("remote");
+    expect(down(s).failureCause).toBe("remote");
     expect(session.identity().kind).toBe("disconnected");
     // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
     // can't be ridden, unlike a build mismatch).
     expect(session.convergence()?.state).toBe("unconverged");
+    // THE PROJECTION INVARIANT: `unconverged` is a REFUSE, so it sets a SPECIFIC cause on
+    // the down state (→ `failed` + card, never masked as warming).
+    expect(session.entryFailedDetail()).toEqual({ cause: "unconverged" });
     // The client is WITHHELD (rejected) on subsequent live-client reads (like skew).
     await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
       /did not take|kept answering|newer/i,
     );
+  });
+
+  it("PROJECTION INVARIANT: a plain TRANSIENT link drop (healthy bind that dropped) yields NO domain cause → 'other' → warming", async () => {
+    // The other half of the invariant the cause-discriminated projection rides on: a
+    // link that dropped WITHOUT a refuse verdict has no non-transient reason, so
+    // `entryFailedDetail()` returns `null` — `serveHostMap`'s `causeFor` then falls back
+    // to `"other"`, and `projectStatus` reads that as the RETRIABLE warming (coming back
+    // up), never a masked-standing `failed`.
+    const { session, enqueue, handles } = makeArm({ binderBuildId: "build-X" });
+    enqueue(serve(helloVals({ buildId: "build-X" }))); // same build → clean ADOPT
+    await pinAdopt(session);
+    expect(session.entryFailedDetail()).toBeNull(); // connected, nothing to classify
+
+    // The link drops (a transient network blip — no skew, no cross-supervisor, no drv
+    // fault). The healthy bind's convergence clears to null → no domain cause.
+    handles[0]!.kill();
+    await flush();
+    expect(snap(session).connection).toBe("disconnected");
+    expect(session.entryFailedDetail()).toBeNull();
   });
 
   it("stays BOUNDED when the post-drain liveness probe HANGS (a wedged link never blocks past the ceiling)", async () => {
@@ -907,26 +970,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
   });
 });
 
-describe("remotePadiHost — the KOLU_PADI_HOST knob", () => {
-  const prior = process.env.KOLU_PADI_HOST;
-
-  it("is undefined when unset or blank (→ local arm)", () => {
-    delete process.env.KOLU_PADI_HOST;
-    expect(remotePadiHost()).toBeUndefined();
-    process.env.KOLU_PADI_HOST = "   ";
-    expect(remotePadiHost()).toBeUndefined();
-    if (prior === undefined) delete process.env.KOLU_PADI_HOST;
-    else process.env.KOLU_PADI_HOST = prior;
-  });
-
-  it("returns the trimmed host when set (→ remote arm)", () => {
-    process.env.KOLU_PADI_HOST = "  nix@prod  ";
-    expect(remotePadiHost()).toBe("nix@prod");
-    if (prior === undefined) delete process.env.KOLU_PADI_HOST;
-    else process.env.KOLU_PADI_HOST = prior;
-  });
-});
-
 describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", () => {
   it("passes --spawn-version through, and NEVER includes --stdio (host.ts already runs `padi --stdio`)", () => {
     const args = composePadiExtraArgs("1.2.3");
@@ -937,5 +980,59 @@ describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", ()
   it("is EMPTY when no spawn version is set — and still carries no --stdio", () => {
     expect(composePadiExtraArgs(null)).toEqual([]);
     expect(composePadiExtraArgs(undefined)).toEqual([]);
+  });
+
+  it("D3: forwards KOLU_REMOTE_PADI_STATE_DIR as --state-root so two kolus isolate their remote padis", () => {
+    // The primary defense against a remote cross-supervisor war: a per-kolu remote
+    // state-root → distinct digest → distinct socket → no shared padi to fight over.
+    expect(composePadiExtraArgs("1.2.3", "/srv/kolu-a/padi")).toEqual([
+      "--state-root",
+      "/srv/kolu-a/padi",
+      "--spawn-version",
+      "1.2.3",
+    ]);
+    // Unset / empty → omitted (single-kolu common case: the remote padi picks its own default).
+    expect(composePadiExtraArgs("1.2.3", undefined)).toEqual([
+      "--spawn-version",
+      "1.2.3",
+    ]);
+    expect(composePadiExtraArgs(null, "")).toEqual([]);
+  });
+});
+
+describe("KOLU_PADI_HOST seed parse (W4 the switch)", () => {
+  const priorSeed = process.env[KOLU_PADI_HOST_ENV];
+  afterEach(() => {
+    if (priorSeed === undefined) delete process.env[KOLU_PADI_HOST_ENV];
+    else process.env[KOLU_PADI_HOST_ENV] = priorSeed;
+  });
+
+  it("env unset → the lone LOCAL_HOST default (pixel-identical single-host)", () => {
+    delete process.env[KOLU_PADI_HOST_ENV];
+    expect(parseKoluPadiHostSeed()).toEqual([LOCAL_HOST]);
+  });
+
+  it("keeps valid remotes, order-preserved after the local head", () => {
+    process.env[KOLU_PADI_HOST_ENV] = "srid@zest, srid@pu";
+    expect(parseKoluPadiHostSeed()).toEqual([
+      LOCAL_HOST,
+      { kind: "remote", target: "srid@zest" },
+      { kind: "remote", target: "srid@pu" },
+    ]);
+  });
+
+  it("a seed entry that would have been a reserved channel name is now just an honest remote (the reject retired)", () => {
+    // `HostKey` is a nominal sum now, not an in-band string a bad value could collide
+    // with — every remote's encoded form is `remote:<target>`, which can never equal a
+    // reserved collection channel suffix (`keys`/`deltas`) — so there is nothing left to
+    // reject. `parseHostInput` is total: every token seeds cleanly.
+    process.env[KOLU_PADI_HOST_ENV] = "srid@zest,keys,srid@pu";
+    const seed = parseKoluPadiHostSeed();
+    expect(seed).toEqual([
+      LOCAL_HOST,
+      { kind: "remote", target: "srid@zest" },
+      { kind: "remote", target: "keys" },
+      { kind: "remote", target: "srid@pu" },
+    ]);
   });
 });

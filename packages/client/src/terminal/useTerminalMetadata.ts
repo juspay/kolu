@@ -22,7 +22,7 @@ import type {
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { padi } from "../wire";
+import { activeHost, padiMap } from "../wire";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -85,9 +85,9 @@ export function useTerminalMetadata(deps: {
   const keys = createMemo<TerminalId[]>(
     () => deps.list()?.map((t) => t.id) ?? [],
   );
-  const terminals = padi.collections.terminals.use({
+  const terminals = padiMap.useEntry(activeHost).collections.terminals.use({
     keys,
-    onError: (err) => toast.error(`Metadata error: ${err.message}`),
+    onError: (err: Error) => toast.error(`Metadata error: ${err.message}`),
   });
 
   // padi's `terminals` collection is typed `PadiTerminal` — a 3-arm union:
@@ -109,8 +109,72 @@ export function useTerminalMetadata(deps: {
    *  `parentId`: presence (a real tile record arrived) is the gate that excludes a
    *  still-loading OR parked terminal from the order. */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
+    const record = rawTile(id);
+    return record === undefined ? undefined : reprojectClock(record);
+  }
+
+  /** The RAW composed tile record — presence + the parked-narrow, with NO clock
+   *  reprojection. The ORDERING filters (`terminalIds`/`getSubTerminalIds`) read `parentId`
+   *  + presence off THIS, both clock-free, so the #1422 order-reference stability is not
+   *  perturbed by `reprojectClock`'s activeHost/offset read + fresh-object-per-call (which
+   *  only the value-reading `getMetadata` needs). */
+  function rawTile(id: TerminalId): TerminalMetadata | undefined {
     const record = terminals.byKey(id)?.();
     return record === undefined || isParked(record) ? undefined : record;
+  }
+
+  /** Reproject the record's padi-host-stamped epochs onto THIS browser's clock at the
+   *  ingestion BOUNDARY — via the ACTIVE host's measured `clockOffset` — so no downstream
+   *  consumer ever subtracts a raw remote epoch from the local clock (the foreign-clock
+   *  fence, applied ONCE here rather than per-consumer, so nothing is translated twice).
+   *  The THREE padi-stamped epochs a tile consumer renders against `Date.now()` are:
+   *  `lastActivityAt` (top-level, optional — staleness/recency), the ACTIVE arm's
+   *  `agent.startedAt` (the "Running for" duration), and the SLEEPING arm's `sleptAt` (the
+   *  "asleep 3d" line + dock recency). (`adoptedAt` rides the daemon status, not a tile,
+   *  and is a monotonic host-to-host dedup key — never compared to the browser clock — so
+   *  it stays raw there; `parkedAt` lives only on the parked arm this boundary narrows out.)
+   *  A null offset (host still warming, no offset measured yet) maps each epoch to its
+   *  ABSENT form — `lastActivityAt` → undefined, `agent.startedAt`/`sleptAt` → 0 — every
+   *  one of which consumers already render as "unknown", never the raw value. */
+  function reprojectClock(record: TerminalMetadata): TerminalMetadata {
+    const { toLocal } = padiMap.entry(activeHost()).clock;
+    // 0 is an IN-BAND sentinel across these epochs ("no activity yet" for `lastActivityAt`,
+    // `z.number().default(0)`; the ABSENT/"unknown" form for `startedAt`/`sleptAt`), NOT an
+    // epoch — so it must NOT be reprojected: `toLocal(0)` = `-offset` would forge a garbage
+    // timestamp that isStale/formatTimeAgo/dock-ranking read as a real reading (a fresh remote
+    // shell → "55y ago" → dropped from the dock as "parked"). Only a real, NON-zero epoch is a
+    // host-clock value to translate; 0 (and undefined) pass through untouched. 0 doing double
+    // duty is an overloaded value — a padi-contract union splitting "no activity" from an epoch
+    // is the real fix, not tonight's; this comment stops a future cleanup from reprojecting the
+    // sentinel again.
+    const lastActivityAt = record.lastActivityAt
+      ? (toLocal(record.lastActivityAt) ?? undefined)
+      : record.lastActivityAt;
+    const agent =
+      "agent" in record && typeof record.agent?.startedAt === "number"
+        ? {
+            ...record.agent,
+            startedAt: record.agent.startedAt
+              ? (toLocal(record.agent.startedAt) ?? 0)
+              : record.agent.startedAt,
+          }
+        : "agent" in record
+          ? record.agent
+          : undefined;
+    const sleptAt =
+      "sleptAt" in record && typeof record.sleptAt === "number"
+        ? record.sleptAt
+          ? (toLocal(record.sleptAt) ?? 0)
+          : record.sleptAt
+        : undefined;
+    // The same type bridge the parked-narrow above rides: the reprojected fields keep
+    // their wire types (number|undefined), so this is a value-only rewrite of the record.
+    return {
+      ...record,
+      lastActivityAt,
+      ...(agent === undefined ? {} : { agent }),
+      ...(sleptAt === undefined ? {} : { sleptAt }),
+    } as TerminalMetadata;
   }
 
   /** The tri-state census of the listed terminals' composed records, counted from
@@ -137,8 +201,8 @@ export function useTerminalMetadata(deps: {
    *  HAZARD: a record whose per-key stream WEDGES without erroring stays `awaited`
    *  forever, holding the canvas on `connecting` while `terminalIds()` is 0. There is
    *  deliberately NO timeout knob (fail-fast doctrine): the floor is
-   *  `CanvasFacts.transportLive` (watchdog-backed) — a LIVE transport with a
-   *  never-composing record is a padi/compose BUG that must surface loudly, not a UI
+   *  `CanvasFacts.channelLive` (watchdog-backed ws ∧ the active entry) — a LIVE channel
+   *  with a never-composing record is a padi/compose BUG that must surface loudly, not a UI
    *  state to tune around. */
   const recordPhases = createMemo(() => {
     let awaited = 0;
@@ -167,9 +231,10 @@ export function useTerminalMetadata(deps: {
   const terminalIds = createMemo<TerminalId[]>(
     () =>
       keys().filter((id) => {
-        // `getMetadata` already returns `undefined` for a parked (or not-yet-
-        // arrived) record, so presence alone excludes restore-card rows.
-        const a = getMetadata(id);
+        // `rawTile` already returns `undefined` for a parked (or not-yet-arrived)
+        // record, so presence alone excludes restore-card rows. Raw (not reprojected):
+        // ordering reads only `parentId`, clock-free.
+        const a = rawTile(id);
         return a !== undefined && !a.parentId;
       }),
     [],
@@ -181,7 +246,7 @@ export function useTerminalMetadata(deps: {
    *  presence check suffices here too. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
     return keys().filter((id) => {
-      const a = getMetadata(id);
+      const a = rawTile(id);
       return a !== undefined && a.parentId === parentId;
     });
   }

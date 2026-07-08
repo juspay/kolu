@@ -10,7 +10,16 @@
 // its `unenrolled-` name is itself the "I own this stream's health myself" signal,
 // so a hand-enrol can never read as a forgotten one. The full transport surface
 // lives at `@kolu/surface/client` for non-Solid consumers.
+
+// Re-exported so `@kolu/surface-app` (which has no direct `@orpc` dependency) can
+// constrain its own generics (`connectSurfaces<C extends AnyContractRouter>`) over
+// the combined contract without reaching into `@orpc/contract` itself.
+export type { AnyContractRouter } from "@orpc/contract";
 export type { StreamingProcedure } from "../client";
+// The keyed-root swap atom: run a factory under a root disposed + rebuilt on a key
+// change (the switch-abort ordering). Pure solid-generic; `@kolu/surface-map`'s
+// `useEntry` builds on it.
+export { createKeyedRoot } from "./createKeyedRoot";
 export {
   createReactiveSubscription,
   type ReactiveSubscriptionOptions,
@@ -19,6 +28,7 @@ export {
   createSubscription,
   type Subscription,
   type SubscriptionOptions,
+  wireSubscriptionError,
 } from "./createSubscription";
 // The grace-windowed boolean view — delays a predicate's rising edge, instant on
 // the fall. `@kolu/surface-app`'s `SurfaceAppProvider` derives its "show the
@@ -29,10 +39,13 @@ export { gracedDown } from "./gracedDown";
 // UNBRANDED `live: Accessor<boolean>` and folds it straight into `health().live`,
 // so exposing it would let a consumer mint `createSurfaceHealthRegistry(() => true)`
 // and paint a green/ready dot over a dead transport (the #1564 lie, reachable with
-// no socket and no watchdog) — exactly why its twin `buildSurfaceClient` (also a
-// raw-`live` seam) is package-private. The honest producers `surfaceClient` /
-// `surfaceClients`, which derive `live` from a branded `LiveSignalHandle`, are the
-// only public way to a health fact with a transport leg (pinned in `barrel.test.ts`).
+// no socket and no watchdog). Its twin `buildSurfaceClient` (also a raw-`live` seam)
+// IS exposed below — but only for FRAMEWORK COMPOSITION over a transport RESOLVED
+// through the half-open guard (`resolveTransport`); the registry minter has no such
+// composition need and no guard, so it stays private. The honest producers
+// `surfaceClient` / `surfaceClients` derive `live` from a branded `LiveSignalHandle`
+// and remain the way an APP obtains a health fact with a transport leg (barrel.test.ts
+// pins the registry minter's absence).
 export {
   type GateStatus,
   gateStatus,
@@ -61,10 +74,6 @@ export {
 // re-probe). Exported so `@kolu/surface-app`'s `createServerLifecycle` wires the
 // same fast resume path over its own watchdog; a no-op off-DOM.
 export { onWake } from "./onWake";
-// Re-exported so `@kolu/surface-app` (which has no direct `@orpc` dependency) can
-// constrain its own generics (`connectSurfaces<C extends AnyContractRouter>`) over
-// the combined contract without reaching into `@orpc/contract` itself.
-export type { AnyContractRouter } from "@orpc/contract";
 // NOTE: `SurfaceGate` (a JSX `.tsx` component) is intentionally NOT re-exported
 // here. This barrel must stay free of JSX so a consumer that imports
 // `@kolu/surface/solid` for the hooks/registry (e.g. `@kolu/surface-app`, drishti)
@@ -72,12 +81,21 @@ export type { AnyContractRouter } from "@orpc/contract";
 // it into every importer's bundle analysis and breaks builds without the Solid
 // JSX transform on `node_modules/@kolu/surface`. Import the gate from its own
 // entry point instead: `import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate"`.
+// `buildSurfaceClient` + `resolveTransport` are exposed for FRAMEWORK COMPOSITION —
+// a builder serving many clients over ONE resolved transport (`@kolu/surface-map`'s
+// per-key clients thread the app's resolved `live` into each). `resolveTransport`
+// applies the half-open guard; `buildSurfaceClient` takes the already-resolved
+// `link`+`live`. See `buildSurfaceClient`'s docstring for the pairing guarantee.
 export {
   type BoundCell,
   type BoundCellOptions,
   type BoundCollection,
   type BoundEvent,
   type BoundStream,
+  buildSurfaceClient,
+  type ReadOnlyBoundCollection,
+  type ReadOnlyBoundCollectionResult,
+  resolveTransport,
   type SurfaceClient,
   type SurfaceClients,
   surfaceClient,
@@ -87,6 +105,7 @@ export {
 export {
   type Authority,
   type UnaryProcedure,
+  type UseCellLocalResult,
   type UseCellOptions,
   type UseCellResult,
   useCell,
@@ -98,3 +117,8 @@ export {
 } from "./useCollection";
 export { type UseEventOptions, useEvent } from "./useEvent";
 export { useStream } from "./useStream";
+// The reconcile-or-assign write into a wrapped `{ v }` store — shared by
+// `createSubscription`/`createReactiveSubscription` internally and by
+// non-framework callers that stitch server data into the same wrapped-store
+// shape (e.g. `@kolu/client`'s `createPolledQuery`).
+export { writeWrappedValue } from "./writeValue";

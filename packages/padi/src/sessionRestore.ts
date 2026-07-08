@@ -68,12 +68,16 @@ function respawnActive(
     rightPanel: t.rightPanel,
     intent: t.intent,
     // Preserve the saved recency across the restart (RISK Q6) — without this the
-    // fold reseeds the restored terminal to `lastActivityAt: 0` and the dock's
-    // recency ranking permanently collapses after a `session.restore`. The parked
-    // record already copied this off the saved active record at park time; here
-    // it rides the fresh spawn. (Distinct from the client-facing `lifecycle
-    // .create`, which drops it so a genuinely fresh terminal gets padi's clock.)
-    lastActivityAt: t.lastActivityAt,
+    // fold reseeds the restored terminal to a fresh (never-active) recency and
+    // the dock's recency ranking permanently collapses after a `session.restore`.
+    // The parked record already copied this off the saved active record at park
+    // time; here it rides the fresh spawn. (Distinct from the client-facing
+    // `lifecycle.create`, which drops it so a genuinely fresh terminal gets
+    // padi's clock.) `?? undefined` bridges `AgentMemory`'s honest `null`
+    // (never-active) onto this input's `undefined` absence form — both fall
+    // through to the SAME `seedMemory()` default, so the bridge can't lose the
+    // never-active fact, only its spelling.
+    lastActivityAt: t.lastActivityAt ?? undefined,
   });
   // Auto-launch the resume form of the previously captured agent command, if the
   // user didn't opt out. `resumeFormFor` switches on the fold-derived

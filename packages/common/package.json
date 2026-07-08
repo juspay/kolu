@@ -8,6 +8,7 @@
   "exports": {
     "./surface": "./src/surface.ts",
     "./surfacesWithPadi": "./src/surfacesWithPadi.ts",
+    "./hostKey": "./src/hostKey.ts",
     "./contract": "./src/contract.ts",
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",
@@ -28,6 +29,7 @@
     "@kolu/padi": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
+    "@kolu/surface-map": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/terminal-workspace": "workspace:*",
     "@orpc/contract": "^1.13.13",

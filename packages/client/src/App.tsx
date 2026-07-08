@@ -13,7 +13,7 @@
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Resizable from "@corvu/resizable";
-import { padiRpc, sleepingArm } from "@kolu/padi/surface";
+import { sleepingArm } from "@kolu/padi/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import type { TerminalId } from "kolu-common/surface";
@@ -49,6 +49,7 @@ import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
 import DegradedCanvas from "./kaval/DegradedCanvas";
+import HostDownCanvas from "./kaval/HostDownCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
@@ -77,7 +78,7 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { padi, savedSession as serverSavedSession } from "./wire";
+import { activePadiRpc, savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -201,7 +202,7 @@ const App: Component = () => {
   const runImportSession = createImportSessionAction({
     pick: importSession,
     runImport: ({ session }) =>
-      padiRpc(padi).surface.session.import({ session }),
+      activePadiRpc.surface.session.import({ session }),
   });
 
   const commands = createCommands({
@@ -290,6 +291,10 @@ const App: Component = () => {
   const warmingMode = () => {
     const m = mode();
     return m.kind === "warming" ? m : undefined;
+  };
+  const hostFailedMode = () => {
+    const m = mode();
+    return m.kind === "host-failed" ? m : undefined;
   };
 
   return (
@@ -413,6 +418,12 @@ const App: Component = () => {
           </Match>
           <Match when={downMode()}>
             {(m) => <DegradedCanvas state={m().state} />}
+          </Match>
+          <Match when={hostFailedMode()}>
+            {/* The ACTIVE host's map-membership entry failed (ssh/contract fault,
+                cause-typed) — distinct from `down` (a connected host's dead kaval).
+                Its own surface: cause-typed copy + [Switch to local], no Retry. */}
+            {(m) => <HostDownCanvas cause={m().cause} reason={m().reason} />}
           </Match>
           <Match when={warmingMode()}>
             {(m) => (

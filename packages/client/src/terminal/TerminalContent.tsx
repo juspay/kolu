@@ -184,7 +184,21 @@ const TerminalContent: Component<{
           minSize={0}
           collapsible
           collapsedSize={0}
-          onCollapse={() => subPanel.collapsePanel(props.terminalId)}
+          // Only PERSIST a collapse that reflects USER intent — a genuine
+          // drag-to-collapse while the split actually has sub-terminals. On a host
+          // switch-BACK the sub-terminal metadata (parentId) re-arrives a beat
+          // AFTER the tile re-renders, so `hasSubs()` — hence `isExpanded()` —
+          // flickers false and drives `sizes` to [1, 0]; Corvu then fires this
+          // onCollapse. Persisting `collapsed:true` there LATCHES the split shut:
+          // once the metadata lands, the stored `collapsed:true` keeps
+          // `isExpanded()` false so the controlled `sizes` never returns to
+          // [1-panelSize, panelSize] and the split is lost for good (srid's
+          // switch-back split-loss). Guarding on `hasSubs()` makes the transient
+          // programmatic collapse a no-op; the controlled `sizes` re-expands the
+          // moment the sub metadata arrives.
+          onCollapse={() => {
+            if (hasSubs()) subPanel.collapsePanel(props.terminalId);
+          }}
           onExpand={() => subPanel.expandPanel(props.terminalId)}
           data-pane="sub"
           data-pane-focus={paneFocus("sub")}

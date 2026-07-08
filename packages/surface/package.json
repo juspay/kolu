@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./channel-names": "./src/channelNames.ts",
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
     "./heartbeat": "./src/heartbeat.ts",
@@ -43,6 +44,7 @@
   },
   "dependencies": {
     "@orpc/client": "^1.13.13",
+    "@solid-primitives/rootless": "^1.5.3",
     "@solid-primitives/scheduled": "^1.5.3",
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",

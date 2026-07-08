@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as os from "node:os";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { LOCAL_LOCATION, type SavedTerminal } from "@kolu/padi/surface";
+import { padiFold } from "../support/padiEnvelope.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -67,7 +68,7 @@ async function postSavedSessionPayload(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: payload }),
+      data: JSON.stringify({ json: padiFold(payload) }),
     },
   );
   assert.ok(

@@ -338,7 +338,8 @@ describe("buildDockModel", () => {
       4: "48h+",
     };
     const m = buildDockModel(sources, {
-      idleClassifier: (lastActivityAt) => byMarker[lastActivityAt] ?? null,
+      idleClassifier: (lastActivityAt) =>
+        lastActivityAt === null ? null : (byMarker[lastActivityAt] ?? null),
     });
     const idle = m.columns.find((c) => c.key === "idle");
     const subEntries = (key: string) =>

@@ -8,8 +8,7 @@
  *  presentation is now testable on its own, which is what lets `kavalDot`'s
  *  transport-liveness floor be pinned by a unit test without standing up a socket. */
 
-import type { DaemonState } from "@kolu/padi/surface";
-import type { PadiLink } from "kolu-common/surface";
+import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
 
@@ -191,47 +190,99 @@ export function liveDownState(
     : undefined;
 }
 
-// ── The padi-link leg: the SECOND floor on the re-served kaval daemonStatus ──
+// ── The active-entry leg: the SECOND floor on the (host-scoped) kaval daemonStatus ──
 //
-// The kaval `daemonStatus` the canvas reads rides padi's RE-SERVED surface, so its
-// TRUE liveness is BOTH legs of the delivery path: the browser↔kolu-server ws (the
-// `live` floor above) AND kolu-server's binding to padi (`padiLink`). While padi is
-// unbound (the re-targeted "restart kaval" DRAINS padi, so the binding drops for the
-// whole drain window) the re-serve's value-fold HOLDS the last kaval status STALE — a
-// frozen-but-live-looking read the existing `live` floor doesn't catch, because that
-// leg is still up. Folding `padiLink` here completes the floor, but ASYMMETRICALLY from
-// the browser leg: a padi link that is not `connected` is itself the honest "coming up"
-// (warming true), while it SUPPRESSES the "kaval is down" claim (the stale status can't
-// confirm it). When `padiLink === "connected"` both fall through to the kaval-state
-// logic unchanged.
+// W4 scopes `daemonStatus` to `useEntry(activeHost)`. For a REMOTE active host the
+// browser↔kolu-server ws (`transportLive`) can be up while the leg that actually delivers
+// that host's status — the server→remote link (the entry's own `EntryStatus`, projected
+// from its session's connection state, {@link @kolu/surface-remote's serveHostMap}) — is
+// dead/(re)establishing. On that flap the re-served `daemonStatus` FREEZES stale at
+// whatever it last read, so a rail floored only on `transportLive` paints a green
+// "running" kaval dot over a dead/warming daemon, contradicting the (honestly red/warming)
+// host chip — the #1568 green-over-dead class `foldState` floors on the chip, relocated to
+// the rail. This leg closes it: the daemonStatus channel is live only when the active
+// entry is itself `connected`.
+//
+// This is the SAME leg the LOCAL host's `daemon.restart` drain rides — the local session
+// is a `pool` member exactly like a remote one (`serveHostMap` attaches its `onState` no
+// differently), so a local padi drain ALSO drops the entry out of `connected` for the
+// whole drain window. There is no separate "local padi link" leg to fold any more (W4
+// daemon-rail unification, retiring the host-gated `localPadiLinkOnly`/`activePadiLink`
+// detour this file used to carry): every host — local or remote — floors on exactly this
+// one channel-liveness fact, computed the same way, with no host parameter anywhere in
+// this module.
 
-/** {@link liveWarming}, additionally folding the padi-link leg. Warming whenever the
- *  padi link is not `connected` (the binding is (re)establishing/dropped — coming up,
- *  covering the whole drain window) OR the kaval daemon is itself warming. Still floored
- *  on the browser transport `live` (mirroring `liveWarming`): a dead browser↔server link
- *  claims no warming off a stale padiLink. An `undefined` padiLink (pre-first-yield) is
- *  treated as not-`connected` — we don't yet know the binding is up, so show warming
- *  rather than a frozen-but-live-looking workspace. */
-export function liveWarmingWithPadiLink(
-  padiLink: PadiLink | undefined,
-  state: DaemonState | undefined,
-  live: boolean,
+/** The daemonStatus channel's TRUE liveness: the ws transport (`transportLive`) AND the
+ *  active host entry's own connection (`entryConnected`). Every kaval-rail read of the
+ *  ACTIVE host's daemon state floors on THIS, not `transportLive` alone, so a dead/warming
+ *  entry — local (a padi drain) or remote (an ssh flap) alike — reads "unknown", never a
+ *  green "running" over a frozen re-served status. Pure so the leg is pinnable without a
+ *  socket, like {@link kavalDot}. */
+export function channelLive(
+  transportLive: boolean,
+  entryConnected: boolean,
 ): boolean {
-  return live && (padiLink !== "connected" || isWarming(state));
+  return transportLive && entryConnected;
 }
 
-/** {@link liveDownState}, additionally floored on the padi-link leg. While the padi link
- *  is not `connected` the re-served kaval status is STALE/unconfirmable, so a "kaval is
- *  down" claim can't hold — read `undefined` (unknown), never a stale `dead`/`degraded`
- *  that would paint DegradedCanvas over a kaval whose status the dropped binding can no
- *  longer refresh. The warming fold above lights the honest coming-up surface instead.
- *  When `padiLink === "connected"`, defers to {@link liveDownState} unchanged (a genuine
- *  kaval death over a LIVE binding still surfaces `dead`/`degraded`). */
-export function liveDownStateWithPadiLink(
-  padiLink: PadiLink | undefined,
-  state: DaemonState | undefined,
+// ── KavalPresence — the P4 escape-hatch retirement ──────────────────────────────
+//
+// The wire's `DaemonStatusSchema` keeps `identity` OPTIONAL on the `connected` arm for
+// one reason: a pre-identity kaval build's own `system.version` predates the field
+// (`@kolu/padi/ptyHost/connect.ts`'s backward-compat seam — `@kolu/padi`'s call, not this
+// package's). That optionality let the DIALOG render a `connected` kaval with a
+// synthesized "—" build commit — the overloaded-null the drain/reconnect bug rode: a
+// dead-subscription "unknown" and a genuinely-connected-but-not-yet-identified kaval were
+// indistinguishable at the render site, both spelled with a `??`/ternary fallback.
+//
+// `KavalPresence` retires that: it is a NARROWER, client-owned sum every render site must
+// go through — `identity` is MANDATORY on its `connected` arm, so "connected but identity
+// unknown" is IMPOSSIBLE TO CONSTRUCT (a compile error, pinned by
+// `daemonPresentation.test.ts`'s `@ts-expect-error`). `toKavalPresence` is the ONE place
+// that decides what an identity-less "connected" wire value means — it folds to
+// `warming` (still becoming known), never a synthesized "—" beside a green dot.
+
+/** The wire's optional per-kaval identity, narrowed to "definitely present" — the shape
+ *  `KavalPresence`'s `connected` arm carries. Derived from `DaemonStatus["identity"]`
+ *  (not re-declared) so it can never drift from the wire schema. */
+export type KavalIdentity = NonNullable<DaemonStatus["identity"]>;
+
+/** The kaval dialog/rail's own honest presence sum — see the module section header.
+ *  `down`'s `state` mirrors {@link DAEMON_STATE_PRESENTATION}'s down bucket
+ *  (`dead`/`degraded`); `warming` covers EVERY case that is not a confirmed, identified
+ *  connection: pre-first-value, a dead/half-open channel, `connecting`/`restarting`, and
+ *  a `connected` wire status whose `identity` has not (yet) arrived. */
+export type KavalPresence =
+  | {
+      kind: "connected";
+      identity: KavalIdentity;
+      contractVersion: string;
+      startedAt: number;
+      socketPath: string | undefined;
+    }
+  | { kind: "warming" }
+  | { kind: "down"; state: "dead" | "degraded" };
+
+/** Project a (possibly stale/absent) `DaemonStatus` + the channel's liveness into the
+ *  client's own honest {@link KavalPresence} — the ONE place "connected" is decided.
+ *  Floored on `live` exactly like {@link kavalDot}/{@link liveWarming}/
+ *  {@link liveDownState}: a dead/half-open channel can't confirm ANY state, so it folds
+ *  to `warming` (never a stale "connected" claim over a value the dead channel can no
+ *  longer refresh). */
+export function toKavalPresence(
+  status: DaemonStatus | undefined,
   live: boolean,
-): "dead" | "degraded" | undefined {
-  if (padiLink !== "connected") return undefined;
-  return liveDownState(state, live);
+): KavalPresence {
+  if (!live || status === undefined) return { kind: "warming" };
+  if (status.state === "dead" || status.state === "degraded")
+    return { kind: "down", state: status.state };
+  if (status.state !== "connected") return { kind: "warming" }; // connecting | restarting
+  if (status.identity === undefined) return { kind: "warming" }; // pre-identity survivor
+  return {
+    kind: "connected",
+    identity: status.identity,
+    contractVersion: status.contractVersion,
+    startedAt: status.startedAt,
+    socketPath: status.socketPath,
+  };
 }

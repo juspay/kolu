@@ -27,6 +27,7 @@
     "@kolu/solid-statepip": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
+    "@kolu/surface-map": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
     "@kolu/theme": "workspace:*",
     "@orpc/client": "^1.13.13",

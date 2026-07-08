@@ -80,7 +80,7 @@ remote host — reusing the local arm's seam, not a parallel one:
 - **The binding** (`packages/server/src/remotePadiBinding.ts`). The knob
   **`KOLU_PADI_HOST=<ssh host>`** — OFF by default, no UI (the picker is W3.2) —
   branches kolu-server onto `getHostSession({ binary: "padi", extraArgs:
-  ["--stdio"] })` (`@kolu/surface-nix-host`, the exact stack `kaval-tui --host`
+  ["--stdio"] })` (`@kolu/surface-remote`, the exact stack `kaval-tui --host`
   rides). It re-runs `@kolu/padi/dial`'s control-core `hello` + skew refusal over
   the ssh-bridged link, scopes to `.surface.padi`, and re-serves through the SAME
   `RemoteMirrorSession` seam the local `PadiBindingSession` plugs into. Unset →

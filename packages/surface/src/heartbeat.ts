@@ -14,7 +14,7 @@
  *
  *   - the BROWSER leg (`@kolu/surface-app`'s partysocket `createHeartbeat`) passes
  *     `isLive: () => ws.readyState === ws.OPEN` and `onStale: () => ws.reconnect()`;
- *   - the SSH leg (`@kolu/surface-nix-host`'s HostSession) passes
+ *   - the SSH leg (`@kolu/surface-remote`'s HostSession) passes
  *     `isLive: () => this.connection === 'connected'` and `onStale: () => this.recheck()`.
  *
  * The two variation points the legs differ on — the "is the link live enough to

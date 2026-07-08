@@ -35,7 +35,7 @@ import type {
   StandardRequest,
 } from "@orpc/standard-server";
 import { ClientPeer } from "@orpc/standard-server-peer";
-import { SURFACE_STDIO_TRANSPORT_CLOSED, deadTransportError } from "../client";
+import { deadTransportError, SURFACE_STDIO_TRANSPORT_CLOSED } from "../client";
 import { wireClient, wireRetryPlugins } from "./_wire";
 import { framedSend, readFramedLines } from "./stdio-codec";
 
@@ -119,10 +119,33 @@ export class LinkStdioClient<T extends ClientContext>
 
   /** Inbound stream ended (or errored): the transport is dead. Mark the
    *  link closed so subsequent `call()`s reject, and close the peer —
-   *  which rejects any request already in flight on its response queue. */
+   *  which rejects any request already in flight on its response queue.
+   *
+   *  IDEMPOTENT: multiple teardown paths converge here — the outbound
+   *  `write.on("error")` (EPIPE) AND the inbound stream's end/error both fire on
+   *  a dropped transport — so a second call must no-op.
+   *
+   *  The `try/catch` is a DEFENSIVE guard against a SYNCHRONOUS throw out of
+   *  `peer.close()` — e.g. an in-flight request's `AbortController.abort()` listener
+   *  throwing as the peer aborts its controllers. It does NOT — and cannot — catch the
+   *  teardown race it once claimed to: `peer.close()` → orpc's `AsyncIdQueue.close()`
+   *  calls `reject(new AbortError(...))` on every PENDING pull, and those rejections
+   *  deliver ASYNCHRONOUSLY on the pull awaiters. A consumer that parked a `.next()`
+   *  and was then abandoned floats that `AbortError` as an unhandled rejection — and a
+   *  sync `catch` here is powerless over an async rejection scheduled elsewhere. That
+   *  rare teardown race (the intermittent padi-reconnect flake) is tracked with its
+   *  full mechanism + a deterministic repro in juspay/kolu#1719; the real fix is a
+   *  teardown-swallow-contract change in the consumer layer, not here. */
   private handleTransportClosed(): void {
+    if (this.closed) return;
     this.closed = true;
-    this.peer.close();
+    try {
+      this.peer.close();
+    } catch {
+      // A synchronous throw out of `close()` (an abort listener) — the transport is
+      // gone; nothing to reject that the close didn't already reject. (The ASYNC
+      // parked-pull rejections are NOT caught here — see the doc above + #1719.)
+    }
   }
 
   async call(

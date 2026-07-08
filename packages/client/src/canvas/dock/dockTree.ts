@@ -42,7 +42,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import type { RankedDockRow } from "./dockRowRanking";
+import { type RankedDockRow, tsRank } from "./dockRowRanking";
 
 export type DockGroup = {
   /** `info.key.group` — git repo name or cwd basename. */
@@ -162,7 +162,12 @@ function flattenLabelClusters(
 }
 
 function compareRows(a: RankedDockRow, b: RankedDockRow): number {
-  return b.ts - a.ts;
+  const ra = tsRank(a.ts);
+  const rb = tsRank(b.ts);
+  // Guard the subtraction: `tsRank` can return `-Infinity` (never-active), and
+  // `-Infinity - -Infinity` is `NaN`. Equal ranks (including two never-active
+  // rows) short-circuit to the explicit tie before that can happen.
+  return ra === rb ? 0 : rb - ra;
 }
 
 /** Sections sort by recency too — the most recently-active row in the
@@ -171,11 +176,18 @@ function compareRows(a: RankedDockRow, b: RankedDockRow): number {
  *  pip, not via section order. Groups always have ≥1 row (constructed
  *  from non-empty buckets), so the max is defined. */
 function compareGroups(a: DockGroup, b: DockGroup): number {
-  return groupRecency(b) - groupRecency(a);
+  const ra = groupRecency(a);
+  const rb = groupRecency(b);
+  // Same NaN guard as `compareRows`: two all-never-active groups both rank
+  // `-Infinity`, and the bare subtraction would be `NaN`.
+  return ra === rb ? 0 : rb - ra;
 }
 
 function groupRecency(g: DockGroup): number {
-  let max = 0;
-  for (const r of g.rows) if (r.ts > max) max = r.ts;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const r of g.rows) {
+    const rank = tsRank(r.ts);
+    if (rank > max) max = rank;
+  }
   return max;
 }

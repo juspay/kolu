@@ -1,5 +1,5 @@
 /**
- * Connect the TUI to the runner via `@kolu/surface-nix-host`'s `HostSession`
+ * Connect the TUI to the runner via `@kolu/surface-remote`'s `HostSession`
  * — **the drishti way**. `nix copy`s the prebuilt `mini-ci-runner` closure to
  * the host (skipped for localhost), realises it there, and runs
  * `mini-ci-runner --stdio` over ssh; `HostSession` owns the ref-count,
@@ -19,7 +19,7 @@ import {
   type Session,
   type SessionState,
   sshConnector,
-} from "@kolu/surface-nix-host";
+} from "@kolu/surface-remote";
 import type { surface } from "../common/surface";
 
 export type RunnerClient = AgentClient<typeof surface.contract>;
@@ -53,6 +53,7 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
     );
   }
   const session = makeSession<RunnerClient>({
+    initialConnection: "copying",
     connectOnce: sshConnector<typeof surface.contract>({
       host: opts.host,
       binary: "mini-ci-runner",

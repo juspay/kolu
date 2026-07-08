@@ -3,7 +3,7 @@ Feature: Smoke
 
   Scenario: Page loads with branding
     When I open the app
-    Then the page title should contain "Kolu ["
+    Then the page title should contain "Kolu"
 
   Scenario: Health endpoint responds
     When I request "/api/health"

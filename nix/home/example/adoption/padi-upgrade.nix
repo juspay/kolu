@@ -99,7 +99,7 @@ let
 
     # run a command whose UNIQUE output we re-check after the redeploy (\r is Enter;
     # jq builds the body so the escaping is correct).
-    body=$(${jq} -nc --arg id "$id" '{json:{id:$id,data:"echo ${nonce}\r"}}') \
+    body=$(${jq} -nc --arg id "$id" '{json:{mapKey:"local",input:{id:$id,data:"echo ${nonce}\r"}}}') \
       || fail "jq failed to build the sendInput request body"
     ${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/sendInput" \
       -H 'content-type: application/json' -d "$body" >/dev/null \

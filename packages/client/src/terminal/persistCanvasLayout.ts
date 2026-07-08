@@ -8,17 +8,16 @@
  *  write itself lives. */
 
 import type { CanvasLayout } from "@kolu/padi/surface";
-import { padiRpc } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { padi } from "../wire";
+import { activePadiRpc } from "../wire";
 
 export function persistCanvasLayout(
   id: TerminalId,
   layout: CanvasLayout,
 ): void {
-  void padiRpc(padi)
-    .surface.chrome.setCanvasLayout({ id, layout })
+  void activePadiRpc.surface.chrome
+    .setCanvasLayout({ id, layout })
     .catch((err: Error) =>
       toast.error(`Failed to save canvas layout: ${err.message}`),
     );

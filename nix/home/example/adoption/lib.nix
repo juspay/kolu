@@ -87,11 +87,26 @@ let
   # `/rpc/surface/padi/lifecycle/*`). Sets `id` on success; calls the
   # caller-provided `fail` on any error (so each script keeps its own FAIL-tag and
   # result-file path).
+  # RETRY the create until it lands. kolu-server opens its RPC port BEFORE the
+  # local host's padi upstream link is live — in the keyed-map world even the
+  # LOCAL host rides `reServeSurface`, which fail-fast-throws
+  # `"lifecycle.create invoked with no live upstream link"` during that boot
+  # window and expects the CLIENT to retry (the ratified fail-fast contract; see
+  # reServeSurface.ts's `forwardProcedure`). The real browser client retries; this
+  # seed is a raw curl, so it must retry too or it races the link-up and reds
+  # spuriously. A failed create throws in `forwardProcedure` BEFORE any upstream
+  # side effect, so retrying can't double-create — the first success is the only
+  # terminal. Bounded so a genuinely-dead link still fails loudly.
   openTerminal = ''
-    id=$(${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/create" \
-           -H 'content-type: application/json' -d '{"json":{}}' \
-         | ${jq} -r '.json.id') || fail "lifecycle.create RPC errored"
-    [ -n "$id" ] && [ "$id" != null ] || fail "lifecycle.create returned no id"
+    id=""
+    for _ in $(seq 1 30); do
+      id=$(${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/create" \
+             -H 'content-type: application/json' -d '{"json":{"mapKey":"local","input":{}}}' \
+           | ${jq} -r '.json.id') && [ -n "$id" ] && [ "$id" != null ] && break
+      id=""
+      sleep 1
+    done
+    [ -n "$id" ] && [ "$id" != null ] || fail "lifecycle.create RPC errored (no live upstream link after 30s)"
   '';
 
   # The survival VM node: a NixOS guest with kolu (via home-manager), alice

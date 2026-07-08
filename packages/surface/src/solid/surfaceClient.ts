@@ -16,7 +16,6 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import {
   type Accessor,
-  createEffect,
   createMemo,
   createRoot,
   createSignal,
@@ -37,12 +36,12 @@ import type {
 } from "../define";
 import { collectionHasDeltas, resolveCellVerbs, scopeSibling } from "../define";
 import { isHalfOpenLink } from "../links/_wire";
-import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
   type Subscription,
   type SubscriptionOptions,
+  wireSubscriptionError,
 } from "./createSubscription";
 import {
   createSurfaceHealthRegistry,
@@ -50,6 +49,13 @@ import {
   mergeSurfaceHealth,
   type SurfaceHealth,
 } from "./health";
+import {
+  createKeyedSubscriptionCache,
+  type KeyedSubscriptionCache,
+  runUnderOwner,
+  stableOptsKey,
+} from "./keyedSubscriptionCache";
+import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import { type UseCellResult, useCell } from "./useCell";
 import {
   type UseCollectionResult,
@@ -97,7 +103,7 @@ import { useStream } from "./useStream";
  *  blessed factories (all of which brand via `wireClient`) — there is no `{ live }`
  *  knob to pass a blind accessor through (the #1564 lie, one seam upstream of the
  *  dot). */
-function resolveTransport(transport: unknown): {
+export function resolveTransport(transport: unknown): {
   link: unknown;
   live: Accessor<boolean>;
 } {
@@ -117,7 +123,7 @@ function resolveTransport(transport: unknown): {
         "round-trip) AND wires the watchdog, with `link` and `live` paired on one " +
         "object; the handle has no other minter. For a STDIO/UNIX-SOCKET link, wire a " +
         "`createHeartbeat` + `probeSurfaceLive` watchdog over `system.live` as " +
-        "`surface-nix-host`'s `hostSession.startLiveness` does. A bare `() => true` " +
+        "`surface-remote`'s `hostSession.startLiveness` does. A bare `() => true` " +
         "or an open/close-only `() => socketStatus() === 'live'` is half-open-blind " +
         "— it would paint a green/ready dot over a dead backend↔remote link (#1564).",
     );
@@ -206,6 +212,20 @@ export interface BoundCollection<K, T> {
    *  lifecycle — call from command handlers, route loaders, anywhere. */
   upsert(key: K, value: T): Promise<void>;
   delete(key: K): Promise<void>;
+}
+
+/** A READ-ONLY bound collection — the mutation verbs (`upsert`/`delete`) are
+ *  STRUCTURALLY ABSENT, both at the top level and on the `.use()` result. A consumer of
+ *  a server-authored, one-writer collection (a surface-map `entries` membership
+ *  authority) therefore cannot even EXPRESS a client mutation the wire would reject:
+ *  `entries.upsert(...)` is a type error, not a runtime rejection. The collection
+ *  analogue of `ReadOnlyBoundCell`. */
+export type ReadOnlyBoundCollectionResult<K, T> = UseCollectionResult<K, T>;
+export interface ReadOnlyBoundCollection<K, T> {
+  use(opts?: {
+    keys?: Accessor<K[]>;
+    onError?: SubscriptionOptions<unknown>["onError"];
+  }): ReadOnlyBoundCollectionResult<K, T>;
 }
 
 export interface BoundStream<I, T> {
@@ -355,7 +375,7 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
  *  as ONE object) OR a bare in-process `directLink` (`createRouterClient`, no
  *  transport, the ONE link that can't half-open). A bare `stdioLink`/`unixSocketLink`
  *  is a wire link that CAN half-open and is REFUSED bare (it throws — pass the handle,
- *  or hand-wire a watchdog as `surface-nix-host`'s `hostSession.startLiveness` does).
+ *  or hand-wire a watchdog as `surface-remote`'s `hostSession.startLiveness` does).
  *  Walks the spec once and pre-binds each primitive to its oRPC procedure refs,
  *  producing `.use(policy)` hooks that drop the wire-identity args from the per-call
  *  signature.
@@ -469,6 +489,7 @@ function bindCell<S extends SurfaceSpec>(
   cellSpec: CellSpec<unknown, unknown>,
   link: unknown,
   registry: ReturnType<typeof createSurfaceHealthRegistry>,
+  subs: KeyedSubscriptionCache,
   surface: Surface<S>,
 ): { cell: BoundCell<unknown, unknown>; disposeRoot?: () => void } {
   // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
@@ -535,13 +556,11 @@ function bindCell<S extends SurfaceSpec>(
       // read-only `.use({onError})` contract still fires.
       const shared = readOnly ? standing : undefined;
       if (shared) {
-        if (opts.onError) {
-          const cb = opts.onError as (err: Error) => void;
-          createEffect(() => {
-            const e = shared.error();
-            if (e) cb(e);
-          });
-        }
+        // Reuse the SAME edge-wiring `wireSubscriptionError` gives every other
+        // `onError` in this file (lines below) — not a hand-rolled tracked
+        // `createEffect`, which would re-subscribe to whatever `cb` itself reads
+        // and can double-fire in a way the shared `on()`-based helper does not.
+        if (opts.onError) wireSubscriptionError(shared, opts.onError);
         return readOnlyCellView(shared);
       }
       if (readOnly) {
@@ -552,18 +571,25 @@ function bindCell<S extends SurfaceSpec>(
               "to flush a local write to, so this cell is read-only.",
           );
         }
-        const cell = useCell(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
-          (surface.descriptors.cells as any)[key],
-          // Thread the caller's `onError` (the only `ReadOnlyBoundCellOptions` field)
-          // into the server-authority subscription so a get-only cell's stream failure
-          // reaches callback-based error handling, not just the `error()` signal —
-          // `useCellServer` forwards it to `createSubscription`.
-          { source, authority: "server", onError: opts.onError },
+        // Share the get-only cell's upstream subscription across all consumers via the
+        // keyed cache: N `.use()` calls fold to ONE `.get` stream, enrolled ONCE.
+        const cell = subs.use(
+          `cell:${key}`,
+          (onComplete) =>
+            useCell(
+              // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+              (surface.descriptors.cells as any)[key],
+              { source, authority: "server", onComplete },
+            ),
+          // Enrol the cell's self-clearing error()/pending() into health() ONCE inside
+          // the shared slot (un-enrols on slot disposal), not once per consumer — which
+          // would double-count the same fact in the `health()` fold.
+          (c) => registry.enroll(key, { pending: c.pending, error: c.error }),
         );
-        // Enrol the cell's self-clearing error()/pending() into health() — rides this
-        // `.use()`'s consumer owner, so it drops when the component unmounts.
-        registry.enroll(key, { pending: cell.pending, error: cell.error });
+        // Per-consumer `onError`: wire the caller's handler on the SHARED error signal
+        // under THIS consumer's own owner (the shared slot carries no toast of its own),
+        // so a get-only cell's stream failure still reaches callback-based handling.
+        if (opts.onError) wireSubscriptionError(cell.sub, opts.onError);
         // Return ONLY the read-only projection (`set`/`patch` absent at runtime) — the
         // shared `readOnlyCellView` owns the shape + the single bridging cast.
         return readOnlyCellView(cell);
@@ -578,12 +604,46 @@ function bindCell<S extends SurfaceSpec>(
       ) {
         merged.applyPatch = specPatch;
       }
-      const cell = useCell(
-        // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
-        (surface.descriptors.cells as any)[key],
-        merged,
+      // `onError` is PER-CONSUMER — pull it out of the SHARED construction and wire it
+      // on the shared sub below. Everything else (authority, applyPatch, and — for a
+      // local-authority cell — the local store) is SHARED: N consumers of one cell
+      // share ONE upstream sub and ONE local store, so a `.set` from one is seen by all
+      // (this is what replaces the module-const `createSharedRoot` sharing idiom).
+      const { onError: cellOnError, ...sharedOpts } = merged;
+      // Fold the SHARED options into the cache key: two `.use()` sites with divergent
+      // `authority`/`initial`/`coalesceMs`/`applyPatch` get DISTINCT slots (they ARE two
+      // subscriptions — a local-authority coalesced store and a server-authority view are
+      // different upstream subs), so a second caller can never silently inherit the first
+      // caller's variant. Identical shared options still fold to one slot. `onError`
+      // (per-consumer, pulled out above) is not in the key.
+      //
+      // `authority` is normalized to its DEFAULT-omitted spelling before keying:
+      // `useCell` (and every other authority-consuming branch) treats an ABSENT
+      // `authority` identically to explicit `authority: "server"` — the default the
+      // `BoundCellOptions` type itself documents. Without this, `.use({})` and
+      // `.use({ authority: "server" })` are semantically the SAME site (both
+      // server-authority, otherwise-identical options) but keyed DIFFERENTLY —
+      // `stableOptsKey` already drops `undefined` values, so setting `authority` to
+      // `undefined` here (only for the KEY, not for `sharedOpts` itself — `useCell`
+      // still gets whatever the caller actually wrote) folds both spellings onto ONE
+      // slot instead of silently opening two upstream subscriptions for one logical
+      // consumer.
+      const keyOpts =
+        sharedOpts.authority === "server"
+          ? { ...sharedOpts, authority: undefined }
+          : sharedOpts;
+      const cell = subs.use(
+        `cell:${key}:${stableOptsKey(keyOpts)}`,
+        (onComplete) =>
+          useCell(
+            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+            (surface.descriptors.cells as any)[key],
+            { ...sharedOpts, onComplete },
+          ),
+        (c) => registry.enroll(key, { pending: c.pending, error: c.error }),
       );
-      registry.enroll(key, { pending: cell.pending, error: cell.error });
+      if (cellOnError)
+        wireSubscriptionError(cell.sub, cellOnError as (e: Error) => void);
       return cell;
     },
   };
@@ -598,10 +658,17 @@ function bindCell<S extends SurfaceSpec>(
  *  slices are fresh non-half-open wrappers, so they need no brand check). The
  *  half-open guard lives at the PUBLIC boundary, not here.
  *
- *  @internal Package-private: exported for the relative-import fold tests (which need
- *  a stub link AND a custom `live` together), NOT in the `@kolu/surface/solid` barrel
- *  — so no EXTERNAL consumer can supply a `live` paired with a separate link (the
- *  whole point of collapsing the pair into a `LiveSignalHandle` at the public API). */
+ *  Exposed in the `@kolu/surface/solid` barrel for FRAMEWORK COMPOSITION — a builder
+ *  that needs to serve many clients over ONE resolved transport, threading its `live`
+ *  into each. `@kolu/surface-map` is the case: it resolves the app's transport ONCE
+ *  via {@link resolveTransport} (which applies the half-open guard) and builds each
+ *  per-key client over a key-INJECTING wrapper of the resolved link paired with the
+ *  SAME resolved `live` — so the live↔link pairing still holds by construction (both
+ *  come from the one resolved handle), and a per-key chip floors on real transport
+ *  liveness rather than a green-over-dead-link lie. The half-open guard lives at the
+ *  PUBLIC boundary ({@link resolveTransport} / `surfaceClient`), not here; a caller
+ *  reaching for this raw builder owns that guarantee, exactly as the `resolveTransport`
+ *  by-exclusion fallback does (#1580). */
 export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   surface: Surface<S>,
   link: Rpc,
@@ -615,6 +682,38 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   // else a constant `true` (sound only because `resolveTransport` already proved
   // this link can't half-open).
   const registry = createSurfaceHealthRegistry(live);
+
+  // The per-client subscription DEDUP cache. Every static-input `.use()` below routes
+  // its construction through this, so N views of one `(proc, static-input)` share ONE
+  // upstream subscription — ref-counted, torn down when the last consumer leaves. The
+  // shared slots are owned by THIS client's owner (`getOwner()` here), NEVER by
+  // whichever consumer subscribed first (a first-consumer owner is the leak class the
+  // cache exists to kill). This replaces the module-const `createSharedRoot` "sharing
+  // by convention" idiom — every consumer inherits sharing from the base client.
+  const subs = createKeyedSubscriptionCache(getOwner());
+
+  // The whole-collection dedup slot's per-consumer `onError` registry. A STATIC-input
+  // `.use()` (no `keys`) dedups N consumer views onto ONE shared upstream subscription
+  // (the dedup branch below); EVERY registered consumer's handler must fire on a
+  // collection error — dropping one silently was the defect a now-retired THROW used to
+  // guard by refusing a second, divergent handler outright. Keyed by `coll:<key>`; each
+  // live slot maps to a `Map<handler, refcount>` — a refcount, not a bare `Set`, because
+  // two consumers may legitimately share the IDENTICAL handler reference (e.g. one
+  // shared exported const) and each registers/unregisters independently: a `Set` would
+  // drop the shared entry on the FIRST consumer's disposal even though a second consumer
+  // holding the same ref is still live.
+  //
+  // LIFETIME: this registry's lifetime is the CONSUMERS', never a dedup-slot
+  // generation's. A typed-end eviction (a re-served collection) can rebuild the shared
+  // slot — a NEW generation, new dispatcher — while consumers of the OLD generation are
+  // still mounted and this SAME registry keeps serving both. Tying the entry's deletion
+  // to a slot's own `onCleanup` (as an earlier version did) is exactly wrong: the dead
+  // generation's disposal would delete the registry the LIVE generation's dispatcher
+  // still reads, silently dropping every later-joining consumer's handler. So only a
+  // CONSUMER's own unregister (below) ever deletes the entry — identity-guarded, and
+  // only once it's empty — and `dispatchError` (below) reads it live, by key, at call
+  // time, never a captured snapshot.
+  const collOnError = new Map<string, Map<(err: Error) => void, number>>();
 
   // Build-time standing-root disposers for `liveWhen` cells (the readiness legs
   // `bindCell` → `openReadinessLeg` open EAGERLY, not at `.use()` time, so the
@@ -630,6 +729,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
       cellSpec,
       link,
       registry,
+      subs,
       surface,
     );
     cells[key] = cell;
@@ -656,59 +756,136 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     collections[key] = {
       use: (opts) => {
         const onError = opts?.onError;
-        // Whole-collection AND the collection opts into batched delivery (the
-        // spec lists `deltas`) → ONE coalesced stream folded into a per-key
-        // store, instead of a keys stream + one value stream per key. A NARROWED
-        // subscription (explicit `opts.keys` — the "watch this subset" case) or a
-        // collection without the `deltas` verb takes the unchanged per-key path.
-        if (!opts?.keys && hasDeltas) {
-          const view = useCollectionDeltas(
+        // A NARROWED subscription (explicit reactive `opts.keys` — the "watch this
+        // subset" case) is ACCESSOR-input: two input accessors are honestly two
+        // subscriptions, so it stays PER-CONSUMER (no dedup), unchanged. Its `.use()`
+        // runs inside a Solid owner so each per-key sub disposes with the component.
+        if (opts?.keys) {
+          const view = useCollection(
             // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
             (surface.descriptors.collections as any)[key],
             {
-              // biome-ignore lint/suspicious/noExplicitAny: walk-by-string stream ref
-              source: () => unenrolledStreamCall((ns as any).deltas, undefined),
+              keys: opts.keys,
+              valueSource: ns.get,
+              keyToInput: (k) => ({ key: k }),
               onError,
-              enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
+              enroll: (k, sub) => registry.enroll(`${key}[${String(k)}]`, sub),
             },
           );
           return { ...view, upsert, delete: del };
         }
-        // Default keys: subscribe to the server's keys stream and lift
-        // it to a SolidJS accessor. The `.use()` runs inside a Solid
-        // owner so the subscription disposes with the component.
-        const keys =
-          opts?.keys ??
-          (() => {
-            const sub = createSubscription<unknown[]>(
-              () => unenrolledStreamCall(ns.keys, undefined),
-              { onError },
-            );
-            // Leak B: enrol the keys-stream itself. A failing keys stream
-            // collapses `keys()` to `[]` (the `sub() ?? []` fallback), so the
-            // collection would otherwise read as a healthy EMPTY set — without
-            // this, `health()` reports `ready` over a dead collection. This
-            // enrolment is the keys-stream's ONLY error channel now (it subsumes
-            // the former per-collection `keysError` accessor); a caller-supplied
-            // `keys` owns its own subscription and so isn't enrolled here.
-            registry.enroll(`${key}.keys`, sub);
-            return createMemo<unknown[]>(() => sub() ?? []);
-          })();
-        const view = useCollection(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
-          (surface.descriptors.collections as any)[key],
-          {
-            keys,
-            valueSource: ns.get,
-            keyToInput: (k) => ({ key: k }),
-            onError,
-            // Enrol each per-key value sub as `<key>[<id>]`. The callback runs
-            // inside the `mapArray` per-key owner, so each enrolment drops when
-            // its key leaves the set (the same owner disposal `useCollection`
-            // already rides for the subscription itself).
-            enroll: (k, sub) => registry.enroll(`${key}[${String(k)}]`, sub),
-          },
-        );
+        // WHOLE collection (STATIC input — watch every key) → DEDUP the whole result
+        // via the keyed cache: N views share ONE set of upstream streams, ref-counted,
+        // torn down when the last leaves, evicted on a typed end (a re-served
+        // collection rebuilds). Per-consumer `onError` is wired through `collOnError`
+        // (declared above): every consumer that supplies a handler is registered, and
+        // ALL registered handlers fire on a collection error, in whatever order and
+        // however many consumers there are — the silent-drop defect a now-retired THROW
+        // used to guard is made unreachable by actually building the fan-out, not by
+        // refusing a second handler. The shared subscription (built ONCE, below) is
+        // wired to a STABLE DISPATCHER, built once alongside the slot, that reads the
+        // CURRENT handler registry at CALL time (never a snapshot) — so a late-joining
+        // consumer is covered without rebuilding the upstream streams. Each consumer
+        // registers/unregisters HERE, in the CALLING owner (`.use()` runs inside the
+        // consuming component's reactive scope), so a handler is removed the moment ITS
+        // owner disposes — independent of the shared slot's own lifetime.
+        const collKey = `coll:${key}`;
+        let existingHandlers = collOnError.get(collKey);
+        if (existingHandlers === undefined) {
+          existingHandlers = new Map<(err: Error) => void, number>();
+          collOnError.set(collKey, existingHandlers);
+        }
+        const handlers = existingHandlers;
+        if (onError !== undefined) {
+          // Registered under `runUnderOwner` — the SAME ownerless-owning-root
+          // treatment `keyedSubscriptionCache`'s `read()` applies to the slot
+          // ref-count. Called with a real reactive owner (a component's `.use()`),
+          // this is identical to running inline. Called OWNERLESS (a DOM event
+          // handler, no reactive scope — the caller class `read()`'s docblock
+          // names), the increment+`onCleanup`+decrement below runs under a
+          // throwaway `createRoot` instead and nets to zero in the SAME tick — so
+          // an ownerless `.use({onError})` can never leave a dead handler standing
+          // in `handlers` forever (Solid's `onCleanup` outside an owner warns and
+          // no-ops, which would otherwise pair the increment with NO decrement:
+          // the unguarded sibling of the slot ref-count leak `read()` exists to kill).
+          runUnderOwner(() => {
+            handlers.set(onError, (handlers.get(onError) ?? 0) + 1);
+            onCleanup(() => {
+              const n = handlers.get(onError);
+              if (n === undefined) return; // already unregistered (e.g. slot reset)
+              if (n <= 1) handlers.delete(onError);
+              else handlers.set(onError, n - 1);
+              // The registry's lifetime is this consumer's, never a dedup-slot
+              // generation's (see the `collOnError` docblock above) — so ONLY a
+              // consumer's own unregister ever deletes the entry, and ONLY once it's
+              // empty. Identity-guarded: if a fresh registry already replaced this one
+              // (this map was already emptied and dropped by an earlier consumer, then a
+              // new first-consumer minted a new map under the same key), this stale
+              // reference must never delete the LIVE one out from under it.
+              if (
+                handlers.size === 0 &&
+                collOnError.get(collKey) === handlers
+              ) {
+                collOnError.delete(collKey);
+              }
+            });
+          });
+        }
+        const view = subs.use(collKey, (onComplete) => {
+          // Built ONCE per slot; fired on every upstream error. Reads the registry
+          // LIVE, BY KEY, at call time — NEVER a captured `handlers` snapshot. A
+          // typed-end eviction can rebuild this slot (a fresh generation) while the
+          // registry above keeps accepting new consumers under the OLD generation's
+          // map; a captured reference would silently stop matching the live map the
+          // moment a later write moved on (the generation-torn defect this closure
+          // must not reintroduce). No slot-generation code owns this registry's
+          // lifetime or clears it — the per-consumer register/unregister above is the
+          // only writer/deleter.
+          const dispatchError = (err: Error): void => {
+            const live = collOnError.get(collKey);
+            if (live) for (const h of live.keys()) h(err);
+          };
+          return hasDeltas
+            ? // ONE coalesced `deltas` stream folded into a per-key store.
+              useCollectionDeltas(
+                // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+                (surface.descriptors.collections as any)[key],
+                {
+                  source: (signal) =>
+                    unenrolledStreamCall(ns.deltas, undefined, { signal }),
+                  onError: dispatchError,
+                  onComplete,
+                  enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
+                },
+              )
+            : // The server keys stream + one value stream per key.
+              (() => {
+                const keysSub = createSubscription<unknown[]>(
+                  (signal) =>
+                    unenrolledStreamCall(ns.keys, undefined, { signal }),
+                  { onError: dispatchError, onComplete },
+                );
+                // Leak B: enrol the keys-stream itself. A failing keys stream collapses
+                // `keys()` to `[]` (the `sub() ?? []` fallback), so the collection would
+                // otherwise read as a healthy EMPTY set — this is its ONLY error channel.
+                registry.enroll(`${key}.keys`, keysSub);
+                const keys = createMemo<unknown[]>(() => keysSub() ?? []);
+                return useCollection(
+                  // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+                  (surface.descriptors.collections as any)[key],
+                  {
+                    keys,
+                    valueSource: ns.get,
+                    keyToInput: (k) => ({ key: k }),
+                    onError: dispatchError,
+                    // Enrol each per-key value sub as `<key>[<id>]`; the callback runs in
+                    // the `mapArray` per-key owner, so it drops when the key leaves.
+                    enroll: (k, sub) =>
+                      registry.enroll(`${key}[${String(k)}]`, sub),
+                  },
+                );
+              })();
+        });
         return { ...view, upsert, delete: del };
       },
       upsert,

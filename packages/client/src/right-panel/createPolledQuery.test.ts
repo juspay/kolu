@@ -1,15 +1,61 @@
 /** Unit tests for the pulse-then-requery primitive that replaced the Code tab's
- *  koluSurface fs/git value streams (W1.R4). A fake surface client stands in for
- *  `padi`: its `rawStream` captures the per-frame `onItem` callback the primitive
- *  installs, and the test pumps a "pulse frame" by hand. Each `onItem` is one
- *  pulse — the initial snapshot frame, an on-disk change, or the fresh frame a
- *  reconnect re-subscribe yields — so a single pump models any of the three. */
+ *  koluSurface fs/git value streams (W1.R4). A mocked `unenrolledStreamCall` stands in
+ *  for the active host's pulse stream; the test pumps a "pulse frame" by hand via
+ *  `pulse()`. Each frame is one pulse — the initial snapshot frame, an on-disk change, or
+ *  the fresh frame a reconnect re-subscribe yields — so a single pump models any. */
 
-import type { PadiSurfaceSpec } from "@kolu/padi/surface";
-import type { StreamingProcedure, SurfaceClient } from "@kolu/surface/solid";
+import type { StreamingProcedure } from "@kolu/surface/solid";
 import { createRoot, createSignal } from "solid-js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createPolledQuery } from "./createPolledQuery";
+
+// The pulse is an UNENROLLED stream (`unenrolledStreamCall`) now, not `client.rawStream`.
+// Mock it as a controllable async-iterable: the test pushes a frame via `pulse()` (→ one
+// requery) or an error via `failPulse()` (→ `surfaceError`); the iterable ends when its
+// AbortSignal fires (an input change), so a superseded pulse stops.
+const pulseCtl = vi.hoisted(() => ({
+  latest: null as null | {
+    emit: (e: { frame: true } | { err: Error }) => void;
+  },
+}));
+vi.mock("@kolu/surface/client", () => ({
+  unenrolledStreamCall: async (
+    _proc: unknown,
+    _input: unknown,
+    opts?: { signal?: AbortSignal },
+  ) => {
+    const queue: Array<{ frame: true } | { err: Error }> = [];
+    let wake: (() => void) | null = null;
+    let ended = false;
+    const stop = () => {
+      ended = true;
+      wake?.();
+    };
+    opts?.signal?.addEventListener("abort", stop);
+    pulseCtl.latest = {
+      emit: (e) => {
+        queue.push(e);
+        wake?.();
+        wake = null;
+      },
+    };
+    return {
+      async *[Symbol.asyncIterator]() {
+        while (!ended) {
+          while (queue.length) {
+            const e = queue.shift();
+            if (e && "err" in e) throw e.err;
+            yield undefined;
+          }
+          if (ended) break;
+          await new Promise<void>((r) => {
+            wake = r;
+          });
+        }
+      },
+    };
+  },
+}));
 
 async function flush(ticks = 4): Promise<void> {
   for (let i = 0; i < ticks; i++) {
@@ -17,41 +63,27 @@ async function flush(ticks = 4): Promise<void> {
   }
 }
 
-/** A fake padi client whose `rawStream` records the primitive's `onItem`. `pulse`
- *  fires it — one pulse frame. `rawStream` is re-invoked on every input change,
- *  so `onItem` always points at the live subscription's callback. */
-function fakeClient() {
-  let onItem: (() => void) | null = null;
-  let live = true;
-  // The pulse stream's own error() — a reactive signal so a test can fail the
-  // WATCHER (as opposed to the query) and assert how the primitive routes it.
-  const [pulseErr, setPulseErr] = createSignal<Error | undefined>();
-  const client = {
-    rawStream: (
-      _name: string,
-      _proc: unknown,
-      _input: unknown,
-      opts: { onItem: (item: unknown) => void },
-    ) => {
-      onItem = () => opts.onItem(undefined);
-      return { pending: () => false, error: () => pulseErr() };
-    },
-    // Only `.live` is read (the reconnect-blip swallow); the cast covers the
-    // rest of SurfaceHealth.
-    health: () => ({ live }),
-  } as unknown as SurfaceClient<PadiSurfaceSpec>;
-  const pulseProc = null as unknown as StreamingProcedure<
+/** A fake pulse source. `pulse()` fires one frame (→ one requery); `failPulse(err)`
+ *  throws it into the pulse iterable (→ `surfaceError`); `live` is the transport-liveness
+ *  accessor the primitive gates its reconnect-blip swallow on. */
+function fakeStream() {
+  const [live, setLive] = createSignal(true);
+  // A FACTORY now (the pulse follows the active host — `() => padiRpcOf(activeHost())…`); the
+  // mocked `unenrolledStreamCall` ignores the proc, so only the factory TYPE matters here.
+  const pulseProc: () => StreamingProcedure<
     { repoPath: string },
     { seq: number }
-  >;
+  > = () =>
+    null as unknown as StreamingProcedure<
+      { repoPath: string },
+      { seq: number }
+    >;
   return {
-    client,
+    live,
     pulseProc,
-    pulse: () => onItem?.(),
-    setLive: (v: boolean) => {
-      live = v;
-    },
-    failPulse: (err: Error) => setPulseErr(err),
+    pulse: () => pulseCtl.latest?.emit({ frame: true }),
+    setLive: (v: boolean) => setLive(v),
+    failPulse: (err: Error) => pulseCtl.latest?.emit({ err }),
   };
 }
 
@@ -61,11 +93,10 @@ describe("createPolledQuery", () => {
     const result = await new Promise<{ v: unknown; pending: boolean }>(
       (resolve) => {
         createRoot(async (dispose) => {
-          const { client, pulseProc, pulse } = fakeClient();
+          const { live, pulseProc, pulse } = fakeStream();
           const q = createPolledQuery({
             input: () => null,
-            client,
-            pulseName: "test",
+            live,
             pulseProc,
             pulseInput: (i: { repoPath: string }) => ({ repoPath: i.repoPath }),
             query: async () => {
@@ -91,11 +122,10 @@ describe("createPolledQuery", () => {
       (resolve) => {
         createRoot(async (dispose) => {
           let calls = 0;
-          const { client, pulseProc, pulse } = fakeClient();
+          const { live, pulseProc, pulse } = fakeStream();
           const q = createPolledQuery({
             input: () => ({ repoPath: "A" }),
-            client,
-            pulseName: "test",
+            live,
             pulseProc,
             pulseInput: (i) => ({ repoPath: i.repoPath }),
             query: async (i) => {
@@ -121,11 +151,10 @@ describe("createPolledQuery", () => {
       (resolve) => {
         createRoot(async (dispose) => {
           let calls = 0;
-          const { client, pulseProc, pulse } = fakeClient();
+          const { live, pulseProc, pulse } = fakeStream();
           const q = createPolledQuery({
             input: () => ({ repoPath: "A" }),
-            client,
-            pulseName: "test",
+            live,
             pulseProc,
             pulseInput: (i) => ({ repoPath: i.repoPath }),
             query: async (i) => {
@@ -158,11 +187,10 @@ describe("createPolledQuery", () => {
       createRoot(async (dispose) => {
         let calls = 0;
         const [repo, setRepo] = createSignal("A");
-        const { client, pulseProc, pulse } = fakeClient();
+        const { live, pulseProc, pulse } = fakeStream();
         const q = createPolledQuery({
           input: () => ({ repoPath: repo() }),
-          client,
-          pulseName: "test",
+          live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async (i) => {
@@ -194,11 +222,10 @@ describe("createPolledQuery", () => {
     const seen: string[] = [];
     const result = await new Promise<string>((resolve) => {
       createRoot(async (dispose) => {
-        const { client, pulseProc, pulse } = fakeClient();
+        const { live, pulseProc, pulse } = fakeStream();
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
-          client,
-          pulseName: "test",
+          live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {
@@ -225,12 +252,11 @@ describe("createPolledQuery", () => {
     const seen: string[] = [];
     const errMsg = await new Promise<string | undefined>((resolve) => {
       createRoot(async (dispose) => {
-        const { client, pulseProc, pulse, setLive } = fakeClient();
+        const { live, pulseProc, pulse, setLive } = fakeStream();
         setLive(false);
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
-          client,
-          pulseName: "test",
+          live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {
@@ -260,11 +286,10 @@ describe("createPolledQuery", () => {
       pending: boolean;
     }>((resolve) => {
       createRoot(async (dispose) => {
-        const { client, pulseProc, failPulse } = fakeClient();
+        const { live, pulseProc, failPulse } = fakeStream();
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
-          client,
-          pulseName: "test",
+          live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => "unused", // no frame fires; pending stays true until the pulse errors
@@ -295,11 +320,10 @@ describe("createPolledQuery", () => {
     }>((resolve) => {
       createRoot(async (dispose) => {
         let calls = 0;
-        const { client, pulseProc, pulse } = fakeClient();
+        const { live, pulseProc, pulse } = fakeStream();
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
-          client,
-          pulseName: "test",
+          live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {

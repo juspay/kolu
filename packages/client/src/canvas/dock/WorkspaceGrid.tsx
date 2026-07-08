@@ -611,7 +611,11 @@ const WorkspaceCard: Component<{
             <span
               data-testid="workspace-switcher-card-recency"
               class="tabular-nums text-fg-3/70 shrink-0 ml-auto"
-              title={`Last agent activity: ${new Date(props.entry.info.meta.lastActivityAt).toLocaleString()}`}
+              // The `<Show when={lastActive()}>` gate already proves this is a
+              // real epoch: `formatTimeAgo` returns "" ONLY for `null`
+              // (never-active), so a non-empty label means `lastActivityAt`
+              // is a number here.
+              title={`Last agent activity: ${new Date(props.entry.info.meta.lastActivityAt as number).toLocaleString()}`}
             >
               {label()}
             </span>

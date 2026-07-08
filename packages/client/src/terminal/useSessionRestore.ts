@@ -1,17 +1,15 @@
 /** Session restore — hydration from server state, session restore handler. */
 
-import {
-  padiRpc,
-  type SavedSession,
-  type TerminalMetadata,
-} from "@kolu/padi/surface";
+import type { SavedSession, TerminalMetadata } from "@kolu/padi/surface";
+import { encodeHostKey } from "kolu-common/hostKey";
 import { resumableCommand, type TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
-  padi,
+  activeHost,
+  activePadiRpc,
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../wire";
@@ -40,7 +38,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
   // Hydrate from server state. TWO once-only steps, tracked separately:
   //   - `decided`   — the empty-vs-restore DECISION (drives the restore card),
   //                    made once the terminal list + saved-session cell report;
-  //   - `viewSeeded` — the client VIEW-STATE seed (active tile + canvas viewport
+  //   - `seeded`    — the client VIEW-STATE seed (active tile + canvas viewport
   //                    + sub-panel tabs + MRU), run once REAL terminals appear.
   //
   // The two are DISTINCT because W1.R6 deleted the client respawn loop that used
@@ -48,11 +46,30 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
   // rides THIS effect, which must fire when the restored terminals arrive — even
   // though the empty-state decision already ran. (A browser reload re-mounts the
   // hook, so both flags start false and the initial-load path is unchanged.)
-  let decided = false;
-  let viewSeeded = false;
+  //
+  // HOST-SCOPING (shape B): the two latches are PER HOST, not app-lifetime
+  // closures. `listSub`/`serverSavedSession` re-key on host switch, so this effect
+  // re-runs; reading `latchFor()` (which reads `activeHost()`) makes it also TRACK
+  // the switch and pick up the NEW host's latch. A never-seeded host re-runs the
+  // decision + hydration (adopting ITS saved-active tile immediately — zero dock
+  // click); a switch-BACK to an already-seeded host short-circuits, so its
+  // in-memory view (useViewState's per-host record) wins — savedSession seeds only
+  // the FIRST visit. (An explicit in-session restore re-arms the active host's
+  // `seeded` below.)
+  const latches = new Map<string, { decided: boolean; seeded: boolean }>();
+  function latchFor(): { decided: boolean; seeded: boolean } {
+    const k = encodeHostKey(activeHost());
+    let l = latches.get(k);
+    if (!l) {
+      l = { decided: false, seeded: false };
+      latches.set(k, l);
+    }
+    return l;
+  }
   createEffect(() => {
     const existing = store.listSub();
     const fromServer = serverSavedSession();
+    const latch = latchFor();
     // Gate on the subscription having yielded at least once — `sub.pending()`
     // flips false after the first yield (which may be the initial `null`
     // snapshot when no session is saved). Without this gate we'd hydrate
@@ -70,14 +87,14 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // (the gate above already waited for BOTH the list and session cells to
     // yield). When empty, the card reads `savedSession`; the re-fetch effect
     // below keeps it current after.
-    if (!decided) {
-      decided = true;
+    if (!latch.decided) {
+      latch.decided = true;
       if (store.terminalIds().length === 0) {
         setSavedSession(fromServer);
         return;
       }
     }
-    if (viewSeeded) return;
+    if (latch.seeded) return;
     // Wait for the composed record to arrive (via `store.getMetadata`) for EVERY
     // listed terminal — hydration reads `parentId` and `subPanel` off the record
     // (since #806 the list snapshot no longer carries `meta`). `getMetadata`
@@ -96,7 +113,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // never reaches here: the empty-vs-restore decision above returns first
     // (`terminalIds()` is empty).
     if (joined.length === 0) return;
-    viewSeeded = true;
+    latch.seeded = true;
     hydrateFromTerminals(joined, fromServer?.activeTerminalId ?? null);
   });
 
@@ -165,7 +182,9 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
   createEffect(() => {
     if (lifecycle().kind === "restarted") return;
     const fromServer = serverSavedSession();
-    if (store.terminalIds().length === 0 && decided) {
+    // `latchFor()` reads `activeHost()`, so this effect also re-keys on switch and
+    // reads the ACTIVE host's decision latch.
+    if (store.terminalIds().length === 0 && latchFor().decided) {
       setSavedSession(fromServer);
     }
   });
@@ -184,17 +203,17 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // `isRestoring()`; on success we clear `savedSession` before the toast, on
     // failure we leave it set so the user can retry.
     setIsRestoring(true);
-    // Re-arm the VIEW-STATE seed for THIS restore. `viewSeeded` latches true on
-    // the first live load so a reconnect doesn't re-pan/re-seed the canvas — but an
-    // in-session restore (the `recycleKaval` recycle→restore, no page reload) is
-    // PRECISELY a re-seed event: it re-spawns every terminal under FRESH ids whose
-    // client sub-panel state has never been seeded. Without this reset the
-    // hydration effect below short-circuits on the stale latch and never runs
-    // `hydrateFromTerminals` for the restored terminals, so a restored parent's
-    // active sub-tab is never set and its split comes back HIDDEN. Clearing it here
-    // lets the effect re-seed once the restored terminals arrive; it re-latches
-    // true after seeding, so a later reconnect is still a no-op.
-    viewSeeded = false;
+    // Re-arm the VIEW-STATE seed for THIS restore, on the ACTIVE host's latch. It
+    // latches true on the first live load so a reconnect doesn't re-pan/re-seed the
+    // canvas — but an in-session restore (the `recycleKaval` recycle→restore, no
+    // page reload) is PRECISELY a re-seed event: it re-spawns every terminal under
+    // FRESH ids whose client sub-panel state has never been seeded. Without this
+    // reset the hydration effect below short-circuits on the stale latch and never
+    // runs `hydrateFromTerminals` for the restored terminals, so a restored
+    // parent's active sub-tab is never set and its split comes back HIDDEN. Clearing
+    // it here lets the effect re-seed once the restored terminals arrive; it
+    // re-latches true after seeding, so a later reconnect is still a no-op.
+    latchFor().seeded = false;
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
     );
@@ -210,7 +229,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       //
       // `resumeIds` is the per-terminal opt-in the restore card builds off its
       // global toggle: the SET of ids to resume (empty when the toggle is off).
-      await padiRpc(padi).surface.session.restore({
+      await activePadiRpc.surface.session.restore({
         resumeIds: options.resumeIds ? [...options.resumeIds] : undefined,
       });
       setSavedSession(null);
@@ -251,14 +270,12 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     if (!session) return;
     // Optimistic dismissal: the card is gone the moment the user commits.
     setSavedSession(null);
-    await padiRpc(padi)
-      .surface.session.forfeit({})
-      .catch((err: Error) => {
-        // Surface the failure and restore the card so the user can retry —
-        // a caught error must not collapse silently to the empty state.
-        setSavedSession(session);
-        toast.error(`Failed to start fresh: ${err.message}`);
-      });
+    await activePadiRpc.surface.session.forfeit({}).catch((err: Error) => {
+      // Surface the failure and restore the card so the user can retry —
+      // a caught error must not collapse silently to the empty state.
+      setSavedSession(session);
+      toast.error(`Failed to start fresh: ${err.message}`);
+    });
   }
 
   return {
