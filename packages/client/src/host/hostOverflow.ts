@@ -12,13 +12,14 @@
  *
  * THE INVARIANT THIS FILE PINS: a chip's measured width never depends on
  * whether it happens to be ACTIVE — the active/inactive distinction is a
- * border/ring color swap only (`HostSelectorStrip.tsx`'s `HostChip`), which
- * costs zero layout. So when every chip already fits, swapping `activeKey`
- * between two hosts changes NOTHING about which chips are visible or their
- * order (see `hostOverflow.test.ts`'s host-switch pin). It changes the
- * OUTCOME only once the newly-active host was itself overflowed — the
- * overflow menu revealing the host you just switched to is the feature
- * working as designed, not a layout regression.
+ * border/ring color swap plus dual-daemon *content* that fills a FIXED-width
+ * reserved slot (empty when inactive), which costs zero layout. So when
+ * every chip already fits, swapping `activeKey` between two hosts changes
+ * NOTHING about which chips are visible or their order (see
+ * `hostOverflow.test.ts`'s host-switch pin). It changes the OUTCOME only
+ * once the newly-active host was itself overflowed — the overflow menu
+ * revealing the host you just switched to is the feature working as
+ * designed, not a layout regression.
  */
 
 export type HostFit = {

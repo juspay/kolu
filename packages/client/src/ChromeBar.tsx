@@ -1,10 +1,10 @@
 /** ChromeBar — the always-visible workspace chrome band.
  *
- *  Carries app identity (logo + connection dot) on the left and the
- *  global control cluster (recorder, inspector, settings, command
- *  palette) on the right. The live-terminal navigator moved to the
- *  dock at the canvas's left edge (#903), so the chrome bar
- *  no longer hosts a workspace switcher slot.
+ *  Left → right: quiet Kolu mark, host selector strip (primary multi-host
+ *  nav; Padi/Kaval dual marks ride the active host chip), global control
+ *  cluster (recorder, maximize, dock, inspector, settings, command palette).
+ *  The live-terminal navigator lives on the dock at the canvas's left edge
+ *  (#903) — not here.
  *
  *  Two positioning modes, switched on `posture.mode()`:
  *  - Tiled (default): absolute overlay above the canvas. Pure
@@ -23,7 +23,6 @@
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
-import DaemonSlot from "./host/HostDaemonChips";
 import HostSelectorStrip from "./host/HostSelectorStrip";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -118,28 +117,14 @@ const ChromeBar: Component<{
             }
       }
     >
-      {/* Identity rail. Server details live in the rail dialogs, not as
-       * duplicate branding on the canvas. */}
+      {/* Quiet Kolu mark — connection + dialogs; versions live in the dialog. */}
       <div class="shrink-0 pointer-events-auto">
         <IdentityRail status={props.status} />
       </div>
 
-      {/* The STATIONARY daemon slot (W4 header redesign, iteration 2) — the
-       *  Padi + Kaval sub-chips, fixed right after the Kolu chip. Its position
-       *  and size never change on a host switch (only its CONTENT re-keys —
-       *  see HostDaemonChips.tsx); iteration 1 mounted this pair INSIDE the
-       *  active host chip instead, which inflated whichever chip was active
-       *  and reflowed the whole strip on every switch. */}
-      <div class="shrink-0 pointer-events-auto">
-        <DaemonSlot />
-      </div>
-
-      {/* Middle slot — the host selector strip. It ALWAYS carries at least the
-       *  active host's chip; the `hostMapGate` cell only controls whether
-       *  ADDITIONAL host chips + the "+ add" affordance appear beside it. Host
-       *  chips are now UNIFORM (dot + name + ✕) — the active one is marked by
-       *  a ring/accent only, never by expansion, so a switch never reflows
-       *  the strip. */}
+      {/* Host strip is primary nav. Padi/Kaval ride the ACTIVE host chip inside
+       *  a fixed-width dual-daemon slot (empty reserve on inactive chips) so a
+       *  host switch never reflows the strip — see HostDaemonChips.tsx. */}
       <div class="flex-1 min-w-0 flex items-center pointer-events-none">
         <HostSelectorStrip />
       </div>

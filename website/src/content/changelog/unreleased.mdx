@@ -2,6 +2,10 @@
 version: Unreleased
 ---
 
+### Changed
+
+- <Change title="Host-first chrome: Padi and Kaval ride the active host chip" pr={0} tags={["chrome", "multi-host"]}>The chrome bar no longer shows three co-equal version pills (Kolu · Padi · Kaval) before the host strip. **Hosts are primary nav** — each host chip reserves a fixed dual-daemon slot; **only the active host** fills it with Padi and Kaval status marks (icon + connection dot). Steady versions live in tooltips and the info dialogs; a contract-skew pair still surfaces on the active Padi mark when that host refuses for skew. Switching hosts re-keys the marks without reflowing the strip.</Change>
+
 ### Added
 
 - <Change title="Switch which machine's terminals you're viewing — live, from the chrome bar" pr={1714} tags={["terminal", "remote", "ssh", "multi-host"]}>The in-app host switcher [#1675](https://github.com/juspay/kolu/pull/1675) promised ("no UI yet… the in-app host switcher coming next") is here. Set **`KOLU_PADI_HOST`** to a **comma-separated list** of ssh hosts and kolu keeps a **warm pool** of their workspace daemons — **padi**, one per host, each provisioned over ssh with Nix — and a **selector strip** appears in the chrome bar: one chip per host, each showing its **connection health** and a live **awaiting-you count** read straight off that machine. Click a chip and the **whole canvas switches to that machine** — its terminals, Code tab, paste/upload/transcripts — with **no reload**, the switch a single instant signal write (the old host's subscriptions drop, the new host's populate). Your **local** machine is always the first, **unremovable** chip. **Add or remove** a host at runtime right from the strip (removing the local default is refused — the canvas always keeps a machine to fall back to). Each browser **tab remembers its own** active host, so two tabs can watch two machines side by side. With `KOLU_PADI_HOST` unset it's a single local canvas, **pixel-identical** to before — the strip only appears once you've named a remote.</Change>

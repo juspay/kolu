@@ -10,15 +10,13 @@
  *  cell is the sole cue, and `undefined` (before the first cell frame) reads
  *  closed, so multi-host chrome never flashes in during warm-up.
  *
- *  ITERATION 2 (this file): the Padi/Kaval sub-chips that iteration 1 mounted
- *  INSIDE the active host chip moved OUT to a stationary slot in `ChromeBar`
- *  (`HostDaemonChips.tsx`'s `DaemonSlot`) — that inflated whichever chip was
- *  active, reflowing the whole strip on every switch. Host chips are now
- *  UNIFORM: dot + name + ✕ (guest only), every width. The active chip is
- *  marked ONLY by a ring/accent color swap (`HostChip`'s `isActive()`
- *  classList) — never by size — so a host switch changes ONLY that ring and
- *  the daemon slot's re-keyed content: zero layout shift. See
- *  `hostOverflow.ts` for the pinned invariant + its unit test.
+ *  PROPOSAL A / host-first: each host chip carries a FIXED-width dual-daemon
+ *  slot (`HostDualDaemonSlot`). Only the ACTIVE chip fills it with Padi +
+ *  Kaval; inactive chips leave the same outer box empty. Ring/accent still
+ *  mark the active chip — size never does — so a host switch reflows nothing.
+ *  (Iteration 1 filled without reserving empty siblings and reflowed;
+ *  iteration 2 parked daemons in a stationary ChromeBar slot; this is the
+ *  reserved-width return to the chip.)
  *
  *  Each chip reads, at a glance:
  *    · the host label (LOCAL_HOST shows as "local"), ellipsized to a
@@ -32,6 +30,7 @@
  *      at any width;
  *    · an urgency badge — the host's `awaiting` count (its FIRST client consumer), hidden
  *      when zero;
+ *    · the dual-daemon slot (active: Padi + Kaval marks; inactive: empty reserve);
  *    · a remove ✕ for GUEST hosts (never LOCAL_HOST) → `client.hosts.remove` (an
  *      UnremovableHostError surfaces LOUD via toast, never a silent no-op) — visible
  *      dimmed at rest above `lg`; below `lg` it hides at rest (still reachable via
@@ -45,7 +44,7 @@
  *  `layoutMode` swaps `ChromeBar` out for an entirely different phone chrome
  *  below that, so `sm` is this file's point of extinction, not a stage
  *  inside it:
- *   1. (Kolu chip + daemon slot — handled in their own files.)
+ *   1. (Quiet Kolu mark — IdentityRail.)
  *   2. Host names ellipsize tighter, ✕ goes hover-only, below `lg` (above).
  *   3. `md..lg` and up: once the chip row's measured content would overflow
  *      its available width, `computeVisibleHosts` (hostOverflow.ts) keeps
@@ -56,9 +55,8 @@
  *      retired).
  *   4. `sm..md` — this component's actual narrowest LIVE range: the whole
  *      row collapses to `HostDropdownSwitcher` — one chip showing the
- *      active host, opening an `OptionMenu` of every host to switch. The
- *      daemon slot (fixed, elsewhere) still carries both dots at this width
- *      — see `ChromeBar.tsx`.
+ *      active host (still carrying the dual-daemon fill), opening an
+ *      `OptionMenu` of every host to switch.
  *
  *  A trailing "+ add" opens an inline input → `client.hosts.add`. */
 
@@ -87,6 +85,7 @@ import {
   shouldRenderHostChip,
   statusTitle,
 } from "./hostChipTone";
+import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import {
   activeHost,
@@ -99,9 +98,10 @@ import {
 
 /** A chip's width before its first real measurement lands (the hidden
  *  measuring row's `ResizeObserver` callback is async) — a deliberately
- *  generous guess (dot + short label + padding) so the very first frame
- *  doesn't dump every chip into overflow before real widths settle in. */
-const DEFAULT_CHIP_WIDTH_ESTIMATE: number = 96;
+ *  generous guess (dot + short label + dual-daemon reserve + padding) so the
+ *  very first frame doesn't dump every chip into overflow before real widths
+ *  settle in. Includes the fixed dual-daemon slot (`DUAL_DAEMON_SLOT_CLASS`). */
+const DEFAULT_CHIP_WIDTH_ESTIMATE: number = 148;
 /** The "⋯ +N" overflow trigger's own rendered width + gap — reserved from
  *  the fit budget only once chips don't all fit (see `hostOverflow.ts`). */
 const OVERFLOW_TRIGGER_RESERVE: number = 44;
@@ -128,7 +128,7 @@ const label: (h: HostKey) => string = (h) =>
  *  key), never a `HostKey` object. */
 const labelForKey: (key: string) => string = (key) => label(decodeHostKey(key));
 
-const HostChip: Component<{ host: HostKey }> = (props) => {
+const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
@@ -142,16 +142,20 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
   const isActive = () => sameHost(activeHost(), props.host);
+  // Measure-row twins keep the dual-daemon slot EMPTY: the outer box is fixed-width
+  // either way, so empty is enough for width, and we avoid mounting a second
+  // Padi/Kaval pair (duplicate testids / dialogs) behind `aria-hidden`.
+  const fillDaemons = () => !props.measure && isActive();
 
-  // A non-interactive CONTAINER holding two real buttons — the SELECT button (the chip
-  // body) and, for a guest, a sibling REMOVE button. Two buttons (not a clickable div
-  // with a nested button) keeps it keyboard-reachable + valid a11y with no static-element
-  // interaction handlers.
+  // A non-interactive CONTAINER holding real buttons — SELECT, optional dual-
+  // daemon marks (active only), and guest REMOVE. Nested buttons stay siblings
+  // so a11y stays valid (no button-in-button).
   //
-  // UNIFORM SHAPE (iteration 2): this chip's DOM/classes never depend on `isActive()`
-  // for SIZE — only for border/bg/text COLOR (a ring/accent swap). That is what makes
-  // `hostOverflow.ts`'s "a host switch never changes width/position" invariant true
-  // BY CONSTRUCTION: nothing measurable here reads `isActive()`.
+  // UNIFORM SHAPE: this chip's measurable SIZE never depends on `isActive()` —
+  // only border/bg/text COLOR (ring/accent) and the dual-slot's *content* do.
+  // The dual-daemon outer box is fixed-width on every chip (filled or empty),
+  // which is what makes `hostOverflow.ts`'s "a host switch never changes
+  // width/position" invariant true BY CONSTRUCTION.
   return (
     <div
       class="group flex items-stretch rounded-lg border text-xs overflow-hidden shrink-0 transition-colors"
@@ -204,6 +208,16 @@ const HostChip: Component<{ host: HostKey }> = (props) => {
           </span>
         </Show>
       </button>
+      {/* Fixed-width dual-daemon slot — Padi + Kaval fill only when active
+       *  (and never on the hidden measure-row twin — see `fillDaemons`). */}
+      <div
+        classList={{
+          "bg-surface-3": isActive(),
+          "bg-surface-2/70": !isActive(),
+        }}
+      >
+        <HostDualDaemonSlot filled={fillDaemons()} />
+      </div>
       {/* Remove — guest hosts only. The local default is unremovable (the server
        *  rejects it LOUD; we also hide the affordance so it never invites the error).
        *  Visible DIMMED at rest above `lg` (opacity-60 on the muted text-fg-3 tone,
@@ -483,9 +497,14 @@ const HostSelectorStrip: Component = () => {
 
         {/* `sm..md` (mobile-extreme, narrow-window stage 4 — this
          *  component's actual narrowest reachable range, see above): one
-         *  dropdown switcher chip replaces the whole row. */}
-        <div class="flex md:hidden">
+         *  dropdown switcher chip replaces the whole row. Dual-daemon fill
+         *  still sits beside it (the dropdown is not a HostChip, so the
+         *  in-chip slot isn't available). */}
+        <div class="flex md:hidden items-center gap-1">
           <HostDropdownSwitcher hosts={renderableHosts()} />
+          <div class="rounded-lg border border-accent/60 bg-surface-3 overflow-hidden">
+            <HostDualDaemonSlot filled />
+          </div>
         </div>
       </Show>
 
@@ -516,7 +535,7 @@ const HostSelectorStrip: Component = () => {
                   data-host-key={key}
                   class="shrink-0"
                 >
-                  <HostChip host={host} />
+                  <HostChip host={host} measure />
                 </div>
               );
             }}

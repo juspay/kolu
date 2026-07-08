@@ -1,9 +1,9 @@
 /** The identity-chip mark shared by every process chip in the header — the Kolu
- *  chip (`IdentityRail`) and the per-host Padi/Kaval sub-chips (`HostDaemonChips`,
- *  nested inside the active host chip since the W4 header redesign). One logo +
- *  one status dot, sized to sit inside an `h-7` chip row. Kept as the SOLE mark
- *  component so a chip's dot styling can't drift between the Kolu chip and the
- *  per-host daemon chips it used to sit beside. */
+ *  chip (`IdentityRail`) and the per-host Padi/Kaval sub-chips
+ *  (`HostDaemonChips`, filled into the active host chip's dual-daemon slot).
+ *  One logo + one status dot, sized to sit inside an `h-7` chip row. Kept as
+ *  the SOLE mark component so a chip's dot styling can't drift between Kolu
+ *  and the per-host daemon chips. */
 
 import type { Component, JSX } from "solid-js";
 import type { WsStatus } from "../rpc/rpc";
