@@ -48,6 +48,7 @@ import {
   DEFAULT_TILE_W,
   findFreeTilePosition,
 } from "./tilePlacement";
+import { planTilePlacements } from "./tilePlacementPlan";
 import { useCanvasFocus } from "./useCanvasFocus";
 import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileAura } from "./useTileAura";
@@ -156,17 +157,32 @@ const TerminalCanvas: Component<{
   // first render — without it, there would be a (0,0) frame while waiting
   // for the server's metadata echo.
   //
-  // Contract: the default-placement runs only for tiles whose `getLayout(id)`
-  // is falsy on their first appearance in `tileIds`. Callers that intend
-  // to preserve a pre-existing layout (session restore, tile clone, …) are
-  // responsible for making `getLayout(id)` return it by then — e.g. by
-  // seeding server metadata before the list snapshot yields (#642). Any
-  // path that seeds AFTER the first `tileIds` fire will lose to this
-  // effect and overwrite the intended layout.
+  // Contract (`planTilePlacements`): default-placement stamps a layout ONLY on a
+  // tile whose metadata RECORD has arrived and carries no `canvasLayout` — a
+  // genuinely-new tile. A tile with no resolved layout AND no metadata record yet
+  // is DEFERRED, not defaulted: it's indistinguishable from a RETURNING tile whose
+  // saved layout is still in flight. That case is the host-switch split-loss bug —
+  // on switch-back `terminalListSub` re-keys to the host's tiles FASTER than their
+  // per-terminal `canvasLayout` metadata re-arrives, so for a beat the tiles have
+  // no layout and no record; the old code stamped defaults and `onLayoutChange`
+  // PERSISTED them, destroying the saved split (first-visit dodged it because the
+  // snapshot carried the layout). Deferring until the record lands lets a returning
+  // tile resolve its saved layout untouched.
+  //
+  // `allRecordsSettled` re-arms the effect when a deferred tile's record arrives
+  // (undefined -> defined). It's a BOOLEAN memo, so a metadata VALUE change (agent
+  // state, cwd, git) does NOT re-run placement — only the tile set changing or the
+  // "all records arrived" edge does, preserving the original `on(tileIds)`
+  // stability (a metadata tick must not wake placement).
+  const isMetadataRecordPresent = (id: TileId): boolean =>
+    store.getMetadata(id) !== undefined;
+  const allRecordsSettled = createMemo(() =>
+    props.tileIds.every(isMetadataRecordPresent),
+  );
   createEffect(
     on(
-      () => props.tileIds,
-      (ids) => {
+      () => [props.tileIds, allRecordsSettled()] as const,
+      ([ids]) => {
         const center = viewport.viewportCenter();
         // Container not mounted yet — defer placement; the effect re-runs when
         // the tile list next changes (post-mount, with real dimensions).
@@ -176,10 +192,15 @@ const TerminalCanvas: Component<{
         if (!center) return;
         const { x: cx, y: cy } = center;
 
+        const plan = planTilePlacements(ids, layoutOf, (id) =>
+          isMetadataRecordPresent(id),
+        );
+
         // Consume the inherited size only when there are new tiles that need
         // layouts — a re-run with no new tiles (session restore, chunked
-        // metadata) must not swallow the size pending for a later create.
-        const hasNewTiles = ids.some((id) => !layoutOf(id));
+        // metadata, a deferred tile still pending) must not swallow the size
+        // pending for a later create.
+        const hasNewTiles = plan.some((p) => p.kind === "new");
         const inheritSize = hasNewTiles
           ? pendingLayouts.takeNextDefaultSize()
           : null;
@@ -189,24 +210,26 @@ const TerminalCanvas: Component<{
           layout: TileLayout;
           isNew: boolean;
         }[] = [];
-        for (const id of ids) {
-          const existing = layoutOf(id);
-          if (existing) {
-            placed.push({ id, layout: existing, isNew: false });
+        for (const p of plan) {
+          // Metadata record not yet arrived — wait; don't clobber a returning
+          // tile's saved layout with a default.
+          if (p.kind === "defer") continue;
+          if (p.kind === "existing") {
+            placed.push({ id: p.id, layout: p.layout, isNew: false });
             continue;
           }
           const defaultLayout: TileLayout = {
             ...findFreeTilePosition(
               cx,
               cy,
-              placed.map((p) => p.layout),
+              placed.map((x) => x.layout),
             ),
             w: inheritSize?.w ?? DEFAULT_TILE_W,
             h: inheritSize?.h ?? DEFAULT_TILE_H,
           };
-          setPendingLayout(id, defaultLayout);
-          props.onLayoutChange(id, defaultLayout);
-          placed.push({ id, layout: defaultLayout, isNew: true });
+          setPendingLayout(p.id, defaultLayout);
+          props.onLayoutChange(p.id, defaultLayout);
+          placed.push({ id: p.id, layout: defaultLayout, isNew: true });
         }
         // Pan to the active newly-placed tile. `activate` is a no-op
         // setter when active is already this id (handleCreate already set
