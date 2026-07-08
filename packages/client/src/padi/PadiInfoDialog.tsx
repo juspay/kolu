@@ -19,7 +19,7 @@
  *  |-------------------------------------------------|---------------------------------|
  *  | `localDaemonStatus()` (kaval state/identity/…)   | host-scoped — `padiMap.useEntry(activeHost).collections.daemonStatus` |
  *  | `activeEntryConnected()` / `daemonChannelLive()` | host-scoped — reads `padiMap.entry(activeHost())` directly |
- *  | `activeEntryFailed()` / `isActiveHostLocal()`    | host-scoped — same as above (drives `canvasModeResolver`'s remote-provisioning ceiling) |
+ *  | `activeEntryState()` / `isActiveHostLocal()`     | host-scoped — same as above (the typed entry discriminant `canvasModeResolver` keys on: host-down cause + remote-provisioning ceiling) |
  *  | `boundHostKavals/Padis()`, `activePadi()`        | host-scoped — `padiMap.useEntry(activeHost).cells.hostInventory` |
  *  | `daemonTransportLive()` (`app.health().live`)    | host-INDEPENDENT by design — one physical browser↔kolu-server ws, regardless of which host tab is active |
  *  | `serverRssBytes()`, `serverStartedAt()`          | host-INDEPENDENT by design — kolu-server's own process has exactly one RSS/boot-time |

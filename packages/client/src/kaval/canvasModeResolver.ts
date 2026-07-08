@@ -5,7 +5,17 @@
  *  its own dependency-free module is what lets the test import it without
  *  mounting the `daemonStatus` subscription (which drags in `../wire`).
  *
- *  The arm ORDER is correctness, not cosmetics:
+ *  The facts are a DISCRIMINATED UNION keyed on the ACTIVE entry's connection
+ *  state (`padiMap.entry(activeHost()).state().kind`), so the kaval-derived facts
+ *  (`daemonState`/`down`/`warming`/`terminalCount`/`recordsAwaited`) are
+ *  structurally reachable ONLY on the `connected` arm — a non-connected host's
+ *  re-served `daemonStatus` is FROZEN stale, so consulting a kaval fact off it is
+ *  a lie the type system now makes UNSPELLABLE (reading `.daemonState` on the
+ *  `warming`/`failed`/`not-a-member` arm is a compile error; see
+ *  `canvasModeResolver.test-d.ts`). {@link resolveCanvasMode} switches on the
+ *  discriminant FIRST and touches a kaval fact only inside the `connected` arm.
+ *
+ *  The connected-arm sub-order is correctness, not cosmetics:
  *    - `down` beats `empty` so a dead/degraded kaval never masquerades as
  *      "you have no terminals" — the #1034 empty-canvas lie.
  *    - `warming` beats `empty` so a restart's `drain` (which empties the
@@ -15,42 +25,33 @@
  *      (terminal creation must wait for `connected`). */
 
 import type { DaemonState } from "@kolu/padi/surface";
+import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
- *  the down sub-state and the warming label travel WITH the choice — the
- *  renderer reads neither `downState()` nor `warmingCanvasLabel()` a second
- *  time. */
+ *  the down sub-state, the warming label, and the host-failure cause travel WITH
+ *  the choice — the renderer reads no accessor a second time. `host-failed` is
+ *  the Skew-UX addition: the ACTIVE host's map-membership entry itself failed
+ *  (an ssh/contract-level fault, cause-typed), distinct from `down` (a CONNECTED
+ *  host whose kaval daemon died). */
 export type CanvasMode =
   | { kind: "connecting" }
   | { kind: "down"; state: "dead" | "degraded" }
+  | { kind: "host-failed"; cause: EntryFailedCause; reason: string }
   | { kind: "warming"; label: string; daemonState: DaemonState | undefined }
   | { kind: "empty" }
   | { kind: "workspace" };
 
-/** The flat snapshot the precedence decision needs — every fact as a plain
- *  value, no accessors and no module reads. Separating this from the live
- *  accessors is what makes {@link resolveCanvasMode} a pure, exhaustively
- *  testable total function. */
-export interface CanvasFacts {
+/** The liveness facts every arm carries, regardless of the active entry's
+ *  connection state — the session-loading flag and the connect-ceiling facts the
+ *  loading guard reads BEFORE it ever consults an entry arm. Kept as a shared
+ *  base so each arm below adds only the facts its own surface needs. */
+interface EntryLivenessFacts {
   isLoading: boolean;
   daemonPending: boolean;
-  down: "dead" | "degraded" | undefined;
-  warming: boolean;
-  warmingLabel: string;
-  daemonState: DaemonState | undefined;
-  terminalCount: number;
-  /** How many listed terminals' composed records have NOT arrived yet (the
-   *  `awaited` arm of the metadata census). Non-zero means the key list resolved
-   *  but per-terminal metadata is still in flight — the reload window where
-   *  `terminalCount` is transiently 0 because records haven't composed. Gating
-   *  `empty` on this (below) is what stops the restore card from flashing before a
-   *  reload's live terminals appear; a genuine reboot arrives with records PARKED
-   *  (awaited 0, count 0), so it falls through to `empty` as it should. */
-  recordsAwaited: number;
   /** True once `daemonPending` has held for longer than the local endpoint's own
    *  connect timeout — i.e. the daemon-status stream has NEVER produced a first
    *  value and the wait has structurally run past the ceiling the padi session
-   *  itself uses to decide a dial is wedged. Bounds the `connecting` arm below: a
+   *  itself uses to decide a dial is wedged. Bounds the `connecting` guard below: a
    *  local padi endpoint that never comes up at boot (a spawn/adopt failure — the
    *  #1713 adopt-path sibling is one cause) would otherwise leave `daemonPending`
    *  true FOREVER (no value is ever published), and the canvas would spin at
@@ -58,29 +59,65 @@ export interface CanvasFacts {
    *  the window (the common, near-instant case) — computed by the wall-clock-aware
    *  caller; this module stays pure (see the header). */
   pendingTimedOut: boolean;
-  /** The FULL channel liveness of the daemonStatus stream — the ws transport AND the
-   *  ACTIVE ENTRY's own connection (`daemonChannelLive()` = ws ∧ `activeEntryConnected`). The
-   *  `down` and `warming` facts arrive ALREADY floored on this at their source accessors
-   *  (`downState`/`daemonWarming` → `liveDownState`/`liveWarming`, both on `daemonChannelLive`);
-   *  this fact floors the remaining daemon-derived claim — `empty` ("no terminals"), which a
-   *  dead channel also can't confirm — so a dead/half-open ws OR a dead active REMOTE entry
-   *  (whose re-served daemonStatus freezes STALE at `connected`) makes NO unconfirmable canvas
-   *  claim (the #1568 SHAPE A class the rail dot already floors, now on the entry leg too). */
-  channelLive: boolean;
-  /** True while the ACTIVE host is the unremovable LOCAL default. `pendingTimedOut`'s 30s
-   *  ceiling ({@link LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS} in `useDaemonStatus.ts`) mirrors the
-   *  LOCAL session's own connect watchdog — a LOCAL-STACK fact. A REMOTE host's first
-   *  connect legitimately takes longer (ssh dial + nix copy + build), so the SAME ceiling
-   *  must not resolve a still-provisioning remote to `down`/`dead` (srid's "kaval didn't
-   *  start over a provisioning remote" class). */
+  /** True while the ACTIVE host is the unremovable LOCAL default. `pendingTimedOut`'s
+   *  30s ceiling (`LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS` in `useDaemonStatus.ts`) mirrors
+   *  the LOCAL session's own connect watchdog — a local-stack fact. A REMOTE host's
+   *  first connect legitimately takes longer (ssh dial + nix copy + build), so the SAME
+   *  ceiling only earns a `down`/`dead` verdict for a local host or a PROVEN-`failed`
+   *  entry — never a remote that is merely still provisioning. */
   isLocalHost: boolean;
-  /** True when the ACTIVE host's map-membership entry is `failed` — a genuine ssh dial/
-   *  handshake failure, not "still provisioning" (`copying`/`warming` project to the map's
-   *  `warming` entry status, see `@kolu/surface-map`'s `server.ts`). The one REMOTE
-   *  condition that still earns the honest `down`/`dead` verdict before the local ceiling
-   *  would otherwise apply. */
-  activeEntryFailed: boolean;
 }
+
+/** The precedence decision's snapshot — a DISCRIMINATED UNION keyed on the active
+ *  entry's connection state (`entry`). Only the `connected` arm carries the
+ *  kaval-derived facts, so they cannot be read off a host whose re-served
+ *  `daemonStatus` is stale (the whole point — see the module header). Separating
+ *  this from the live accessors is what makes {@link resolveCanvasMode} a pure,
+ *  exhaustively testable total function. */
+export type CanvasFacts =
+  | (EntryLivenessFacts & {
+      /** The active entry is `warming` — the host binding itself is still coming up
+       *  (a remote's ssh dial + nix copy + build), NOT the kaval daemon restarting
+       *  (that is a CONNECTED-arm fact). */
+      entry: "warming";
+      warmingLabel: string;
+    })
+  | (EntryLivenessFacts & {
+      /** The active entry `failed` — an ssh dial/handshake or contract-level fault
+       *  the map reported, cause-typed. Carries NO kaval facts (the host never
+       *  connected, so there is no daemon to describe). */
+      entry: "failed";
+      cause: EntryFailedCause;
+      reason: string;
+    })
+  | (EntryLivenessFacts & {
+      /** The active host is transiently not in the membership pool (mid-switch,
+       *  before a re-add lands). No entry facts to read — hold `connecting`. */
+      entry: "not-a-member";
+    })
+  | (EntryLivenessFacts & {
+      /** The active entry is `connected` — the ONLY arm on which the kaval-derived
+       *  facts below are trustworthy (a connected channel can still refresh them). */
+      entry: "connected";
+      down: "dead" | "degraded" | undefined;
+      warming: boolean;
+      warmingLabel: string;
+      daemonState: DaemonState | undefined;
+      terminalCount: number;
+      /** How many listed terminals' composed records have NOT arrived yet (the
+       *  `awaited` arm of the metadata census). Non-zero means the key list resolved
+       *  but per-terminal metadata is still in flight — the reload window where
+       *  `terminalCount` is transiently 0 because records haven't composed. Gating
+       *  `empty` on this is what stops the restore card from flashing before a reload's
+       *  live terminals appear; a genuine reboot arrives with records PARKED (awaited 0,
+       *  count 0), so it falls through to `empty` as it should. */
+      recordsAwaited: number;
+      /** The FULL channel liveness of the daemonStatus stream — the ws transport AND
+       *  the active entry's own connection. Floors the `empty` claim ("no terminals"),
+       *  which a dead channel can't confirm, so a dead/half-open ws makes NO
+       *  unconfirmable canvas claim (#1568 SHAPE A). */
+      channelLive: boolean;
+    });
 
 /** The pure precedence partition — total over {@link CanvasFacts}, exclusive,
  *  order load-bearing (see the module header). No reactive reads, so the whole
@@ -88,52 +125,69 @@ export interface CanvasFacts {
  *  daemon-status subscription. */
 export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
   // Neutral "connecting" until BOTH the session cell AND the daemon-status
-  // stream have produced their first value. Gating on daemon-status-pending
-  // (not just `down`, which is undefined while pending) stops a `dead` boot
-  // from flashing the normal empty workspace before the degraded surface takes
-  // over (#1034). BOUNDED: once the daemon-status wait has run past the local
-  // endpoint's own connect timeout, "still pending" no longer means "about to
-  // arrive" — nothing will ever be published (a local padi that never came up
-  // at boot), so resolve honestly to `down` (the reason surfaced — "dead", never
-  // came up) instead of spinning at "Connecting…" forever (never a silent
-  // spinner — the #1713 adopt-path sibling's canvas symptom).
+  // stream have produced their first value — reads only the liveness facts every
+  // arm carries, so it runs BEFORE the entry-state switch below. Gating on
+  // daemon-status-pending (not just the entry state) stops a `dead` boot from
+  // flashing the normal empty workspace first (#1034). BOUNDED: once the wait has
+  // run past the local endpoint's own connect timeout, "still pending" no longer
+  // means "about to arrive" — nothing will ever be published (a local padi that
+  // never came up), so resolve honestly to `down`/`dead` instead of spinning at
+  // "Connecting…" forever (the #1713 adopt-path sibling's canvas symptom). The 30s
+  // ceiling only earns that verdict for a LOCAL host (whose own connect watchdog it
+  // mirrors) or an entry PROVEN `failed` — never a remote merely still provisioning
+  // (`warming`), whose ssh dial + nix copy + build can genuinely outlast 30s.
   if (facts.isLoading || facts.daemonPending) {
-    // The 30s ceiling only earns a `down`/`dead` verdict for a LOCAL host (whose own
-    // connect watchdog it mirrors) or a REMOTE host whose entry is PROVEN `failed` — never
-    // a remote host that is merely still provisioning (`copying`/`warming`, which project
-    // to the map's `warming` entry status and so read `activeEntryFailed === false` here).
-    // A fresh remote padi's ssh dial + nix copy + build can genuinely outlast 30s; without
-    // this guard the canvas painted "kaval didn't start" over a perfectly normal
-    // provisioning window.
-    const ceilingApplies = facts.isLocalHost || facts.activeEntryFailed;
+    const ceilingApplies = facts.isLocalHost || facts.entry === "failed";
     return facts.pendingTimedOut && ceilingApplies
       ? { kind: "down", state: "dead" }
       : { kind: "connecting" };
   }
-  // `down` and `warming` arrive ALREADY floored on transport liveness (their source
-  // accessors `downState`/`daemonWarming` return undefined/false when the link is
-  // dead), so a stale daemon state never reaches these arms over a dead channel.
-  if (facts.down) return { kind: "down", state: facts.down };
-  if (facts.warming)
-    return {
-      kind: "warming",
-      label: facts.warmingLabel,
-      daemonState: facts.daemonState,
-    };
-  // Terminals on screen → show them. Otherwise "no terminals" is the remaining
-  // daemon-derived claim, and it too is unconfirmable over a dead channel: show `empty`
-  // only when the CHANNEL is LIVE (ws ∧ the active entry — it can confirm the set really is
-  // empty), else the neutral connecting surface — never a stale "no terminals" with active
-  // Restore / new-terminal affordances over a dead ws OR a dead active REMOTE entry (whose
-  // frozen daemonStatus would otherwise read as an authoritative empty). The post-grace
-  // TransportOverlay owns the disconnect messaging.
-  if (facts.terminalCount > 0) return { kind: "workspace" };
-  // Records still arriving after the key list resolved → a reload's live terminals
-  // are mid-compose, so `terminalCount === 0` is a NOT-YET-settled claim, not "no
-  // terminals". Hold the neutral connecting surface instead of flashing `empty`'s
-  // restore card — ordered ABOVE `empty` for the same reason `down`/`warming` are.
-  // A genuine reboot's records arrive PARKED (awaited hits 0 with no live tile), so
-  // this falls through to `empty` and the restore card, exactly as intended.
-  if (facts.recordsAwaited > 0) return { kind: "connecting" };
-  return facts.channelLive ? { kind: "empty" } : { kind: "connecting" };
+  // Past the loading guard, the ACTIVE entry's connection state decides the surface.
+  // A non-connected host's re-served daemonStatus is FROZEN stale, so its arms never
+  // touch a kaval fact (they don't carry one) — only the `connected` arm consults the
+  // daemon-derived facts.
+  switch (facts.entry) {
+    case "warming":
+      // The host binding is still coming up. Show the neutral warming surface with no
+      // kaval `daemonState` — there is no connected daemon to describe yet.
+      return {
+        kind: "warming",
+        label: facts.warmingLabel,
+        daemonState: undefined,
+      };
+    case "failed":
+      // The host binding itself failed (cause-typed). Its own surface — the Skew-UX
+      // host-down card ([Switch to local], no retry) — is distinct from `down` (a
+      // connected host's dead kaval).
+      return { kind: "host-failed", cause: facts.cause, reason: facts.reason };
+    case "not-a-member":
+      // Transiently outside the pool (mid host-switch). Neutral connecting surface —
+      // never a stale claim about a host that is not currently a member.
+      return { kind: "connecting" };
+    case "connected": {
+      // `down` and `warming` arrive ALREADY floored on channel liveness at their source
+      // accessors (`downState`/`daemonWarming`), so a stale daemon state never reaches
+      // these arms over a dead channel.
+      if (facts.down) return { kind: "down", state: facts.down };
+      if (facts.warming)
+        return {
+          kind: "warming",
+          label: facts.warmingLabel,
+          daemonState: facts.daemonState,
+        };
+      // Terminals on screen → show them. Otherwise "no terminals" is the remaining
+      // daemon-derived claim, and it too is unconfirmable over a dead channel: show
+      // `empty` only when the CHANNEL is LIVE (ws ∧ the active entry — it can confirm the
+      // set really is empty), else the neutral connecting surface. The post-grace
+      // TransportOverlay owns the disconnect messaging.
+      if (facts.terminalCount > 0) return { kind: "workspace" };
+      // Records still arriving after the key list resolved → a reload's live terminals
+      // are mid-compose, so `terminalCount === 0` is a NOT-YET-settled claim, not "no
+      // terminals". Hold `connecting` instead of flashing `empty`'s restore card. A
+      // genuine reboot's records arrive PARKED (awaited hits 0 with no live tile), so
+      // this falls through to `empty` and the restore card, exactly as intended.
+      if (facts.recordsAwaited > 0) return { kind: "connecting" };
+      return facts.channelLive ? { kind: "empty" } : { kind: "connecting" };
+    }
+  }
 }

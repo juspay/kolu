@@ -19,8 +19,10 @@ import {
   encodeHostLocation,
   LOCAL_LOCATION,
 } from "@kolu/padi/surface";
+import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
+import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
@@ -95,16 +97,17 @@ function activeEntryConnected(): boolean {
   return padiMap.entry(activeHost()).state().kind === "connected";
 }
 
-/** True when the ACTIVE host entry's map-membership status is `failed` — a genuine ssh
- *  dial/handshake failure the map reported, not "still provisioning". Read by
- *  `canvasModeResolver`'s `pendingTimedOut` gate: a REMOTE host that is legitimately still
- *  `copying`/`warming` (nix-copy + build, which projects to `warming` at the entry-status
- *  level — see `@kolu/surface-map`'s `server.ts`) must NOT be judged against the LOCAL 30s
- *  connect ceiling (a remote first-connect can genuinely take longer); a `failed` entry is
- *  the one REMOTE condition that still earns the honest down/dead verdict. A reactive
+/** The ACTIVE host entry's FULL connection state — the typed discriminant
+ *  (`warming`/`connected`/`failed`/`not-a-member`) plus, on `failed`, the typed
+ *  {@link EntryFailedCause} and reason. `canvasModeResolver` keys its facts on this
+ *  ONE read: the `failed` arm drives both the host-down card's cause-typed copy and
+ *  the `pendingTimedOut` ceiling (a REMOTE host merely still `warming` — nix-copy +
+ *  build, which projects to the `warming` entry status, see `@kolu/surface-map`'s
+ *  `server.ts` — must NOT be judged against the LOCAL 30s connect ceiling; only a
+ *  PROVEN-`failed` entry earns the honest down/dead verdict early). A reactive
  *  accessor; read it inside a tracking scope. */
-export function activeEntryFailed(): boolean {
-  return padiMap.entry(activeHost()).state().kind === "failed";
+export function activeEntryState(): EntryState<EntryFailedCause> {
+  return padiMap.entry(activeHost()).state();
 }
 
 /** True while the ACTIVE host is the unremovable LOCAL default — `canvasModeResolver`'s

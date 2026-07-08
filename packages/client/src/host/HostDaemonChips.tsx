@@ -26,11 +26,16 @@
  *  tooltip/aria-label and the click-through dialog, exactly as it did on the
  *  old rail chips.
  *
- *  DEFERRED SEAM: when the held Skew-UX lands, the Padi sub-chip's version
- *  span becomes a running/expected CONTRACT PAIR instead of one version number
- *  — swap the `padiVersion()` span below for that pair's render; nothing else
- *  here should need to change. */
+ *  SKEW SEAM (landed): the Padi sub-chip's version span becomes a
+ *  running/expected CONTRACT PAIR ({@link SkewVersionSpan}) when the active host's
+ *  entry `failed` on `contract-skew-refused` (the typed D2 pair), and the single
+ *  {@link VersionSpan} otherwise — the swap the iteration-2 slot reserved, with the
+ *  same reserved `min-w` so it never reflows the strip on switch. */
 
+import type {
+  PadiEntryStatus,
+  SkewVersionPair,
+} from "kolu-common/surfacesWithPadi";
 import type { Component } from "solid-js";
 import { createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
@@ -61,6 +66,7 @@ import { formatMBCompact } from "../ui/memory";
 import { daemonScanBoundHost } from "../ui/useDaemonInventory";
 import { activePadiIdentity } from "../ui/useHostInventory";
 import { kavalMemoryDisplay, padiMemoryDisplay } from "../ui/useMemoryUsage";
+import { activeHost, padiMap } from "../wire";
 
 /** A version span shown only once it clears the width budget — the same
  *  `hidden lg:inline` breakpoint approximation the Kolu chip uses (a real
@@ -82,6 +88,22 @@ import { kavalMemoryDisplay, padiMemoryDisplay } from "../ui/useMemoryUsage";
 const VersionSpan: Component<{ version: string | undefined }> = (props) => (
   <span class="hidden min-w-[2.75rem] tabular-nums text-fg-3 lg:inline-block">
     {props.version ? `v${props.version}` : ""}
+  </span>
+);
+
+/** The Skew-UX running→expected CONTRACT PAIR badge — the deferred-seam swap the
+ *  module header (and iteration-2's stationary-slot doc) reserved: when the active
+ *  host's padi entry `failed` with cause `contract-skew-refused`, the single
+ *  {@link VersionSpan} becomes this pair so the version MISMATCH is legible at a
+ *  glance (`v{running} → v{expected}`, subtle skew tone). Keeps the SAME
+ *  `hidden … lg:inline-block` breakpoint and the same reserved `min-w-[2.75rem]`
+ *  floor as `VersionSpan` — so a host switch that swaps a single version FOR the
+ *  pair never shrinks the slot below the reserved width and never reflows the host
+ *  strip. `whitespace-nowrap` keeps the pair on one line inside the fixed-height
+ *  slot. */
+const SkewVersionSpan: Component<SkewVersionPair> = (props) => (
+  <span class="hidden min-w-[2.75rem] whitespace-nowrap tabular-nums text-warning lg:inline-block">
+    {`v${props.running} → v${props.expected}`}
   </span>
 );
 
@@ -129,6 +151,20 @@ const PadiSubChip: Component = () => {
   const daemonLive = daemonTransportLive;
   const padiVersion = (): string | undefined =>
     activePadiIdentity()?.surfaceVersion;
+  // Skew-UX: when the ACTIVE host's entry failed on `contract-skew-refused`, the
+  // typed D2 version pair rides that `failed` arm (`PadiEntryStatus`). Read it
+  // host-scoped (the cast is the read-site contract the type documents) and, when
+  // present, render the running→expected PAIR in place of the single version span.
+  const skewPair = (): SkewVersionPair | undefined => {
+    const state = padiMap.entry(activeHost()).state() as PadiEntryStatus;
+    if (state.kind !== "failed" || state.cause !== "contract-skew-refused")
+      return undefined;
+    // `PadiEntryStatus`'s `failed` arm overlaps — the D2 typed `running`/`expected`
+    // ride only the member that structurally carries them, so reach them through the
+    // read-site cast the type documents (the producer attaches both on this cause).
+    const { running, expected } = state as SkewVersionPair;
+    return { running, expected };
+  };
   const padiHostSegment = (): string | null =>
     padiBoundHostSegment(daemonScanBoundHost());
   const padiStateText = (): string => {
@@ -169,7 +205,17 @@ const PadiSubChip: Component = () => {
             class={padiDot(padiLinkState(), daemonLive())}
           />
         </IdentityMark>
-        <VersionSpan version={padiVersion()} />
+        <Show
+          when={skewPair()}
+          fallback={<VersionSpan version={padiVersion()} />}
+        >
+          {(pair) => (
+            <SkewVersionSpan
+              running={pair().running}
+              expected={pair().expected}
+            />
+          )}
+        </Show>
         <PadiMemReadout />
       </button>
       <PadiInfoDialog
