@@ -27,7 +27,7 @@ One "approved as recommended" (or amendments) unblocks everything below marked �
 
 ### kolu #1714 — remaining work
 
-- 🔄 **drishti fleet stuck "connecting" (was: `foldInput` wire bug — FALSIFIED)** — reproduce-first cleared the framework: kolu's own folded void-input cells work live (the identity dialog's real per-host SHAs), and `z.void()` accepts the missing-key frame at all three layers. The real fault is drishti-side (its hand-rolled `hostMapRegistry.ts` adapter / serve-flatten; membership delivers while cell calls die → suspect a route/prefix skew). Local repro in the drishti repo next; fix lands in drishti PR #90. No surface-map change without proof.
+- ✅ **drishti fleet stuck "connecting" — SOLVED: zod version drift** (not surface-map, not the adapter): drishti's lock floated to zod 4.4.3 where `z.object({input: z.void()})` newly rejects a missing key; kolu's 4.3.6 is lenient. Fixed in PR #90 (`be56501`, zod pinned, verified live — all cells deliver). The framework falsification stands vindicated.
 - 🔄 **Header-bar redesign** (srid design): `Kolu | Host1, Host2 [Padi, Kaval]` — daemon chips move INTO the active host's chip (per-host facts rendered per-host); inactive chips compact; gate-off pixel-identical. Push-often; visual iteration expected.
 - ⏸ **P0 · ownership-gated drain** — `nix run` can never drain a padi a *different live* kolu owns (the production-incident fix): local boot-time gate + CLI fail-fast; remote via anti-livelock reuse (Decision 3); `KOLU_REMOTE_PADI_STATE_DIR` isolation (P0-b). Pins: two-local-kolu war repro → zero drain, first padi untouched; same-lineage upgrade still drains.
 - ⏸ **Skew-UX** — `CanvasFacts` sum (kaval facts only on the connected arm — "kaval didn't start" over a skewed remote becomes *uncompilable*); host-down card switching on the typed `cause` (no string parsing, no inert Retry); header contract badge host-scoped (running + expected pair, Decision 2).
@@ -36,7 +36,9 @@ One "approved as recommended" (or amendments) unblocks everything below marked �
 - ✅ **Canvas red repro tests** — pushed (`89e601b4f`): 3 red-proofs encoding srid's exact symptoms (confirmed RED first, then `it.fails` so the suite stays green; they flip to `it()` when the Decision-4 fix lands) + the 17 by-design comments.
 - ✅ **Security code-scanning alert #30** — resolved (false-positive dismissal, no code change).
 - ⬜ **Final sweep once the above land**: my third delta re-review over the accumulated waves → fix loop until clean.
-- 🔄 **Two-platform CI** — FIRED on `22f879121` (linux=kolu-ci-3, darwin=rasam), strict+posting; awaiting verdict.
+- ✅ **Two-platform CI — GREEN** on `cb1d43f55` (all nodes, linux + darwin). Three pre-existing reds peeled: adoption-VM seed race (bounded retry, `9a40481`), stale smoke title (`92e364b`), non-idempotent stdio teardown (`cb1d43f`).
+- 🔄 **zod-drift hardening (never-defer)** — void-input fold must not depend on zod's lenient missing-key mood (4.4.x rejects it; kolu floats `^4.3.6`): fold emits no `input` key for void members + schema accepts absence; strict-mode round-trip pin. Then drishti unpins zod.
+- 🔄 **Split-pane REAL-BROWSER repro** — srid confirms still broken on `22f8791` (the unit-model fix was insufficient); instrumented browser reproduction is the primary track post-CI.
 - ⬜ **PR body final** — review trail (3 review layers + the audits, ~130 verified findings), invariant table, closed-in-PR issues (#1715, #1716), the two srid-ratified opportunities (#1034-gated rail unification, #1580 scopeSibling brand), the ops-gate product ruling, dev-mode pool caveat, W6 pointer.
 - ⬜ **Undraft** — srid merges (never the agent).
 
