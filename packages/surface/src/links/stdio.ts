@@ -119,10 +119,25 @@ export class LinkStdioClient<T extends ClientContext>
 
   /** Inbound stream ended (or errored): the transport is dead. Mark the
    *  link closed so subsequent `call()`s reject, and close the peer —
-   *  which rejects any request already in flight on its response queue. */
+   *  which rejects any request already in flight on its response queue.
+   *
+   *  IDEMPOTENT: multiple teardown paths converge here — the outbound
+   *  `write.on("error")` (EPIPE) AND the inbound stream's end/error both fire on
+   *  a dropped transport — so a second call must no-op. `peer.close()` aborts the
+   *  response queue; if a request is mid-pull (or the queue is already closed by a
+   *  prior teardown), it throws an `AbortError` synchronously. That's expected on
+   *  teardown — the link is already dead — so swallow it rather than let it
+   *  surface as an unhandled rejection through the discarded `.then` handlers that
+   *  drive this (which felled a padi-reconnect unit test on the close race). */
   private handleTransportClosed(): void {
+    if (this.closed) return;
     this.closed = true;
-    this.peer.close();
+    try {
+      this.peer.close();
+    } catch {
+      // Queue already closed / aborted mid-pull — the transport is gone; nothing
+      // to reject that the close didn't already reject.
+    }
   }
 
   async call(
