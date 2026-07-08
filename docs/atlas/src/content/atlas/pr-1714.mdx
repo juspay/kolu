@@ -1,6 +1,6 @@
 ---
-title: surface-map (PR #1714) — the live tracker
-description: The single source of truth for the W4/surface-map endgame — what's decided, what's in flight, what's blocked on whom, and the task list to done (kolu #1714 · drishti · odu). Updated by the coordinator as state changes; superseded task states are overwritten, not appended.
+title: PR #1714 — live tracker (ephemeral)
+description: Ephemeral task/bug tracker for the surface-map endgame, to be deleted after merge — what's decided, what's in flight, what's blocked on whom, and the task list to done (kolu #1714 · drishti · odu). Updated by the coordinator as state changes; superseded task states are overwritten, not appended.
 parents: [padi, remote-surfaces]
 status: accepted
 maturity: budding
@@ -55,6 +55,12 @@ One "approved as recommended" (or amendments) unblocks everything below marked �
 - ✅ The boot contract: manifest-discovery adopt (2s, was 30s hang) · CLI fail-fast with remedy · honest canvas arms. Verified in the agent's browser *and* srid's deploys.
 - ✅ Working-mode now: **push-often** — small green commits, srid deploys + tests; agent's bar = workspace-green + red-first pins; browser proof is srid's.
 - ✅ Ops-measurement gate resolved by product ruling (persisted daemons + few-host scale); one ws-kill recovery check remains a user-pass leg.
+
+## User-testing bug list (live)
+
+Bugs surfaced by the agent's flow-testing pass land here the moment they're reported; each row gets its fix SHA when pushed and flips to ✅ when srid confirms on a deploy.
+
+*(none reported yet — testing pass in progress)*
 
 ## Standing rules (the ones that keep binding)
 
