@@ -23,6 +23,7 @@
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
+import DaemonSlot from "./host/HostDaemonChips";
 import HostSelectorStrip from "./host/HostSelectorStrip";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -123,12 +124,22 @@ const ChromeBar: Component<{
         <IdentityRail status={props.status} />
       </div>
 
+      {/* The STATIONARY daemon slot (W4 header redesign, iteration 2) — the
+       *  Padi + Kaval sub-chips, fixed right after the Kolu chip. Its position
+       *  and size never change on a host switch (only its CONTENT re-keys —
+       *  see HostDaemonChips.tsx); iteration 1 mounted this pair INSIDE the
+       *  active host chip instead, which inflated whichever chip was active
+       *  and reflowed the whole strip on every switch. */}
+      <div class="shrink-0 pointer-events-auto">
+        <DaemonSlot />
+      </div>
+
       {/* Middle slot — the host selector strip. It ALWAYS carries at least the
-       *  active host's chip (with its Padi/Kaval sub-chips — the daemon rail's
-       *  last single-host vestige moved in here, W4 header redesign); the
-       *  `hostMapGate` cell only controls whether ADDITIONAL host chips + the
-       *  "+ add" affordance appear beside it. The slot scrolls rather than
-       *  pushing the control cluster off-screen when multi-host. */}
+       *  active host's chip; the `hostMapGate` cell only controls whether
+       *  ADDITIONAL host chips + the "+ add" affordance appear beside it. Host
+       *  chips are now UNIFORM (dot + name + ✕) — the active one is marked by
+       *  a ring/accent only, never by expansion, so a switch never reflows
+       *  the strip. */}
       <div class="flex-1 min-w-0 flex items-center pointer-events-none">
         <HostSelectorStrip />
       </div>

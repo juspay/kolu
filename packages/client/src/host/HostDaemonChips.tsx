@@ -1,13 +1,23 @@
-/** DaemonSubChips — the Padi + Kaval status chips that live INSIDE the ACTIVE
- *  host chip (W4 header redesign — "the daemon rail moves into the active host
- *  chip"). Padi and Kaval are PER-HOST facts, so they no longer sit in the
- *  host-independent `IdentityRail` (which now carries the Kolu chip only) —
- *  they ride here, reading the ACTIVE host's own state through the same
+/** DaemonSlot — the STATIONARY Padi + Kaval status slot, mounted ONCE by
+ *  `ChromeBar` right after the Kolu chip, ahead of the host chips (W4 header
+ *  redesign, ITERATION 2). Iteration 1 put these sub-chips INSIDE the active
+ *  host chip; that inflated whichever chip happened to be active, so a host
+ *  switch reflowed every chip after it — the expansion traveled with the
+ *  active host. Moving the slot OUT to a fixed position fixes that
+ *  structurally: the slot's position and size never change on a switch, only
+ *  its CONTENT re-keys.
+ *
+ *  Padi and Kaval are PER-HOST facts, so they don't sit in the
+ *  host-independent `IdentityRail` (which carries the Kolu chip only) — they
+ *  ride here, reading the ACTIVE host's own state through the same
  *  `padiMap.useEntry(activeHost)`-backed accessors the rail used to
  *  (`useDaemonStatus`, `useHostInventory`, `padiPresentation`), so switching
  *  the active host re-keys these sub-chips BY CONSTRUCTION — there is no host
  *  param to thread through, and no second tone/identity source to drift from
- *  the retired rail chips.
+ *  the retired rail chips. The sub-chip components themselves (`PadiSubChip`,
+ *  `KavalSubChip`) are unchanged from iteration 1 — only WHERE they mount
+ *  moved, never HOW they read their state — so re-keying on switch still
+ *  costs zero plumbing.
  *
  *  COMPACTION: resting state is icon + status dot, plus a bare version number
  *  (no "contract" word — that stays a tooltip/dialog word) shown only above the
@@ -56,11 +66,35 @@ import { kavalMemoryDisplay, padiMemoryDisplay } from "../ui/useMemoryUsage";
  *  `hidden lg:inline` breakpoint approximation the Kolu chip uses (a real
  *  per-chip container-width measurement is a further iteration; this is the
  *  existing chrome-wide convention for "hide until there's room", e.g.
- *  `ChromeBar`'s `toggleBtnClass`). */
-const VersionSpan: Component<{ text: string }> = (props) => (
-  <span class="hidden tabular-nums text-fg-3 lg:inline">{props.text}</span>
+ *  `ChromeBar`'s `toggleBtnClass`).
+ *
+ *  ALWAYS mounted, reserving a FIXED `min-w` regardless of whether `version`
+ *  is known — this is load-bearing for the STATIONARY slot's own invariant
+ *  (its size never changes on a host switch, only its content): `version` is
+ *  a PER-HOST fact (padi/kaval declare it once connected; it reads
+ *  `undefined` for a host that hasn't connected yet, e.g. an unreachable
+ *  remote), so switching to such a host would otherwise shrink this span to
+ *  nothing and drag the whole host-chip strip left behind it — the exact
+ *  reflow class this redesign exists to kill, just relocated from the host
+ *  chip (iteration 1) to the slot (iteration 2) instead of eliminated. A
+ *  `<Show>`-removed span could not do this: removing the node removes the
+ *  space it reserved. */
+const VersionSpan: Component<{ version: string | undefined }> = (props) => (
+  <span class="hidden min-w-[2.75rem] tabular-nums text-fg-3 lg:inline-block">
+    {props.version ? `v${props.version}` : ""}
+  </span>
 );
 
+// `PadiMemReadout`/`KavalMemReadout`/`KavalUpdateBadge` stay `<Show>`-gated
+// (width NOT reserved when absent), unlike `VersionSpan` above — deliberately.
+// A daemon's VERSION is a per-host STEADY fact (every connected host has
+// one), so hiding it on switch is exactly the "chip inflates/deflates on
+// switch" class this file exists to prevent. A memory-poll error or a
+// pending-update badge is a RARE, transient anomaly — reserving fixed width
+// for every combination of those across every host would spend real chrome
+// space on error states nobody is in most of the time, for a case that
+// hasn't been the reported/observed regression (only `VersionSpan`'s
+// disappearance was — see its own doc comment).
 const PadiMemReadout: Component = () => (
   <Show when={padiMemoryDisplay()?.kind === "error"}>
     <span
@@ -135,9 +169,7 @@ const PadiSubChip: Component = () => {
             class={padiDot(padiLinkState(), daemonLive())}
           />
         </IdentityMark>
-        <Show when={padiVersion()}>
-          {(v) => <VersionSpan text={`v${v()}`} />}
-        </Show>
+        <VersionSpan version={padiVersion()} />
         <PadiMemReadout />
       </button>
       <PadiInfoDialog
@@ -204,9 +236,7 @@ const KavalSubChip: Component = () => {
             class={kavalDot(daemon()?.state, kavalLive())}
           />
         </IdentityMark>
-        <Show when={kavalVersion()}>
-          {(v) => <VersionSpan text={`v${v()}`} />}
-        </Show>
+        <VersionSpan version={kavalVersion()} />
         <KavalMemReadout />
         <Show when={kavalUpdatePending()}>
           <KavalUpdateBadge />
@@ -217,17 +247,24 @@ const KavalSubChip: Component = () => {
   );
 };
 
-/** The pair mounted inside the active host chip — a thin divider, then the two
- *  sub-chips. */
-const DaemonSubChips: Component = () => (
-  <>
-    <span
-      class="mx-0.5 h-5 w-px self-center bg-edge-bright/60"
-      aria-hidden="true"
-    />
+/** The stationary slot's own chrome — a rounded chip-shaped container carrying
+ *  the SAME selection accent the active host chip wears (`border-accent/60` +
+ *  `bg-surface-3`, the identical pair `HostSelectorStrip.tsx`'s `HostChip`
+ *  toggles on for `isActive()`): the slot never moves, but its accent still
+ *  visually ties it to whichever chip is active, satisfying "visual
+ *  association without moving." A single divider separates the two
+ *  sub-chips; the slot needs none of its own on the leading edge (unlike
+ *  iteration 1's in-chip divider, which separated the host label from the
+ *  daemon pair it interrupted). */
+const DaemonSlot: Component = () => (
+  <div
+    class="pointer-events-auto flex items-stretch h-7 rounded-lg border border-accent/60 bg-surface-3 text-fg overflow-hidden shrink-0"
+    data-testid="daemon-slot"
+  >
     <PadiSubChip />
+    <span class="w-px self-stretch bg-edge-bright/60" aria-hidden="true" />
     <KavalSubChip />
-  </>
+  </div>
 );
 
-export default DaemonSubChips;
+export default DaemonSlot;

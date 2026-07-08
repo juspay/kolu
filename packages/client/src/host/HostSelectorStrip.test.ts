@@ -50,7 +50,7 @@ describe("HostSelectorStrip dot tone — fact-only green", () => {
   it("never emits green for a not-connected state", () => {
     const notConnected: EntryState[] = [
       { kind: "warming" },
-      { kind: "failed", reason: "no drv for arch" },
+      { kind: "failed", reason: "no drv for arch", cause: "other" },
       { kind: "not-a-member" },
     ];
     for (const s of notConnected) {
@@ -61,15 +61,17 @@ describe("HostSelectorStrip dot tone — fact-only green", () => {
 
   it("gives each state a distinct, honest tone", () => {
     expect(dotClass({ kind: "warming" })).toContain("amber");
-    expect(dotClass({ kind: "failed", reason: "x" })).toContain("red");
+    expect(dotClass({ kind: "failed", reason: "x", cause: "other" })).toContain(
+      "red",
+    );
   });
 });
 
 describe("HostSelectorStrip status title", () => {
   it("surfaces the failure reason so a dead host is legible on hover", () => {
-    expect(statusTitle({ kind: "failed", reason: "ssh refused" })).toBe(
-      "failed: ssh refused",
-    );
+    expect(
+      statusTitle({ kind: "failed", reason: "ssh refused", cause: "other" }),
+    ).toBe("failed: ssh refused");
     expect(statusTitle({ kind: "connected", clockOffset: 3 })).toBe(
       "connected",
     );

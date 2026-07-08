@@ -1,13 +1,15 @@
 /** IdentityRail — the "which kolu am I running" chrome readout.
  *
  *  Carries the ONE host-independent process chip: Kolu (server + client). Padi
- *  and Kaval are PER-HOST facts — they moved into the active host chip's own
- *  sub-chips (`HostDaemonChips`, mounted by `HostSelectorStrip`) at the W4
- *  header redesign, since a fixed rail beside the host strip was the header's
- *  last single-host vestige. The Kolu chip keeps the same compact shape it
- *  always had: icon + status dot, plus its version once it clears the width
- *  budget; build/commit/memory detail lives in the tooltip/hover and the
- *  click-through dialog, never as always-on chrome.
+ *  and Kaval are PER-HOST facts — they live in the STATIONARY daemon slot
+ *  (`HostDaemonChips`'s `DaemonSlot`, mounted by `ChromeBar` right after this
+ *  rail) since the W4 header redesign. Iteration 1 put that pair inside the
+ *  active host chip; iteration 2 pulled it back out to a fixed position so a
+ *  host switch never resizes/reflows anything — only the slot's content
+ *  re-keys. The Kolu chip keeps the same compact shape it always had: icon +
+ *  status dot, plus its version once it clears the width budget;
+ *  build/commit/memory detail lives in the tooltip/hover and the click-through
+ *  dialog, never as always-on chrome.
  *
  *  The server dot carries `data-ws-status` — the e2e smoke/reconnect hooks
  *  read it; it is the only element that holds it now that the daemon dots
