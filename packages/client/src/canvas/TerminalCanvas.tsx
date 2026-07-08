@@ -33,13 +33,15 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { activeScope } from "../hostScope/hostScopes";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
-import { savedSessionSub } from "../wire";
+import { activeHost, savedSessionSub } from "../wire";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
+import { switchInNeedsCenter } from "./cameraSwap";
 import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
@@ -49,7 +51,6 @@ import {
   findFreeTilePosition,
 } from "./tilePlacement";
 import { planTilePlacements } from "./tilePlacementPlan";
-import { useCanvasCameraSwap } from "./useCanvasCameraSwap";
 import { useCanvasFocus } from "./useCanvasFocus";
 import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileAura } from "./useTileAura";
@@ -150,15 +151,47 @@ const TerminalCanvas: Component<{
     return result;
   });
 
-  // Per-host canvas camera + center-on-active on host switch (the "pans to empty"
-  // fix). The active tile's layout is `undefined` until the incoming host's tile
-  // re-mounts and is measured, so the swap's center decision waits on it (the
-  // mount race). See useCanvasCameraSwap / cameraSwap for the (A)+(B) rationale.
+  // Per-host camera center-on-active on host switch. The camera pose is now
+  // per-host and RETAINED in `hostScopes.active().camera`, so a switch shows that
+  // host's saved pose BY CONSTRUCTION — there is no snapshot/restore step to race
+  // the incoming tile's mount (the class the deleted `useCanvasCameraSwap` bridge
+  // could never close). What remains is the switch-in center DECISION, deferred
+  // past the mount race: once the incoming host's active tile has a measured
+  // layout, seed a never-positioned host on it (firstVisit) or re-center a host
+  // whose active tile drifted out of its retained view (stale) — the pure
+  // `switchInNeedsCenter` core and the layout-gated `focus.request` pan unchanged.
   const activeTileLayout = (): TileLayout | undefined => {
     const id = tileStore.activeId();
     return id ? layoutOf(id) : undefined;
   };
-  useCanvasCameraSwap(activeTileLayout);
+  const [pendingCenter, setPendingCenter] = createSignal(false);
+  createEffect(
+    on(activeHost, (_curr, prev) => {
+      if (prev === undefined) return; // initial mount — no switch to service yet
+      setPendingCenter(true);
+    }),
+  );
+  createEffect(() => {
+    if (!pendingCenter()) return;
+    const activeTile = activeTileLayout();
+    if (!activeTile) return; // mount race — wait for the tile to be measured
+    const camera = activeScope()?.camera;
+    if (!camera) {
+      setPendingCenter(false);
+      return;
+    }
+    const { width, height } = viewport.viewportSize();
+    if (
+      switchInNeedsCenter(
+        camera.positioned() ? camera.snapshot() : null,
+        activeTile,
+        width,
+        height,
+      )
+    )
+      store.requestCenterActive();
+    setPendingCenter(false); // consume once resolved
+  });
 
   // Auto-assign a default layout for tiles with no saved position. A new
   // tile opens at the viewport-center cascade and NOTHING ELSE MOVES —

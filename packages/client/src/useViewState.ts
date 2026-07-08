@@ -1,235 +1,104 @@
-/** View state — per-browser-tab UI state.
- *  Which terminal is selected, which have unread completions, MRU switch
- *  history. Active terminal is reported to server for session snapshots
- *  and restored via useSessionRestore on reconnect.
- *  Terminal grid dimensions are per-instance — each xterm measures its
- *  own container via FitAddon.
+/** View state — the per-browser-tab WINDOW onto the active host's owned view.
  *
- *  HOST-SCOPING (shape B): the SELECTION facts — active tile, MRU order,
- *  per-tile attention, and the canvas CAMERA (pan/zoom) it was last viewed at —
- *  are PER HOST. Each host the tab has viewed keeps its own
- *  `HostView` record IN MEMORY, keyed by the canonical host string; switching the
- *  active host SWAPS which record every accessor reads/writes, so a host's focus +
- *  MRU + unread survive a switch-away and are restored verbatim on switch-back
- *  (the first visit seeds from the server's SavedSession via useSessionRestore;
- *  in-memory wins on subsequent switch-backs). Only `canvasMaximized` (a per-TAB
- *  localStorage view posture, not session state) and `centerActiveRequest` (a
- *  momentary viewport command) stay host-INDEPENDENT. */
+ *  This is the FACADE the ~35 `useTerminalStore` consumers still read as
+ *  `store.activeId()` / `store.activate(id)` / … . W7 emptied it out: the
+ *  per-host SELECTION facts (active tile, MRU order, per-tile attention) no
+ *  longer live in a `HostView` record hand-keyed by `encodeHostKey(activeHost())`
+ *  — they live in the per-host `scopedByEntry` owner (`hostScope/createViewState`),
+ *  and this facade reads the ACTIVE host's slice through `hostScopes.active()`.
+ *  The enumeration (the `HostView` record + `ensureHost` + the swap seam) is GONE;
+ *  a new per-host fact is a plain signal inside `createViewState`, per-host by
+ *  construction, never a field to remember here.
+ *
+ *  Two members stay HOST-INDEPENDENT (they must NOT swap on a host switch), so
+ *  they remain app-level signals in this facade rather than owner state:
+ *  `canvasMaximized` (a per-TAB view posture) and `centerActiveRequest` (a
+ *  momentary viewport command).
+ *
+ *  Removal-race flooring: `hostScopes.active()` is `undefined` for one tick when
+ *  the active host is removed from the pool (the `wire.ts` membership reconcile
+ *  re-points `activeHost` to LOCAL right after). Every per-host read floors to
+ *  the empty value (`?? null` / `?? []` / `?? false`), exactly as the old
+ *  `hosts[hostKey()] ?? empty` did — a never-visited or just-departed host reads
+ *  empty, never a crash. */
 
-import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
+import { activeScope } from "./hostScope/hostScopes";
 import { boolPref } from "./persistedPref";
-import { activeHost, activePadiRpc } from "./wire";
-
-type TerminalAttention = "unread" | "badge-only";
 
 /** A canvas camera pose — the viewport's pan offset (canvas-space) and zoom.
- *  The LIVE camera lives in `canvas/viewport/useCanvasViewport.ts`'s module
- *  signals (that is where the #1308 rAF write-coalescing writes); this is the
- *  durable PER-HOST snapshot of it, saved/restored around a host switch. The
- *  type lives HERE, beside its per-host storage, so `useViewState` (view state)
- *  never takes a reverse dep on `canvas/` — the viewport imports the type
- *  DOWN-arrow instead (canvas → view state). */
+ *  Owned per host by `hostScope/createCamera`; the type lives here (beside the
+ *  view facade) so `canvas/` imports it DOWN-arrow (canvas → view state) rather
+ *  than the reverse. */
 export type Camera = { panX: number; panY: number; zoom: number };
 
-/** One host's selection state — the active tile, its MRU order, per-tile
- *  attention, and the canvas camera it was last viewed at. Held in memory per
- *  host and swapped on switch. `camera` is `null` until the host has been
- *  viewed once (FIRST VISIT), which is the signal the switch-in center uses to
- *  decide "seed the camera on the active tile" vs. "restore the saved pose". */
-type HostView = {
-  activeId: TerminalId | null;
-  mruOrder: TerminalId[];
-  attention: Record<TerminalId, TerminalAttention>;
-  camera: Camera | null;
-};
-
-const emptyHostView = (): HostView => ({
-  activeId: null,
-  mruOrder: [],
-  attention: {},
-  camera: null,
-});
-
 export function useViewState() {
-  /** Per-host selection records, keyed by the canonical host string
-   *  (`encodeHostKey`). `hosts[key]` is `undefined` until a host is first
-   *  touched; reads floor to an empty view so a never-visited host is simply
-   *  empty, not a crash. */
-  const [hosts, setHosts] = createStore<Record<string, HostView>>({});
-  const hostKey = () => encodeHostKey(activeHost());
-  function ensureHost(k: string): void {
-    if (!hosts[k]) setHosts(k, emptyHostView());
-  }
+  // The active host's view slice, or `undefined` during the removal race.
+  const view = () => activeScope()?.view;
 
-  const activeId = () => hosts[hostKey()]?.activeId ?? null;
-  const mruOrder = () => hosts[hostKey()]?.mruOrder ?? [];
+  const activeId = () => view()?.activeId() ?? null;
+  const mruOrder = () => view()?.mruOrder() ?? [];
 
-  /** Whether the workspace is in fullscreen-one-tile mode. The active
-   *  tile is always the one rendered fullscreen, so this is a pure mode
-   *  flag. Persisted to localStorage so the posture survives reload —
-   *  it's a per-tab view preference, not session state, so it lives
-   *  alongside other view prefs (e.g. minimap-expanded), not in the
-   *  server's SavedSession. */
+  /** Whether the workspace is in fullscreen-one-tile mode. */
   // HOST-SCOPING: host-INDEPENDENT by design — a per-TAB view posture (which tile
   // is fullscreen), not a per-host selection fact; it must NOT swap on host switch.
-  // `boolPref` carries the strict `"true"`/`"false"` parse — the default
-  // coercion read the stored string `"false"` as truthy, latching the
-  // posture on once persisted.
+  // `boolPref` carries the strict `"true"`/`"false"` parse — the default coercion
+  // read the stored string `"false"` as truthy, latching the posture on once persisted.
   const [canvasMaximized, setCanvasMaximizedSignal] = boolPref({
     name: "kolu-canvas-maximized",
     fallback: false,
   });
 
-  /** Canvas "pan to this tile" intent — see `canvas/useCanvasFocus.ts`
-   *  for the consumer seam. `equals: false` so back-to-back requests for
-   *  the same id still fire the listener. Public reads only; the writer
-   *  is private — external callers go through `activate(id)` instead, so
-   *  there is no two-call dance to forget. */
+  /** Canvas "pan to this tile" intent — see `canvas/useCanvasFocus.ts` for the
+   *  consumer seam. `equals: false` so back-to-back requests for the same id
+   *  still fire. Public reads only; the writer is private (external callers go
+   *  through `activate(id)`). */
   // HOST-SCOPING: host-INDEPENDENT by design — a momentary write-and-consume
   // viewport command, not durable per-host state; nothing re-reads it across a switch.
   const [centerActiveRequest, setCenterActiveRequest] =
     createSignal<TerminalId | null>(null, { equals: false });
 
-  /** The single write path for activation of the CURRENT host — swaps its active
-   *  tile, fronts its MRU, clears its unread, and reports it to that host's server
-   *  session. IMPERATIVE (not a reactive `on(activeId)` effect) precisely so a pure
-   *  host SWITCH — which only changes which record `activeId()` reads — fires NONE
-   *  of these side effects: no wrong-host `chrome.setActive` write, no MRU churn.
-   *  Only a real activation on the active host runs them. */
-  function writeActive(id: TerminalId | null): void {
-    const k = hostKey();
-    ensureHost(k);
-    setHosts(k, "activeId", id);
-    if (id === null) return;
-    setHosts(k, "mruOrder", (prev) => [id, ...prev.filter((x) => x !== id)]);
-    if (hosts[k]?.attention[id] === "unread")
-      setHosts(
-        k,
-        "attention",
-        produce((a) => {
-          delete a[id];
-        }),
-      );
-    // Report the active terminal to the ACTIVE host for its session snapshot.
-    void activePadiRpc.surface.chrome.setActive({ id }).catch(() => {});
-  }
-
-  /** Make `id` the active terminal AND ask the canvas viewport to pan to
-   *  it. The single public writer for system-driven activation — close
-   *  auto-switch, post-create centering, palette / switcher / keyboard
-   *  navigation, post-arrange recenter. Adding a new activation path
-   *  means calling this; there is no separate "request centering" the
-   *  caller can forget.
-   *
-   *  Use {@link setActiveSilently} only for the small set of callers
-   *  where the tile is already on screen by construction (in-canvas tile
-   *  click, focus events, title-bar buttons, mobile pager) or where there
-   *  is no canvas to pan (mobile, session restore — initial-mount
-   *  fallback handles centering). */
+  /** Make `id` the active terminal AND ask the canvas viewport to pan to it.
+   *  The single public writer for system-driven activation. `writeActive` (in
+   *  the owner) is imperative — a pure host SWITCH re-keys `activeId()` without
+   *  running it, so a switch never fires a wrong-host `chrome.setActive`. */
   function activate(id: TerminalId | null) {
-    writeActive(id);
+    view()?.writeActive(id);
     if (id !== null) setCenterActiveRequest(id);
   }
 
-  /** Set the active terminal without panning the canvas. Reserve for
-   *  callers that have a domain reason not to pan; use {@link activate}
-   *  by default. */
-  const setActiveSilently = writeActive;
+  /** Set the active terminal without panning the canvas. */
+  const setActiveSilently = (id: TerminalId | null) => view()?.writeActive(id);
 
   /** Fire the "pan to the active tile" impulse for the CURRENT host without
-   *  touching the active selection or reporting anything to the server. This is
-   *  the switch-in center-on-active path (B): a pure host SWITCH changes which
-   *  record `activeId()` reads but runs none of `writeActive`'s side effects, so
-   *  it never re-centers on its own. `centerActiveRequest` is a LOCAL viewport
-   *  command — firing it is never a wrong-host `chrome.setActive` write. A
-   *  no-op when the host has no active tile. */
+   *  touching the active selection or reporting to the server — the switch-in
+   *  center-on-active path (a local viewport command, never a wrong-host RPC). */
   function requestCenterActive(): void {
     const id = activeId();
     if (id !== null) setCenterActiveRequest(id);
   }
 
-  /** Read a host's saved camera pose (or `null` if the host has never been
-   *  viewed). Keyed by the EXPLICIT `encodeHostKey` string — the switch seam
-   *  restores the INCOMING host's pose, which is no longer `hostKey()` by the
-   *  time the swap runs. */
-  const readCamera = (k: string): Camera | null => hosts[k]?.camera ?? null;
-
-  /** Save a host's camera pose. Keyed EXPLICITLY (see {@link readCamera}) so the
-   *  switch seam can snapshot the OUTGOING host, which `hostKey()` no longer
-   *  names once `activeHost()` has flipped. */
-  function writeCamera(k: string, camera: Camera): void {
-    ensureHost(k);
-    setHosts(k, "camera", camera);
-  }
-
-  function setMruOrder(
+  const setMruOrder = (
     next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
-  ): void {
-    const k = hostKey();
-    ensureHost(k);
-    setHosts(
-      k,
-      "mruOrder",
-      typeof next === "function" ? next(hosts[k]?.mruOrder ?? []) : next,
-    );
-  }
+  ): void => view()?.setMruOrder(next);
 
-  /** The single writer for `canvasMaximized`. Canvas readers reach this
-   *  via `useViewPosture()` (`packages/client/src/canvas/useViewPosture.ts`)
-   *  — the posture hook is the public seam so a future enum upgrade
-   *  (PiP, per-tile maximize) can be absorbed there without rippling
-   *  across readers. Treat `canvasMaximized` / `toggleCanvasMaximized`
-   *  on the store as internal-to-posture; new call sites should import
-   *  the hook instead. Tracked: kolu#628. */
   function toggleCanvasMaximized() {
     setCanvasMaximizedSignal((prev) => !prev);
   }
 
-  function markUnread(id: TerminalId) {
-    const k = hostKey();
-    ensureHost(k);
-    setHosts(k, "attention", id, "unread");
-  }
-
-  function markBadgeAttention(id: TerminalId) {
-    const k = hostKey();
-    ensureHost(k);
-    if (hosts[k]?.attention[id] !== "unread")
-      setHosts(k, "attention", id, "badge-only");
-  }
-
-  function clearBadgeAttention() {
-    const k = hostKey();
-    if (!hosts[k]) return;
-    setHosts(
-      k,
-      "attention",
-      produce((s) => {
-        for (const id of Object.keys(s) as TerminalId[]) {
-          if (s[id] === "badge-only") delete s[id];
-        }
-      }),
-    );
-  }
-
-  function isUnread(id: TerminalId): boolean {
-    return hosts[hostKey()]?.attention[id] === "unread";
-  }
-
-  function hasBadgeAttention(id: TerminalId): boolean {
-    return hosts[hostKey()]?.attention[id] !== undefined;
-  }
+  const markUnread = (id: TerminalId) => view()?.markUnread(id);
+  const markBadgeAttention = (id: TerminalId) => view()?.markBadgeAttention(id);
+  const clearBadgeAttention = () => view()?.clearBadgeAttention();
+  const isUnread = (id: TerminalId): boolean => view()?.isUnread(id) ?? false;
+  const hasBadgeAttention = (id: TerminalId): boolean =>
+    view()?.hasBadgeAttention(id) ?? false;
 
   /** Clear the ACTIVE host's selection record (handleCloseAll closes every tile
    *  on the active host). Other hosts' records are untouched. `canvasMaximized`
    *  (per-tab posture) is reset too, matching the pre-per-host behavior. */
   function reset() {
-    const k = hostKey();
-    ensureHost(k);
-    setHosts(k, reconcile(emptyHostView()));
+    view()?.reset();
     setCanvasMaximizedSignal(false);
   }
 
@@ -243,8 +112,6 @@ export function useViewState() {
     setMruOrder,
     centerActiveRequest,
     requestCenterActive,
-    readCamera,
-    writeCamera,
     markUnread,
     markBadgeAttention,
     clearBadgeAttention,

@@ -1,14 +1,13 @@
 /** Session restore — hydration from server state, session restore handler. */
 
 import type { SavedSession, TerminalMetadata } from "@kolu/padi/surface";
-import { encodeHostKey } from "kolu-common/hostKey";
 import { resumableCommand, type TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { activeScope } from "../hostScope/hostScopes";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
-  activeHost,
   activePadiRpc,
   savedSessionSub,
   savedSession as serverSavedSession,
@@ -47,29 +46,22 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
   // though the empty-state decision already ran. (A browser reload re-mounts the
   // hook, so both flags start false and the initial-load path is unchanged.)
   //
-  // HOST-SCOPING (shape B): the two latches are PER HOST, not app-lifetime
-  // closures. `listSub`/`serverSavedSession` re-key on host switch, so this effect
-  // re-runs; reading `latchFor()` (which reads `activeHost()`) makes it also TRACK
-  // the switch and pick up the NEW host's latch. A never-seeded host re-runs the
-  // decision + hydration (adopting ITS saved-active tile immediately — zero dock
-  // click); a switch-BACK to an already-seeded host short-circuits, so its
-  // in-memory view (useViewState's per-host record) wins — savedSession seeds only
-  // the FIRST visit. (An explicit in-session restore re-arms the active host's
-  // `seeded` below.)
-  const latches = new Map<string, { decided: boolean; seeded: boolean }>();
-  function latchFor(): { decided: boolean; seeded: boolean } {
-    const k = encodeHostKey(activeHost());
-    let l = latches.get(k);
-    if (!l) {
-      l = { decided: false, seeded: false };
-      latches.set(k, l);
-    }
-    return l;
-  }
+  // The two latches are PER HOST, owned by the host's `scopedByEntry` scope
+  // (`hostScope/createSessionRestore`) — the hand-rolled `Map` keyed by
+  // `encodeHostKey(activeHost())` is GONE. `activeScope()` re-keys on host switch,
+  // so this effect (which reads it) also tracks the switch and picks up the NEW
+  // host's latch. A never-seeded host re-runs the decision + hydration (adopting
+  // ITS saved-active tile immediately — zero dock click); a switch-BACK to an
+  // already-seeded host short-circuits, so its in-memory view (the owner's
+  // per-host record) wins — savedSession seeds only the FIRST visit. (An explicit
+  // in-session restore re-arms the active host's `seeded` below.) During the
+  // removal race `activeScope()` is briefly `undefined` and the effect no-ops
+  // until `wire.ts` re-points `activeHost`.
   createEffect(() => {
     const existing = store.listSub();
     const fromServer = serverSavedSession();
-    const latch = latchFor();
+    const latch = activeScope()?.restore;
+    if (!latch) return; // removal race — no active host to hydrate this tick
     // Gate on the subscription having yielded at least once — `sub.pending()`
     // flips false after the first yield (which may be the initial `null`
     // snapshot when no session is saved). Without this gate we'd hydrate
@@ -182,9 +174,9 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
   createEffect(() => {
     if (lifecycle().kind === "restarted") return;
     const fromServer = serverSavedSession();
-    // `latchFor()` reads `activeHost()`, so this effect also re-keys on switch and
-    // reads the ACTIVE host's decision latch.
-    if (store.terminalIds().length === 0 && latchFor().decided) {
+    // `activeScope()` re-keys on switch, so this effect reads the ACTIVE host's
+    // decision latch and re-runs on a host switch.
+    if (store.terminalIds().length === 0 && activeScope()?.restore.decided) {
       setSavedSession(fromServer);
     }
   });
@@ -213,7 +205,8 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // parent's active sub-tab is never set and its split comes back HIDDEN. Clearing
     // it here lets the effect re-seed once the restored terminals arrive; it
     // re-latches true after seeding, so a later reconnect is still a no-op.
-    latchFor().seeded = false;
+    const latch = activeScope()?.restore;
+    if (latch) latch.seeded = false;
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
     );

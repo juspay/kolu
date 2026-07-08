@@ -1,7 +1,8 @@
 import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
+import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // `isLoading` is a pure read over three reactive inputs: the terminal list's
 // pending flag, the live terminal count, and the saved-session cell's pending
@@ -38,27 +39,38 @@ const rpc = vi.hoisted(() => ({
 // Keep the REAL (browser-safe) `@kolu/padi/surface` — its schemas
 // (`HostDaemonInventorySchema`, …) must stay present; the RPC double moved to
 // `../wire`'s `activePadiRpc` (production now calls `activePadiRpc.surface.*`).
-vi.mock("../wire", () => ({
-  activePadiRpc: {
-    surface: {
-      session: {
-        restore: rpc.restore,
-        import: rpc.import,
-        forfeit: rpc.forfeit,
-      },
-      lifecycle: {
-        create: rpc.create,
-        restoreSleeping: rpc.restoreSleeping,
-        sendInput: rpc.sendInput,
+vi.mock("../wire", async () => {
+  // W7: the restore latch is owned by the per-host `scopedByEntry` owner, which
+  // reads `padiMap`. Stand up the shared mock map (single static local member —
+  // these tests never switch hosts); `beforeEach` resets it so each test's latch
+  // starts fresh.
+  const { mockPadiMap } = await import("../hostScope/mockHostMap.testlib");
+  return {
+    padiMap: mockPadiMap,
+    padiRpcOf: () => ({
+      surface: { chrome: { setActive: vi.fn(async () => {}) } },
+    }),
+    activePadiRpc: {
+      surface: {
+        session: {
+          restore: rpc.restore,
+          import: rpc.import,
+          forfeit: rpc.forfeit,
+        },
+        lifecycle: {
+          create: rpc.create,
+          restoreSleeping: rpc.restoreSleeping,
+          sendInput: rpc.sendInput,
+        },
       },
     },
-  },
-  savedSessionSub: { pending: () => h.sessionPending },
-  savedSession: () => h.savedSession,
-  // Per-host latch keying (shape B). These tests are single-host — a stable local
-  // key keeps the latch behavior identical to the pre-per-host app-lifetime latch.
-  activeHost: () => ({ kind: "local" }),
-}));
+    savedSessionSub: { pending: () => h.sessionPending },
+    savedSession: () => h.savedSession,
+    // Per-host latch keying (shape B). These tests are single-host — a stable local
+    // key keeps the latch behavior identical to the pre-per-host app-lifetime latch.
+    activeHost: () => ({ kind: "local" }),
+  };
+});
 vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),
@@ -82,8 +94,17 @@ vi.mock("solid-sonner", () => ({
 }));
 vi.mock("anyagent/cli", () => ({ resumeFormFor: () => null }));
 
+import { addHost, resetHosts } from "../hostScope/mockHostMap.testlib";
 import { useSessionRestore } from "./useSessionRestore";
 import type { TerminalStore } from "./useTerminalStore";
+
+beforeEach(() => {
+  // The restore latch is per-host owner state now: empty membership to DISPOSE
+  // the prior test's local owner (and its latch), then re-add the single local
+  // host these tests use — so each test's `decided`/`seeded` starts fresh.
+  resetHosts();
+  addHost(LOCAL_HOST);
+});
 
 /** A `TerminalStore` whose `listSub`/`terminalIds` read the hoisted bag, so a
  *  test can flip a flag and call `isLoading()` to observe the gate directly. */
