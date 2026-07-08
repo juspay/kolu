@@ -142,6 +142,18 @@ function isFault(r: EntrySession | EntryFault): r is EntryFault {
 }
 
 /** Project a session's connection state onto the published {@link EntryStatus}.
+ *
+ *  THE CONTRACT the three published arms mean (not an implementation note — this is
+ *  what every consumer, kolu's host-down card AND drishti's `entryStatusTone`, is
+ *  entitled to rely on):
+ *    - `warming`   = IN MOTION — coming up, or coming back on its own. No user
+ *                    action needed; wait.
+ *    - `connected` = live.
+ *    - `failed`    = NOT PROCEEDING WITHOUT INTERVENTION — a STANDING refuse
+ *                    (cross-supervisor / contract-skew-refused / unconverged: it will
+ *                    not resolve by redialing) OR a TERMINAL give-up. Carries the
+ *                    domain cause so the host-down card can say what to DO about it.
+ *
  *  `state.cause` is OPTIONAL ({@link EntryConnectionState}'s doc) — a registry with
  *  no domain cause to set falls back to `"other"`, the ONE `Cause` member every
  *  domain instantiation is expected to carry as its catch-all (see
@@ -157,19 +169,31 @@ function projectStatus<Cause extends string = string>(
   switch (state.kind) {
     case "copying":
     case "connecting":
-    // A dropped link the reconnect loop is redialing — coming back up, never a
-    // terminal fault. `disconnected` distinguishes a RETRIABLE reconnect-backoff
-    // window from the TERMINAL give-up `failed` (see `@kolu/surface-remote`'s
-    // session state machine); collapsing it onto `failed` rendered a live host's
-    // normal reconnect window as a steady red "failed" chip in every consumer
-    // (kolu's host-down card, drishti's `entryStatusTone`), indistinguishable from
-    // a dead host. Its `reason`/`cause` are dropped — `warming` is causeless (the
-    // redial resolves to `connected`, or eventually the terminal `failed`).
-    case "disconnected":
       return { kind: "warming" };
     case "connected":
       return { kind: "connected", clockOffset: state.clockOffset };
-    // STRICTLY terminal — the reconnect loop gave up. Only this arm publishes a red
+    // `disconnected` is OVERLOADED (see `@kolu/surface-remote`'s session machine):
+    //   - a TRANSIENT reconnect-backoff — the link dropped and the loop is
+    //     redialing; the domain has no non-transient reason to report, so its cause
+    //     falls back to the catch-all `"other"`. This is the P4 case: a live host's
+    //     normal reconnect window must read WARMING (coming back up), never a red
+    //     "failed" chip indistinguishable from a dead host.
+    //   - a STANDING degraded REFUSE — cross-supervisor / contract-skew-refused /
+    //     unconverged: `session.ts`'s refuse path "holds degraded, does NOT
+    //     reconnect", and the domain classified a SPECIFIC non-transient cause. This
+    //     is NOT coming back up (redialing can't resolve a skew or a foreign
+    //     supervisor), so masking it as WARMING would hide the ONE actionable thing
+    //     the host-down card exists to say. Project it to `failed` + its cause so
+    //     the card renders (its D2 `running`/`expected` skew pair rides `...rest`).
+    // The discriminant is cause-specificity: a refuse always sets a specific cause;
+    // a transient drop always falls back to `"other"` (the local arm too). `failed`
+    // + `link-failed`/`drv-*` already ride the terminal `failed` state below.
+    case "disconnected": {
+      const { kind: _kind, cause, ...rest } = state;
+      if (cause === undefined || cause === "other") return { kind: "warming" };
+      return { kind: "failed", cause, ...rest };
+    }
+    // A terminal give-up (the reconnect loop stopped for good) — always a red
     // `failed` chip + the domain cause.
     case "failed": {
       const { kind: _kind, cause, ...rest } = state;

@@ -335,7 +335,7 @@ describe("surface-map mock-entry e2e harness", () => {
     });
   });
 
-  it("(5b) a RETRIABLE disconnected session projects to warming; only a TERMINAL failed reads failed (P4 fix)", async () => {
+  it("(5b) disconnected projects on cause: transient (other) -> warming, standing refuse (specific cause) -> failed; terminal -> failed (P4 fix + the step-5 masking fix)", async () => {
     await createRoot(async (dispose) => {
       const { client, addSession, setState } = setup();
       const view = client.entries.use();
@@ -352,16 +352,40 @@ describe("surface-map mock-entry e2e harness", () => {
       await settle();
       expect(st).toEqual({ kind: "connected", clockOffset: 0 });
 
-      // The link dropped and the reconnect loop is redialing (SessionState
-      // "disconnected" — a RETRIABLE backoff window). It must read WARMING — coming
-      // back up — NOT a red "failed" chip indistinguishable from a dead host (the P4
-      // defect collapsed disconnected onto failed). `reason`/`cause` are dropped:
-      // warming is causeless.
-      setState(C, { kind: "disconnected", reason: "link dropped mid-flight" });
+      // TRANSIENT reconnect-backoff — the link dropped, the loop is redialing, no
+      // non-transient reason so the cause falls back to "other". IN MOTION -> WARMING,
+      // NOT a red "failed" chip indistinguishable from a dead host (the P4 defect
+      // collapsed disconnected onto failed).
+      setState(C, {
+        kind: "disconnected",
+        reason: "link dropped mid-flight",
+        cause: "other",
+      });
       await settle();
       expect(st).toEqual({ kind: "warming" });
 
-      // Only the TERMINAL give-up (the reconnect loop stopped for good) reads failed.
+      // A disconnected with NO cause at all is likewise transient -> warming.
+      setState(C, { kind: "disconnected", reason: "link blip" });
+      await settle();
+      expect(st).toEqual({ kind: "warming" });
+
+      // STANDING refuse — a SPECIFIC domain cause on disconnected (the session holds
+      // degraded, redialing can't resolve a foreign supervisor). NOT PROCEEDING
+      // WITHOUT INTERVENTION -> FAILED + the cause, so the host-down card renders
+      // rather than a lying "connecting" spinner (the step-5 masking bug).
+      setState(C, {
+        kind: "disconnected",
+        reason: "another kolu owns this host",
+        cause: "cross-supervisor",
+      });
+      await settle();
+      expect(st).toEqual({
+        kind: "failed",
+        reason: "another kolu owns this host",
+        cause: "cross-supervisor",
+      });
+
+      // A TERMINAL give-up (the reconnect loop stopped for good) reads failed.
       setState(C, { kind: "failed", reason: "gave up after 5 tries" });
       await settle();
       expect(st).toEqual({

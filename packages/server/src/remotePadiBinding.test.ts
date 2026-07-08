@@ -367,6 +367,15 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     // …and the reason is a STANDING, surfaced convergence state so the Padi dialog shows WHY.
     expect(session.convergence()?.state).toBe("skew-refused");
     expect(session.convergence()?.detail).toMatch(/contract skew|refusing/i);
+
+    // THE PROJECTION INVARIANT (`@kolu/surface-map`'s `projectStatus` discriminates the
+    // `disconnected` arm on cause-specificity): a REFUSE verdict sets a SPECIFIC domain
+    // cause on the DOWN state — so the standing refuse projects to `failed` + card, never
+    // masked as a transient `warming`. D2's typed running/expected pair rides along.
+    expect(session.entryFailedDetail()).toMatchObject({
+      cause: "contract-skew-refused",
+      running: "99.0",
+    });
   });
 
   it("a TERMINAL link failure (host unreachable / provisioning failed) surfaces as a standing link-failed state, canvas dead", async () => {
@@ -892,10 +901,32 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
     // can't be ridden, unlike a build mismatch).
     expect(session.convergence()?.state).toBe("unconverged");
+    // THE PROJECTION INVARIANT: `unconverged` is a REFUSE, so it sets a SPECIFIC cause on
+    // the down state (→ `failed` + card, never masked as warming).
+    expect(session.entryFailedDetail()).toEqual({ cause: "unconverged" });
     // The client is WITHHELD (rejected) on subsequent live-client reads (like skew).
     await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
       /did not take|kept answering|newer/i,
     );
+  });
+
+  it("PROJECTION INVARIANT: a plain TRANSIENT link drop (healthy bind that dropped) yields NO domain cause → 'other' → warming", async () => {
+    // The other half of the invariant the cause-discriminated projection rides on: a
+    // link that dropped WITHOUT a refuse verdict has no non-transient reason, so
+    // `entryFailedDetail()` returns `null` — `serveHostMap`'s `causeFor` then falls back
+    // to `"other"`, and `projectStatus` reads that as the RETRIABLE warming (coming back
+    // up), never a masked-standing `failed`.
+    const { session, enqueue, handles } = makeArm({ binderBuildId: "build-X" });
+    enqueue(serve(helloVals({ buildId: "build-X" }))); // same build → clean ADOPT
+    await pinAdopt(session);
+    expect(session.entryFailedDetail()).toBeNull(); // connected, nothing to classify
+
+    // The link drops (a transient network blip — no skew, no cross-supervisor, no drv
+    // fault). The healthy bind's convergence clears to null → no domain cause.
+    handles[0]!.kill();
+    await flush();
+    expect(snap(session).connection).toBe("disconnected");
+    expect(session.entryFailedDetail()).toBeNull();
   });
 
   it("stays BOUNDED when the post-drain liveness probe HANGS (a wedged link never blocks past the ceiling)", async () => {

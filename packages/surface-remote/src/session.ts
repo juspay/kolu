@@ -739,6 +739,20 @@ export function makeSession<
         // and DON'T reconnect — a persistent skew holds degraded, it doesn't spin.
         // Reset the give-up budget: the hello proved the transport, this is not a
         // failure spiral. (Dissolves the old wrapper's separate state-overlay.)
+        //
+        // INVARIANT (a downstream projection rides on it — `@kolu/surface-map`'s
+        // `projectStatus` discriminates a STANDING refuse from a TRANSIENT reconnect on
+        // cause-specificity): this `disconnected` is a STANDING degraded state that will
+        // NOT come back on its own (redialing can't unmake a skew / a foreign
+        // supervisor). A refuse MUST therefore be accompanied by a SPECIFIC domain cause
+        // on the down state (the daemon binder's `entryFailedDetail()` — cross-supervisor
+        // / contract-skew-refused / unconverged), whereas a plain TRANSIENT link drop
+        // (`setDown("disconnected", …)` from `handleClosed`/reconnect) carries NONE and
+        // falls back to `"other"`. Keep that split intact: a refuse without a specific
+        // cause would be mis-projected as warming (a lying "coming back up"). Pinned in
+        // `remotePadiBinding.test.ts` (the "PROJECTION INVARIANT" tests). The
+        // still-cleaner future shape — a SessionState arm that types standing-refuse
+        // apart from transient-disconnected — is on the padi-cleanup ledger.
         current = conn;
         wireClosed();
         consecutiveFailures = 0;
