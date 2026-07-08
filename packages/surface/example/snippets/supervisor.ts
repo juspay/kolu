@@ -27,7 +27,7 @@ import {
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import { surface } from "./surface";
+import type { surface } from "./surface";
 
 const GATE_PATH = "/run/fleet-top/daemon.pid";
 const SOCKET_PATH = "/run/fleet-top/daemon.sock";

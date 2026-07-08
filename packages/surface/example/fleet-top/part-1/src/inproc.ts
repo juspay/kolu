@@ -13,7 +13,7 @@
  */
 
 import { directLink } from "@kolu/surface/links/direct";
-import { surface } from "./common/surface";
+import type { surface } from "./common/surface";
 import { createTop } from "./server/top";
 
 /** A cell/collection `get`/`keys` verb yields snapshot-then-deltas as an async

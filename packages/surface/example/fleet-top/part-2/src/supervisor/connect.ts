@@ -20,7 +20,7 @@ import type { ContractRouterClient } from "@orpc/contract";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import type { DaemonConnection } from "@kolu/surface-daemon-supervisor";
 import { dialSocket } from "@kolu/surface-daemon-supervisor";
-import { surface } from "../common/surface";
+import type { surface } from "../common/surface";
 
 /** The contract-typed client the endpoint holds. */
 export type TopClient = ContractRouterClient<
