@@ -592,6 +592,11 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     // can't be surfaced without a kit change (L23 follow-up).
     convergence: () => null,
     clockOffset: () => clockOffset,
+    // Same parity: the local arm has no drv-resolution/skew channel (no ssh, no arch
+    // probe, no baked drv map) and its OWN contract-skew refusal is FATAL at boot
+    // (`PadiAdoptionRefusedError`, never a live down-session to publish a cause for)
+    // — nothing here to classify.
+    entryFailedDetail: () => null,
     /** DRAIN the bound padi (the "restart" verb): invoke the FROZEN control core's
      *  `drain` over the endpoint's held connection — padi persists + exits, its kaval +
      *  PTYs survive, the socket closes → the loop reconnects. NEVER a kill-9. The

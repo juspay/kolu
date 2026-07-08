@@ -322,7 +322,13 @@ describe("surface-map mock-entry e2e harness", () => {
 
       addFault(D, "no drv for arch");
       await settle();
-      expect(stD).toEqual({ kind: "failed", reason: "no drv for arch" });
+      // A structural fault (no session at all) has no domain cause to report — the
+      // generic `@kolu/surface-map` fallback (`serveSurfaceMap`'s `statusOf`).
+      expect(stD).toEqual({
+        kind: "failed",
+        reason: "no drv for arch",
+        cause: "other",
+      });
       dispose();
     });
   });
@@ -757,12 +763,16 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
 
   it("never fabricates OR demotes an honest status — failed/warming/not-a-member pass through regardless of live", () => {
     for (const live of [true, false]) {
-      expect(floorOnLiveness({ kind: "failed", reason: "boom" }, live)).toEqual(
-        {
-          kind: "failed",
-          reason: "boom",
-        },
-      );
+      expect(
+        floorOnLiveness(
+          { kind: "failed", reason: "boom", cause: "other" },
+          live,
+        ),
+      ).toEqual({
+        kind: "failed",
+        reason: "boom",
+        cause: "other",
+      });
       expect(floorOnLiveness({ kind: "warming" }, live)).toEqual({
         kind: "warming",
       });

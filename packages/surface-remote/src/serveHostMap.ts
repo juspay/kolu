@@ -67,12 +67,30 @@ export function projectState(
   }
 }
 
-export interface ServeHostMapOptions<K, S> {
+export interface ServeHostMapOptions<K, S, Cause extends string = string> {
   /** The re-served entry-surface CLIENT for one host — a `directLink` over the host's
    *  `reServeSurface(...).router` (the re-serve POLICY is app-specific, hence
    *  injected). Called once per host; the result is cached here and evicted on
    *  removal, so a re-serve mirror is never built twice for a host. */
   linkFor: (host: K, session: S) => unknown;
+  /** Classify (and optionally ENRICH) a DOWN session's domain `cause` for the
+   *  map's published `EntryStatus` — this adapter is transport-only (it projects a
+   *  bare `SessionState`, which carries only the transport-axis `failureCause`,
+   *  "network" vs "remote"); a domain classification (padi's
+   *  contract-skew-refused / unconverged / drv-unbaked / link-failed / … —  a
+   *  DIFFERENT axis, one layer up) is the app's own knowledge, so it is injected
+   *  here rather than guessed. Return extra fields alongside `cause` (padi's D2
+   *  typed `running`/`expected` version pair on `contract-skew-refused`) and they
+   *  ride the wire untouched — `@kolu/surface-map`'s `EntryStatus` schema is a
+   *  loose object precisely so a domain producer can attach them. Omitted →
+   *  `EntryStatus.cause` falls back to `"other"` (`@kolu/surface-map`'s own
+   *  fallback, `projectStatus`) — sound for a map that has no domain cause
+   *  breakdown to report. */
+  causeFor?: (
+    host: K,
+    session: S,
+    state: SessionState,
+  ) => { cause: Cause } & Record<string, unknown>;
 }
 
 /** The pool surface `serveHostMap` consumes — a slice of {@link RemotePool} (it never
@@ -89,10 +107,11 @@ export function serveHostMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
   S extends ClockableSession,
+  Cause extends string = string,
 >(
-  map: SurfaceMap<KS, ES>,
+  map: SurfaceMap<KS, ES, Cause>,
   pool: MembershipPool<S>,
-  opts: ServeHostMapOptions<z.infer<KS>, S>,
+  opts: ServeHostMapOptions<z.infer<KS>, S, Cause>,
 ): ServeSurfaceMapResult {
   type K = z.infer<KS>;
   // `pool` is ALWAYS string-keyed (the warm ssh pool's native key), while the map's
@@ -161,7 +180,7 @@ export function serveHostMap<
     return link;
   };
 
-  const registry: MapRegistry<K> = {
+  const registry: MapRegistry<K, "copying", Cause> = {
     members,
     has,
     subscribe(onChange) {
@@ -170,12 +189,27 @@ export function serveHostMap<
         changeListeners.delete(onChange);
       };
     },
-    resolve(k): EntrySession | EntryFault {
+    resolve(k): EntrySession<"copying", Cause> | EntryFault {
       const enc = encode(k);
       const session = sessionOf(k);
       if (session === undefined) return { failed: `unknown host: ${enc}` };
       const offset = session.clockOffset();
-      const state = projectState(latestState.get(enc), offset);
+      const raw = latestState.get(enc);
+      const projected = projectState(raw, offset);
+      // Attach the DOMAIN cause (+ any extra typed detail, e.g. padi's D2
+      // running/expected pair) onto a DOWN state only — `opts.causeFor` is app
+      // knowledge this transport-only adapter doesn't have; omitted, the state
+      // rides through cause-less and `@kolu/surface-map`'s own `projectStatus`
+      // falls back to `"other"`. `raw` is always defined and genuinely down here
+      // (that's the only way `projectState` returns "disconnected"/"failed"), so
+      // its `failureCause`/`lastError` are real, not invented.
+      const state: EntryConnectionState<"copying", Cause> =
+        (projected.kind === "disconnected" || projected.kind === "failed") &&
+        opts.causeFor
+          ? { ...projected, ...opts.causeFor(k, session, raw as SessionState) }
+          : // `projectState` never sets `cause` itself (untouched, Cause-agnostic —
+            // see its own doc); this cast reflects that invariant, not a real widen.
+            (projected as EntryConnectionState<"copying", Cause>);
       // BELT (juspay/kolu#1716): a non-provisioning session (`session.provisions ===
       // false` — a `makeSession<_, never>` arm typed WITHOUT "copying") can NEVER
       // legitimately reach the provisioning phase. Checked per-SESSION (the runtime

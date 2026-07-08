@@ -48,7 +48,11 @@ import {
 } from "@kolu/surface-remote";
 import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
 import type { PadiConvergence } from "kolu-common/surface";
-import { type HostKey, LOCAL_HOST } from "kolu-common/surfacesWithPadi";
+import {
+  type EntryFailedCause,
+  type HostKey,
+  LOCAL_HOST,
+} from "kolu-common/surfacesWithPadi";
 import { log } from "./log.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
 // feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
@@ -57,7 +61,11 @@ import {
   drainRejectionSuffix,
   PADI_CONVERGENCE_POLICY,
 } from "./padiConvergence.ts";
-import { asPadiSession, type PadiSession } from "./padiSession.ts";
+import {
+  asPadiSession,
+  type PadiEntryFailedDetail,
+  type PadiSession,
+} from "./padiSession.ts";
 
 /** How long the build/contract-mismatch drain waits for the ssh-bridged link to die
  *  before treating the drain as not-taken — the transport-adapted twin of the local
@@ -145,6 +153,27 @@ export function assertRemovableHost(host: HostKey, defaultHost: HostKey): void {
   }
 }
 
+/** A {@link ResolveDrvError} SUBCLASS that additionally carries the D1 domain
+ *  `cause` — `"drv-unbaked"` (the map itself isn't baked) vs
+ *  `"drv-missing-for-system"` (the map is baked but has no entry for the probed
+ *  arch). Still an `instanceof ResolveDrvError` (so `sshConnector`'s existing
+ *  `err instanceof ResolveDrvError ? err.failureCause : "network"` classification
+ *  is untouched — a genuine, zero-footprint `@kolu/surface-remote` change), but the
+ *  domain cause rides a TYPED field a consumer reads directly — never re-derived by
+ *  scanning `message` text downstream (the D1 discipline this whole PR is about). */
+class PadiDrvFault extends ResolveDrvError {
+  constructor(
+    message: string,
+    readonly domainCause: Extract<
+      EntryFailedCause,
+      "drv-unbaked" | "drv-missing-for-system"
+    >,
+  ) {
+    super(message, "remote");
+    this.name = "PadiDrvFault";
+  }
+}
+
 /** Parse + validate the baked `{ system → padi .drv }` map. Called LAZILY from
  *  `makeResolvePadiDrv` (at the first dial), NOT at seed time: a missing/malformed map is
  *  a BUILD defect (kolu-server not run from its Nix wrapper), so it throws a loud Error
@@ -185,14 +214,14 @@ function makeResolvePadiDrv(host: string): () => Promise<string> {
     try {
       map = parsePadiDrvMap();
     } catch (err) {
-      throw new ResolveDrvError((err as Error).message, "remote");
+      throw new PadiDrvFault((err as Error).message, "drv-unbaked");
     }
     const system = await resolveSystem(host);
     const drv = map[system];
     if (!drv) {
-      throw new ResolveDrvError(
+      throw new PadiDrvFault(
         `no padi derivation baked for system=${system} (${PADI_AGENT_DRVS_ENV} has: ${Object.keys(map).join(", ") || "none"})`,
-        "remote",
+        "drv-missing-for-system",
       );
     }
     return drv;
@@ -284,16 +313,57 @@ export function ensureRemotePadiBinding(
   // (RTT-halved) — folded into the keyed map's `EntryStatus.connected`. `null` until the
   // first admit succeeds (the entry stays warming until then).
   let clockOffset: number | null = null;
+  // D2: the running/expected padiSurface CONTRACT version pair for a STANDING
+  // `skew-refused` verdict — set alongside `convergence` in the "refuse" branch below,
+  // cleared alongside it on "adopt". `entryFailedDetail()` (below) attaches it as the
+  // TYPED sidecar on the `contract-skew-refused` cause (D2's "zero string-scans").
+  let skewVersions: { running: string; expected: string } | null = null;
+  // D1: the drv-resolution fault this instance's LAST dial attempt hit, or `null` —
+  // set by the `resolveDrvPath` wrapper below (via `PadiDrvFault`), reset at the START
+  // of every attempt so a later successful resolve clears a stale fault.
+  let drvFaultCause: Extract<
+    EntryFailedCause,
+    "drv-unbaked" | "drv-missing-for-system"
+  > | null = null;
+
+  /** The D1+D2 domain detail for the map's `EntryStatus` — derived from the SAME
+   *  `convergence`/`skewVersions`/`drvFaultCause` closures above rather than a
+   *  separately-maintained parallel state machine, so it can never drift out of sync
+   *  with `convergence()`'s own (already-correct) lifecycle. `cross-supervisor` is
+   *  RESERVED (see `EntryFailedCause`'s doc) — never returned here yet. */
+  function computeEntryFailedDetail(): PadiEntryFailedDetail | null {
+    if (convergence?.state === "skew-refused") {
+      return skewVersions
+        ? { cause: "contract-skew-refused", ...skewVersions }
+        : { cause: "contract-skew-refused" };
+    }
+    if (convergence?.state === "unconverged") return { cause: "unconverged" };
+    if (convergence?.state === "link-failed") return { cause: "link-failed" };
+    if (drvFaultCause !== null) return { cause: drvFaultCause };
+    return null;
+  }
 
   // ── The ssh connector, wrapped to SCOPE + STASH ─────────────────────────────
   // `sshConnector` yields the COMBINED daemon client; the pump + `identity()` need the
   // padi-scoped view (`client.surface.<member>` at /surface/padi/*). So the wrapper
   // stashes the combined (for admit/drain) and hands the session the scoped client.
+  const resolveDrv = makeResolvePadiDrv(host);
   const inner = sshConnector<PadiDaemonContract>({
     host,
     binary: "padi",
     extraArgs,
-    resolveDrvPath: makeResolvePadiDrv(host),
+    // Reset-before-attempt, tag-on-fault: a fault classified on THIS dial stands
+    // until the NEXT dial starts (whether that one succeeds, clearing it, or hits a
+    // different fault, replacing it) — never a stale cause surviving a recovery.
+    resolveDrvPath: async () => {
+      drvFaultCause = null;
+      try {
+        return await resolveDrv();
+      } catch (err) {
+        if (err instanceof PadiDrvFault) drvFaultCause = err.domainCause;
+        throw err;
+      }
+    },
   });
   const rawConnector: Connector<PadiSurfaceClient> = async (ctx) => {
     const conn = await inner(ctx);
@@ -392,6 +462,7 @@ export function ensureRemotePadiBinding(
         drainedInstance = null;
         drainAttempts = 0;
         convergence = null;
+        skewVersions = null;
         return { kind: "adopt" };
 
       case "refuse": {
@@ -409,6 +480,9 @@ export function ensureRemotePadiBinding(
           expectedBuild: null,
           detail: msg,
         };
+        // D2: the TYPED contract-version pair — never re-scanned from `msg` by a
+        // consumer (kills the last version string-scan).
+        skewVersions = { running, expected: binderVersion };
         return {
           kind: "refuse",
           state: { lastError: msg, failureCause: "remote" },
@@ -586,6 +660,7 @@ export function ensureRemotePadiBinding(
   return asPadiSession(base, {
     convergence: () => convergence,
     clockOffset: () => clockOffset,
+    entryFailedDetail: computeEntryFailedDetail,
     /** DRAIN the bound padi (the "restart" verb): padi persists + exits, its kaval +
      *  PTYs survive, the front's relay ends → the session reconnects and re-adopts.
      *  Ground truth is the LINK DEATH (via {@link drainAndAwaitClose}), not the drain

@@ -56,25 +56,49 @@ import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
  *  collection. Absence from the collection is "not a member"; there is no
  *  `absent` variant (dual-authority for membership is unconstructible at the
  *  source — one writer publishes membership + status together). `clockOffset`
- *  is the serving process's own-clock offset at hello (one named writer, P3). */
-export type EntryStatus =
+ *  is the serving process's own-clock offset at hello (one named writer, P3).
+ *
+ *  `Cause` is the FAILURE-CAUSE discriminant carried on the `failed` arm — generic
+ *  (option 2 of the W4 types decision), defaulting to `= string` so every EXISTING
+ *  consumer that reads `.cause` as a bare string keeps compiling untouched. A
+ *  domain (padi: `EntryFailedCause`) instantiates `EntryStatus<PadiCause>` at ITS
+ *  OWN map so `.cause` narrows there — `@kolu/surface-map` itself stays
+ *  volatility-neutral (dependency-arrow-out): it carries the discriminant, it
+ *  never enumerates what a domain's causes ARE. `reason` stays a human string,
+ *  NEVER parsed for control flow; `kind` stays the outer discriminant, `cause` is
+ *  a sibling field on the SAME `failed` arm (not a second `kind`). */
+export type EntryStatus<Cause extends string = string> =
   | { kind: "warming" }
   | { kind: "connected"; clockOffset: number }
-  | { kind: "failed"; reason: string };
+  | { kind: "failed"; reason: string; cause: Cause };
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
  *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It
  *  lives HERE (the contract module, solid-free), not in the client, so a NODE consumer that
  *  re-exports it type-only through `index.ts` never drags the Solid/DOM client into its
  *  typecheck (surface-remote would otherwise fail on onWake's `window`/`document`). */
-export type EntryState = EntryStatus | { kind: "not-a-member" };
+export type EntryState<Cause extends string = string> =
+  | EntryStatus<Cause>
+  | { kind: "not-a-member" };
 
 /** The wire/zod schema for {@link EntryStatus}. Backs both the `entries`
- *  collection contract and the client-side bound collection value. */
+ *  collection contract and the client-side bound collection value. The `failed`
+ *  arm is a LOOSE object (`z.looseObject`, zod v4): `cause` is validated as a bare
+ *  `z.string()` (this generic package can't know a domain's narrower `Cause`
+ *  literal union at the schema level — only at the TS type level, via the `Cause`
+ *  type param above), and any EXTRA domain fields a producer attaches (padi's D2
+ *  typed `running`/`expected` version pair on the `contract-skew-refused` cause)
+ *  ride through untouched rather than being stripped by zod's default
+ *  strip-unknown-keys behavior — a `strict`/plain `z.object` here would silently
+ *  drop them on the wire. */
 export const entryStatusSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("warming") }),
   z.object({ kind: z.literal("connected"), clockOffset: z.number() }),
-  z.object({ kind: z.literal("failed"), reason: z.string() }),
+  z.looseObject({
+    kind: z.literal("failed"),
+    reason: z.string(),
+    cause: z.string(),
+  }),
 ]) satisfies ZodType<EntryStatus>;
 
 // ── Key-fold contract builders (mirror @kolu/surface/define, +mapKey) ───
@@ -292,6 +316,7 @@ export interface KeyCodec<K> {
 export interface SurfaceMap<
   KS extends ZodType,
   ES extends SurfaceSpec = SurfaceSpec,
+  Cause extends string = string,
 > {
   /** The key schema — `keySchema.parse` (paired with `codec.decode`) is the sole
    *  producer of a validated key from a wire string. */
@@ -303,27 +328,31 @@ export interface SurfaceMap<
    *  entries } }`. A canonical-string `mapKey` is folded into every entry-member
    *  input; `entries` is the membership collection (unfolded). */
   readonly contract: AnyContractRouter;
-  /** The membership collection's spec — `Collection<string, EntryStatus>` on
-   *  the wire (see the module doc for why the collection key is always a plain
+  /** The membership collection's spec — `Collection<string, EntryStatus<Cause>>`
+   *  on the wire (see the module doc for why the collection key is always a plain
    *  string), read-only. Backs both the server's `entries` handlers and the
    *  client's bound collection; both decode through {@link codec} at their own
    *  API boundary. */
-  readonly entriesSpec: CollectionSpec<string, EntryStatus>;
+  readonly entriesSpec: CollectionSpec<string, EntryStatus<Cause>>;
   /** The string <-> key codec — see {@link KeyCodec}. */
   readonly codec: KeyCodec<z.infer<KS>>;
 }
 
 /** Build a `SurfaceMap` from a key schema, an entry surface, and the key's
  *  string codec (required — see {@link KeyCodec}; a plain-string `K` passes the
- *  identity pair). */
+ *  identity pair). `Cause` (the failure-cause discriminant, see {@link EntryStatus})
+ *  defaults to `string` — an unnarrowed call site is unaffected; a domain map
+ *  (padi) instantiates `defineSurfaceMap<KS, ES, PadiEntryFailedCause>(...)`
+ *  explicitly (nothing in the runtime args lets it be inferred). */
 export function defineSurfaceMap<
   KS extends ZodType,
   const ES extends SurfaceSpec,
+  Cause extends string = string,
 >(
   keySchema: KS,
   entry: Surface<ES>,
   codec: KeyCodec<z.infer<KS>>,
-): SurfaceMap<KS, ES> {
+): SurfaceMap<KS, ES, Cause> {
   const members = foldedMembers(entry.spec);
   const contract = oc.router({
     surface: {
@@ -332,9 +361,13 @@ export function defineSurfaceMap<
     },
   } as unknown as AnyContractRouter) as AnyContractRouter;
 
-  const entriesSpec: CollectionSpec<string, EntryStatus> = {
+  const entriesSpec: CollectionSpec<string, EntryStatus<Cause>> = {
     keySchema: z.string(),
-    schema: entryStatusSchema,
+    // `entryStatusSchema` validates `cause` as a bare `z.string()` (see its own
+    // doc) — sound for ANY `Cause extends string` instantiation at RUNTIME (every
+    // real `Cause` value IS a string), so this is a widen-then-narrow cast, not an
+    // unsound one: the schema over-accepts at the wire, `Cause` narrows the TS view.
+    schema: entryStatusSchema as unknown as ZodType<EntryStatus<Cause>>,
     verbs: ["keys", "get"],
   };
 

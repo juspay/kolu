@@ -410,6 +410,14 @@ const reServedPadiClient = surfaceClientRef(
 const padiMap = serveHostMap(padiHostMap, pool, {
   // biome-ignore lint/suspicious/noExplicitAny: ReServedSurface.router is opaque (`unknown`); directLink forwards it structurally, exactly as the memory sampler's `surfaceClientRef` does above.
   linkFor: (h, s) => directLink(reServeFor(h, s).router as any),
+  // D1 + D2: the DOMAIN cause (+ D2's typed running/expected pair on
+  // contract-skew-refused) — padi's own knowledge (`session.entryFailedDetail()`,
+  // derived from `convergence()`/the drv-resolution fault, both arm-local), never
+  // guessed generically by `serveHostMap` (a transport-only adapter). Falls through
+  // to `@kolu/surface-map`'s own `"other"` fallback when the session is down for a
+  // reason padi hasn't classified.
+  causeFor: (_host, session) =>
+    session.entryFailedDetail() ?? { cause: "other" },
 });
 
 // Publish the multi-host gate as a cell — the client reads THIS to render the selector

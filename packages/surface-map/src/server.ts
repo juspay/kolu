@@ -73,24 +73,40 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
  *      can never project 'copying' (juspay/kolu#1716)" suite (the "BELT: … throws
  *      LOUD instead of a lying 'warming' chip" case).
  *  Producer-unrepresentable + a runtime belt is the honest form for a fact a
- *  generic container's type can't carry per-key — not a type change here. */
-export type EntryConnectionState<Prov extends "copying" | never = "copying"> =
+ *  generic container's type can't carry per-key — not a type change here.
+ *
+ *  `Cause` mirrors {@link EntryStatus}'s own failure-cause discriminant, ONE layer
+ *  earlier (the session's raw connection state, before {@link projectStatus}
+ *  projects it onto the published `EntryStatus`). It is OPTIONAL here (unlike
+ *  `EntryStatus.cause`, which is required) — a generic registry (e.g.
+ *  `@kolu/surface-remote`'s `serveHostMap`, which projects a bare `SessionState`
+ *  with no domain knowledge of `Cause`) may have nothing to set it to; a caller
+ *  that DOES know the domain cause (padi's binders) sets it, and `projectStatus`
+ *  below falls back to `"other"` when it is absent — so `EntryStatus.cause` stays
+ *  honestly required (never invented text, always at least the honest catch-all). */
+export type EntryConnectionState<
+  Prov extends "copying" | never = "copying",
+  Cause extends string = string,
+> =
   | { kind: Prov }
   | { kind: "connecting" }
   | { kind: "connected"; clockOffset: number }
-  | { kind: "disconnected"; reason: string }
-  | { kind: "failed"; reason: string };
+  | { kind: "disconnected"; reason: string; cause?: Cause }
+  | { kind: "failed"; reason: string; cause?: Cause };
 
 /** A resolved, serveable entry. Carries what the map needs to (a) FORWARD calls
  *  (a live entry-surface oRPC client/link to proxy to) and (b) observe status
  *  (the session's connection state). */
-export interface EntrySession<Prov extends "copying" | never = "copying"> {
+export interface EntrySession<
+  Prov extends "copying" | never = "copying",
+  Cause extends string = string,
+> {
   /** The entry-surface oRPC client/link the map forwards member calls to
    *  (`link.surface.<member>.<verb>(input)`). */
   readonly link: unknown;
   /** The session's current connection state — read fresh on each publish; the
    *  registry re-fires `subscribe` when it changes so `entries` re-projects. */
-  readonly state: EntryConnectionState<Prov>;
+  readonly state: EntryConnectionState<Prov, Cause>;
 }
 
 /** A terminal, no-session entry — a structural fault (no drv for arch, a bogus
@@ -106,19 +122,34 @@ export interface EntryFault {
  *    the change.
  *  - CLAUSE 2 (snapshot): `members()` and `has()` answer from ONE consistent view.
  *  - Status is DERIVED from the resolved session's state (projection). */
-export interface MapRegistry<K, Prov extends "copying" | never = "copying"> {
+export interface MapRegistry<
+  K,
+  Prov extends "copying" | never = "copying",
+  Cause extends string = string,
+> {
   members(): K[];
   subscribe(onChange: () => void): () => void;
   has(key: K): boolean;
-  resolve(key: K): EntrySession<Prov> | EntryFault;
+  resolve(key: K): EntrySession<Prov, Cause> | EntryFault;
 }
 
 function isFault(r: EntrySession | EntryFault): r is EntryFault {
   return "failed" in r;
 }
 
-/** Project a session's connection state onto the published {@link EntryStatus}. */
-function projectStatus(state: EntryConnectionState): EntryStatus {
+/** Project a session's connection state onto the published {@link EntryStatus}.
+ *  `state.cause` is OPTIONAL ({@link EntryConnectionState}'s doc) — a registry with
+ *  no domain cause to set falls back to `"other"`, the ONE `Cause` member every
+ *  domain instantiation is expected to carry as its catch-all (see
+ *  `EntryFailedCause` in `kolu-common/surfacesWithPadi`) — so `EntryStatus.cause`
+ *  stays honestly required (never invented text) without forcing every session
+ *  producer to classify a cause it may not know. Extra fields `state` carries
+ *  beyond `reason`/`cause` (padi's D2 typed `running`/`expected` version pair on
+ *  `contract-skew-refused`) ride through via the spread — this generic layer
+ *  doesn't need to know their shape to preserve them. */
+function projectStatus<Cause extends string = string>(
+  state: EntryConnectionState<"copying", Cause>,
+): EntryStatus<Cause> {
   switch (state.kind) {
     case "copying":
     case "connecting":
@@ -126,8 +157,10 @@ function projectStatus(state: EntryConnectionState): EntryStatus {
     case "connected":
       return { kind: "connected", clockOffset: state.clockOffset };
     case "disconnected":
-    case "failed":
-      return { kind: "failed", reason: state.reason };
+    case "failed": {
+      const { kind: _kind, cause, ...rest } = state;
+      return { kind: "failed", cause: cause ?? ("other" as Cause), ...rest };
+    }
   }
 }
 
@@ -201,10 +234,18 @@ export interface ServeSurfaceMapResult {
   dispose(): void;
 }
 
-/** Serve a `SurfaceMap` over a `MapRegistry`. */
-export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
-  map: SurfaceMap<KS, ES>,
-  registry: MapRegistry<z.infer<KS>>,
+/** Serve a `SurfaceMap` over a `MapRegistry`. `Cause` is INFERRED from `map`'s own
+ *  type — a domain map (`SurfaceMap<KS, ES, PadiEntryFailedCause>`) forces
+ *  `registry` to resolve into that SAME narrowed `Cause`, so a registry that only
+ *  ever emits the generic default can't silently serve a domain map (and vice
+ *  versa). */
+export function serveSurfaceMap<
+  KS extends z.ZodType,
+  ES extends SurfaceSpec,
+  Cause extends string = string,
+>(
+  map: SurfaceMap<KS, ES, Cause>,
+  registry: MapRegistry<z.infer<KS>, "copying", Cause>,
 ): ServeSurfaceMapResult {
   type K = z.infer<KS>;
   const keySchema = map.keySchema;
@@ -212,11 +253,15 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   const resolve = (k: K) => registry.resolve(k);
   const members = () => registry.members();
 
-  const statusOf = (mapKey: K): EntryStatus => {
+  // A structural fault (no session at all — an unknown host, the mock harness's
+  // failed member) has no domain cause to report; `"other"` is the ONE `Cause`
+  // member every domain instantiation is expected to carry as its catch-all (see
+  // `EntryConnectionState`'s doc on the same fallback one layer up).
+  const statusOf = (mapKey: K): EntryStatus<Cause> => {
     const r = resolve(mapKey);
     return isFault(r)
-      ? { kind: "failed", reason: r.failed }
-      : projectStatus(r.state);
+      ? { kind: "failed", reason: r.failed, cause: "other" as Cause }
+      : projectStatus<Cause>(r.state);
   };
 
   // ── Forward one streaming member call, ending TYPED on membership loss ──
@@ -397,13 +442,14 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
   const channel = inMemoryChannelByName();
   const keysBus = channel<string[]>(collectionKeysetChannel("entries"));
   const perKeyBus = (encoded: string) =>
-    channel<EntryStatus>(collectionKeyChannel("entries", encoded));
+    channel<EntryStatus<Cause>>(collectionKeyChannel("entries", encoded));
 
-  const entriesDeps: CollectionHandlerDeps<string, EntryStatus> = {
+  const entriesDeps: CollectionHandlerDeps<string, EntryStatus<Cause>> = {
     readAll: () =>
       new Map(
         members().map(
-          (k) => [map.codec.encode(k), statusOf(k)] as [string, EntryStatus],
+          (k) =>
+            [map.codec.encode(k), statusOf(k)] as [string, EntryStatus<Cause>],
         ),
       ),
     readOne: (encoded) => {
@@ -415,7 +461,7 @@ export function serveSurfaceMap<KS extends z.ZodType, ES extends SurfaceSpec>(
     perKeyBus,
     keysBus,
   };
-  const entriesDescriptor = collection<"entries", string, EntryStatus>({
+  const entriesDescriptor = collection<"entries", string, EntryStatus<Cause>>({
     name: "entries",
     keySchema: map.entriesSpec.keySchema,
     schema: map.entriesSpec.schema,

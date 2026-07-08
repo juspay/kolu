@@ -19,7 +19,22 @@
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import type { DaemonSession, Session } from "@kolu/surface-remote";
 import type { ProvisioningPhase } from "@kolu/surface-remote/connection";
+import type {
+  EntryFailedCause,
+  SkewVersionPair,
+} from "kolu-common/surfacesWithPadi";
 import type { PadiConvergence } from "kolu-common/surface";
+
+/** The domain detail a padi arm attaches to the map's published `EntryStatus`
+ *  when its session is DOWN (D1 + D2) — the failure `cause`, plus the typed
+ *  `running`/`expected` version pair when that cause is `contract-skew-refused`.
+ *  Read by `packages/server/src/index.ts`'s `serveHostMap` `causeFor` hook
+ *  (`padiEntryFailedDetail`); `null` when the session isn't down for a
+ *  classifiable domain reason (the generic `@kolu/surface-map` fallback,
+ *  `"other"`, covers that case — see `projectStatus`). */
+export type PadiEntryFailedDetail =
+  | { readonly cause: Exclude<EntryFailedCause, "contract-skew-refused"> }
+  | ({ readonly cause: "contract-skew-refused" } & Partial<SkewVersionPair>);
 
 /** A bound padi, LOCAL or REMOTE — a daemon session over the padi surface, its
  *  convergence descriptor being padi's app-specific {@link PadiConvergence}.
@@ -45,7 +60,15 @@ import type { PadiConvergence } from "kolu-common/surface";
  *  inside this alias. */
 export type PadiSession<Prov extends ProvisioningPhase = ProvisioningPhase> =
   Omit<DaemonSession<PadiSurfaceClient, PadiConvergence>, "onState"> &
-    Pick<Session<PadiSurfaceClient, Prov>, "onState">;
+    Pick<Session<PadiSurfaceClient, Prov>, "onState"> & {
+      /** The D1+D2 domain-cause detail for the map's `EntryStatus` (see
+       *  {@link PadiEntryFailedDetail}) — kolu-server's OWN extra member (not part of
+       *  the generic `@kolu/surface-remote` `DaemonSession` role, which knows nothing
+       *  of padi's causes; the volatility boundary D1 draws). `null` when the arm has
+       *  nothing to classify (the local arm always; the remote arm outside a
+       *  classifiable down state). */
+      entryFailedDetail(): PadiEntryFailedDetail | null;
+    };
 
 /** padi's preservation strategy: its PTYs live in a SEPARATE kaval process, so a
  *  `renew()` (drain + respawn) is survived by them — a fresh padi adopts the running
@@ -74,11 +97,14 @@ export function asPadiSession<
     /** The far-end clock offset measured at admit/connect (ms), or `null` before the
      *  first successful handshake. Folded into a keyed map's `EntryStatus.connected`. */
     clockOffset: () => number | null;
+    /** See {@link PadiSession.entryFailedDetail}. */
+    entryFailedDetail: () => PadiEntryFailedDetail | null;
   },
 ): PadiSession<Prov> {
   return {
     ...base,
     convergence: members.convergence,
+    entryFailedDetail: members.entryFailedDetail,
     preservation: PADI_PRESERVATION,
     renew: members.renew,
     clockOffset: members.clockOffset,
