@@ -129,15 +129,15 @@ function makeRegistry() {
     },
     resolve: (k) => {
       const e = entries.get(k);
-      if (!e) return { failed: "unknown key" };
-      if (e.fault !== undefined) return { failed: e.fault };
+      if (!e) return { kind: "fault", failed: "unknown key" };
+      if (e.fault !== undefined) return { kind: "fault", failed: e.fault };
       return e.session as EntrySession;
     },
   };
   return {
     registry,
     addSession(k: HostKey, link: unknown, state: EntryConnectionState) {
-      entries.set(k, { session: { link, state } });
+      entries.set(k, { session: { kind: "session", link, state } });
       fire();
     },
     addFault(k: HostKey, reason: string) {
@@ -147,7 +147,9 @@ function makeRegistry() {
     setState(k: HostKey, state: EntryConnectionState) {
       const e = entries.get(k);
       if (e?.session) {
-        entries.set(k, { session: { link: e.session.link, state } });
+        entries.set(k, {
+          session: { kind: "session", link: e.session.link, state },
+        });
         fire();
       }
     },
@@ -333,6 +335,44 @@ describe("surface-map mock-entry e2e harness", () => {
     });
   });
 
+  it("(5b) a RETRIABLE disconnected session projects to warming; only a TERMINAL failed reads failed (P4 fix)", async () => {
+    await createRoot(async (dispose) => {
+      const { client, addSession, setState } = setup();
+      const view = client.entries.use();
+      let st: EntryStatus | undefined;
+      createEffect(() => {
+        st = view.byKey(C)?.() as EntryStatus | undefined;
+      });
+
+      addSession(
+        C,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        connected(0),
+      );
+      await settle();
+      expect(st).toEqual({ kind: "connected", clockOffset: 0 });
+
+      // The link dropped and the reconnect loop is redialing (SessionState
+      // "disconnected" — a RETRIABLE backoff window). It must read WARMING — coming
+      // back up — NOT a red "failed" chip indistinguishable from a dead host (the P4
+      // defect collapsed disconnected onto failed). `reason`/`cause` are dropped:
+      // warming is causeless.
+      setState(C, { kind: "disconnected", reason: "link dropped mid-flight" });
+      await settle();
+      expect(st).toEqual({ kind: "warming" });
+
+      // Only the TERMINAL give-up (the reconnect loop stopped for good) reads failed.
+      setState(C, { kind: "failed", reason: "gave up after 5 tries" });
+      await settle();
+      expect(st).toEqual({
+        kind: "failed",
+        reason: "gave up after 5 tries",
+        cause: "other",
+      });
+      dispose();
+    });
+  });
+
   it("(6) rpc folds {mapKey,input} to the keyed entry and rejects an absent key", async () => {
     await createRoot(async (dispose) => {
       const { client, addSession } = setup();
@@ -441,9 +481,9 @@ describe("surface-map mock-entry e2e harness", () => {
             listeners.delete(cb);
           };
         },
-        resolve: (k) => entries.get(k) ?? { failed: "unknown" },
+        resolve: (k) => entries.get(k) ?? { kind: "fault", failed: "unknown" },
       };
-      entries.set(A, { link: slowLink, state: connected(0) });
+      entries.set(A, { kind: "session", link: slowLink, state: connected(0) });
       const served = serveSurfaceMap(map, registry);
       const mapLink = directLink<AnyContractRouter>(served.router as never);
       const client = connectSurfaceMap(map, mapLink);
@@ -546,12 +586,16 @@ describe("surface-map mock-entry e2e harness", () => {
             listeners.delete(cb);
           };
         },
-        resolve: (k) => entries.get(k) ?? { failed: "unknown" },
+        resolve: (k) => entries.get(k) ?? { kind: "fault", failed: "unknown" },
       };
       const fire = () => {
         for (const l of [...listeners]) l();
       };
-      entries.set(A, { link: slowRejectingLink, state: connected(0) }); // session S1
+      entries.set(A, {
+        kind: "session",
+        link: slowRejectingLink,
+        state: connected(0),
+      }); // session S1
       const served = serveSurfaceMap(map, registry);
       const mapLink = directLink<AnyContractRouter>(served.router as never);
       const client = connectSurfaceMap(map, mapLink);
@@ -568,6 +612,7 @@ describe("surface-map mock-entry e2e harness", () => {
       entries.delete(A);
       fire();
       entries.set(A, {
+        kind: "session",
         link: makeEntry({ awaiting: 7, awaitingIds: [] }).link,
         state: connected(0),
       }); // session S2
@@ -721,13 +766,13 @@ function armableRegistry() {
         throwOnResolve = null; // one-shot — never re-arms itself
         throw new Error("membership resolve boom");
       }
-      return entries.get(k) ?? { failed: "unknown key" };
+      return entries.get(k) ?? { kind: "fault", failed: "unknown key" };
     },
   };
   return {
     registry,
     addSession(k: HostKey, link: unknown, state: EntryConnectionState) {
-      entries.set(k, { link, state });
+      entries.set(k, { kind: "session", link, state });
       fire();
     },
     armResolveThrow(k: HostKey) {
@@ -941,7 +986,7 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
   function objRegistry() {
     const entries = new Map<
       string,
-      { link: unknown; state: EntryConnectionState }
+      { kind: "session"; link: unknown; state: EntryConnectionState }
     >();
     const listeners = new Set<() => void>();
     const fire = () => {
@@ -957,12 +1002,13 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
           listeners.delete(cb);
         };
       },
-      resolve: (k) => entries.get(k.name) ?? { failed: "unknown" },
+      resolve: (k) =>
+        entries.get(k.name) ?? { kind: "fault", failed: "unknown" },
     };
     return {
       registry,
       addSession(k: ObjKey, link: unknown, state: EntryConnectionState) {
-        entries.set(k.name, { link, state });
+        entries.set(k.name, { kind: "session", link, state });
         fire();
       },
     };

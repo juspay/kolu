@@ -101,4 +101,40 @@ describe("admit handshake watchdog (S9 parity)", () => {
 
     session.destroy();
   });
+
+  it("adopts to CONNECTED even when the connector skipped ctx.connecting() — never a silent stall", async () => {
+    // The adopt branch used to route through `markConnected`, whose `connecting`-only
+    // guard SILENTLY no-ops from any other state. A connector that returned a live link
+    // WITHOUT first calling `ctx.connecting()` (a contract breach) then stranded the
+    // proven-live link in `copying`/`disconnected` forever. The fix enters `connected`
+    // DIRECTLY on adopt, so a proven link always transitions (and the breach is logged).
+    const connectOnce = (_ctx: ConnectContext): Promise<Connection<unknown>> =>
+      // Deliberately does NOT call ctx.connecting() — the contract breach under test.
+      Promise.resolve({
+        client: {},
+        closed: new Promise<never>(() => {}),
+        isAlive: () => Promise.resolve(),
+        teardown: vi.fn(),
+      });
+    const admit = () => Promise.resolve({ kind: "adopt" as const });
+
+    const states: string[] = [];
+    const session = makeSession<unknown>({
+      initialConnection: "copying",
+      connectOnce,
+      admit,
+      connectTimeoutMs: 5000,
+      reconnectDelayMs: 60_000,
+      label: "no-connecting",
+    });
+    session.onState((s) => states.push(s.connection));
+
+    await session.pin();
+    // The proven-live link reaches connected despite the skipped ctx.connecting() —
+    // before the fix it stayed stuck at the initial "copying".
+    expect(states).toContain("connected");
+    expect(session.currentClient()).not.toBeNull();
+
+    session.destroy();
+  });
 });

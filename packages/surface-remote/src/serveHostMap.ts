@@ -192,7 +192,8 @@ export function serveHostMap<
     resolve(k): EntrySession<"copying", Cause> | EntryFault {
       const enc = encode(k);
       const session = sessionOf(k);
-      if (session === undefined) return { failed: `unknown host: ${enc}` };
+      if (session === undefined)
+        return { kind: "fault", failed: `unknown host: ${enc}` };
       const offset = session.clockOffset();
       const raw = latestState.get(enc);
       const projected = projectState(raw, offset);
@@ -225,6 +226,7 @@ export function serveHostMap<
         );
       }
       return {
+        kind: "session",
         link: linkFor(k, session),
         state,
       };

@@ -762,11 +762,23 @@ export function makeSession<
         throw new Error(verdict.reason);
       }
       // adopt: the hello proved the link live. Take the connection, wire its death,
-      // and mark connected NOW — no connect-watchdog needed (the link is proven), and
-      // the consumer's later `markConnected` is a harmless no-op.
+      // and enter `connected` NOW — no connect-watchdog needed (the link is proven).
+      // Call `enterConnected` DIRECTLY, never `markConnected`: its `connecting`-only
+      // guard would SILENTLY no-op — stranding this proven-live link — if the connector
+      // returned without first calling `ctx.connecting()`. The connector IS contracted
+      // to signal `connecting`; a breach is surfaced loudly here, but the transition
+      // still completes (the admit hello proved the link, so `connected` is correct).
+      // A later consumer `markConnected` is a harmless no-op (state is `connected`).
       current = conn;
       wireClosed();
-      session.markConnected();
+      if (stateCell.current().connection !== "connecting") {
+        emit(
+          `adopt: connector returned a live link without signalling 'connecting' ` +
+            `(state was '${stateCell.current().connection}') — forcing 'connected'; ` +
+            "fix the connector to call ctx.connecting() before returning",
+        );
+      }
+      enterConnected();
       return conn.client;
     }
 
@@ -827,6 +839,32 @@ export function makeSession<
       });
   };
 
+  /** The `connecting` → `connected` transition body — factored out so BOTH the
+   *  consumer-facing {@link markConnected} (which GUARDS on the current state) and
+   *  the adopt path (which has ALREADY proven the link live via the admit hello)
+   *  share ONE definition. The adopt path calls this DIRECTLY: routing it through
+   *  `markConnected`'s `connecting`-only guard would SILENTLY no-op — and strand a
+   *  proven-live link in its pre-connecting state forever — whenever a connector
+   *  skipped `ctx.connecting()`. Idempotent across reconnects (`setUp`/`startLiveness`
+   *  both are). */
+  const enterConnected = (): void => {
+    consecutiveFailures = 0;
+    setUp("connected");
+    // Birth the liveness watchdog at the FIRST successful connect (so it can never
+    // probe before the first RPC), and poll the server's identity off the fresh
+    // client. Both idempotent across later reconnects.
+    startLiveness();
+    const p = clientPromise;
+    if (p !== null) {
+      // Clear a stale identity so a respawned server's fresh one lands (never a
+      // stale mix from the old process); re-poll off the current client.
+      cachedIdentity = null;
+      // `p` already resolved; `pollIdentity` owns its own probe-failure catch, so
+      // this catch only absorbs a `p` rejection from a torn-down-mid-microtask link.
+      p.then((client) => pollIdentity(client)).catch(() => {});
+    }
+  };
+
   const session: Session<Client, Prov> = {
     pin() {
       refCount += 1;
@@ -847,25 +885,12 @@ export function makeSession<
       });
     },
     markConnected() {
+      // Consumer-facing: the connector's client has no synchronous "open", so the
+      // consumer signals the first successful roundtrip here. GUARDED to `connecting`
+      // — a later/duplicate call once already `connected` is a deliberate no-op. The
+      // adopt path does NOT come through here (it calls `enterConnected` directly).
       if (stateCell.current().connection !== "connecting") return;
-      consecutiveFailures = 0;
-      setUp("connected");
-      // Birth the liveness watchdog at the FIRST successful connect (so it can never
-      // probe before the first RPC), and poll the server's identity off the fresh
-      // client. Both idempotent across later reconnects.
-      startLiveness();
-      const p = clientPromise;
-      if (p !== null) {
-        // Clear a stale identity so a respawned server's fresh one lands (never a
-        // stale mix from the old process); re-poll off the current client.
-        cachedIdentity = null;
-        // `p` already resolved (we only reach `markConnected` once a client is live),
-        // and `pollIdentity` owns its OWN probe-failure catch — so this catch only
-        // absorbs a `p` rejection from a torn-down-mid-microtask link. Dropping it is
-        // safe: that path re-enters the reconnect loop via `handleClosed`, which
-        // re-polls identity on the next connect.
-        p.then((client) => pollIdentity(client)).catch(() => {});
-      }
+      enterConnected();
     },
     destroy() {
       destroyed = true;

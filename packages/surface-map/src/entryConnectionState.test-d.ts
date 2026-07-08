@@ -36,6 +36,7 @@ void localConnecting;
 // The same split, one layer up: an `EntrySession<never>` (a LOCAL entry's
 // resolved session) cannot carry a "copying" `state` either.
 const localSession: EntrySession<never> = {
+  kind: "session",
   link: {},
   state: {
     // @ts-expect-error — same cut, carried through `EntrySession<never>`.

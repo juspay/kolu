@@ -101,6 +101,8 @@ export interface EntrySession<
   Prov extends "copying" | never = "copying",
   Cause extends string = string,
 > {
+  /** The sum tag — switch on this, never on bare field-presence. */
+  readonly kind: "session";
   /** The entry-surface oRPC client/link the map forwards member calls to
    *  (`link.surface.<member>.<verb>(input)`). */
   readonly link: unknown;
@@ -113,6 +115,8 @@ export interface EntrySession<
  *  host) or the mock harness's failed member. Publishes `failed(reason)`
  *  directly. */
 export interface EntryFault {
+  /** The sum tag — the discriminant `isFault` switches on. */
+  readonly kind: "fault";
   readonly failed: string;
 }
 
@@ -134,7 +138,7 @@ export interface MapRegistry<
 }
 
 function isFault(r: EntrySession | EntryFault): r is EntryFault {
-  return "failed" in r;
+  return r.kind === "fault";
 }
 
 /** Project a session's connection state onto the published {@link EntryStatus}.
@@ -153,10 +157,20 @@ function projectStatus<Cause extends string = string>(
   switch (state.kind) {
     case "copying":
     case "connecting":
+    // A dropped link the reconnect loop is redialing — coming back up, never a
+    // terminal fault. `disconnected` distinguishes a RETRIABLE reconnect-backoff
+    // window from the TERMINAL give-up `failed` (see `@kolu/surface-remote`'s
+    // session state machine); collapsing it onto `failed` rendered a live host's
+    // normal reconnect window as a steady red "failed" chip in every consumer
+    // (kolu's host-down card, drishti's `entryStatusTone`), indistinguishable from
+    // a dead host. Its `reason`/`cause` are dropped — `warming` is causeless (the
+    // redial resolves to `connected`, or eventually the terminal `failed`).
+    case "disconnected":
       return { kind: "warming" };
     case "connected":
       return { kind: "connected", clockOffset: state.clockOffset };
-    case "disconnected":
+    // STRICTLY terminal — the reconnect loop gave up. Only this arm publishes a red
+    // `failed` chip + the domain cause.
     case "failed": {
       const { kind: _kind, cause, ...rest } = state;
       return { kind: "failed", cause: cause ?? ("other" as Cause), ...rest };
