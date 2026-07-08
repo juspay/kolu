@@ -64,7 +64,7 @@ const MARKER = "HOST-SCOPING: host-INDEPENDENT by design";
  *  — walk back over blank + full-line-comment lines; stop at the first real code. */
 function markedAbove(lines: string[], i: number): boolean {
   for (let j = i - 1; j >= 0; j--) {
-    const t = lines[j].trim();
+    const t = lines[j]?.trim() ?? "";
     if (t === "") continue;
     if (!t.startsWith("//")) return false;
     if (t.includes(MARKER)) return true;
@@ -80,7 +80,8 @@ function findModuleScopeState(): string[] {
     for (const file of listSourceFiles(target)) {
       const lines = readFileSync(file, "utf8").split("\n");
       for (let i = 0; i < lines.length; i++) {
-        if (!MODULE_STATE_RE.test(lines[i])) continue;
+        const line = lines[i];
+        if (line === undefined || !MODULE_STATE_RE.test(line)) continue;
         if (markedAbove(lines, i)) continue; // declared host-INDEPENDENT — allowed
         violations.push(`${file.replace(`${CLIENT_SRC}/`, "")}:${i + 1}`);
       }
