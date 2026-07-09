@@ -95,11 +95,14 @@ export function subscribeActiveSessions(
       if (bootstrap) {
         bootstrap.close();
         bootstrap = null;
+        // Standard watcher-retired lifecycle line (matches the receptacle's
+        // `info` install/retire pair) so operator watcher-count correlation
+        // sees this bootstrap watcher close, not just the real one attaching.
+        log?.info(
+          { dir: GROK_DIR, parent },
+          "grok: home-dir watcher retired — active_sessions watcher attaching",
+        );
       }
-      log?.debug(
-        { dir: GROK_DIR },
-        "grok: home dir appeared — attaching active_sessions watcher",
-      );
       attach(onChange, onError, log);
     });
   } catch (err) {
@@ -108,8 +111,11 @@ export function subscribeActiveSessions(
     onError(err);
     return;
   }
-  log?.debug(
+  // Standard watcher-installed lifecycle line at `info` (matches the
+  // receptacle's `createDirFilenameWatcher` install log) so this long-lived
+  // bootstrap watcher shows up in operator watcher-count correlation.
+  log?.info(
     { dir: GROK_DIR, parent },
-    "grok: home dir absent — active_sessions install deferred until it appears",
+    "grok: home-dir watcher installed — active_sessions install deferred until ~/.grok appears",
   );
 }
