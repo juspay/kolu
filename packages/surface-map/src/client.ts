@@ -172,8 +172,8 @@ export interface SurfaceMapClient<
 
 /** Wrap a leaf call's input in the uniform fold envelope `{ mapKey, input }` — the
  *  map server reads `mapKey` and forwards `input` verbatim. Uniform across object,
- *  primitive, and undefined inputs (a no-input member sends `input: undefined`), and
- *  an entry input carrying its own `mapKey` field can't collide with the folded key
+ *  primitive, and void inputs (a void-input member carries NO `input` field — just
+ *  `{ mapKey }`), and an entry input carrying its own `mapKey` field can't collide with the folded key
  *  (it rides `input`, nested). `mapKey` is ALWAYS the canonical wire string here —
  *  the caller (`clientFor`) already ran the key through `map.codec.encode`. */
 function foldMapKey(mapKey: string, input: unknown): unknown {
