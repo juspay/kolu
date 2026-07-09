@@ -21,7 +21,13 @@
 
 import { makePersisted } from "@solid-primitives/storage";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { type Accessor, createSignal, onCleanup, type Setter } from "solid-js";
+import {
+  type Accessor,
+  createSignal,
+  getOwner,
+  onCleanup,
+  type Setter,
+} from "solid-js";
 
 export interface PersistedPrefOptions<T> {
   /** `localStorage` key. */
@@ -177,16 +183,36 @@ export interface PerHostPrefOptions<T>
 export function perHostPref<T>(
   opts: PerHostPrefOptions<T>,
 ): [Accessor<T>, Setter<T>] {
+  // Enforce the "must be called under a reactive owner" precondition rather than
+  // merely documenting it: `onCleanup` outside an owner silently no-ops, which would
+  // drop the evict-on-host-exit guarantee this helper exists to centralize — a silent
+  // degradation the repo's fail-fast rule forbids. Mirror `scopedByEntry`, which owns
+  // the very same per-key roots and throws for the same reason.
+  if (!getOwner()) {
+    throw new Error(
+      "perHostPref must run under a reactive owner — it registers the onCleanup " +
+        "that evicts its per-host localStorage key on host-pool exit, and would " +
+        "leak that key otherwise. Call it inside a component / createRoot / the " +
+        "per-host scopedByEntry owner.",
+    );
+  }
   const name = perHostName(opts.base, opts.host);
+  // ONE storage backend for BOTH the persisted write and the evict-on-exit cleanup.
+  // Resolve `?? localStorage` HERE rather than leaving each side to default on its own:
+  // otherwise an injected `opts.storage` writes to the fake while cleanup deletes from
+  // the global `localStorage`, orphaning the fake's key AND clobbering an unrelated
+  // global key of the same name. Binding both to the same object makes that split
+  // unspellable.
+  const storage = opts.storage ?? localStorage;
   const signal = persistedPref<T>({
     name,
     fallback: opts.fallback,
     parse: opts.parse,
     serialize: opts.serialize,
     onInvalid: opts.onInvalid,
-    storage: opts.storage,
+    storage,
   });
-  onCleanup(() => localStorage.removeItem(name));
+  onCleanup(() => storage.removeItem(name));
   return signal;
 }
 

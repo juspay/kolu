@@ -17,7 +17,7 @@
  *      preference that must survive reload; a per-host in-memory bit broke that.) */
 
 import type { HostKey } from "kolu-common/hostKey";
-import { type Accessor, type Setter } from "solid-js";
+import type { Accessor, Setter } from "solid-js";
 import { perHostBoolPref, perHostPref } from "../persistedPref";
 import {
   type ActivityWindow,
