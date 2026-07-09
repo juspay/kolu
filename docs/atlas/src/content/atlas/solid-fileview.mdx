@@ -175,7 +175,7 @@ apart (Lowy), and neither is *about kolu*:
 | --- | --- | --- | --- |
 | `@kolu/solid-markdown` <Pill variant="todo">new</Pill> | marked + GFM + `safeHref` + md→Solid styling. Volatile: the spec, the sanitizer. | `<Markdown markdown variant="inline"\|"document" />` | The ~250 LOC token-walk core inside `intent/IntentMarkdown.tsx`. |
 | `@kolu/solid-fileview` <Pill variant="todo">new</Pill> | The toggle, mode-availability, renderer-registry pick. Knows nothing of oRPC, git, comments. | `<FileView path source? renderedUrl? source={Renderer} rendered={Renderer[]} />` | The render *mechanics* of `BrowseFileView` + `BrowsePreviewView` + `BrowseFileDispatcher`. |
-| `@kolu/solid-fileview/renderers/{markdown,image,iframe}` | Each strategy as an independent appliance. Generic, kolu-free. | Each is a `RenderedRenderer` value. | The strategy code hand-written in `BrowsePreviewView`. |
+| `@kolu/solid-fileview/renderers/{markdown,image,video,pdf,iframe}` | Each strategy as an independent appliance. Generic, kolu-free. | Each is a `RenderedRenderer` value. | The strategy code hand-written in `BrowsePreviewView`. |
 
 **Decoupling the source renderer too.** `FileView` does *not* hard-depend on a
 highlighter — the source view is an injected renderer like any other. kolu passes
@@ -223,7 +223,7 @@ working throughout — and kolu's LOC drops at each.
 | Package | Contents |
 | --- | --- |
 | `packages/solid-markdown` <Pill variant="ok">shipped</Pill> <PrLink pr={1079} /> | The token-walk core (`marked` + `safeHref`) + `inline`/`compact`/`document` variants. Its `document` variant now also backs the Code-tab markdown appliance. |
-| `packages/solid-fileview` <Pill variant="ok">shipped</Pill> <PrLink pr={1082} /> <PrLink pr={1093} /> | `FileView` host (toggle, mode-availability, registry) + the `SourceRenderer`/`RenderedRenderer` contracts. Core entry has no rendering deps. Sub-path renderers `/renderers/{image,iframe,markdown}`. |
+| `packages/solid-fileview` <Pill variant="ok">shipped</Pill> <PrLink pr={1082} /> <PrLink pr={1093} /> | `FileView` host (toggle, mode-availability, registry) + the `SourceRenderer`/`RenderedRenderer` contracts. Core entry has no rendering deps. Sub-path renderers `/renderers/{image,video,pdf,iframe,markdown}`. |
 
 **kolu — the net shrink:**
 
