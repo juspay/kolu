@@ -24,9 +24,9 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L28 (the clockNow graduation + drishti registry deletion) · L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L26 · L17 (+ video-ext table, was L5b) · L18 · L27 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
+- **Ready now:** L28 (the clockNow graduation + drishti registry deletion) · L1 · L8 · L10 · L12 (srid mints) · L13 · L26 · L17 (+ video-ext table, was L5b) · L18 · L27 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
 - **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
-- **Shipped:** L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
+- **Shipped:** L7 — terminal-workspace re-cut into @kolu/padi + the @kolu/terminal-vocab leaf (#1734, 2026-07-09); L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
@@ -108,9 +108,9 @@ After W2.3 moves `connectPadi` into `@kolu/padi/dial`, what remains in `packages
 
 <a id="l7"></a>
 
-### L7 — re-cut `@kolu/terminal-workspace` after the burial
+### L7 — re-cut `@kolu/terminal-workspace` after the burial *(SHIPPED — #1734, merged 2026-07-09)*
 
-*Status: READY (W2.3 shipped — the burial already absorbed the fs/git assemblers into padi and shrank the library to sensors·fold·schema·endpoint·agentProjection; re-verify what remains before cutting) · Lens: lowy (a package whose reason-to-exist changed) · Gate: none expected (verify no drishti surface touched)*
+*Status: SHIPPED (W2.3 shipped — the burial already absorbed the fs/git assemblers into padi and shrank the library to sensors·fold·schema·endpoint·agentProjection; re-verify what remains before cutting) · Lens: lowy (a package whose reason-to-exist changed) · Gate: none expected (verify no drishti surface touched)*
 
 terminal-workspace was born as "one library, two homes" (kolu + pulam). After W2.3 buries pulam and deletes the package's surface, its consumers are padi (sensors · fold · endpoint — node-side internals) and the client (schema · `agentProjection` — browser-safe vocabulary). That's two *different* consumer sets for two *different* halves — a sign the package boundary now cuts nothing.
 
