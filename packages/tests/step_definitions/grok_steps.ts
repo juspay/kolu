@@ -62,8 +62,10 @@ async function startFakeAgent(world: KoluWorld): Promise<number> {
   const marker = `GROK_PID_`;
   // Compound command keeps bash resident as foreground with comm="grok".
   // Echo $$ so the step can write active_sessions.json with the real pid.
+  // The -c payload is SINGLE-quoted so the interactive shell does not expand
+  // $$; the fake-grok bash expands it to its own pid (matchesAgent basename).
   await world.page.keyboard.type(
-    `${bin} -c "echo ${marker}$$; printf '\\033]0;grok\\007'; sleep 99999 ; :"`,
+    `${bin} -c 'echo ${marker}$$; printf "\\033]0;grok\\007"; sleep 99999 ; :'`,
   );
   await world.page.keyboard.press("Enter");
   const buf = await waitForBufferContains(world.page, marker);
