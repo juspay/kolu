@@ -12,8 +12,9 @@
  *
  * THE INVARIANT THIS FILE PINS: a chip's measured width never depends on
  * whether it happens to be ACTIVE — the active/inactive distinction is a
- * border/ring color swap plus dual-daemon *content* that fills a FIXED-width
- * reserved slot (empty when inactive), which costs zero layout. So when
+ * border/ring color swap, while every real chip fills the same FIXED-width
+ * dual-daemon slot with that host's Padi/Kaval status marks (measure-row
+ * twins alone leave it empty), which costs zero layout. So when
  * every chip already fits, swapping `activeKey` between two hosts changes
  * NOTHING about which chips are visible or their order (see
  * `hostOverflow.test.ts`'s host-switch pin). It changes the OUTCOME only

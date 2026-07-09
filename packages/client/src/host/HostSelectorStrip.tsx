@@ -10,10 +10,10 @@
  *  cell is the sole cue, and `undefined` (before the first cell frame) reads
  *  closed, so multi-host chrome never flashes in during warm-up.
  *
- *  Host-first: each host chip carries a FIXED-width dual-daemon slot
+ *  Host-first: each host tab carries a FIXED-width dual-daemon slot
  *  (`HostDualDaemonSlot`) filled with THAT host's Padi + Kaval marks (active
  *  and inactive alike — so a red remote is obvious without switching first).
- *  Ring/accent still mark the active chip — size never does — so a host
+ *  Tab selection/accent marks the active host — size never does — so a host
  *  switch reflows nothing. Measure-row twins leave the slot empty so width is
  *  reserved without a second live mount.
  *
@@ -48,14 +48,14 @@
  *   3. `md..lg` and up: once the chip row's measured content would overflow
  *      its available width, `computeVisibleHosts` (hostOverflow.ts) keeps
  *      the active chip + as many others as fit, in pool order, and folds
- *      the rest into a trailing "⋯ +N" `OptionMenu` (`HostOverflowMenu`) —
+ *      the rest into a trailing "⋯ +N" host switcher (`HostOverflowMenu`) —
  *      click an entry to switch. Strictly one row, fixed height: no wrap, no
  *      clip, no scroll (the old `overflow-x-auto` scroll fallback is
  *      retired).
  *   4. `sm..md` — this component's actual narrowest LIVE range: the whole
  *      row collapses to `HostDropdownSwitcher` — one chip showing the
  *      active host (still carrying the dual-daemon fill), opening an
- *      `OptionMenu` of every host to switch.
+ *      anchored host switcher panel.
  *
  *  A trailing "+ add" opens an inline input → `client.hosts.add`. */
 
@@ -69,6 +69,7 @@ import {
 } from "kolu-common/hostKey";
 import {
   type Component,
+  createEffect,
   createMemo,
   createSignal,
   For,
@@ -76,8 +77,11 @@ import {
   Show,
 } from "solid-js";
 import { createStore } from "solid-js/store";
+import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
-import { OptionMenu, type OptionMenuItem } from "../ui/OptionMenu";
+import { match } from "ts-pattern";
+import { surface } from "../ui/Surface";
+import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
   dotClass,
   hostGateOpen,
@@ -128,9 +132,26 @@ const ADD_BUTTON_RESERVE: number = 34;
 const label: (h: HostKey) => string = (h) =>
   h.kind === "local" ? "local" : h.target;
 /** Decode-then-label in one step — used wherever a component only has the
- *  CANONICAL encoded string (an `OptionMenu`'s `value`, an overflowed/menu
+ *  CANONICAL encoded string (an overflowed/menu
  *  key), never a `HostKey` object. */
 const labelForKey: (key: string) => string = (key) => label(decodeHostKey(key));
+
+const statusLabel: (host: HostKey) => string = (host) => {
+  return match(padiMap.entry(host).state())
+    .with({ kind: "connected" }, (state) => statusTitle(state))
+    .with({ kind: "warming" }, () => "connecting")
+    .with({ kind: "failed" }, () => "failed")
+    .with({ kind: "not-a-member" }, () => "removed")
+    .exhaustive();
+};
+
+const removeHost: (host: HostKey) => void = (host) => {
+  client.hosts
+    .remove({ host })
+    .catch((err: Error) =>
+      toast.error(`Couldn't remove ${label(host)}: ${err.message}`),
+    );
+};
 
 const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
@@ -146,11 +167,10 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
   const isActive = () => sameHost(activeHost(), props.host);
-  // Layout: [ text pill | Padi·Kaval attached | ✕ ]
-  // The pill is name-only (dot + label + urgency). Daemon marks sit OUTSIDE
-  // the pill, flush on its right border — never inside `overflow-hidden`, so
-  // hover rings aren't clipped. Remove trails the whole unit so it doesn't
-  // sit between name and icons.
+  // Layout: [ host tab label | Padi·Kaval | ✕ ]
+  // The host name button and daemon marks share one visual shell, but stay
+  // sibling controls inside it. There is no `overflow-hidden`, so daemon hover
+  // and focus rings can paint outside the shell instead of being clipped.
   //
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
   // border/bg/text COLOR. Dual-daemon slot is fixed width always.
@@ -161,41 +181,162 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
       data-host={encodeHostKey(props.host)}
       data-active={isActive() ? "" : undefined}
     >
-      {/* Text pill — no overflow-hidden on the outer group; only the pill
-       *  rounds its own corners. */}
-      <button
-        type="button"
-        class="pointer-events-auto flex items-center gap-1.5 h-7 pl-2 pr-2 rounded-lg border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+      <div
+        class="flex h-8 items-center rounded-t-md border border-b transition-colors focus-within:ring-2 focus-within:ring-accent/50"
         classList={{
-          "border-accent/60 ring-1 ring-accent/30 bg-surface-3 text-fg rounded-r-none":
-            isActive(),
-          "border-edge bg-surface-2/70 text-fg-2 hover:bg-surface-2 hover:text-fg rounded-r-none":
+          "border-edge border-b-surface-1 bg-surface-1 text-fg": isActive(),
+          "border-transparent border-b-edge/80 bg-transparent text-fg-2 hover:bg-surface-1/60 hover:text-fg":
             !isActive(),
         }}
-        data-testid="host-select"
-        aria-pressed={isActive()}
-        // A no-op click on the ALREADY-active chip must not re-set `activeHost`: `props.host`
-        // is a FRESH object every membership read (`entries.use().keys()` decodes anew), so a
-        // guardless write would replace `activeHost`'s value with a new-reference-but-equal
-        // `HostKey` — `createSignal`'s default `===` equality treats that as a genuine change
-        // and re-notifies every `useEntry(activeHost)` consumer for nothing. Compare by the
-        // SAME canonical-string equality `isActive()` already uses (never `===` on the object).
-        onClick={() => {
-          if (!isActive()) setActiveHost(props.host);
-        }}
-        title={`${label(props.host)} — ${statusTitle(state())}`}
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={isActive()}
+          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-md pl-2 pr-2 cursor-pointer transition-colors focus-visible:outline-none"
+          classList={{
+            "text-fg": isActive(),
+            "text-fg-2 hover:text-fg": !isActive(),
+          }}
+          data-testid="host-select"
+          // A no-op click on the ALREADY-active chip must not re-set `activeHost`: `props.host`
+          // is a FRESH object every membership read (`entries.use().keys()` decodes anew), so a
+          // guardless write would replace `activeHost`'s value with a new-reference-but-equal
+          // `HostKey` — `createSignal`'s default `===` equality treats that as a genuine change
+          // and re-notifies every `useEntry(activeHost)` consumer for nothing. Compare by the
+          // SAME canonical-string equality `isActive()` already uses (never `===` on the object).
+          onClick={() => {
+            if (!isActive()) setActiveHost(props.host);
+          }}
+          title={`${label(props.host)} — ${statusTitle(state())}`}
+        >
+          <span
+            class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state())}`}
+            aria-hidden="true"
+          />
+          {/* Ellipsizes to a NARROWER max-width below `lg` (narrow-window stage
+           *  2) — a pure CSS breakpoint, so it only ever moves on a window
+           *  resize, never a host switch. */}
+          <span class="truncate max-w-[5rem] lg:max-w-[10rem] font-medium">
+            {label(props.host)}
+          </span>
+          {/* Urgency badge — the host's awaiting count, hidden at zero. */}
+          <Show when={awaiting() > 0}>
+            <span
+              class="shrink-0 min-w-4 px-1 h-4 inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums"
+              title={`${awaiting()} awaiting your input`}
+            >
+              {awaiting()}
+            </span>
+          </Show>
+        </button>
+        <div
+          class="flex h-8 items-center border-l transition-colors"
+          classList={{
+            "rounded-tr-md": isLocal(),
+            "border-accent/25 bg-surface-2/25": isActive(),
+            "border-edge/70 bg-surface-0/35 group-hover:bg-surface-1/70":
+              !isActive(),
+          }}
+        >
+          <HostDualDaemonSlot host={props.host} measure={props.measure} />
+        </div>
+        {/* Remove — guest only, inside the same host shell so it reads as
+         *  a trailing host action, not a detached button. Dimmed at rest
+         *  above `lg`; hover/focus reveals at every width. */}
+        <Show when={!isLocal()}>
+          <button
+            type="button"
+            class="pointer-events-auto shrink-0 h-8 w-6 inline-flex items-center justify-center rounded-tr-md border-l text-fg-3 hover:text-danger hover:bg-danger/10 opacity-60 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 transition-[opacity,color,background-color]"
+            classList={{
+              "border-accent/25": isActive(),
+              "border-edge/70": !isActive(),
+            }}
+            data-testid="host-remove"
+            aria-label={`Remove host ${label(props.host)}`}
+            title={`Remove ${label(props.host)}`}
+            onClick={() => removeHost(props.host)}
+          >
+            ✕
+          </button>
+        </Show>
+      </div>
+    </div>
+  );
+};
+
+/** One row inside the overflow/narrow host switcher. The daemon marks are
+ *  status-only here: the row is transient and must not own daemon dialogs that
+ *  disappear as soon as host switching changes the visible/overflow split. */
+const HostSwitcherRow: Component<{
+  hostKey: string;
+  onPicked: () => void;
+  testIdPrefix: string;
+}> = (props) => {
+  const host = decodeHostKey(props.hostKey);
+  const isLocal = () => host.kind === "local";
+  const isActive = () => sameHost(activeHost(), host);
+  const state = () => padiMap.entry(host).state();
+  const urgency = padiMap.entry(host).cells.urgency.use({
+    onError: (err: Error) =>
+      toast.error(`Host ${label(host)} urgency error: ${err.message}`),
+  });
+  const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
+  const pickHost = () => {
+    if (!isActive()) setActiveHost(host);
+    props.onPicked();
+  };
+
+  return (
+    <div
+      class="group/host-row relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded-lg p-1.5 pl-2.5 transition-colors"
+      classList={{
+        "bg-accent/20 ring-2 ring-accent/65": isActive(),
+        "bg-surface-1/55 ring-1 ring-edge/70 hover:bg-surface-2/85 hover:ring-edge-bright/80":
+          !isActive(),
+      }}
+      data-active={isActive() ? "" : undefined}
+    >
+      <Show when={isActive()}>
+        <span
+          class="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-accent"
+          aria-hidden="true"
+        />
+      </Show>
+      <button
+        type="button"
+        data-testid={`${props.testIdPrefix}-option-${props.hostKey}`}
+        aria-current={isActive() ? "true" : undefined}
+        title={`${label(host)} — ${statusTitle(state())}`}
+        class="pointer-events-auto flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        onClick={pickHost}
       >
         <span
           class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state())}`}
           aria-hidden="true"
         />
-        {/* Ellipsizes to a NARROWER max-width below `lg` (narrow-window stage
-         *  2) — a pure CSS breakpoint, so it only ever moves on a window
-         *  resize, never a host switch. */}
-        <span class="truncate max-w-[5rem] lg:max-w-[10rem] font-medium">
-          {label(props.host)}
+        <span class="min-w-0 flex-1">
+          <span
+            class="flex min-w-0 items-center gap-1.5 text-xs font-medium"
+            classList={{ "text-fg": isActive(), "text-fg-2": !isActive() }}
+          >
+            <span class="truncate">{label(host)}</span>
+            <Show when={isActive()}>
+              <span class="shrink-0 rounded-full border border-accent/45 bg-accent/15 px-1.5 text-[9px] font-semibold leading-4 text-accent">
+                active
+              </span>
+            </Show>
+          </span>
+          <span
+            class="block truncate text-[10px] leading-3"
+            classList={{
+              "text-accent": isActive(),
+              "text-fg-3": !isActive(),
+            }}
+          >
+            {statusLabel(host)}
+          </span>
         </span>
-        {/* Urgency badge — the host's awaiting count, hidden at zero. */}
         <Show when={awaiting() > 0}>
           <span
             class="shrink-0 min-w-4 px-1 h-4 inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums"
@@ -205,36 +346,27 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           </span>
         </Show>
       </button>
-      {/* Daemon marks — attached to the pill's right edge (`-ml-px` shares the
-       *  border), NOT inside the pill. No overflow clip so hover rings paint. */}
-      <div
-        class="flex h-7 items-center rounded-r-lg border border-l-0 -ml-px"
+      <button
+        type="button"
+        class="rounded-lg shadow-[inset_0_0_0_1px_var(--color-edge)]"
         classList={{
-          "border-accent/60 bg-surface-3/80": isActive(),
-          "border-edge bg-surface-2/50": !isActive(),
+          "bg-surface-0/70": isActive(),
+          "bg-surface-0/45": !isActive(),
         }}
+        aria-label={`Switch to ${label(host)}`}
+        title={`Switch to ${label(host)}`}
+        onClick={pickHost}
       >
-        <HostDualDaemonSlot host={props.host} measure={props.measure} />
-      </div>
-      {/* Remove — guest only, after the daemon cluster so it never wedges
-       *  between name and icons. Dimmed at rest above `lg`; hover/focus
-       *  reveals at every width. */}
-      <Show when={!isLocal()}>
+        <HostDualDaemonSlot host={host} interactive={false} />
+      </button>
+      <Show when={!isLocal()} fallback={<span class="h-7 w-6" />}>
         <button
           type="button"
-          class="pointer-events-auto shrink-0 h-7 w-6 inline-flex items-center justify-center rounded-md text-fg-3 hover:text-red-400 hover:bg-surface-3/60 opacity-60 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none transition-opacity"
-          data-testid="host-remove"
-          aria-label={`Remove host ${label(props.host)}`}
-          title={`Remove ${label(props.host)}`}
-          onClick={() => {
-            client.hosts
-              .remove({ host: props.host })
-              .catch((err: Error) =>
-                toast.error(
-                  `Couldn't remove ${label(props.host)}: ${err.message}`,
-                ),
-              );
-          }}
+          class="pointer-events-auto h-7 w-6 inline-flex items-center justify-center rounded-lg text-fg-3 opacity-60 transition-[opacity,color,background-color] hover:bg-danger/10 hover:text-danger group-hover/host-row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          data-testid={`${props.testIdPrefix}-remove-${props.hostKey}`}
+          aria-label={`Remove host ${label(host)}`}
+          title={`Remove ${label(host)}`}
+          onClick={() => removeHost(host)}
         >
           ✕
         </button>
@@ -243,22 +375,69 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   );
 };
 
+const hostSwitcherChrome = surface({
+  radius: "lg",
+  shadow: "light",
+  portalled: true,
+});
+
+/** Anchored host switcher panel shared by the overflow trigger and the narrow
+ *  active-host trigger. Rows keep switch actions in one place; daemon marks are
+ *  read-only status hints. */
+const HostSwitcherPopover: Component<{
+  triggerRef: () => HTMLElement | undefined;
+  open: () => boolean;
+  onDismiss: () => void;
+  anchor?: AnchorSide;
+  hostKeys: readonly string[];
+  testIdPrefix: string;
+}> = (props) => {
+  const { panelRef, panelStyle } = useAnchoredPopover({
+    triggerRef: props.triggerRef,
+    open: props.open,
+    onDismiss: props.onDismiss,
+    anchor: props.anchor ?? "bottom-start",
+    panelMinWidth: 352,
+  });
+
+  return (
+    <Show when={props.open()}>
+      <Portal>
+        <div
+          ref={panelRef}
+          data-testid={`${props.testIdPrefix}-menu`}
+          class={`fixed z-50 w-[min(22rem,calc(100vw-1rem))] p-1.5 ${hostSwitcherChrome.class}`}
+          style={{ ...panelStyle(), ...hostSwitcherChrome.style }}
+        >
+          <div class="max-h-[min(22rem,calc(100vh-4rem))] space-y-1 overflow-y-auto">
+            <For each={props.hostKeys}>
+              {(hostKey) => (
+                <HostSwitcherRow
+                  hostKey={hostKey}
+                  onPicked={props.onDismiss}
+                  testIdPrefix={props.testIdPrefix}
+                />
+              )}
+            </For>
+          </div>
+        </div>
+      </Portal>
+    </Show>
+  );
+};
+
 /** The trailing "⋯ +N" trigger for chips the fit computation couldn't seat —
- *  an `OptionMenu` list of the overflowed hosts; picking one switches. No
- *  entry is ever pre-selected (an overflowed host is, by definition, never
- *  the active one), so `value` is a sentinel that matches no option.
+ *  an anchored host switcher for the overflowed hosts; picking one switches.
  *
  *  Takes CANONICAL encoded keys (not `HostKey` objects) — `props.hosts` is
  *  `hostFit().overflowed` straight from `computeVisibleHosts`, and staying with
- *  its string identity all the way to `OptionMenu`'s own `<For>` matters:
+ *  its string identity all the way to `HostSwitcherPopover`'s own `<For>` matters:
  *  `<For>` keys by `===`, and every `HostKey` decode mints a fresh object,
  *  so decoding a level higher would make the menu's own option list
  *  needlessly re-key whenever anything upstream re-renders. */
 const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl: HTMLButtonElement | undefined;
-  const options = (): OptionMenuItem<string>[] =>
-    props.hosts.map((key) => ({ value: key, label: labelForKey(key) }));
 
   return (
     <>
@@ -266,23 +445,19 @@ const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
         type="button"
         ref={triggerEl}
         data-testid="host-overflow-trigger"
-        class="pointer-events-auto shrink-0 h-7 px-2 inline-flex items-center gap-1 rounded-lg border border-edge text-xs text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="pointer-events-auto shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-t-md border border-b border-transparent border-b-edge/80 bg-transparent text-xs text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         aria-label={`${props.hosts.length} more host${props.hosts.length === 1 ? "" : "s"}`}
-        title={`${props.hosts.length} more host${props.hosts.length === 1 ? "" : "s"} — click to switch`}
+        title={props.hosts.map(labelForKey).join(", ")}
         onClick={() => setOpen((v) => !v)}
       >
         ⋯ +{props.hosts.length}
       </button>
-      <OptionMenu
+      <HostSwitcherPopover
         triggerRef={() => triggerEl}
         open={open}
         onDismiss={() => setOpen(false)}
-        anchor="bottom-start"
-        options={options()}
-        value=""
-        onSelect={(v) => setActiveHost(decodeHostKey(v))}
+        hostKeys={props.hosts}
         testIdPrefix="host-overflow"
-        truncate
       />
     </>
   );
@@ -290,25 +465,28 @@ const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
 
 /** Narrow multi-host range (`sm..md`): one bordered unit — select trigger +
  *  dual-daemon slot for the active host (same composition shape as `HostChip`,
- *  without per-host chips). `OptionMenu` lists every pool host to switch to. */
+ *  without per-host chips). The host switcher lists every pool host. */
 const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl: HTMLButtonElement | undefined;
   const active = () => activeHost();
-  const options = (): OptionMenuItem<string>[] =>
-    props.hosts.map((h) => ({ value: encodeHostKey(h), label: label(h) }));
+  const hostKeys = () => props.hosts.map(encodeHostKey);
 
   return (
     <>
-      {/* Same text-pill + attached dual-daemon shape as HostChip (no overflow clip). */}
       <div
-        class="flex items-center shrink-0"
+        role="tablist"
+        aria-label="Hosts"
+        class="flex h-8 items-center rounded-t-md border border-b border-edge border-b-surface-1 bg-surface-1 text-fg focus-within:ring-2 focus-within:ring-accent/50 shrink-0"
         data-testid="host-dropdown-switcher"
       >
         <button
           type="button"
+          role="tab"
+          aria-selected="true"
+          aria-expanded={open()}
           ref={triggerEl}
-          class="pointer-events-auto flex items-center gap-1.5 h-7 pl-2 pr-2 rounded-l-lg rounded-r-none border border-accent/60 ring-1 ring-accent/30 bg-surface-3 text-xs text-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-md pl-2 pr-2 text-xs text-fg transition-colors focus-visible:outline-none"
           aria-label={`Switch host — currently ${label(active())}`}
           title={`Switch host — currently ${label(active())}`}
           onClick={() => setOpen((v) => !v)}
@@ -324,20 +502,18 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
             ▾
           </span>
         </button>
-        <div class="flex h-7 items-center rounded-r-lg border border-l-0 border-accent/60 bg-surface-3/80 -ml-px">
-          <HostDualDaemonSlot host={active()} />
+        <div class="flex h-8 items-center rounded-tr-md border-l border-accent/25 bg-surface-2/25">
+          <Show keyed when={active()}>
+            {(host) => <HostDualDaemonSlot host={host} />}
+          </Show>
         </div>
       </div>
-      <OptionMenu
+      <HostSwitcherPopover
         triggerRef={() => triggerEl}
         open={open}
         onDismiss={() => setOpen(false)}
-        anchor="bottom-start"
-        options={options()}
-        value={encodeHostKey(active())}
-        onSelect={(v) => setActiveHost(decodeHostKey(v))}
+        hostKeys={hostKeys()}
         testIdPrefix="host-switcher"
-        truncate
       />
     </>
   );
@@ -351,6 +527,14 @@ const HostSelectorStrip: Component = () => {
   const [adding, setAdding] = createSignal(false);
   const [draft, setDraft] = createSignal("");
   const members = padiMap.entries.use({ onError: onHostMembershipError });
+  let addInputRef: HTMLInputElement | undefined;
+
+  createEffect(() => {
+    if (!adding()) return;
+    queueMicrotask(() => {
+      if (addInputRef?.isConnected) addInputRef.focus({ preventScroll: true });
+    });
+  });
 
   // The gate DECISION (see hostChipTone.ts) — MULTIPLE-host chrome (extra
   // chips, "+ add", the overflow/dropdown machinery) only once open.
@@ -465,9 +649,15 @@ const HostSelectorStrip: Component = () => {
       <Show
         when={gateOpen()}
         fallback={
-          <For each={renderableHosts()}>
-            {(host) => <HostChip host={host} />}
-          </For>
+          <div
+            role="tablist"
+            aria-label="Hosts"
+            class="flex items-end gap-0 min-w-0 flex-nowrap border-b border-edge/80"
+          >
+            <For each={renderableHosts()}>
+              {(host) => <HostChip host={host} />}
+            </For>
+          </div>
         }
       >
         {/* `md` and up vs `sm..md`: mount ONLY one layout (media signal, not
@@ -480,7 +670,9 @@ const HostSelectorStrip: Component = () => {
           fallback={<HostDropdownSwitcher hosts={renderableHosts()} />}
         >
           <div
-            class="flex items-center gap-1.5 min-w-0 flex-nowrap"
+            role="tablist"
+            aria-label="Hosts"
+            class="flex items-end gap-0 min-w-0 flex-nowrap border-b border-edge/80"
             data-testid="host-chip-row"
           >
             <For each={hostFit().visible}>
@@ -536,7 +728,7 @@ const HostSelectorStrip: Component = () => {
           fallback={
             <button
               type="button"
-              class="pointer-events-auto shrink-0 h-7 w-7 inline-flex items-center justify-center rounded-lg border border-dashed border-edge text-fg-3 hover:text-fg hover:border-accent/60 transition-colors"
+              class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-t-md border border-b border-dashed border-edge/70 border-b-edge/80 text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               data-testid="host-add-open"
               aria-label="Add a host"
               title="Add a host (ssh target)"
@@ -547,11 +739,11 @@ const HostSelectorStrip: Component = () => {
           }
         >
           <input
+            ref={addInputRef}
             type="text"
             class="pointer-events-auto shrink-0 h-7 w-40 px-2 rounded-lg border border-accent/60 bg-surface-2 text-xs text-fg placeholder:text-fg-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             data-testid="host-add-input"
             placeholder="ssh host, e.g. srid@zest"
-            autofocus
             value={draft()}
             onInput={(e) => setDraft(e.currentTarget.value)}
             onKeyDown={(e) => {

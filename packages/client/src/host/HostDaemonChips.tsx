@@ -8,9 +8,10 @@
  *  a second live mount pair.
  *
  *  Each sub-chip keys off `props.host` via `padiMap.entry(host)` (entry state,
- *  identity, daemonStatus) — never the free `activeHost` alone. Click still
- *  opens the info dialog; if the mark's host is not active, we switch first
- *  so the dialog (which is active-host scoped) matches the mark.
+ *  identity, daemonStatus) — never the free `activeHost` alone. Click switches
+ *  to that host before opening the info dialog, matching master: the dialog's
+ *  active-host detail sections stay complete rather than being hidden for
+ *  inactive chips.
  *
  *  COMPACTION: resting state is icon + status dot only. Steady versions,
  *  memory, and update detail live in the Tip / dialogs. */
@@ -32,6 +33,7 @@ import { createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { toast } from "solid-sonner";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
+import { kavalStale } from "../kaval/kavalCurrency";
 import {
   DAEMON_STATE_PRESENTATION,
   daemonTransportLive,
@@ -40,18 +42,20 @@ import {
 } from "../kaval/useDaemonStatus";
 import { channelLive } from "../kaval/daemonPresentation";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
+import { padiDot } from "../padi/padiPresentation";
 import { getClockNow } from "../time/clock";
 import {
   dualDaemonSlotClass,
   IdentityMark,
   identityMarkBtnClass,
+  identityMarkStaticClass,
   StatusDot,
 } from "../ui/IdentityMark";
 import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
-import { activeHost, padiMap } from "../wire";
-import { dotClass, sameHost, statusTitle } from "./hostChipTone";
+import { activeHost, padiMap, setActiveHost } from "../wire";
+import { sameHost, statusTitle } from "./hostChipTone";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
@@ -77,18 +81,20 @@ function hostLabel(h: HostKey): string {
 }
 
 /** The Padi sub-chip for one host — icon + that host's entry-state dot.
- *  Click opens the info panel only; it never switches the canvas host (use
- *  the host name on the chip for that). */
+ *  Click switches to that host, then opens the complete info panel. */
 const PadiSubChip: Component<{ host: HostKey }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl!: HTMLButtonElement;
   const daemonLive = daemonTransportLive;
   const entry = (): EntryState => padiMap.entry(props.host).state();
-  const entryLive = (): boolean =>
-    channelLive(daemonLive(), entry().kind === "connected");
-  /** True when this chip is the canvas's active host — inventory/manage
-   *  actions in the panel require the active-host surface; glance status does not. */
+  const padiLive = (): boolean => daemonLive();
+  /** True when this chip is the canvas's active host. */
   const isCanvasHost = () => sameHost(activeHost(), props.host);
+  const openForHost = (): void => {
+    const alreadyActive = isCanvasHost();
+    if (!alreadyActive) setActiveHost(props.host);
+    setOpen((v) => (alreadyActive ? !v : true));
+  };
   // Per-host identity (version for the tip).
   const identity = padiMap.entry(props.host).cells.identity.use({
     onError: (err: Error) => toast.error(`Padi identity error: ${err.message}`),
@@ -100,6 +106,11 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
   });
   const padiVersion = (): string | undefined =>
     identity.value()?.surfaceVersion;
+  const padiStartedAt = (): number | null => {
+    const raw = identity.value()?.startedAt;
+    if (raw === undefined) return null;
+    return padiMap.entry(props.host).clock.toLocal(raw) ?? null;
+  };
   const padiMemoryText = (): string => {
     if (!daemonLive()) return "memory unavailable";
     const m = processMemory.value()?.padi;
@@ -124,7 +135,7 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
     );
   };
   const linkForDialog = (): PadiLink | undefined =>
-    daemonLive() ? entryAsPadiLink(entry()) : undefined;
+    padiLive() ? entryAsPadiLink(entry()) : undefined;
 
   return (
     <>
@@ -135,7 +146,7 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
           data-testid="padi-identity-chip"
           onClick={(e) => {
             e.stopPropagation();
-            setOpen((v) => !v);
+            openForHost();
           }}
           class={identityMarkBtnClass}
           aria-label={padiTip()}
@@ -143,12 +154,8 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
         >
           <IdentityMark logoSrc={PADI_LOGO_URL}>
             <StatusDot
-              data-padi-link={
-                daemonLive()
-                  ? (entryAsPadiLink(entry()) ?? "unknown")
-                  : "unknown"
-              }
-              class={entryLive() ? dotClass(entry()) : "bg-fg-3/40"}
+              data-padi-link={linkForDialog() ?? "unknown"}
+              class={padiDot(linkForDialog(), padiLive())}
             />
           </IdentityMark>
         </button>
@@ -158,8 +165,9 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
           open={open()}
           onOpenChange={setOpen}
           link={linkForDialog()}
-          live={entryLive()}
-          manage={isCanvasHost()}
+          live={padiLive()}
+          identity={identity.value()}
+          startedAt={padiStartedAt()}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
         />
@@ -169,7 +177,7 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
 };
 
 /** The Kaval sub-chip for one host — icon + that host's daemon-state dot.
- *  Click opens the info panel only; never switches the canvas host. */
+ *  Click switches to that host, then opens the complete info panel. */
 const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl!: HTMLButtonElement;
@@ -179,6 +187,11 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
     padiMap.entry(props.host).state().kind === "connected";
   const kavalLive = (): boolean => channelLive(daemonLive(), entryConnected());
   const isCanvasHost = () => sameHost(activeHost(), props.host);
+  const openForHost = (): void => {
+    const alreadyActive = isCanvasHost();
+    if (!alreadyActive) setActiveHost(props.host);
+    setOpen((v) => (alreadyActive ? !v : true));
+  };
   // Each remote/local padi serves its kaval under the LOCAL location key
   // (that host's own "local" kaval — not the browser's host key).
   const daemonKey = encodeHostLocation(LOCAL_LOCATION);
@@ -189,6 +202,9 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   const processMemory = padiMap.entry(props.host).cells.processMemory.use({
     onError: (err: Error) =>
       toast.error(`Padi/kaval memory error: ${err.message}`),
+  });
+  const padiStatus = padiMap.entry(props.host).cells.status.use({
+    onError: (err: Error) => toast.error(`Kaval status error: ${err.message}`),
   });
   const daemon = (): DaemonStatus | undefined => {
     const status = daemonSub.byKey(daemonKey)?.();
@@ -206,7 +222,7 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   const kavalUptimeText = (): string | undefined => {
     if (!kavalLive() || daemon()?.state !== "connected") return undefined;
     const startedAt = daemon()?.startedAt;
-    return startedAt === undefined
+    return startedAt === undefined || startedAt <= 0
       ? undefined
       : `running ${formatUptime(clockNow() - startedAt)}`;
   };
@@ -222,10 +238,27 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
       .with(P.nullish, () => "memory unavailable")
       .exhaustive();
   };
+  const kavalUpdateText = (): string | undefined => {
+    const expected = padiStatus.value()?.expectedKaval;
+    const status = daemon();
+    if (
+      !kavalStale(
+        expected?.staleKey,
+        status?.identity?.staleKey,
+        status?.state,
+        kavalLive(),
+      )
+    )
+      return undefined;
+    return expected?.navigableCommit
+      ? `newer build ${expected.navigableCommit.slice(0, 7)} available`
+      : "newer build available";
+  };
   const kavalTip = (): string =>
     joinTip(
       `kaval ${kavalStateText()}`,
       kavalVersion() ? `contract v${kavalVersion()}` : undefined,
+      kavalUpdateText(),
       kavalUptimeText(),
       kavalMemoryText(),
       "click for details",
@@ -240,7 +273,7 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
           data-testid="kaval-identity-chip"
           onClick={(e) => {
             e.stopPropagation();
-            setOpen((v) => !v);
+            openForHost();
           }}
           class={identityMarkBtnClass}
           aria-label={kavalTip()}
@@ -262,7 +295,6 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
           onOpenChange={setOpen}
           status={daemon()}
           live={kavalLive()}
-          manage={isCanvasHost()}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
         />
@@ -271,25 +303,84 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   );
 };
 
+const PadiStaticMark: Component<{ host: HostKey }> = (props) => {
+  const daemonLive = daemonTransportLive;
+  const entry = (): EntryState => padiMap.entry(props.host).state();
+  const link = (): PadiLink | undefined =>
+    daemonLive() ? entryAsPadiLink(entry()) : undefined;
+
+  return (
+    <span class={identityMarkStaticClass}>
+      <IdentityMark logoSrc={PADI_LOGO_URL}>
+        <StatusDot
+          data-padi-link={link() ?? "unknown"}
+          class={padiDot(link(), daemonLive())}
+        />
+      </IdentityMark>
+    </span>
+  );
+};
+
+const KavalStaticMark: Component<{ host: HostKey }> = (props) => {
+  const daemonLive = daemonTransportLive;
+  const entryConnected = (): boolean =>
+    padiMap.entry(props.host).state().kind === "connected";
+  const kavalLive = (): boolean => channelLive(daemonLive(), entryConnected());
+  const daemonKey = encodeHostLocation(LOCAL_LOCATION);
+  const daemonSub = padiMap.entry(props.host).collections.daemonStatus.use({
+    keys: () => [daemonKey],
+    onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
+  });
+  const daemon = (): DaemonStatus | undefined => daemonSub.byKey(daemonKey)?.();
+
+  return (
+    <span class={identityMarkStaticClass}>
+      <IdentityMark logoSrc={KAVAL_LOGO_URL}>
+        <StatusDot
+          data-daemon-state={
+            kavalLive() ? (daemon()?.state ?? "unknown") : "unknown"
+          }
+          class={kavalDot(daemon()?.state, kavalLive())}
+        />
+      </IdentityMark>
+    </span>
+  );
+};
+
 /** Fixed-width dual-daemon slot for one host chip.
  *
- *  Fills for every non-measure mount (active *and* inactive). Measure-row twins
- *  stay empty so width reserve ≠ second live pair. */
+ *  Fills for every non-measure mount (active *and* inactive). Switcher rows ask
+ *  for non-interactive marks so the transient switcher never owns a dialog that
+ *  unmounts itself during host switching. Measure-row twins stay empty so width
+ *  reserve ≠ second live pair. */
 export const HostDualDaemonSlot: Component<{
   host: HostKey;
   measure?: boolean;
+  interactive?: boolean;
 }> = (props) => {
   const filled = () => !props.measure;
+  const interactive = () => props.interactive ?? true;
   return (
     <div
       class={dualDaemonSlotClass}
       data-testid="host-dual-daemon-slot"
       data-filled={filled() ? "" : undefined}
-      aria-hidden={filled() ? undefined : true}
+      data-interactive={filled() && interactive() ? "" : undefined}
+      aria-hidden={filled() && interactive() ? undefined : true}
     >
       <Show when={filled()}>
-        <PadiSubChip host={props.host} />
-        <KavalSubChip host={props.host} />
+        <Show
+          when={interactive()}
+          fallback={
+            <>
+              <PadiStaticMark host={props.host} />
+              <KavalStaticMark host={props.host} />
+            </>
+          }
+        >
+          <PadiSubChip host={props.host} />
+          <KavalSubChip host={props.host} />
+        </Show>
       </Show>
     </div>
   );

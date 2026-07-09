@@ -1,18 +1,18 @@
 /** ChromeBar — the always-visible workspace chrome band.
  *
- *  Left → right: quiet Kolu mark, host selector strip (primary multi-host
- *  nav; Padi/Kaval dual marks ride the active host chip), global control
+ *  Left → right: quiet Kolu mark, host tab strip (primary multi-host
+ *  nav; Padi/Kaval dual marks ride each host tab), global control
  *  cluster (recorder, maximize, dock, inspector, settings, command palette).
  *  The live-terminal navigator lives on the dock at the canvas's left edge
  *  (#903) — not here.
  *
  *  Two positioning modes, switched on `posture.mode()`:
- *  - Tiled (default): absolute overlay above the canvas. Pure
- *    transparent so the grid reads through and the chrome looks like
- *    it floats ON the canvas, not capping it. When the right panel
- *    is open, the overlay's right edge stops at the panel's left
- *    edge (via inline `right: panelSize * 100vw`) so the controls
- *    cluster doesn't sit on top of the panel's tab bar.
+ *  - Tiled (default): absolute overlay above the canvas with a solid
+ *    chrome band tinted by the hostname-derived PWA theme color over the
+ *    app base surface, so installed-window chrome and in-app header belong
+ *    together. When the right panel is open, the overlay's right edge
+ *    stops at the panel's left edge (via inline `right: panelSize * 100vw`)
+ *    so the controls cluster doesn't sit on top of the panel's tab bar.
  *  - Maximized mode: docked in flex flow so the maximized terminal
  *    owns the rest of the viewport without the terminal's own title
  *    bar overlapping the chrome.
@@ -20,7 +20,13 @@
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createMemo, createSignal, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  type JSX,
+  Show,
+} from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import HostSelectorStrip from "./host/HostSelectorStrip";
@@ -51,6 +57,7 @@ const toggleBtnClass =
 const ChromeBar: Component<{
   status: WsStatus;
   onOpenPalette: () => void;
+  themeColor?: string;
 }> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
@@ -71,15 +78,47 @@ const ChromeBar: Component<{
   // drift out of sync with the posture.
   const maximizeLabel = createMemo(() => posturedActionLabel(posture.mode()));
 
+  const chromeStyle = createMemo<JSX.CSSProperties>(() => {
+    const themed: JSX.CSSProperties = props.themeColor
+      ? { "--chrome-theme-color": props.themeColor }
+      : {};
+    return {
+      ...themed,
+      ...(docked()
+        ? {}
+        : {
+            // Stop the floating chrome's right edge at the right
+            // panel's left edge so the controls cluster (inspector,
+            // settings, ⌘K) doesn't sit on top of the panel's tab
+            // bar. `panelSize` is `@corvu/resizable`'s [0..1] fraction
+            // of *the Resizable container's* width — treating it as a
+            // fraction of viewport width is only correct because the
+            // host Resizable in `App.tsx` spans the full viewport in
+            // tiled mode (the Dock floats `position: absolute`, the
+            // canvas-container is the Resizable's left panel).
+            // Maintained by convention across the two files — if a
+            // sibling outside the Resizable ever shrinks the
+            // container, switch to a measured pixel offset or a
+            // host-published CSS custom property.
+            // `panelOpen()` (not raw `collapsed()`) so an empty workspace —
+            // where the panel host isn't even mounted (App's `showEmpty`)
+            // — reserves no width here. Otherwise the cluster floats 25vw
+            // shy of the right edge with nothing filling the gap.
+            right: rightPanel.panelOpen()
+              ? `${rightPanel.panelSize() * 100}vw`
+              : 0,
+          }),
+    };
+  });
+
   return (
     <header
       data-testid="chrome-bar"
       data-maximized={docked() ? "" : undefined}
-      // pointer-events-none on the root so the transparent gaps don't
-      // eat clicks meant for the canvas under the overlay. Interactive
-      // children (identity row, workspace switcher, control cluster) re-enable
-      // pointer events on themselves.
-      class="chrome-bar-surface flex items-center gap-3 px-3 py-2 select-none pointer-events-none transition-colors duration-150"
+      // Solid chrome owns this strip's pointer area. Individual controls still
+      // carry their own pointer/focus classes, but empty header space should
+      // behave like header, not click through to the canvas behind it.
+      class="chrome-bar-surface flex items-center gap-3 border-b border-edge/80 bg-surface-0 px-3 py-2 shadow-sm shadow-black/20 select-none pointer-events-auto transition-colors duration-150"
       // z-50 in BOTH modes. Without it on the docked branch, the
       // `backdrop-filter` we apply to the bar when the workspace
       // switcher is open creates a stacking context with auto z-index,
@@ -90,49 +129,22 @@ const ChromeBar: Component<{
         "absolute top-0 left-0 z-50": !docked(),
         "relative shrink-0 z-50": docked(),
       }}
-      style={
-        docked()
-          ? undefined
-          : {
-              // Stop the floating chrome's right edge at the right
-              // panel's left edge so the controls cluster (inspector,
-              // settings, ⌘K) doesn't sit on top of the panel's tab
-              // bar. `panelSize` is `@corvu/resizable`'s [0..1] fraction
-              // of *the Resizable container's* width — treating it as a
-              // fraction of viewport width is only correct because the
-              // host Resizable in `App.tsx` spans the full viewport in
-              // tiled mode (the Dock floats `position: absolute`, the
-              // canvas-container is the Resizable's left panel).
-              // Maintained by convention across the two files — if a
-              // sibling outside the Resizable ever shrinks the
-              // container, switch to a measured pixel offset or a
-              // host-published CSS custom property.
-              // `panelOpen()` (not raw `collapsed()`) so an empty workspace —
-              // where the panel host isn't even mounted (App's `showEmpty`)
-              // — reserves no width here. Otherwise the cluster floats 25vw
-              // shy of the right edge with nothing filling the gap.
-              right: rightPanel.panelOpen()
-                ? `${rightPanel.panelSize() * 100}vw`
-                : 0,
-            }
-      }
+      style={chromeStyle()}
     >
       {/* Quiet Kolu mark — connection + dialogs; versions live in the dialog. */}
       <div class="shrink-0 pointer-events-auto">
         <IdentityRail status={props.status} />
       </div>
 
-      {/* Host strip is primary nav. Padi/Kaval ride the ACTIVE host chip inside
-       *  a fixed-width dual-daemon slot (empty reserve on inactive chips) so a
-       *  host switch never reflows the strip — see HostDaemonChips.tsx. */}
+      {/* Host tabs are primary nav. Every tab carries a fixed-width Padi/Kaval
+       *  slot so daemon health is visible before switching and a host switch
+       *  never reflows the strip — see HostDaemonChips.tsx. */}
       <div class="flex-1 min-w-0 flex items-center pointer-events-none">
         <HostSelectorStrip />
       </div>
 
-      {/* Control cluster: inspector → settings → ⌘K. Cluster wrapper
-       *  itself stays pointer-events-none so the gap-2 spaces and any
-       *  area covered when the cluster overlaps the right panel pass
-       *  clicks through; each button re-enables pointer-events-auto. */}
+      {/* Control cluster: recorder → maximize → dock → inspector → settings
+       *  → ⌘K. Buttons share the chrome icon hover/focus language. */}
       <div class="flex items-center gap-2 shrink-0">
         <RecordButton />
         <Tip label={maximizeLabel()}>

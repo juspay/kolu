@@ -1,4 +1,4 @@
-/** KavalInfoDialog - compact identity panel for the Kaval rail chip.
+/** KavalInfoDialog - compact identity panel for a host-chip Kaval mark.
  *
  *  See `PadiInfoDialog.tsx`'s header for the shared HOST-SCOPING CLASSIFICATION TABLE
  *  (every per-host field either re-keys on `activeHost` or is host-independent with a
@@ -110,8 +110,6 @@ const KavalInfoDialog: Component<{
   hostLabel: string;
   /** Channel liveness for THIS host's status (not necessarily the canvas active host). */
   live: boolean;
-  /** When true, this host is the canvas active host — restart / inventory apply. */
-  manage: boolean;
 }> = (props) => {
   const clockNow = getClockNow();
   // Floored on props.live (this host's channel), not the canvas active host's
@@ -133,9 +131,9 @@ const KavalInfoDialog: Component<{
       props.status?.state,
       props.live,
     );
-  // Restart/inventory only when this host is the canvas host (`manage`).
+  // Opening a daemon icon switches the canvas to that host first, so these
+  // active-host readouts keep the same information surface as master.
   const convergePending = (): boolean =>
-    props.manage &&
     boundHostKavals().some((k) => k.held.active && k.held.atLegacyAddress);
 
   return (
@@ -226,7 +224,7 @@ const KavalInfoDialog: Component<{
           </Show>
         </DetailRow>
         <DetailRow label="memory">
-          {/* Same {@link kavalMemoryDisplay} source the identity-rail chip reads,
+          {/* Same {@link kavalMemoryDisplay} source the host-chip tooltip reads,
               so the dialog and the rail tooltip can't drift: `ok` → the RSS
               figure; `error` → an honest poll-failure marker; `null` (no daemon /
               stale link) → unavailable. padi owns kaval now, so the RSS rides
@@ -264,45 +262,34 @@ const KavalInfoDialog: Component<{
         </div>
       </Show>
 
-      <Show
-        when={props.manage}
-        fallback={
-          <p class="text-[11px] leading-relaxed text-fg-3">
-            Switch to this host on the strip to restart kaval or inspect running
-            daemons.
-          </p>
-        }
-      >
-        <div class="space-y-2">
-          <RestartKavalButton
-            status={props.status}
-            tone="neutral"
-            onConfirm={() => {
-              props.onOpenChange(false);
-              void restartDaemon();
-            }}
-          />
-          <p class="text-[11px] leading-relaxed text-fg-3">
-            Captures the session first, then offers restore on the fresh daemon.
-          </p>
-          <Show when={convergePending()}>
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              Restart converges kaval to the padi address.
-            </p>
-          </Show>
-        </div>
-
-        {/* Running-daemons inventory is canvas-active-host scoped (manage). */}
-        <RunningDaemonsSection
-          noun="kaval"
-          testidPrefix="kaval"
-          boundHost={daemonScanBoundHost()}
-          live={boundHostInventoryLive()}
-          boundHostRows={boundHostKavals()}
-          localScanRows={localScanKavals()}
-          renderRow={(kaval) => <RunningKavalRow kaval={kaval} />}
+      <div class="space-y-2">
+        <RestartKavalButton
+          status={props.status}
+          tone="neutral"
+          onConfirm={() => {
+            props.onOpenChange(false);
+            void restartDaemon();
+          }}
         />
-      </Show>
+        <p class="text-[11px] leading-relaxed text-fg-3">
+          Captures the session first, then offers restore on the fresh daemon.
+        </p>
+        <Show when={convergePending()}>
+          <p class="text-[11px] leading-relaxed text-fg-3">
+            Restart converges kaval to the padi address.
+          </p>
+        </Show>
+      </div>
+
+      <RunningDaemonsSection
+        noun="kaval"
+        testidPrefix="kaval"
+        boundHost={daemonScanBoundHost()}
+        live={boundHostInventoryLive()}
+        boundHostRows={boundHostKavals()}
+        localScanRows={localScanKavals()}
+        renderRow={(kaval) => <RunningKavalRow kaval={kaval} />}
+      />
 
       <div class="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
         <div class="min-w-0">

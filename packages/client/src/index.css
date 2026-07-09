@@ -53,6 +53,36 @@ body {
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 }
 
+.chrome-bar-surface {
+  background: var(--color-surface-0);
+}
+
+.chrome-bar-surface[style*="--chrome-theme-color"] {
+  background: color-mix(
+    in oklch,
+    var(--color-surface-0) 84%,
+    var(--chrome-theme-color)
+  );
+  border-bottom-color: color-mix(
+    in oklch,
+    var(--color-edge) 72%,
+    var(--chrome-theme-color)
+  );
+}
+
+html:not(.dark) .chrome-bar-surface[style*="--chrome-theme-color"] {
+  background: color-mix(
+    in oklch,
+    var(--color-surface-0) 92%,
+    var(--chrome-theme-color)
+  );
+  border-bottom-color: color-mix(
+    in oklch,
+    var(--color-edge) 84%,
+    var(--chrome-theme-color)
+  );
+}
+
 /* ── Pill border channels ────────────────────────────────────
  * Two visual channels live on the pill border:
  *

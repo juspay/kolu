@@ -379,6 +379,7 @@ const App: Component = () => {
         <ChromeBar
           status={wsStatus()}
           onOpenPalette={() => commandPalette.openDialog()}
+          themeColor={themeColor()}
         />
       </Show>
       {/* relative: anchor for overlay panels.

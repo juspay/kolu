@@ -2,8 +2,8 @@
  *
  *  Extracted as its own side-effect-free module (like `canvasModeResolver`) so
  *  its truth table is unit-tested without mounting `useDaemonStatus`'s
- *  `daemonStatus` subscription. {@link KavalUpdateBadge}'s `kavalUpdatePending`
- *  accessor joins the live `expected`/`reported` sources and calls this. */
+ *  `daemonStatus` subscription. The host-chip tooltip and Kaval dialog join the
+ *  live `expected`/`reported` sources and call this at their read sites. */
 
 import type { DaemonState } from "@kolu/padi/surface";
 
@@ -25,9 +25,9 @@ import type { DaemonState } from "@kolu/padi/surface";
  *  caller: over a dead/half-open link the retained `connected` identity is stale, so
  *  the "a newer build is available — restart" nudge can't honestly fire (its restart
  *  would fail loudly, beside a grey "unknown" dot). Making it a parameter means BOTH
- *  read sites — the rail badge (`kavalUpdatePending`) and the dialog banner
- *  (`KavalInfoDialog`'s `pending`) — MUST pass it; there is no way left to spell the
- *  connected-and-behind verdict without the floor (the unfloored call is a type error). */
+ *  read sites — the host-chip tooltip and the dialog banner (`KavalInfoDialog`'s
+ *  `pending`) — MUST pass it; there is no way left to spell the connected-and-behind
+ *  verdict without the floor (the unfloored call is a type error). */
 export function kavalStale(
   expected: string | undefined,
   reported: string | undefined,

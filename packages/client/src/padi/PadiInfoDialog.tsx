@@ -1,13 +1,14 @@
-/** PadiInfoDialog — compact identity panel for the Padi rail chip. Padi is the
- *  per-host daemon that owns the live terminals and supervises kaval; this mirrors
- *  {@link KavalInfoDialog}'s shape on the shared {@link InfoDialogShell} — same rows
- *  in the same order where the concept applies to both (contract-version chip, build
- *  commit, socket, memory, uptime, the running-daemons list). Genuine per-daemon
- *  differences stay: kaval carries a currency/stale nudge + a restart affordance;
- *  padi's status is its `padiLink` (kolu-server's binding state), not a `daemonStatus`
- *  liveness. padi's contract version + build commit ride its OWN per-host `identity`
- *  cell (W4 "the switch" — the ACTIVE host's honest `surfaceVersion`/`commit`, the
- *  padi twin of kaval's `system.version`); the socket detail row still reads the
+/** PadiInfoDialog — compact identity panel for a host-chip Padi mark. Padi is
+ *  the per-host daemon that owns the live terminals and supervises kaval; this
+ *  mirrors {@link KavalInfoDialog}'s shape on the shared {@link InfoDialogShell}
+ *  — same rows in the same order where the concept applies to both
+ *  (contract-version chip, build commit, socket, memory, uptime, the
+ *  running-daemons list). Genuine per-daemon differences stay: kaval carries a
+ *  currency/stale nudge + a restart affordance; padi's status is its `padiLink`
+ *  (kolu-server's binding state), not a `daemonStatus` liveness. padi's
+ *  contract version + build commit ride its OWN per-host `identity` cell (W4
+ *  "the switch" — the clicked host's honest `surfaceVersion`/`commit`, the padi
+ *  twin of kaval's `system.version`); the socket detail row still reads the
  *  bound-host scan (`useHostInventory`'s `activePadi()`).
  *
  *  ── HOST-SCOPING CLASSIFICATION TABLE (W4 "the switch") ──────────────────────────
@@ -26,8 +27,8 @@
  *  | `clientHeapUsedBytes()`                          | host-INDEPENDENT by design — THIS browser tab's JS heap, not a daemon fact at all |
  *  | `padiLinkState()` (padi chip/dialog status)      | host-INDEPENDENT **today**, not by design — describes the LEGACY single-bind `padiSession`, hardcoded to the LOCAL default under always-map (`server/src/index.ts`); no per-host `padiLink` wire member exists yet (padi/server gap, out of this fix's scope) |
  *  | `boundPadiConvergence()`, `daemonScanBoundHost()`  | host-INDEPENDENT **today**, not by design — same `padiSession`-hardcoded-local gap |
- *  | `activePadiIdentity()` (build commit, surfaceVersion) | host-scoped (W4 "the switch") — `padiMap.useEntry(activeHost).cells.identity`, padi's own per-host hello twin |
- *  | `activePadiStartedAt()`                          | host-scoped (W4 "the switch") — same `identity` cell, reprojected via `padiMap.entry(activeHost).clock.toLocal` (padi's boot epoch is on padi's OWN clock) |
+ *  | `props.identity` (build commit, surfaceVersion)    | host-scoped (W4 "the switch") — supplied by the clicked host chip from `padiMap.entry(host).cells.identity`, padi's own per-host hello twin |
+ *  | `props.startedAt`                                  | host-scoped (W4 "the switch") — same `identity` cell, reprojected by the clicked host chip via `padiMap.entry(host).clock.toLocal` (padi's boot epoch is on padi's OWN clock) |
  *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` VALUE | host-scoped (W4 "the switch") — `padiMap.useEntry(activeHost).cells.processMemory` (padi's OWN per-host RSS pair), not koluSurface's host-independent fold any more |
  *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` GATE  | host-scoped — floored on `daemonTransportLive()`/`daemonChannelLive()` (kaval's) |
  *
@@ -36,6 +37,7 @@
  *  `padiLink`/convergence through `padiMap`), not a permanent design choice — flagged in
  *  each hook's own module comment, out of this fix's file scope (client-only). */
 
+import type { PadiIdentity } from "@kolu/padi/surface";
 import type {
   PadiConvergence,
   PadiLink,
@@ -44,7 +46,7 @@ import type {
 import type { Component } from "solid-js";
 import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
-import { daemonTransportLive, formatUptime } from "../kaval/useDaemonStatus";
+import { formatUptime } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
 import Commit from "../ui/Commit";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
@@ -57,8 +59,6 @@ import {
 } from "../ui/useDaemonInventory";
 import {
   activePadi,
-  activePadiIdentity,
-  activePadiStartedAt,
   boundHostInventoryLive,
   boundHostPadis,
 } from "../ui/useHostInventory";
@@ -161,19 +161,21 @@ const PadiInfoDialog: Component<{
   hostLabel: string;
   /** Channel liveness for THIS host (not necessarily the canvas active host). */
   live: boolean;
-  /** Canvas is viewing this host — inventory / active-host-only detail apply. */
-  manage: boolean;
+  /** Padi identity for THIS host, undefined until that host's identity cell lands. */
+  identity: PadiIdentity | undefined;
+  /** THIS host's padi boot time after reprojecting onto the browser clock. */
+  startedAt: number | null;
 }> = (props) => {
   const clockNow = getClockNow();
-  // Presence floors on props.live for THIS host. Identity/convergence are
-  // canvas-active-host facts — only fold them in when `manage` so an inactive
-  // host's panel never paints the wrong host's commit.
+  // Presence floors on props.live and props.identity for THIS host. Opening a
+  // daemon icon switches the canvas to that host first, so the active-host
+  // detail sections below keep the same information surface as master.
   const presence = createMemo<PadiPresence>(() =>
     toPadiPresence(
       props.link,
       props.live,
-      props.manage ? activePadiIdentity() : undefined,
-      props.manage ? boundPadiConvergence() : null,
+      props.identity,
+      boundPadiConvergence(),
     ),
   );
   const connected = ():
@@ -223,7 +225,7 @@ const PadiInfoDialog: Component<{
           {/* The connection label is derived from `presence()` (P4): `connected` is
               reached ONLY once identity is confirmed (never a bare wire `"connected"`
               beside an unconfirmed dash); `warming`/`down` read the SAME honest
-              "connecting…"/"disconnected" wording the rail dot's tone table already
+              "connecting…"/"disconnected" wording the Padi status table already
               uses — never the retired ad hoc "unknown" string. */}
           <span class="text-xs font-medium text-fg">
             {match(presence())
@@ -244,14 +246,10 @@ const PadiInfoDialog: Component<{
           {/* Uptime, mirroring the Kaval dialog: `now − startedAt`, shown only for a
               CONFIRMED-connected padi with a known boot time — otherwise the retained
               age is stale/unknown, so show nothing (never a fake uptime).
-              `activePadiStartedAt()` is ALREADY reprojected onto the browser's clock via
-              the active entry's `clock.toLocal` (padi's raw boot epoch is on padi's OWN
-              clock) — never subtract a raw remote epoch from `clockNow()` directly. */}
-          <Show
-            when={
-              connected() ? (activePadiStartedAt() ?? undefined) : undefined
-            }
-          >
+              `props.startedAt` is ALREADY reprojected onto the browser's clock by the
+              clicked host chip (padi's raw boot epoch is on padi's OWN clock) — never
+              subtract a raw remote epoch from `clockNow()` directly. */}
+          <Show when={connected() ? (props.startedAt ?? undefined) : undefined}>
             {(t) => (
               <span class="truncate text-[11px] tabular-nums text-fg-3">
                 up {formatUptime(clockNow() - t())}
@@ -262,58 +260,50 @@ const PadiInfoDialog: Component<{
         {/* A STANDING convergence anomaly (adopted-stale build / contract skew / drain- or
             link-failure) — surfaced as a visible banner so the user SEES a degraded bind,
             not just server logs. `adopted-stale` sits atop a live (connected) canvas. */}
-        <Show when={props.manage && boundPadiConvergence()}>
+        <Show when={boundPadiConvergence()}>
           {(conv) => <ConvergenceBanner conv={conv()} />}
         </Show>
       </div>
 
-      <Show
-        when={props.manage}
-        fallback={
-          <p class="text-[11px] leading-relaxed text-fg-3">
-            Switch to this host on the strip for build/socket detail and running
-            daemons.
-          </p>
-        }
-      >
-        {/* Detail rows — canvas-active host only (identity/memory/inventory re-key). */}
-        <div class="space-y-1">
-          <DetailRow label="build commit">
-            <Commit sha={connected()?.identity.buildCommit ?? undefined} />
-          </DetailRow>
-          <DetailRow label="socket">
-            <Show
-              when={daemonScanBoundHost()}
-              fallback={
-                <span title={activePadi()?.socket}>
-                  {activePadi()?.socket ?? "unavailable"}
-                </span>
-              }
-            >
-              {(host) => <span>ssh · {host()}</span>}
-            </Show>
-          </DetailRow>
-          <DetailRow label="memory">
-            <span data-testid="padi-dialog-memory">
-              {match(padiMemoryDisplay())
-                .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))
-                .with({ kind: "error" }, () => "poll failed")
-                .with(P.nullish, () => "unavailable")
-                .exhaustive()}
-            </span>
-          </DetailRow>
-        </div>
+      {/* Detail rows match master: build commit, socket, memory. The opener
+          switches to this host first, so these active-host readouts describe
+          the same host as the clicked chip. */}
+      <div class="space-y-1">
+        <DetailRow label="build commit">
+          <Commit sha={connected()?.identity.buildCommit ?? undefined} />
+        </DetailRow>
+        <DetailRow label="socket">
+          <Show
+            when={daemonScanBoundHost()}
+            fallback={
+              <span title={activePadi()?.socket}>
+                {activePadi()?.socket ?? "unavailable"}
+              </span>
+            }
+          >
+            {(host) => <span>ssh · {host()}</span>}
+          </Show>
+        </DetailRow>
+        <DetailRow label="memory">
+          <span data-testid="padi-dialog-memory">
+            {match(padiMemoryDisplay())
+              .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))
+              .with({ kind: "error" }, () => "poll failed")
+              .with(P.nullish, () => "unavailable")
+              .exhaustive()}
+          </span>
+        </DetailRow>
+      </div>
 
-        <RunningDaemonsSection
-          noun="padi"
-          testidPrefix="padi"
-          boundHost={daemonScanBoundHost()}
-          live={boundHostInventoryLive()}
-          boundHostRows={boundHostPadis()}
-          localScanRows={localScanPadis()}
-          renderRow={(padi) => <RunningPadiRow padi={padi} />}
-        />
-      </Show>
+      <RunningDaemonsSection
+        noun="padi"
+        testidPrefix="padi"
+        boundHost={daemonScanBoundHost()}
+        live={boundHostInventoryLive()}
+        boundHostRows={boundHostPadis()}
+        localScanRows={localScanPadis()}
+        renderRow={(padi) => <RunningPadiRow padi={padi} />}
+      />
     </InfoDialogShell>
   );
 };
