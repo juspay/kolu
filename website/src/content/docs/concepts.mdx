@@ -8,6 +8,7 @@ koluHero:
   headline: The words that make {kolu} legible.
 ---
 
+import Aside from "../../components/docs/Aside.astro";
 import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
@@ -84,8 +85,47 @@ freely.
   reloads.
 - Run **Arrange canvas by repo** from the palette to cluster each repo's tiles
   into an island.
+- Each live tile wears its agent's run-state as **motion on its border**, in the
+  tile's repo color: a working tile runs a calm marching-ants outline, one that
+  needs you sweeps a comet (faster the fresher the wait), and a missed alert
+  throbs. Idle tiles stay dark; `prefers-reduced-motion` collapses every aura to a
+  static ring.
 - The minimap heatmap marks tiles whose agents are waiting or thinking; the
   bigger multi-agent workflow lives in [Power Features](/power-features).
+
+## Inside a tile
+
+A tile is a full terminal, not a preview.
+
+- **Split** a bottom pane with <kbd>Ctrl</kbd> + <kbd>`</kbd>, add tabs with
+  <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. Open splits show as a `▭ N`
+  chip on the dock row.
+- **Zoom the font** with <kbd>Cmd/Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd>,
+  persisted per terminal.
+- **WebGL rendering** (canvas fallback), clickable URLs, Unicode 11, and inline
+  images (sixel, iTerm2, kitty).
+- On touch devices a **mobile key bar** sends the keys soft keyboards lack — Esc,
+  Tab, arrows, Ctrl+C — with two sticky modifiers you tap to arm.
+
+## The dock, up close
+
+The left-edge dock is the canonical live-terminal navigator, with two levels of
+detail. **Rail** is a narrow strip of one chip per terminal; **Cards** (the
+default) groups rows by repo, each row reading `indicator · branch · pips · time`.
+
+The first-column **status indicator** folds three signals into one glyph: the
+**core** shape is the agent state (the same vocabulary as [Agent
+detection](/agent-detection)), a thin green **live ring** sweeps while the terminal
+is moving bytes, and an amber **unread badge** marks a background ping you haven't
+seen. Rows sort by **pure recency** — the terminal that just changed floats up —
+and clicking one centers its tile on the canvas.
+
+<Aside type="note" title="The activity window keeps the dock short">
+  A per-device **activity window** (`All / 4h / 12h / 24h / 48h`, default 24h)
+  hides rows older than the cutoff so a busy workspace stays scannable. A hidden
+  terminal stops counting toward the app badge — but a fresh agent transition
+  surfaces it again automatically, so nothing important stays buried.
+</Aside>
 
 ## Next
 
