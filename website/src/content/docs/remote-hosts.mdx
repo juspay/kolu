@@ -1,0 +1,168 @@
+---
+title: Remote Hosts
+description: "Run terminals on other machines as first-class canvas tiles — enable multi-host with KOLU_PADI_HOST, add hosts, switch between them live, and the ssh-session limitations (including gh's 'The token in default is invalid')."
+order: 52
+section: Use Kolu
+koluHero:
+  eyebrow: "remote terminals · alpha"
+  headline: |
+    Your terminals,
+    on {other} machines.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+<Aside type="caution" title="alpha">
+  Remote hosts are an early preview, gated behind an environment variable (below).
+  The behaviour and the flags **will change** before this is finalized. The
+  [Known limitations](#known-limitations) at the end are honest, not exhaustive.
+</Aside>
+
+kolu can put terminals from **other machines** right on your canvas. A remote
+host's terminals are first-class tiles — same [Code tab and file
+preview](/power-features), same paste, same session restore — just running on that
+host over ssh. The canvas shows **one host at a time**; a host strip in the top bar
+lets you switch which host you're looking at, and switching swaps the whole canvas
+**live, with no reload**. Each host keeps its own arrangement, so `you@box` looks
+the same from your laptop, your desktop, or your phone.
+
+Under the hood that's [padi](/padi) — kolu's per-host workspace daemon — bound to
+the remote over the same ssh transport [`kaval-tui`](/kaval) uses from the shell;
+[Architecture](/architecture) shows the full stack. This is separate from [Remote
+Access](/remote-access), which is about reaching the kolu **browser app** itself
+from another device.
+
+## Prerequisites
+
+<CardGrid>
+  <Card title="Passwordless ssh">
+    You can `ssh` to the host without typing a password — an `~/.ssh/config` alias
+    or a `user@host` that just connects.
+  </Card>
+  <Card title="Nix on the remote">
+    The host has Nix installed and your user is **trusted by its nix-daemon** —
+    kolu provisions [padi](/padi) there by copying a Nix closure over ssh.
+  </Card>
+  <Card title="A Nix-wrapped kolu">
+    Launch kolu through its Nix wrapper, which bakes in the per-architecture build
+    map. Supported hosts are the CPU/OS pairs your kolu was built with — Linux and
+    macOS, including cross-arch (a macOS kolu can bind a Linux box).
+  </Card>
+</CardGrid>
+
+## Enable multi-host
+
+Multi-host is off by default: with nothing set, kolu shows exactly your local
+host, pixel-identical to single-host kolu. Turn it on by seeding
+`KOLU_PADI_HOST` with a comma-separated list of ssh targets:
+
+```sh
+KOLU_PADI_HOST=localhost,you@box kolu
+```
+
+That seeds the pool — your local host (always present, always first) plus each
+remote — and a **host strip** appears in the top bar. Until the pool holds more
+than the local default, the guest chips and the **+ add** affordance stay hidden,
+so single-host kolu looks unchanged.
+
+## Add a host
+
+The trailing **+ add** on the host strip opens an inline input; what you type is
+added to the pool as a chip. Two formats work:
+
+- an `~/.ssh/config` alias — `zest`
+- a `user@host` destination — `srid@zest`
+
+Typing a **bare loopback** spelling — `localhost`, `127.0.0.1`, or `::1` — maps to
+your existing local host instead of minting a duplicate chip. (`user@localhost` is
+*not* deduped: ssh-ing to the loopback as a different user is a genuinely different
+session, so it's treated as a real remote.)
+
+## First connect — provisioning over ssh
+
+The first time you switch to a host that has never run padi, kolu **provisions it
+over ssh**: it copies the padi closure to the machine with Nix. A cold copy can
+take **minutes**. You don't install anything on the host by hand — the closure
+carries everything.
+
+The host's chip dot tells you where it is:
+
+| dot | meaning |
+| --- | --- |
+| amber | connecting or copying — coming up |
+| green | connected and live (shown only over a real link — never green over a dead host) |
+| red | provisioning or the link failed |
+
+<Aside type="note" title="Cold connects look quiet — for now">
+  During a first-time provisioning the canvas currently shows a plain
+  “connecting…” without a live build tail, so a slow-but-working cold connect can
+  read as a hang. It **is** working; give a fresh host a few minutes. Richer
+  in-canvas progress is a known gap being worked on.
+
+  Meanwhile the real detail is in the **kolu server logs** — they carry the live
+  `nix copy` and build output, so you can watch progress there and read the actual
+  reason if a connect genuinely fails. Under systemd that's `journalctl` for your
+  kolu service; padi also keeps its own log in its state-root on the host.
+</Aside>
+
+## Switch hosts, and per-host canvases
+
+**Click a chip** to make that host active — the whole canvas switches to it live,
+no reload, bindings staying warm server-side. Each host owns its own canvas: its
+terminals, splits, and focused tile are restored as you left them when you switch
+back. Switching away doesn't tear a host's work down; it keeps running on that
+host. If the active host ever leaves the pool, kolu switches you back to local and
+says so.
+
+A chip also carries an **awaiting badge** — a count of agents on that host waiting
+for your input — so a host you're not looking at can tell you it needs you without
+your switching to it first. An [installed PWA](/install-pwa) surfaces the same
+counts as an app-badge and notifications across all your hosts.
+
+## When a host is down
+
+If a host's [padi](/padi) can't bind, its canvas is replaced by a card that names the cause
+in plain language and offers two actions — **Reconnect** (a real re-dial, once
+you've cleared the cause) and **Switch to local** (the always-available escape
+hatch). The causes it distinguishes:
+
+| card | what happened |
+| --- | --- |
+| **Another kolu owns this host** | a different kolu supervisor already holds this host's padi |
+| **This host runs an older kolu** | the remote padi speaks an older contract and refused to bind |
+| **Can't reach this host** | unreachable over ssh, or provisioning failed partway |
+| **This host's padi wasn't built with Nix** | kolu wasn't launched through its Nix wrapper, so it has nothing to deploy |
+| **No build for this host's architecture** | the baked build map has no derivation for the host's CPU/OS |
+| **This host's padi never settled** | a contract upgrade's drain never provably finished |
+
+## Known limitations
+
+A kolu remote terminal is an **ssh session** — not the machine's GUI login
+session. A class of tools that "just work" in the box's own terminal lean on that
+GUI session, so they behave differently over the bind. The following follow from
+that; each is ssh reality, not a kolu bug, but you'll meet them here first.
+
+| symptom you see | why | remedy |
+| --- | --- | --- |
+| On macOS, `gh` reports **`The token in default is invalid`** | `gh` keeps its token in the login **Keychain**, unlocked only for the GUI session | a `$SSH_CONNECTION`-guarded `GH_TOKEN` (a scoped [fine-grained PAT](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)), or [`security unlock-keychain`](https://ss64.com/mac/security.html), or [`gh auth login --insecure-storage`](https://cli.github.com/manual/gh_auth_login) |
+| `git push` / clone fails `Permission denied (publickey)` | your keys and `ssh-agent` live in the **local** session, not the ssh one | keep a key on the host, or forward your agent with [`ssh -A`](https://man.openbsd.org/ssh#A) — confirm with `ssh-add -l` |
+| `pbcopy` / `pbpaste`, `launchctl`, desktop notifications do nothing | these are **GUI-session** services; an ssh session runs in a different session context | run them from the box's own terminal; for `launchctl` name the domain: `launchctl print gui/$(id -u)` |
+| a command is "not found", locale warnings, missing `$PATH` | ssh starts a leaner **login** shell; GUI-launcher `PATH` isn't inherited | put `PATH`/locale in the rc **both** shells read (`~/.zshrc`); check with `echo $PATH` and `locale` |
+
+This table **grows by incident**: every future "works in my local terminal, breaks
+over a kolu remote host" report earns a row — symptom, one-line cause, remedy. If
+you hit one that isn't here, that's the signal to add it.
+
+## Related
+
+<CardGrid>
+  <LinkCard title="Padi" href="/padi" description="the per-host workspace daemon kolu binds on each machine, local or remote" />
+  <LinkCard title="Architecture" href="/architecture" description="how the client, kolu-server, padi, and kaval layer up — and survive restarts and ssh blips" />
+  <LinkCard title="Kaval remote terminals" href="/kaval#reach-a-remote-kaval--over-ssh" description="drive a PTY daemon on another machine from the shell — the same ssh transport, no browser" />
+  <LinkCard title="Remote Access" href="/remote-access" description="reach the kolu browser app itself from another device over Tailscale" />
+  <LinkCard title="Install as an App" href="/install-pwa" description="the PWA install paths that unlock cross-host app badges and notifications" />
+</CardGrid>

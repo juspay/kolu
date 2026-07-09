@@ -363,6 +363,22 @@ kolu-server subscribes each warm binding's **urgency-projection member** (the on
 - **Done when:** the `HostView` record is gone (owner-held state replaces every enumerated field incl. the W4-era migrations: focus, MRU, attention, restore latches, splits, camera); a new `createSignal` added anywhere in the canvas subtree is per-host with zero ceremony (proven by a test that adds one and switches hosts); the boundary test is red on a module-scope signal in the canvas domain; UX byte-identical to the shipped W4 behavior (the per-host semantics are already right — this phase changes where they come from, not what they are).
 - *Why not sooner:* the instance fixes (focus `621ea2c48`, splits `0dbf28e0a`/`c6ed48c56`, camera — in flight) are all shipped in #1714 with pins; this phase deletes the mechanism that made them findable-only-by-srid. Detection-only alternatives (lint lists, sanctioned factories) were considered and rejected as the fix — the defect stays expressible under them (P5: a syntax gate can't see meaning); the slim factory/test residue survives only as the owner's boundary guard above.
 
+<a id="w8"></a>
+
+### W8 — remote terminals, documented honestly *(a docs phase: the ssh-session environment gap; seeded by a live srid incident 2026-07-08)*
+
+**In simple words:** a kolu remote terminal is an **ssh session**, and an ssh session is not the machine's GUI login session — so a class of tools that "just work" in a local terminal silently break over the bind. The seed incident: on a macOS remote, `gh auth status` reports *the token is invalid* — `gh` stores its token in the **macOS Keychain**, which is unlocked only for GUI sessions; the identical command works in the box's local terminal. The user's first read is "kolu broke gh," when the truth is "ssh sessions don't get your keychain."
+
+**The work (docs, not code):** one page on the website's product docs (beside `remote-access.mdx`) cataloguing the known local-vs-remote-terminal gaps and their standard remedies, so the first person to hit each one finds an answer instead of a mystery. Seed catalogue:
+- **macOS Keychain-backed tools** (`gh`, `security`, codesigning): remedies — `security unlock-keychain` per session · an env token (`GH_TOKEN` guarded by `$SSH_CONNECTION`, ideally a **fine-grained PAT scoped to the repos actually driven from that box**) · `gh auth login --insecure-storage`.
+- **ssh-agent / forwarding**: keys present locally but absent over the bind unless forwarded or a remote agent runs.
+- **GUI-session services** (`pbcopy`-over-ssh behavior, `launchctl` user-domain quirks, notification permissions).
+- **Environment drift**: login-shell vs non-login rc files, locale, PATH set by GUI-only launchers.
+
+Each entry: the symptom as the user sees it, the one-line cause, the remedies ranked. Grows by incident — every future "works locally, breaks in kolu" report lands a row here (the flaky-tracker discipline, applied to environment gaps).
+
+- **Done when:** the page exists with the seed catalogue; the gh/keychain incident is findable by its error text ("The token in default is invalid"); kolu's docs link it from remote-access; new incidents have an obvious place to land.
+
 <a id="w6"></a>
 
 ### W6 — the honest connect *(client-only; the data already flows — a small, high-value UX phase)*
