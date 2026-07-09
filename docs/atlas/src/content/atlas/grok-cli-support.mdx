@@ -213,12 +213,12 @@ in CI:
 2. **anyagent unit**: `parseAgentCommand("grok -m grok-4.5 …")`,
    `resumeAgentCommand` for `-c` and `--resume <uuid>`, refuse malformed id.
 3. **e2e** `grok.feature`: fake agent process named `grok` + write fixture
-   under a temp `HOME`/`GROK_HOME` override if the adapter honors an env for
+   under a temp `HOME`/`KOLU_GROK_DIR` override if the adapter honors an env for
    tests (preferred) **or** points at a tmpdir via the same test seam codex
    uses. Assert tile chrome `kind=grok` and state transitions after
    fixture rewrites.
 
-Pin `GROK_HOME` (or reuse `HOME` with only `~/.grok` populated) so tests never
+Pin `KOLU_GROK_DIR` (or reuse `HOME` with only `~/.grok` populated) so tests never
 scan the developer's real sessions — same isolation rule Claude tests already
 follow for `~/.claude`.
 
@@ -248,7 +248,7 @@ A single conventional-commit PR (`feat: detect Grok CLI sessions`) that:
 
 | Risk | Mitigation |
 | --- | --- |
-| Grok renames phases / moves home dir | Zod-parse events with unknown-phase → `thinking`; config constant for home (`path.join(os.homedir(), ".grok")`) + `GROK_HOME` override for tests; schema tripwire test listing known phases |
+| Grok renames phases / moves home dir | Zod-parse events with unknown-phase → `thinking`; config constant for home (`path.join(os.homedir(), ".grok")`) + `KOLU_GROK_DIR` override for tests; schema tripwire test listing known phases |
 | `permission_prompt` flickers under `--always-approve` / yolo | Fold only the *latest* phase after debounce (~50–100 ms, same family as other watchers); yolo resolves permissions in the same event batch so a single read of the file tail lands on `tool_execution` |
 | Multiple sessions per cwd | Prefer `active_sessions` pid match; cwd fallback takes max `updated_at` / mtime — document as "foreground Grok for this cwd" |
 | Binary named something other than `grok` on some installs | Match basename `grok` only (verified install + help text). Do not also match `grok-build` unless a real process basename shows up in the wild |
@@ -260,7 +260,7 @@ A single conventional-commit PR (`feat: detect Grok CLI sessions`) that:
 packages/integrations/grok/
   package.json                 # name: kolu-grok, exports . + ./schemas
   src/
-    config.ts                  # GROK_HOME, paths
+    config.ts                  # KOLU_GROK_DIR override, GROK_DIR, paths
     schemas.ts                 # GrokInfoSchema (browser-safe)
     core.ts                    # encodeCwd, readActiveSessions, findSession, foldState
     session-watcher.ts         # fs.watch events.jsonl + summary.json

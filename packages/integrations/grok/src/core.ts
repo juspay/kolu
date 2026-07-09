@@ -210,7 +210,10 @@ export function findLatestSessionByCwd(
   let entries: string[];
   try {
     entries = fs.readdirSync(dir);
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log?.debug({ err, dir }, "grok sessions dir unreadable");
+    }
     return null;
   }
   let best: GrokSession | null = null;
@@ -228,7 +231,14 @@ export function findLatestSessionByCwd(
         /* keep 0 */
       }
     }
-    if (score >= bestMs) {
+    // Deterministic pick: strictly-newer wins; on an exact tie break by
+    // sessionId so the "latest" is a pure function of the on-disk set, not
+    // of readdir iteration order.
+    if (
+      best === null ||
+      score > bestMs ||
+      (score === bestMs && summary.sessionId > best.id)
+    ) {
       bestMs = score;
       best = {
         id: summary.sessionId,
@@ -345,7 +355,13 @@ export function deriveStateFromEvents(
   let size: number;
   try {
     size = fs.statSync(eventsPath).size;
-  } catch {
+  } catch (err) {
+    // Absent file (ENOENT) is the documented session-just-created case; a
+    // real read failure (EACCES/ENOTDIR) must still surface, not vanish —
+    // same convention as readActiveSessions/readSummary above.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log?.debug({ err, path: eventsPath }, "grok events stat failed");
+    }
     return "thinking";
   }
   const lines = readTailLines({

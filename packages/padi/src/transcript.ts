@@ -92,9 +92,15 @@ export async function exportTranscriptHtml(
         log,
       ),
     )
-    // Grok transcript loader ships in a follow-up — refuse honestly so the
-    // export path doesn't pretend a missing loader is a missing session.
-    .with({ kind: "grok" }, () => null)
+    // Grok transcript loader ships in a follow-up — refuse honestly with a
+    // "not yet" message so the user isn't told their live session is missing
+    // (the generic NOT_FOUND below reads like data loss, not "unsupported").
+    .with({ kind: "grok" }, () => {
+      throw new ORPCError("NOT_SUPPORTED", {
+        message:
+          "Transcript export for Grok is not available yet — its loader ships in a follow-up",
+      });
+    })
     .exhaustive();
   if (!transcript) {
     throw new ORPCError("NOT_FOUND", {

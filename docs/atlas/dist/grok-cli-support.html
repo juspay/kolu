@@ -290,12 +290,12 @@ awaiting_user), <code>agentInfoEqual</code> stability.</li>
 <li><strong>anyagent unit</strong>: <code>parseAgentCommand(&quot;grok -m grok-4.5 …&quot;)</code>,
 <code>resumeAgentCommand</code> for <code>-c</code> and <code>--resume &lt;uuid&gt;</code>, refuse malformed id.</li>
 <li><strong>e2e</strong> <code>grok.feature</code>: fake agent process named <code>grok</code> + write fixture
-under a temp <code>HOME</code>/<code>GROK_HOME</code> override if the adapter honors an env for
+under a temp <code>HOME</code>/<code>KOLU_GROK_DIR</code> override if the adapter honors an env for
 tests (preferred) <strong>or</strong> points at a tmpdir via the same test seam codex
 uses. Assert tile chrome <code>kind=grok</code> and state transitions after
 fixture rewrites.</li>
 </ol>
-<p>Pin <code>GROK_HOME</code> (or reuse <code>HOME</code> with only <code>~/.grok</code> populated) so tests never
+<p>Pin <code>KOLU_GROK_DIR</code> (or reuse <code>HOME</code> with only <code>~/.grok</code> populated) so tests never
 scan the developer’s real sessions — same isolation rule Claude tests already
 follow for <code>~/.claude</code>.</p>
 <h2 id="one-pr-done-criterion">One PR, done criterion</h2>
@@ -330,7 +330,7 @@ for its own sake.</li>
 <tbody>
 <tr>
 <td>Grok renames phases / moves home dir</td>
-<td>Zod-parse events with unknown-phase → <code>thinking</code>; config constant for home (<code>path.join(os.homedir(), &quot;.grok&quot;)</code>) + <code>GROK_HOME</code> override for tests; schema tripwire test listing known phases</td>
+<td>Zod-parse events with unknown-phase → <code>thinking</code>; config constant for home (<code>path.join(os.homedir(), &quot;.grok&quot;)</code>) + <code>KOLU_GROK_DIR</code> override for tests; schema tripwire test listing known phases</td>
 </tr>
 <tr>
 <td><code>permission_prompt</code> flickers under <code>--always-approve</code> / yolo</td>
@@ -354,7 +354,7 @@ for its own sake.</li>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>packages/integrations/grok/</span></span>
 <span class="line"><span>  package.json                 # name: kolu-grok, exports . + ./schemas</span></span>
 <span class="line"><span>  src/</span></span>
-<span class="line"><span>    config.ts                  # GROK_HOME, paths</span></span>
+<span class="line"><span>    config.ts                  # KOLU_GROK_DIR override, GROK_DIR, paths</span></span>
 <span class="line"><span>    schemas.ts                 # GrokInfoSchema (browser-safe)</span></span>
 <span class="line"><span>    core.ts                    # encodeCwd, readActiveSessions, findSession, foldState</span></span>
 <span class="line"><span>    session-watcher.ts         # fs.watch events.jsonl + summary.json</span></span>
