@@ -85,6 +85,13 @@ This page is about reaching the browser app. For shell-level remote terminals
 over ssh, use [`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh)
 instead.
 
+<Aside type="caution" title="Remote terminals are alpha">
+  Once you reach kolu, its **remote hosts** feature — putting another machine's
+  terminals on your canvas over ssh — is an early preview. See
+  [Remote Hosts](/remote-hosts) for how to enable it, add hosts, and the
+  ssh-session limitations (the macOS Keychain, `ssh-agent`, the clipboard).
+</Aside>
+
 ## Manage the serve
 
 ```sh
@@ -99,4 +106,5 @@ tailscale serve off
   <LinkCard title="Install as an App" href="/install-pwa" description="browser install paths, secure contexts, badges, and notifications" />
   <LinkCard title="Troubleshooting" href="/troubleshooting" description="missing install buttons, notification permissions, and update checks" />
   <LinkCard title="Kaval remote terminals" href="/kaval#reach-a-remote-kaval--over-ssh" description="drive a PTY daemon on another machine over ssh" />
+  <LinkCard title="Remote Hosts" href="/remote-hosts" description="put another machine's terminals on your canvas over ssh — enable, add hosts, switch, and the limitations" />
 </CardGrid>
