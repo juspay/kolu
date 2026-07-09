@@ -87,3 +87,21 @@ export function statusTitle(status: EntryState): string {
       return "not a member";
   }
 }
+
+/** Terse one-word entry-state label for the host-switcher row's status subline
+ *  — the compact sibling of {@link statusTitle} (which carries the fuller
+ *  tooltip wording, including the failure reason). Kept in this one pure module
+ *  keyed on the SAME `EntryState["kind"]` union so a new kind is a single
+ *  exhaustiveness site, and the two wordings can't silently drift apart. */
+export function statusLabelShort(status: EntryState): string {
+  switch (status.kind) {
+    case "connected":
+      return "connected";
+    case "warming":
+      return "connecting";
+    case "failed":
+      return "failed";
+    default:
+      return "removed";
+  }
+}

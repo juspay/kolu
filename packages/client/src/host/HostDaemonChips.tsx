@@ -29,7 +29,7 @@ import type {
   SkewVersionPair,
 } from "kolu-common/surfacesWithPadi";
 import type { Component, Setter } from "solid-js";
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { toast } from "solid-sonner";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
@@ -114,13 +114,19 @@ function useHostKaval(host: HostKey): {
     keys: () => [daemonKey],
     onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
   });
-  const daemon = (): DaemonStatus | undefined => {
+  // Memoized: this host's KavalSubChip reads `daemon()` ~8× per render pass
+  // (mark dot, version, state, uptime ×2, memory, update) — each an unmemoized
+  // call would redo the `byKey` lookup AND mint a fresh `{...status}` spread.
+  // One reprojection per `daemonStatus` change, shared by every consumer
+  // (`solidjs.md`: memo a multi-consumer derivation). Runs for every mounted
+  // host chip (active and inactive), so it sits on the per-host-status path.
+  const daemon = createMemo((): DaemonStatus | undefined => {
     const status = daemonSub.byKey(daemonKey)?.();
     if (status === undefined || typeof status.startedAt !== "number")
       return status;
     const local = padiMap.entry(host).clock.toLocal(status.startedAt);
     return { ...status, startedAt: local ?? 0 };
-  };
+  });
   return { live, daemon };
 }
 
@@ -312,9 +318,10 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
       : `running ${formatUptime(clockNow() - startedAt)}`;
   };
   const kavalMemoryText = (): string => {
+    // `kaval.live()` is already `channelLive(daemonTransportLive(), …)`, so a
+    // separate `!daemonTransportLive()` gate here would be unreachable.
     if (!kaval.live() || kaval.daemon()?.state !== "connected")
       return "memory unavailable";
-    if (!daemonTransportLive()) return "memory unavailable";
     const m = processMemory.value()?.kaval;
     return match(m)
       .with({ status: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)

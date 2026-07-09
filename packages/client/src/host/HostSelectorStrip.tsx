@@ -79,7 +79,6 @@ import {
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
-import { match } from "ts-pattern";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
@@ -88,6 +87,7 @@ import {
   hostLabel,
   sameHost,
   shouldRenderHostChip,
+  statusLabelShort,
   statusTitle,
 } from "./hostChipTone";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
@@ -136,14 +136,8 @@ const ADD_BUTTON_RESERVE: number = 34;
 const labelForKey: (key: string) => string = (key) =>
   hostLabel(decodeHostKey(key));
 
-const statusLabel: (host: HostKey) => string = (host) => {
-  return match(padiMap.entry(host).state())
-    .with({ kind: "connected" }, (state) => statusTitle(state))
-    .with({ kind: "warming" }, () => "connecting")
-    .with({ kind: "failed" }, () => "failed")
-    .with({ kind: "not-a-member" }, () => "removed")
-    .exhaustive();
-};
+const statusLabel: (host: HostKey) => string = (host) =>
+  statusLabelShort(padiMap.entry(host).state());
 
 const removeHost: (host: HostKey) => void = (host) => {
   client.hosts

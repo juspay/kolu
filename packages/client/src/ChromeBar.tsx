@@ -83,9 +83,8 @@ const ChromeBar: Component<{
   // inspector panel, which sits BELOW it — exactly like maximized mode. No
   // panel-width right-offset to maintain anymore; the only inline style is the
   // hostname-derived PWA theme tint.
-  const chromeStyle = createMemo<JSX.CSSProperties>(() =>
-    props.themeColor ? { "--chrome-theme-color": props.themeColor } : {},
-  );
+  const chromeStyle = (): JSX.CSSProperties =>
+    props.themeColor ? { "--chrome-theme-color": props.themeColor } : {};
 
   return (
     <header
