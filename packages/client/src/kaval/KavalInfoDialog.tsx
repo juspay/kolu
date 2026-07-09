@@ -106,6 +106,9 @@ const KavalInfoDialog: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   status: DaemonStatus | undefined;
+  triggerRef: () => HTMLElement | undefined;
+  /** Host this panel describes — shown under the title so the anchor is obvious. */
+  hostLabel: string;
 }> = (props) => {
   const clockNow = getClockNow();
   // The client's own honest presence sum (P4 — retires the "unknown"/"—" escape hatch):
@@ -145,6 +148,8 @@ const KavalInfoDialog: Component<{
       size="md"
       logoSrc={KAVAL_LOGO_URL}
       name="Kaval"
+      contextLabel={props.hostLabel}
+      triggerRef={props.triggerRef}
       version={
         <Show when={props.status?.contractVersion}>
           {(v) => <VersionChip>contract v{v()}</VersionChip>}

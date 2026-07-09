@@ -29,6 +29,7 @@ const KoluInfoDialog: Component<{
   status: WsStatus;
   live: boolean;
   dotClass: string;
+  triggerRef: () => HTMLElement | undefined;
 }> = (props) => {
   const pwa = useSurfaceApp<KoluBuildInfo>();
   const server = () => pwa.server();
@@ -41,6 +42,7 @@ const KoluInfoDialog: Component<{
       size="sm"
       logoSrc="/favicon.svg"
       name="Kolu"
+      triggerRef={props.triggerRef}
       version={
         <Show when={server()?.version}>
           {(v) => <VersionChip>v{v()}</VersionChip>}

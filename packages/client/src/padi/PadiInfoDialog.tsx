@@ -156,6 +156,9 @@ const PadiInfoDialog: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   link: PadiLink | undefined;
+  triggerRef: () => HTMLElement | undefined;
+  /** Host this panel describes — shown under the title so the anchor is obvious. */
+  hostLabel: string;
 }> = (props) => {
   const clockNow = getClockNow();
   // The client's own honest presence sum (P4 — retires the "unknown"/"—" escape hatch):
@@ -190,6 +193,8 @@ const PadiInfoDialog: Component<{
       size="md"
       logoSrc={PADI_LOGO_URL}
       name="Padi"
+      contextLabel={props.hostLabel}
+      triggerRef={props.triggerRef}
       version={
         // The RUNNING padi's actual `padiSurface` version (off its control-core
         // `hello`), mirroring the Kaval dialog's "contract v5.0" chip. Honesty

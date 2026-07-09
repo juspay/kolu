@@ -52,9 +52,10 @@ import { dotClass, sameHost, statusTitle } from "./hostChipTone";
 const DUAL_DAEMON_SLOT_CLASS =
   "flex h-7 w-[3.25rem] shrink-0 items-center justify-center";
 
-// Hover wash must read on both active (`bg-surface-3`) and inactive chips.
+// Hover must read on both active (`bg-surface-3`) and inactive chips — use a
+// bright wash + accent ring so the hit target is obvious (not a 10% wash).
 const subChipClass =
-  "pointer-events-auto shrink-0 relative flex h-7 w-[1.5rem] items-center justify-center rounded-md leading-4 text-fg-2 transition-colors hover:bg-white/10 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer";
+  "pointer-events-auto shrink-0 relative flex h-7 w-[1.5rem] items-center justify-center rounded-md leading-4 text-fg-2 transition-colors hover:bg-accent/30 hover:text-fg hover:ring-1 hover:ring-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
@@ -75,7 +76,11 @@ function skewPairFor(host: HostKey): SkewVersionPair | undefined {
   return { running, expected };
 }
 
-/** Switch to `host` if needed, then open the dialog (dialogs are active-scoped). */
+function hostLabel(h: HostKey): string {
+  return h.kind === "local" ? "local" : h.target;
+}
+
+/** Switch to `host` if needed, then open the panel (body is active-scoped). */
 function activateThen(host: HostKey, open: (v: boolean) => void): void {
   if (!sameHost(activeHost(), host)) setActiveHost(host);
   open(true);
@@ -84,6 +89,7 @@ function activateThen(host: HostKey, open: (v: boolean) => void): void {
 /** The Padi sub-chip for one host — icon + that host's entry-state dot. */
 const PadiSubChip: Component<{ host: HostKey }> = (props) => {
   const [open, setOpen] = createSignal(false);
+  let triggerEl!: HTMLButtonElement;
   const daemonLive = daemonTransportLive;
   const entry = (): EntryState => padiMap.entry(props.host).state();
   const entryLive = (): boolean =>
@@ -130,10 +136,12 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
       <Tip label={padiTip()}>
         <button
           type="button"
+          ref={triggerEl}
           data-testid="padi-identity-chip"
           onClick={() => activateThen(props.host, setOpen)}
           class={subChipClass}
           aria-label={padiTip()}
+          aria-expanded={open()}
         >
           <IdentityMark logoSrc={PADI_LOGO_URL}>
             <StatusDot
@@ -147,13 +155,14 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
           </IdentityMark>
         </button>
       </Tip>
-      {/* Dialog is active-host scoped — only mount content while open and this
-       *  host is active (after activateThen). */}
+      {/* Panel body is active-host scoped — only show while open on this host. */}
       <Show when={open() && sameHost(activeHost(), props.host)}>
         <PadiInfoDialog
           open={open()}
           onOpenChange={setOpen}
           link={linkForDialog()}
+          triggerRef={() => triggerEl}
+          hostLabel={hostLabel(props.host)}
         />
       </Show>
     </>
@@ -163,6 +172,7 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
 /** The Kaval sub-chip for one host — icon + that host's daemon-state dot. */
 const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   const [open, setOpen] = createSignal(false);
+  let triggerEl!: HTMLButtonElement;
   const clockNow = getClockNow();
   const daemonLive = daemonTransportLive;
   const entryConnected = (): boolean =>
@@ -225,10 +235,12 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
       <Tip label={kavalTip()}>
         <button
           type="button"
+          ref={triggerEl}
           data-testid="kaval-identity-chip"
           onClick={() => activateThen(props.host, setOpen)}
           class={subChipClass}
           aria-label={kavalTip()}
+          aria-expanded={open()}
         >
           <IdentityMark logoSrc={KAVAL_LOGO_URL}>
             <StatusDot
@@ -245,6 +257,8 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
           open={open()}
           onOpenChange={setOpen}
           status={daemon()}
+          triggerRef={() => triggerEl}
+          hostLabel={hostLabel(props.host)}
         />
       </Show>
     </>
