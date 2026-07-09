@@ -104,26 +104,20 @@ import {
 /** kolu.dev doc the alpha "+ add a host" popover links to. */
 const REMOTE_HOSTS_DOC = "https://kolu.dev/remote-hosts/";
 
-/** The house glyph that marks the LOCAL host's chip as a role ("the machine
- *  kolu runs on"), not a hostname — so it doesn't read like a machine literally
- *  named "local". Renders nothing for a remote (its `user@host` is unambiguous
- *  already). */
-const LocalHomeGlyph: Component<{ host: HostKey }> = (props) => (
-  <Show when={props.host.kind === "local"}>
-    <HomeIcon class="h-3 w-3 shrink-0 opacity-70" />
-  </Show>
-);
-
-/** A host's on-screen identity: its home glyph (local only) immediately before
- *  its role word, glyph first. The single owner of the glyph+label pairing, so
- *  every visual site renders the local house-and-word treatment identically and
- *  a new render site can't silently split or drop it. `labelClass` styles the
- *  label `<span>` (truncation/max-width vary per site). */
+/** A host's on-screen identity: a house glyph (LOCAL only) immediately before
+ *  its role word, glyph first — so the local chip reads as a role ("the machine
+ *  kolu runs on"), not a hostname you might mistake for a machine literally
+ *  named "local" (a remote's `user@host` is unambiguous already, so it gets no
+ *  glyph). The single owner of the glyph+label pairing, so every visual site
+ *  renders it identically and a new render site can't silently split or drop it.
+ *  `labelClass` styles the label `<span>` (truncation/max-width vary per site). */
 const HostIdentityLabel: Component<{ host: HostKey; labelClass?: string }> = (
   props,
 ) => (
   <>
-    <LocalHomeGlyph host={props.host} />
+    <Show when={props.host.kind === "local"}>
+      <HomeIcon class="h-3 w-3 shrink-0 opacity-70" />
+    </Show>
     <span class={props.labelClass}>{hostLabel(props.host)}</span>
   </>
 );

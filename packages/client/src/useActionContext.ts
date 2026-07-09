@@ -9,7 +9,6 @@ import { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher } from "./capabilities";
-import { sameHost } from "./host/hostChipTone";
 import type { ActionContext } from "./input/actions";
 import { useRecorder } from "./recorder/useRecorder";
 import { useRightPanel } from "./right-panel/useRightPanel";
@@ -21,12 +20,7 @@ import { useTerminalSearch } from "./terminal/useTerminalSearch";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { useCommandPalette } from "./useCommandPalette";
 import { useThemeManager } from "./useThemeManager";
-import {
-  activeHost,
-  onHostMembershipError,
-  padiMap,
-  setActiveHost,
-} from "./wire";
+import { cycleActiveHost } from "./wire";
 
 export function useActionContext(): ActionContext {
   const store = useTerminalStore();
@@ -38,9 +32,6 @@ export function useActionContext(): ActionContext {
   const terminalSearch = useTerminalSearch();
   const { handleShuffleTheme } = useThemeManager();
   const dockTree = useDockOrder();
-  // Live pool membership — the SAME authority the host strip renders from — so
-  // `cycleHost` steps through hosts in pool order from the keyboard.
-  const hostMembers = padiMap.entries.use({ onError: onHostMembershipError });
 
   return {
     terminalIds: store.terminalIds,
@@ -66,17 +57,10 @@ export function useActionContext(): ActionContext {
       if (showsWorkspaceSwitcher())
         commandPalette.openGroup("Search workspaces");
     },
-    cycleHost: (direction) => {
-      // Pool order, read imperatively at keypress. Compare by canonical string
-      // (`sameHost`) — every membership read mints fresh `HostKey` objects, so
-      // `===` on the object would never match the active one.
-      const keys = [...hostMembers.keys()];
-      if (keys.length < 2) return;
-      const current = keys.findIndex((h) => sameHost(h, activeHost()));
-      const from = current < 0 ? 0 : current;
-      const next = keys[(from + direction + keys.length) % keys.length];
-      if (next && !sameHost(next, activeHost())) setActiveHost(next);
-    },
+    // Pure wiring onto the factored host-activation verb — the pool-walk +
+    // canonical compare live beside the `members` authority in `wire.ts`, not
+    // re-rolled here (and no second membership subscription).
+    cycleHost: cycleActiveHost,
     togglePalette: commandPalette.toggle,
     toggleShortcutsHelp: shortcutsHelp.toggle,
     toggleSearch: terminalSearch.toggleActive,

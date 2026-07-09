@@ -336,6 +336,22 @@ const hostScoped = createRoot(() => {
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
+  // Cycle the active host one step through the pool order (the keyboard
+  // host-switch), wrapping. Reuses the `members` authority THIS block already
+  // holds — no second `entries` subscription in the action layer — and writes
+  // through the SAME `setActiveHost` a tab click uses (a synchronous user-intent
+  // activation, distinct from the reconcile effect's automatic transitions). A
+  // no-op with fewer than two hosts. Compared by canonical string, never `===`
+  // (every membership read mints fresh `HostKey` objects).
+  const cycleActiveHost = (direction: 1 | -1): void => {
+    const keys = [...members.keys()];
+    if (keys.length < 2) return;
+    const activeKey = encodeHostKey(activeHost());
+    const from = keys.findIndex((h) => encodeHostKey(h) === activeKey);
+    const start = from < 0 ? 0 : from;
+    const next = keys[(start + direction + keys.length) % keys.length];
+    if (next && encodeHostKey(next) !== activeKey) setActiveHost(next);
+  };
   return {
     activityFeed,
     session,
@@ -343,6 +359,7 @@ const hostScoped = createRoot(() => {
     terminalKeys,
     preferences,
     requestActivateOnJoin: setPendingJoin,
+    cycleActiveHost,
     rpc: active.rpc,
   };
 });
@@ -352,6 +369,12 @@ const hostScoped = createRoot(() => {
  *  Feeds the pending signal the ONE reconcile effect consumes (`hostReconcileTarget`'s
  *  join-activation arm), so there is no second `setActiveHost` writer to reason about. */
 export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
+
+/** Cycle the active host one step through the pool order, wrapping (the keyboard
+ *  host-switch). The factored host-activation verb — reads the `members`
+ *  authority `hostScoped` already holds and writes the one `setActiveHost`, so
+ *  the action layer stays pure wiring with no second membership subscription. */
+export const cycleActiveHost = hostScoped.cycleActiveHost;
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive
