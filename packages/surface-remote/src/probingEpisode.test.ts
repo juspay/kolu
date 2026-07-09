@@ -142,7 +142,7 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
       liveness: false,
       onLog: () => {},
     });
-    let latest = () => {
+    const latest = () => {
       let s!: {
         phase: string;
         log: readonly { line: string }[];
@@ -155,7 +155,7 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
       return s;
     };
 
-    session.pin();
+    session.pin().catch(() => {});
     await Promise.resolve();
     // Episode 1 starts at t=1_000_000. Advance + push log lines across phases.
     vi.setSystemTime(1_000_500);
@@ -198,7 +198,7 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
       return s;
     };
 
-    session.pin();
+    session.pin().catch(() => {});
     await Promise.resolve();
     h.ctx().provisioning("copying");
     h.ctx().localProgress("copying path a");

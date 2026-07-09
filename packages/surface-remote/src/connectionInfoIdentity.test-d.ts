@@ -13,7 +13,7 @@
  */
 
 import type { z } from "zod";
-import { ConnectionInfoSchema } from "./connection";
+import type { ConnectionInfoSchema } from "./connection";
 import type { SessionState } from "./session";
 import type { SshProv } from "./sshConnector";
 
