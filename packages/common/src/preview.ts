@@ -10,14 +10,17 @@
  *    - SERVER: `isBinaryPreviewable` picks the `FsReadFileOutput.kind` wire
  *      variant (inline text vs a route-served URL) — the schema lives in
  *      `kolu-git/schemas.ts`.
- *    - CLIENT: `isRasterImage` / `isMarkdown` pick the rendered appliance in
- *      `@kolu/solid-fileview` — a plain `<img>`, a sandboxed iframe, or a
- *      rendered Markdown document.
+ *    - CLIENT: `binaryPreviewFamily` / `isMarkdown` pick the rendered appliance
+ *      in `@kolu/solid-fileview` — a plain `<img>`, a PDF viewer, a sandboxed
+ *      iframe, or a rendered Markdown document.
  *
- *  Three disjoint sets partition the binary-previewable space:
+ *  Four disjoint sets partition the binary-previewable space:
  *    - SANDBOX — rendered in an `allow-scripts`, opaque-origin iframe.
- *      `.html`/`.htm`/`.svg` can carry scripts; `.pdf` rides the same
- *      sandbox. The set is the security boundary and changes rarely.
+ *      `.html`/`.htm`/`.svg` can carry scripts. The set is the security
+ *      boundary and changes rarely.
+ *    - PDF — rendered in the browser's native PDF viewer. Kept out of the
+ *      sandbox branch because Chromium's PDF viewer does not instantiate inside
+ *      Kolu's opaque-origin HTML/SVG sandbox.
  *    - RASTER — rendered with a plain `<img>` (image bytes can't execute).
  *      This is a volatile axis (new formats: avif, jxl, …).
  *    - VIDEO — rendered with a `<video controls>` element (the file route
@@ -38,8 +41,9 @@ export const SANDBOX_PREVIEWABLE_EXTENSIONS = [
   ".html",
   ".htm",
   ".svg",
-  ".pdf",
 ] as const;
+
+export const PDF_PREVIEWABLE_EXTENSIONS = [".pdf"] as const;
 
 export const RASTER_IMAGE_EXTENSIONS = [
   ".png",
@@ -64,9 +68,12 @@ export const VIDEO_EXTENSIONS = [
 
 export const BINARY_PREVIEWABLE_EXTENSIONS = [
   ...SANDBOX_PREVIEWABLE_EXTENSIONS,
+  ...PDF_PREVIEWABLE_EXTENSIONS,
   ...RASTER_IMAGE_EXTENSIONS,
   ...VIDEO_EXTENSIONS,
 ] as const;
+
+export type BinaryPreviewFamily = "sandbox" | "pdf" | "raster" | "video";
 
 /** Text files the Code browser can render as a document. Stays
  *  `kind:"text"` on the wire — there's no server URL; the client renders it
@@ -78,10 +85,21 @@ function hasExtension(filePath: string, exts: readonly string[]): boolean {
   return exts.some((ext) => lower.endsWith(ext));
 }
 
+/** Client/server: which binary-renderer family owns this path? */
+export function binaryPreviewFamily(
+  filePath: string,
+): BinaryPreviewFamily | null {
+  if (hasExtension(filePath, SANDBOX_PREVIEWABLE_EXTENSIONS)) return "sandbox";
+  if (hasExtension(filePath, PDF_PREVIEWABLE_EXTENSIONS)) return "pdf";
+  if (hasExtension(filePath, RASTER_IMAGE_EXTENSIONS)) return "raster";
+  if (hasExtension(filePath, VIDEO_EXTENSIONS)) return "video";
+  return null;
+}
+
 /** Server: should this file bypass the UTF-8 text read and instead be served
  *  by the file route as `kind: "binary"`? */
 export function isBinaryPreviewable(filePath: string): boolean {
-  return hasExtension(filePath, BINARY_PREVIEWABLE_EXTENSIONS);
+  return binaryPreviewFamily(filePath) !== null;
 }
 
 /** Client: of the binary-previewable files, render this one with a plain
@@ -97,8 +115,8 @@ export function isVideo(filePath: string): boolean {
 }
 
 /** Client: of the binary-previewable files, render this one in the sandboxed
- *  iframe (`.html`/`.htm`/`.svg`/`.pdf`) rather than an `<img>` or `<video>`?
- *  Names the sandbox branch of the three-way partition at the dispatch site so
+ *  iframe (`.html`/`.htm`/`.svg`) rather than an `<img>`, `<video>`, or PDF viewer?
+ *  Names the sandbox branch of the binary partition at the dispatch site so
  *  an unclassified binary surfaces as a visible no-match instead of silently
  *  landing in an iframe that can't render it. */
 export function isSandboxPreviewable(filePath: string): boolean {
