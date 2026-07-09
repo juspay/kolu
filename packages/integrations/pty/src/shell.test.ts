@@ -163,18 +163,20 @@ describe("cleanEnv — kolu's own internal env never reaches a hosted shell", ()
 });
 
 describe("OSC7_FN", () => {
+  const hostnameStub = "hostname() { printf test-host; }\n";
+
   it("emits OSC 7 with file:// URL containing hostname and cwd", () => {
-    const out = runBash(`${OSC7_FN}; __kolu_osc7`, "/tmp");
+    const out = runBash(`${OSC7_FN}; ${hostnameStub}__kolu_osc7`, "/tmp");
     // Format: ESC ] 7 ; file://<hostname><pwd> ESC \
     // On macOS /tmp resolves to /private/tmp, so the path may end in
     // /tmp but contain /private as a prefix — accept any path ending
     // in /tmp.
-    expect(out).toMatch(/^\x1b\]7;file:\/\/.+\/tmp\x1b\\$/);
+    expect(out).toMatch(/^\x1b\]7;file:\/\/test-host.*\/tmp\x1b\\$/);
   });
 
   it("reflects current PWD not the initial cwd", () => {
     const out = runBash(
-      `${OSC7_FN}; cd /; __kolu_osc7; cd /tmp; __kolu_osc7`,
+      `${OSC7_FN}; ${hostnameStub}cd /; __kolu_osc7; cd /tmp; __kolu_osc7`,
       "/tmp",
     );
     // First emission ends with /, second ends with /tmp
