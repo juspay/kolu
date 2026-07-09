@@ -66,7 +66,17 @@ async function cdIntoScenarioDir(
   kind: AgentKind,
 ): Promise<string> {
   cwdCounter += 1;
-  const dir = `/tmp/kolu-${kind}-w${workerId}-${cwdCounter}`;
+  // Under `$HOME`, NOT `/tmp`. On darwin `/tmp` is a symlink to `/private/tmp`,
+  // so a scenario cwd under it makes the mock's `process.cwd()` (realpath'd to
+  // `/private/tmp/...`) diverge from the terminal cwd the padi tracks (the
+  // `/tmp/...` form) — and the codex/opencode `WHERE cwd = ?` match then finds
+  // no row, so the indicator is stuck `null` on darwin (green on linux, which
+  // has no such symlink). The fixture `$HOME` is deliberately NOT under /tmp
+  // (see hooks.ts), so a dir there has ONE canonical form both the mock and the
+  // padi agree on. `$HOME` is shell-expanded in the terminal; `path.basename`
+  // of the returned value still yields the unique leaf the woken-cwd assertions
+  // match on.
+  const dir = `$HOME/kolu-${kind}-w${workerId}-${cwdCounter}`;
   const marker = `MOCK_CWD_READY_${workerId}_${cwdCounter}`;
   await world.page.keyboard.type(
     `mkdir -p ${dir} && cd ${dir} && echo ${marker}`,

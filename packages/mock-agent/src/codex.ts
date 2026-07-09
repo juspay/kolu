@@ -68,18 +68,17 @@ export class CodexAgent implements MockKind {
   private readonly cwd = process.cwd();
   private rolloutPath = join(this.dir, `rollout-${process.pid}.jsonl`);
   private wrote = false;
-  private kickTimer: ReturnType<typeof setInterval> | null = null;
+  /** Re-runs the last write; the bin.ts nudge loop calls `nudge()` on a cadence
+   *  to replay it (dropped-fs-event retry). Null until the first setState. */
+  private replay: (() => void) | null = null;
 
   /** Open a FRESH WAL connection, ensure the schema, run `fn`, then CLOSE it.
-   *  Open-write-CLOSE per transition is load-bearing on darwin: closing the last
-   *  connection makes SQLite checkpoint and RECREATE the `-wal` file, and that
-   *  inode churn is the fs event darwin's kqueue watcher fires on. A stable-inode
-   *  append under a HELD connection is invisible to kqueue — that was the bug: a
-   *  persistent connection passed on linux (inotify sees the append) but read
-   *  `null` on darwin (kqueue saw no inode event). The server's WAL watcher
-   *  re-arms on the recreated inode via its parent-directory watcher, so no event
-   *  is lost. This mirrors what the real Codex CLI (open-write-close per turn) and
-   *  the pre-mock-agent fixture did — and darwin CI passed on both. */
+   *  Open-write-close per transition mirrors the real Codex CLI (and the
+   *  pre-mock-agent fixture): each close checkpoints and recreates the `-wal`, a
+   *  reliable WAL-frame fs event for the provider's watcher on every platform.
+   *  (The darwin root cause was NOT here — it was the scenario cwd living under
+   *  `/tmp`, which realpath-diverges from the padi's tracked cwd; see the
+   *  `cdIntoScenarioDir` comment in mockAgent.ts.) */
   private withDb(fn: (db: DatabaseSync) => void): void {
     mkdirSync(this.dir, { recursive: true });
     const db = new DatabaseSync(this.dbPath);
@@ -117,7 +116,7 @@ export class CodexAgent implements MockKind {
       }),
     );
     this.writeThreadRow(opts);
-    this.startKick(opts);
+    this.replay = () => this.writeThreadRow(opts);
   }
 
   /** Open-write-CLOSE the thread row — the WAL trigger. Atomic row-swap: a reader
@@ -154,42 +153,27 @@ export class CodexAgent implements MockKind {
     this.wrote = true;
   }
 
-  /** Re-write the thread row on a fixed interval so a DROPPED WAL fs event is
-   *  RETRIED. A single WAL-frame event can be coalesced/missed by darwin's
-   *  FSEvents (the immediate, systematic null on darwin) — and under N-worker
-   *  load by inotify too; repeating the write re-fires the watcher until the
-   *  provider reconciles, exactly as real Codex (a write per turn) and the
-   *  pre-mock-agent fixture's per-poll nudge did (both green on darwin). The
-   *  interval is > the provider's 150ms trailing debounce so each re-write
-   *  settles into one `performRefresh` rather than starving it. Reset per
-   *  setState, cleared on remove/quit; unref'd so it never keeps the process
-   *  alive past the terminal closing stdin. */
-  private startKick(opts: StateOpts): void {
-    this.stopKick();
-    this.kickTimer = setInterval(() => this.writeThreadRow(opts), 250);
-    this.kickTimer.unref?.();
-  }
-
-  private stopKick(): void {
-    if (this.kickTimer) {
-      clearInterval(this.kickTimer);
-      this.kickTimer = null;
-    }
-  }
-
   nudge(): void {
-    // No-op: `startKick` is the standing retry signal; a caller-driven nudge
-    // would be redundant.
+    // Re-fire the last write. bin.ts calls this on a cadence tighter than the
+    // provider's poll (> the 150ms debounce, so it never starves it) so a
+    // single dropped WAL fs event under N-worker load is retried — the in-agent
+    // twin of the old test-side per-poll nudge. Real Codex re-writes per turn.
+    this.replay?.();
   }
 
   remove(): void {
-    this.stopKick();
-    if (!this.wrote) return;
+    if (!this.wrote) {
+      this.replay = null;
+      return;
+    }
     // Row-delete, not file-unlink: unlinking would break the server's WAL
-    // handle. Deleting the row is its own WAL frame — the "session gone" clear
-    // the old `clearMockDatabase` produced.
-    this.withDb((db) => {
-      db.prepare("DELETE FROM threads WHERE cwd = ?").run(this.cwd);
-    });
+    // handle. Deleting the row is its own WAL frame — the "session gone" clear.
+    // Make it the new replay so bin.ts keeps re-firing the deletion for its
+    // removal window (a dropped delete event can't leave the indicator wedged).
+    this.replay = () =>
+      this.withDb((db) => {
+        db.prepare("DELETE FROM threads WHERE cwd = ?").run(this.cwd);
+      });
+    this.replay();
   }
 }

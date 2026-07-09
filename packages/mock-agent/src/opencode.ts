@@ -47,15 +47,14 @@ export class OpenCodeAgent implements MockKind {
   private readonly dbPath = opencodeDbPath();
   private readonly cwd = process.cwd();
   private wrote = false;
-  private kickTimer: ReturnType<typeof setInterval> | null = null;
+  /** Re-runs the last write; bin.ts's nudge loop calls `nudge()` to replay it. */
+  private replay: (() => void) | null = null;
 
   /** Open a FRESH WAL connection, ensure the schema, run `fn`, then CLOSE it.
-   *  Open-write-CLOSE per transition is load-bearing on darwin — see
-   *  `CodexAgent.withDb`: closing the connection recreates the `-wal` inode,
-   *  which is the fs event darwin's kqueue watcher fires on (a stable-inode
-   *  append under a HELD connection is invisible to it — the bug that read `null`
-   *  on darwin while passing on linux). The server's WAL watcher re-arms on the
-   *  recreated inode via its parent-directory watcher, so no event is lost. */
+   *  Open-write-close per transition mirrors real OpenCode (and the pre-mock
+   *  fixture): each close recreates the `-wal`, a reliable fs event for the
+   *  provider's watcher on every platform. (The darwin root cause was the
+   *  scenario cwd under `/tmp`; see `CodexAgent.withDb` and mockAgent.ts.) */
   private withDb(fn: (db: DatabaseSync) => void): void {
     mkdirSync(dirname(this.dbPath), { recursive: true });
     const db = new DatabaseSync(this.dbPath);
@@ -70,7 +69,7 @@ export class OpenCodeAgent implements MockKind {
 
   setState(state: AgentState, opts: StateOpts): void {
     this.writeSession(state, opts);
-    this.startKick(state, opts);
+    this.replay = () => this.writeSession(state, opts);
   }
 
   /** Open-write-CLOSE the session/message/part/todo rows — the WAL trigger that
@@ -195,34 +194,26 @@ export class OpenCodeAgent implements MockKind {
     this.wrote = true;
   }
 
-  /** Re-write the session on a fixed interval so a dropped WAL fs event is
-   *  retried — see `CodexAgent.startKick` (darwin FSEvents coalescing; interval
-   *  > the 150ms debounce; mirrors real OpenCode's per-turn writes). */
-  private startKick(state: AgentState, opts: StateOpts): void {
-    this.stopKick();
-    this.kickTimer = setInterval(() => this.writeSession(state, opts), 250);
-    this.kickTimer.unref?.();
-  }
-
-  private stopKick(): void {
-    if (this.kickTimer) {
-      clearInterval(this.kickTimer);
-      this.kickTimer = null;
-    }
-  }
-
   nudge(): void {
-    // No-op — `startKick` is the standing retry signal.
+    // Re-fire the last write; bin.ts's loop calls this so a dropped WAL fs event
+    // under N-worker load is retried — see `CodexAgent.nudge`.
+    this.replay?.();
   }
 
   remove(): void {
-    this.stopKick();
-    if (!this.wrote) return;
-    this.withDb((db) => {
-      db.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(
-        SESSION_ID,
-        this.cwd,
-      );
-    });
+    if (!this.wrote) {
+      this.replay = null;
+      return;
+    }
+    // The deletion is its own WAL frame — the "session gone" clear. Make it the
+    // replay so bin.ts keeps re-firing it for the removal window.
+    this.replay = () =>
+      this.withDb((db) => {
+        db.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(
+          SESSION_ID,
+          this.cwd,
+        );
+      });
+    this.replay();
   }
 }
