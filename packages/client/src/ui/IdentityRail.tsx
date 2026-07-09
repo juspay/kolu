@@ -48,7 +48,14 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   return (
     // Plain app identity mark. Hosts are the framed tab surface; Kolu should
     // not look like another host tab or daemon control.
-    <div class="inline-flex h-8 items-center gap-0.5 font-mono text-xs">
+    //
+    // `-translate-y-px`: the host tabs are pulled up 1px by their wrapper's
+    // `-mb-px` (which lets the active tab merge through the strip baseline),
+    // so their in-tab Padi/Kaval marks sit 1px above the header's true centre.
+    // This mark lives OUTSIDE a tab and would otherwise land 1px lower — the
+    // nudge lands it on the SAME row as the daemon marks so the three process
+    // marks read as one aligned family.
+    <div class="inline-flex h-8 items-center gap-0.5 font-mono text-xs -translate-y-px">
       <Tip label={koluTip()}>
         <button
           type="button"
