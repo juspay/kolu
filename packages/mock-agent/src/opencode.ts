@@ -13,6 +13,8 @@ import { DatabaseSync } from "node:sqlite";
 import { opencodeDbPath } from "./paths.ts";
 import type { AgentState, MockKind, StateOpts } from "./protocol.ts";
 
+const SESSION_ID = "opencode-mock-session-0001";
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS session (
   id TEXT PRIMARY KEY,
@@ -45,12 +47,6 @@ export class OpenCodeAgent implements MockKind {
   private readonly dbPath = opencodeDbPath();
   private readonly cwd = process.cwd();
   private wrote = false;
-  /** Bumped on every setState so the product sessionKey changes and a fresh
-   *  watcher attaches. Darwin's held SQLite connection + kqueue can miss
-   *  mid-session WAL frames for a single session id, leaving the tile stuck
-   *  on the first state; a new session id forces re-resolve + initial emit. */
-  private sessionSeq = 0;
-  private sessionId = "opencode-mock-session-0001";
   /** Re-runs the last write; bin.ts's nudge loop calls `nudge()` to replay it. */
   private replay: (() => void) | null = null;
 
@@ -86,8 +82,6 @@ export class OpenCodeAgent implements MockKind {
   }
 
   setState(state: AgentState, opts: StateOpts): void {
-    this.sessionSeq += 1;
-    this.sessionId = `opencode-mock-session-${String(this.sessionSeq).padStart(4, "0")}`;
     this.writeSession(state, opts);
     this.replay = () => this.writeSession(state, opts);
   }
@@ -95,32 +89,26 @@ export class OpenCodeAgent implements MockKind {
   /** Open-write-CLOSE the session/message/part/todo rows — the WAL trigger that
    *  encodes the opencode state. See `CodexAgent.writeThreadRow`. */
   private writeSession(state: AgentState, opts: StateOpts): void {
-    const sessionId = this.sessionId;
     this.withDb((db) => {
       // DELETE+INSERT inside one transaction so a concurrent reader sees either
       // the old or new state, never a session-less half-rewrite that clears the
-      // indicator to null/null. Wipe by directory so a prior session-seq row for
-      // this cwd can't linger as the match target.
+      // indicator to null/null.
       db.exec("BEGIN IMMEDIATE;");
-      db.prepare(
-        "DELETE FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id IN (SELECT id FROM session WHERE directory = ?))",
-      ).run(this.cwd);
-      db.prepare(
-        "DELETE FROM message WHERE session_id IN (SELECT id FROM session WHERE directory = ?)",
-      ).run(this.cwd);
-      db.prepare(
-        "DELETE FROM todo WHERE session_id IN (SELECT id FROM session WHERE directory = ?)",
-      ).run(this.cwd);
-      db.prepare("DELETE FROM session WHERE directory = ? OR id = ?").run(
+      db.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(
+        SESSION_ID,
         this.cwd,
-        sessionId,
       );
+      db.prepare(
+        "DELETE FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ?)",
+      ).run(SESSION_ID);
+      db.prepare("DELETE FROM message WHERE session_id = ?").run(SESSION_ID);
+      db.prepare("DELETE FROM todo WHERE session_id = ?").run(SESSION_ID);
 
       const now = Date.now();
       db.prepare(
         "INSERT INTO session (id, title, directory, time_updated, time_archived) VALUES (?, ?, ?, ?, NULL)",
       ).run(
-        sessionId,
+        SESSION_ID,
         opts.title ?? "opencode-mock test session",
         this.cwd,
         now,
@@ -128,8 +116,8 @@ export class OpenCodeAgent implements MockKind {
 
       const modelID = "qwen2.5-coder";
       const providerID = "test";
-      const assistantId = `${sessionId}-m-assistant`;
-      const userId = `${sessionId}-m-user`;
+      const assistantId = `${SESSION_ID}-m-assistant`;
+      const userId = `${SESSION_ID}-m-user`;
 
       if (state === "thinking") {
         // Optional earlier assistant row carrying the running token total —
@@ -140,7 +128,7 @@ export class OpenCodeAgent implements MockKind {
             "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
           ).run(
             assistantId,
-            sessionId,
+            SESSION_ID,
             now - 10,
             JSON.stringify({
               role: "assistant",
@@ -156,7 +144,7 @@ export class OpenCodeAgent implements MockKind {
           "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
         ).run(
           userId,
-          sessionId,
+          SESSION_ID,
           now,
           JSON.stringify({ role: "user", time: { created: now } }),
         );
@@ -169,7 +157,7 @@ export class OpenCodeAgent implements MockKind {
           "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
         ).run(
           assistantId,
-          sessionId,
+          SESSION_ID,
           now,
           JSON.stringify({
             role: "assistant",
@@ -197,7 +185,7 @@ export class OpenCodeAgent implements MockKind {
           "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
         ).run(
           assistantId,
-          sessionId,
+          SESSION_ID,
           now,
           JSON.stringify({
             role: "assistant",
@@ -218,7 +206,7 @@ export class OpenCodeAgent implements MockKind {
             "INSERT INTO todo (id, session_id, status) VALUES (?, ?, ?)",
           ).run(
             `t${i}`,
-            sessionId,
+            SESSION_ID,
             i < opts.todos.completed ? "completed" : "pending",
           );
         }
@@ -243,7 +231,10 @@ export class OpenCodeAgent implements MockKind {
     // replay so bin.ts keeps re-firing it for the removal window.
     this.replay = () =>
       this.withDb((db) => {
-        db.prepare("DELETE FROM session WHERE directory = ?").run(this.cwd);
+        db.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(
+          SESSION_ID,
+          this.cwd,
+        );
       });
     this.replay();
   }
