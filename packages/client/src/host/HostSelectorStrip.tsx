@@ -160,7 +160,9 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   const isLocal = () => props.host.kind === "local";
   const urgency = padiMap.entry(props.host).cells.urgency.use({
     onError: (err: Error) =>
-      toast.error(`Host ${hostLabel(props.host)} urgency error: ${err.message}`),
+      toast.error(
+        `Host ${hostLabel(props.host)} urgency error: ${err.message}`,
+      ),
   });
   const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
   // The active-host signal + this chip's own host are compared by their CANONICAL
