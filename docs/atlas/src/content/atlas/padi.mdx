@@ -4,7 +4,7 @@ description: The architecture that replaces the R9/R10 finale plan for remote te
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-07-08
+updated: 2026-07-09
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -381,21 +381,46 @@ Each entry: the symptom as the user sees it, the one-line cause, the remedies ra
 
 <a id="w6"></a>
 
-### W6 — the honest connect *(client-only; the data already flows — a small, high-value UX phase)*
+### W6 — the honest connect *(overlay + the connection type made perfect; ~a day, drishti-gated)*
 
 **In simple words:** connecting to a remote host can compile+copy padi onto that machine over ssh — on a first connect to a fresh host that Nix build takes **minutes**. Today the whole canvas shows one dead word, **"Connecting…"**, indistinguishable from a hang (srid hit exactly this live — twice: on the original W4, and re-confirmed 2026-07-07 on the surface-map redesign, where the remote chip shows amber but the canvas stays mute). Drishti already narrates this window properly ("copying derivation…"); kolu should match. After this phase the overlay tells the truth: *which* phase it's in (provisioning vs connecting), a live tail of the actual build output, and an elapsed timer — so "it's working, first-time setup takes a moment" is unmistakable, and a real failure shows the real reason.
 
 **The reason this is cheap — the signal already exists and already reaches the browser; only the UI discards it.** The session lifecycle has a **distinct `copying` state** separate from `connecting` (`CONNECTION_STATES` in `packages/surface-remote/src/connection.ts` — and after the P4 type-split, `copying` is *remote-arm-only by type*, which makes the narration honest by construction), and the connection info already carries **`progressLines`** — the live `nix copy` / realise stderr, forwarded by `nixCopy.ts`'s `onProgress` and piped browser-ward by `connectionPipe.ts`. It also distinguishes **`failureCause`** — `network` (unreachable, retries) vs `remote` (reached, rejected, terminal). Under the surface-map redesign this all rides the **`entries` collection's per-host `EntryConnectionState`** (`serveHostMap`'s projection preserves `copying` distinctly), so the strip's chip and the canvas overlay read the same one authority. The bug is purely that the connect overlay collapses this rich state into `"Connecting…"`.
 
-**The work (client-only, no daemon change; lands as its own follow-up PR after surface-map merges — srid-phased):** the connect overlay reads the active entry's state from `entries` and renders honestly —
-- **`copying`** → a distinct message naming the host and the act ("Provisioning padi on `zest`… first connect builds it, this can take a few minutes"), with a **live tail** of the last N `progressLines` (dimmed monospace) and an **elapsed timer** so long-but-progressing never reads as hung;
-- **`connecting`** → the brief post-copy handshake, distinct from copying;
-- **`failed`** → the real `lastError` + the `progressLines` tail (the actual "why"), with `network` ("`zest` unreachable — retrying") read differently from `remote` ("`zest` rejected the connection");
-- the **fast path stays calm** — a warm reconnect (no copy) shows `connected` immediately with no alarming build UI; the heavy provisioning treatment appears only when `copying` actually fires.
+**The work (ratified 2026-07-08 — two halves, one PR + the drishti pair):**
+
+**Half 1 — the connection type, made perfect** (per /architecture-first-principles; the server sum is flattened into a lying 4-nullable-field product at the browser boundary today, and three lens findings land together). The final types, verbatim:
+
+```ts
+// @kolu/surface-remote — ONE framework type; the connector declares its own phases
+type SessionState<Prov extends string = never> = {
+  log: readonly { source: "local" | "remote"; line: string }[];   // last 20, never reset
+} & (
+  | { phase: "connecting" | "connected" | Prov }                  // up — error fields don't exist
+  | { phase: "disconnected"; error: string; cause: "network" | "remote" }
+  | { phase: "failed";       error: string; cause: "remote" }     // network is never terminal — by type
+);
+
+type SshProv = "copying" | "building";
+//  copying  = nix copy --derivation …  (the .drv push — fast)
+//  building = ssh $host nix-store --realise …  (the remote compile — the minutes)
+// sshConnector: SessionState<SshProv> · local endpoint: SessionState<never>
+
+// browser cell: z.discriminatedUnion("phase", …) mirroring the SAME arms
+// (up arms carry only log; disconnected carries error+cause both; failed carries cause:"remote" only)
+```
+
+DELETED by this reshape: `remoteProgressLines` (a stored duplicate — now `log.filter(source === "remote")`), the `[local] `/`[remote] ` in-band string prefixes (provenance becomes a field), and the `ProvisioningPhase`/`UpConnectionState`/`LocalConnectionState`/`FailureCause`/`SessionStateCommon` name-chain (one type + one connector vocabulary + one zod const replace all seven names). The `copying`→`copying|building` split is the connector updating its own declared vocabulary — zero framework change, and `nixCopy.ts` already runs the two steps as separate commands. **Wire-schema change ⇒ the drishti gate applies** (drishti reads the cell at `App.tsx:690`; paired PR, green at final kolu HEAD).
+
+**Half 2 — the kolu overlay** (client-only, small): the connect overlay reads the active entry's connection cell and switches exhaustively on `phase` —
+- **`copying`** → "Provisioning padi on `zest`… (first connect ships the recipe)" · **`building`** → "Building padi on `zest`… this can take a few minutes" — each with a **live tail** of the last N `log` lines (dimmed monospace) and an **elapsed timer**, so long-but-progressing never reads as hung;
+- **`connecting`** → the brief post-provision handshake, distinct;
+- **`failed`** → the real `error` + the `log` tail (the actual "why"); `disconnected`+`network` ("`zest` unreachable — retrying") reads differently from a standing `remote` refuse (the Skew-UX card already owns those);
+- the **fast path stays calm** — a warm reconnect (the fused realise probe short-circuits) shows `connected` immediately, no build UI.
 
 **Design care:** show a *tail* (last few lines) + elapsed, not a firehose of the whole Nix log, and **not** a fake percentage bar (a Nix build has no honest progress %); the reassurance is "named phase + real output + elapsed + 'first-time setup'", which is truthful where a progress bar would lie.
 
-- **Done:** connect to a fresh remote host (cold Nix build) → the overlay names the provisioning phase, streams live build lines, and shows elapsed — never a mute "Connecting…"; a warm reconnect connects fast with no build UI; a genuine failure shows the real error tail, and unreachable reads differently from rejected.
+- **Done:** connect to a fresh remote host (cold Nix build) → the overlay names copying vs building, streams live log lines, and shows elapsed — never a mute "Connecting…"; a warm reconnect connects fast with no build UI; a genuine failure shows the real error tail, and unreachable reads differently from rejected. AND the types hold the line: `failed`+`network` is a compile error, `remoteProgressLines` no longer exists, the browser cell is the discriminated mirror of the server sum (drishti pair green).
 
 <a id="cleanup"></a>
 
