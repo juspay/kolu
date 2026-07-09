@@ -41,21 +41,17 @@ import {
 import { channelLive } from "../kaval/daemonPresentation";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
 import { getClockNow } from "../time/clock";
-import { IdentityMark, StatusDot } from "../ui/IdentityMark";
+import {
+  dualDaemonSlotClass,
+  IdentityMark,
+  identityMarkBtnClass,
+  StatusDot,
+} from "../ui/IdentityMark";
 import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { dotClass, sameHost, statusTitle } from "./hostChipTone";
-
-/** Outer dual-daemon slot — fixed on every host chip. */
-const DUAL_DAEMON_SLOT_CLASS =
-  "flex h-7 w-[3.25rem] shrink-0 items-center justify-center";
-
-// Hover must read on both active (`bg-surface-3`) and inactive chips — use a
-// bright wash + accent ring so the hit target is obvious (not a 10% wash).
-const subChipClass =
-  "pointer-events-auto shrink-0 relative flex h-7 w-[1.5rem] items-center justify-center rounded-md leading-4 text-fg-2 transition-colors hover:bg-accent/30 hover:text-fg hover:ring-1 hover:ring-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
@@ -139,7 +135,7 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
           ref={triggerEl}
           data-testid="padi-identity-chip"
           onClick={() => activateThen(props.host, setOpen)}
-          class={subChipClass}
+          class={identityMarkBtnClass}
           aria-label={padiTip()}
           aria-expanded={open()}
         >
@@ -238,7 +234,7 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
           ref={triggerEl}
           data-testid="kaval-identity-chip"
           onClick={() => activateThen(props.host, setOpen)}
-          class={subChipClass}
+          class={identityMarkBtnClass}
           aria-label={kavalTip()}
           aria-expanded={open()}
         >
@@ -276,7 +272,7 @@ export const HostDualDaemonSlot: Component<{
   const filled = () => !props.measure;
   return (
     <div
-      class={DUAL_DAEMON_SLOT_CLASS}
+      class={dualDaemonSlotClass}
       data-testid="host-dual-daemon-slot"
       data-filled={filled() ? "" : undefined}
       aria-hidden={filled() ? undefined : true}

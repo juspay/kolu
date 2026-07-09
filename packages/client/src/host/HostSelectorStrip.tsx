@@ -100,7 +100,8 @@ import {
  *  ResizeObserver lands real DOM widths (jsdom/async). Independent of the
  *  dual-daemon slot CSS — measurement is truth; this only avoids dumping
  *  every chip into overflow on the very first paint. */
-const FIRST_FRAME_CHIP_WIDTH_GUESS: number = 148;
+// Includes dual-daemon slot = two `w-7` marks (`w-14` / 56px) + label + padding.
+const FIRST_FRAME_CHIP_WIDTH_GUESS: number = 156;
 
 /** Tailwind `md` (768px) — chip row vs dropdown. Real Solid media signal so
  *  only ONE dual-daemon fill mounts (CSS `hidden` does not unmount). */

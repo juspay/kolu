@@ -11,7 +11,7 @@ import type { KoluBuildInfo } from "kolu-common/surface";
 import { type Component, createSignal, Show } from "solid-js";
 import { daemonTransportLive, serverDot } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
-import { IdentityMark, StatusDot } from "./IdentityMark";
+import { IdentityMark, identityMarkBtnClass, StatusDot } from "./IdentityMark";
 import { joinTip } from "./joinTip";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { mbText } from "./memory";
@@ -40,14 +40,16 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
     );
 
   return (
-    <div class="inline-flex items-center gap-0.5 rounded-xl border border-edge/90 bg-surface-2/80 px-1 py-1 font-mono text-xs shadow-sm shadow-black/25">
+    // Same outer height as a host chip (`h-7`) — no extra py/padding frame that
+    // made Kolu taller than Padi/Kaval marks.
+    <div class="inline-flex h-7 items-center gap-0.5 rounded-lg border border-edge/90 bg-surface-2/80 font-mono text-xs shadow-sm shadow-black/25">
       <Tip label={koluTip()}>
         <button
           type="button"
           ref={triggerEl}
           data-testid="kolu-identity-chip"
           onClick={() => setKoluDialogOpen((v) => !v)}
-          class="inline-flex h-7 items-center gap-1.5 rounded-lg px-2 leading-4 text-fg-2 transition-colors hover:bg-accent/30 hover:text-fg hover:ring-1 hover:ring-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+          class={identityMarkBtnClass}
           aria-label={koluTip()}
           aria-expanded={koluDialogOpen()}
         >

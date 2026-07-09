@@ -1,12 +1,22 @@
-/** The identity-chip mark shared by every process chip in the header — the Kolu
- *  chip (`IdentityRail`) and the per-host Padi/Kaval sub-chips
- *  (`HostDaemonChips`, filled into the active host chip's dual-daemon slot).
- *  One logo + one status dot, sized to sit inside an `h-7` chip row. Kept as
- *  the SOLE mark component so a chip's dot styling can't drift between Kolu
- *  and the per-host daemon chips. */
+/** Shared identity mark for every process chip in the header — Kolu
+ *  (`IdentityRail`) and per-host Padi/Kaval (`HostDaemonChips`).
+ *
+ *  ONE size: logo + status dot, sized for an `h-7` chrome row. ONE hit-target
+ *  class for the clickable wrapper so Kolu and the dual-daemon marks can't
+ *  drift (the inconsistency that made Kolu's padded pill look bigger than
+ *  the host-chip icons). */
 
 import type { Component, JSX } from "solid-js";
 import type { WsStatus } from "../rpc/rpc";
+
+/** Hit target for an icon+dot mark button — Kolu, Padi, Kaval. Square `h-7 w-7`
+ *  so every process mark in the chrome bar is the same size. */
+export const identityMarkBtnClass =
+  "pointer-events-auto shrink-0 relative inline-flex h-7 w-7 items-center justify-center rounded-lg leading-none text-fg-2 transition-colors hover:bg-accent/30 hover:text-fg hover:ring-1 hover:ring-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer";
+
+/** Fixed dual-daemon slot: exactly two mark buttons wide (`w-7` × 2). */
+export const dualDaemonSlotClass =
+  "flex h-7 w-14 shrink-0 items-center justify-center";
 
 export const IdentityMark: Component<{
   logoSrc: string;
