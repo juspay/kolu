@@ -1,6 +1,7 @@
-# Build the default package and push its closure to the shared Attic cache
-# (https://cache.nixos.asia/oss). The flake already lists this cache as a
-# substituter, so a green push here warms CI boxes and local `nix build`s.
+# Build the default package on linux + darwin and push each closure to the
+# shared Attic cache (https://cache.nixos.asia/oss). The flake already lists
+# this cache as a substituter, so a green push here warms CI boxes and local
+# `nix build`s on both platforms.
 name: nix-cache
 
 on:
@@ -19,34 +20,36 @@ concurrency:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-latest → x86_64-linux; macos-latest → aarch64-darwin
+        # (GitHub's current macos-latest image). Covers the two platforms
+        # that actually run kolu day-to-day; aarch64-linux / x86_64-darwin
+        # stay out of the matrix until something needs them warmed.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      # Pin by commit (CodeQL: unpinned third-party action). v31 → 889f318.
-      - uses: nixbuild/nix-quick-install-action@889f3180bb5f064ee9e3201428d04ae9e41d54ad # v31
+      # Pin by commit (CodeQL: unpinned third-party action). v35 → 9f63be7.
+      # Defaults to Nix 2.34.7 (`nix profile add`).
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
           nix_conf: |
             extra-substituters = https://cache.nixos.asia/oss
             extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
             accept-flake-config = true
 
-      - name: Install attic
-        # Prefer `install` — nix-quick-install's Nix still uses that subcommand
-        # (newer Nix renamed it to `add`; ryanccn/attic-action only tries `add`).
-        run: nix profile install nixpkgs#attic-client
-
-      - name: Login to Attic
-        env:
-          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
-        run: attic login ci https://cache.nixos.asia "$ATTIC_TOKEN"
+      # Installs attic, logs in, uses the cache as a substituter, and at job
+      # end pushes every store path this run produced. Needs a Nix new enough
+      # for `nix profile add` (hence v35 above — v31's 2.29 only had
+      # `profile install`, which is why #1731 dropped this action).
+      - uses: ryanccn/attic-action@5635a15ef0c5462194ffbd05d1daeddc74625c3a # v0.5.0
+        with:
+          endpoint: https://cache.nixos.asia
+          cache: oss
+          token: ${{ secrets.ATTIC_TOKEN }}
 
       - name: Build
-        id: build
-        run: |
-          out=$(nix build -L --print-out-paths --no-link)
-          echo "out=$out" >> "$GITHUB_OUTPUT"
-          echo "Built: $out"
-
-      - name: Push to Attic
-        run: attic push ci:oss "${{ steps.build.outputs.out }}"
+        run: nix build -L --print-out-paths
