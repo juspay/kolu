@@ -2,8 +2,8 @@
 title: Grok CLI as a fourth agent
 description: Plan for first-class Grok Build (binary `grok`) support — a sibling AgentAdapter that detects sessions under ~/.grok, surfaces state on the dock/tile, and joins claude · codex · opencode in the closed agent union.
 parents: [feature]
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 updated: 2026-07-09
 ---
 
@@ -11,6 +11,7 @@ import Callout from "../../components/Callout.astro";
 import Svg from "../../components/Svg.astro";
 import Footnote from "../../components/Footnote.astro";
 import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
 import diagram from "../../diagrams/grok-cli-support.svg?raw";
 
 xAI ships **[Grok Build](https://x.ai/news/grok-build-cli)** — a terminal coding agent
@@ -24,7 +25,8 @@ a fourth full adapter, not a detection-only basename.<Footnote>Detection-only ag
 Run `grok` in any kolu terminal → tile chrome shows a Grok icon and live state
 (thinking / tools / waiting / awaiting you), the dock ranks it like the other
 agents, sleep/restore resumes with `grok -c` or `grok --resume &lt;uuid&gt;`, and
-the worktree agent picker can re-launch the normalized command. One PR.
+the worktree agent picker can re-launch the normalized command. Implemented in
+<PrLink pr={1732} />.
 </Callout>
 
 ## Shape
