@@ -184,41 +184,44 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
 
-**The ratified architecture (2026-07-10).**<Footnote>Two grounded reviews: a 12-agent /architecture-first-principles + /perfection-review fan-out (3 ground readers over kolu, drishti, and the framework seams · 3 independent designs · 6 adversarial refuters — the level layer survived every adversary; browser-side frame-diff edge detection was refuted four ways: unordered streams, default-materialization double-fire after restarts, per-window dedup memory, and clear→re-raise misses inside a link flap), then an independent /hickey pass that cut the surface-map braid (attention has nothing to do with maps) and found the hydration lie, re-judged with the fact that drishti's adoption is committed and lands paired.</Footnote> Attention is **level state** ("what needs you now"), written once per host at the endpoint that can know it (padi's awaiting fold; drishti's server, which holds the metrics history — threshold + hysteresis live there), carried as an ordinary per-entry cell. Nothing attention-specific enters `@kolu/surface-map`; the framework's pieces are generic. Three framework packages each gain a piece — `@kolu/surface-remote` (the hydration fact), `@kolu/surface-map` (the kernel, the pure fold, the watcher), `@kolu/surface-app` (delivery) — taught end-to-end in [the attention primer](surface-attention-101.html):
+**The ratified architecture (2026-07-10).**<Footnote>Two grounded reviews: a 12-agent /architecture-first-principles + /perfection-review fan-out (3 ground readers over kolu, drishti, and the framework seams · 3 independent designs · 6 adversarial refuters — the level layer survived every adversary; browser-side frame-diff edge detection was refuted four ways: unordered streams, default-materialization double-fire after restarts, per-window dedup memory, and clear→re-raise misses inside a link flap), then an independent /hickey pass that cut the surface-map braid (attention has nothing to do with maps) and found the hydration lie, re-judged with the fact that drishti's adoption is committed and lands paired.</Footnote> Attention is **level state** ("what needs you now"), written once per host at the endpoint that can know it (padi's awaiting fold; drishti's server, which holds the metrics history — threshold + hysteresis live there), carried as an ordinary per-entry cell — an event member is the wrong carrier (fired while the browser is closed or the link is flapping it is simply *gone*; a cell replays current truth on every (re)connect). It lands as **two PRs**: **phase 1**, a surface refactor of its own (paired kolu + drishti + odu adoption PRs — the primitives are modified freely), completes the framework's primitives; **phase 2** is W5 itself on top. Four framework packages each gain a piece — `@kolu/surface` (the cell reader completes the Dynamic), `@kolu/surface-remote` (a mirror never fabricates a value), `@kolu/surface-map` (the eager watcher), `@kolu/surface-app` (delivery) — taught end-to-end in [the attention primer](surface-attention-101.html):
 
 ```ts
-// @kolu/surface-remote — the blocking prerequisite: today a re-served cell's FIRST frame
-// is the declared spec default, indistinguishable from the authority's truth (the root of
-// every refuted reconnect double-fire). Every mirrored cell gains an honest hydration fact:
-type Mirrored<V> =
-  | { hydrated: false; value: V }   // the declared default — no authority asserted it
-  | { hydrated: true;  value: V };  // folded from the authority
+// ── PHASE 1 · the surface refactor PR ───────────────────────────────────────
 
-// @kolu/surface-map — generic, attention-agnostic:
-//  · the membership kernel factored OUT of scopedByEntry (entries fold · codec identity ·
-//    keyArray per-key root · dispose on exit) — the lazy scopedByEntry and the new eager
-//    watcher both call it; the kernel is never re-derived
-//  · the pure per-entry transition — THE shared semantics, property-tested once:
-type EntryEvent<A> =
-  | { kind: "join" } | { kind: "exit" }
-  | { kind: "liveness"; live: boolean }
-  | { kind: "frame"; hydrated: boolean; value: A };
-function stepEntryAttention<A>(
-  prev: EntryAttentionState<A>,
-  event: EntryEvent<A>,
-  items: (a: A) => readonly string[],   // stable item ids — the app's one obligation
-): { next: EntryAttentionState<A>; raised: readonly string[] };
-//  · a thin eager watcher pumping ordered events into that fold:
+// @kolu/surface — the cell reader completes the Dynamic:
+interface Subscription<T> extends Accessor<T | undefined> {
+  // pending / error / complete as today, plus:
+  updated(handler: (change: { prev: T; next: T }) => void): Dispose;
+  // fires exactly when the value CHANGES (equals-deduped at the producer);
+  // a first frame is a value, not a change — it never fires;
+  // a reconnect snapshot equal to the last-seen value never fires;
+  // one that differs fires exactly once, prev = the last-seen value.
+}
+
+// @kolu/surface-remote — a mirror never fabricates a value: a mirrored cell
+// serves NO frame until the authority's first real one, so the reader's
+// "undefined until the first frame" is true end-to-end; the declared default
+// belongs to the one writer, never to mirrors.
+
+// ── PHASE 2 · W5 — attention on top ─────────────────────────────────────────
+
+// @kolu/surface-map — an eager per-member watcher on scopedByEntry's membership
+// kernel (entries fold · codec identity · keyArray roots · dispose-on-exit —
+// one kernel, two policies: lazy scopedByEntry for client state, eager watcher
+// reading the wire). Raise detection is a pure set-diff over updated's
+// {prev, next} pairs — no hand-held prev, no frame classification:
 function watchByEntry<A>(client, cell, items, onRaise): {
   get(key): { kind: "live" | "stale"; value: A } | undefined;  // chips read this
-};  // deliberately NO total(): aggregation is app policy (the two consumers disagree)
+};  // items(a) ⇒ stable ids — the app's one obligation;
+    // deliberately NO total(): aggregation is app policy (the two consumers disagree)
 
 // @kolu/surface-app — delivery at the origin's ONE service worker (never per window):
 notify.show({ tag: `${host}/${itemId}`, title, data: { host, itemId } });  // same tag replaces, never stacks
 notify.onClick(({ host, itemId }) => { /* the app routes */ });
 ```
 
-kolu (this phase):
+kolu (phase 2 — this phase):
 
 ```ts
 // padi — the one writer: the awaiting fold publishes its value shape
@@ -247,7 +250,7 @@ const att = watchByEntry(hostMap, e => e.cells.alerts, v => v.items.map(i => i.i
 notify.onClick(({ host }) => expandHost(host));
 ```
 
-What stays app-side, deliberately: the domain folds and value shapes (two folds that merely rhyme are not unified), every aggregation, the pixels, the click semantics. One semantic the step fold's property tests must pin before implementation: a clear→re-raise of the same item id entirely inside a connectivity gap (the app-side fallback if level-only proves insufficient is an occurrence counter in the app's value).
+What stays app-side, deliberately: the domain folds and value shapes (two folds that merely rhyme are not unified), every aggregation, the pixels, the click semantics.
 
 - **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
 - *Field note (2026-07-08, srid on the W4 deploy):* the asymmetry is now user-visible — OS notifications escape the app (cross-host reach), but unread marks live in each host's `hostScope` owner (W7), whose only render surface is the active host's dock, so a background host's attention is invisible. W5's chip counts are the missing rollup. One wiring fact for the implementer: `useTerminalAlerts`'s transition watcher rides the ACTIVE host's swapped store — the urgency-projection member (this phase's wire design) is what makes background hosts observable, not the client-side watcher.
