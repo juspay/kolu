@@ -15,15 +15,23 @@
  *  the effect and is not what the flags are for. Matches the shipped latch's
  *  semantics exactly.
  *
- *  - `decided` — the empty-vs-restore decision has been made for this host (drives
- *    the restore card).
- *  - `seeded` — the client view-state seed (active tile + MRU + panels) has run
- *    for this host. Re-armed to `false` by an explicit in-session restore. */
+ *  ONE `state` field, a union — NOT two independent booleans — so the impossible
+ *  "seeded but undecided" is unrepresentable (the view can't be seeded before the
+ *  empty-vs-restore decision runs; that invariant was previously upheld only by
+ *  call-site discipline):
+ *  - `undecided` — the empty-vs-restore decision has not run (initial).
+ *  - `decided-unseeded` — decided (the restore card can show), the client view-state
+ *    seed has NOT run yet. Also the state an explicit in-session restore re-arms to.
+ *  - `decided-seeded` — decided AND the view seed (active tile + MRU + panels) ran. */
+export type RestoreLatchState =
+  | "undecided"
+  | "decided-unseeded"
+  | "decided-seeded";
+
 export interface HostRestoreLatch {
-  decided: boolean;
-  seeded: boolean;
+  state: RestoreLatchState;
 }
 
 export function createSessionRestore(): HostRestoreLatch {
-  return { decided: false, seeded: false };
+  return { state: "undecided" };
 }

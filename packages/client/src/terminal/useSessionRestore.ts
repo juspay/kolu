@@ -79,14 +79,14 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // (the gate above already waited for BOTH the list and session cells to
     // yield). When empty, the card reads `savedSession`; the re-fetch effect
     // below keeps it current after.
-    if (!latch.decided) {
-      latch.decided = true;
+    if (latch.state === "undecided") {
+      latch.state = "decided-unseeded";
       if (store.terminalIds().length === 0) {
         setSavedSession(fromServer);
         return;
       }
     }
-    if (latch.seeded) return;
+    if (latch.state === "decided-seeded") return;
     // Wait for the composed record to arrive (via `store.getMetadata`) for EVERY
     // listed terminal — hydration reads `parentId` and `subPanel` off the record
     // (since #806 the list snapshot no longer carries `meta`). `getMetadata`
@@ -105,7 +105,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // never reaches here: the empty-vs-restore decision above returns first
     // (`terminalIds()` is empty).
     if (joined.length === 0) return;
-    latch.seeded = true;
+    latch.state = "decided-seeded";
     hydrateFromTerminals(joined, fromServer?.activeTerminalId ?? null);
   });
 
@@ -176,7 +176,10 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     const fromServer = serverSavedSession();
     // `activeScope()` re-keys on switch, so this effect reads the ACTIVE host's
     // decision latch and re-runs on a host switch.
-    if (store.terminalIds().length === 0 && activeScope()?.restore.decided) {
+    if (
+      store.terminalIds().length === 0 &&
+      (activeScope()?.restore.state ?? "undecided") !== "undecided"
+    ) {
       setSavedSession(fromServer);
     }
   });
@@ -206,7 +209,9 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // it here lets the effect re-seed once the restored terminals arrive; it
     // re-latches true after seeding, so a later reconnect is still a no-op.
     const latch = activeScope()?.restore;
-    if (latch) latch.seeded = false;
+    // Re-arm: this runs from the restore card (already `decided`), so drop back to
+    // `decided-unseeded` — the next hydration effect re-seeds the view.
+    if (latch) latch.state = "decided-unseeded";
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
     );
