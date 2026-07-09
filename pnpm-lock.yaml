@@ -251,9 +251,9 @@ importers:
       '@kolu/surface-map':
         specifier: workspace:*
         version: link:../surface-map
-      '@kolu/terminal-workspace':
+      '@kolu/terminal-vocab':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../terminal-vocab
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
@@ -275,6 +275,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -485,6 +488,31 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/integrations/grok:
+    dependencies:
+      anyagent:
+        specifier: workspace:*
+        version: link:../anyagent
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/integrations/io:
     dependencies:
       '@kolu/log':
@@ -669,9 +697,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
-      '@kolu/terminal-workspace':
+      '@kolu/terminal-vocab':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../terminal-vocab
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -705,6 +733,12 @@ importers:
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
+      kolu-github:
+        specifier: workspace:*
+        version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -760,9 +794,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@kolu/terminal-workspace':
+      '@kolu/terminal-vocab':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../terminal-vocab
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
@@ -840,9 +874,9 @@ importers:
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
-      '@kolu/terminal-workspace':
+      '@kolu/terminal-vocab':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../terminal-vocab
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -894,6 +928,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -1100,9 +1137,9 @@ importers:
 
   packages/solid-statepip:
     dependencies:
-      '@kolu/terminal-workspace':
+      '@kolu/terminal-vocab':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../terminal-vocab
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1775,23 +1812,14 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/terminal-workspace:
+  packages/terminal-vocab:
     dependencies:
-      '@kolu/surface':
-        specifier: workspace:*
-        version: link:../surface
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
-      kaval:
-        specifier: workspace:*
-        version: link:../kaval
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -1804,12 +1832,12 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
-      pino:
-        specifier: ^10.3.1
-        version: 10.3.1
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0

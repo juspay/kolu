@@ -45,7 +45,7 @@
  *
  * BROWSER-SAFE face: like `koluSurface` this imports
  * only `@kolu/surface/define`, zod-only schema modules (its own `./vocab.ts` +
- * `./transcriptSchema.ts`, `kolu-git/schemas`, `@kolu/terminal-workspace/schema`),
+ * `./transcriptSchema.ts`, `kolu-git/schemas`, `@kolu/terminal-vocab/schema`),
  * and `zod` — no `node:`/kaval runtime (that lives beside this, in the node-only
  * side the motion stage adds). The terminal VOCABULARY now lives HERE (`./vocab.ts`,
  * re-exported below): the arrow points `kolu-common → @kolu/padi`, never back. The
@@ -63,7 +63,7 @@ import {
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
   TerminalIdSchema,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/terminal-vocab/schema";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import {

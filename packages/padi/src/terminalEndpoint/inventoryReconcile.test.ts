@@ -1,4 +1,4 @@
-import type { TerminalId } from "@kolu/terminal-workspace/schema";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PtyHostInventoryEvent, PtyHostListEntry } from "kaval";
 import { describe, expect, it, vi } from "vitest";
 import {

@@ -214,7 +214,7 @@ void pumpRemoteSurface({
 
 **5 — Gate the client on the cell, not on `version.pending()`.** In `packages/pulam-web/src/client/HostGroup.tsx`: read `app.cells.connection.use()` and make the top-level gate `connection.state === "connected"` — replacing the `version.pending()` “connecting…” gate (~line 289) and the `awareness.keys().length` “no terminals” decision (~line 297). Off-`connected` renders the state-driven body: provisioning / connecting+elapsed / reconnecting (refined by `failureCause`) / the **failed card** (`lastError` + `progressLines` tail + a **Reconnect** button that hits a small `POST /api/reconnect?host=` route calling `registry.getSession(host).reconnect()`). Only `connected` reaches the existing awareness rendering, where “no terminals” is finally honest. The header dot reads a pulam-web-local `STATE` map keyed by `connection.state` (its own palette — the UI the panel keeps app-local). `statusForHost` (the browser↔backend socket) stays a *secondary* indicator and no longer decides healthy-vs-empty. `DEFAULT_VERSION` keeps its real job (a version snapshot) and simply stops being abused as a link-live proxy.
 
-```tsx
+```text
 // packages/pulam-web/src/client/HostGroup.tsx
 const connection = app.cells.connection.use({ onError });
 const info = (): ConnectionInfo => connection.value() ?? DEFAULT_CONNECTION;

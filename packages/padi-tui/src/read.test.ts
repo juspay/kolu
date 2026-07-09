@@ -13,7 +13,7 @@
  */
 
 import type { PadiTerminal } from "@kolu/padi/surface";
-import type { AgentInfo, TerminalId } from "@kolu/terminal-workspace/schema";
+import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import type { PadiTuiClient } from "./connect.ts";
 import { awaitAgentState, settledSnapshot } from "./read.ts";

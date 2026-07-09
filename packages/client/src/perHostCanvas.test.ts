@@ -98,10 +98,12 @@ vi.mock("./wire", async () => {
   };
 });
 
-// `createHostPrefs`'s per-host prefs (`showSleeping` via `boolPref`, `activityWindow`
-// via `persistedPref`) — stub both to a plain in-memory signal-shaped pair honoring
-// the passed `fallback`, so the test needs no real `localStorage`. The three blocks
-// below exercise only `activeId`/`mruOrder`, so these prefs' values are never asserted.
+// `createHostPrefs`'s per-host prefs (`showSleeping` via `perHostBoolPref`,
+// `activityWindow` via `perHostPref`) and `createViewState`'s posture
+// (`canvasMaximized` via `perHostBoolPref`) — stub each to a plain in-memory
+// signal-shaped pair honoring the passed `fallback`, so the test needs no real
+// `localStorage`. The three blocks below exercise only `activeId`/`mruOrder`, so
+// these prefs' values are never asserted.
 vi.mock("./persistedPref", () => {
   const stub = <T>(fallback: T) => {
     let v = fallback;
@@ -113,8 +115,9 @@ vi.mock("./persistedPref", () => {
     ];
   };
   return {
-    boolPref: (opts: { fallback: boolean }) => stub(opts.fallback),
     persistedPref: <T>(opts: { fallback: T }) => stub(opts.fallback),
+    perHostBoolPref: (opts: { fallback: boolean }) => stub(opts.fallback),
+    perHostPref: <T>(opts: { fallback: T }) => stub(opts.fallback),
   };
 });
 

@@ -8,7 +8,7 @@
  *  `lastActivityAt` is bumped only on agent semantic-key transitions
  *  (`packages/server/src/meta/agent.ts`), so terminals that never hosted an
  *  agent stay `null` (the honest never-active reading — see `AgentMemorySchema`
- *  in `@kolu/terminal-workspace/schema`) and are excluded — staleness only
+ *  in `@kolu/terminal-vocab/schema`) and are excluded — staleness only
  *  applies to terminals whose attention state has actually been observed at
  *  some point.
  *

@@ -13,7 +13,7 @@
 import { padiSurface, type PadiTerminal } from "@kolu/padi/surface";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
-import type { AgentInfo, TerminalId } from "@kolu/terminal-workspace/schema";
+import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiTuiClient } from "./connect.ts";
 import { activeAgent, agentMatchesUntil } from "./render.ts";
 
