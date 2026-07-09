@@ -16,9 +16,9 @@
  *      (The right-panel collapsed bit is NOT here — it's a global VIEWER-layout
  *      preference that must survive reload; a per-host in-memory bit broke that.) */
 
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { type Accessor, onCleanup, type Setter } from "solid-js";
-import { boolPref, persistedPref } from "../persistedPref";
+import type { HostKey } from "kolu-common/hostKey";
+import type { Accessor, Setter } from "solid-js";
+import { perHostBoolPref, perHostPref } from "../persistedPref";
 import {
   type ActivityWindow,
   DEFAULT_ACTIVITY_WINDOW,
@@ -39,39 +39,23 @@ export interface HostPrefs {
 }
 
 export function createHostPrefs(host: HostKey): HostPrefs {
-  // The per-host storage-key suffix — the map's `codec.encode(host)`, computed
-  // once per owner. A per-host pref's key is `<base>:<host>`, appended HERE in
-  // one place (`perHostKey`) so a sticky pref cannot be spelled without its host
-  // scope — the "remember to append `:${encoded}`" hazard dies at the seam.
-  const encoded = encodeHostKey(host);
-  const perHostKey = (base: string): string => `${base}:${encoded}`;
-
-  // Dock filters: persisted PER HOST — a dock filter is a sticky preference (it
-  // must survive reload), but keyed by host so two hosts don't share one filter.
-  const [activityWindow, setActivityWindow] = persistedPref<ActivityWindow>({
-    name: perHostKey("kolu-activityWindow"),
+  // Dock filters: persisted PER HOST — a dock filter is a sticky preference (it must
+  // survive reload), but keyed by host so two hosts don't share one filter.
+  // `perHostPref`/`perHostBoolPref` own the `<base>:<host>` key composition + the
+  // evict-on-host-exit cleanup (see their docstrings); this factory just names each base.
+  const [activityWindow, setActivityWindow] = perHostPref<ActivityWindow>({
+    host,
+    base: "kolu-activityWindow",
     fallback: DEFAULT_ACTIVITY_WINDOW,
     parse: (raw) => {
       if (isActivityWindow(raw)) return raw;
       throw new Error(`unrecognized activity window: ${raw}`);
     },
   });
-  const [showSleeping, setShowSleeping] = boolPref({
-    name: perHostKey("kolu-showSleeping"),
+  const [showSleeping, setShowSleeping] = perHostBoolPref({
+    host,
+    base: "kolu-showSleeping",
     fallback: true,
-  });
-
-  // EVICT this host's persisted filters when it leaves the pool. `scopedByEntry`'s
-  // `keyArray` disposes this owner the instant the host leaves `padiMap.entries`
-  // (a `hosts.remove`), firing this cleanup. Without it, every distinct HostKey a
-  // tab ever activated — including kolu's ephemeral remote boxes with unique names
-  // (`pu` / remote-host-testing) — would leave two orphaned `localStorage` keys
-  // FOREVER (unbounded growth). A page RELOAD does NOT run this (the browser kills
-  // the process, not a Solid dispose), so the sticky-across-reload contract holds;
-  // only an actual host removal evicts.
-  onCleanup(() => {
-    localStorage.removeItem(perHostKey("kolu-activityWindow"));
-    localStorage.removeItem(perHostKey("kolu-showSleeping"));
   });
 
   return {

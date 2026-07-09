@@ -17,7 +17,7 @@
  *  frequency, different reactivity source, different blast radius. The one
  *  exception is `toggle()`, which guards on `supportsSpatialCanvas()`
  *  (desktop-only) so a non-desktop (phone or compact) hardware-keyboard press
- *  can't silently flip the in-memory per-host posture signal (see its doc
+ *  can't silently flip the persisted per-host posture signal (see its doc
  *  below). Tracked: kolu#628. */
 
 import { supportsSpatialCanvas } from "../capabilities";
@@ -53,7 +53,7 @@ export function useViewPosture() {
   return {
     /** Current canvas-display mode. `"maximized"` requires a tile to
      *  maximize (see `canMaximize`): with zero terminals the posture is
-     *  always `"tiled"` regardless of the in-memory per-host posture
+     *  always `"tiled"` regardless of the persisted per-host posture
      *  signal. This is a derivation, not a mutation — the per-host posture
      *  signal is left intact so it re-applies the moment a terminal
      *  returns. It also keeps the empty-canvas Dock (mounted by App.tsx,
@@ -72,7 +72,7 @@ export function useViewPosture() {
      *  terminals (same `canMaximize` predicate as `mode()`'s read guard and the
      *  affordance guard). Gating both surfaces here — not just the keyboard
      *  caller — keeps a non-desktop hardware-keyboard press from silently
-     *  flipping the in-memory per-host posture signal with no visible
+     *  flipping the persisted per-host posture signal with no visible
      *  effect: the safety lives in the receptacle, not in each caller. */
     toggle: (): void => {
       if (supportsSpatialCanvas() && canMaximize()) {

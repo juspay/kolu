@@ -42,8 +42,9 @@ export function useViewState() {
   const mruOrder = () => view()?.mruOrder() ?? [];
 
   /** Whether the workspace is in fullscreen-one-tile mode — the ACTIVE host's
-   *  per-host posture (born in `createViewState`, in-memory). Floors the removal
-   *  race to `false`, exactly like the view-selection reads above. */
+   *  per-host posture (born in `createViewState`, persisted per host so it survives
+   *  reload). Floors the removal race to `false`, exactly like the view-selection
+   *  reads above. */
   const canvasMaximized = (): boolean => view()?.canvasMaximized() ?? false;
 
   /** Canvas "pan to this tile" intent — see `canvas/useCanvasFocus.ts` for the
