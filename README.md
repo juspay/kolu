@@ -352,10 +352,11 @@ Requires [Nix](https://nixos.asia/en/install) with flakes enabled.
 nix develop     # enter devshell
 just dev        # run server + client with hot reload (fixed 7681/5173)
 just dev-auto   # same, but on two random free ports — for a second instance
+just dev-clean  # kill that slot's padi/kaval and wipe its state dir (see below)
 just test       # e2e tests (full nix build)
 ```
 
-`just dev-auto` is the safe way to run a second kolu (or to drive one from an agent) without colliding with an instance already holding the default ports; agents capturing evidence launch via the [`dev-server`](.apm/skills/dev-server/SKILL.md) skill.
+`just dev-auto` is the safe way to run a second kolu (or to drive one from an agent) without colliding with an instance already holding the default ports; agents capturing evidence launch via the [`dev-server`](.apm/skills/dev-server/SKILL.md) skill. Bare `just dev` shares `$XDG_RUNTIME_DIR/kolu-dev-default/` across worktrees — if another worktree already holds that slot's padi, this branch adopts it. `just dev-clean` (optional port: `just dev-clean 7780`) SIGTERMs that slot's padi/kaval and removes the state + runtime dirs so the next `just dev` spawns a fresh padi from this tree.
 
 ## Contributing
 

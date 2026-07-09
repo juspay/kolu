@@ -28,6 +28,8 @@ const getGrokDir = () => process.env.KOLU_GROK_DIR;
 
 let mockCwd: string | null = null;
 let mockFixture: GrokFixture | null = null;
+/** Pid of a fake grok started before its active_sessions row exists. */
+let pendingGrokPid: number | null = null;
 
 function cleanup() {
   if (mockCwd && fs.existsSync(mockCwd)) {
@@ -35,6 +37,7 @@ function cleanup() {
   }
   mockCwd = null;
   mockFixture = null;
+  pendingGrokPid = null;
   const grokDir = getGrokDir();
   if (grokDir && fs.existsSync(grokDir)) {
     // Wipe session tree between scenarios so leftover dirs don't poison
@@ -125,6 +128,57 @@ When(
   },
 );
 
+/** Start fake grok with session files on disk but NO pid in
+ *  active_sessions.json — the production race: TUI is foreground, map
+ *  row lands later. Stores the pid so a later step can write the row. */
+When(
+  "a Grok process is running without an active_sessions entry",
+  async function (this: KoluWorld) {
+    const grokDir = getGrokDir();
+    if (!grokDir) throw new Error("KOLU_GROK_DIR must be set");
+    cleanup();
+    mockCwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), `kolu-grok-${process.pid}-`),
+    );
+    // Session tree + empty active_sessions ([]). No pid row yet.
+    mockFixture = writeGrokFixture({
+      grokDir,
+      cwd: mockCwd,
+      state: "thinking",
+    });
+    await cdTerminalInto(this, mockCwd);
+    pendingGrokPid = await startFakeAgent(this);
+  },
+);
+
+/** padi's command-run reconcile ladder is [0, 75, 300, 1000] ms. Waiting
+ *  past that forces any later match to come from externalChanges (the
+ *  active_sessions watcher), not from a delayed command-run tick. */
+When(
+  "{int} ms elapse past the command-run reconcile window",
+  async function (this: KoluWorld, ms: number) {
+    await new Promise((r) => setTimeout(r, ms));
+  },
+);
+
+When(
+  "the active_sessions entry is written for the running Grok process with state {string}",
+  async function (this: KoluWorld, state: string) {
+    const grokDir = getGrokDir();
+    if (!grokDir) throw new Error("KOLU_GROK_DIR must be set");
+    if (!mockCwd) throw new Error("No mock cwd — start the process first");
+    if (pendingGrokPid === null) {
+      throw new Error("No pending grok pid — start the process first");
+    }
+    mockFixture = writeGrokFixture({
+      grokDir,
+      cwd: mockCwd,
+      state: state as AgentLifecycleState,
+      pid: pendingGrokPid,
+    });
+  },
+);
+
 When(
   "the Grok session state changes to {string}",
   async function (this: KoluWorld, state: string) {
@@ -137,7 +191,9 @@ When(
   },
 );
 
-/** Touch events.jsonl so the session watcher re-reads (mtime nudge). */
+/** Touch events.jsonl so the session watcher re-reads (mtime nudge).
+ *  Only for the happy-path Then — the live-transition scenario
+ *  deliberately omits this so a dead events watcher cannot hide. */
 function nudgeGrok(): void {
   if (!mockFixture) return;
   try {
@@ -148,25 +204,51 @@ function nudgeGrok(): void {
   }
 }
 
+async function observeGrokIndicator(world: KoluWorld): Promise<{
+  state: string | null;
+  kind: string | null;
+}> {
+  return world.page.evaluate(() => {
+    const el = document.querySelector(
+      '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
+    );
+    return {
+      state: el?.getAttribute("data-agent-state") ?? null,
+      kind: el?.getAttribute("data-agent-kind") ?? null,
+    };
+  });
+}
+
 Then(
   "the tile chrome should show a Grok indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
     await pollFor({
-      observe: () =>
-        this.page.evaluate(() => {
-          const el = document.querySelector(
-            '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
-          );
-          return {
-            state: el?.getAttribute("data-agent-state") ?? null,
-            kind: el?.getAttribute("data-agent-kind") ?? null,
-          };
-        }),
+      observe: () => observeGrokIndicator(this),
       isDone: (o) => o.state === expectedState && o.kind === "grok",
       onTick: nudgeGrok,
       onTimeout: (last, ms) =>
         new Error(
           `Expected Grok indicator state "${expectedState}" (kind=grok), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
+/** Assert a live state change without utimes-nudging events.jsonl.
+ *  The rewrite from `the Grok session state changes` must be enough for
+ *  the session watcher — if only a manual mtime touch lights the tile,
+ *  production (append-only events) is broken the same way. */
+Then(
+  "the tile chrome should follow the Grok state change to {string} without nudging",
+  async function (this: KoluWorld, expectedState: string) {
+    await pollFor({
+      observe: () => observeGrokIndicator(this),
+      isDone: (o) => o.state === expectedState && o.kind === "grok",
+      // No onTick nudge — content write alone must rewake.
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected live Grok state "${expectedState}" without nudge (kind=grok), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,
         ),
       timeoutMs: POLL_TIMEOUT,
     });
