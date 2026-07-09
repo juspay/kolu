@@ -8,12 +8,18 @@
  * terminal reports `isPresent`. One shared watcher for the process —
  * install is once; a second call is a no-op (same contract as codex WAL).
  *
- * Pure observer: never creates `~/.grok`. If the home dir is absent,
- * install fails soft (`installed` stays false) so a later `isPresent`
- * via `matchesAgent` can retry after Grok creates the tree.
+ * Total install: `install` never soft-fails. When `~/.grok` does not
+ * exist yet (a first-ever Grok launch on a fresh home), it watches the
+ * parent dir for `.grok` appearing and then attaches the real
+ * active_sessions watcher — so padi's once-install latch stays valid and
+ * the external-change signal is never permanently lost. Pure observer:
+ * never creates `~/.grok`; the bootstrap only waits for Grok to create
+ * its own tree (same promote-on-appearance dance the codex WAL
+ * subscription does upstream).
  */
 
 import { createDirFilenameWatcher } from "kolu-io";
+import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
 import { ACTIVE_SESSIONS_PATH, GROK_DIR } from "./config.ts";
@@ -32,28 +38,18 @@ const activeSessionsWatcher = createDirFilenameWatcher({
   logLabel: "grok: active_sessions",
 });
 
-export function subscribeActiveSessions(
+/** Attach the shared `active_sessions.json` watcher for the process
+ *  lifetime. The receptacle already wraps the listener in its own
+ *  try/catch + log and logs its own install/retire lifecycle; the extra
+ *  guard here routes a throwing `onChange` to the adapter's `onError` so a
+ *  caught error surfaces rather than collapsing silently. The unsubscribe
+ *  is discarded on purpose (refcount stays 1 — matches the codex WAL
+ *  contract). */
+function attach(
   onChange: () => void,
   onError: (err: unknown) => void,
   log?: Logger,
 ): void {
-  if (installed) return;
-
-  if (!grokHomePresent()) {
-    log?.debug(
-      { dir: GROK_DIR },
-      "grok: home dir absent — active_sessions install deferred",
-    );
-    return;
-  }
-
-  installed = true;
-
-  // Once-install: subscribe for the process lifetime and discard the
-  // unsubscribe (refcount stays 1 — matches the codex WAL contract). The
-  // receptacle already wraps the listener in its own try/catch + log; the
-  // extra guard here routes a throwing `onChange` to the adapter's
-  // `onError` so a caught error surfaces rather than collapsing silently.
   activeSessionsWatcher.watch(
     "",
     () => {
@@ -65,8 +61,55 @@ export function subscribeActiveSessions(
     },
     log,
   );
-  log?.info(
-    { path: ACTIVE_SESSIONS_PATH },
-    "grok: active_sessions watcher installed",
+}
+
+export function subscribeActiveSessions(
+  onChange: () => void,
+  onError: (err: unknown) => void,
+  log?: Logger,
+): void {
+  if (installed) return;
+  // Latch immediately: install is total from here, so a second `install`
+  // call (a later terminal reporting `isPresent`) correctly no-ops even
+  // while the bootstrap below is still waiting for `~/.grok` to appear.
+  installed = true;
+
+  if (grokHomePresent()) {
+    attach(onChange, onError, log);
+    return;
+  }
+
+  // Home dir absent (first-ever Grok launch on a fresh home). Never mkdir:
+  // watch the parent dir (which always exists) for `.grok` appearing, then
+  // attach the real watcher. Without this, install would soft-fail here and
+  // padi's once-install latch would prevent any retry, permanently killing
+  // the external-change signal for the process.
+  const parent = path.dirname(GROK_DIR);
+  const base = path.basename(GROK_DIR);
+  let bootstrap: fs.FSWatcher | null = null;
+  try {
+    bootstrap = fs.watch(parent, (_evt, filename) => {
+      // `filename` is null on some platforms; re-check presence regardless.
+      if (filename !== base && filename !== null) return;
+      if (!grokHomePresent()) return;
+      if (bootstrap) {
+        bootstrap.close();
+        bootstrap = null;
+      }
+      log?.debug(
+        { dir: GROK_DIR },
+        "grok: home dir appeared — attaching active_sessions watcher",
+      );
+      attach(onChange, onError, log);
+    });
+  } catch (err) {
+    // The home dir itself is unwatchable — surface it; the pid-match path
+    // (resolveSession reads active_sessions.json fresh) still works.
+    onError(err);
+    return;
+  }
+  log?.debug(
+    { dir: GROK_DIR, parent },
+    "grok: home dir absent — active_sessions install deferred until it appears",
   );
 }

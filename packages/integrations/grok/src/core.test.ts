@@ -118,6 +118,32 @@ describe("foldEventsState", () => {
     ).toBe("thinking");
   });
 
+  // Turn-scoped: an ask_user_question left open when its turn ends (the
+  // user escaped the prompt / the turn was interrupted) must NOT stick in
+  // awaiting_user — the trailing turn_ended wins.
+  it("does not stick in awaiting_user after the turn ends with the prompt open", () => {
+    expect(
+      foldEventsState([
+        { type: "turn_started" },
+        { type: "phase_changed", phase: "tool_execution" },
+        { type: "tool_started", tool_name: "ask_user_question" },
+        { type: "turn_ended" },
+      ]),
+    ).toBe("waiting");
+  });
+
+  // Turn-scoped: a dangling ask_user_question from a prior turn must not
+  // leak into a fresh turn — the newer turn_started resets the window.
+  it("does not carry an open ask_user_question into a new turn", () => {
+    expect(
+      foldEventsState([
+        { type: "turn_started" },
+        { type: "tool_started", tool_name: "ask_user_question" },
+        { type: "turn_started" },
+      ]),
+    ).toBe("thinking");
+  });
+
   it("does not promote ordinary open tools (read_file)", () => {
     expect(
       foldEventsState([

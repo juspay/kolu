@@ -55,7 +55,7 @@ export function readActiveSessions(log?: Logger): ActiveSessionEntry[] {
     const raw = fs.readFileSync(ACTIVE_SESSIONS_PATH, "utf8");
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
-      log?.debug(
+      log?.warn(
         { path: ACTIVE_SESSIONS_PATH },
         "grok active_sessions.json is not an array",
       );
@@ -75,8 +75,11 @@ export function readActiveSessions(log?: Logger): ActiveSessionEntry[] {
     }
     return out;
   } catch (err) {
+    // ENOENT is the documented pre-first-run absence; anything else
+    // (EACCES, ENOTDIR, JSON.parse SyntaxError) is a real fault that must
+    // surface at error, not hide at debug behind legitimate absence.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.debug(
+      log?.error(
         { err, path: ACTIVE_SESSIONS_PATH },
         "grok active_sessions unreadable",
       );
@@ -139,8 +142,10 @@ export function readSummary(
     );
     return { sessionId, cwd, model, title, startedAt, updatedAtMs };
   } catch (err) {
+    // Absent summary (ENOENT) is normal for a just-created session; a real
+    // read/parse failure must surface at error rather than vanish.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.debug({ err, path: summaryPath }, "grok summary unreadable");
+      log?.error({ err, path: summaryPath }, "grok summary unreadable");
     }
     return null;
   }
@@ -212,7 +217,7 @@ export function findLatestSessionByCwd(
     entries = fs.readdirSync(dir);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.debug({ err, dir }, "grok sessions dir unreadable");
+      log?.error({ err, dir }, "grok sessions dir unreadable");
     }
     return null;
   }
@@ -293,14 +298,39 @@ export type GrokFoldEvent = {
  *
  *  Order of precedence:
  *   1. An open user-blocking tool (`ask_user_question` started, not
- *      completed) → `awaiting_user` — wins over a trailing
- *      `tool_execution` phase (the real ask-user wait).
+ *      completed) **within the current turn** → `awaiting_user` — wins
+ *      over a trailing `tool_execution` phase (the real ask-user wait).
+ *      Scoped to the current turn on purpose: a `turn_ended` (user
+ *      escaped the prompt / the turn was interrupted) or a newer
+ *      `turn_started` supersedes a dangling `ask_user_question`, so the
+ *      session can't stick in `awaiting_user` forever after the turn that
+ *      opened the prompt is over.
  *   2. Newest turn boundary / phase_changed (existing phase map).
  */
 export function foldEventsState(
   events: ReadonlyArray<GrokFoldEvent>,
 ): GrokInfo["state"] {
-  if (hasOpenUserBlockingTool(events)) return "awaiting_user";
+  // Locate the latest turn boundary. The open-tool promotion only applies
+  // while the current turn is still open (last boundary is a `turn_started`
+  // or there is no boundary at all); a trailing `turn_ended` means the turn
+  // — and any prompt it opened — is done.
+  let lastBoundary = -1;
+  let lastBoundaryType: "turn_started" | "turn_ended" | null = null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const t = events[i]?.type;
+    if (t === "turn_started" || t === "turn_ended") {
+      lastBoundary = i;
+      lastBoundaryType = t;
+      break;
+    }
+  }
+
+  if (
+    lastBoundaryType !== "turn_ended" &&
+    hasOpenUserBlockingTool(events.slice(lastBoundary >= 0 ? lastBoundary : 0))
+  ) {
+    return "awaiting_user";
+  }
 
   // Scan newest → oldest for the most recent turn boundary or phase.
   for (let i = events.length - 1; i >= 0; i--) {
@@ -360,7 +390,7 @@ export function deriveStateFromEvents(
     // real read failure (EACCES/ENOTDIR) must still surface, not vanish —
     // same convention as readActiveSessions/readSummary above.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.debug({ err, path: eventsPath }, "grok events stat failed");
+      log?.error({ err, path: eventsPath }, "grok events stat failed");
     }
     return "thinking";
   }
@@ -369,7 +399,9 @@ export function deriveStateFromEvents(
     size,
     maxBytes: EVENTS_TAIL_BYTES,
     onError: (err) =>
-      log?.debug({ err, path: eventsPath }, "grok events tail failed"),
+      // stat already succeeded above, so a tail failure here is a real read
+      // fault (permissions, truncation race) — surface it at error.
+      log?.error({ err, path: eventsPath }, "grok events tail failed"),
   });
   if (!lines || lines.length === 0) return "thinking";
   const events: GrokFoldEvent[] = [];

@@ -493,6 +493,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
