@@ -32,8 +32,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pin by commit (CodeQL: unpinned third-party action). v31 → 889f318.
-      - uses: nixbuild/nix-quick-install-action@889f3180bb5f064ee9e3201428d04ae9e41d54ad # v31
+      # Pin by commit (CodeQL: unpinned third-party action). v35 → 9f63be7.
+      # Defaults to Nix 2.34.7 (`nix profile add`; v31 was still on 2.29.0 /
+      # `profile install` only, which broke ryanccn/attic-action).
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
           nix_conf: |
             extra-substituters = https://cache.nixos.asia/oss
@@ -41,9 +43,7 @@ jobs:
             accept-flake-config = true
 
       - name: Install attic
-        # Prefer `install` — nix-quick-install's Nix still uses that subcommand
-        # (newer Nix renamed it to `add`; ryanccn/attic-action only tries `add`).
-        run: nix profile install nixpkgs#attic-client
+        run: nix profile add nixpkgs#attic-client
 
       - name: Login to Attic
         env:
