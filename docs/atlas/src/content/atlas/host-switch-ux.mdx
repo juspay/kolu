@@ -2,8 +2,8 @@
 title: Host switching — UI prototypes
 description: The host tab bar is a solid browser-tab metaphor, but it reads as a toolbar bolted above the canvas, switching is mouse-only, and it never leaves the tab-row box. This note renders the bar as it is, then pushes on two axes the first cut missed — visual craft (frosted glass, per-host hue, a seam that dissolves into the canvas, motion) and paradigm (the host as a coloured room; a zoom-out host map that rides kolu's canvas camera) — each as a faithful mockup grounded in the seams the code already exposes.
 parents: [pty-daemon-chrome-bar, feature]
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 updated: 2026-07-09
 ---
 
@@ -11,6 +11,7 @@ import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
 import D2 from "../../components/D2.astro";
 import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
 
 Kolu renders each host as a browser-style tab — click to switch, `+` to add over
 ssh, `✕` to drop. <Cite file="packages/client/src/host/HostSelectorStrip.tsx" /> It's
@@ -347,14 +348,15 @@ set -> canvas
 `}
 />
 
-<Callout kind="accent" title="Status — a prototype set, not a locked plan">
-These are exploratory mockups to pick a direction, not a build-ready plan of record.
-The craft pass (§2) plus the `⌘⇧H` switcher (§5) are the recommended first cut and are
-nearly implementable as-is — the switcher is the workspace switcher's pattern with a
-new group, and `⌘⇧H` is already confirmed free. The host map (§4) is the paradigm I'd
-invest in next. Whichever wins, the plan note that follows should register `⌘⇧H` in
-<Cite file="packages/client/src/input/actions.ts" /> (re-checking it against
-<Cite file="packages/client/src/input/prohibitedKeybinds.ts" />), name the
-hue-derivation contract, and — for the map — set the thumbnail render budget, before
-it's ready for an implementing agent.
+<Callout kind="accent" title="Status — the craft pass shipped">
+The **craft pass (§2)** shipped in <PrLink pr={1743} />: per-host identity hue on
+the tabs *and* a faint wash across the canvas floor, a neutral borderless header,
+the seam dissolve, the daemon glyphs quieting at rest, a dots grid, and a house
+glyph disambiguating the local host. That PR also **ungated** remote hosts (the
+"+" is always present, alpha-warned at point of use) and added **keyboard
+switching** — though the shipped chord is a direct **`Ctrl+Cmd+N` host-cycle**, not
+the `⌘⇧H` palette switcher this note proposed; the switcher and the two paradigms
+(**the room** §3, **the host map** §4) remain open directions. The hue derivation
+landed as the shared <Cite file="packages/common/src/hostHue.ts" /> the PWA
+theme-color also draws from.
 </Callout>
