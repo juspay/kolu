@@ -47,7 +47,7 @@ import type {
   AgentMemory,
   RestoreTarget,
   TerminalSnapshot,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/terminal-vocab/schema";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { notifyDirty } from "../publisher.ts";

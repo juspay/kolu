@@ -51,7 +51,7 @@ import {
   type SshProv,
   sshConnector,
 } from "@kolu/surface-remote";
-import type { TerminalId } from "@kolu/terminal-workspace/schema";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { afterAll, describe, expect, it } from "vitest";
 
 const SSH_HOST = process.env.KOLU_E2E_SSH_HOST;

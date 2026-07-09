@@ -12,10 +12,7 @@
  * (the discriminated resume value), joined with `location` + memory + client fields.
  */
 
-import type {
-  AgentInfo,
-  TerminalSnapshot,
-} from "@kolu/terminal-workspace/schema";
+import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
   type AuthoredActiveTerminal,

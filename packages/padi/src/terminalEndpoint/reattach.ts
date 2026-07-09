@@ -33,7 +33,7 @@
  * offers to re-spawn it) is left untouched — B2 behavior, unchanged.
  */
 
-import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
+import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 import { log } from "../log.ts";
 import {
