@@ -115,13 +115,16 @@ function parseBool(raw: string): boolean {
 }
 
 /** The default `onInvalid` a {@link perHostPref} installs when the caller supplies
- *  none: a `console.warn` naming the offending key and the fallback it degraded to.
- *  A corrupt/hand-edited/future-format value must NOT collapse to the fallback with
- *  zero signal (`caught-error-must-not-collapse-to-empty`) — this keeps the
- *  degraded-vs-first-run cases distinguishable. It reads the composed key `name`
- *  from the layer that already owns it, so a caller never recomposes the key just to
- *  name it in a log. Generic in `T` (not boolean-specific), because the "which key
- *  was corrupt" diagnostic is useful for every per-host pref. */
+ *  none: a `console.warn` naming the offending key and the fallback it degraded to,
+ *  so a corrupt value is a visible diagnostic rather than a silent reset (without it
+ *  a bad value would collapse to the fallback with zero signal). `warn` — not `error`
+ *  + a toast — is deliberate and matches the repo's calibration for this class: a
+ *  per-host pref reset is a BENIGN, recoverable preference reset (the same call the
+ *  `activeHost` and `reattachAnnouncedAt` prefs make: warn-only), NOT user-data loss
+ *  (the `comments` queue toasts because a wiped queue IS lost user data). It reads the
+ *  composed key `name` from the layer that already owns it, so a caller never recomposes
+ *  the key to log it. Generic in `T` (not boolean-specific): "which key was corrupt" is
+ *  a useful diagnostic for every per-host pref. */
 function defaultInvalidWarning<T>(
   name: string,
   fallback: T,
@@ -151,15 +154,22 @@ export interface PerHostPrefOptions<T>
 
 /** A {@link persistedPref} scoped to ONE host: its key is `<base>:<encoded host>`
  *  AND — inseparably — it registers an `onCleanup` that EVICTS that exact key when
- *  the owner is disposed (the host leaves the pool). Key composition and eviction
- *  live together, once, so a per-host pref can neither be spelled without its host
- *  scope nor forget to evict its key — the unbounded-`localStorage`-growth failure
- *  (a tab's every ephemeral remote host would orphan a key forever) is unspellable.
- *  Must be called under a reactive owner.
+ *  this host's reactive OWNER is disposed. Key composition and eviction live together,
+ *  once, so a per-host pref can neither be spelled without its host scope nor, once an
+ *  owner exists, forget to evict its key. Must be called under a reactive owner.
  *
- *  A page RELOAD does NOT run the cleanup (the browser kills the process, not a
- *  Solid dispose), so the survive-reload contract holds; only a real host removal
- *  evicts. */
+ *  A page RELOAD does NOT run the cleanup (the browser kills the process, not a Solid
+ *  dispose), so the survive-reload contract holds.
+ *
+ *  BOUND, not "unspellable": eviction is tied to OWNER disposal, and `scopedByEntry`
+ *  builds a host's owner LAZILY on first activation. So the key is evicted only for a
+ *  host activated at least once in the current page session before it leaves the pool.
+ *  A host removed COLD — never activated this session (e.g. reload, then ✕ a remote
+ *  chip without switching to it) — has no owner to dispose, so keys it wrote in an
+ *  EARLIER session are not swept. That residual per-host leak predates this seam (the
+ *  old hand-rolled `createHostPrefs` cleanup had the identical coupling); closing it
+ *  fully needs eviction at the `hosts.remove` membership seam, independent of owner
+ *  lifecycle — tracked as follow-up, not solved here. */
 export function perHostPref<T>(
   opts: PerHostPrefOptions<T>,
 ): [Accessor<T>, Setter<T>] {
