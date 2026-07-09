@@ -69,7 +69,11 @@ const InfoDialogShell: Component<{
           role="dialog"
           aria-label={props.name}
           data-testid="info-popover"
-          class={`${chrome.class} relative z-50 max-h-[min(32rem,calc(100vh-2rem))] overflow-y-auto p-0 ${SIZE_CLASS[props.size]}`}
+          // `fixed` is load-bearing: useAnchoredPopover positions via top/left
+          // viewport coords (same as RecordPopover). `relative` left the panel
+          // in document flow so top/left did nothing — the dropdown "opened"
+          // but was invisible / off-canvas.
+          class={`${chrome.class} fixed z-50 max-h-[min(32rem,calc(100vh-2rem))] overflow-y-auto p-0 ${SIZE_CLASS[props.size]}`}
           style={{ ...panelStyle(), ...chrome.style }}
         >
           <button
