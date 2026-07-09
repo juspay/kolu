@@ -57,7 +57,7 @@ body {
   background: var(--color-surface-0);
 }
 
-.chrome-bar-surface[style*="--chrome-theme-color"] {
+.chrome-bar-surface[data-themed] {
   background: color-mix(
     in oklch,
     var(--color-surface-0) 96%,
@@ -70,7 +70,7 @@ body {
   );
 }
 
-html:not(.dark) .chrome-bar-surface[style*="--chrome-theme-color"] {
+html:not(.dark) .chrome-bar-surface[data-themed] {
   background: color-mix(
     in oklch,
     var(--color-surface-0) 98%,

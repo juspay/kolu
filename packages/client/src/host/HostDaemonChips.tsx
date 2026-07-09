@@ -29,7 +29,7 @@ import type {
   SkewVersionPair,
 } from "kolu-common/surfacesWithPadi";
 import type { Component, Setter } from "solid-js";
-import { createSignal, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { toast } from "solid-sonner";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
@@ -124,37 +124,43 @@ function useHostKaval(host: HostKey): {
   return { live, daemon };
 }
 
-/** Presentational Padi mark — logo + status dot for a host, derived from
- *  {@link useHostPadi}. The static path wraps this bare in a span; the
- *  interactive path wraps this SAME mark in the dialog-owning button. */
-const PadiMark: Component<{ host: HostKey }> = (props) => {
-  const padi = useHostPadi(props.host);
-  return (
-    <IdentityMark logoSrc={PADI_LOGO_URL}>
-      <StatusDot
-        data-padi-link={padi.link() ?? "unknown"}
-        class={padiDot(padi.link(), padi.live())}
-      />
-    </IdentityMark>
-  );
-};
+/** Presentational Padi mark — logo + status dot for a host. Takes the ALREADY-
+ *  constructed {@link useHostPadi} reader from its parent rather than opening its
+ *  own: the static path and the interactive sub-chip each build the reader once
+ *  and hand it in, so a single mark never re-derives (and, for Kaval, never
+ *  double-subscribes) the same host's status. The static path wraps this bare in
+ *  a span; the interactive path wraps this SAME mark in the dialog-owning
+ *  button. */
+const PadiMark: Component<{ padi: ReturnType<typeof useHostPadi> }> = (
+  props,
+) => (
+  <IdentityMark logoSrc={PADI_LOGO_URL}>
+    <StatusDot
+      data-padi-link={props.padi.link() ?? "unknown"}
+      class={padiDot(props.padi.link(), props.padi.live())}
+    />
+  </IdentityMark>
+);
 
-/** Presentational Kaval mark — logo + status dot for a host, derived from
- *  {@link useHostKaval}. Same one-derivation-two-placements shape as
- *  {@link PadiMark}. */
-const KavalMark: Component<{ host: HostKey }> = (props) => {
-  const kaval = useHostKaval(props.host);
-  return (
-    <IdentityMark logoSrc={KAVAL_LOGO_URL}>
-      <StatusDot
-        data-daemon-state={
-          kaval.live() ? (kaval.daemon()?.state ?? "unknown") : "unknown"
-        }
-        class={kavalDot(kaval.daemon()?.state, kaval.live())}
-      />
-    </IdentityMark>
-  );
-};
+/** Presentational Kaval mark — logo + status dot for a host, derived from a
+ *  parent-supplied {@link useHostKaval} reader. Same one-derivation-two-
+ *  placements shape as {@link PadiMark}; taking the reader as a prop is what
+ *  keeps a single interactive mark from opening TWO `daemonStatus` subscriptions
+ *  for the same host (the sub-chip already holds one). */
+const KavalMark: Component<{ kaval: ReturnType<typeof useHostKaval> }> = (
+  props,
+) => (
+  <IdentityMark logoSrc={KAVAL_LOGO_URL}>
+    <StatusDot
+      data-daemon-state={
+        props.kaval.live()
+          ? (props.kaval.daemon()?.state ?? "unknown")
+          : "unknown"
+      }
+      class={kavalDot(props.kaval.daemon()?.state, props.kaval.live())}
+    />
+  </IdentityMark>
+);
 
 /** The ONE open/switch seam for a daemon mark: opens the info panel for this
  *  host, switching the canvas to it first when it isn't already active (a
@@ -173,6 +179,19 @@ function useDaemonMarkOpen(host: HostKey): {
     if (!alreadyActive) setActiveHost(host);
     setOpen((v) => (alreadyActive ? !v : true));
   };
+  // The dialog's active-host-scoped rows (memory, running-daemon inventory,
+  // convergence, kaval restart) ride the switch-first contract: opening SWITCHES
+  // the canvas to `host`, so those rows describe it. But the active host can
+  // later move OFF `host` while the panel stays open WITHOUT an outside click —
+  // wire.ts's `hostReconcileTarget` auto-switches to LOCAL when `host` silently
+  // departs the pool, and that path never triggers useAnchoredPopover's
+  // outside-click/Escape dismiss. Left open, the panel would blend this host's
+  // props-scoped status with another host's active-host rows (and restart would
+  // recycle the newly-active host). Close it, so a shown panel always describes
+  // the current active host — never a stale cross-host mix.
+  createEffect(() => {
+    if (open() && !sameHost(activeHost(), host)) setOpen(false);
+  });
   return { open, setOpen, openForHost };
 }
 
@@ -199,7 +218,14 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
     return padiMap.entry(props.host).clock.toLocal(raw) ?? null;
   };
   const padiMemoryText = (): string => {
-    if (!padi.live()) return "memory unavailable";
+    // Gate on THIS host's entry being CONNECTED, not merely transport-live:
+    // `padi.live()` is only the browser↔kolu-server transport, so a remote host
+    // that failed or is warm-reconnecting keeps a retained RSS in its per-host
+    // `processMemory` cell. Showing that figure next to a failed/connecting dot
+    // reads stale memory as live — the Kaval readout already gates on its daemon
+    // being `connected`, so mirror that here.
+    if (!padi.live() || padi.entry().kind !== "connected")
+      return "memory unavailable";
     const m = processMemory.value()?.padi;
     return match(m)
       .with({ status: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
@@ -237,7 +263,7 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
           aria-label={padiTip()}
           aria-expanded={open()}
         >
-          <PadiMark host={props.host} />
+          <PadiMark padi={padi} />
         </button>
       </Tip>
       <Show when={open()}>
@@ -278,7 +304,8 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
     return state ? DAEMON_STATE_PRESENTATION[state].label : "unknown";
   };
   const kavalUptimeText = (): string | undefined => {
-    if (!kaval.live() || kaval.daemon()?.state !== "connected") return undefined;
+    if (!kaval.live() || kaval.daemon()?.state !== "connected")
+      return undefined;
     const startedAt = kaval.daemon()?.startedAt;
     return startedAt === undefined || startedAt <= 0
       ? undefined
@@ -337,7 +364,7 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
           aria-label={kavalTip()}
           aria-expanded={open()}
         >
-          <KavalMark host={props.host} />
+          <KavalMark kaval={kaval} />
         </button>
       </Tip>
       <Show when={open()}>
@@ -354,17 +381,23 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   );
 };
 
-const PadiStaticMark: Component<{ host: HostKey }> = (props) => (
-  <span class={identityMarkStaticClass}>
-    <PadiMark host={props.host} />
-  </span>
-);
+const PadiStaticMark: Component<{ host: HostKey }> = (props) => {
+  const padi = useHostPadi(props.host);
+  return (
+    <span class={identityMarkStaticClass}>
+      <PadiMark padi={padi} />
+    </span>
+  );
+};
 
-const KavalStaticMark: Component<{ host: HostKey }> = (props) => (
-  <span class={identityMarkStaticClass}>
-    <KavalMark host={props.host} />
-  </span>
-);
+const KavalStaticMark: Component<{ host: HostKey }> = (props) => {
+  const kaval = useHostKaval(props.host);
+  return (
+    <span class={identityMarkStaticClass}>
+      <KavalMark kaval={kaval} />
+    </span>
+  );
+};
 
 /** Fixed-width dual-daemon slot for one host chip. Its THREE reachable states
  *  are one named `mode`, never a pair of booleans (the old `measure ⊗

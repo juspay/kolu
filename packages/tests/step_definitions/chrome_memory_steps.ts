@@ -1,15 +1,10 @@
 import { Then, When } from "@cucumber/cucumber";
 import type { Locator } from "playwright";
+import {
+  type IdentityChipTestid,
+  identityChipSelector,
+} from "../support/hostChip.ts";
 import type { KoluWorld } from "../support/world.ts";
-
-/** Padi/Kaval marks live on every host chip; prefer the active host so multi-host
- *  never matches N chips. Kolu stays a single global mark. */
-function chipSelector(
-  testid: "kolu-identity-chip" | "padi-identity-chip" | "kaval-identity-chip",
-): string {
-  if (testid === "kolu-identity-chip") return `[data-testid="${testid}"]`;
-  return `[data-testid="host-chip"][data-active] [data-testid="${testid}"]`;
-}
 
 /** Memory details live on the actual identity chip tooltip/aria-label rather
  *  than hidden test-only DOM. The figure only appears once a real value lands —
@@ -17,10 +12,10 @@ function chipSelector(
  *  padi's sampler poll is folded into the rail cell (padi owns kaval now). */
 async function assertChipMemoryLabel(
   world: KoluWorld,
-  testid: "kolu-identity-chip" | "padi-identity-chip" | "kaval-identity-chip",
+  testid: IdentityChipTestid,
   pattern: RegExp,
 ): Promise<void> {
-  const selector = chipSelector(testid);
+  const selector = identityChipSelector(testid);
   const chip = world.page.locator(selector);
   await assertLabelEventually(chip, pattern, selector);
 }
@@ -85,11 +80,7 @@ Then(
 );
 
 When("I open the Kaval details dialog", async function (this: KoluWorld) {
-  await this.page
-    .locator(
-      '[data-testid="host-chip"][data-active] [data-testid="kaval-identity-chip"]',
-    )
-    .click();
+  await this.page.locator(identityChipSelector("kaval-identity-chip")).click();
 });
 
 Then(

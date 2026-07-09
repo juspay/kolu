@@ -6,16 +6,15 @@
  *  The live-terminal navigator lives on the dock at the canvas's left edge
  *  (#903) — not here.
  *
- *  Two positioning modes, switched on `posture.mode()`:
- *  - Tiled (default): absolute overlay above the canvas with a solid
- *    chrome band tinted by the hostname-derived PWA theme color over the
- *    app base surface, so installed-window chrome and in-app header belong
- *    together. When the right panel is open, the overlay's right edge
- *    stops at the panel's left edge (via inline `right: panelSize * 100vw`)
- *    so the controls cluster doesn't sit on top of the panel's tab bar.
- *  - Maximized mode: docked in flex flow so the maximized terminal
- *    owns the rest of the viewport without the terminal's own title
- *    bar overlapping the chrome.
+ *  A single DOCKED full-width top bar in BOTH postures (tiled + maximized):
+ *  `relative shrink-0` in flex flow, spanning the whole viewport, so the
+ *  canvas and the right inspector panel flow BELOW it rather than the bar
+ *  overlaying either. There is no panel-width right-offset — the header reads
+ *  as one continuous top rail across the workspace. The band is a solid chrome
+ *  surface tinted by the hostname-derived PWA theme color over the app base
+ *  surface, so installed-window chrome and in-app header belong together.
+ *  `posture.mode()` no longer changes the bar's positioning; it only picks the
+ *  maximize/restore affordance and the `data-maximized` marker.
  *
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
@@ -91,6 +90,12 @@ const ChromeBar: Component<{
     <header
       data-testid="chrome-bar"
       data-maximized={docked() ? "" : undefined}
+      // Explicit marker for the themed-surface CSS (below), set only when a
+      // hostname-derived PWA theme color is present. The `.chrome-bar-surface`
+      // rules key off THIS attribute — not a `[style*="--chrome-theme-color"]`
+      // substring match on the serialized inline style, which was brittle to any
+      // reformat/rename of that custom property.
+      data-themed={props.themeColor ? "" : undefined}
       // Solid chrome owns this strip's pointer area. Individual controls still
       // carry their own pointer/focus classes, but empty header space should
       // behave like header, not click through to the canvas behind it.
