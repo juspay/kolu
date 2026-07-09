@@ -30,15 +30,15 @@ import type {
   SourceRenderer,
 } from "./types";
 
-export type FileViewProps = {
-  file: FileData;
+export type FileViewProps<TFile extends FileData = FileData> = {
+  file: TFile;
   /** Injected source renderer. Omit when the file has no source form
    *  (e.g. a raster image — there's nothing to toggle to). */
-  source?: SourceRenderer;
+  source?: SourceRenderer<TFile>;
   /** Candidate rendered renderers, tried in order; the first whose `match`
    *  returns true for `file.path` wins. Omit when the file has no rendered
    *  form (e.g. plain source code). */
-  rendered?: RenderedRenderer[];
+  rendered?: RenderedRenderer<TFile>[];
   /** Which mode to show when *both* are available. Defaults to "rendered" —
    *  a document's rendered form is what a reader expects first. */
   defaultMode?: FileViewMode;
@@ -52,7 +52,9 @@ export type FileViewProps = {
   mode?: FileViewMode | null;
 };
 
-export const FileView: Component<FileViewProps> = (props) => {
+export function FileView<TFile extends FileData = FileData>(
+  props: FileViewProps<TFile>,
+): JSX.Element {
   const matchedRendered = createMemo(() =>
     props.rendered?.find((r) => r.match(props.file.path)),
   );
@@ -133,7 +135,7 @@ export const FileView: Component<FileViewProps> = (props) => {
       </div>
     </div>
   );
-};
+}
 
 /** One keep-alive slot of the Source ⇄ Rendered toggle. Mounts its appliance
  *  lazily on first show, then keeps it alive across toggles — hidden with
@@ -144,15 +146,15 @@ export const FileView: Component<FileViewProps> = (props) => {
  *  so a save never re-renders both modes at once. A toggle with no intervening
  *  edit keeps the same `heldFile` reference, so the appliance isn't re-rendered
  *  at all. */
-const KeepAliveMode: Component<{
+function KeepAliveMode<TFile extends FileData>(props: {
   show: boolean;
-  file: FileData;
-  render: (file: FileData) => JSX.Element;
-}> = (props) => {
+  file: TFile;
+  render: (file: TFile) => JSX.Element;
+}): JSX.Element {
   // A one-way latch: stays false until the slot is first shown, then sticks
   // true (so the appliance mounts lazily on first view and is kept alive after).
   const visited = createMemo<boolean>((was) => was || props.show, false);
-  const heldFile = createMemo<FileData>((prev) =>
+  const heldFile = createMemo<TFile>((prev) =>
     props.show || prev === undefined ? props.file : prev,
   );
   return (
@@ -171,7 +173,7 @@ const KeepAliveMode: Component<{
       </div>
     </Show>
   );
-};
+}
 
 /** Segmented Source / Rendered control. Theme-agnostic: it paints with
  *  `currentColor` so it inherits the host's foreground, like the rest of the

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  binaryPreviewFamily,
   BINARY_PREVIEWABLE_EXTENSIONS,
   decodePreviewPath,
   encodePreviewPath,
   isBinaryPreviewable,
   isMarkdown,
-  isPdf,
   isRasterImage,
   isSandboxPreviewable,
   isVideo,
@@ -15,6 +15,25 @@ import {
   SANDBOX_PREVIEWABLE_EXTENSIONS,
   VIDEO_EXTENSIONS,
 } from "./preview.ts";
+
+const binaryFamilies = [
+  {
+    name: "sandbox",
+    extensions: SANDBOX_PREVIEWABLE_EXTENSIONS,
+    matches: isSandboxPreviewable,
+  },
+  {
+    name: "PDF",
+    extensions: PDF_PREVIEWABLE_EXTENSIONS,
+    matches: (path: string) => binaryPreviewFamily(path) === "pdf",
+  },
+  {
+    name: "raster",
+    extensions: RASTER_IMAGE_EXTENSIONS,
+    matches: isRasterImage,
+  },
+  { name: "video", extensions: VIDEO_EXTENSIONS, matches: isVideo },
+] as const;
 
 describe("isBinaryPreviewable", () => {
   it("classifies sandbox documents, PDFs, raster images, and videos (regression: images were UTF-8 garbage)", () => {
@@ -54,17 +73,19 @@ describe("isRasterImage", () => {
   });
 });
 
-describe("isPdf", () => {
-  it("matches PDF extensions case-insensitively", () => {
-    expect(isPdf("doc.pdf")).toBe(true);
-    expect(isPdf("a/b/spec.PDF")).toBe(true);
+describe("binaryPreviewFamily", () => {
+  it("classifies each binary renderer family case-insensitively", () => {
+    expect(binaryPreviewFamily("out.html")).toBe("sandbox");
+    expect(binaryPreviewFamily("a/b/logo.SVG")).toBe("sandbox");
+    expect(binaryPreviewFamily("doc.pdf")).toBe("pdf");
+    expect(binaryPreviewFamily("a/b/spec.PDF")).toBe("pdf");
+    expect(binaryPreviewFamily("icon-512.png")).toBe("raster");
+    expect(binaryPreviewFamily("demo.MP4")).toBe("video");
   });
 
-  it("excludes sandbox documents, raster images, and videos", () => {
-    expect(isPdf("out.html")).toBe(false);
-    expect(isPdf("logo.svg")).toBe(false);
-    expect(isPdf("icon-512.png")).toBe(false);
-    expect(isPdf("demo.mp4")).toBe(false);
+  it("returns null for non-binary-previewable paths", () => {
+    expect(binaryPreviewFamily("README.md")).toBe(null);
+    expect(binaryPreviewFamily("main.ts")).toBe(null);
   });
 });
 
@@ -118,45 +139,33 @@ describe("isMarkdown", () => {
 describe("the binary-previewable partition is structural", () => {
   it("is exactly sandbox ∪ PDF ∪ raster ∪ video", () => {
     expect([...BINARY_PREVIEWABLE_EXTENSIONS].sort()).toEqual(
-      [
-        ...SANDBOX_PREVIEWABLE_EXTENSIONS,
-        ...PDF_PREVIEWABLE_EXTENSIONS,
-        ...RASTER_IMAGE_EXTENSIONS,
-        ...VIDEO_EXTENSIONS,
-      ].sort(),
+      binaryFamilies.flatMap((family) => [...family.extensions]).sort(),
     );
   });
 
   it("has disjoint sandbox, PDF, raster, and video sets (no extension is in two)", () => {
-    const sandbox = new Set<string>(SANDBOX_PREVIEWABLE_EXTENSIONS);
-    const pdf = new Set<string>(PDF_PREVIEWABLE_EXTENSIONS);
-    const raster = new Set<string>(RASTER_IMAGE_EXTENSIONS);
-    const video = new Set<string>(VIDEO_EXTENSIONS);
-    expect(PDF_PREVIEWABLE_EXTENSIONS.filter((e) => sandbox.has(e))).toEqual(
-      [],
-    );
-    expect(RASTER_IMAGE_EXTENSIONS.filter((e) => sandbox.has(e))).toEqual([]);
-    expect(RASTER_IMAGE_EXTENSIONS.filter((e) => pdf.has(e))).toEqual([]);
-    expect(VIDEO_EXTENSIONS.filter((e) => sandbox.has(e))).toEqual([]);
-    expect(VIDEO_EXTENSIONS.filter((e) => pdf.has(e))).toEqual([]);
-    expect(VIDEO_EXTENSIONS.filter((e) => raster.has(e))).toEqual([]);
-    expect(RASTER_IMAGE_EXTENSIONS.filter((e) => video.has(e))).toEqual([]);
+    for (const [i, left] of binaryFamilies.entries()) {
+      for (const right of binaryFamilies.slice(i + 1)) {
+        const rightExtensions = new Set<string>(right.extensions);
+        expect(
+          left.extensions.filter((extension) => rightExtensions.has(extension)),
+          `${left.name} overlaps ${right.name}`,
+        ).toEqual([]);
+      }
+    }
   });
 
   it("every binary-previewable extension matches exactly one renderer family — no silent extra category", () => {
-    // Guards the client's `isRasterImage` → `isVideo` → `isPdf` →
-    // `isSandboxPreviewable`
-    // dispatch: a future non-image, non-video, non-PDF, non-document binary
+    // Guards the client's `binaryPreviewFamily` dispatch: a future
+    // non-image, non-video, non-PDF, non-document binary
     // (`.wasm`, a font) cannot slip in without landing in exactly one set —
     // the runtime counterpart to the explicit "unsupported" no-match renderer.
     for (const ext of BINARY_PREVIEWABLE_EXTENSIONS) {
       const path = `file${ext}`;
-      const matched = [
-        isRasterImage(path),
-        isVideo(path),
-        isPdf(path),
-        isSandboxPreviewable(path),
-      ].filter(Boolean);
+      expect(binaryPreviewFamily(path)).not.toBe(null);
+      const matched = binaryFamilies
+        .map((family) => family.matches(path))
+        .filter(Boolean);
       expect(matched).toHaveLength(1);
     }
   });

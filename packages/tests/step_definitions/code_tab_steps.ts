@@ -858,9 +858,27 @@ Then(
     const src = await pdf.getAttribute("src");
     if (src === null) throw new Error("PDF preview iframe has no src");
     const url = new URL(src, this.page.url());
-    if (!url.pathname.includes("/file/doc.pdf")) {
+    if (!url.pathname.endsWith("/file/doc.pdf")) {
       throw new Error(`PDF preview src did not point at doc.pdf: ${url.href}`);
     }
+
+    const handle = await pdf.elementHandle();
+    if (handle === null) throw new Error("PDF preview iframe has no handle");
+    const frame = await handle.contentFrame();
+    if (frame === null)
+      throw new Error("PDF preview iframe has no loaded frame");
+    await frame.waitForLoadState("domcontentloaded", { timeout: POLL_TIMEOUT });
+    const loadedUrl = frame.url();
+    if (
+      loadedUrl !== url.href &&
+      !loadedUrl.includes(encodeURIComponent(url.href)) &&
+      !loadedUrl.endsWith("/file/doc.pdf")
+    ) {
+      throw new Error(
+        `PDF preview iframe loaded ${loadedUrl}, expected ${url.href}`,
+      );
+    }
+
     const response = await this.page.request.get(url.href);
     const contentType = response.headers()["content-type"] ?? "";
     if (

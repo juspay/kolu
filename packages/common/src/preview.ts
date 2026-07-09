@@ -10,9 +10,9 @@
  *    - SERVER: `isBinaryPreviewable` picks the `FsReadFileOutput.kind` wire
  *      variant (inline text vs a route-served URL) — the schema lives in
  *      `kolu-git/schemas.ts`.
- *    - CLIENT: `isRasterImage` / `isPdf` / `isMarkdown` pick the rendered
- *      appliance in `@kolu/solid-fileview` — a plain `<img>`, a PDF viewer, a
- *      sandboxed iframe, or a rendered Markdown document.
+ *    - CLIENT: `binaryPreviewFamily` / `isMarkdown` pick the rendered appliance
+ *      in `@kolu/solid-fileview` — a plain `<img>`, a PDF viewer, a sandboxed
+ *      iframe, or a rendered Markdown document.
  *
  *  Four disjoint sets partition the binary-previewable space:
  *    - SANDBOX — rendered in an `allow-scripts`, opaque-origin iframe.
@@ -73,6 +73,8 @@ export const BINARY_PREVIEWABLE_EXTENSIONS = [
   ...VIDEO_EXTENSIONS,
 ] as const;
 
+export type BinaryPreviewFamily = "sandbox" | "pdf" | "raster" | "video";
+
 /** Text files the Code browser can render as a document. Stays
  *  `kind:"text"` on the wire — there's no server URL; the client renders it
  *  from `content` via `@kolu/solid-markdown`. */
@@ -83,10 +85,21 @@ function hasExtension(filePath: string, exts: readonly string[]): boolean {
   return exts.some((ext) => lower.endsWith(ext));
 }
 
+/** Client/server: which binary-renderer family owns this path? */
+export function binaryPreviewFamily(
+  filePath: string,
+): BinaryPreviewFamily | null {
+  if (hasExtension(filePath, SANDBOX_PREVIEWABLE_EXTENSIONS)) return "sandbox";
+  if (hasExtension(filePath, PDF_PREVIEWABLE_EXTENSIONS)) return "pdf";
+  if (hasExtension(filePath, RASTER_IMAGE_EXTENSIONS)) return "raster";
+  if (hasExtension(filePath, VIDEO_EXTENSIONS)) return "video";
+  return null;
+}
+
 /** Server: should this file bypass the UTF-8 text read and instead be served
  *  by the file route as `kind: "binary"`? */
 export function isBinaryPreviewable(filePath: string): boolean {
-  return hasExtension(filePath, BINARY_PREVIEWABLE_EXTENSIONS);
+  return binaryPreviewFamily(filePath) !== null;
 }
 
 /** Client: of the binary-previewable files, render this one with a plain
@@ -99,12 +112,6 @@ export function isRasterImage(filePath: string): boolean {
  *  `<video controls>` element rather than an `<img>` or the iframe? */
 export function isVideo(filePath: string): boolean {
   return hasExtension(filePath, VIDEO_EXTENSIONS);
-}
-
-/** Client: of the binary-previewable files, render this one in the browser's
- *  native PDF viewer rather than the sandboxed HTML/SVG iframe? */
-export function isPdf(filePath: string): boolean {
-  return hasExtension(filePath, PDF_PREVIEWABLE_EXTENSIONS);
 }
 
 /** Client: of the binary-previewable files, render this one in the sandboxed

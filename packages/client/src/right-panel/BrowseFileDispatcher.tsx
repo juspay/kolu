@@ -31,6 +31,8 @@
 
 import { resolveLinkHref } from "@kolu/solid-browser";
 import {
+  type FileWithSource,
+  type FileWithUrl,
   type FileData,
   FileView,
   type RenderedRenderer,
@@ -45,13 +47,10 @@ import type { SelectedLineRange } from "@kolu/solid-pierre";
 import { ORPCError } from "@orpc/client";
 import { encodeHostKey } from "kolu-common/hostKey";
 import {
+  binaryPreviewFamily,
   buildTerminalFileUrl,
   isBinaryPreviewable,
   isMarkdown,
-  isPdf,
-  isRasterImage,
-  isSandboxPreviewable,
-  isVideo,
 } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -337,16 +336,16 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // kolu's theme + initial line selection. The render closure reads `props`
   // reactively (FileView calls it inside its own JSX), so theme/selection
   // changes flow through without rebuilding it.
-  const sourceRenderer: SourceRenderer = {
+  const sourceRenderer: SourceRenderer<FileWithSource> = {
     render: (file) => (
       <div class="flex h-full w-full flex-col">
-        <TruncatedBanner show={file.source?.truncated ?? false} />
+        <TruncatedBanner show={file.source.truncated} />
         {withComments(
           "text",
           file,
           <BrowseFileView
             filePath={file.path}
-            content={file.source?.content ?? ""}
+            content={file.source.content}
             theme={props.theme}
             initialSelectedLines={props.initialSelectedLines}
           />,
@@ -367,40 +366,40 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // `BINARY_PREVIEWABLE_EXTENSIONS` without a category) falls to the explicit
   // "unsupported" renderer below rather than silently landing in an iframe that
   // can't render it — the partition has no silent extra category at runtime.
-  const renderedRenderers: RenderedRenderer[] = [
+  const renderedRenderers: RenderedRenderer<FileWithUrl>[] = [
     {
-      match: isRasterImage,
+      match: (path) => binaryPreviewFamily(path) === "raster",
       render: (file) =>
         withComments(
           "none",
           file,
           <ImageRenderer
             path={file.path}
-            url={file.url ?? ""}
+            url={file.url}
             class="image-preview-checkerboard"
           />,
         ),
     },
     {
-      match: isVideo,
+      match: (path) => binaryPreviewFamily(path) === "video",
       render: (file) =>
         withComments(
           "none",
           file,
-          <VideoRenderer path={file.path} url={file.url ?? ""} />,
+          <VideoRenderer path={file.path} url={file.url} />,
         ),
     },
     {
-      match: isPdf,
+      match: (path) => binaryPreviewFamily(path) === "pdf",
       render: (file) =>
         withComments(
           "none",
           file,
-          <PdfRenderer path={file.path} url={file.url ?? ""} />,
+          <PdfRenderer path={file.path} url={file.url} />,
         ),
     },
     {
-      match: isSandboxPreviewable,
+      match: (path) => binaryPreviewFamily(path) === "sandbox",
       render: (file) =>
         withComments(
           "iframe",
@@ -408,7 +407,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           <BrowseIframeRenderer
             terminalId={props.terminalId}
             path={file.path}
-            url={file.url ?? ""}
+            url={file.url}
             onNavigate={props.onNavigate}
             onHistory={props.onHistory}
             onOpenExternal={props.onOpenExternal}
@@ -444,15 +443,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // matches nothing here and stays source-only (no toggle). Markdown renders
   // from `content`, not a URL — so these never appear in the binary
   // `renderedRenderers` list above.
-  const textRenderers: RenderedRenderer[] = [
+  const textRenderers: RenderedRenderer<FileWithSource>[] = [
     {
       match: isMarkdown,
-      // A `kind:"text"` FileData always carries `source` (see textFile()
-      // below), so the `?.`/`?? ""` is type-defensive narrowing of the
-      // optional field — never a real blank-document path.
       render: (file) => (
         <div class="flex h-full w-full flex-col">
-          <TruncatedBanner show={file.source?.truncated ?? false} />
+          <TruncatedBanner show={file.source.truncated} />
           {withComments(
             "prose",
             file,
@@ -460,7 +456,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             // outside the commentable host so users can't anchor a comment
             // to UI copy the agent can't find in the file.
             <MarkdownRenderer
-              markdown={file.source?.content ?? ""}
+              markdown={file.source.content}
               resolveImageSrc={(src) =>
                 resolveMarkdownImageSrc(
                   encodeHostKey(activeHost()),
@@ -482,7 +478,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // Project each wire variant to a `FileData`. Identity changes when the
   // content/url changes (e.g. the server bumps `?v=<mtime>` on save), so
   // FileView re-renders through the same subscription path as before.
-  const textFile = createMemo<FileData | null>(() => {
+  const textFile = createMemo<FileWithSource | null>(() => {
     const fc = fileContent();
     return fc?.kind === "text"
       ? {
@@ -491,7 +487,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         }
       : null;
   });
-  const binaryFile = createMemo<FileData | null>(() => {
+  const binaryFile = createMemo<FileWithUrl | null>(() => {
     const fc = fileContent();
     return fc?.kind === "binary" ? { path: props.filePath, url: fc.url } : null;
   });

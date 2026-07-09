@@ -830,9 +830,8 @@ Feature: Code tab (review + browse)
   # `kolu-common/preview`) render from the per-terminal file route instead of
   # Pierre's syntax-highlighted `FileView`. The wire kind
   # (`FsReadFileOutput.kind`) only says "binary"; the client then dispatches by
-  # extension — raster images (`isRasterImage`) to a plain `<img>`, videos
-  # (`isVideo`) to a `<video controls>` element, PDFs (`isPdf`) to the native
-  # browser viewer, and HTML/SVG documents to a sandboxed `<iframe>`.
+  # extension (`binaryPreviewFamily`) to a plain `<img>`, a `<video controls>`
+  # element, the native browser PDF viewer, or the HTML/SVG sandboxed `<iframe>`.
 
   Scenario: HTML file renders in an iframe instead of as code
     When I run "rm -rf /tmp/kolu-iframe-html && git init /tmp/kolu-iframe-html && cd /tmp/kolu-iframe-html"

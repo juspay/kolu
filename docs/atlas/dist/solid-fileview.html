@@ -97,15 +97,15 @@ meaningful exactly at their intersection.</p>
 </tr>
 <tr>
 <td><strong>HTML</strong> <code>.html .htm</code></td>
-<td>✓</td>
+<td>✗ today</td>
 <td>✓ (iframe)</td>
-<td><strong>Toggle</strong> — default Rendered</td>
+<td>Rendered only — source needs the <code>renderable</code> wire kind below</td>
 </tr>
 <tr>
 <td><strong>SVG</strong> <code>.svg</code></td>
-<td>✓</td>
+<td>✗ today</td>
 <td>✓ (iframe)</td>
-<td><strong>Toggle</strong> — default Rendered</td>
+<td>Rendered only — source needs the <code>renderable</code> wire kind below</td>
 </tr>
 <tr>
 <td>images <code>.png .jpg</code></td>
@@ -121,8 +121,8 @@ meaningful exactly at their intersection.</p>
 </tr>
 </tbody>
 </table>
-<p>The toggle is offered <strong>iff both columns are ✓</strong>. This is a property of the
-format, not a per-presenter convention.</p>
+<p>The toggle is offered <strong>iff both columns are ✓ in the current <code>FileData</code> shape</strong>.
+This is a property of the data the host supplies, not a per-presenter convention.</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  fsReadFile (server)                     wire kind          BrowseFileDispatcher (client)</span></span>
 <span class="line"><span>  ┌───────────────────────┐   text   ┌───────────────┐   →  BrowseFileView   (Pierre CodeView)</span></span>
 <span class="line"><span>  │ isBinaryPreviewable(p) │ ───────▶ │ {kind:"text"} │</span></span>

@@ -6,13 +6,13 @@
 import type { JSX } from "solid-js";
 
 /** What a renderer draws from. A file may have a `source` (UTF-8 text on
- *  disk), a `url` (a server-rendered form), or *both* — the two orthogonal
- *  axes the preview taxonomy is built on:
- *    - source only   → plain code (source, no url)
- *    - rendered only → image / pdf (url, no source)
- *    - both          → markdown / html / svg (source AND url)
- *  The presence of each field is exactly what decides whether the Source ⇄
- *  Rendered toggle is offered.
+ *  disk), a `url` (a route-served rendered form), or both:
+ *    - source only   → plain code, plus source-rendered documents like Markdown
+ *    - url only      → image / video / pdf / sandboxed HTML/SVG today
+ *    - both          → consumers that can supply source and a separate URL
+ *  The host supplies the source renderer and rendered renderer list that match
+ *  this shape; `FileView` offers the Source ⇄ Rendered toggle when both are
+ *  available for the same file.
  *
  *  `content` and `truncated` are nested under `source` so their presence is
  *  coupled structurally: a file either has a source form (text + its
@@ -33,19 +33,29 @@ export type FileData = {
   url?: string;
 };
 
+/** File shape for renderers that require a source form. */
+export type FileWithSource = FileData & {
+  source: NonNullable<FileData["source"]>;
+};
+
+/** File shape for renderers that require a route-served URL. */
+export type FileWithUrl = FileData & {
+  url: string;
+};
+
 /** Renders a file's *source* form (e.g. syntax-highlighted text). Injected,
  *  never built in: `FileView` has no syntax highlighter of its own, so a
  *  consumer plugs one in (kolu backs this with `@kolu/solid-pierre`). */
-export type SourceRenderer = {
-  render: (file: FileData) => JSX.Element;
+export type SourceRenderer<TFile extends FileData = FileData> = {
+  render: (file: TFile) => JSX.Element;
 };
 
 /** Renders a file's *rendered* form (image, video, PDF, sandboxed iframe,
  *  markdown document, …). `match` claims the paths this appliance handles;
  *  `FileView` picks the first matching renderer from the list it's given. */
-export type RenderedRenderer = {
+export type RenderedRenderer<TFile extends FileData = FileData> = {
   match: (path: string) => boolean;
-  render: (file: FileData) => JSX.Element;
+  render: (file: TFile) => JSX.Element;
 };
 
 /** The two viewing modes. The toggle between them is offered iff a file has

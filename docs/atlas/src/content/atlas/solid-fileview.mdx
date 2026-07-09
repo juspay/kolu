@@ -66,13 +66,13 @@ meaningful exactly at their intersection.
 | --- | --- | --- | --- |
 | plain code `.ts .rs .py` | ✓ | ✗ | Source only (today's default — correct) |
 | **Markdown** `.md` | ✓ | ✓ (client md render) | **Toggle** — default Rendered |
-| **HTML** `.html .htm` | ✓ | ✓ (iframe) | **Toggle** — default Rendered |
-| **SVG** `.svg` | ✓ | ✓ (iframe) | **Toggle** — default Rendered |
+| **HTML** `.html .htm` | ✗ today | ✓ (iframe) | Rendered only — source needs the `renderable` wire kind below |
+| **SVG** `.svg` | ✗ today | ✓ (iframe) | Rendered only — source needs the `renderable` wire kind below |
 | images `.png .jpg` | ✗ | ✓ (`<img>`) | Rendered only — *no source exists* |
 | PDF `.pdf` | ✗ | ✓ (native PDF viewer) | Rendered only — *no source exists* |
 
-The toggle is offered **iff both columns are ✓**. This is a property of the
-format, not a per-presenter convention.
+The toggle is offered **iff both columns are ✓ in the current `FileData` shape**.
+This is a property of the data the host supplies, not a per-presenter convention.
 
 ```
   fsReadFile (server)                     wire kind          BrowseFileDispatcher (client)
