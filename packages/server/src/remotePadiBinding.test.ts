@@ -515,6 +515,22 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     expect(second.baked.commit).toEqual({ kind: "commit", sha: "bbb2222" });
   });
 
+  it("resets clockOffset to null on link death — a reconnect never reads a `connected` with the prior episode's offset (d2)", async () => {
+    const { session, enqueue, handles } = makeArm({ binderBuildId: "" });
+    enqueue(serve(helloVals()));
+    await pinAdopt(session);
+    // admit measured the offset against THIS episode's padi (the offset-at-hello contract).
+    expect(session.clockOffset()).not.toBeNull();
+
+    // Link dies → disconnected: the measured offset belongs to the dead episode, so it must
+    // clear to null (a reconnect re-measures at the next admit). Otherwise `projectState`
+    // could fold a stale offset into a fresh `connected` on a reconnect race.
+    handles[0]!.kill();
+    await flush();
+    expect(snap(session).phase).toBe("disconnected");
+    expect(session.clockOffset()).toBeNull();
+  });
+
   it("advances currentClient identity per spawn, but stays STABLE within one (no cursor spin)", async () => {
     const { session, enqueue, handles } = makeArm({ binderBuildId: "" });
     enqueue(serve(helloVals()));

@@ -47,4 +47,19 @@ export function projectConnection<Prov extends SshProv>(
 export const pipeSessionStateToCell = <Client, Prov extends SshProv>(
   session: Session<Client, Prov>,
   set: (info: ConnectionInfo) => void,
-): (() => void) => session.onState((s) => set(projectConnection(s)));
+): (() => void) =>
+  session.onState((s) => {
+    // d3 — the SIBLING projection to `serveHostMap`'s `EntryStatus`, over the SAME session.
+    // A throw out of `set` (the cell write) must NOT end this consumer: that would freeze the
+    // connection cell at its last phase while the chip keeps advancing (the reverse of the
+    // green-chip-frozen divergence). Surface it LOUDLY and keep consuming — never
+    // one-projection-dead.
+    try {
+      set(projectConnection(s));
+    } catch (err) {
+      console.error(
+        "[pipeSessionStateToCell] connection-cell write threw; cell stream kept alive:",
+        err,
+      );
+    }
+  });

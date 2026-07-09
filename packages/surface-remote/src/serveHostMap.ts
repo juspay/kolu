@@ -163,8 +163,23 @@ export function serveHostMap<
     const session = pool.getSession(enc);
     if (session === undefined) return;
     const off = session.onState((s) => {
+      // Cache the frame FIRST — the republish below must never lose it (d3).
       latestState.set(enc, s);
-      fire();
+      try {
+        fire();
+      } catch (err) {
+        // d3 — `fire()` drives the map's republish over EVERY member (resolve →
+        // projectState → linkFor → belt). A throw for ONE member must NOT propagate out of
+        // this `onState` consumer: that would end its consume loop and FREEZE `EntryStatus`
+        // at its last value while the SIBLING connection-cell consumer keeps advancing — the
+        // green-chip-frozen / "Building forever" divergence. Surface it LOUDLY and keep
+        // consuming (never one-projection-dead); `latestState` is already updated, so the
+        // next frame republishes.
+        console.error(
+          `[serveHostMap] entries republish threw for member ${enc}; status stream kept alive:`,
+          err,
+        );
+      }
     });
     stateSubs.set(enc, off);
   };

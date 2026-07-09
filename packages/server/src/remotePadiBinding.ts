@@ -733,6 +733,11 @@ export function ensureRemotePadiBinding(
       // link is now the honest failure; a reconnect re-decides ownership from scratch.
       crossSupervisorDetail = null;
       combined = null;
+      // The clock offset was measured against THIS (now-dead) episode's padi at admit; a
+      // reconnect re-measures it. Clearing it to null keeps the offset-at-hello contract
+      // honest — `projectState` reads `connecting` (offset === null) until admit re-stamps,
+      // so a reconnect race can't fold a PRIOR episode's offset into a fresh `connected`.
+      clockOffset = null;
     } else if (s.phase === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the
       // next handshake); only a previously-healthy bind clears to null.
@@ -740,6 +745,7 @@ export function ensureRemotePadiBinding(
         convergence = null;
       }
       combined = null;
+      clockOffset = null; // as above — re-measured at the next admit
     }
   });
 
