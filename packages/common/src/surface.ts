@@ -79,6 +79,7 @@ export type {
   ClaudeCodeInfo,
   CodexInfo,
   Foreground,
+  GrokInfo,
   OpenCodeInfo,
   ProcessRss,
   PrResult,

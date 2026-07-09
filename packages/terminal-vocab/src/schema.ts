@@ -39,6 +39,7 @@ import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
 import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
 import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
+import { GrokInfoSchema } from "kolu-grok/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -67,6 +68,7 @@ export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
   CodexInfoSchema,
   OpenCodeInfoSchema,
+  GrokInfoSchema,
 ]);
 
 // ── PR resolution — closed forge union + wire result ──────────────────
@@ -297,6 +299,7 @@ export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type CodexInfo = z.infer<typeof CodexInfoSchema>;
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
+export type GrokInfo = z.infer<typeof GrokInfoSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;
 
 // ── fs/git wire schemas (the Code tab's raw reads + change-pulses) ─────────

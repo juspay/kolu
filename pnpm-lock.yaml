@@ -275,6 +275,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -471,6 +474,31 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/integrations/grok:
+    dependencies:
+      anyagent:
+        specifier: workspace:*
+        version: link:../anyagent
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -708,6 +736,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -897,6 +928,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -1798,6 +1832,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode

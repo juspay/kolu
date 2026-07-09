@@ -4,7 +4,7 @@
 import { agentKindFromCommand } from "anyagent/cli";
 import type { AgentInfo } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon } from "../ui/Icons";
+import { ClaudeCodeIcon, CodexIcon, GrokIcon, OpenCodeIcon } from "../ui/Icons";
 
 export const agentIcons: Record<
   AgentInfo["kind"],
@@ -13,12 +13,14 @@ export const agentIcons: Record<
   "claude-code": ClaudeCodeIcon,
   codex: CodexIcon,
   opencode: OpenCodeIcon,
+  grok: GrokIcon,
 };
 
 export const agentNames: Record<AgentInfo["kind"], string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
   opencode: "OpenCode",
+  grok: "Grok",
 };
 
 export const stateLabels: Record<AgentInfo["state"], string> = {

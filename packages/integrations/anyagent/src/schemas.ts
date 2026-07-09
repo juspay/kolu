@@ -21,7 +21,12 @@ export type TaskProgress = z.infer<typeof TaskProgressSchema>;
  *  `AgentInfoSchema` in kolu-common discriminates on. Owned here (the lower
  *  layer) so the single home is browser-safe and re-exportable upward;
  *  the basename axis (`claude`/`codex`/`opencode`) maps onto it. */
-export const AgentKindSchema = z.enum(["claude-code", "codex", "opencode"]);
+export const AgentKindSchema = z.enum([
+  "claude-code",
+  "codex",
+  "opencode",
+  "grok",
+]);
 export type AgentKind = z.infer<typeof AgentKindSchema>;
 
 /** The agent IDENTITY a terminal can RESUME — the agent `kind` (matching

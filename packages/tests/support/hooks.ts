@@ -131,7 +131,9 @@ const AGENT_DIR_VARS = [
   "KOLU_CLAUDE_SESSIONS_DIR",
   "KOLU_CLAUDE_PROJECTS_DIR",
   "KOLU_CODEX_DIR",
+  "KOLU_GROK_DIR",
 ] as const;
+const grokDir = RECORDING ? undefined : mkSubDir("grok");
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
   string | undefined
@@ -140,11 +142,13 @@ const serverModeEnv: Record<
       KOLU_CLAUDE_SESSIONS_DIR: undefined,
       KOLU_CLAUDE_PROJECTS_DIR: undefined,
       KOLU_CODEX_DIR: undefined,
+      KOLU_GROK_DIR: undefined,
     }
   : {
       KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
       KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
       KOLU_CODEX_DIR: codexDir,
+      KOLU_GROK_DIR: grokDir,
       HOME: fixtureHome,
     };
 for (const name of AGENT_DIR_VARS) {
@@ -172,14 +176,14 @@ process.env.KOLU_OPENCODE_DB = opencodeDbPath;
  *  "unknown program 'codex'" when renamed. Bash is a single-purpose
  *  binary and copies cleanly.
  *
- *  Paths are surfaced to step definitions via KOLU_FAKE_CODEX_BIN and
- *  KOLU_FAKE_OPENCODE_BIN env vars (on this worker's process env, not
- *  forwarded to the spawned server — the step defs read them directly
- *  and type the absolute path into the pty). */
+ *  Paths are surfaced to step definitions via KOLU_FAKE_CODEX_BIN,
+ *  KOLU_FAKE_OPENCODE_BIN, and KOLU_FAKE_GROK_BIN env vars (on this
+ *  worker's process env, not forwarded to the spawned server — the step
+ *  defs read them directly and type the absolute path into the pty). */
 const fakeBinDir = mkSubDir("bin");
 const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
 const fakeBins: Record<string, string> = {};
-for (const name of ["codex", "opencode"]) {
+for (const name of ["codex", "opencode", "grok"]) {
   const target = path.join(fakeBinDir, name);
   fs.copyFileSync(bashPath, target);
   fs.chmodSync(target, 0o755);
@@ -187,6 +191,7 @@ for (const name of ["codex", "opencode"]) {
 }
 process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
 process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
+process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
