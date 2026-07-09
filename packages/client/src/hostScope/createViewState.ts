@@ -29,9 +29,9 @@
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createSignal, onCleanup, type Setter } from "solid-js";
+import { type Accessor, createSignal, type Setter } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
-import { boolPref } from "../persistedPref";
+import { perHostBoolPref } from "../persistedPref";
 import { padiRpcOf } from "../wire";
 
 type TerminalAttention = "unread" | "badge-only";
@@ -71,31 +71,25 @@ export function createViewState(host: HostKey): HostViewState {
     Record<TerminalId, TerminalAttention>
   >({});
 
-  // The canonical host string — the map's `codec.encode(host)`, used both in the
-  // active-terminal report's error message below and as the posture's per-host
-  // storage-key suffix. Computed once per owner.
+  // The canonical host string — the map's `codec.encode(host)`, used in the
+  // active-terminal report's error message below. Computed once per owner. (The
+  // posture's per-host storage key is now composed inside `perHostBoolPref`.)
   const encoded = encodeHostKey(host);
 
   // View posture: persisted PER HOST (`kolu-canvasMaximized:<host>`) so a host's
   // fullscreen posture survives reload — the pre-W7 behavior, restored — but keyed
   // by host (unlike the pre-W7 GLOBAL `kolu-canvas-maximized` flag) so two hosts
-  // don't collide on one bit. A close-all `reset()` still writes it back to tiled
-  // (see `reset` below), matching the old global boolPref that `reset` also cleared.
-  const maximizedKey = `kolu-canvasMaximized:${encoded}`;
-  const [canvasMaximized, setCanvasMaximized] = boolPref({
-    name: maximizedKey,
+  // don't collide on one bit. `perHostBoolPref` owns the `<base>:<host>` key
+  // composition AND the evict-on-host-exit `onCleanup` (the same unbounded-growth
+  // guard `createHostPrefs`'s dock filters use — `scopedByEntry` disposes this owner
+  // the instant the host leaves `padiMap.entries`), so this factory just names its
+  // base. A close-all `reset()` still writes it back to tiled (see `reset` below),
+  // matching the old global boolPref that `reset` also cleared.
+  const [canvasMaximized, setCanvasMaximized] = perHostBoolPref({
+    host,
+    base: "kolu-canvasMaximized",
     fallback: false,
   });
-
-  // EVICT this host's persisted posture key when it leaves the pool — the same
-  // unbounded-growth guard `createHostPrefs` runs for its dock filters:
-  // `scopedByEntry` disposes this owner the instant the host leaves
-  // `padiMap.entries`, firing this cleanup. A page RELOAD does NOT run it (the
-  // browser kills the process, not a Solid dispose), so the survive-reload
-  // contract holds; only a real host removal evicts. Without it, every distinct
-  // HostKey a tab ever activated — including kolu's ephemeral remote boxes with
-  // unique names — would orphan a `localStorage` key FOREVER.
-  onCleanup(() => localStorage.removeItem(maximizedKey));
 
   function writeActive(id: TerminalId | null): void {
     setActiveId(id);

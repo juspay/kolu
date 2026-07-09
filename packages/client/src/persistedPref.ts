@@ -20,7 +20,8 @@
  *  `localStorage` keep loading. */
 
 import { makePersisted } from "@solid-primitives/storage";
-import { type Accessor, createSignal, type Setter } from "solid-js";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { type Accessor, createSignal, onCleanup, type Setter } from "solid-js";
 
 export interface PersistedPrefOptions<T> {
   /** `localStorage` key. */
@@ -95,13 +96,43 @@ export function persistedPref<T>(
   return [value, setValue];
 }
 
-/** Strict-boolean persisted pref — a boolean-shaped {@link persistedPref}.
- *  The default `serialize` writes the literal `"true"`/`"false"` (see
- *  {@link defaultSerialize}'s boolean note), so a boolean pref MUST parse
- *  exactly those two — never `Boolean(raw)` / `JSON.parse` + truthiness, which
- *  read the stored `"false"` back as `true` (the canvas-maximized bug). That
- *  strict parse lives here once so every boolean pref (e.g. the per-host
- *  `kolu-showSleeping:<host>`) shares one seam instead of re-hand-rolling it. */
+/** The strict-boolean `parse` + default invalid-value warning every boolean pref
+ *  shares. The default `serialize` writes the literal `"true"`/`"false"` (see
+ *  {@link defaultSerialize}'s boolean note), so a boolean pref MUST parse exactly
+ *  those two — never `Boolean(raw)` / `JSON.parse` + truthiness, which read the
+ *  stored `"false"` back as `true` (the canvas-maximized bug). Spelled here once so
+ *  every boolean pref — plain ({@link boolPref}) or per-host ({@link perHostBoolPref})
+ *  — shares one seam instead of re-hand-rolling it. A corrupt/hand-edited/future-format
+ *  value must NOT collapse to the fallback with zero signal
+ *  (`caught-error-must-not-collapse-to-empty`): it logs by default so the
+ *  degraded-vs-first-run cases stay distinguishable, and a caller can override with
+ *  its own handler (e.g. a toast). */
+function boolDefaults(
+  name: string,
+  fallback: boolean,
+  onInvalid?: (err: unknown, raw: string) => void,
+): {
+  parse: (raw: string) => boolean;
+  onInvalid: PersistedPrefOptions<boolean>["onInvalid"];
+} {
+  return {
+    parse: (raw) => {
+      if (raw === "true") return true;
+      if (raw === "false") return false;
+      throw new Error(`expected boolean pref "true"/"false", got: ${raw}`);
+    },
+    onInvalid:
+      onInvalid ??
+      ((err, raw) =>
+        console.warn(
+          `[boolPref] ignoring invalid stored value for "${name}": ${JSON.stringify(raw)} — falling back to ${fallback}`,
+          err,
+        )),
+  };
+}
+
+/** Strict-boolean persisted pref — a boolean-shaped {@link persistedPref} over the
+ *  shared {@link boolDefaults} seam. */
 export function boolPref(opts: {
   name: string;
   fallback: boolean;
@@ -109,22 +140,69 @@ export function boolPref(opts: {
   storage?: Storage;
 }): [Accessor<boolean>, Setter<boolean>] {
   return persistedPref<boolean>({
-    ...opts,
-    // A corrupt/hand-edited/future-format stored value must NOT collapse to
-    // the fallback with zero signal (`caught-error-must-not-collapse-to-empty`):
-    // log it by default so the degraded-vs-first-run cases are distinguishable.
-    // A caller can override with its own handler (e.g. a toast).
-    onInvalid:
-      opts.onInvalid ??
-      ((err, raw) =>
-        console.warn(
-          `[boolPref] ignoring invalid stored value for "${opts.name}": ${JSON.stringify(raw)} — falling back to ${opts.fallback}`,
-          err,
-        )),
-    parse: (raw) => {
-      if (raw === "true") return true;
-      if (raw === "false") return false;
-      throw new Error(`expected boolean pref "true"/"false", got: ${raw}`);
-    },
+    name: opts.name,
+    fallback: opts.fallback,
+    storage: opts.storage,
+    ...boolDefaults(opts.name, opts.fallback, opts.onInvalid),
+  });
+}
+
+/** Compose a per-host `localStorage` key: `<base>:<encoded host>`. The ONE place
+ *  the `:${encoded}` suffix is appended, so a per-host pref cannot be spelled
+ *  without its host scope — the "remember to append the host" hazard dies here. */
+function perHostName(base: string, host: HostKey): string {
+  return `${base}:${encodeHostKey(host)}`;
+}
+
+export interface PerHostPrefOptions<T>
+  extends Omit<PersistedPrefOptions<T>, "name"> {
+  /** The host this pref is scoped to — its `encodeHostKey` becomes the key suffix. */
+  host: HostKey;
+  /** The un-scoped key base (e.g. `"kolu-activityWindow"`); the host suffix is
+   *  appended, once, by {@link perHostName}. */
+  base: string;
+}
+
+/** A {@link persistedPref} scoped to ONE host: its key is `<base>:<encoded host>`
+ *  AND — inseparably — it registers an `onCleanup` that EVICTS that exact key when
+ *  the owner is disposed (the host leaves the pool). Key composition and eviction
+ *  live together, once, so a per-host pref can neither be spelled without its host
+ *  scope nor forget to evict its key — the unbounded-`localStorage`-growth failure
+ *  (a tab's every ephemeral remote host would orphan a key forever) is unspellable.
+ *  Must be called under a reactive owner.
+ *
+ *  A page RELOAD does NOT run the cleanup (the browser kills the process, not a
+ *  Solid dispose), so the survive-reload contract holds; only a real host removal
+ *  evicts. */
+export function perHostPref<T>(
+  opts: PerHostPrefOptions<T>,
+): [Accessor<T>, Setter<T>] {
+  const name = perHostName(opts.base, opts.host);
+  const signal = persistedPref<T>({
+    name,
+    fallback: opts.fallback,
+    parse: opts.parse,
+    serialize: opts.serialize,
+    onInvalid: opts.onInvalid,
+    storage: opts.storage,
+  });
+  onCleanup(() => localStorage.removeItem(name));
+  return signal;
+}
+
+/** Strict-boolean {@link perHostPref} — the per-host sibling of {@link boolPref}.
+ *  Wraps `perHostPref` with the shared {@link boolDefaults} seam, so a per-host
+ *  boolean pref reuses BOTH the one boolean-parse seam and the one
+ *  key-composition/eviction seam instead of re-hand-rolling either. */
+export function perHostBoolPref(opts: {
+  host: HostKey;
+  base: string;
+  fallback: boolean;
+}): [Accessor<boolean>, Setter<boolean>] {
+  return perHostPref<boolean>({
+    host: opts.host,
+    base: opts.base,
+    fallback: opts.fallback,
+    ...boolDefaults(perHostName(opts.base, opts.host), opts.fallback),
   });
 }
