@@ -115,7 +115,6 @@ vi.mock("./persistedPref", () => {
     ];
   };
   return {
-    boolPref: (opts: { fallback: boolean }) => stub(opts.fallback),
     persistedPref: <T>(opts: { fallback: T }) => stub(opts.fallback),
     perHostBoolPref: (opts: { fallback: boolean }) => stub(opts.fallback),
     perHostPref: <T>(opts: { fallback: T }) => stub(opts.fallback),

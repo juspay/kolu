@@ -102,55 +102,35 @@ export function persistedPref<T>(
   return [value, setValue];
 }
 
-/** The strict-boolean `parse` + default invalid-value warning every boolean pref
- *  shares. The default `serialize` writes the literal `"true"`/`"false"` (see
- *  {@link defaultSerialize}'s boolean note), so a boolean pref MUST parse exactly
- *  those two — never `Boolean(raw)` / `JSON.parse` + truthiness, which read the
- *  stored `"false"` back as `true` (the canvas-maximized bug). Spelled here once so
- *  every boolean pref — plain ({@link boolPref}) or per-host ({@link perHostBoolPref})
- *  — shares one seam instead of re-hand-rolling it. A corrupt/hand-edited/future-format
- *  value must NOT collapse to the fallback with zero signal
- *  (`caught-error-must-not-collapse-to-empty`): it logs by default so the
- *  degraded-vs-first-run cases stay distinguishable, and a caller can override with
- *  its own handler (e.g. a toast). */
-function boolDefaults(
-  name: string,
-  fallback: boolean,
-  onInvalid?: (err: unknown, raw: string) => void,
-): {
-  parse: (raw: string) => boolean;
-  onInvalid: PersistedPrefOptions<boolean>["onInvalid"];
-} {
-  return {
-    parse: (raw) => {
-      if (raw === "true") return true;
-      if (raw === "false") return false;
-      throw new Error(`expected boolean pref "true"/"false", got: ${raw}`);
-    },
-    onInvalid:
-      onInvalid ??
-      ((err, raw) =>
-        console.warn(
-          `[boolPref] ignoring invalid stored value for "${name}": ${JSON.stringify(raw)} — falling back to ${fallback}`,
-          err,
-        )),
-  };
+/** The strict-boolean `parse` every boolean pref shares. The default `serialize`
+ *  writes the literal `"true"`/`"false"` (see {@link defaultSerialize}'s boolean
+ *  note), so a boolean pref MUST parse exactly those two — never `Boolean(raw)` /
+ *  `JSON.parse` + truthiness, which read the stored `"false"` back as `true` (the
+ *  canvas-maximized bug). Spelled once here so {@link perHostBoolPref} reuses it
+ *  instead of re-hand-rolling the parse. */
+function parseBool(raw: string): boolean {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`expected boolean pref "true"/"false", got: ${raw}`);
 }
 
-/** Strict-boolean persisted pref — a boolean-shaped {@link persistedPref} over the
- *  shared {@link boolDefaults} seam. */
-export function boolPref(opts: {
-  name: string;
-  fallback: boolean;
-  onInvalid?: (err: unknown, raw: string) => void;
-  storage?: Storage;
-}): [Accessor<boolean>, Setter<boolean>] {
-  return persistedPref<boolean>({
-    name: opts.name,
-    fallback: opts.fallback,
-    storage: opts.storage,
-    ...boolDefaults(opts.name, opts.fallback, opts.onInvalid),
-  });
+/** The default `onInvalid` a {@link perHostPref} installs when the caller supplies
+ *  none: a `console.warn` naming the offending key and the fallback it degraded to.
+ *  A corrupt/hand-edited/future-format value must NOT collapse to the fallback with
+ *  zero signal (`caught-error-must-not-collapse-to-empty`) — this keeps the
+ *  degraded-vs-first-run cases distinguishable. It reads the composed key `name`
+ *  from the layer that already owns it, so a caller never recomposes the key just to
+ *  name it in a log. Generic in `T` (not boolean-specific), because the "which key
+ *  was corrupt" diagnostic is useful for every per-host pref. */
+function defaultInvalidWarning<T>(
+  name: string,
+  fallback: T,
+): (err: unknown, raw: string) => void {
+  return (err, raw) =>
+    console.warn(
+      `[perHostPref] ignoring invalid stored value for "${name}": ${JSON.stringify(raw)} — falling back to ${JSON.stringify(fallback)}`,
+      err,
+    );
 }
 
 /** Compose a per-host `localStorage` key: `<base>:<encoded host>`. The ONE place
@@ -209,17 +189,20 @@ export function perHostPref<T>(
     fallback: opts.fallback,
     parse: opts.parse,
     serialize: opts.serialize,
-    onInvalid: opts.onInvalid,
+    // Warn-by-default on corrupt storage, using the composed `name` this layer owns —
+    // so no caller recomposes the key just to log it. A caller can override (e.g. a toast).
+    onInvalid: opts.onInvalid ?? defaultInvalidWarning(name, opts.fallback),
     storage,
   });
   onCleanup(() => storage.removeItem(name));
   return signal;
 }
 
-/** Strict-boolean {@link perHostPref} — the per-host sibling of {@link boolPref}.
- *  Wraps `perHostPref` with the shared {@link boolDefaults} seam, so a per-host
- *  boolean pref reuses BOTH the one boolean-parse seam and the one
- *  key-composition/eviction seam instead of re-hand-rolling either. */
+/** Strict-boolean {@link perHostPref}. Reuses BOTH the one boolean-parse seam
+ *  ({@link parseBool}) and the one key-composition/eviction seam, so a per-host
+ *  boolean pref re-hand-rolls neither. The default corrupt-value warning comes from
+ *  `perHostPref` (which owns the composed key `name`), so this wrapper names only its
+ *  base — the `<base>:<host>` suffix is still appended exactly once, in `perHostName`. */
 export function perHostBoolPref(opts: {
   host: HostKey;
   base: string;
@@ -229,6 +212,6 @@ export function perHostBoolPref(opts: {
     host: opts.host,
     base: opts.base,
     fallback: opts.fallback,
-    ...boolDefaults(perHostName(opts.base, opts.host), opts.fallback),
+    parse: parseBool,
   });
 }

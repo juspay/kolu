@@ -76,15 +76,11 @@ export function createViewState(host: HostKey): HostViewState {
   // posture's per-host storage key is now composed inside `perHostBoolPref`.)
   const encoded = encodeHostKey(host);
 
-  // View posture: persisted PER HOST (`kolu-canvasMaximized:<host>`) so a host's
-  // fullscreen posture survives reload — the pre-W7 behavior, restored — but keyed
-  // by host (unlike the pre-W7 GLOBAL `kolu-canvas-maximized` flag) so two hosts
-  // don't collide on one bit. `perHostBoolPref` owns the `<base>:<host>` key
-  // composition AND the evict-on-host-exit `onCleanup` (the same unbounded-growth
-  // guard `createHostPrefs`'s dock filters use — `scopedByEntry` disposes this owner
-  // the instant the host leaves `padiMap.entries`), so this factory just names its
-  // base. A close-all `reset()` still writes it back to tiled (see `reset` below),
-  // matching the old global boolPref that `reset` also cleared.
+  // View posture: persisted PER HOST so a host's fullscreen posture survives reload —
+  // the pre-W7 behavior, restored — but keyed by host (unlike the pre-W7 GLOBAL
+  // `kolu-canvas-maximized` flag) so two hosts don't collide. `perHostBoolPref` owns
+  // the `<base>:<host>` key composition + evict-on-host-exit (see its docstring); this
+  // factory just names its base. `reset()` still floors it to tiled on close-all (below).
   const [canvasMaximized, setCanvasMaximized] = perHostBoolPref({
     host,
     base: "kolu-canvasMaximized",

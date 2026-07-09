@@ -39,13 +39,10 @@ export interface HostPrefs {
 }
 
 export function createHostPrefs(host: HostKey): HostPrefs {
-  // Dock filters: persisted PER HOST — a dock filter is a sticky preference (it
-  // must survive reload), but keyed by host so two hosts don't share one filter.
-  // `perHostPref`/`perHostBoolPref` own the `<base>:<host>` key composition AND the
-  // evict-on-host-exit `onCleanup` (a per-host pref cannot be spelled without its
-  // host scope, nor forget to evict its key — the unbounded-`localStorage`-growth
-  // guard against a tab's every ephemeral remote box orphaning a key forever), so
-  // this factory just names each base.
+  // Dock filters: persisted PER HOST — a dock filter is a sticky preference (it must
+  // survive reload), but keyed by host so two hosts don't share one filter.
+  // `perHostPref`/`perHostBoolPref` own the `<base>:<host>` key composition + the
+  // evict-on-host-exit cleanup (see their docstrings); this factory just names each base.
   const [activityWindow, setActivityWindow] = perHostPref<ActivityWindow>({
     host,
     base: "kolu-activityWindow",
