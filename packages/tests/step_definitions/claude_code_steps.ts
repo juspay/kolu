@@ -19,7 +19,11 @@ import {
   setMockState,
 } from "../support/mockAgent.ts";
 import { pollFor } from "../support/poll.ts";
-import { HYDRATION_TIMEOUT, type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  HYDRATION_TIMEOUT,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 // No per-scenario mock-agent teardown hook: the next scenario's
 // `terminal/killAll` (hooks.ts Before) SIGKILLs the whole terminal tree

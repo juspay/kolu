@@ -107,7 +107,9 @@ function main(): void {
     if (cmd.verb === "paint") {
       const lines = PROMPT_TEMPLATES[cmd.template];
       if (!lines) {
-        process.stdout.write(`MOCK-AGENT-ERROR unknown template '${cmd.template}'\n`);
+        process.stdout.write(
+          `MOCK-AGENT-ERROR unknown template '${cmd.template}'\n`,
+        );
         return;
       }
       // Print the prompt onto the PTY as the foreground agent would, so kolu's

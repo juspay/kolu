@@ -77,7 +77,12 @@ function buildTranscript(state: AgentState): string {
           role: "assistant",
           stop_reason: "tool_use",
           content: [
-            { type: "tool_use", id: "tu-ask", name: "AskUserQuestion", input: {} },
+            {
+              type: "tool_use",
+              id: "tu-ask",
+              name: "AskUserQuestion",
+              input: {},
+            },
           ],
         },
       }),
@@ -261,7 +266,10 @@ export class ClaudeAgent implements MockKind {
   private readonly cwd = process.cwd();
   private readonly pid = process.pid;
   private readonly projectDir = join(this.projectsDir, encodeCwd(this.cwd));
-  private readonly transcriptPath = join(this.projectDir, `${SESSION_ID}.jsonl`);
+  private readonly transcriptPath = join(
+    this.projectDir,
+    `${SESSION_ID}.jsonl`,
+  );
   private readonly sessionFile = join(this.sessionsDir, `${this.pid}.json`);
   private removed = false;
 
@@ -273,7 +281,8 @@ export class ClaudeAgent implements MockKind {
     mkdirSync(this.projectDir, { recursive: true });
     writeFileSync(this.transcriptPath, buildTranscript(state));
     if (state === "running_background") this.writeWorkflowJournal({});
-    if (state === "orphaned_workflow") this.writeWorkflowJournal({ stale: true });
+    if (state === "orphaned_workflow")
+      this.writeWorkflowJournal({ stale: true });
     if (state === "fork") this.writeForkSubagent();
     if (opts.staleJsonl) this.writeStalePreviousSessionJsonl();
     if (opts.tasks)
@@ -375,7 +384,8 @@ export class ClaudeAgent implements MockKind {
     this.removed = true;
     if (existsSync(this.sessionFile)) unlinkSync(this.sessionFile);
     if (existsSync(this.transcriptPath)) unlinkSync(this.transcriptPath);
-    if (existsSync(this.projectDir)) rmSync(this.projectDir, { recursive: true });
+    if (existsSync(this.projectDir))
+      rmSync(this.projectDir, { recursive: true });
     this.nudge();
   }
 }

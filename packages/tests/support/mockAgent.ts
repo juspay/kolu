@@ -68,7 +68,9 @@ async function cdIntoScenarioDir(
   cwdCounter += 1;
   const dir = `/tmp/kolu-${kind}-w${workerId}-${cwdCounter}`;
   const marker = `MOCK_CWD_READY_${workerId}_${cwdCounter}`;
-  await world.page.keyboard.type(`mkdir -p ${dir} && cd ${dir} && echo ${marker}`);
+  await world.page.keyboard.type(
+    `mkdir -p ${dir} && cd ${dir} && echo ${marker}`,
+  );
   await world.page.keyboard.press("Enter");
   await waitForBufferContains(world.page, marker);
   return dir;
@@ -78,7 +80,8 @@ async function cdIntoScenarioDir(
  *  sleeping-terminals journey (it asserts a WOKEN terminal re-spawned in this
  *  SAVED cwd, matched by its unique leaf). Throws if no mock is active. */
 export function activeMockCwd(): string {
-  if (!active) throw new Error("No mock-agent active — call the mock step first");
+  if (!active)
+    throw new Error("No mock-agent active — call the mock step first");
   return active.cwd;
 }
 
@@ -103,9 +106,12 @@ function renderOpts(opts: MockStateOpts): string {
   if (opts.inputTokens !== undefined) parts.push(`input=${opts.inputTokens}`);
   if (opts.cachedInputTokens !== undefined)
     parts.push(`cached=${opts.cachedInputTokens}`);
-  if (opts.contextTokens !== undefined) parts.push(`context=${opts.contextTokens}`);
-  if (opts.todos) parts.push(`todos=${opts.todos.total}/${opts.todos.completed}`);
-  if (opts.tasks) parts.push(`tasks=${opts.tasks.total}/${opts.tasks.completed}`);
+  if (opts.contextTokens !== undefined)
+    parts.push(`context=${opts.contextTokens}`);
+  if (opts.todos)
+    parts.push(`todos=${opts.todos.total}/${opts.todos.completed}`);
+  if (opts.tasks)
+    parts.push(`tasks=${opts.tasks.total}/${opts.tasks.completed}`);
   if (opts.staleJsonl) parts.push("stale-jsonl");
   return parts.join(" ");
 }
@@ -119,7 +125,9 @@ export async function setMockState(
   opts: MockStateOpts = {},
 ): Promise<void> {
   const rendered = renderOpts(opts);
-  await world.page.keyboard.type(`state ${state}${rendered ? ` ${rendered}` : ""}`);
+  await world.page.keyboard.type(
+    `state ${state}${rendered ? ` ${rendered}` : ""}`,
+  );
   await world.page.keyboard.press("Enter");
   await waitForBufferContains(world.page, `MOCK-AGENT-STATE ${state}`);
   if (!active)
@@ -136,7 +144,8 @@ export async function augmentMockState(
   world: KoluWorld,
   patch: MockStateOpts,
 ): Promise<void> {
-  if (!active) throw new Error("no active mock-agent — call the mock step first");
+  if (!active)
+    throw new Error("no active mock-agent — call the mock step first");
   await setMockState(world, active.state, { ...active.opts, ...patch });
 }
 

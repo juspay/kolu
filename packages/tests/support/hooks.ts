@@ -132,7 +132,13 @@ const agentHomeDefaults = (home: string) => ({
   KOLU_CLAUDE_SESSIONS_DIR: path.join(home, ".claude", "sessions"),
   KOLU_CLAUDE_PROJECTS_DIR: path.join(home, ".claude", "projects"),
   KOLU_CODEX_DIR: path.join(home, ".codex"),
-  KOLU_OPENCODE_DB: path.join(home, ".local", "share", "opencode", "opencode.db"),
+  KOLU_OPENCODE_DB: path.join(
+    home,
+    ".local",
+    "share",
+    "opencode",
+    "opencode.db",
+  ),
 });
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],

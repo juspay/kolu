@@ -53,4 +53,3 @@ export function nudgeDir(dir: string | undefined): void {
     // Dir may not exist yet or be mid-cleanup — fine; poll loop retries.
   }
 }
-
