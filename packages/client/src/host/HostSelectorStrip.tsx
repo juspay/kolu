@@ -633,6 +633,9 @@ const HostSelectorStrip: Component = () => {
       .then(() => {
         setDraft("");
         setAdding(false);
+        // Jump the canvas to the host you just added so you see it come up
+        // first, rather than leaving the previously-active host in view.
+        setActiveHost(host);
       })
       .catch((err: Error) =>
         toast.error(`Couldn't add ${raw}: ${err.message}`),
