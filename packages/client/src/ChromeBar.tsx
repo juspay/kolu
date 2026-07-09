@@ -78,38 +78,14 @@ const ChromeBar: Component<{
   // drift out of sync with the posture.
   const maximizeLabel = createMemo(() => posturedActionLabel(posture.mode()));
 
-  const chromeStyle = createMemo<JSX.CSSProperties>(() => {
-    const themed: JSX.CSSProperties = props.themeColor
-      ? { "--chrome-theme-color": props.themeColor }
-      : {};
-    return {
-      ...themed,
-      ...(docked()
-        ? {}
-        : {
-            // Stop the floating chrome's right edge at the right
-            // panel's left edge so the controls cluster (inspector,
-            // settings, ⌘K) doesn't sit on top of the panel's tab
-            // bar. `panelSize` is `@corvu/resizable`'s [0..1] fraction
-            // of *the Resizable container's* width — treating it as a
-            // fraction of viewport width is only correct because the
-            // host Resizable in `App.tsx` spans the full viewport in
-            // tiled mode (the Dock floats `position: absolute`, the
-            // canvas-container is the Resizable's left panel).
-            // Maintained by convention across the two files — if a
-            // sibling outside the Resizable ever shrinks the
-            // container, switch to a measured pixel offset or a
-            // host-published CSS custom property.
-            // `panelOpen()` (not raw `collapsed()`) so an empty workspace —
-            // where the panel host isn't even mounted (App's `showEmpty`)
-            // — reserves no width here. Otherwise the cluster floats 25vw
-            // shy of the right edge with nothing filling the gap.
-            right: rightPanel.panelOpen()
-              ? `${rightPanel.panelSize() * 100}vw`
-              : 0,
-          }),
-    };
-  });
+  // The header is a DOCKED full-width top bar in both postures now (tiled +
+  // maximized), so it spans the whole width — including over the right
+  // inspector panel, which sits BELOW it — exactly like maximized mode. No
+  // panel-width right-offset to maintain anymore; the only inline style is the
+  // hostname-derived PWA theme tint.
+  const chromeStyle = createMemo<JSX.CSSProperties>(() =>
+    props.themeColor ? { "--chrome-theme-color": props.themeColor } : {},
+  );
 
   return (
     <header
@@ -118,17 +94,14 @@ const ChromeBar: Component<{
       // Solid chrome owns this strip's pointer area. Individual controls still
       // carry their own pointer/focus classes, but empty header space should
       // behave like header, not click through to the canvas behind it.
-      class="chrome-bar-surface flex h-10 items-stretch gap-3 border-b border-edge/80 bg-surface-0 px-3 pt-2 pb-0 shadow-sm shadow-black/20 select-none pointer-events-auto transition-colors duration-150"
-      // z-50 in BOTH modes. Without it on the docked branch, the
-      // `backdrop-filter` we apply to the bar when the workspace
-      // switcher is open creates a stacking context with auto z-index,
-      // which traps the dropdown panel's own z-50 inside the bar — the
-      // maximized tile (z-40 in the canvas) then paints on top of the
-      // panel at the App root's auto-z layer (DOM order wins).
-      classList={{
-        "absolute top-0 left-0 z-50": !docked(),
-        "relative shrink-0 z-50": docked(),
-      }}
+      //
+      // DOCKED full-width in BOTH postures (`relative shrink-0`) so the bar
+      // spans the whole viewport and the canvas + right inspector flow BELOW
+      // it — the tabbed header reads as one continuous top rail. No drop
+      // shadow: a shadow under the bar makes the tabs look like they float
+      // ABOVE the content, fighting the connected-tab metaphor. `z-50` keeps
+      // the workspace-switcher dropdown above the maximized tile (z-40).
+      class="chrome-bar-surface relative z-50 flex h-10 shrink-0 items-stretch gap-3 border-b border-edge/80 bg-surface-0 px-3 pt-2 pb-0 select-none pointer-events-auto transition-colors duration-150"
       style={chromeStyle()}
     >
       {/* Quiet Kolu mark — connection + dialogs; versions live in the dialog. */}
@@ -145,11 +118,12 @@ const ChromeBar: Component<{
 
       {/* Control cluster: recorder → maximize → dock → inspector → settings
        *  → ⌘K. Buttons share the chrome icon hover/focus language.
-       *  `-translate-y-px`: same 1px lift as the Kolu rail — the host tabs
-       *  sit 1px above the header's centre (their strip's `border-b` raises
-       *  the `items-end` tabs), so the whole header reads on ONE row: Kolu ·
-       *  tabs · controls. */}
-      <div class="flex h-8 items-center gap-2 shrink-0 -translate-y-px">
+       *  These are TOOLBAR icons, not tab-row marks, so they sit vertically
+       *  CENTERED in the full header (symmetric top/bottom padding) rather
+       *  than riding the tab baseline. `-mt-2 h-10` cancels the header's
+       *  `pt-2` and spans the whole 40px so `items-center` lands them dead
+       *  centre. */}
+      <div class="-mt-2 flex h-10 items-center gap-2 shrink-0">
         <RecordButton />
         <Tip label={maximizeLabel()}>
           <button
