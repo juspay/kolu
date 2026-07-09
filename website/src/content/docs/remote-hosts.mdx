@@ -23,12 +23,18 @@ import Steps from "../../components/docs/Steps.astro";
 </Aside>
 
 kolu can put terminals from **other machines** right on your canvas. A remote
-host's terminals are first-class tiles — same Code tab, same file preview, same
-paste, same session restore — just running on that host over ssh. The canvas shows
-**one host at a time**; a host strip in the top bar lets you switch which host
-you're looking at, and switching swaps the whole canvas **live, with no reload**.
-Each host keeps its own arrangement, so `you@box` looks the same from your laptop,
-your desktop, or your phone.
+host's terminals are first-class tiles — same [Code tab and file
+preview](/power-features), same paste, same session restore — just running on that
+host over ssh. The canvas shows **one host at a time**; a host strip in the top bar
+lets you switch which host you're looking at, and switching swaps the whole canvas
+**live, with no reload**. Each host keeps its own arrangement, so `you@box` looks
+the same from your laptop, your desktop, or your phone.
+
+Under the hood that's [padi](/padi) — kolu's per-host workspace daemon — bound to
+the remote over the same ssh transport [`kaval-tui`](/kaval) uses from the shell;
+[Architecture](/architecture) shows the full stack. This is separate from [Remote
+Access](/remote-access), which is about reaching the kolu **browser app** itself
+from another device.
 
 ## Prerequisites
 
@@ -39,7 +45,7 @@ your desktop, or your phone.
   </Card>
   <Card title="Nix on the remote">
     The host has Nix installed and your user is **trusted by its nix-daemon** —
-    kolu provisions padi there by copying a Nix closure over ssh.
+    kolu provisions [padi](/padi) there by copying a Nix closure over ssh.
   </Card>
   <Card title="A Nix-wrapped kolu">
     Launch kolu through its Nix wrapper, which bakes in the per-architecture build
@@ -95,7 +101,12 @@ The host's chip dot tells you where it is:
   During a first-time provisioning the canvas currently shows a plain
   “connecting…” without a live build tail, so a slow-but-working cold connect can
   read as a hang. It **is** working; give a fresh host a few minutes. Richer
-  progress is a known gap being worked on.
+  in-canvas progress is a known gap being worked on.
+
+  Meanwhile the real detail is in the **kolu server logs** — they carry the live
+  `nix copy` and build output, so you can watch progress there and read the actual
+  reason if a connect genuinely fails. Under systemd that's `journalctl` for your
+  kolu service; padi also keeps its own log in its state-root on the host.
 </Aside>
 
 ## Switch hosts, and per-host canvases
@@ -109,11 +120,12 @@ says so.
 
 A chip also carries an **awaiting badge** — a count of agents on that host waiting
 for your input — so a host you're not looking at can tell you it needs you without
-your switching to it first.
+your switching to it first. An [installed PWA](/install-pwa) surfaces the same
+counts as an app-badge and notifications across all your hosts.
 
 ## When a host is down
 
-If a host's padi can't bind, its canvas is replaced by a card that names the cause
+If a host's [padi](/padi) can't bind, its canvas is replaced by a card that names the cause
 in plain language and offers two actions — **Reconnect** (a real re-dial, once
 you've cleared the cause) and **Switch to local** (the always-available escape
 hatch). The causes it distinguishes:
@@ -148,6 +160,9 @@ you hit one that isn't here, that's the signal to add it.
 ## Related
 
 <CardGrid>
-  <LinkCard title="Remote Access" href="/remote-access" description="reach the kolu browser app itself from another device over Tailscale" />
+  <LinkCard title="Padi" href="/padi" description="the per-host workspace daemon kolu binds on each machine, local or remote" />
+  <LinkCard title="Architecture" href="/architecture" description="how the client, kolu-server, padi, and kaval layer up — and survive restarts and ssh blips" />
   <LinkCard title="Kaval remote terminals" href="/kaval#reach-a-remote-kaval--over-ssh" description="drive a PTY daemon on another machine from the shell — the same ssh transport, no browser" />
+  <LinkCard title="Remote Access" href="/remote-access" description="reach the kolu browser app itself from another device over Tailscale" />
+  <LinkCard title="Install as an App" href="/install-pwa" description="the PWA install paths that unlock cross-host app badges and notifications" />
 </CardGrid>
