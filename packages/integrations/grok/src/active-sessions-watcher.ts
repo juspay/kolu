@@ -13,14 +13,24 @@
  * via `matchesAgent` can retry after Grok creates the tree.
  */
 
-import fs from "node:fs";
+import { createDirFilenameWatcher } from "kolu-io";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
 import { ACTIVE_SESSIONS_PATH, GROK_DIR } from "./config.ts";
+import { grokHomePresent } from "./core.ts";
 
 let installed = false;
-let onFire: (() => void) | null = null;
-let onErr: ((err: unknown) => void) | null = null;
+
+/** Parent-dir watcher on `~/.grok`, filtered to `active_sessions.json`.
+ *  Grok rewrites the file via temp+rename, which destroys an `fs.watch`
+ *  pointed at the file itself — the receptacle watches the parent dir so
+ *  the rename lands cleanly (same volatility the git watchers plug into). */
+const activeSessionsWatcher = createDirFilenameWatcher({
+  resolveDir: async () => GROK_DIR,
+  filename: path.basename(ACTIVE_SESSIONS_PATH),
+  debounceMs: 50,
+  logLabel: "grok: active_sessions",
+});
 
 export function subscribeActiveSessions(
   onChange: () => void,
@@ -29,7 +39,7 @@ export function subscribeActiveSessions(
 ): void {
   if (installed) return;
 
-  if (!fs.existsSync(GROK_DIR)) {
+  if (!grokHomePresent()) {
     log?.debug(
       { dir: GROK_DIR },
       "grok: home dir absent — active_sessions install deferred",
@@ -38,37 +48,25 @@ export function subscribeActiveSessions(
   }
 
   installed = true;
-  onFire = onChange;
-  onErr = onError;
 
-  const fire = () => {
-    if (!onFire) return;
-    try {
-      onFire();
-    } catch (err) {
-      onErr?.(err);
-    }
-  };
-
-  try {
-    // Process-lifetime watcher — never closed (matches codex WAL subscribe).
-    fs.watch(GROK_DIR, (_evt, filename) => {
-      if (
-        filename === path.basename(ACTIVE_SESSIONS_PATH) ||
-        filename === `${path.basename(ACTIVE_SESSIONS_PATH)}.tmp` ||
-        filename === `${path.basename(ACTIVE_SESSIONS_PATH)}.lock`
-      ) {
-        fire();
+  // Once-install: subscribe for the process lifetime and discard the
+  // unsubscribe (refcount stays 1 — matches the codex WAL contract). The
+  // receptacle already wraps the listener in its own try/catch + log; the
+  // extra guard here routes a throwing `onChange` to the adapter's
+  // `onError` so a caught error surfaces rather than collapsing silently.
+  activeSessionsWatcher.watch(
+    "",
+    () => {
+      try {
+        onChange();
+      } catch (err) {
+        onError(err);
       }
-    });
-    log?.info(
-      { path: ACTIVE_SESSIONS_PATH },
-      "grok: active_sessions watcher installed",
-    );
-  } catch (err) {
-    log?.error({ err, path: GROK_DIR }, "grok: failed to watch home dir");
-    installed = false;
-    onFire = null;
-    onErr = null;
-  }
+    },
+    log,
+  );
+  log?.info(
+    { path: ACTIVE_SESSIONS_PATH },
+    "grok: active_sessions watcher installed",
+  );
 }

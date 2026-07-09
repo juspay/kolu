@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "anyagent": "workspace:*",
+    "kolu-io": "workspace:*",
     "kolu-shared": "workspace:*",
     "zod": "^4.3.6"
   },
