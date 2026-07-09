@@ -121,24 +121,20 @@ function discardPendingGesture() {
   pending = { ...EMPTY };
 }
 
-/** Abort any input still aimed at the host we are LEAVING — the in-flight pan
- *  tween AND the queued gesture delta. Both the animation callback and
- *  `flushGesture` write pan/zoom through `activeScope()` (module-scope machinery,
- *  one active canvas), so a frame-late callback that fires AFTER `activeHost`
- *  changed would land the outgoing host's motion in the INCOMING host's per-host
- *  camera. The active-host switch effect (`useCanvasCenterOnSwitch`) calls this up
- *  front so a switch cannot corrupt the retained pose of the host switched TO. */
+/** Abort every transient input competing with an authoritative write on the
+ *  ACTIVE host — the in-flight pan tween AND the queued gesture delta. Two callers
+ *  share this one seam so neither can forget half the arbitration:
+ *    - the active-host SWITCH (`useCanvasCenterOnSwitch`) calls it up front so a
+ *      frame-late callback can't land the OUTGOING host's motion in the INCOMING
+ *      host's per-host camera — both the animation callback and `flushGesture`
+ *      write pan/zoom through `activeScope()` (module-scope machinery, one active
+ *      canvas), which re-keys to the new host on switch;
+ *    - an authoritative ABSOLUTE write (`setPan` / `startAnimatedPan` /
+ *      zoom-to-center) is the new truth, so it must kill both competing input
+ *      sources rather than let a frame-late fling delta stack on top of it. */
 function abortTransientInput() {
   cancelPanAnimation();
   discardPendingGesture();
-}
-
-/** Begin an authoritative absolute mutation: a programmatic write is the new
- *  truth, so it must kill BOTH competing input sources — the in-flight tween
- *  and the queued gesture delta. Every programmatic setter plugs into this one
- *  seam so it cannot forget half the arbitration. */
-function beginAuthoritativeMutation() {
-  abortTransientInput();
 }
 
 // ── Public API ──
@@ -266,7 +262,7 @@ function targetForPoint(
 }
 
 function startAnimatedPan(target: { panX: number; panY: number }) {
-  beginAuthoritativeMutation();
+  abortTransientInput();
   currentAnim = animatePan(
     { x: panX(), y: panY() },
     { x: target.panX, y: target.panY },
@@ -288,7 +284,7 @@ function panTo(x: number, y: number) {
 }
 
 function setPan(x: number, y: number) {
-  beginAuthoritativeMutation();
+  abortTransientInput();
   setPanX(x);
   setPanY(y);
 }
@@ -313,7 +309,7 @@ function viewportCenter() {
 
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
   if (!containerEl) return;
-  beginAuthoritativeMutation();
+  abortTransientInput();
   const result = zoomToCenterPure(
     panX(),
     panY(),

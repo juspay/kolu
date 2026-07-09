@@ -7,7 +7,7 @@
  *    Drives the desktop Resizable's geometry. The **collapsed** bit was pulled
  *    OUT of that global pref at W7 TIER A: it parameterizes the VIEW OF a host's
  *    content (per-host by THE RULE), so it now lives PER HOST in the host scope
- *    (`createViewState`) as an in-memory override seeded from the global
+ *    (`createHostPrefs`) as an in-memory override seeded from the global
  *    `preferences.rightPanel.collapsed`. See `collapsed`/`setCollapsed` below.
  *  - **Touch-layout drawer open state** (phone + compact) is session-local, NOT
  *    persisted. Dismissing the bottom-drawer host on a handheld is an ephemeral
@@ -194,7 +194,7 @@ export function useRightPanel() {
   /** Effective desktop collapsed bit for the ACTIVE host. W7 TIER A made the
    *  desktop panel visibility per-host: switching hosts remembers whether the
    *  panel was collapsed on THAT host, rather than one global bit bleeding across
-   *  hosts. The per-host value lives in the host scope (`createViewState`) as an
+   *  hosts. The per-host value lives in the host scope (`createHostPrefs`) as an
    *  in-memory override; `undefined` means "not yet touched on this host", so we
    *  SEED the read from the existing global `preferences().rightPanel.collapsed`.
    *  CHOICE (see the commit message): an in-memory per-host signal seeded from the
@@ -202,7 +202,7 @@ export function useRightPanel() {
    *  lower-risk option (no server-schema widening; reload re-inherits the global,
    *  matching the camera/posture tier). Floors the removal race to the global. */
   const collapsed = (): boolean =>
-    activeScope()?.view.rightPanelCollapsed() ?? rp().collapsed;
+    activeScope()?.prefs.rightPanelCollapsed() ?? rp().collapsed;
 
   /** Read the per-terminal record for the active terminal, falling back
    *  to defaults when no terminal is active or the terminal has no record
@@ -247,7 +247,7 @@ export function useRightPanel() {
    *  active scope to write). */
   const setCollapsed = (next: boolean) => {
     if (!hasTerminals()) return;
-    activeScope()?.view.setRightPanelCollapsed(next);
+    activeScope()?.prefs.setRightPanelCollapsed(next);
   };
 
   return {

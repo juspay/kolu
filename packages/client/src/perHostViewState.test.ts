@@ -1,8 +1,9 @@
 /** Per-host VIEW POSTURE + dock filters + right-panel bit (padi W7 TIER A) — the
  *  acceptance suite for the four view facts moved INTO the per-host `scopedByEntry`
- *  owner (`hostScope/createViewState`): the fullscreen posture (`canvasMaximized`),
- *  the two dock filters (`activityWindow`, `showSleeping`), and the right-panel
- *  collapsed bit. Each follows the maximized pattern: SET on host A → switch to
+ *  owner: the fullscreen posture (`canvasMaximized`) in `hostScope/createViewState`,
+ *  the two dock filters (`activityWindow`, `showSleeping`) and the right-panel
+ *  collapsed bit in the sibling `hostScope/createHostPrefs` (the sticky prefs a
+ *  close-all must NOT clear). Each follows the maximized pattern: SET on host A → switch to
  *  host B sees the DEFAULT → switch BACK to A sees A's value RESTORED (the owner is
  *  RETAINED across a switch-away, disposed only on membership exit). For the two
  *  PERSISTED dock filters it also asserts the PER-HOST localStorage key is written
@@ -158,17 +159,17 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         switchTo(HOST_A);
         await flush();
         // `undefined` = "inherit the global pref"; the facade seeds the read from it.
-        expect(activeScope()?.view.rightPanelCollapsed()).toBeUndefined();
-        activeScope()?.view.setRightPanelCollapsed(true);
-        expect(activeScope()?.view.rightPanelCollapsed()).toBe(true);
+        expect(activeScope()?.prefs.rightPanelCollapsed()).toBeUndefined();
+        activeScope()?.prefs.setRightPanelCollapsed(true);
+        expect(activeScope()?.prefs.rightPanelCollapsed()).toBe(true);
 
         switchTo(HOST_B);
         await flush();
-        expect(activeScope()?.view.rightPanelCollapsed()).toBeUndefined();
+        expect(activeScope()?.prefs.rightPanelCollapsed()).toBeUndefined();
 
         switchTo(HOST_A);
         await flush();
-        expect(activeScope()?.view.rightPanelCollapsed()).toBe(true);
+        expect(activeScope()?.prefs.rightPanelCollapsed()).toBe(true);
       } finally {
         dispose();
       }

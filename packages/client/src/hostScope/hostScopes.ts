@@ -34,6 +34,7 @@ import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { activeHost, padiMap } from "../wire";
 import { createCamera, type HostCamera } from "./createCamera";
+import { createHostPrefs, type HostPrefs } from "./createHostPrefs";
 import {
   createSessionRestore,
   type HostRestoreLatch,
@@ -43,6 +44,7 @@ import { createViewState, type HostViewState } from "./createViewState";
 /** One host's owned client-state world. */
 export interface HostScope {
   view: HostViewState;
+  prefs: HostPrefs;
   camera: HostCamera;
   restore: HostRestoreLatch;
 }
@@ -53,6 +55,7 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
     activeHost,
     (host: HostKey): HostScope => ({
       view: createViewState(host),
+      prefs: createHostPrefs(host),
       camera: createCamera(),
       restore: createSessionRestore(),
     }),

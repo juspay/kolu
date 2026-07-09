@@ -17,11 +17,11 @@
 import { activeScope } from "../hostScope/hostScopes";
 
 /** Whether the ACTIVE host's dock shows sleeping (☾) rows — a per-host fact born
- *  in the host scope's `createViewState` (persisted per host so each host keeps
+ *  in the host scope's `createHostPrefs` (persisted per host so each host keeps
  *  its own ☾ filter across a switch and a reload). Read here through the facade;
  *  floors the removal race to `true` (the permissive default). */
 export function showSleeping(): boolean {
-  return activeScope()?.view.showSleeping() ?? true;
+  return activeScope()?.prefs.showSleeping() ?? true;
 }
 
 /** Toggle/set the ACTIVE host's ☾ filter (a no-op during the removal race).
@@ -29,5 +29,5 @@ export function showSleeping(): boolean {
 export function setShowSleeping(
   next: boolean | ((prev: boolean) => boolean),
 ): void {
-  activeScope()?.view.setShowSleeping(next);
+  activeScope()?.prefs.setShowSleeping(next);
 }
