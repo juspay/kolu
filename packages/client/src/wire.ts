@@ -52,9 +52,8 @@ import {
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import type { WebSocket as PartySocket } from "partysocket";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { createAddedHostActivation } from "./host/hostAddActivation.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
@@ -295,43 +294,49 @@ const hostScoped = createRoot(() => {
   // registers first — each registered handler now fires independently either way, so sharing
   // this reference is just to avoid a duplicate toast, never to dodge a crash.
   const members = padiMap.entries.use({ onError: onHostMembershipError });
+  // Pending add-a-host intent: the host the user just added, to activate the frame it JOINS
+  // membership. `hosts.add` resolves BEFORE the `entries` stream delivers the new member, so a
+  // bare `setActiveHost` in the add `.then` reads as a departed host to the reconcile below and
+  // is bounced to local (adding an N+1th host always landed on local). Feeding the intent INTO
+  // the one reconcile decision — rather than a second effect racing it — keeps a single
+  // `setActiveHost` writer here. `requestActivateOnJoin` (exported) is just this setter.
+  const [pendingJoin, setPendingJoin] = createSignal<HostKey | null>(null);
+  // THE ONE active-host effect — enacts `hostReconcileTarget` for BOTH the join-activation and
+  // the departed-bounce (see its doc). One writer, one ordering to reason about.
   createEffect(() => {
-    const target = hostReconcileTarget(
+    const action = hostReconcileTarget(
       members.keys(),
       activeHost(),
+      pendingJoin(),
       LOCAL_HOST,
     );
-    if (target === null) return;
+    if (action === null) return;
+    if (action.kind === "activate-joined") {
+      setPendingJoin(null); // consume the intent — the added host is now active
+      setActiveHost(action.target);
+      return;
+    }
     const departed = activeHost();
-    setActiveHost(target);
+    setActiveHost(action.target);
     toast.warning(
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
-  // Activate a newly ADDED host once it JOINS membership — NOT the moment `hosts.add`
-  // resolves. Switching immediately races the reconcile above (the new host isn't in the
-  // `members` snapshot yet, so it reads as "departed" and bounces the tab to local), which
-  // is why adding an N+1th host used to always land on the local host. Deferring the switch
-  // to the membership-join frame makes the two effects agree. Shares the SAME `members`
-  // subscription as the reconcile (one owner), so join is observed on the same frame.
-  const requestActivateOnJoin = createAddedHostActivation(
-    () => members.keys(),
-    setActiveHost,
-  );
   return {
     activityFeed,
     session,
     connection,
     terminalKeys,
     preferences,
-    requestActivateOnJoin,
+    requestActivateOnJoin: setPendingJoin,
     rpc: active.rpc,
   };
 });
 
-/** Activate a just-added host as the active host once it appears in the pool membership —
- *  the race-free replacement for a bare `setActiveHost` in the add-host `.then` (see
- *  `createAddedHostActivation`). */
+/** Register add-a-host intent: activate `host` as the active host once it appears in the pool
+ *  membership — the race-free replacement for a bare `setActiveHost` in the add-host `.then`.
+ *  Feeds the pending signal the ONE reconcile effect consumes (`hostReconcileTarget`'s
+ *  join-activation arm), so there is no second `setActiveHost` writer to reason about. */
 export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
