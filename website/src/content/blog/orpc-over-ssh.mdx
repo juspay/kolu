@@ -183,7 +183,7 @@ Or watch it move — the multi-host fleet view and a live htop drill-down, all s
 </blockquote>
 <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
 
-The proof that the framework is really generic — and not Kolu in a trench coat — is that it graduated back out. `@kolu/surface`, now MIT to match oRPC <PR id={999} />, is consumed by drishti through [npins](https://github.com/andir/npins): a completely different app, sharing none of Kolu's terminal domain, plugged into the same reactive transport. Surface came out from under Kolu, a different app plugged in, and surface never noticed the domain changed.
+The proof that the framework is really generic — and not Kolu in a trench coat — is that it graduated back out. `@kolu/surface`, now MIT to match oRPC <PR id={999} />, is consumed by drishti through [npins](https://github.com/andir/npins): a completely different app, sharing none of Kolu's terminal domain, plugged into the same reactive transport. Surface came out from under Kolu, a different app plugged in, and surface never noticed the domain changed. [Across the hosts](/surface/across-the-hosts) is this same ssh-mirror pattern, written down as a tutorial.
 
 The demo was never the point. The process monitor was a falsifiability test that happened to be useful. The point is where it goes after. mini-ci, a CI-runner TUI speaking oRPC over stdio <PR id={1073} />, was one rung in the ladder that de-risks the transport before any UI touches it. Kolu's own `RemoteTerminalBackend` — <PR id={951} kind="issue" />, the thing that started all this — collapsed nine per-terminal metadata channels into one keyed collection plus one data stream at the cross-process boundary. And then whatever you build the week the rule clicks. If you can ssh in, you have a live, typed, reactive app on that host. You didn't have to install, open, or configure a thing to get it.
 
@@ -191,4 +191,4 @@ How hard is that?
 
 ---
 
-[`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface) · [the stdio + loopback link adapters](https://github.com/juspay/kolu/tree/master/packages/surface/src/links) · [`@kolu/surface-nix-host`, the ssh provisioning layer](https://github.com/juspay/kolu/tree/master/packages/surface-remote) · [drishti](https://github.com/srid/drishti) · [oRPC](https://orpc.dev/)
+[the @kolu/surface docs](/surface) · [`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface) · [the stdio + loopback link adapters](https://github.com/juspay/kolu/tree/master/packages/surface/src/links) · [`@kolu/surface-nix-host`, the ssh provisioning layer](https://github.com/juspay/kolu/tree/master/packages/surface-remote) · [drishti](https://github.com/srid/drishti) · [oRPC](https://orpc.dev/)

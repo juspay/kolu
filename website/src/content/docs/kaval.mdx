@@ -33,7 +33,10 @@ running in one, or **kill** them — locally, or on a remote machine over ssh
 (`--host`). Run the pair on a box where kolu has never been installed — a
 tmux/zellij-shaped duo, minus the multiplexer's session model. In kolu's full
 stack, [padi](/padi) is the workspace daemon above kaval, and
-[Architecture](/architecture) shows how the layers survive restarts.
+[Architecture](/architecture) shows how the layers survive restarts. Kaval is the
+exemplar daemon of [@kolu/surface](/surface/the-daemon-spine) — the
+single-instance gate, live recycle, and frozen control core it is built on are
+documented there.
 
 ## How it fits together
 
