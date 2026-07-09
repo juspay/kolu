@@ -111,35 +111,13 @@ export function readSummary(
     if (!parsed || typeof parsed !== "object") return null;
     const o = parsed as Record<string, unknown>;
     const info = o.info as Record<string, unknown> | undefined;
-    const sessionId =
-      typeof info?.id === "string"
-        ? info.id
-        : typeof o.id === "string"
-          ? o.id
-          : null;
+    const sessionId = firstString(info?.id, o.id);
     if (!sessionId) return null;
-    const cwd =
-      typeof info?.cwd === "string"
-        ? info.cwd
-        : typeof o.cwd === "string"
-          ? o.cwd
-          : "";
-    const model =
-      typeof o.current_model_id === "string" ? o.current_model_id : null;
-    const title =
-      (typeof o.generated_title === "string" && o.generated_title) ||
-      (typeof o.session_summary === "string" && o.session_summary) ||
-      null;
-    const startedAt = parseIsoMs(
-      typeof o.created_at === "string" ? o.created_at : null,
-    );
-    const updatedAtMs = parseIsoMs(
-      typeof o.updated_at === "string"
-        ? o.updated_at
-        : typeof o.last_active_at === "string"
-          ? o.last_active_at
-          : null,
-    );
+    const cwd = firstString(info?.cwd, o.cwd) ?? "";
+    const model = firstString(o.current_model_id);
+    const title = firstString(o.generated_title, o.session_summary);
+    const startedAt = parseIsoMs(firstString(o.created_at));
+    const updatedAtMs = parseIsoMs(firstString(o.updated_at, o.last_active_at));
     return { sessionId, cwd, model, title, startedAt, updatedAtMs };
   } catch (err) {
     // Absent summary (ENOENT) is normal for a just-created session; a real
@@ -149,6 +127,14 @@ export function readSummary(
     }
     return null;
   }
+}
+
+/** First `string`-typed value among candidates, else null. One idiom for
+ *  the "pick the first present string field" pull-outs in `readSummary`,
+ *  which Grok writes under either `info.*` or the top level. */
+function firstString(...vals: unknown[]): string | null {
+  for (const v of vals) if (typeof v === "string") return v;
+  return null;
 }
 
 function parseIsoMs(iso: string | null): number | null {

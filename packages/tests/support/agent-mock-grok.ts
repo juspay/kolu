@@ -13,6 +13,32 @@ import type { AgentLifecycleState } from "./agent-lifecycle.ts";
 
 const SESSION_ID = "00000000-0000-7000-8000-000000000001";
 
+/** Write `active_sessions.json` — Grok's live pid→session map. `[]` until the
+ *  pid is known. Always overwrites (never existsSync→write): CodeQL
+ *  js/file-system-race, and fixtures own this path exclusively. */
+function writeActiveSessions(
+  grokDir: string,
+  sessionId: string,
+  cwd: string,
+  pid?: number,
+): string {
+  const activeSessionsPath = path.join(grokDir, "active_sessions.json");
+  fs.writeFileSync(
+    activeSessionsPath,
+    pid === undefined
+      ? "[]"
+      : JSON.stringify([
+          {
+            session_id: sessionId,
+            pid,
+            cwd,
+            opened_at: "2026-07-09T15:00:00.000Z",
+          },
+        ]),
+  );
+  return activeSessionsPath;
+}
+
 /** Map lifecycle state → events.jsonl content. */
 export function buildGrokEvents(state: AgentLifecycleState): string {
   const lines: object[] = [
@@ -125,21 +151,11 @@ export function writeGrokFixture(opts: {
       updated_at: "2026-07-09T15:00:02.000Z",
     }),
   );
-  const activeSessionsPath = path.join(opts.grokDir, "active_sessions.json");
-  // Always write (never existsSync→write): CodeQL js/file-system-race, and
-  // test fixtures own this path exclusively so overwrite is correct.
-  fs.writeFileSync(
-    activeSessionsPath,
-    opts.pid === undefined
-      ? "[]"
-      : JSON.stringify([
-          {
-            session_id: sessionId,
-            pid: opts.pid,
-            cwd: opts.cwd,
-            opened_at: "2026-07-09T15:00:00.000Z",
-          },
-        ]),
+  const activeSessionsPath = writeActiveSessions(
+    opts.grokDir,
+    sessionId,
+    opts.cwd,
+    opts.pid,
   );
   return {
     grokDir: opts.grokDir,
@@ -162,16 +178,11 @@ export function updateGrokFixture(
   summary.updated_at = new Date().toISOString();
   fs.writeFileSync(fixture.summaryPath, JSON.stringify(summary));
   if (opts.pid !== undefined) {
-    fs.writeFileSync(
-      fixture.activeSessionsPath,
-      JSON.stringify([
-        {
-          session_id: fixture.sessionId,
-          pid: opts.pid,
-          cwd: fixture.cwd,
-          opened_at: "2026-07-09T15:00:00.000Z",
-        },
-      ]),
+    writeActiveSessions(
+      fixture.grokDir,
+      fixture.sessionId,
+      fixture.cwd,
+      opts.pid,
     );
   }
 }
