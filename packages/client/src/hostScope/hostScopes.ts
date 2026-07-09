@@ -51,9 +51,9 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
   scopedByEntry(
     padiMap,
     activeHost,
-    (host: HostKey, ctx): HostScope => ({
+    (host: HostKey): HostScope => ({
       view: createViewState(host),
-      camera: createCamera(ctx),
+      camera: createCamera(),
       restore: createSessionRestore(),
     }),
   ),

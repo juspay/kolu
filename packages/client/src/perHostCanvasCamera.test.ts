@@ -70,7 +70,7 @@ function makeCameras() {
     const k = encodeHostKey(host);
     let c = cameras.get(k);
     if (!c) {
-      c = createCamera({ isActive: () => true });
+      c = createCamera();
       cameras.set(k, c);
     }
     return c;

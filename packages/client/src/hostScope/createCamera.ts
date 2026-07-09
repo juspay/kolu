@@ -16,13 +16,7 @@
  *  `firstVisit = savedCamera === null` signal: a brand-new owner starts
  *  `positioned === false`, so the canvas seeds it on the active tile the first
  *  time that tile is measured; thereafter the retained pose is authoritative and
- *  the canvas only re-centers when the active tile has drifted out of view.
- *
- *  `ctx.isActive` is the owner's "am I the shown host" accessor — the canvas
- *  reads the ACTIVE host's camera through `hostScopes.active()`, so the
- *  active-only discipline is intrinsic; the accessor is exposed here for a future
- *  camera-local hook (it is deliberately not used to gate GL, which is already
- *  active-host-only by tile mount/unmount in `Terminal.tsx`). */
+ *  the canvas only re-centers when the active tile has drifted out of view. */
 
 import { type Accessor, createSignal } from "solid-js";
 import type { Camera } from "../useViewState";
@@ -43,11 +37,9 @@ export interface HostCamera {
    *  `setZoom`), so a pose can never be written without the camera becoming
    *  positioned. */
   positioned: Accessor<boolean>;
-  /** Whether this host is the one currently shown (owner's `isActive`). */
-  isActive: Accessor<boolean>;
 }
 
-export function createCamera(ctx: { isActive: Accessor<boolean> }): HostCamera {
+export function createCamera(): HostCamera {
   const [panX, setPanX] = createSignal(0);
   const [panY, setPanY] = createSignal(0);
   const [zoom, setZoom] = createSignal(1);
@@ -76,6 +68,5 @@ export function createCamera(ctx: { isActive: Accessor<boolean> }): HostCamera {
     },
     snapshot: () => ({ panX: panX(), panY: panY(), zoom: zoom() }),
     positioned,
-    isActive: ctx.isActive,
   };
 }
