@@ -1,0 +1,38 @@
+# Build the default package and push its closure to the shared Attic cache
+# (https://cache.nixos.asia/oss). The flake already lists this cache as a
+# substituter, so a green push here warms CI boxes and local `nix build`s.
+name: nix-cache
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: nix-cache
+  cancel-in-progress: true
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nixbuild/nix-quick-install-action@v31
+        with:
+          nix_conf: |
+            extra-substituters = https://cache.nixos.asia/oss
+            extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
+            accept-flake-config = true
+
+      # Logs in, uses the cache as a substituter for this job, and at job end
+      # pushes every store path this run produced (closure of the build below).
+      - name: Setup Attic cache
+        uses: ryanccn/attic-action@v0
+        with:
+          endpoint: https://cache.nixos.asia
+          cache: oss
+          token: ${{ secrets.ATTIC_TOKEN }}
+
+      - name: Build
+        run: nix build -L --print-out-paths
