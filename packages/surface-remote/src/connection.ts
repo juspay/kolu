@@ -105,8 +105,10 @@ export type ConnectionInfo = SessionState<SshProv>;
  *  (their own down-surface) are excluded. DERIVED from the one phase family so it auto-tracks
  *  any future `SshProv` phase — a UI's exhaustive `switch`/`Record` over `ConnectPhase` then
  *  fails to compile until it handles the new phase, the drift signal a hand-listed copy
- *  silently swallows. Lives HERE, beside `ConnectionInfo`, as the honest owner; consumers
- *  (kolu's connect overlay, drishti's color map) import it rather than re-listing the literals. */
+ *  silently swallows. Lives HERE, beside `ConnectionInfo`, as the honest owner, so a UI that
+ *  narrates only the coming-up phases (kolu's connect overlay) imports this subset rather than
+ *  re-listing the literals. (A consumer whose map keys the FULL phase union keys on
+ *  `ConnectionInfo["phase"]` directly — this alias is the up-but-not-yet-connected subset.) */
 export type ConnectPhase = Exclude<
   ConnectionInfo["phase"],
   "connected" | "disconnected" | "failed"
