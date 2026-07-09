@@ -85,7 +85,6 @@ function center(cam: HostCamera, tile: TileLayout): void {
   cam.setPanX(c.panX);
   cam.setPanY(c.panY);
   cam.setZoom(c.zoom);
-  cam.markPositioned();
 }
 
 /** Drive one host switch under per-host camera OWNERSHIP: the active camera is

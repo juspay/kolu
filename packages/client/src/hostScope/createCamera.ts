@@ -39,9 +39,10 @@ export interface HostCamera {
   /** Has this host's camera been placed yet? `false` until the first seed /
    *  user-move — the signal the canvas's switch-in center decision uses to pick
    *  "seed on the active tile" vs. "keep the retained pose (re-center only if
-   *  stale)". */
+   *  stale)". Marked by the pose setters themselves (see `setPanX`/`setPanY`/
+   *  `setZoom`), so a pose can never be written without the camera becoming
+   *  positioned. */
   positioned: Accessor<boolean>;
-  markPositioned: () => void;
   /** Whether this host is the one currently shown (owner's `isActive`). */
   isActive: Accessor<boolean>;
 }
@@ -52,16 +53,29 @@ export function createCamera(ctx: { isActive: Accessor<boolean> }): HostCamera {
   const [zoom, setZoom] = createSignal(1);
   const [positioned, setPositioned] = createSignal(false);
 
+  // Writing a pose IS the fact "this camera has now been placed", so every
+  // setter marks `positioned` — the invariant is folded into the atomic verb
+  // and cannot be un-paired by a future writer that forgets a separate call.
+  // Setting `positioned` (or a pan/zoom) to a value it already holds is an
+  // Object.is no-op, so the per-frame gesture flush never re-notifies.
   return {
     panX,
     panY,
     zoom,
-    setPanX,
-    setPanY,
-    setZoom,
+    setPanX: (v: number) => {
+      setPanX(v);
+      setPositioned(true);
+    },
+    setPanY: (v: number) => {
+      setPanY(v);
+      setPositioned(true);
+    },
+    setZoom: (v: number) => {
+      setZoom(v);
+      setPositioned(true);
+    },
     snapshot: () => ({ panX: panX(), panY: panY(), zoom: zoom() }),
     positioned,
-    markPositioned: () => setPositioned(true),
     isActive: ctx.isActive,
   };
 }

@@ -41,30 +41,14 @@ const cam = () => activeScope()?.camera;
 const panX = (): number => cam()?.panX() ?? 0;
 const panY = (): number => cam()?.panY() ?? 0;
 const zoom = (): number => cam()?.zoom() ?? 1;
-// Every write marks the host's camera `positioned` — the switch-in center
-// decision (TerminalCanvas) reads that to pick "seed on the active tile" (a
-// never-positioned host) vs. "keep the retained pose, re-center only if stale".
-const setPanX = (v: number): void => {
-  const c = cam();
-  if (c) {
-    c.setPanX(v);
-    c.markPositioned();
-  }
-};
-const setPanY = (v: number): void => {
-  const c = cam();
-  if (c) {
-    c.setPanY(v);
-    c.markPositioned();
-  }
-};
-const setZoom = (v: number): void => {
-  const c = cam();
-  if (c) {
-    c.setZoom(v);
-    c.markPositioned();
-  }
-};
+// A pose write marks the host's camera `positioned` inside the setter itself
+// (`hostScope/createCamera`) — the switch-in center decision (TerminalCanvas)
+// reads that to pick "seed on the active tile" (a never-positioned host) vs.
+// "keep the retained pose, re-center only if stale". `cam()` is `undefined` only
+// during the removal race, so the optional-chain no-ops.
+const setPanX = (v: number): void => cam()?.setPanX(v);
+const setPanY = (v: number): void => cam()?.setPanY(v);
+const setZoom = (v: number): void => cam()?.setZoom(v);
 
 /** Container ref, set on mount. */
 let containerEl: HTMLDivElement | null = null;
