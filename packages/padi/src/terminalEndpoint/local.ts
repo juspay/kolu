@@ -24,21 +24,21 @@
 
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
-  agentIdentityChanged,
   type CommandRunSample,
   type FoldCtx,
   fold,
   restoreTargetEqual,
   restoreTargetOf,
+  seedRecencyGate,
   type SensorSignals,
   seedSnapshot,
   startSensors,
+  stepRecencyGate,
   type TerminalEvent,
   type TerminalState,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
 import type {
-  AgentIdentity,
   TerminalId,
   TerminalSnapshot,
 } from "@kolu/terminal-workspace/schema";
@@ -715,8 +715,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  The producer runs HERE, in kolu-server, so it's always the current build's code
    *  (the freshness guarantee). kolu seeds `current` from the entry's durable
    *  observation + memory and folds each emitted observation: the five snapshot
-   *  fields are last-write-wins; `lastActivityAt` is stamped on a LIVE agent-identity
-   *  change with kolu's clock; `lastAgentCommand` + the derived `restoreTarget`
+   *  fields are last-write-wins; `lastActivityAt` is stamped from a LIVE agent
+   *  observation with kolu's clock — an identity change always, a same-identity
+   *  output tick throttled; `lastAgentCommand` + the derived `restoreTarget`
    *  are kolu's to remember. It commits the snapshot half to the `snapshot`
    *  collection, the memory half + the `restoreTarget` to `kolu.authored`, and arms
    *  the session autosave — each effect arm gated by ITS OWN delta so the ~150 ms
@@ -745,33 +746,27 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     };
 
-    // Recency frame phase, decided BY VALUE — no wall-clock window. The bump fires
-    // only when a re-resolved agent IDENTITY differs from the one we last knew,
-    // seeded from the durable restore target: an adopt / resuming-wake re-resolves
-    // the SAME session (`exact` target) → matches the baseline → no bump → the saved
-    // recency stands across the restart; a fresh spawn seeds `null`, so its first
-    // agent is genuinely new and bumps. This replaces the old 1.5 s timer whose race
-    // (a slow settle landing after it fired) could restamp saved recency.
-    const seededTarget = seedEntry.meta.restoreTarget;
-    let recencyBaseline: AgentIdentity | null =
-      seededTarget?.kind === "exact" ? seededTarget.agent : null;
+    // Recency frame phase — the `ctx.live` the fold reads. On ADOPT / resuming-wake
+    // the run re-attaches to a survivor (an `exact` restore target): its FIRST agent
+    // observation re-reports state that came to be during downtime at an unknown
+    // time, so the gate holds it back (not live → no bump → the saved recency stands
+    // across the restart). Every observation after it is a live delta; a fresh spawn
+    // has no survivor, so the gate is open from the first. The fold then decides the
+    // stamp — an identity change always, a same-identity OUTPUT tick throttled — so a
+    // stable session's recency now tracks its output instead of freezing. This
+    // replaces the old 1.5 s timer whose race could restamp saved recency.
+    let recencyGate = seedRecencyGate(seedEntry.meta.restoreTarget);
 
     const emit = (o: TerminalEvent): void => {
       const before = current;
-      // The frame phase is a VALUE comparison on the agent's identity: a re-resolved
-      // identity equal to the baseline is a re-observation (not live); a different
-      // one is new activity. The baseline then tracks the latest authoritative agent.
+      // `ctx.live` is the frame phase — a genuine live observation vs the one adopt
+      // re-observation the gate holds back. Only an authoritative agent value carries
+      // recency, so only it steps the gate.
       let live = false;
       if (o.kind === "agent" && o.agent !== "unknown") {
-        const next = o.agent.value;
-        live = agentIdentityChanged(recencyBaseline, next);
-        // Only re-seat the baseline when the identity actually changed (`live`):
-        // a same-identity tick (the ~150 ms firehose) already matches the baseline,
-        // so re-allocating an identical `{ kind, sessionId }` every tick is wasted.
-        if (live)
-          recencyBaseline = next
-            ? { kind: next.kind, sessionId: next.sessionId }
-            : null;
+        const stepped = stepRecencyGate(recencyGate);
+        live = stepped.live;
+        recencyGate = stepped.gate;
       }
       const ctx: FoldCtx = { live, at: Date.now() };
       current = fold(current, o, ctx);

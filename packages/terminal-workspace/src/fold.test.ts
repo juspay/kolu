@@ -4,10 +4,15 @@ import {
   type FoldCtx,
   fold,
   foldSnapshot,
+  RECENCY_THROTTLE_MS,
+  type RecencyGate,
   restoreTargetOf,
+  seedRecencyGate,
+  stepRecencyGate,
 } from "./fold.ts";
 import {
   type AgentInfo,
+  type RestoreTarget,
   seedMemory,
   seedSnapshot,
   type TerminalEvent,
@@ -151,6 +156,132 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
     };
     const next = fold(cur, { kind: "agent", agent: "unknown" }, delta(9999));
     expect(next).toBe(cur); // no-op
+  });
+});
+
+describe("fold — a stable session's OUTPUT advances recency, THROTTLED (the freeze fix)", () => {
+  const busy = (at: number): TerminalState => ({
+    snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
+    memory: { lastActivityAt: at },
+  });
+
+  it("bumps on a same-identity output tick once the throttle window has elapsed", () => {
+    // The diagnosed freeze: a week-old stable session actively producing output
+    // whose recency never moved because only an IDENTITY change bumped. A live
+    // detail tick past the window now stamps.
+    const next = fold(
+      busy(500),
+      agentObs(claude("A", "tool_use")),
+      delta(500 + RECENCY_THROTTLE_MS),
+    );
+    expect(next.snapshot.agent?.state).toBe("tool_use");
+    expect(next.memory.lastActivityAt).toBe(500 + RECENCY_THROTTLE_MS);
+  });
+
+  it("COALESCES output ticks inside the window to a single write (throttle pin)", () => {
+    let cur = busy(500);
+    // Two ticks well within the window: recency holds — no per-tick write noise.
+    cur = fold(cur, agentObs(claude("A", "tool_use")), delta(500 + 10_000));
+    expect(cur.memory.lastActivityAt).toBe(500);
+    cur = fold(cur, agentObs(claude("A", "thinking")), delta(500 + 20_000));
+    expect(cur.memory.lastActivityAt).toBe(500);
+    // The first tick PAST the window writes once; the clock resets to it.
+    cur = fold(
+      cur,
+      agentObs(claude("A", "tool_use")),
+      delta(500 + RECENCY_THROTTLE_MS),
+    );
+    expect(cur.memory.lastActivityAt).toBe(500 + RECENCY_THROTTLE_MS);
+  });
+
+  it("NEVER throttle-bumps on a snapshot (re-observation) frame, however stale", () => {
+    // A replay/re-observation is not activity — the frame phase forbids it even
+    // when the throttle window is long past.
+    const next = fold(
+      busy(500),
+      agentObs(claude("A", "waiting")),
+      snapshot(500 + 10 * RECENCY_THROTTLE_MS),
+    );
+    expect(next.memory.lastActivityAt).toBe(500);
+  });
+
+  it("an IDENTITY change still bumps INSIDE the window (unthrottled — #1626 composes)", () => {
+    // The throttle governs only same-identity output; a session start/finish is a
+    // discrete event that stamps immediately regardless of the window.
+    const next = fold(busy(500), agentObs(claude("B", "thinking")), delta(600));
+    expect(next.memory.lastActivityAt).toBe(600);
+  });
+});
+
+const EXACT_TARGET: RestoreTarget = {
+  kind: "exact",
+  command: "claude --model sonnet",
+  agent: { kind: "claude-code", sessionId: "A" },
+};
+
+/** Simulate the producer's recency path (padi's `emit`): seed the gate from the
+ *  restore target, then step it per agent observation to derive `ctx.live` and
+ *  fold. Lets the adopt-vs-fresh recency pins live at the pure layer. */
+function driveRecency(
+  restoreTarget: RestoreTarget | undefined,
+  from: TerminalState,
+  ticks: { agent: AgentInfo | null; at: number }[],
+): TerminalState {
+  let gate: RecencyGate = seedRecencyGate(restoreTarget);
+  let state = from;
+  for (const t of ticks) {
+    const stepped = stepRecencyGate(gate);
+    gate = stepped.gate;
+    state = fold(state, agentObs(t.agent), { live: stepped.live, at: t.at });
+  }
+  return state;
+}
+
+describe("recency gate — adopt suppresses the re-observation, then output flows", () => {
+  // An adopted terminal seeds `agent: null` (a live-only field the producer
+  // re-derives) and carries the SAVED recency on its memory.
+  const adopted = (savedAt: number): TerminalState => ({
+    snapshot: { ...seedSnapshot("/a"), agent: null },
+    memory: { lastActivityAt: savedAt },
+  });
+
+  it("fresh spawn: the gate is open, so the first agent is live and bumps (#1626)", () => {
+    const out = driveRecency(undefined, seed(), [
+      { agent: claude("A", "thinking"), at: 1000 },
+    ]);
+    expect(out.memory.lastActivityAt).toBe(1000);
+  });
+
+  it("adopt idle: the lone re-observation does NOT bump — saved recency stands (#1626 pin)", () => {
+    const out = driveRecency(EXACT_TARGET, adopted(1000), [
+      { agent: claude("A", "waiting"), at: 999_999 },
+    ]);
+    expect(out.memory.lastActivityAt).toBe(1000);
+  });
+
+  it("adopt then output: re-observation held, a later live tick past the window advances", () => {
+    const afterReObs = driveRecency(EXACT_TARGET, adopted(1000), [
+      { agent: claude("A", "thinking"), at: 1000 + 5 },
+    ]);
+    expect(afterReObs.memory.lastActivityAt).toBe(1000); // held
+
+    const advanced = driveRecency(EXACT_TARGET, adopted(1000), [
+      { agent: claude("A", "thinking"), at: 1000 + 5 }, // adopt re-observation
+      { agent: claude("A", "tool_use"), at: 1000 + RECENCY_THROTTLE_MS + 5 }, // live output
+    ]);
+    expect(advanced.memory.lastActivityAt).toBe(1000 + RECENCY_THROTTLE_MS + 5);
+  });
+
+  it("seedRecencyGate: an exact target closes the gate; none/legacy/absent opens it", () => {
+    expect(stepRecencyGate(seedRecencyGate(EXACT_TARGET)).live).toBe(false);
+    expect(stepRecencyGate(seedRecencyGate({ kind: "none" })).live).toBe(true);
+    expect(stepRecencyGate(seedRecencyGate(undefined)).live).toBe(true);
+  });
+
+  it("stepRecencyGate: a closed gate opens after one step (only the FIRST obs is held)", () => {
+    const first = stepRecencyGate(seedRecencyGate(EXACT_TARGET));
+    expect(first.live).toBe(false);
+    expect(stepRecencyGate(first.gate).live).toBe(true);
   });
 });
 
