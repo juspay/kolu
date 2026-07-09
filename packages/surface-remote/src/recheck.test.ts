@@ -134,7 +134,7 @@ describe("HostSession child-exit classification", () => {
     // bound it. Pre-fix every child exit was "network" → infinite retry.
     vi.mocked(spawn).mockImplementation(() => crashingChild(127) as never);
     const session = makeSession<AgentClient<typeof contract>, SshProv>({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -178,7 +178,7 @@ describe("HostSession.recheck", () => {
 
   it("force-cycles a live (connected) link and reconnects", async () => {
     const session = makeSession<AgentClient<typeof contract>, SshProv>({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -215,7 +215,7 @@ describe("HostSession.recheck", () => {
 
   it("a recheck() cycle mid-connecting retries as network, not bounded remote (Codex P1)", async () => {
     const session = makeSession<AgentClient<typeof contract>, SshProv>({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -248,7 +248,7 @@ describe("HostSession.recheck", () => {
 
   it("is a no-op on an unreferenced session (no spawn, no throw)", () => {
     const session = makeSession<AgentClient<typeof contract>, SshProv>({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",

@@ -211,6 +211,7 @@ function makeSession() {
   let state: SessionState<SshProv> = {
     phase: "copying",
     log: [],
+    sinceMs: 0,
   };
   const fire = (): void => {
     for (const cb of [...listeners]) cb(state);

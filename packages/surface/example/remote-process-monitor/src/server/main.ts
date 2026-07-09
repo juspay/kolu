@@ -68,7 +68,7 @@ async function main(): Promise<void> {
   log(`host=${HOST}, agent drv=${DRV_PATH}`);
 
   const session = makeSession({
-    initialConnection: "copying",
+    initialConnection: "probing",
     connectOnce: sshConnector<typeof surface.contract>({
       host: HOST,
       binary: "process-monitor-agent",

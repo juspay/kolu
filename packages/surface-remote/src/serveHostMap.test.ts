@@ -54,9 +54,9 @@ const st = (
     if (error === undefined) {
       throw new Error(`st(${phase}): a down arm requires an error`);
     }
-    return { phase, log: [], error, cause: "remote" };
+    return { phase, log: [], error, cause: "remote", sinceMs: 0 };
   }
-  return { phase, log: [] };
+  return { phase, log: [], sinceMs: 0 };
 };
 
 type FakeSession = Session & { clockOffset(): number | null };
@@ -168,6 +168,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     p.add("remote", fakeSession(st("copying"), 0, true)); // provisions: true — legitimate
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
+      offsetOf: (s) => s.clockOffset(),
     });
     const iter = await entriesGet(
       directLink<AnyContractRouter>(served.router as never),
@@ -188,6 +189,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     p.add("local", fakeSession(st("copying"), 0, false));
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
+      offsetOf: (s) => s.clockOffset(),
     });
     const iter = await entriesGet(
       directLink<AnyContractRouter>(served.router as never),
@@ -205,6 +207,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     p.add("local-b", fakeSession(st("copying"), 0, false));
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
+      offsetOf: (s) => s.clockOffset(),
     });
     const link = directLink<AnyContractRouter>(served.router as never);
     const iterA = await entriesGet(link, "local-a");
@@ -242,6 +245,7 @@ describe("serveHostMap — entries authority", () => {
     const served = serveHostMap(map, pf.pool, {
       // dummy entry link — this pin exercises `entries`, not member forwarding
       linkFor: () => ({ surface: {} }),
+      offsetOf: (sess) => sess.clockOffset(),
     });
     const link = directLink<AnyContractRouter>(
       // biome-ignore lint/suspicious/noExplicitAny: served router
@@ -267,6 +271,7 @@ describe("serveHostMap — entries authority", () => {
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
       linkFor: () => ({ surface: {} }),
+      offsetOf: (s) => s.clockOffset(),
     });
     const link = directLink<AnyContractRouter>(
       // biome-ignore lint/suspicious/noExplicitAny: served router

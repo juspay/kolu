@@ -34,17 +34,15 @@ import type { z } from "zod";
 import type { RemotePool } from "./hostFanout";
 import type { DownSessionState, Session, SessionState } from "./session";
 
-/** A session that carries a measured clock offset — required, so a session lacking one
- *  is a compile error rather than a silent forever-`connecting`. `null` means the offset
- *  has not been stamped yet (the admit handshake stamps it).
- *
- *  `Prov = string` (the TOP of the phase vocabulary), not the `never` default: this
- *  adapter is provisioning-vocabulary-agnostic, and `Session<_, Prov>` is COVARIANT
- *  in `Prov`, so `string` is the one receptacle every session — a `never` endpoint,
- *  an ssh `"copying" | "building"` arm, any future connector — is assignable to. */
-type ClockableSession = Session<SurfaceClientLike, string> & {
-  clockOffset(): number | null;
-};
+/** The session role this adapter needs — just {@link Session}. The clock offset is
+ *  NO LONGER a type BOUND on the session (`& { clockOffset() }`): that bound locked
+ *  out any consumer whose session lacks the method, forcing drishti to hand-clone the
+ *  whole registry (~90 lines) + a second `projectState`. It is now an INJECTED
+ *  capability — `ServeHostMapOptions.offsetOf` — so a session that measures an offset
+ *  passes its measurer and one that doesn't passes `() => 0`, and both reuse this one
+ *  adapter. `Prov = string` (the phase-vocabulary TOP) so every session — a `never`
+ *  endpoint, an ssh arm, any connector — is assignable by `Prov`-covariance. */
+type MappableSession = Session<SurfaceClientLike, string>;
 
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
  *  `connectionPipe.projectConnection` (which targets the 4-field browser
@@ -71,9 +69,10 @@ export function projectState<Prov extends string>(
       ? { kind: "connecting" }
       : { kind: "connected", clockOffset };
   if (s.phase === "connecting") return { kind: "connecting" };
-  // A connector-declared provisioning phase (ssh's `copying`/`building`) — the
-  // map's coarse "warming" bucket (its `EntryStatus` collapses both to `warming`;
-  // the fine phase rides the per-host `connection` cell, not this projection).
+  // A connector-declared provisioning phase (ssh's `probing`/`copying`/`building`) —
+  // the map's coarse "warming" bucket (its `EntryStatus` collapses them all to
+  // `warming`; the fine phase rides the per-host `connection` cell, not this
+  // projection).
   return { kind: "copying" };
 }
 
@@ -83,6 +82,17 @@ export interface ServeHostMapOptions<K, S, Cause extends string = string> {
    *  injected). Called once per host; the result is cached here and evicted on
    *  removal, so a re-serve mirror is never built twice for a host. */
   linkFor: (host: K, session: S) => unknown;
+  /** The session's measured clock offset (remote-host ↔ serving-process, stamped at
+   *  the admit handshake), folded into the `connected` `EntryStatus`. INJECTED — not
+   *  a type bound on the session — so a consumer whose session measures one passes
+   *  its measurer (`(s) => s.clockOffset()`) and one that doesn't passes `() => 0`;
+   *  either way this ONE adapter serves both (the bound it replaces is exactly why
+   *  drishti used to hand-clone the registry). REQUIRED, no silent default: a consumer
+   *  must DECLARE its offset story — a forgotten `offsetOf` is a compile error, never a
+   *  silent forever-`connecting`. `null` means "not yet stamped" → the entry reads
+   *  `connecting` until it is (offset-at-hello is the contract; a `0` placeholder for a
+   *  session that genuinely can't measure is that session's OWN honest declaration). */
+  offsetOf: (session: S) => number | null;
   /** Classify (and optionally ENRICH) a DOWN session's domain `cause` for the
    *  map's published `EntryStatus` — this adapter is transport-only (it projects a
    *  bare `SessionState`, which carries only the transport-axis `failureCause`,
@@ -116,7 +126,7 @@ export type MembershipPool<S extends Session<SurfaceClientLike, string>> = Pick<
 export function serveHostMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
-  S extends ClockableSession,
+  S extends MappableSession,
   Cause extends string = string,
 >(
   map: SurfaceMap<KS, ES, Cause>,
@@ -204,7 +214,7 @@ export function serveHostMap<
       const session = sessionOf(k);
       if (session === undefined)
         return { kind: "fault", failed: `unknown host: ${enc}` };
-      const offset = session.clockOffset();
+      const offset = opts.offsetOf(session);
       const raw = latestState.get(enc);
       const projected = projectState(raw, offset);
       // Attach the DOMAIN cause (+ any extra typed detail, e.g. padi's D2

@@ -19,6 +19,10 @@ const liveness = {
   daemonPending: false,
   pendingTimedOut: false,
   isLocalHost: true,
+  // The ACTIVE host's own connection-cell phase — the channel the connect overlay now
+  // routes on (W6 item 5). `undefined` = pre-first-frame; a per-test override drives the
+  // binding-up branch.
+  connectPhase: undefined as string | undefined,
 } as const;
 
 /** A fully "ready" CONNECTED-arm snapshot — one terminal — that resolves to
@@ -97,19 +101,19 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     ).toEqual({ kind: "down", state: "dead" });
   });
 
-  it("a REMOTE provisioning (warming) host falls through the loading gate to `warming` — so ConnectCanvas narrates copying/building, never a mute 'Connecting…' (W6)", () => {
-    // srid's exact class: `copying`/`building` (nix-copy + build) legitimately
-    // outlasts the LOCAL connect watchdog the ceiling mirrors, and its re-served
-    // daemon-status never yields until it CONNECTS — so `daemonPending` stays true
-    // the whole time. W6: a remote `warming` entry is EXEMPT from the loading gate
-    // (like `failed`), falling through to the `warming` arm whose ConnectCanvas reads
-    // the connection cell and narrates the real phase. Pre-W6 this returned a mute
-    // `{ kind: "connecting" }` — indistinguishable from a hang, the exact bug W6 fixes.
+  it("a REMOTE binding coming up (connectPhase copying/building) resolves to `warming` off its OWN connection cell — never a mute 'Connecting…' (W6 items 3+5)", () => {
+    // srid's exact class: `copying`/`building` (nix-copy + build) legitimately outlasts
+    // the LOCAL connect watchdog, and the re-served daemon-status never yields until it
+    // CONNECTS — so `daemonPending` stays true the whole time. W6: the overlay routes on
+    // the ACTIVE host's OWN `connectPhase` (the SAME channel ConnectCanvas narrates off),
+    // so a provisioning phase resolves to `warming` regardless of the loading gate. Pre-W6
+    // this returned a mute `{ kind: "connecting" }` — indistinguishable from a hang.
     expect(
       resolveCanvasMode({
         ...liveness,
         entry: "warming",
         warmingLabel: "Connecting…",
+        connectPhase: "copying",
         daemonPending: true,
         pendingTimedOut: true,
         isLocalHost: false,
@@ -121,20 +125,57 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     });
   });
 
-  it("a LOCAL warming host still keeps the loading gate — only a REMOTE provision is exempt (a wedged local endpoint must still earn its down/dead verdict)", () => {
-    // The exemption is REMOTE-only: a local endpoint's own connect watchdog earns the
-    // `pendingTimedOut` → down/dead verdict, so a local warming past the ceiling must
-    // NOT fall through to a forever-narrating overlay.
+  it("a LOCAL binding wedged past its connect ceiling still earns down/dead — the #1713 safety survives the connectPhase routing", () => {
+    // The overlay routes on `connectPhase`, but a LOCAL endpoint's own connect watchdog
+    // still earns the `pendingTimedOut` → down/dead verdict rather than a forever-
+    // narrating overlay (a remote's ssh + nix copy + build legitimately outlasts it).
     expect(
       resolveCanvasMode({
         ...liveness,
         entry: "warming",
         warmingLabel: "Connecting…",
+        connectPhase: "connecting",
         daemonPending: true,
         pendingTimedOut: true,
         isLocalHost: true,
       }),
     ).toEqual({ kind: "down", state: "dead" });
+  });
+
+  it("W6 item 5 — the connect overlay routes on the connection cell's phase, NOT EntryStatus (crossed frames can't lie)", () => {
+    // The bug: `resolveCanvasMode` routed off channel A (`entry` = coarse EntryStatus)
+    // while ConnectCanvas narrated off channel B (`connectPhase` = the connection cell),
+    // two independently-flushed subscriptions that disagree mid-transition. Fixed by
+    // routing BOTH off `connectPhase`.
+    // (a) EntryStatus already flipped to `connected` but the cell still says `copying`
+    //     → the overlay STILL shows (routes on the cell), no premature blank.
+    expect(
+      resolveCanvasMode(
+        connected({
+          connectPhase: "copying",
+          warming: false,
+          terminalCount: 5,
+        }),
+      ),
+    ).toEqual({
+      kind: "warming",
+      label: "Connecting…",
+      daemonState: undefined,
+    });
+    // (b) The cell flipped to `connected` but EntryStatus still says `warming` → the
+    //     overlay does NOT show (routes on the cell); the warming arm's label doesn't flash.
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "warming",
+        warmingLabel: "Restarting kaval…",
+        connectPhase: "connected",
+      }),
+    ).toEqual({
+      kind: "warming",
+      label: "Restarting kaval…",
+      daemonState: undefined,
+    });
   });
 
   it("a FAILED entry reaches host-failed even with daemonPending + past the ceiling — the loading gate never intercepts a failed host (step-5 fix)", () => {

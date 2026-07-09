@@ -10,6 +10,7 @@ import {
 } from "./connection";
 import { projectConnection } from "./connectionPipe";
 import type { SessionState } from "./session";
+import type { SshProv } from "./sshConnector";
 
 /** A minimal base surface to mirror — one cell, one collection. */
 const baseSurface = defineSurface({
@@ -65,18 +66,32 @@ describe("connection cell", () => {
     expect(connectionCell.verbs).not.toContain("set");
   });
 
-  it("mirrors the session sum: the up phases carry only `log`, the down phases require error+cause", () => {
-    // UP arms — parse with only `log`, no error fields.
-    for (const phase of ["copying", "building", "connecting", "connected"]) {
-      expect(ConnectionInfoSchema.parse({ phase, log: [] })).toEqual({
+  it("mirrors the session sum: the up phases carry only `log` + `sinceMs`, the down phases require error+cause", () => {
+    // UP arms (incl. the ssh connector's `probing` opening phase) — parse with only
+    // `log` + `sinceMs`, no error fields.
+    for (const phase of [
+      "probing",
+      "copying",
+      "building",
+      "connecting",
+      "connected",
+    ]) {
+      expect(
+        ConnectionInfoSchema.parse({ phase, log: [], sinceMs: 0 }),
+      ).toEqual({
         phase,
         log: [],
+        sinceMs: 0,
       });
     }
     // `disconnected` requires error + cause (network | remote); `failed` pins cause
     // to the `"remote"` literal — a `failed`+`network` value is rejected.
     expect(() =>
-      ConnectionInfoSchema.parse({ phase: "disconnected", log: [] }),
+      ConnectionInfoSchema.parse({
+        phase: "disconnected",
+        log: [],
+        sinceMs: 0,
+      }),
     ).toThrow();
     expect(
       ConnectionInfoSchema.parse({
@@ -84,6 +99,7 @@ describe("connection cell", () => {
         error: "x",
         cause: "remote",
         log: [],
+        sinceMs: 0,
       }),
     ).toMatchObject({ phase: "failed", cause: "remote" });
     expect(() =>
@@ -92,14 +108,16 @@ describe("connection cell", () => {
         error: "x",
         cause: "network",
         log: [],
+        sinceMs: 0,
       }),
     ).toThrow();
   });
 
-  it("projectConnection is the discriminated mirror of the session sum", () => {
-    // DOWN arm — `error`/`cause` carried through, the unified provenance-tagged log
-    // preserved (a `remoteProgressLines`/`progressLines` split no longer exists).
-    const s: SessionState = {
+  it("projectConnection is the IDENTITY on the session sum (the cell IS SessionState<SshProv>)", () => {
+    // Post-remediation the cell value IS `SessionState<SshProv>`, so the projection is a
+    // provable identity — no arm-by-arm re-box, no runtime zod-throw drift risk. A DOWN
+    // frame passes through unchanged, its unified provenance-tagged log intact.
+    const s: SessionState<SshProv> = {
       phase: "failed",
       error: "exited with code 1",
       cause: "remote",
@@ -107,29 +125,20 @@ describe("connection cell", () => {
         { source: "local", line: "gave up" },
         { source: "remote", line: "kaval 3.2 vs pulam 3.3" },
       ],
+      sinceMs: 4200,
     };
-    const info = projectConnection(s);
-    expect(info).toEqual({
-      phase: "failed",
-      error: "exited with code 1",
-      cause: "remote",
-      log: [
-        { source: "local", line: "gave up" },
-        { source: "remote", line: "kaval 3.2 vs pulam 3.3" },
-      ],
-    });
-    expect(ConnectionInfoSchema.parse(info)).toEqual(info);
+    expect(projectConnection(s)).toBe(s); // identity — same reference
+    expect(ConnectionInfoSchema.parse(s)).toEqual(s);
 
-    // UP arm — projects only `log`, no invented error fields.
-    const up = projectConnection({
-      phase: "copying",
-      log: [{ source: "local", line: "copying derivation…" }],
-    });
-    expect(up).toEqual({
-      phase: "copying",
-      log: [{ source: "local", line: "copying derivation…" }],
-    });
-    expect("error" in up).toBe(false);
+    // An UP frame (the `probing` opening) likewise passes through with only log +
+    // sinceMs, no invented error fields.
+    const up: SessionState<SshProv> = {
+      phase: "probing",
+      log: [{ source: "local", line: "checking for a cached agent…" }],
+      sinceMs: 0,
+    };
+    expect(projectConnection(up)).toBe(up);
+    expect("error" in projectConnection(up)).toBe(false);
     expect(ConnectionInfoSchema.parse(up)).toEqual(up);
   });
 });

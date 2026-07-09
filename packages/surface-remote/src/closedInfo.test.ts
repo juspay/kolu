@@ -77,7 +77,7 @@ describe("ClosedInfo non-exit transport deaths", () => {
   it("endpoint-down classifies remote (bounded) when never connected, with an honest reason", async () => {
     const { connectOnce, die } = drivableConnector();
     const session = makeSession<unknown, SshProv>({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce,
       reconnectDelayMs: 60_000, // keep the follow-on redial out of the window
       label: "ep",
@@ -100,7 +100,7 @@ describe("ClosedInfo non-exit transport deaths", () => {
   it("transport-failed classifies network (retry forever)", async () => {
     const { connectOnce, die } = drivableConnector();
     const session = makeSession<unknown, SshProv>({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce,
       reconnectDelayMs: 60_000,
       label: "tf",

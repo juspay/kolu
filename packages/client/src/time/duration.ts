@@ -30,3 +30,17 @@ export function compactDelta(ms: number): {
     sub: { value: hr % 24, unit: "h" },
   };
 }
+
+/** A compact elapsed readout for a LIVE, seconds-granularity timer — `"45s"` under a
+ *  minute, `"2m 3s"` above (dual-unit so a minutes-long connect still shows its seconds
+ *  ticking). Built on the {@link compactDelta} ladder's sec/min bucketing so the
+ *  thresholds live in ONE place — the connect overlay's elapsed timer reads this rather
+ *  than hand-rolling `Math.floor(secs/60)` in a domain module. Distinct from the
+ *  hours-scale single-unit `formatDuration`/`formatUptime` (which want `2h`, not `2h 3s`)
+ *  precisely because a live connect timer wants its seconds visible. */
+export function formatElapsedShort(ms: number): string {
+  const d = compactDelta(ms);
+  if (d.unit === "s") return `${d.value}s`;
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  return `${d.value}${d.unit} ${sec % 60}s`;
+}

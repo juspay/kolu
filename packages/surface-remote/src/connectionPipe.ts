@@ -12,7 +12,8 @@
 
 import { type CellStore, inMemoryStore } from "@kolu/surface/server";
 import { type ConnectionInfo, DEFAULT_CONNECTION } from "./connection";
-import type { DownSessionState, Session, SessionState } from "./session";
+import type { Session, SessionState } from "./session";
+import type { SshProv } from "./sshConnector";
 
 /** The seeded re-serve impl for the `connection` cell — a `CellStore` already at
  *  the gate-closed `DEFAULT_CONNECTION`, ready to spread into `implementSurface`'s
@@ -24,36 +25,26 @@ export function seedConnectionCell(): { store: CellStore<ConnectionInfo> } {
   return { store: inMemoryStore({ ...DEFAULT_CONNECTION }) };
 }
 
-/** Project a `SessionState` onto the browser-facing {@link ConnectionInfo} — the
- *  discriminated MIRROR of the session sum (same `phase` arms, same `error`/`cause`
- *  on the down arms, same `log` tail). Pure; the one mapping every re-serving
- *  consumer would otherwise hand-roll.
- *
- *  Generic over the session's `Prov` so any connector's session projects (ssh's
- *  `copying`/`building`, a `never` endpoint). A generic `Prov` defeats TS's
- *  discriminated-union narrowing on the down arm, so the down arm is picked via
- *  `Extract` (its `error`/`cause` are then plain reads) and the up arm is passed
- *  through — an up `phase` outside the cell's enum would be rejected loudly at the
- *  cell's zod write, never silently. */
-export function projectConnection<Prov extends string>(
+/** Project a session frame onto the browser-facing {@link ConnectionInfo}. Now a
+ *  PROVABLE IDENTITY, not a re-box: `ConnectionInfo` IS `SessionState<SshProv>`, and
+ *  `SessionState<Prov>` for any `Prov extends SshProv` (the ssh arm's `SshProv`, or a
+ *  `never` endpoint — `never extends SshProv`) is a subtype by `Prov`-covariance, so
+ *  `s` is already a `ConnectionInfo`. No arm-by-arm reconstruction, no casts, no
+ *  runtime zod-throw risk — the two sums can't drift (the `connectionInfoIdentity`
+ *  type-d pin enforces the schema tracks the type). Kept as a named function (rather
+ *  than inlined) so every re-serving consumer names the one projection. */
+export function projectConnection<Prov extends SshProv>(
   s: SessionState<Prov>,
 ): ConnectionInfo {
-  const log = [...s.log];
-  if (s.phase === "disconnected" || s.phase === "failed") {
-    const down = s as DownSessionState;
-    return down.phase === "failed"
-      ? { phase: "failed", error: down.error, cause: "remote", log }
-      : { phase: "disconnected", error: down.error, cause: down.cause, log };
-  }
-  // Up arm — every up phase (connecting/connected/the connector's provisioning
-  // phases) carries only `log`; the cell's up members share that shape.
-  return { phase: s.phase, log } as ConnectionInfo;
+  return s;
 }
 
 /** Subscribe `session.onState` and write each frame — projected — into a cell
  *  via `set`; returns the unsubscribe. The parent's one-liner that carries
- *  mirror health to the browser surface. */
-export const pipeSessionStateToCell = <Client, Prov extends string>(
+ *  mirror health to the browser surface. `Prov extends SshProv` because the
+ *  `connection` cell IS the ssh session sum on the wire (a `never` endpoint is
+ *  covered — `never extends SshProv`). */
+export const pipeSessionStateToCell = <Client, Prov extends SshProv>(
   session: Session<Client, Prov>,
   set: (info: ConnectionInfo) => void,
 ): (() => void) => session.onState((s) => set(projectConnection(s)));

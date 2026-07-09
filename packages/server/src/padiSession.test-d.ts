@@ -43,7 +43,7 @@ localPadi.onState((s) => {
 });
 
 // The REMOTE ssh arm keeps the default (`SshProv`): `"copying"` is its actual
-// opening phase (`remotePadiBinding.ts`'s `initialConnection: "copying"`), so it
+// opening phase (`remotePadiBinding.ts`'s `initialConnection: "probing"`), so it
 // must stay legal to read here — the split cuts only ONE way.
 declare const remotePadi: PadiSession;
 remotePadi.onState((s) => {

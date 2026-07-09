@@ -11,7 +11,7 @@
  *  (a second failure surface is exactly what this must not build). */
 
 /** The phases the connect overlay narrates — a strict subset of `ConnectionInfo.phase`. */
-export type ConnectPhase = "copying" | "building" | "connecting";
+export type ConnectPhase = "probing" | "copying" | "building" | "connecting";
 
 export interface ConnectCopy {
   /** The headline line. */
@@ -28,6 +28,12 @@ export function connectCanvasCopy(
   host: string,
 ): ConnectCopy {
   switch (phase) {
+    case "probing":
+      // The OPENING phase — the ssh arch probe + the warm "is it already here?"
+      // check, before any copy exists (and, on a WARM host, the whole story). Calm
+      // and progress-less, like `connecting`: nothing is being shipped, so no tail
+      // + no elapsed timer that would read as a stalled build.
+      return { title: `Connecting to ${host}…`, showProgress: false };
     case "copying":
       return {
         title: `Provisioning kolu onto ${host}… (first connect ships the recipe)`,
@@ -46,5 +52,10 @@ export function connectCanvasCopy(
 /** Is this a phase the connect overlay narrates? (The provisioning phases + the
  *  post-provision handshake — never a down phase, which the host-down card owns.) */
 export function isConnectPhase(phase: string): phase is ConnectPhase {
-  return phase === "copying" || phase === "building" || phase === "connecting";
+  return (
+    phase === "probing" ||
+    phase === "copying" ||
+    phase === "building" ||
+    phase === "connecting"
+  );
 }

@@ -26,6 +26,7 @@
 
 import type { DaemonState } from "@kolu/padi/surface";
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
+import { isConnectPhase } from "./connectCanvasCopy";
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
  *  the down sub-state, the warming label, and the host-failure cause travel WITH
@@ -66,6 +67,14 @@ interface EntryLivenessFacts {
    *  ceiling only earns a `down`/`dead` verdict for a local host or a PROVEN-`failed`
    *  entry — never a remote that is merely still provisioning. */
   isLocalHost: boolean;
+  /** The ACTIVE host's OWN `connection` cell phase (`probing`/`copying`/`building`/
+   *  `connecting`/`connected`/`disconnected`/`failed`), or `undefined` before its first
+   *  frame. This is the SAME channel `ConnectCanvas` narrates off, so gating the
+   *  connect-overlay decision on it (below) routes AND renders the overlay from ONE
+   *  frame — no cross-channel skew with the coarse `EntryStatus` (`entry`), which two
+   *  independent subscriptions could otherwise flush out of step. `EntryStatus` stays
+   *  the authority for the chips + the connected/failed arms. */
+  connectPhase: string | undefined;
 }
 
 /** The precedence decision's snapshot — a DISCRIMINATED UNION keyed on the active
@@ -144,20 +153,39 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
   // ceiling only earns that verdict for a LOCAL host (whose own connect watchdog it
   // mirrors) — never a remote merely still provisioning (`warming`), whose ssh dial +
   // nix copy + build can genuinely outlast 30s, and never a `failed` entry (above).
-  // A REMOTE host still provisioning (`warming` + not the local endpoint) is EXEMPT
-  // from the loading gate too (W6): its re-served daemon-status will never produce a
-  // first value until it CONNECTS, so holding it at mute "Connecting…" here is exactly
-  // the hang-indistinguishable bug — it must fall through to `case "warming"`, whose
-  // ConnectCanvas narrates the real copying/building phase off the connection cell. A
-  // LOCAL warming keeps the gate (its own connect watchdog earns the `down`/`dead`
-  // verdict on a wedged endpoint — a remote's ssh + nix copy + build legitimately
-  // outlasts that ceiling).
-  const remoteProvisioning = facts.entry === "warming" && !facts.isLocalHost;
-  if (
-    (facts.isLoading || facts.daemonPending) &&
-    facts.entry !== "failed" &&
-    !remoteProvisioning
-  ) {
+  // THE CONNECT OVERLAY, routed off ONE channel (W6 crossed-frames fix): the ACTIVE
+  // host's binding is coming up iff its OWN `connection` cell phase is an
+  // up-but-not-yet-connected phase (`probing`/`copying`/`building`/`connecting`) — the
+  // SAME frame `ConnectCanvas` reads to narrate it, so routing and content can never
+  // disagree mid-transition. This SUPERSEDES the old `EntryStatus === "warming"` gate
+  // (which is a second, independently-flushed subscription): a warming remote provision
+  // no longer waits on the loading gate (its daemon-status never yields until it
+  // connects — the hang-indistinguishable mute "Connecting…"), and a local boot shows
+  // the same honest surface. The one exception is the #1713 safety: a LOCAL endpoint
+  // wedged past its own connect ceiling earns `down`/`dead` rather than spinning here
+  // forever (a remote's ssh + nix copy + build legitimately outlasts that ceiling). A
+  // `disconnected`/`failed` phase is NOT a connect phase → the host-down card (below)
+  // owns it, never this overlay.
+  const bindingUp =
+    facts.connectPhase !== undefined &&
+    facts.connectPhase !== "connected" &&
+    isConnectPhase(facts.connectPhase) &&
+    facts.entry !== "failed";
+  if (bindingUp) {
+    return facts.pendingTimedOut && facts.isLocalHost
+      ? { kind: "down", state: "dead" }
+      : // `label` is vestigial on the binding-up path — `ConnectCanvas` narrates off
+        // the connection cell (daemonState `undefined`), ignoring it — so a neutral
+        // constant, not the kaval `warmingLabel` (which isn't on every facts arm and
+        // means "Restarting kaval…", a CONNECTED-host concern).
+        { kind: "warming", label: "Connecting…", daemonState: undefined };
+  }
+
+  // The residual boot gate — for the pre-first-frame window (`connectPhase` still
+  // `undefined`) and any non-binding-up state that isn't `failed`: neutral "Connecting…"
+  // until both the session cell AND the daemon-status stream have produced a value,
+  // bounded by the local connect ceiling (#1034 / #1713, as before).
+  if ((facts.isLoading || facts.daemonPending) && facts.entry !== "failed") {
     return facts.pendingTimedOut && facts.isLocalHost
       ? { kind: "down", state: "dead" }
       : { kind: "connecting" };

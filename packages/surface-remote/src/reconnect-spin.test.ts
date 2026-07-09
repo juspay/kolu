@@ -85,7 +85,7 @@ describe("reconnect bridge loop", () => {
 
   it("does not busy-spin after a connected link drops", async () => {
     session = makeSession<AgentClient<typeof contract>, SshProv>({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -141,7 +141,7 @@ describe("reconnect bridge loop", () => {
     vi.mocked(spawn).mockImplementation(() => flakyChild(40) as never);
 
     session = makeSession<AgentClient<typeof contract>, SshProv>({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "destroyhost",
         binary: "agent",

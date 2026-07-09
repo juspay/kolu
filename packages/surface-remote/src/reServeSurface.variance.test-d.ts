@@ -60,7 +60,7 @@ void pumpRemoteSurface({
 //     so it accepts that provisioning `Prov` AND widens the CLIENT (`AgentClient<C>` →
 //     `SurfaceClientLike`) — the covariance this file pins.
 const built = makeSession({
-  initialConnection: "copying",
+  initialConnection: "probing",
   connectOnce: sshConnector<SpecificContract>({
     host: "h",
     binary: "b",

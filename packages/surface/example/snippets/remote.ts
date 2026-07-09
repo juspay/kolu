@@ -58,7 +58,7 @@ const session: Session<
   AgentClient<typeof base.contract>,
   SshProv
 > = makeSession({
-  initialConnection: "copying", // an ssh session provisions before it connects
+  initialConnection: "probing", // an ssh session provisions before it connects
   connectOnce: sshConnector<typeof base.contract>({
     host: "alice@bob.example", // any ssh target; "localhost" short-circuits
     binary: "my-agent", // exe name inside the realised closure

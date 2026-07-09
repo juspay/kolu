@@ -25,6 +25,7 @@ const liveness = {
   daemonPending: false,
   pendingTimedOut: false,
   isLocalHost: true,
+  connectPhase: undefined as string | undefined,
 };
 
 const daemonState: DaemonState = "connected";

@@ -100,7 +100,7 @@ function wedgedChild() {
 
 function buildSession(extra: Record<string, unknown> = {}) {
   return makeSession<AgentClient<SurfaceContract>, SshProv>({
-    initialConnection: "copying",
+    initialConnection: "probing",
     connectOnce: sshConnector<SurfaceContract>({
       host: "testhost",
       binary: "agent",

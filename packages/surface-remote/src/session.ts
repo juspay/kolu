@@ -14,14 +14,16 @@
  * {@link sshConnector}; kolu-server's local padi arm supplies an endpoint connector.
  * Two transports, one loop; `reServeSurface` can't tell them apart.
  *
- * Connection-state lifecycle (snapshot-then-delta on `onState`), identical to the
- * pre-S9 `HostSession`:
+ * Connection-state lifecycle (snapshot-then-delta on `onState`). A session opens at
+ * its connector's OPENING phase — `connecting` for a non-provisioning endpoint, or
+ * the connector's first provisioning phase (the ssh connector's `probing`) — and
+ * advances through the connector's own provisioning vocabulary before `connecting`:
  *
- *     copying      ──connectOnce ok──────▶ connecting
- *     copying      ──connectOnce reject──▶ disconnected (backoff, then retry)
+ *     <open>       ──connectOnce ok──────▶ connecting   (ssh: probing → [copying → building] → connecting)
+ *     <open>       ──connectOnce reject──▶ disconnected (backoff, then retry)
  *     connecting   ──markConnected ──────▶ connected
  *     connecting   ──watchdog timeout ───▶ disconnected (tear down, then retry)
- *     connected    ──link died ──────────▶ disconnected ──reconnect──▶ copying
+ *     connected    ──link died ──────────▶ disconnected ──reconnect──▶ <open>
  *     disconnected ──gave up (N *remote* fails)──▶ failed   (terminal; `reconnect()` re-arms)
  *
  * A `"remote"` failure (reached the host, it rejected us) is terminal after
@@ -60,8 +62,8 @@ const MAX_CONSECUTIVE_FAILURES = 5;
  *  UNREPRESENTABLE:
  *
  *   - UP (`connecting`/`connected`/a connector-declared provisioning `Prov`, e.g.
- *     the ssh connector's `"copying"`/`"building"`) — no `error`/`cause` FIELDS at
- *     all (there is nothing to report).
+ *     the ssh connector's `"probing"`/`"copying"`/`"building"`) — no `error`/`cause`
+ *     FIELDS at all (there is nothing to report).
  *   - `disconnected` — `error` + `cause` are REQUIRED, never nullable: a down link
  *     ALWAYS has a real reason, so a consumer needs no `?? "disconnected"`
  *     invented-text fallback. `cause` is `"network"` (unreachable; retries forever)
@@ -72,16 +74,26 @@ const MAX_CONSECUTIVE_FAILURES = 5;
  *
  *  `Prov` is the connector's OWN provisioning-phase vocabulary (`= never` for a
  *  non-provisioning endpoint — the local arm, whose up phases are exactly
- *  `connecting`/`connected`, so `"copying"` is unspellable there; `= "copying" |
- *  "building"` for the ssh connector). The browser cell `ConnectionInfo`
- *  (`./connection`) is the discriminated MIRROR of this sum. */
+ *  `connecting`/`connected`, so `"copying"` is unspellable there; `= "probing" |
+ *  "copying" | "building"` for the ssh connector). The browser cell `ConnectionInfo`
+ *  (`./connection`) IS this sum at `Prov = SshProv` on the wire. */
 export type SessionState<Prov extends string = never> = {
-  /** The link's provenance-tagged log tail (last {@link MAX_PROGRESS_LINES},
-   *  never reset across a reconnect) — provisioning output, transport start, agent
-   *  fatal-error tails, each tagged `local` (the parent's own chatter) or `remote`
-   *  (the far agent's forwarded stderr). Provenance is a FIELD (`source`), not an
-   *  in-band `[local] `/`[remote] ` string prefix. */
+  /** The link's provenance-tagged log tail (last {@link MAX_PROGRESS_LINES}) —
+   *  provisioning output, transport start, agent fatal-error tails, each tagged
+   *  `local` (the parent's own chatter) or `remote` (the far agent's forwarded
+   *  stderr). Provenance is a FIELD (`source`), not an in-band `[local] `/`[remote] `
+   *  string prefix. Scoped to the CURRENT episode: it grows across the phase-flips
+   *  WITHIN one dial→up episode, but is RESET when a fresh episode begins (a down→up
+   *  crossing — a reconnect after disconnect/failed), so the overlay never shows a
+   *  prior episode's stale lines under a fresh timer (see {@link sinceMs}). */
   log: readonly LogEntry[];
+  /** How long the CURRENT episode has been running, in ms, computed on the SERVER's
+   *  single clock at the moment this frame was published (`now − episodeStart`, where
+   *  the episode begins on a down→up crossing). A DURATION, never a raw epoch — a
+   *  browser must NOT subtract a foreign clock, so it reads this and extends it
+   *  locally with its own ticker. Resets toward `0` on each fresh episode. The one
+   *  source both per-episode elapsed AND per-episode log scoping derive from. */
+  sinceMs: number;
 } & (
   | { phase: "connecting" | "connected" | Prov }
   | { phase: "disconnected"; error: string; cause: "network" | "remote" }
@@ -154,7 +166,7 @@ export interface Session<
    *  runtime: `false` for a non-provisioning arm (`Prov = never`, whose
    *  `initialConnection` is always `"connecting"` — it can never legitimately reach
    *  a provisioning phase), `true` for a provisioning arm (ssh, whose
-   *  `initialConnection` is its first provisioning phase, `"copying"`). Derived once
+   *  `initialConnection` is its first provisioning phase, `"probing"`). Derived once
    *  at construction from `initialConnection` (`!== "connecting"`), so a generic
    *  consumer (e.g. `serveHostMap`'s juspay/kolu#1716 belt) can ask ANY session
    *  directly — no app-nominated "the local one" key required, and a pool with more
@@ -221,7 +233,7 @@ export interface ConnectContext<Prov extends string = never> {
   /** Push a `remote`-tagged forwarded remote-agent stderr line. */
   remoteProgress(line: string): void;
   /** Advance to one of the connector's OWN provisioning phases (e.g. the ssh
-   *  connector's `copying → building` at the copy/realise command boundary). The
+   *  connector's `probing → copying → building`, each at its real command boundary). The
    *  session opens at the connector's first provisioning phase; this moves it
    *  forward through the rest. Uncallable for `Prov = never`. */
   provisioning(phase: Prov): void;
@@ -304,8 +316,8 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *  already live, already given up, or in a phase its connector can never enter —
    *  that would publish a LYING first frame and could misclassify `provisions`
    *  below). An ssh `sshConnector` PROVISIONS (nix-copies the closure first), so
-   *  `Prov = "copying" | "building"` and `initialConnection` narrows to EXACTLY
-   *  `Prov` — the connector opens at its FIRST provisioning phase (`"copying"`) and
+   *  `Prov = "probing" | "copying" | "building"` and `initialConnection` narrows to
+   *  EXACTLY `Prov` — the connector opens at its FIRST provisioning phase (`"probing"`) and
    *  advances the rest via `ctx.provisioning`. A provisioning session can no longer
    *  be constructed with a non-provisioning opening phase (juspay/kolu#1808): that
    *  constructible contradiction let `provisions` below (the runtime read of this
@@ -398,6 +410,14 @@ export function makeSession<
    *  "not-yet-polled" state; the public `identity()` maps it to the `disconnected`
    *  arm of the null-free {@link SurfaceIdentity} sum. */
   let cachedIdentity: ServedIdentity | null = null;
+  /** When the CURRENT episode began (server clock), re-stamped on every down→up
+   *  crossing (a fresh dial after disconnect/failed). The single source `sinceMs`
+   *  (the published DURATION) and the per-episode `log` reset both derive from it;
+   *  it stays server-INTERNAL — only the duration crosses the wire (P3: no foreign
+   *  epoch for a browser to subtract). */
+  let episodeStartedAt = Date.now();
+  /** `now − episodeStartedAt` — the duration stamped on every published frame. */
+  const since = (): number => Date.now() - episodeStartedAt;
 
   // The opening frame is ALWAYS an up arm (`initialConnection`'s type now
   // guarantees this — never a state that means "gave up before dialing"), so it
@@ -406,6 +426,7 @@ export function makeSession<
   const stateCell = inMemoryCell<SessionState<Prov>>({
     phase: opts.initialConnection,
     log: [],
+    sinceMs: 0,
   } as SessionState<Prov>);
 
   const emit = (line: string): void => {
@@ -479,26 +500,37 @@ export function makeSession<
     if (from === "connecting" && to !== "connecting") clearTimer();
   };
 
-  /** Append a provenance-tagged line to the log tail (last {@link MAX_PROGRESS_LINES},
-   *  never reset across a reconnect) — the ONE place the tail grows, so `local` and
-   *  `remote` origins share the cap and the carry-forward. */
+  /** Append a provenance-tagged line to the CURRENT episode's log tail (last
+   *  {@link MAX_PROGRESS_LINES}) — the ONE place the tail grows, so `local` and
+   *  `remote` origins share the cap. Re-stamps `sinceMs` so each log line also
+   *  freshens the published duration. */
   const pushLog = (source: LogEntry["source"], line: string): void => {
     const prev = stateCell.current();
     stateCell.set({
       ...prev,
       log: [...prev.log, { source, line }].slice(-MAX_PROGRESS_LINES),
+      sinceMs: since(),
     } as SessionState<Prov>);
   };
 
   /** Transition to an UP arm (`connecting`/`connected`/a provisioning `Prov`, e.g.
-   *  `"copying"`/`"building"`) — constructed with EXACTLY its fields: no
-   *  `error`/`cause` (the up arm has none to carry, stale or otherwise), and the
-   *  `log` tail carried FORWARD from whatever arm preceded it (a dial's log keeps
-   *  growing across a reconnect, it doesn't reset). */
+   *  `"probing"`/`"copying"`/`"building"`) — constructed with EXACTLY its fields: no
+   *  `error`/`cause` (the up arm has none to carry, stale or otherwise). A down→up
+   *  crossing (`prev` is `disconnected`/`failed`) STARTS A FRESH EPISODE: it
+   *  re-stamps the episode clock (so `sinceMs` resets toward 0) and DROPS the prior
+   *  episode's `log` (so the overlay never shows stale lines under a fresh timer).
+   *  Within an episode (up→up phase-flips) the log carries forward and the clock
+   *  keeps running. */
   const setUp = (phase: "connecting" | "connected" | Prov): void => {
     const prev = stateCell.current();
     disarmConnectWatchdog(prev.phase, phase);
-    stateCell.set({ phase, log: prev.log } as SessionState<Prov>);
+    const fresh = prev.phase === "disconnected" || prev.phase === "failed";
+    if (fresh) episodeStartedAt = Date.now();
+    stateCell.set({
+      phase,
+      log: fresh ? [] : prev.log,
+      sinceMs: since(),
+    } as SessionState<Prov>);
   };
 
   /** Transition to a DOWN arm (`disconnected`/`failed`) — `error` + `cause` are
@@ -507,7 +539,8 @@ export function makeSession<
    *  carry a stale reason from an earlier episode) — so a down transition can never
    *  omit or invent a reason. `failed`'s `cause` is forced to the `"remote"`
    *  literal the type demands (a `"network"` fault never gives up); the `log` tail
-   *  carries forward. */
+   *  carries forward (the failed episode's lines stay readable until the next dial
+   *  resets them). */
   const setDown = (
     phase: "disconnected" | "failed",
     error: string,
@@ -518,8 +551,8 @@ export function makeSession<
     emit(`[${label}] error: ${error}`);
     stateCell.set(
       phase === "failed"
-        ? { phase, error, cause: "remote", log: prev.log }
-        : { phase, error, cause, log: prev.log },
+        ? { phase, error, cause: "remote", log: prev.log, sinceMs: since() }
+        : { phase, error, cause, log: prev.log, sinceMs: since() },
     );
   };
 
@@ -912,7 +945,7 @@ export function makeSession<
         return;
       }
       // No connection, no pending timer: either a dial is genuinely in flight
-      // (`copying`, `clientPromise` pending) — leave it — or the session is
+      // (`probing`/`copying`/`building`, `clientPromise` pending) — leave it — or the session is
       // idle/`failed` (`clientPromise` null) — dial.
       if (clientPromise !== null) return;
       launchAttempt();

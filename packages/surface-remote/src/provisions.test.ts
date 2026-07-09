@@ -34,7 +34,7 @@ describe("session.provisions", () => {
   it("is TRUE for the provisioning arm (Prov = SshProv, opens at 'copying')", () => {
     const session = makeSession<unknown, SshProv>({
       connectOnce: neverDial,
-      initialConnection: "copying",
+      initialConnection: "probing",
     });
     expect(session.provisions).toBe(true);
     session.destroy();

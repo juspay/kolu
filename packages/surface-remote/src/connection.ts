@@ -27,6 +27,11 @@ import {
   type SurfaceSpec,
 } from "@kolu/surface/define";
 import { z } from "zod";
+// TYPE-ONLY (erased at runtime): the cell value IS `SessionState<SshProv>`, so this
+// module keeps ONE connection-state type family. Neither import pulls the node/server
+// code those modules carry — `import type` emits nothing.
+import type { SessionState } from "./session";
+import type { SshProv } from "./sshConnector";
 
 /** One line of the link's provenance-tagged log tail — the browser mirror of a
  *  session's {@link SessionState.log} entry: `source` is WHERE the line came from
@@ -41,26 +46,31 @@ export type LogEntry = z.infer<typeof LogEntrySchema>;
 
 const logSchema = z.array(LogEntrySchema).readonly();
 
-/** The browser-facing connection-health cell value — the discriminated MIRROR of
- *  the session's `SessionState` sum (`@kolu/surface-remote/session`), so the same
- *  "down with no reason" / "live with a stale error" impossibilities the session
- *  type forbids are unrepresentable on the wire too. Discriminated on `phase`:
+/** The browser-facing connection-health cell value. NOT a separate mirror type: the
+ *  cell IS the session sum on the wire — `ConnectionInfo = SessionState<SshProv>`
+ *  (below), so there is exactly ONE connection-state type family. This zod schema
+ *  must exist (a wire cell needs a concrete browser-safe validator, which a
+ *  TS-generic type is not), so it hand-restates the same arms — but the drift risk
+ *  is closed by a COMPILE-TIME pin (`connectionInfoIdentity.test-d.ts`) asserting
+ *  `z.infer<typeof ConnectionInfoSchema>` ≡ `SessionState<SshProv>`: add a phase or
+ *  change an invariant on one and the build fails until the other agrees, rather
+ *  than a runtime zod throw. Discriminated on `phase`:
  *
- *   - UP (`copying`/`building` — the ssh connector's provisioning phases — plus
- *     `connecting`/`connected`): carries ONLY the `log` tail, no error FIELDS.
+ *   - UP (the ssh connector's `probing`/`copying`/`building` provisioning phases
+ *     plus `connecting`/`connected`): carries only the `log` tail + `sinceMs`, no
+ *     error FIELDS.
  *   - `disconnected`: `error` + `cause` (`network` unreachable / `remote` refused).
  *   - `failed`: terminal, `cause` is the `"remote"` literal — a `network` fault
- *     never gives up, so `failed`+`network` is unrepresentable here (mirroring the
- *     session type's own pin).
+ *     never gives up, so `failed`+`network` is unrepresentable (mirroring the pin).
  *
- *  The provisioning phase NAMES (`copying`/`building`) are the ssh connector's own
- *  vocabulary; the cell is composed only at the remote re-serve seam
- *  ({@link mirroredSurface}), which mirrors exactly those ssh sessions, so naming
- *  them here is honest — the cell describes the one transport that provisions. */
+ *  The provisioning phase NAMES are the ssh connector's own vocabulary; the cell is
+ *  composed only at the remote re-serve seam ({@link mirroredSurface}), which mirrors
+ *  exactly those ssh sessions, so naming them here is honest. */
 const upArm = <P extends string>(phase: P) =>
-  z.object({ phase: z.literal(phase), log: logSchema });
+  z.object({ phase: z.literal(phase), log: logSchema, sinceMs: z.number() });
 
 export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
+  upArm("probing"),
   upArm("copying"),
   upArm("building"),
   upArm("connecting"),
@@ -70,15 +80,23 @@ export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
     error: z.string(),
     cause: z.enum(["network", "remote"]),
     log: logSchema,
+    sinceMs: z.number(),
   }),
   z.object({
     phase: z.literal("failed"),
     error: z.string(),
     cause: z.literal("remote"),
     log: logSchema,
+    sinceMs: z.number(),
   }),
 ]);
-export type ConnectionInfo = z.infer<typeof ConnectionInfoSchema>;
+
+/** The connection cell's value IS the session sum at the ssh connector's `Prov` —
+ *  one type family, not a parallel mirror. Kept as a TYPE-ONLY alias (both imports
+ *  are `import type`, fully erased, so this browser-safe module still pulls no
+ *  node/server code at runtime), with the zod schema above pinned structurally
+ *  equal to it. */
+export type ConnectionInfo = SessionState<SshProv>;
 
 /** Gate-closed by default: a freshly-composed cell reads `connecting`, so
  *  "healthy-empty before the first remote frame" is structurally
@@ -87,6 +105,7 @@ export type ConnectionInfo = z.infer<typeof ConnectionInfoSchema>;
 export const DEFAULT_CONNECTION: ConnectionInfo = {
   phase: "connecting",
   log: [],
+  sinceMs: 0,
 };
 
 /** The composable cell descriptor — composed onto a surface ONLY by

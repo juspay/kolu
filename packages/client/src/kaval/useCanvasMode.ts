@@ -21,6 +21,7 @@ import {
   type CanvasMode,
   resolveCanvasMode,
 } from "./canvasModeResolver";
+import { connectionInfo } from "../wire";
 import {
   activeEntryState,
   daemonChannelLive,
@@ -53,6 +54,9 @@ export function canvasMode(deps: {
     daemonPending: daemonStatusPending(),
     pendingTimedOut: daemonStatusPendingTimedOut(),
     isLocalHost: isActiveHostLocal(),
+    // The ACTIVE host's OWN connection-cell phase — the SAME channel `ConnectCanvas`
+    // narrates off, so the connect-overlay routing reads it too (no cross-channel skew).
+    connectPhase: connectionInfo()?.phase,
   };
   // The active entry's connection state is the discriminant. A non-`connected`
   // host's re-served daemonStatus is frozen stale, so the kaval-derived facts are

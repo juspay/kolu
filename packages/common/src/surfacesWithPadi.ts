@@ -38,14 +38,12 @@ import { surfaces } from "./surface.ts";
 // them here beside the map so consumers still reach them through one module.
 export { type HostKey, HostKeySchema, LOCAL_HOST } from "./hostKey.ts";
 
-// The per-host `connection` cell's value type (+ its log-tail entry) — re-exported
-// here so a consumer reading `padiMap.entry(host).cells.connection` types the readout
-// through kolu-common (the map's home) rather than reaching into `@kolu/surface-remote`
-// directly. See {@link padiEntrySurface}.
-export type {
-  ConnectionInfo,
-  LogEntry,
-} from "@kolu/surface-remote/connection";
+// The per-host `connection` cell's value type — re-exported here so a consumer reading
+// `padiMap.entry(host).cells.connection` types the readout through kolu-common (the
+// map's home) rather than reaching into `@kolu/surface-remote` directly. (The log-tail
+// element type is reachable as `ConnectionInfo["log"][number]` for the rare consumer
+// that needs it, so no separate `LogEntry` re-export.) See {@link padiEntrySurface}.
+export type { ConnectionInfo } from "@kolu/surface-remote/connection";
 
 export const surfacesWithPadi = {
   ...surfaces,

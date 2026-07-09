@@ -61,6 +61,7 @@ function projectState(
   s: SessionState<SshProv>,
 ): EntryConnectionState<"copying"> {
   switch (s.phase) {
+    case "probing":
     case "copying":
     case "building":
       return { kind: "copying" };
@@ -81,7 +82,7 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
     AgentClient<typeof surface.contract>,
     SshProv
   > = makeSession({
-    initialConnection: "copying",
+    initialConnection: "probing",
     connectOnce: sshConnector<typeof surface.contract>({
       host,
       binary: "fleet-top-agent",
@@ -168,7 +169,7 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   const router = implement(surface.contract).router({ ...fragment.router });
   const link = directLink<typeof surface.contract>(router);
 
-  let latest: SessionState<SshProv> = { phase: "copying", log: [] };
+  let latest: SessionState<SshProv> = { phase: "probing", log: [], sinceMs: 0 };
   const unsub = session.onState((s) => {
     latest = s;
   });

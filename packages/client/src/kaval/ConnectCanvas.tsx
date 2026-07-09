@@ -11,16 +11,27 @@
  *   - a host BINDING still coming up (`daemonState` UNDEFINED) — narrate off the
  *     connection cell's `phase`.
  *
- *  Failure is deliberately NOT handled here: `disconnected`/`failed` are owned by the
- *  Skew-UX host-down card (a `host-failed` CanvasMode), so this overlay renders only
- *  the up-but-not-yet-connected phases and never a second failure surface. The warm
- *  path stays calm too — a warm reconnect short-circuits straight to `connected`, so
- *  the entry leaves `warming` and this overlay never mounts. */
+ *  The WARM path stays calm by construction: the session opens at `probing` (the arch
+ *  probe + the "is it already here?" check), which renders a bare "Connecting to
+ *  <host>…" — no tail, no elapsed — so a warm host that short-circuits from `probing`
+ *  straight to `connected` never flashes a build UI. Only a genuine COLD copy flips to
+ *  `copying`/`building` (tail + elapsed). Failure is deliberately NOT handled here:
+ *  `disconnected`/`failed` are owned by the Skew-UX host-down card (a `host-failed`
+ *  CanvasMode), so this overlay renders only the up-but-not-yet-connected phases and
+ *  never a second failure surface. */
 
 import type { DaemonState } from "@kolu/padi/surface";
 import { encodeHostKey } from "kolu-common/hostKey";
-import { createMemo, For, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Show,
+  untrack,
+} from "solid-js";
 import { getClockNow } from "../time/clock";
+import { formatElapsedShort } from "../time/duration";
 import { activeHost, connectionInfo } from "../wire";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
 
@@ -28,13 +39,6 @@ import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
  *  firehose (the reassurance is "named phase + real output + elapsed", not a scroll of
  *  every line). */
 const TAIL_LINES = 6;
-
-/** Render `ms` as a coarse elapsed readout — `Ns` under a minute, `Nm Ns` above. */
-function formatElapsed(ms: number): string {
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
-}
 
 export function ConnectCanvas(props: {
   label: string;
@@ -55,19 +59,29 @@ export function ConnectCanvas(props: {
     return p === null ? null : connectCanvasCopy(p, host());
   });
 
-  // Elapsed since provisioning began — captured on the first provisioning tick, cleared
-  // when the phase leaves the provisioning window. The memo re-runs each second (it reads
-  // the shared clock) so the readout ticks live; `start` is a closure captured ONCE.
-  let start: number | null = null;
+  // Elapsed since THIS host's current provisioning episode began. The SESSION owns the
+  // truth: the server ships `sinceMs` — the episode duration on its single clock, reset
+  // per episode — and the client only EXTENDS it smoothly between frames. So there is NO
+  // client-held episode-start place (the bug the reset came from): on a host-tab switch,
+  // ConnectCanvas remounts and simply re-reads the server's authoritative `sinceMs`, so
+  // the count never resets and never leaks a prior host's. `anchor` is a transient
+  // extension baseline (server duration + local receipt time), re-set on every frame —
+  // NOT an episode start, so it is self-correcting and belongs on the component.
+  const [anchor, setAnchor] = createSignal<{ ms: number; at: number } | null>(
+    null,
+  );
+  createEffect(() => {
+    const c = copy();
+    // Read the cell so the effect re-anchors on each fresh `sinceMs`; the clock is read
+    // UNTRACKED so the effect fires on frames, not every tick.
+    const ms = info()?.sinceMs ?? 0;
+    setAnchor(
+      c?.showProgress ? { ms, at: untrack(() => getClockNow()()) } : null,
+    );
+  });
   const elapsedMs = createMemo(() => {
-    const showProgress = copy()?.showProgress ?? false;
-    if (!showProgress) {
-      start = null;
-      return null;
-    }
-    const now = getClockNow()();
-    if (start === null) start = now;
-    return now - start;
+    const a = anchor();
+    return a === null ? null : a.ms + (getClockNow()() - a.at);
   });
 
   const tail = createMemo(() => (info()?.log ?? []).slice(-TAIL_LINES));
@@ -101,7 +115,7 @@ export function ConnectCanvas(props: {
                 data-testid="connect-elapsed"
                 class="text-fg-4 tabular-nums text-xs"
               >
-                {formatElapsed(elapsedMs() as number)}
+                {formatElapsedShort(elapsedMs() as number)}
               </span>
             </Show>
           </div>

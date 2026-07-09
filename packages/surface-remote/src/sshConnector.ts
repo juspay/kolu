@@ -45,14 +45,22 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
 >;
 
 /** The ssh connector's OWN provisioning-phase vocabulary — the `Prov` a
- *  `makeSession` over {@link sshConnector} carries. Split at the real command
- *  boundary `nixCopy.ts` already runs as two steps:
- *   - `"copying"`  — `nix copy --derivation …` pushes the `.drv` (fast).
- *   - `"building"` — `ssh $host nix-store --realise …` compiles it (the minutes,
+ *  `makeSession` over {@link sshConnector} carries. Each phase names what is
+ *  ACTUALLY happening, split at the real command boundaries `nixCopy.ts` runs:
+ *   - `"probing"`  — the OPENING phase: the ssh arch probe (`resolveDrvPath`) plus
+ *                     the warm realise-probe (`nix-store --realise` — "does the host
+ *                     already have the closure?"). No copy exists yet; on a WARM host
+ *                     this is the whole provisioning story and it never enters
+ *                     `copying`. This is why the warm path stays CALM — a warm dial
+ *                     goes `probing → connecting → connected` with no build UI.
+ *   - `"copying"`  — `nix copy --derivation …` is ACTUALLY pushing the `.drv` (the
+ *                     COLD path only; entered at the copy command boundary).
+ *   - `"building"` — `ssh $host nix-store --realise …` is compiling it (the minutes,
  *                     on a first connect to a fresh host).
- *  A session opens at `"copying"` and advances to `"building"` via
- *  `ctx.provisioning` when the copy completes and the realise begins. */
-export type SshProv = "copying" | "building";
+ *  A session opens at `"probing"` and advances to `"copying"` then `"building"` via
+ *  `ctx.provisioning`, each at its real command boundary (`nixCopy`'s `onCopying`/
+ *  `onBuilding` hooks). */
+export type SshProv = "probing" | "copying" | "building";
 
 export interface SshConnectorOptions {
   /** ssh target; `localhost` runs the realised binary directly. */
@@ -105,8 +113,11 @@ export function sshConnector<C extends AnyContractRouter>(
       host: opts.host,
       drvPath,
       onProgress: (line) => ctx.localProgress(line),
-      // Advance `copying → building` at the copy/realise boundary (cold path only),
-      // so the overlay names the minutes-long compile honestly.
+      // Advance the phase at the REAL command boundaries (cold path only), so the
+      // overlay names what is actually happening: `probing → copying` when `nix copy`
+      // starts, `copying → building` at the realise boundary. A WARM host skips both
+      // (the fused realise-probe short-circuits) and stays `probing` → connecting.
+      onCopying: () => ctx.provisioning("copying"),
       onBuilding: () => ctx.provisioning("building"),
     });
     if (!provision.ok) {

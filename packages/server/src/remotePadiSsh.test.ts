@@ -222,7 +222,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     // convergence test's re-dial after a drain gets a genuinely new one, exactly as the
     // old pooled `getHostSession` handed back a fresh session once the pooled link died.
     const s = makeSession<PadiDaemonClient, SshProv>({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce: sshConnector<PadiDaemonContract>({
         host: SSH_HOST as string,
         binary: "padi",

@@ -23,6 +23,7 @@ import { match } from "ts-pattern";
 type SessionPhase =
   | "connecting"
   | "connected"
+  | "probing"
   | "copying"
   | "building"
   | "disconnected"
@@ -31,8 +32,8 @@ type SessionPhase =
 /** Collapse the bound padi session's `phase` onto the three-state `padiLink` the
  *  client folds:
  *    - `connected`                          → `connected`  (bound to a live padi);
- *    - `connecting` / `copying` / `building` → `connecting` (the binding is
- *                                              (re)establishing / provisioning);
+ *    - `connecting` / `probing` / `copying` / `building` → `connecting` (the binding
+ *                                              is (re)establishing / provisioning);
  *    - `disconnected` / `failed`            → `degraded`   (the binding dropped; the
  *                                              loop re-dials).
  *  Total + `.exhaustive()` so a new session `phase` is a compile error here, never a
@@ -40,7 +41,13 @@ type SessionPhase =
 export function mapConnectionToPadiLink(phase: SessionPhase): PadiLink {
   return match(phase)
     .with("connected", () => "connected" as const)
-    .with("connecting", "copying", "building", () => "connecting" as const)
+    .with(
+      "connecting",
+      "probing",
+      "copying",
+      "building",
+      () => "connecting" as const,
+    )
     .with("disconnected", "failed", () => "degraded" as const)
     .exhaustive();
 }

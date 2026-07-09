@@ -7,6 +7,14 @@ import { describe, expect, it } from "vitest";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
 
 describe("connectCanvasCopy", () => {
+  it("probing is the calm OPENING — 'Connecting to <host>…', NO progress (nothing is being shipped yet)", () => {
+    const c = connectCanvasCopy("probing", "zest");
+    expect(c.title).toContain("Connecting to zest");
+    // The warm-path guarantee: probing shows no tail + no elapsed, so a warm host that
+    // short-circuits from probing never flashes a build UI.
+    expect(c.showProgress).toBe(false);
+  });
+
   it("copying names the provision and shows progress (tail + elapsed)", () => {
     const c = connectCanvasCopy("copying", "zest");
     expect(c.title).toContain("Provisioning kolu onto zest");
@@ -38,6 +46,7 @@ describe("connectCanvasCopy", () => {
 
 describe("isConnectPhase", () => {
   it("admits ONLY the narratable up phases", () => {
+    expect(isConnectPhase("probing")).toBe(true);
     expect(isConnectPhase("copying")).toBe(true);
     expect(isConnectPhase("building")).toBe(true);
     expect(isConnectPhase("connecting")).toBe(true);

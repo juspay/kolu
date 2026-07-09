@@ -79,7 +79,7 @@ function down(s: SessionState<SshProv>): DownSessionState {
 
 function failingSession() {
   return makeSession({
-    initialConnection: "copying",
+    initialConnection: "probing",
     connectOnce: sshConnector({
       host: "testhost",
       binary: "agent",
@@ -93,9 +93,9 @@ function failingSession() {
 /** A session whose `.drv` resolver always rejects — models a host that's
  *  unreachable at arch-probe time (`resolveSystem` ssh exits non-zero).
  *  `provisionAgent` is never reached, so it stays unmocked here. */
-function unresolvableSession() {
+function unresolvableSession(onLog?: (line: string) => void) {
   return makeSession({
-    initialConnection: "copying",
+    initialConnection: "probing",
     connectOnce: sshConnector({
       host: "testhost",
       binary: "agent",
@@ -108,6 +108,7 @@ function unresolvableSession() {
     }),
     reconnectDelayMs: 1000,
     label: "testhost",
+    onLog,
   });
 }
 
@@ -125,7 +126,7 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     const lines: string[] = [];
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const session = makeSession({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce: sshConnector({
         host: "altscreen",
         binary: "agent",
@@ -161,7 +162,7 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     // lifecycle proceeds: the failing-provision drive still reaches `failed`.
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const session = makeSession({
-      initialConnection: "copying",
+      initialConnection: "probing",
       connectOnce: sshConnector({
         host: "throwsink",
         binary: "agent",
@@ -221,7 +222,7 @@ describe("HostSession reconnect after give-up", () => {
     // await, so re-arming is observable immediately. Pre-fix, the guard
     // saw a non-null slot and returned without spawning — state stuck.
     session.reconnect();
-    expect(snap(session).phase).toBe("copying");
+    expect(snap(session).phase).toBe("probing");
     expect(session.currentClient()).not.toBeNull();
 
     session.destroy();
@@ -295,7 +296,13 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
   });
 
   it("never gives up on an unreachable host — a network fault is not terminal", async () => {
-    const session = unresolvableSession();
+    // Count retries off the `onLog` sink, NOT the state `log` tail: the tail is now
+    // scoped to the CURRENT episode (it RESETS on each down→up reconnect — W6 item 4),
+    // so a per-episode tail holds at most one "host unreachable" line at any instant.
+    // `onLog` receives every emitted diagnostic across all episodes, so it is the
+    // honest witness that the loop retried past the give-up ceiling.
+    const emitted: string[] = [];
+    const session = unresolvableSession((line) => emitted.push(line));
     session.pin().catch(() => {});
 
     // Drive far past where a *remote* fault would have given up
@@ -309,10 +316,8 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     expect(down(snap(session)).cause).toBe("network");
 
     // Proof it sailed past the old MAX_CONSECUTIVE_FAILURES (=5) ceiling:
-    // more than five "host unreachable" retry lines were emitted.
-    const retries = snap(session).log.filter((e) =>
-      e.line.includes("host unreachable"),
-    );
+    // more than five "host unreachable" retry lines were EMITTED (across episodes).
+    const retries = emitted.filter((line) => line.includes("host unreachable"));
     expect(retries.length).toBeGreaterThan(5);
 
     session.destroy();
@@ -335,7 +340,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // `spawn()` sets "copying" before its first await, so the re-arm is
     // observable synchronously.
     session.recheck();
-    expect(snap(session).phase).toBe("copying");
+    expect(snap(session).phase).toBe("probing");
     expect(session.currentClient()).not.toBeNull();
 
     session.destroy();
@@ -366,7 +371,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // The backoff timer is untouched, so recheck() takes the "cancel the
     // wait, drop the stale handle, respawn now" path and recovers cleanly.
     session.recheck();
-    expect(snap(session).phase).toBe("copying");
+    expect(snap(session).phase).toBe("probing");
     expect(session.currentClient()).not.toBeNull();
 
     session.destroy();

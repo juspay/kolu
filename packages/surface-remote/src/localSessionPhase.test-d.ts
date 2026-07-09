@@ -46,11 +46,18 @@ makeSession<unknown, never>({
   initialConnection: "building",
 });
 
-// The ssh/provisioning arm (`Prov = SshProv`) — `"copying"` (its first provisioning
-// phase) is the legal opening.
+makeSession<unknown, never>({
+  connectOnce: localConnector,
+  // @ts-expect-error — `"probing"` (the ssh connector's OPENING probe phase) is a
+  // remote-only provisioning phase too; the local arm can never spell it.
+  initialConnection: "probing",
+});
+
+// The ssh/provisioning arm (`Prov = SshProv`) — `"probing"` (its FIRST provisioning
+// phase, the arch probe + warm check) is the legal opening.
 makeSession<unknown, SshProv>({
   connectOnce: sshConnector,
-  initialConnection: "copying",
+  initialConnection: "probing",
 });
 
 // PIN (#1808): a provisioning arm's `initialConnection` can ONLY be a `Prov` value
@@ -77,7 +84,7 @@ makeSession<unknown, never>({
 makeSession<unknown, SshProv>({
   connectOnce: sshConnector,
   // @ts-expect-error — same for the provisioning arm: only its own `Prov` values
-  // ("copying"/"building") are legal opening phases, never a down state.
+  // ("probing"/"copying"/"building") are legal opening phases, never a down state.
   initialConnection: "failed",
 });
 
@@ -97,10 +104,15 @@ if (upState.phase === "connecting") {
 }
 
 // A local `SessionState<never>` can never SPELL a provisioning phase either — the
-// state type mirrors the opening-phase pin above one layer over.
-// @ts-expect-error — `"copying"` is not a phase a `Prov = never` session can inhabit.
-const localCopying: SessionState<never> = { phase: "copying", log: [] };
-void localCopying;
+// state type mirrors the opening-phase pin above one layer over. (`sinceMs` is supplied
+// so the ONLY error is the illegal `phase` — not an incidental missing-field one.)
+const localProbing: SessionState<never> = {
+  // @ts-expect-error — `"probing"` is not a phase a `Prov = never` session can inhabit.
+  phase: "probing",
+  log: [],
+  sinceMs: 0,
+};
+void localProbing;
 
 // A DOWN arm requires `error` + `cause` — omitting either is a compile error, not a
 // silently-null field a consumer could later invent text for (the `?? "disconnected"`
@@ -110,6 +122,7 @@ void localCopying;
 const missingReason: SessionState<never> = {
   phase: "disconnected",
   log: [],
+  sinceMs: 0,
 };
 void missingReason;
 
@@ -123,6 +136,7 @@ const failedNetwork: SessionState<never> = {
   // blip state is representable again.
   cause: "network",
   log: [],
+  sinceMs: 0,
 };
 void failedNetwork;
 
@@ -130,6 +144,7 @@ void failedNetwork;
 const upWithStaleError: SessionState<never> = {
   phase: "connecting",
   log: [],
+  sinceMs: 0,
   // @ts-expect-error — the up arm has no `error` field to assign; if this line ever
   // compiles, "live with a stale error" is representable again.
   error: "should not compile",

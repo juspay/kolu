@@ -708,7 +708,7 @@ export function ensureRemotePadiBinding(
     // host before the transport is up (`copying`), then advances to `building`
     // (`ctx.provisioning`) when the remote compile begins — so this session opens
     // at "copying", its first provisioning phase.
-    initialConnection: "copying",
+    initialConnection: "probing",
     admit,
     onLog: (line) => log.info({ host, line }, "remote padi session"),
     label: `host:${host}`,
