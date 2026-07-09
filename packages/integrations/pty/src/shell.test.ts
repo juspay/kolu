@@ -5,7 +5,7 @@
  * and asserting on the escape sequences they emit.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -33,6 +33,7 @@ const shellSubprocessHome = mkdtempSync(
 
 afterAll(() => {
   bashRunner.close();
+  zshRunner.close();
   rmSync(shellSubprocessHome, { recursive: true, force: true });
 });
 
@@ -47,14 +48,12 @@ function shellSubprocessEnv(): NodeJS.ProcessEnv {
 
 const shQuote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 
-class BashRunner {
-  private readonly child = spawn("bash", ["--noprofile", "--norc"], {
-    env: shellSubprocessEnv(),
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+class ShellRunner {
+  private readonly child;
   private stdout = "";
   private stderr = "";
   private nextId = 0;
+  private spawnError: NodeJS.ErrnoException | undefined;
   private pending:
     | {
         marker: string;
@@ -69,7 +68,14 @@ class BashRunner {
     reject: (err: Error) => void;
   }> = [];
 
-  constructor() {
+  constructor(
+    private readonly command: string,
+    args: string[],
+  ) {
+    this.child = spawn(command, args, {
+      env: shellSubprocessEnv(),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     this.child.stdout.setEncoding("utf8");
     this.child.stderr.setEncoding("utf8");
     this.child.stdout.on("data", (chunk: string) => {
@@ -81,16 +87,18 @@ class BashRunner {
     });
     this.child.on("exit", (code, signal) => {
       const err = new Error(
-        `bash exited unexpectedly: code=${code} signal=${signal}`,
+        `${this.command} exited unexpectedly: code=${code} signal=${signal}`,
       );
-      this.pending?.reject(err);
-      for (const job of this.queue) job.reject(err);
-      this.queue.length = 0;
-      this.pending = undefined;
+      this.rejectAll(err);
+    });
+    this.child.on("error", (err: NodeJS.ErrnoException) => {
+      this.spawnError = err;
+      this.rejectAll(err);
     });
   }
 
   run(script: string, cwd = "/tmp"): Promise<string> {
+    if (this.spawnError) return Promise.reject(this.spawnError);
     return new Promise((resolve, reject) => {
       this.queue.push({ cwd, script, resolve, reject });
       this.pump();
@@ -98,6 +106,7 @@ class BashRunner {
   }
 
   close(): void {
+    if (this.spawnError) return;
     this.child.stdin.end("exit\n");
   }
 
@@ -105,7 +114,7 @@ class BashRunner {
     if (this.pending || this.queue.length === 0) return;
     const job = this.queue.shift();
     if (!job) return;
-    const marker = `__KOLU_BASH_DONE_${process.pid}_${this.nextId++}__`;
+    const marker = `__KOLU_SHELL_DONE_${process.pid}_${this.nextId++}__`;
     this.pending = {
       marker,
       resolve: job.resolve,
@@ -136,14 +145,24 @@ class BashRunner {
     if (status === 0) {
       job.resolve(out);
     } else {
-      job.reject(new Error(`bash script exited ${status}\n${stderr}`));
+      job.reject(
+        new Error(`${this.command} script exited ${status}\n${stderr}`),
+      );
     }
     this.pump();
     this.drain();
   }
+
+  private rejectAll(err: Error): void {
+    this.pending?.reject(err);
+    for (const job of this.queue) job.reject(err);
+    this.queue.length = 0;
+    this.pending = undefined;
+  }
 }
 
-const bashRunner = new BashRunner();
+const bashRunner = new ShellRunner("bash", ["--noprofile", "--norc"]);
+const zshRunner = new ShellRunner("zsh", ["-f"]);
 
 /** Run a script in a clean bash subshell and return stdout. */
 function runBash(script: string, cwd = "/tmp"): Promise<string> {
@@ -151,13 +170,9 @@ function runBash(script: string, cwd = "/tmp"): Promise<string> {
 }
 
 /** Run a script in a clean zsh subshell and return stdout. Skips if zsh unavailable. */
-function runZsh(script: string, cwd = "/tmp"): string | null {
+async function runZsh(script: string, cwd = "/tmp"): Promise<string | null> {
   try {
-    return execFileSync("zsh", ["-c", script], {
-      cwd,
-      encoding: "utf8",
-      env: shellSubprocessEnv(),
-    });
+    return await zshRunner.run(script, cwd);
   } catch (err) {
     // zsh not installed — skip
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -341,7 +356,7 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
     const out = await runBash(
       `${prelude}__kolu_preexec_arm; printf 'ready=%s\\n' "$__kolu_preexec_ready" >&2`,
     );
-    // stdout is empty (no OSC), stderr has ready=1 — but execFileSync only returns stdout.
+    // stdout is empty (no OSC), stderr has ready=1 — but runBash only returns stdout.
     // Re-run capturing both streams:
     const combined = await execFileSyncBoth(
       `${prelude}__kolu_preexec_arm; echo "ready=$__kolu_preexec_ready"`,
@@ -596,7 +611,7 @@ describe("prepareShellInit zsh wrapper", () => {
   // survives. Stronger than a string-match on the generated rcfile —
   // catches the case where the source line is present but unreachable
   // (broken `if`, wrong path, accidentally inside a function, etc.).
-  it("loads user env from ~/.zshenv (regression: missing under macOS launchd)", () => {
+  it("loads user env from ~/.zshenv (regression: missing under macOS launchd)", async () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "kolu-shell-"));
     const rcDir = mkdtempSync(join(tmpdir(), "kolu-rc-"));
     try {
@@ -613,8 +628,8 @@ describe("prepareShellInit zsh wrapper", () => {
       // The pty-host writes the planned init files before spawn; do the same.
       materialise(rcDir, init);
       const rcPath = join(init.env.ZDOTDIR as string, ".zshrc");
-      const out = runZsh(
-        `source ${rcPath} >/dev/null 2>&1; printf '%s' "$KOLU_TEST_MARKER"`,
+      const out = await runZsh(
+        `source ${shQuote(rcPath)} >/dev/null 2>&1; printf '%s' "$KOLU_TEST_MARKER"`,
       );
       if (out === null) return; // zsh unavailable — skip
       expect(out).toBe("loaded");
@@ -626,17 +641,17 @@ describe("prepareShellInit zsh wrapper", () => {
 });
 
 describe("OSC2_PRECMD_ZSH", () => {
-  it("emits OSC 2 with compact zsh prompt path", () => {
-    const out = runZsh(`${OSC2_PRECMD_ZSH}; __kolu_title_precmd`, "/tmp");
+  it("emits OSC 2 with compact zsh prompt path", async () => {
+    const out = await runZsh(`${OSC2_PRECMD_ZSH}; __kolu_title_precmd`, "/tmp");
     if (out === null) return; // zsh unavailable — skip
     // Format: ESC ] 2 ; <compact path> BEL
     expect(out).toMatch(/^\x1b\]2;[^\x1b]*\x07$/);
     expect(out).toContain("tmp");
   });
 
-  it("uses compact notation for deep paths", () => {
+  it("uses compact notation for deep paths", async () => {
     // Build a deep path at runtime (>= 4 segments) so the ellipsis branch fires
-    const out = runZsh(
+    const out = await runZsh(
       `mkdir -p /tmp/kolu-deep-test/a/b/c && ${OSC2_PRECMD_ZSH}; cd /tmp/kolu-deep-test/a/b/c && __kolu_title_precmd`,
     );
     if (out === null) return;
