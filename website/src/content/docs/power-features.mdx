@@ -54,13 +54,32 @@ and re-theme it like any other tile.
   restart.
 - Closing a sleeping tile discards it because nothing is running behind it.
 
-## Export and record
+## Export a transcript
 
-- **Transcript export** saves Claude Code, Codex, or OpenCode sessions as
-  self-contained `.html`: a lightweight chat log, a full collapsed transcript,
-  or both.
-- **Workspace recording** captures the whole kolu tab with mic and optional
-  webcam PiP, streamed to a local `.webm`.
+Run **Export agent session as HTML** from the palette (it appears only when the
+active terminal has an agent session) and pick a **chat log** (just the `Human` /
+`AI` messages), a **full transcript** (with reasoning, tool calls, results, and
+edits collapsed under disclosure blocks), or both.
+
+Each file is a **self-contained `.html`** — no external assets, no upload — that
+opens in any browser offline. Under the hood each agent's storage (Claude's JSONL,
+Codex's rollout, OpenCode's SQLite) normalizes to one shape, so the same document
+design renders every vendor.
+
+## Record the workspace
+
+Record the kolu tab — the whole canvas or a single maximized terminal — with your
+mic and an optional webcam picture-in-picture, straight to a local `.webm`.
+Chromium-only, as it uses the File System Access API.
+
+- **One-click setup** — a popover on the chrome-bar record button with a mic
+  picker (live level meter), a webcam toggle, and a circular preview.
+- **Streams to disk** — chunks flow continuously into the file, so memory stays
+  flat no matter how long you record; a partial file survives a browser crash.
+- **Pause / resume** — <kbd>⌘⇧.</kbd> toggles; the capsule in the chrome bar shifts
+  red → amber while paused.
+- **Just this tab** — the browser's multi-surface picker collapses to a single
+  "share this tab" confirmation.
 
 <Aside type="note" title="Drive it from the shell">
   Every terminal kolu opens is reachable from [`kaval-tui`](/kaval): list,
