@@ -273,7 +273,10 @@ export class ConnectError extends Error {
  *  that arm (`error`/`cause`). */
 export interface AdmitRefusal {
   error: string;
-  cause: "network" | "remote";
+  /** Mirrors the down arm's `cause` — pinned to {@link DownSessionState}'s so the "its fields
+   *  mirror that arm" promise above is compiler-enforced, not a hand-kept copy (resolves
+   *  identically to `"network" | "remote"`, no API change). */
+  cause: DownSessionState["cause"];
 }
 
 /** An {@link Admit} hook's verdict on a connector's fresh connection — a CLOSED

@@ -13,21 +13,17 @@
  * `koluSurfaceCtx.cells.padiLink.set` off it.
  */
 
+import type { ConnectionInfo } from "@kolu/surface-remote/connection";
 import type { PadiLink } from "kolu-common/surface";
 import { match } from "ts-pattern";
 
-/** Every realised session `phase` — the local padi arm only ever emits the
- *  non-provisioning four, but accepting the ssh connector's provisioning phases
- *  (`copying`/`building`) too keeps this total and robust if the bound session is
- *  ever the widened pool slot. */
-type SessionPhase =
-  | "connecting"
-  | "connected"
-  | "probing"
-  | "copying"
-  | "building"
-  | "disconnected"
-  | "failed";
+/** Every realised session `phase` — DERIVED from the one connection-state family
+ *  (`ConnectionInfo["phase"]`), not hand-listed, so a new session phase (e.g. a widened
+ *  `SshProv`) makes the `.exhaustive()` match below fail to compile until handled, never a
+ *  silent fall-through. The local padi arm only ever emits the non-provisioning subset, but
+ *  accepting the ssh connector's provisioning phases too keeps this total for the widened
+ *  pool slot. */
+type SessionPhase = ConnectionInfo["phase"];
 
 /** Collapse the bound padi session's `phase` onto the three-state `padiLink` the
  *  client folds:
