@@ -1,16 +1,18 @@
-/** The per-host identity hue — one deterministic colour per host, shared by
- *  BOTH surfaces that colour a host:
+/** A deterministic seed→palette leaf — one hex per seed string — shared by the
+ *  TWO surfaces that colour a host, which each key it DIFFERENTLY:
  *
  *    · the server's PWA `theme-color` (the window/chrome tint for its own host —
- *      `pwaIdentity.ts`), and
+ *      `pwaIdentity.ts`) seeds the RAW machine hostname, so each machine's
+ *      installed PWA window stays visually distinct, and
  *    · the client's host tabs (each chip's accent — `hostChipTone.ts` →
- *      `HostSelectorStrip`).
+ *      `HostSelectorStrip`) seed the canonical `encodeHostKey`, where the local
+ *      host is always the literal `local`.
  *
- *  ONE palette + ONE index function so a host can never wear two different
- *  colours across those surfaces. The seed is a plain string (a raw hostname on
- *  the server, a canonical `encodeHostKey` on the client); the hash is a pure,
- *  sync FNV-1a so it runs identically in Node and the browser (no `node:crypto`,
- *  which the client can't call synchronously at render time). */
+ *  This is the shared palette + index function only — NOT a shared host→seed
+ *  keying: the two surfaces disagree on what canonical string names a host, so a
+ *  given host can land on different palette entries across them. The hash is a
+ *  pure, sync FNV-1a so it runs identically in Node and the browser (no
+ *  `node:crypto`, which the client can't call synchronously at render time). */
 
 /** The fixed identity palette — twelve mid-saturation hues that read on both the
  *  light and dark chrome surface. Order is load-bearing: it's the index space
