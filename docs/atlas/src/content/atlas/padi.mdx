@@ -1,10 +1,10 @@
 ---
 title: padi — the per-host terminal-workspace daemon
-description: The architecture that replaces the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. pulam and pulam-web dissolve. Phases W0–W5 (W4 = consolidation, W5 = demand-driven); W0–W2.2 shipped.
+description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W4 + W7/W8 shipped; W6 in review; next up W5 (cross-host attention), with the cleanup ledger in parallel.
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-07-08
+updated: 2026-07-09
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -219,12 +219,22 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 <Phase id="W0" name="decks cleared — freeze the old contract, retire pulam-web, land the overflow frame, close the PRs" status="done" />
 <Phase id="W1" name="the padi seam, in place — padiSurface served in-process, client migrated, root oRPC dispositioned" status="shipped" needs={["W0"]} links={[{ label: "#1652", href: "https://github.com/juspay/kolu/pull/1652" }]} />
-<Phase id="W2" name="padi the process — state-root identity, owns kaval, on-host persistence; kolu-server binds + re-serves" status="todo" needs={["W1"]} />
-<Phase id="W3" name="remote — the ssh/Nix binding, the full-peer gaps, CI parity" status="todo" needs={["W2"]} />
-<Phase id="W4" name="the switch — host picker, per-view bindings, warm pool" status="todo" needs={["W3"]} />
+<Phase id="W2" name="padi the process — state-root identity, owns kaval, on-host persistence; kolu-server binds + re-serves" status="shipped" needs={["W1"]} links={[{ label: "#1661", href: "https://github.com/juspay/kolu/pull/1661" }, { label: "#1664", href: "https://github.com/juspay/kolu/pull/1664" }, { label: "#1665", href: "https://github.com/juspay/kolu/pull/1665" }]} />
+<Phase id="W3" name="remote — the ssh/Nix binding, the full-peer gaps; CI parity (W3.4) parked on the mock-agent burn-down" status="shipped" needs={["W2"]} links={[{ label: "#1675", href: "https://github.com/juspay/kolu/pull/1675" }, { label: "#1685", href: "https://github.com/juspay/kolu/pull/1685" }, { label: "#1686", href: "https://github.com/juspay/kolu/pull/1686" }]} />
+<Phase id="W4" name="the switch — host picker, per-view bindings, warm pool (+ @kolu/surface-map)" status="shipped" needs={["W3"]} links={[{ label: "#1714", href: "https://github.com/juspay/kolu/pull/1714" }]} />
+<Phase id="W7" name="per-host state by ownership, not enumeration" status="shipped" needs={["W4"]} links={[{ label: "#1723", href: "https://github.com/juspay/kolu/pull/1723" }]} />
+<Phase id="W8" name="remote terminals, documented honestly (docs phase)" status="shipped" needs={["W4"]} links={[{ label: "#1722", href: "https://github.com/juspay/kolu/pull/1722" }, { label: "#1727", href: "https://github.com/juspay/kolu/pull/1727" }]} />
+<Phase id="W6" name="the honest connect — the connection type made perfect + the connect overlay" status="in-flight" needs={["W4"]} links={[{ label: "#1730", href: "https://github.com/juspay/kolu/pull/1730" }]} />
 <Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
 <Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="todo" needs={["W4"]} />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
+
+**Where this stands (2026-07-09) — and what's next, in order:**
+
+1. **W6 lands** — <PrLink pr={1730} /> + its drishti pair ([srid/drishti#92](https://github.com/srid/drishti/pull/92)) are in review endgame (type dedup + the `ConnectPhase` framework graduation folded in); srid merges both.
+2. **W5 — cross-host attention** is the next feature phase: everything it needs (the warm pool, per-host entries) is shipped, and the need is now user-visible (the 2026-07-08 field note below).
+3. **The cleanup ledger runs in parallel** — batched into right-sized PRs, not one-per-entry; the batch plan lives in [the ledger note](padi-cleanup.html).
+4. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed.
 
 **When packages are born** — graduation is a scheduled event, not a side effect:
 
@@ -313,7 +323,9 @@ The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios t
 
 <a id="w4"></a>
 
-### W4 — the switch *(its own phase — promoted out of W3; the largest change since W2.2. READY NOW — every gate merged 2026-07-05: L6 <PrLink pr={1698} /> · L23 <PrLink pr={1700} /> · the surface-hosting simplification <PrLink pr={1705} />, which reshaped this phase's vocabulary — see the [ratified ledger](surface-hosting-101.html))*
+### W4 — the switch — *shipped* <PrLink pr={1714} /> *(its own phase — promoted out of W3; the largest change since W2.2; gates were L6 <PrLink pr={1698} /> · L23 <PrLink pr={1700} /> · the surface-hosting simplification <PrLink pr={1705} /> — see the [ratified ledger](surface-hosting-101.html))*
+
+**Shipped** (merged 2026-07-07) as `@kolu/surface-map` + the `KOLU_PADI_HOST`-gated multi-host canvas — four of the five pieces below landed in the one PR; **piece 5 (honest clocks) was deferred to a named fast-follow** (the review found the consuming half was never built anywhere — a pre-existing W3.1-era gap, not a switch regression). The per-host-state bugs the deploy surfaced (focus, splits, camera) got instance fixes in-PR and their class fix as [W7](#w7).
 
 *(New to the machinery this phase builds on? The primer: [the surface framework's hosting side, taught](surface-hosting-101.html) — serve → mirror → sessions → the registry, ending at this phase's own type-vs-volatility fork.)*
 
@@ -351,11 +363,11 @@ kolu-server subscribes each warm binding's **urgency-projection member** (the on
 
 <a id="w7"></a>
 
-### W7 — per-host state by ownership, not enumeration *(the class fix for the "forgotten field" bug family; ratified 2026-07-08; its own post-merge PR)*
+### W7 — per-host state by ownership, not enumeration — *shipped* <PrLink pr={1723} /> *(the class fix for the "forgotten field" bug family; ratified + merged 2026-07-08)*
 
 **In simple words:** W4 made kolu multi-host, and a whole family of bugs followed the same shape: some piece of canvas state — the focused terminal, the split layout, the camera position — quietly lived at app lifetime while the tiles around it became per-host, so switching hosts showed the wrong host's leftovers (blank canvas, lost splits, a viewport panned to empty space). Each was found live by srid, one at a time, because today per-host-ness is **opt-in**: the `HostView` record enumerates fields (`activeId, mruOrder, attention, …`), and every new fact must be *remembered* into it — the camera bug is literally a forgotten field. Host-independence, meanwhile, is a code comment nothing enforces, and ~62 client files can mint bare signals without ever being asked which axis they live on.
 
-**Status — IMPLEMENTED (2026-07-08):** shipped on kolu branch `w7-per-host-ownership` + its [`srid/drishti#91`](https://github.com/srid/drishti/pull/91) framework-gate pair. `scopedByEntry` lives in `@kolu/surface-map` (over `@solid-primitives/keyed`'s `keyArray`, plus the `codec` now exported on `SurfaceMapClient`); kolu's `hostScope/hostScopes` dissolves the `HostView` record, `ensureHost`, the camera-swap seam (`useCanvasCameraSwap`, **deleted**), `useCanvasViewport`'s three module-scope signals, and `useSessionRestore`'s hand-rolled latch `Map` into one per-host owner. The facades (`useViewState`, `useCanvasViewport`, `useSessionRestore`) became windows onto `activeScope()`; the ~35 store consumers are untouched. The boundary guard (`canvas/canvasBoundaryGuard.test.ts`) is the residual fence, and the comment-only `HOST-SCOPING:` convention retired into it.
+**Status — SHIPPED (merged 2026-07-08):** <PrLink pr={1723} /> + its [`srid/drishti#91`](https://github.com/srid/drishti/pull/91) framework-gate pair (merged together). `scopedByEntry` lives in `@kolu/surface-map` (over `@solid-primitives/keyed`'s `keyArray`, plus the `codec` now exported on `SurfaceMapClient`); kolu's `hostScope/hostScopes` dissolves the `HostView` record, `ensureHost`, the camera-swap seam (`useCanvasCameraSwap`, **deleted**), `useCanvasViewport`'s three module-scope signals, and `useSessionRestore`'s hand-rolled latch `Map` into one per-host owner. The facades (`useViewState`, `useCanvasViewport`, `useSessionRestore`) became windows onto `activeScope()`; the ~35 store consumers are untouched. The boundary guard (`canvas/canvasBoundaryGuard.test.ts`) is the residual fence, and the comment-only `HOST-SCOPING:` convention retired into it.
 
 **Consciously EXCLUDED from W7 (K1):** the owner retains only *cheap, client-owned* state (focus, MRU, attention, camera, the restore latch). The **wire subscriptions** — the `terminals` collection, saved session — stay active-host-only via `padiMap.useEntry(activeHost)`; retaining THOSE for *instant* switch-back (no reconnect round-trip on return) is a deliberate future improvement, not this phase — the owner holds state, never sockets. **Field acceptance still open:** the deterministic pins prove the decision logic, but srid confirms the live camera symptom gone on a **real deploy** (a browser-verify against a real second host — the timing a unit pin structurally can't see) before this is closed.
 
@@ -369,7 +381,9 @@ kolu-server subscribes each warm binding's **urgency-projection member** (the on
 
 <a id="w8"></a>
 
-### W8 — remote terminals, documented honestly *(a docs phase: the ssh-session environment gap; seeded by a live srid incident 2026-07-08)*
+### W8 — remote terminals, documented honestly — *shipped* <PrLink pr={1722} /> <PrLink pr={1727} /> *(a docs phase: the ssh-session environment gap; seeded by a live srid incident 2026-07-08)*
+
+**Shipped 2026-07-08, two PRs:** the atlas analysis (<PrLink pr={1722} />) and the user-facing website page (<PrLink pr={1727} /> — remote hosts as a *feature*: enable · add · switch, with the environment gaps as one compact limitations/FAQ section, marked alpha). The done-criteria below are met; the catalogue grows by incident as planned.
 
 **In simple words:** a kolu remote terminal is an **ssh session**, and an ssh session is not the machine's GUI login session — so a class of tools that "just work" in a local terminal silently break over the bind. The seed incident: on a macOS remote, `gh auth status` reports *the token is invalid* — `gh` stores its token in the **macOS Keychain**, which is unlocked only for GUI sessions; the identical command works in the box's local terminal. The user's first read is "kolu broke gh," when the truth is "ssh sessions don't get your keychain."
 
@@ -385,21 +399,53 @@ Each entry: the symptom as the user sees it, the one-line cause, the remedies ra
 
 <a id="w6"></a>
 
-### W6 — the honest connect *(client-only; the data already flows — a small, high-value UX phase)*
+### W6 — the honest connect — *in flight* <PrLink pr={1730} /> *(overlay + the connection type made perfect; drishti-gated — pair [srid/drishti#92](https://github.com/srid/drishti/pull/92))*
+
+**Status (2026-07-09): implemented, in review endgame.** Both halves below are built and CI-green; live testing then hardened the batch — the coarse-chip/fine-cell divergence trap (a stale connection cell could route the overlay over a *connected* host forever) is now a **type error** (`connectPhase` exists only on the not-yet-connected facts arms), the cell is floored on transport liveness, and the phase vocabulary gained `probing` (the warm realise-probe, presented calmly) plus a server-stamped `sinceMs` (per-episode elapsed, one clock). The type-dedup review then graduated **`ConnectPhase`** to a `@kolu/surface-remote` export (drishti adopts it in `connectionColors.ts` — the second-consumer proof). The types below are as shipped.
 
 **In simple words:** connecting to a remote host can compile+copy padi onto that machine over ssh — on a first connect to a fresh host that Nix build takes **minutes**. Today the whole canvas shows one dead word, **"Connecting…"**, indistinguishable from a hang (srid hit exactly this live — twice: on the original W4, and re-confirmed 2026-07-07 on the surface-map redesign, where the remote chip shows amber but the canvas stays mute). Drishti already narrates this window properly ("copying derivation…"); kolu should match. After this phase the overlay tells the truth: *which* phase it's in (provisioning vs connecting), a live tail of the actual build output, and an elapsed timer — so "it's working, first-time setup takes a moment" is unmistakable, and a real failure shows the real reason.
 
 **The reason this is cheap — the signal already exists and already reaches the browser; only the UI discards it.** The session lifecycle has a **distinct `copying` state** separate from `connecting` (`CONNECTION_STATES` in `packages/surface-remote/src/connection.ts` — and after the P4 type-split, `copying` is *remote-arm-only by type*, which makes the narration honest by construction), and the connection info already carries **`progressLines`** — the live `nix copy` / realise stderr, forwarded by `nixCopy.ts`'s `onProgress` and piped browser-ward by `connectionPipe.ts`. It also distinguishes **`failureCause`** — `network` (unreachable, retries) vs `remote` (reached, rejected, terminal). Under the surface-map redesign this all rides the **`entries` collection's per-host `EntryConnectionState`** (`serveHostMap`'s projection preserves `copying` distinctly), so the strip's chip and the canvas overlay read the same one authority. The bug is purely that the connect overlay collapses this rich state into `"Connecting…"`.
 
-**The work (client-only, no daemon change; lands as its own follow-up PR after surface-map merges — srid-phased):** the connect overlay reads the active entry's state from `entries` and renders honestly —
-- **`copying`** → a distinct message naming the host and the act ("Provisioning padi on `zest`… first connect builds it, this can take a few minutes"), with a **live tail** of the last N `progressLines` (dimmed monospace) and an **elapsed timer** so long-but-progressing never reads as hung;
-- **`connecting`** → the brief post-copy handshake, distinct from copying;
-- **`failed`** → the real `lastError` + the `progressLines` tail (the actual "why"), with `network` ("`zest` unreachable — retrying") read differently from `remote` ("`zest` rejected the connection");
-- the **fast path stays calm** — a warm reconnect (no copy) shows `connected` immediately with no alarming build UI; the heavy provisioning treatment appears only when `copying` actually fires.
+**The work (ratified 2026-07-08 — two halves, one PR + the drishti pair):**
+
+**Half 1 — the connection type, made perfect** (per /architecture-first-principles; the server sum is flattened into a lying 4-nullable-field product at the browser boundary today, and three lens findings land together). The final types, verbatim:
+
+```ts
+// @kolu/surface-remote — ONE framework type; the connector declares its own phases
+type SessionState<Prov extends string = never> = {
+  log: readonly { source: "local" | "remote"; line: string }[]; // last 20; per-EPISODE (reset on a down→up crossing)
+  sinceMs: number; // current episode's elapsed, stamped on the SERVER's clock — a duration, never a foreign epoch
+} & (
+  | { phase: "connecting" | "connected" | Prov }                  // up — error fields don't exist
+  | { phase: "disconnected"; error: string; cause: "network" | "remote" }
+  | { phase: "failed";       error: string; cause: "remote" }     // network is never terminal — by type
+);
+
+type SshProv = "probing" | "copying" | "building";
+//  probing  = the warm realise-probe (is padi already there?) — presented calmly, no build UI
+//  copying  = nix copy --derivation …  (the .drv push — fast)
+//  building = ssh $host nix-store --realise …  (the remote compile — the minutes)
+// sshConnector: SessionState<SshProv> · local endpoint: SessionState<never>
+
+// browser cell: ConnectionInfo = SessionState<SshProv>, LITERALLY — the zod schema's
+// inferred type is pinned identical by a test-d file, so schema/type drift is a compile error.
+// ConnectPhase = Exclude<ConnectionInfo["phase"], "connected"|"disconnected"|"failed">
+// — the one narratable-phase vocabulary, exported; kolu's overlay and drishti's
+// connectionColors both derive from it (never hand-list phase names).
+```
+
+DELETED by this reshape: `remoteProgressLines` (a stored duplicate — now `log.filter(source === "remote")`), the `[local] `/`[remote] ` in-band string prefixes (provenance becomes a field), and the `ProvisioningPhase`/`UpConnectionState`/`LocalConnectionState`/`FailureCause`/`SessionStateCommon` name-chain (one type + one connector vocabulary + one zod const replace all seven names). The `copying`→`probing|copying|building` split is the connector updating its own declared vocabulary — zero framework change; `nixCopy.ts` already runs the steps as separate commands (`probing` was added when live testing showed the warm-probe window conflated with copying and read as hung). **Wire-schema change ⇒ the drishti gate applies** (drishti reads the cell at `App.tsx:690`; paired PR, green at final kolu HEAD).
+
+**Half 2 — the kolu overlay** (client-only, small): the connect overlay reads the active entry's connection cell and switches exhaustively on `phase` —
+- **`copying`** → "Provisioning padi on `zest`… (first connect ships the recipe)" · **`building`** → "Building padi on `zest`… this can take a few minutes" — each with a **live tail** of the last N `log` lines (dimmed monospace) and an **elapsed timer**, so long-but-progressing never reads as hung;
+- **`connecting`** → the brief post-provision handshake, distinct;
+- **`failed`** → the real `error` + the `log` tail (the actual "why"); `disconnected`+`network` ("`zest` unreachable — retrying") reads differently from a standing `remote` refuse (the Skew-UX card already owns those);
+- the **fast path stays calm** — a warm reconnect (the fused realise probe short-circuits) shows `connected` immediately, no build UI.
 
 **Design care:** show a *tail* (last few lines) + elapsed, not a firehose of the whole Nix log, and **not** a fake percentage bar (a Nix build has no honest progress %); the reassurance is "named phase + real output + elapsed + 'first-time setup'", which is truthful where a progress bar would lie.
 
-- **Done:** connect to a fresh remote host (cold Nix build) → the overlay names the provisioning phase, streams live build lines, and shows elapsed — never a mute "Connecting…"; a warm reconnect connects fast with no build UI; a genuine failure shows the real error tail, and unreachable reads differently from rejected.
+- **Done:** connect to a fresh remote host (cold Nix build) → the overlay names copying vs building, streams live log lines, and shows elapsed — never a mute "Connecting…"; a warm reconnect connects fast with no build UI; a genuine failure shows the real error tail, and unreachable reads differently from rejected. AND the types hold the line: `failed`+`network` is a compile error, `remoteProgressLines` no longer exists, the browser cell is the discriminated mirror of the server sum (drishti pair green).
 
 <a id="cleanup"></a>
 
@@ -407,10 +453,9 @@ Each entry: the symptom as the user sees it, the one-line cause, the remedies ra
 
 W2 and W3 ship at pace (a deliberate call); W4 pays the pace's debts — refactors, decomplecting, framework-level electricity upstreaming, deletions. Nothing user-visible ships here; that is the point. **The full ledger — each entry a self-sufficient, lens-framed brief an implementing agent can execute under coordinator guidance — lives in [padi — the consolidation ledger](padi-cleanup.html)**, appraised and appended as each W phase lands (a shipped phase's "deferred / acceptable-for-scope" review items land there explicitly; an entry that never ripens is deleted with a reason). The index, for orientation:
 
-- **Upstreamings (lowy · drishti-gated):** L1 poll-on-change client core → `@kolu/surface` (ready) · L2 padi-tui's wait helper (gated: kolu-tui) · L3 the control core → `surface-daemon` (gated: a second daemon)
-- **Boundary re-cuts (lowy):** L6 `padiBinding.ts` post-carve audit (gated: W2.3) · L7 `terminal-workspace` post-burial re-cut (gated: W2.3) · L9 sensors out of the staleKey hash (gated: evidence)
-- **Dedupes/sweeps (hickey):** L5 one home for `ProcessRssSchema` (ready) · L11 W3.2's interim wire shapes (gated: W3.2)
-- **Deletions & hygiene:** L4 the legacy-kaval migration arm (at a named version) · L8 doc sweep for the buried world (after W2.3) · L10 the flaky-test debt (ready) · L12 fine-grained CI token (srid mints)
+- **Shipped:** L3 the convergence kit (<PrLink pr={1674} />) · L5 (in W2.2) · L6 `padiBinding` split (<PrLink pr={1698} />) · L7 `terminal-workspace` re-cut (<PrLink pr={1734} />) · L14 memory via the mirror (<PrLink pr={1699} />) · L15+L16 write-seam/boot invariants (<PrLink pr={1703} />) · L23 remote arm on the kit (<PrLink pr={1700} />)
+- **Ready — batched into right-sized PRs** (the batch plan lives in the ledger note): the framework batch (L28 · L1 · L20·21, one drishti pair) · the hygiene batch (L8 · L13) · the padi/client batch (L17 · L18 · L24) · L26 (null/sentinel sweep + lint, its own PR) · L27 (server re-cut, its own pure-motion PR) · L11 (post-switch wire sweep, now unblocked) · L10 flaky debt · L12 (srid mints)
+- **Gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence
 
 <a id="future"></a>
 
