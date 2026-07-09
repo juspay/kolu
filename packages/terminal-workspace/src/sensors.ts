@@ -50,6 +50,7 @@ import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
 import { claudeCodeAdapter } from "kolu-claude-code";
 import { codexAdapter } from "kolu-codex";
+import { grokAdapter } from "kolu-grok";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
@@ -868,6 +869,7 @@ export function startSensors(
   const stopClaude = startAgent(claudeCodeAdapter);
   const stopCodex = startAgent(codexAdapter);
   const stopOpenCode = startAgent(opencodeAdapter);
+  const stopGrok = startAgent(grokAdapter);
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   return () => {
     stopCwd();
@@ -877,6 +879,7 @@ export function startSensors(
     stopClaude();
     stopCodex();
     stopOpenCode();
+    stopGrok();
     stopProcess();
   };
 }

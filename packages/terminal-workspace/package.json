@@ -27,6 +27,7 @@
     "kolu-codex": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
+    "kolu-grok": "workspace:*",
     "kolu-opencode": "workspace:*",
     "pino": "^10.3.1",
     "ts-pattern": "^5.9.0",

@@ -290,6 +290,7 @@ let
       (padiPkgRoot ./packages/integrations/io)
       (padiPkgRoot ./packages/integrations/claude-code)
       (padiPkgRoot ./packages/integrations/codex)
+      (padiPkgRoot ./packages/integrations/grok)
       (padiPkgRoot ./packages/integrations/opencode)
       (padiPkgRoot ./packages/integrations/anyagent)
       (padiPkgRoot ./packages/integrations/anyforge)

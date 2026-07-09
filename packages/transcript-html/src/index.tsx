@@ -39,6 +39,7 @@ const AGENT_LABEL: Record<Transcript["agentKind"], string> = {
   "claude-code": "Claude Code",
   opencode: "OpenCode",
   codex: "Codex",
+  grok: "Grok",
 };
 
 const mdProse = makeMarked({ breaks: false });
