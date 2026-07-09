@@ -10,7 +10,7 @@
  * process writing its own cwd is exactly what production senses.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { codexDir } from "./paths.ts";
@@ -121,6 +121,18 @@ export class CodexAgent implements MockKind {
       fn(db);
     } finally {
       db.close();
+    }
+    // Extra FSEvents poke after close (see OpenCodeAgent.withDb).
+    const now = new Date();
+    try {
+      utimesSync(this.dbPath, now, now);
+    } catch {
+      /* gone */
+    }
+    try {
+      utimesSync(`${this.dbPath}-wal`, now, now);
+    } catch {
+      /* checkpointed away */
     }
   }
 

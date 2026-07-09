@@ -31,6 +31,9 @@ Feature: OpenCode status detection
     And there should be no page errors
 
   Scenario: OpenCode state updates from thinking to waiting
+    # Live mid-session transition. After the first match the session-watcher
+    # holds a SQLite connection and re-reads only on WAL events; a second
+    # setState must land a fresh open-write-close so darwin kqueue re-arms.
     When an OpenCode session is mocked with state "thinking"
     Then the tile chrome should show an OpenCode indicator with state "thinking"
     When the OpenCode session state changes to "waiting"

@@ -7,7 +7,7 @@
  * in — so the provider's cwd match is against the real cwd, as production sees.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, utimesSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { opencodeDbPath } from "./paths.ts";
@@ -64,6 +64,20 @@ export class OpenCodeAgent implements MockKind {
       fn(db);
     } finally {
       db.close();
+    }
+    // Extra FSEvents poke: after close, explicitly touch the db + wal so a
+    // watcher that missed the inode recreate (darwin kqueue under load) still
+    // re-reads. No-ops if the -wal was already checkpointed away.
+    const now = new Date();
+    try {
+      utimesSync(this.dbPath, now, now);
+    } catch {
+      /* gone */
+    }
+    try {
+      utimesSync(`${this.dbPath}-wal`, now, now);
+    } catch {
+      /* checkpointed away */
     }
   }
 

@@ -61,14 +61,27 @@ When(
 );
 
 When(
+  "a Codex session is mocked with state {string} and input tokens {int} with cached input tokens {int}",
+  async function (
+    this: KoluWorld,
+    state: string,
+    inputTokens: number,
+    cachedInputTokens: number,
+  ) {
+    await mockCodexSession(this, state, { inputTokens, cachedInputTokens });
+  },
+);
+
+When(
   "the Codex rollout reports input tokens {int} with cached input tokens {int}",
   async function (
     this: KoluWorld,
     inputTokens: number,
     cachedInputTokens: number,
   ) {
-    // Matches the old fixture update: reporting token usage settles the turn to
-    // `waiting`, carrying the input + cached counts.
+    // Live update of an already-mocked session (kept for any scenario that
+    // still drives a second write). Prefer the single-write When above when
+    // the scenario doesn't need a mid-flight change.
     await setMockState(this, "waiting", { inputTokens, cachedInputTokens });
   },
 );
