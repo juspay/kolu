@@ -19,7 +19,7 @@
  *      re-inherits the global, matching the camera/posture tier). */
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { type Accessor, createSignal, type Setter } from "solid-js";
+import { type Accessor, createSignal, onCleanup, type Setter } from "solid-js";
 import { boolPref, persistedPref } from "../persistedPref";
 import {
   type ActivityWindow,
@@ -75,6 +75,20 @@ export function createHostPrefs(host: HostKey): HostPrefs {
   const [rightPanelCollapsed, setRightPanelCollapsed] = createSignal<
     boolean | undefined
   >(undefined);
+
+  // EVICT this host's persisted filters when it leaves the pool. `scopedByEntry`'s
+  // `keyArray` disposes this owner the instant the host leaves `padiMap.entries`
+  // (a `hosts.remove`), firing this cleanup. Without it, every distinct HostKey a
+  // tab ever activated — including kolu's ephemeral remote boxes with unique names
+  // (`pu` / remote-host-testing) — would leave two orphaned `localStorage` keys
+  // FOREVER (unbounded growth). A page RELOAD does NOT run this (the browser kills
+  // the process, not a Solid dispose), so the sticky-across-reload contract holds;
+  // only an actual host removal evicts. (`rightPanelCollapsed` is in-memory — no
+  // key to evict.)
+  onCleanup(() => {
+    localStorage.removeItem(perHostKey("kolu-activityWindow"));
+    localStorage.removeItem(perHostKey("kolu-showSleeping"));
+  });
 
   return {
     activityWindow,
