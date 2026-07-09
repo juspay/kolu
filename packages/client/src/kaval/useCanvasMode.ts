@@ -22,7 +22,7 @@ import {
   type CanvasMode,
   resolveCanvasMode,
 } from "./canvasModeResolver";
-import { isConnectPhase } from "./connectCanvasCopy";
+import { isConnectPhase } from "../host/connectCanvasCopy";
 import { connectionInfo } from "../wire";
 import {
   activeEntryState,
