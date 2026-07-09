@@ -2,6 +2,15 @@ import { Then, When } from "@cucumber/cucumber";
 import type { Locator } from "playwright";
 import type { KoluWorld } from "../support/world.ts";
 
+/** Padi/Kaval marks live on every host chip; prefer the active host so multi-host
+ *  never matches N chips. Kolu stays a single global mark. */
+function chipSelector(
+  testid: "kolu-identity-chip" | "padi-identity-chip" | "kaval-identity-chip",
+): string {
+  if (testid === "kolu-identity-chip") return `[data-testid="${testid}"]`;
+  return `[data-testid="host-chip"][data-active] [data-testid="${testid}"]`;
+}
+
 /** Memory details live on the actual identity chip tooltip/aria-label rather
  *  than hidden test-only DOM. The figure only appears once a real value lands —
  *  server/client are present immediately under Chromium; padi/kaval fill in once
@@ -11,24 +20,25 @@ async function assertChipMemoryLabel(
   testid: "kolu-identity-chip" | "padi-identity-chip" | "kaval-identity-chip",
   pattern: RegExp,
 ): Promise<void> {
-  const chip = world.page.locator(`[data-testid="${testid}"]`);
-  await assertLabelEventually(chip, pattern, testid);
+  const selector = chipSelector(testid);
+  const chip = world.page.locator(selector);
+  await assertLabelEventually(chip, pattern, selector);
 }
 
 async function assertLabelEventually(
   locator: Locator,
   pattern: RegExp,
-  testid: string,
+  selector: string,
 ): Promise<void> {
   await locator.waitFor({ state: "attached", timeout: 15_000 });
   await locator.page().waitForFunction(
-    ({ selector, source, flags }) => {
+    ({ sel, source, flags }) => {
       const text =
-        document.querySelector(selector)?.getAttribute("aria-label") ?? "";
+        document.querySelector(sel)?.getAttribute("aria-label") ?? "";
       return new RegExp(source, flags).test(text);
     },
     {
-      selector: `[data-testid="${testid}"]`,
+      sel: selector,
       source: pattern.source,
       flags: pattern.flags,
     },
@@ -75,7 +85,11 @@ Then(
 );
 
 When("I open the Kaval details dialog", async function (this: KoluWorld) {
-  await this.page.locator('[data-testid="kaval-identity-chip"]').click();
+  await this.page
+    .locator(
+      '[data-testid="host-chip"][data-active] [data-testid="kaval-identity-chip"]',
+    )
+    .click();
 });
 
 Then(

@@ -10,13 +10,12 @@
  *  cell is the sole cue, and `undefined` (before the first cell frame) reads
  *  closed, so multi-host chrome never flashes in during warm-up.
  *
- *  PROPOSAL A / host-first: each host chip carries a FIXED-width dual-daemon
- *  slot (`HostDualDaemonSlot`). Only the ACTIVE chip fills it with Padi +
- *  Kaval; inactive chips leave the same outer box empty. Ring/accent still
- *  mark the active chip — size never does — so a host switch reflows nothing.
- *  (Iteration 1 filled without reserving empty siblings and reflowed;
- *  iteration 2 parked daemons in a stationary ChromeBar slot; this is the
- *  reserved-width return to the chip.)
+ *  Host-first: each host chip carries a FIXED-width dual-daemon slot
+ *  (`HostDualDaemonSlot`) filled with THAT host's Padi + Kaval marks (active
+ *  and inactive alike — so a red remote is obvious without switching first).
+ *  Ring/accent still mark the active chip — size never does — so a host
+ *  switch reflows nothing. Measure-row twins leave the slot empty so width is
+ *  reserved without a second live mount.
  *
  *  Each chip reads, at a glance:
  *    · the host label (LOCAL_HOST shows as "local"), ellipsized to a
@@ -30,7 +29,7 @@
  *      at any width;
  *    · an urgency badge — the host's `awaiting` count (its FIRST client consumer), hidden
  *      when zero;
- *    · the dual-daemon slot (active: Padi + Kaval marks; inactive: empty reserve);
+ *    · the dual-daemon slot (this host's Padi + Kaval marks);
  *    · a remove ✕ for GUEST hosts (never LOCAL_HOST) → `client.hosts.remove` (an
  *      UnremovableHostError surfaces LOUD via toast, never a silent no-op) — visible
  *      dimmed at rest above `lg`; below `lg` it hides at rest (still reachable via

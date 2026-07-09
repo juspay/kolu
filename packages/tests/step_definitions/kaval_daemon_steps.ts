@@ -114,7 +114,11 @@ When(
 // Open the kaval rail chip's info dialog, where the "Restart kaval" button lives
 // for a RUNNING (not degraded) daemon — the live-but-stuck arm's entry point.
 When("I open the kaval rail dialog", async function (this: KoluWorld) {
-  await this.page.locator('[data-testid="kaval-identity-chip"]').click();
+  await this.page
+    .locator(
+      '[data-testid="host-chip"][data-active] [data-testid="kaval-identity-chip"]',
+    )
+    .click();
   await this.page.waitForSelector('[data-testid="restart-kaval"]', {
     timeout: POLL_TIMEOUT,
   });
