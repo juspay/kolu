@@ -14,11 +14,20 @@ import { getCollection } from "astro:content";
 interface Props {
   current: string;
   currentTitle: string;
+  // Which doc-shaped collection to list, and the URL prefix its pages live
+  // under. Defaults render the root `docs` collection at /<id>; the Surface
+  // area passes collection="surface" + basePath="/surface".
+  collection?: "docs" | "surface";
+  basePath?: string;
 }
-const { current, currentTitle } = Astro.props;
+const { current, currentTitle, collection = "docs", basePath = "" } = Astro.props;
+
+// A collection's index page owns the base route itself (/surface), not
+// /surface/index; every other page hangs off the prefix.
+const hrefFor = (id: string) => (id === "index" ? basePath || "/" : `${basePath}/${id}`);
 
 const DEFAULT_GROUP = "Documentation";
-const entries = await getCollection("docs");
+const entries = await getCollection(collection);
 entries.sort((a, b) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title));
 
 // Preserve first-seen group order, so sections appear in the order their first
@@ -44,7 +53,7 @@ for (const entry of entries) {
           {group.items.map((entry) => (
             <li>
               <a
-                href={`/${entry.id}`}
+                href={hrefFor(entry.id)}
                 aria-current={entry.id === current ? "page" : undefined}
               >
                 {entry.data.title}
@@ -71,7 +80,7 @@ for (const entry of entries) {
             {group.items.map((entry) => (
               <li>
                 <a
-                  href={`/${entry.id}`}
+                  href={hrefFor(entry.id)}
                   aria-current={entry.id === current ? "page" : undefined}
                 >
                   {entry.data.title}

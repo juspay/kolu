@@ -1450,6 +1450,156 @@ importers:
         specifier: ^2.11.0
         version: 2.11.11(solid-js@1.9.11)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/surface/example/fleet-top/part-1:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.19.13
+        version: 1.19.13(hono@4.12.25)
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../../..
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.21.0)
+      hono:
+        specifier: ^4.12.25
+        version: 4.12.25
+      partysocket:
+        specifier: ^1.1.16
+        version: 1.1.16(react@19.2.5)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      concurrently:
+        specifier: ^9.1.0
+        version: 9.2.1
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vite:
+        specifier: ^8.1.0
+        version: 8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3)
+      vite-plugin-solid:
+        specifier: ^2.11.0
+        version: 2.11.11(solid-js@1.9.11)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/surface/example/fleet-top/part-2:
+    dependencies:
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../../..
+      '@kolu/surface-daemon':
+        specifier: workspace:*
+        version: link:../../../../surface-daemon
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../../../../surface-daemon-supervisor
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.21.0)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/surface/example/fleet-top/part-3:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.19.13
+        version: 1.19.13(hono@4.12.25)
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../../..
+      '@kolu/surface-map':
+        specifier: workspace:*
+        version: link:../../../../surface-map
+      '@kolu/surface-remote':
+        specifier: workspace:*
+        version: link:../../../../surface-remote
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.21.0)
+      hono:
+        specifier: ^4.12.25
+        version: 4.12.25
+      partysocket:
+        specifier: ^1.1.16
+        version: 1.1.16(react@19.2.5)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      concurrently:
+        specifier: ^9.1.0
+        version: 9.2.1
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vite:
+        specifier: ^8.1.0
+        version: 8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3)
+      vite-plugin-solid:
+        specifier: ^2.11.0
+        version: 2.11.11(solid-js@1.9.11)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/surface/example/mini-ci:
     dependencies:
       '@kolu/surface':
@@ -1550,6 +1700,49 @@ importers:
       vite-plugin-solid:
         specifier: ^2.11.0
         version: 2.11.11(solid-js@1.9.11)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/surface/example/snippets:
+    dependencies:
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../..
+      '@kolu/surface-app':
+        specifier: workspace:*
+        version: link:../../../surface-app
+      '@kolu/surface-daemon':
+        specifier: workspace:*
+        version: link:../../../surface-daemon
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../../../surface-daemon-supervisor
+      '@kolu/surface-map':
+        specifier: workspace:*
+        version: link:../../../surface-map
+      '@kolu/surface-mcp':
+        specifier: workspace:*
+        version: link:../../../surface-mcp
+      '@kolu/surface-remote':
+        specifier: workspace:*
+        version: link:../../../surface-remote
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/terminal-protocol:
     devDependencies:
@@ -4454,6 +4647,11 @@ packages:
     resolution: {integrity: sha512-OZs6gsjF4vMp32qrCbiVSkrFmXtG/AZhY3t0iAMrMBiAZyV9oALtXO8hsrHbMXF9x6L3grlFuwW2oAz7cav+Gw==}
     engines: {node: '>= 0.6'}
 
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -7340,6 +7538,8 @@ snapshots:
       content-type: 1.0.5
       media-typer: 1.1.0
       mime-types: 3.0.2
+
+  typescript@5.9.3: {}
 
   typescript@7.0.2:
     optionalDependencies:

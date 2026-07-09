@@ -1,0 +1,17 @@
+---
+/**
+ * The Surface area landing at /surface — renders the `index` entry of the
+ * `surface` collection through the shared DocsLayout, so the framework's docs
+ * home carries the same chrome, sidebar, and TOC as the rest of the site.
+ */
+import { getEntry, render } from "astro:content";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+const entry = await getEntry("surface", "index");
+if (!entry) throw new Error("Missing src/content/surface/index.mdx (the /surface landing)");
+const { Content, headings } = await render(entry);
+---
+
+<DocsLayout entry={entry} headings={headings} collection="surface" basePath="/surface">
+  <Content />
+</DocsLayout>

@@ -1,0 +1,135 @@
+---
+title: "@kolu/surface-map reference"
+description: "The map API and its wire contracts: MapRegistry, entries, useEntry, and EntryStatus, the fold envelope, KeyCodec, typed sub ends, and the clock seam."
+order: 421
+section: Multi-host · Reference
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+A dynamic keyed map of remote surfaces — one entry surface, typed once, keyed at
+runtime, served as one. It depends only on `@kolu/surface` and has three
+subpaths: the contract, the server, and the client.
+
+## The three halves
+
+| Export | Subpath | Role |
+| --- | --- | --- |
+| `defineSurfaceMap(keySchema, entry, codec)` | `.` | build a map from a key schema, an entry `Surface<ES>`, and the key's string `codec`; returns a `SurfaceMap` |
+| `serveSurfaceMap(map, registry)` | `/server` | back the map with a `MapRegistry`; returns `{ router, dispose }` |
+| `connectSurfaceMap(map, transport, siblingKey?)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
+
+`defineSurfaceMap`'s `keySchema` need not be a branded string — its `z.infer` is
+`Key`, which can be any validated value (kolu's `HostKey` is a discriminated-sum
+object). Its third type parameter is `Cause extends string = string`, the failure
+discriminant. The `SurfaceMap` carries `{ keySchema, entry, contract, entriesSpec, codec }`;
+`entriesSpec` is the membership collection's wire spec, always string-keyed.
+
+`connectSurfaceMap`'s `transport` must be the **branded** parent handle (e.g.
+`conn.transport` from `connectSurfaces`) — a bare or pre-sliced wire link throws.
+When `siblingKey` is given, the map slices the scoped sibling *after* the
+half-open guard, so the scope inherits the parent's watchdog by construction.
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="define" />
+
+## The client
+
+`SurfaceMapClient` exposes `entries` (the one membership authority), `live`
+(resolved transport liveness), and two lenses onto an entry.
+
+| Member | Returns |
+| --- | --- |
+| `entries` | `ReadOnlyBoundCollection<Key, EntryStatus>` — the single membership authority; upsert/delete only |
+| `live` | `Accessor<boolean>` — resolved transport liveness for the membership strip |
+| `entry(key)` | `Entry<ES>` — the pure point lens (no owner, no I/O, total) |
+| `useEntry(keyAccessor)` | `Entry<ES>` — the Solid lens; re-keys on key change; throws ownerless |
+| `dispose()` | tear down |
+
+An `Entry<ES>` carries `cells` / `collections` / `streams` / `events` (the same
+bound hooks a single surface has), plus:
+
+| Member | Returns |
+| --- | --- |
+| `rpc` | the entry's procedure client; folds `{ mapKey }` per call so the caller never passes the key |
+| `clock.toLocal(remoteMs)` | reproject a host-stamped epoch: `number \| null` (null when the entry has no offset yet) |
+| `state()` | `EntryStatus \| { kind: "not-a-member" }` — a total fold over `entries`, never nullable |
+
+`entry(key)` is a partial application of the key: a per-key `SurfaceClient<ES>`,
+cached by key, so two views of one entry share one upstream subscription.
+`useEntry` re-keys on a key *change* — the old key's subscriptions dispose, the
+new key's populate synchronously — and canonicalizes its accessor's key by its
+encoded string, so a same-key re-decode reads as a no-op, never a re-key.
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="useentry" />
+
+`entry.rpc` is typed **`unknown`** on a generic map — a `ContractRouterClient`
+over an abstract entry spec would overflow TS's union budget (TS2590). The
+consumer casts it **once** to its own surface's procedure shape; the key-injecting
+link still folds `{ mapKey }` into every call, so the caller never passes the key.
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="rpc" />
+
+## `EntryStatus<Cause>` — the projected per-entry status
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="entrystatus" />
+
+- **Absence from `entries` is "not a member".** There is no `absent` arm — a collection already expresses absence by not carrying the key. Client reads stay total via an explicit `{ kind: "not-a-member" }` value; the wire never carries it.
+- **The projection contract.** Status is a projection of the resolved session's state, never a second writer: `copying`/`connecting` → `warming`; `connected` → `connected`; a `disconnected` carrying a standing domain cause, or a terminal `failed`, → `failed`; a plain transient `disconnected` (no specific cause) → `warming`. `warming` means in motion (self-heals — an unreachable box retrying at backoff is warming, not failed); `failed` means it needs intervention.
+- **`Cause` is a type parameter.** It defaults to `string` so existing consumers keep compiling; a domain instantiates `EntryStatus<PadiEntryFailedCause>` at its own map so `.cause` narrows there. The package carries the discriminant, never the enumeration.
+- **The `failed` arm is a loose object** (`cause: z.string()`), so domain extras (a typed `running`/`expected` version pair on a contract-skew cause) ride through untouched.
+- **`reason` is a human string**, never parsed for control flow; `kind` is the outer discriminant; `cause` is a sibling field on the same `failed` arm, not a second `kind`.
+- **`EntryState<Cause>` = `EntryStatus<Cause> | { kind: "not-a-member" }`** lives in the solid-free contract module, so a node consumer re-exports it type-only.
+
+## `MapRegistry<K>` — the server seam
+
+```ts
+interface MapRegistry<K> {
+  members(): K[];
+  subscribe(onChange: () => void): () => void;   // fires only AFTER members()/has() reflect the change
+  has(key: K): boolean;
+  resolve(key: K): EntrySession | EntryFault;     // a kind-tagged sum, provably disjoint
+}
+```
+
+- The registry is the **one writer of membership**; `entries` is that truth published; status is derived from each resolved session's state.
+- A call carries its key in every frame: an unknown key is a **typed rejection** (unary) or an **immediate typed end** (stream). A key that leaves membership mid-stream ends its subs with a typed `{ reason: "removed" }` **before** the session is destroyed — so no socket-error frame follows a typed end.
+- `resolve` returns `EntrySession` (`{ link, state }`) or `EntryFault` (`{ failed }`); `members()` and `has()` answer from one consistent snapshot.
+
+## The fold envelope
+
+Every procedure folds as `{ mapKey, input }` — one wire shape for any input.
+
+- Field constants: `MAP_KEY_FIELD = "mapKey"`, `INPUT_FIELD = "input"`. An entry input that itself carries a `mapKey` field cannot collide with the folded key — it rides nested under `input`.
+- **Void-input rule.** A void-input member carries **no** `input` field at all — `{ mapKey }`, not `{ mapKey, input: undefined }`. Relying on JSON dropping an `undefined` value and on the validator accepting the missing key is fragile (zod tightened `z.object({ input: z.void() })` to reject a missing key); omitting the field makes "void = no input key" the one representation on both encode and validate.
+- Codec functions `fold(mapKey, input)` / `unfoldInput(wire)` / `unfoldKeyField(wire)` reference these constants, so the envelope shape lives in exactly one place. Misroute-by-collision is unconstructible, not merely unlikely.
+
+## `KeyCodec<K>`
+
+```ts
+interface KeyCodec<K> { encode(key: K): string; decode(wire: string): K; }
+```
+
+Bridges `Key` to the canonical wire string every channel name, dedup key, and
+membership entry is keyed on. For a plain-string key it is the identity pair;
+kolu's `HostKey` passes its own encode/decode. `decode` is paired with
+`keySchema.parse` and need not validate on its own; `encode` is a bare cheap call
+on the hottest paths (per-key cache lookup, membership fold, per-tick republish).
+The server re-derives and re-validates real `K` from the wire string via
+`codec.decode` then `keySchema.parse`.
+
+## Typed sub ends and the clock seam
+
+- **`entry(key).rpc`** is the entry surface's procedure client; the key-injecting link folds `{ mapKey }` into every call. Typed `SurfaceClient<ES>["rpc"]` (`unknown` at the generic map — a consumer casts it once) to sidestep the "union too complex" a generic expansion trips. An absent-key call is a **typed rejection** (`MAP_KEY_UNKNOWN`), the one-shot twin of a sub's typed stream-end.
+- **`entry(key).clock.toLocal(remoteMs)`** reprojects a host-stamped timestamp into the local clock via the entry's measured offset: `remoteMs − offset`. It returns **`null`** (never a silent identity) when the entry has no offset yet (warming/failed/not-a-member); the `number | null` type forces the caller to render a pending "—" rather than fall back to the raw remote value. It reads only `.kind`, never `.cause`, and folds the membership collection so it re-answers as the entry connects.
+
+<Aside type="caution" title="No status renders green over a dead transport">
+  A server-published `connected` is only as trustworthy as your link to the
+  publisher. With that link dead (`live === false`), a stale `connected`
+  downgrades to `warming` — applied to both `entry(key).state()` and the `entries`
+  projection. `live` is a required argument so the fold cannot forget to floor.
+</Aside>
+
+For why the wire is shaped this way, see
+[Entry contracts](/surface/entry-contracts); to serve a map, see
+[How to serve a map](/surface/serve-a-map).

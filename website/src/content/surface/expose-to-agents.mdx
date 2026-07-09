@@ -1,0 +1,60 @@
+---
+title: How to expose a surface to agents
+description: "Project a surface as MCP tools and resources so a coding agent can read its state and drive its procedures — safely, by default-deny allowlist."
+order: 222
+section: Basics · How-to
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+An agent (Claude Code, Codex, opencode) drives a surface through the
+[Model Context Protocol](https://modelcontextprotocol.io): your cells and streams become readable resources, your
+procedures become callable tools. `@kolu/surface-mcp` does the projection; you
+decide what to expose.
+
+## 1. Install and import
+
+```json
+{ "dependencies": { "@kolu/surface-mcp": "workspace:*" } }
+```
+
+<Snippet src="packages/surface/example/snippets/mcp.ts" region="imports" />
+
+## 2. Build a client for the surface
+
+Choose one of two shapes:
+
+- **Serve fresh** when the MCP server is the backend — wrap an in-process `implementSurface` in a `directLink`.
+- **Bridge a live surface** when a server is already running — dial it over its socket or ssh stdio instead.
+
+<Snippet src="packages/surface/example/snippets/mcp.ts" region="client" />
+
+## 3. Name what to expose
+
+`expose` is default-deny: an unlisted member never reaches the agent. Map each
+key to `"resource"` (cells, collections, streams, events) or a tool (procedures).
+
+<Snippet src="packages/surface/example/snippets/mcp.ts" region="expose" />
+
+<Aside type="caution" title="Leave mutating tools unmarked; mark read-only ones">
+  `mutates` defaults to `true`, so a destructive procedure is safe even if you
+  forget to annotate it — a host will ask before running it. The annotation you
+  must *not* forget is `mutates: false` on a genuinely read-only tool; without
+  it, the agent will treat a harmless query as something to confirm.
+</Aside>
+
+## 4. Curate a dangerous surface (optional)
+
+If the surface has procedures no agent should reach, do not rely on omission
+alone — project a safe view with `projectSurface` (from `@kolu/surface/project`): drop
+the dangerous procedures, bound the logs, derive read-only verdicts, and expose
+*that* second surface. It is the difference between hiding a control and not
+wiring it at all.
+
+## 5. Point the agent at it
+
+The server speaks stdio by default. Register it in the agent's `.mcp.json` and
+the tools and resources appear in its next session. For the full option list and
+the resource-URI scheme, see the
+[@kolu/surface-mcp reference](/surface/ref-surface-mcp).

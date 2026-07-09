@@ -16,12 +16,21 @@ import BaseLayout from "./BaseLayout.astro";
 import "../styles/docs.css";
 
 interface Props {
-  entry: CollectionEntry<"docs">;
+  entry: CollectionEntry<"docs"> | CollectionEntry<"surface">;
   headings: MarkdownHeading[];
+  // The doc-shaped collection this page belongs to and the URL prefix its pages
+  // live under. Defaults render the root `docs` collection at /<id>; the Surface
+  // area passes collection="surface" + basePath="/surface".
+  collection?: "docs" | "surface";
+  basePath?: string;
 }
-const { entry, headings } = Astro.props;
+const { entry, headings, collection = "docs", basePath = "" } = Astro.props;
 
-const docs = await getCollection("docs");
+// A collection's index page owns the base route itself (/surface), not
+// /surface/index; every other page hangs off the prefix.
+const hrefFor = (id: string) => (id === "index" ? basePath || "/" : `${basePath}/${id}`);
+
+const docs = await getCollection(collection);
 docs.sort((a, b) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title));
 const currentIndex = docs.findIndex((doc) => doc.id === entry.id);
 const prev = currentIndex > 0 ? docs[currentIndex - 1] : undefined;
@@ -31,12 +40,17 @@ const next = currentIndex >= 0 && currentIndex < docs.length - 1 ? docs[currentI
 <BaseLayout
   title={entry.data.title}
   description={entry.data.description}
-  ogImageRoute={`docs/${entry.id}`}
+  ogImageRoute={`${collection}/${entry.id}`}
   searchSection="Docs"
 >
   <div class="docs-shell">
     <aside class="docs-shell__sidebar" data-pagefind-ignore>
-      <Sidebar current={entry.id} currentTitle={entry.data.title} />
+      <Sidebar
+        current={entry.id}
+        currentTitle={entry.data.title}
+        collection={collection}
+        basePath={basePath}
+      />
     </aside>
     <article class="docs-shell__main">
       <KoluHero hero={entry.data.koluHero} title={entry.data.title} />
@@ -49,7 +63,7 @@ const next = currentIndex >= 0 && currentIndex < docs.length - 1 ? docs[currentI
           <nav class="docs-pager" aria-label="Docs pages" data-pagefind-ignore>
             <div>
               {prev && (
-                <a href={`/${prev.id}`} rel="prev">
+                <a href={hrefFor(prev.id)} rel="prev">
                   <span>Previous</span>
                   {prev.data.title}
                 </a>
@@ -57,7 +71,7 @@ const next = currentIndex >= 0 && currentIndex < docs.length - 1 ? docs[currentI
             </div>
             <div>
               {next && (
-                <a href={`/${next.id}`} rel="next">
+                <a href={hrefFor(next.id)} rel="next">
                   <span>Next</span>
                   {next.data.title}
                 </a>

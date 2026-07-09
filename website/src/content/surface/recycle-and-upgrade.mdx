@@ -1,0 +1,57 @@
+---
+title: How to recycle and upgrade a daemon
+description: "Replace a running daemon with a new build without dropping connected clients — the converge (probe → decide → enact) sequence over an endpoint."
+order: 311
+section: Daemons · How-to
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+When you ship a new daemon build, an older one may still be holding the gate with
+clients attached. `converge()` detects the mismatch, decides what to do by your
+declared policy, and enacts it through the endpoint — without the client noticing
+more than a brief reconnect.
+
+## 1. Declare a policy
+
+A `ConvergencePolicy<Cap>` says what to do per trigger — a contract skew versus a
+same-contract build change. The two shipped shapes:
+
+- **`recycle-on-skew`** ([kaval](/kaval)): a mismatched daemon is killed and respawned.
+- **`drain-newer-else-refuse`** (padi): the daemon with the strictly-newer *contract version* wins — it is drained in and replaces the old; an older or equal contract refuses. (It keys on ordered contract versions, never on builds, which are match-only.) This arm is only available to a drain-capable handshake.
+
+## 2. Converge before you connect
+
+Call `converge()` with the endpoint, your baked expectation, a probe that reads
+the running daemon's identity, the policy, and a build-drain fence:
+
+<Snippet src="packages/surface/example/snippets/supervisor.ts" region="converge" />
+
+`converge` runs three steps: **probe** the running identity (over the
+version-agnostic channel, so a skew can't hide it), **decide** with the pure
+`decide` fold (zero I/O — the policy table), and **enact** through the endpoint's
+existing boot methods. It returns a `ConvergenceOutcome`; wire it to your own
+status surface and logs.
+
+## 3. What the live recycle does underneath
+
+When the decision is to recycle, the endpoint runs:
+
+1. read the gate (`gatePid` + `isHolderLive`) — is a live survivor holding it?
+2. **kill** it, then `waitForPidGone` — block until the pid is reaped, so the respawn never races a live gate holder;
+3. `driver.spawn()` — a survivable spawn (`systemd-run --user`, or detached `+unref`);
+4. `waitForSocket`, then `connect()` and the identity handshake.
+
+For a connected client, the daemon is replaced underneath and the client's
+session loop reconnects — re-running `converge` — with an `onStatus(degraded)`
+bridging the gap. `restart(endpoint, steps)` wraps this as
+`capture → drain → recycle → reattach`, so a session can be captured and
+re-adopted live across the kill.
+
+<Aside type="caution" title="Gate on the contract version, never a string ==">
+  The decision keys on ordered contract versions and match-only build ids —
+  never a literal string equality. A newer build with a compatible contract must
+  be recognised as compatible, not "different"; see
+  [Daemon invariants](/surface/surface-daemon-invariants).
+</Aside>

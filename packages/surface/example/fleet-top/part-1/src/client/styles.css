@@ -1,0 +1,52 @@
+:root {
+  color-scheme: light dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+body {
+  margin: 0;
+}
+.top {
+  padding: 1rem;
+}
+.bar {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  border-bottom: 1px solid #8884;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.bar h1 {
+  font-size: 1rem;
+  margin: 0;
+}
+.metric {
+  opacity: 0.85;
+}
+.dim {
+  opacity: 0.5;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th,
+td {
+  text-align: left;
+  padding: 2px 8px;
+}
+th {
+  opacity: 0.6;
+  font-weight: 600;
+}
+td.cmd {
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+}
