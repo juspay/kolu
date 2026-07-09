@@ -198,9 +198,9 @@ export function findLatestSessionByCwd(
   log?: Logger,
 ): GrokSession | null {
   const dir = path.join(SESSIONS_DIR, encodeCwd(cwd));
-  let entries: string[];
+  let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(dir);
+    entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error({ err, dir }, "grok sessions dir unreadable");
@@ -209,8 +209,12 @@ export function findLatestSessionByCwd(
   }
   let best: GrokSession | null = null;
   let bestMs = -1;
-  for (const name of entries) {
-    if (name === "prompt_history.jsonl") continue;
+  for (const ent of entries) {
+    // Session ids are directories; skip stray files (`prompt_history.jsonl`
+    // and any sibling Grok adds later) structurally, not by name — otherwise
+    // their absent `summary.json` reads as an ENOTDIR fault.
+    if (!ent.isDirectory()) continue;
+    const name = ent.name;
     const summaryPath = path.join(dir, name, "summary.json");
     const summary = readSummary(summaryPath, log);
     if (!summary) continue;
@@ -417,11 +421,9 @@ export function deriveGrokInfo(session: GrokSession, log?: Logger): GrokInfo {
   };
 }
 
-/** True when `~/.grok` (or the test override) exists on disk. */
+/** True when `~/.grok` (or the test override) exists on disk. `existsSync`
+ *  never throws (it resolves access failures to `false`), so no catch —
+ *  same bare call the claude-code / codex adapters use. */
 export function grokHomePresent(): boolean {
-  try {
-    return fs.existsSync(GROK_DIR);
-  } catch {
-    return false;
-  }
+  return fs.existsSync(GROK_DIR);
 }
