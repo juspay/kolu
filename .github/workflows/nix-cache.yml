@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: nix-cache
+  group: nix-cache-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,14 +26,22 @@ jobs:
             extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
             accept-flake-config = true
 
-      # Logs in, uses the cache as a substituter for this job, and at job end
-      # pushes every store path this run produced (closure of the build below).
-      - name: Setup Attic cache
-        uses: ryanccn/attic-action@v0
-        with:
-          endpoint: https://cache.nixos.asia
-          cache: oss
-          token: ${{ secrets.ATTIC_TOKEN }}
+      - name: Install attic
+        # Prefer `install` — nix-quick-install's Nix still uses that subcommand
+        # (newer Nix renamed it to `add`; ryanccn/attic-action only tries `add`).
+        run: nix profile install nixpkgs#attic-client
+
+      - name: Login to Attic
+        env:
+          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+        run: attic login ci https://cache.nixos.asia "$ATTIC_TOKEN"
 
       - name: Build
-        run: nix build -L --print-out-paths
+        id: build
+        run: |
+          out=$(nix build -L --print-out-paths --no-link)
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+          echo "Built: $out"
+
+      - name: Push to Attic
+        run: attic push ci:oss "${{ steps.build.outputs.out }}"
