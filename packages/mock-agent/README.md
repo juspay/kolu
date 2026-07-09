@@ -45,7 +45,9 @@ hint alone).
 
 While resident the agent self-nudges its file/DB watcher every 200ms so a
 dropped inotify event can't wedge detection — the in-process replacement for the
-old test-side `onTick` nudges.
+old test-side `onTick` nudges. Each `state` write also emits a title update after
+the artifacts land, so Kolu resolves the session against the fresh files instead
+of only against the launch-time empty state.
 
 ## Deployment
 

@@ -57,6 +57,7 @@ function main(): void {
   // ALONE (the #673 shim path). Default (no flag) presents as a native install.
   const shim = process.argv.includes("--shim");
   const agent = makeKind(kind);
+  const emitTitle = () => process.stdout.write(`\x1b]0;${kind}\x07`);
 
   // node-pty derives a terminal's foreground process name from
   // `/proc/<pgrp>/cmdline` (argv[0]); on Linux `process.title` rewrites that
@@ -99,6 +100,9 @@ function main(): void {
     if (cmd.verb === "state") {
       agent.setState(cmd.state, cmd.opts);
       started = true;
+      // The launch title can race ahead of the first artifact write. Re-emit
+      // after each state change so the server resolves against fresh files/DB.
+      emitTitle();
       // Acknowledge so the harness can wait for the write to have happened
       // before it starts polling the UI (deterministic, no sleep).
       process.stdout.write(`MOCK-AGENT-STATE ${cmd.state}\n`);
@@ -134,7 +138,7 @@ function main(): void {
   // + reconcile now that this process is the settled foreground — the moment
   // detection reads either signal (mirrors the real agents' title emission and
   // the old fakes' `printf '\033]0;<kind>\007'`).
-  process.stdout.write(`\x1b]0;${kind}\x07`);
+  emitTitle();
   // Announce readiness so the launch step can wait for a settled foreground
   // process before sending the first command.
   process.stdout.write(`MOCK-AGENT-READY ${kind}\n`);

@@ -84,10 +84,10 @@ export class OpenCodeAgent implements MockKind {
         SESSION_ID,
         this.cwd,
       );
-      db.prepare("DELETE FROM message WHERE session_id = ?").run(SESSION_ID);
       db.prepare(
         "DELETE FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ?)",
       ).run(SESSION_ID);
+      db.prepare("DELETE FROM message WHERE session_id = ?").run(SESSION_ID);
       db.prepare("DELETE FROM todo WHERE session_id = ?").run(SESSION_ID);
 
       const now = Date.now();

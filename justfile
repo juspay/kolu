@@ -285,15 +285,23 @@ test-quick *args: install
     # Without nix build there's no `kolu` binary, so we create a temp wrapper
     # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
     wrapper="$(mktemp)"
-    trap 'rm -f "$wrapper"' EXIT
+    mock_bin="$(mktemp -d)"
+    trap 'rm -f "$wrapper"; rm -rf "$mock_bin"' EXIT
     cat > "$wrapper" <<SCRIPT
     #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
+    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec "$PWD/packages/server/node_modules/.bin/tsx" "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
+    for kind in claude codex opencode; do
+        cat > "$mock_bin/$kind" <<SCRIPT
+    #!/bin/sh
+    exec "$PWD/packages/mock-agent/node_modules/.bin/tsx" "$PWD/packages/mock-agent/src/bin.ts" "$kind" "\$@"
+    SCRIPT
+        chmod +x "$mock_bin/$kind"
+    done
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
-    KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
+    KOLU_SERVER="$wrapper" KOLU_MOCK_AGENT_BIN="$mock_bin" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
         {{ nix_shell_e2e }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
