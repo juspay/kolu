@@ -16,10 +16,7 @@
  * valid); the read/query guard `requireTerminal` keeps ACCEPTING parked.
  */
 
-import type {
-  TerminalId,
-  TerminalSnapshot,
-} from "@kolu/terminal-workspace/schema";
+import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { ORPCError } from "@orpc/server";
 import { afterEach, describe, expect, it } from "vitest";
 import {

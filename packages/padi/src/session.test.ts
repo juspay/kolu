@@ -18,7 +18,7 @@
  * autosave window.
  */
 
-import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
+import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
 import { setDaemonProcessId } from "./koluRoot.ts";

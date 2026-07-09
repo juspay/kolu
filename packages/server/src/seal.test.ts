@@ -174,7 +174,7 @@ const PADI_PKG = resolve(PADI_SRC, "..", "package.json");
 const APP_PACKAGES = ["kolu-common", "kolu-server", "kolu-client"];
 
 /** Map every workspace package NAME → its `package.json` path, so a workspace
- *  dep (`@kolu/terminal-workspace`, `kaval`, `kolu-pty`, …) resolves to its dir
+ *  dep (`@kolu/terminal-vocab`, `kaval`, `kolu-pty`, …) resolves to its dir
  *  even when the dir name differs from the package name.
  *
  *  Discovery is RECURSIVE, mirroring the ROOT `pnpm-workspace.yaml`, whose sole

@@ -13,7 +13,7 @@
     "@kolu/padi": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
-    "@kolu/terminal-workspace": "workspace:*",
+    "@kolu/terminal-vocab": "workspace:*",
     "cleye": "^2.3.0",
     "columnify": "^1.6.0"
   },

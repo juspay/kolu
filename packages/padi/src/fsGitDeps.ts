@@ -1,7 +1,7 @@
 /**
  * `@kolu/padi/fsGitDeps` — the fs/git WATCHER-STREAM backings for
  * `padiSurface`'s `subscribeRepoChange` / `subscribeFileChange` members, absorbed
- * out of the retired `@kolu/terminal-workspace/serveFsGit` (which served the dead
+ * out of the retired `@kolu/terminal-vocab/serveFsGit` (which served the dead
  * `terminalWorkspaceSurface`). The fs/git PROCEDURES already live inline in
  * `servePadi` (padi's own handlers carry the ENOENT→NOT_FOUND wrapping and the
  * worktree mutations `serveFsGit` never had), so only the pulse streams needed a
@@ -21,7 +21,7 @@
  */
 
 import { type ImplementSurfaceDeps, pollOnEvent } from "@kolu/surface/server";
-import type { RepoChangePulse } from "@kolu/terminal-workspace/schema";
+import type { RepoChangePulse } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import type { TerminalEndpoint } from "./endpoint.ts";
 import type { padiSurface } from "./surface.ts";

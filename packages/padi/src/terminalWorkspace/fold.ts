@@ -23,7 +23,7 @@ import type {
   TerminalState,
   TerminalSnapshot,
   RestoreTarget,
-} from "./schema.ts";
+} from "@kolu/terminal-vocab/schema";
 
 /** How often a same-identity OUTPUT tick may re-stamp recency. The agent-detail
  *  firehose ticks ~1×/s while an agent works; stamping every tick would restore

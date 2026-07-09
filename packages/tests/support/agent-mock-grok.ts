@@ -102,21 +102,21 @@ export function writeGrokFixture(opts: {
     }),
   );
   const activeSessionsPath = path.join(opts.grokDir, "active_sessions.json");
-  if (opts.pid !== undefined) {
-    fs.writeFileSync(
-      activeSessionsPath,
-      JSON.stringify([
-        {
-          session_id: sessionId,
-          pid: opts.pid,
-          cwd: opts.cwd,
-          opened_at: "2026-07-09T15:00:00.000Z",
-        },
-      ]),
-    );
-  } else if (!fs.existsSync(activeSessionsPath)) {
-    fs.writeFileSync(activeSessionsPath, "[]");
-  }
+  // Always write (never existsSync→write): CodeQL js/file-system-race, and
+  // test fixtures own this path exclusively so overwrite is correct.
+  fs.writeFileSync(
+    activeSessionsPath,
+    opts.pid === undefined
+      ? "[]"
+      : JSON.stringify([
+          {
+            session_id: sessionId,
+            pid: opts.pid,
+            cwd: opts.cwd,
+            opened_at: "2026-07-09T15:00:00.000Z",
+          },
+        ]),
+  );
   return {
     grokDir: opts.grokDir,
     cwd: opts.cwd,

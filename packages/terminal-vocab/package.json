@@ -1,35 +1,29 @@
 {
-  "name": "@kolu/terminal-workspace",
+  "name": "@kolu/terminal-vocab",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "sideEffects": false,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./src/schema.ts",
+  "types": "./src/schema.ts",
   "exports": {
-    ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./agentProjection": "./src/agentProjection.ts",
-    "./endpoint": "./src/endpoint.ts"
+    "./agentProjection": "./src/agentProjection.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@kolu/surface": "workspace:*",
-    "@orpc/server": "^1.13.13",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
-    "kaval": "workspace:*",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "kolu-grok": "workspace:*",
     "kolu-opencode": "workspace:*",
-    "pino": "^10.3.1",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },

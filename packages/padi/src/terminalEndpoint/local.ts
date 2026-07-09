@@ -4,7 +4,7 @@
  * it through the typed `ptyHostSurface` contract via the stable `ptyHostClient`
  * forwarding facade (`../ptyHost/index.ts`) over that daemon's own socket. This
  * endpoint forwards spawn/kill/write/resize/attach through that client AND
- * **runs the per-terminal sensor set** (`@kolu/terminal-workspace`) against the
+ * **runs the per-terminal sensor set** (`@kolu/terminal-vocab`) against the
  * pty-host's raw tap streams (cwd · title · command-run · foreground).
  *
  * Why route through the contract rather than call `PtyHost` directly: the
@@ -17,7 +17,7 @@
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * `TerminalEndpoint.fs/git` bind to the host-side wrapper lifted into
- * `@kolu/terminal-workspace` (R6) — `createTerminalWorkspaceEndpoint` shells out
+ * `@kolu/terminal-vocab` (R6) — `createTerminalWorkspaceEndpoint` shells out
  * to `kolu-git` for this machine; a remote endpoint (R8) mirrors the same
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
@@ -25,25 +25,26 @@
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
   type CommandRunSample,
+  type SensorSignals,
+  startSensors,
+} from "../terminalWorkspace/sensors.ts";
+import {
   type FoldCtx,
   fold,
   restoreTargetEqual,
   restoreTargetOf,
   seedRecencyBaseline,
   stepRecencyBaseline,
-  type SensorSignals,
-  seedSnapshot,
-  startSensors,
-  type TerminalEvent,
-  type TerminalState,
-} from "@kolu/terminal-workspace";
-import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
+} from "../terminalWorkspace/fold.ts";
+import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
 import type {
   AgentIdentity,
   TerminalId,
   TerminalSnapshot,
-} from "@kolu/terminal-workspace/schema";
-import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
+  TerminalEvent,
+  TerminalState,
+} from "@kolu/terminal-vocab/schema";
+import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { ZodType } from "zod";
@@ -110,7 +111,7 @@ function registerAndInstall(id: TerminalId, entry: TerminalProcess): void {
 }
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
-// The thin wrapper over `kolu-git` was lifted to `@kolu/terminal-workspace`
+// The thin wrapper over `kolu-git` was lifted to `@kolu/terminal-vocab`
 // (R6) so kolu (here, in-process) and pulam (remote) drive ONE impl. This
 // endpoint binds that impl to its `TerminalEndpoint`; the surface streams in
 // `surface.ts` read it off `localEndpoint.fs/git` byte-identically.

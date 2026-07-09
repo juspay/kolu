@@ -10,7 +10,7 @@
  * `PreferencesSchema` / `TerminalMetadataSchema` / `ActivityFeedSchema` are
  * composed from — splitting them across files would just re-fragment the same
  * domain. The generic awareness sub-schemas (agent + PR sub-types, foreground,
- * terminal identity) are OWNED by `@kolu/terminal-workspace/schema` (P1a) and
+ * terminal identity) are OWNED by `@kolu/terminal-vocab/schema` (P1a) and
  * re-exported below; kolu's terminal-field schemas EXTEND that base rather than
  * declare it.
  *
@@ -44,7 +44,7 @@ import {
 // The honest three-way process-RSS union — composed below into `ProcessMemorySchema`.
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
-import { ProcessRssSchema } from "@kolu/terminal-workspace/schema";
+import { ProcessRssSchema } from "@kolu/terminal-vocab/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -57,12 +57,12 @@ export type {
   AgentPaintClass,
   AlertClass,
   Urgency,
-} from "@kolu/terminal-workspace/agentProjection";
+} from "@kolu/terminal-vocab/agentProjection";
 // The renderer-agnostic agent-state projection (bucket · urgency · needs-you
-// rank) is OWNED by `@kolu/terminal-workspace/agentProjection` — the ONE source
+// rank) is OWNED by `@kolu/terminal-vocab/agentProjection` — the ONE source
 // pulam-tui and pulam-web already share. The kolu client reaches it through the
 // SAME door it already uses for the awareness schema (this module) rather than a
-// second, direct `@kolu/terminal-workspace` edge, so the Dock joins as a third
+// second, direct `@kolu/terminal-vocab` edge, so the Dock joins as a third
 // consumer of the same definition instead of re-deriving "needs-you".
 export {
   agentBucket,
@@ -70,7 +70,7 @@ export {
   agentUrgency,
   alertClass,
   URGENCY_RANK,
-} from "@kolu/terminal-workspace/agentProjection";
+} from "@kolu/terminal-vocab/agentProjection";
 export type {
   AgentIdentity,
   AgentInfo,
@@ -87,11 +87,11 @@ export type {
   RestoreTarget,
   TerminalId,
   TerminalSnapshot,
-} from "@kolu/terminal-workspace/schema";
-// ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
+} from "@kolu/terminal-vocab/schema";
+// ── Re-exports — the awareness domain moved to @kolu/terminal-vocab (P1a) ──
 //
 // The generic `TerminalSnapshot` (terminal identity, agent status, PR resolution,
-// foreground) is OWNED by `@kolu/terminal-workspace/schema` now. kolu-common
+// foreground) is OWNED by `@kolu/terminal-vocab/schema` now. kolu-common
 // EXTENDS that base — adding `location`, the client/UI fields, and kolu's
 // remembered `AgentMemory` below — and re-exports the moved symbols so existing
 // `kolu-common/surface` import sites are unchanged: the schema home inverted, the
@@ -112,7 +112,7 @@ export {
   TERMINAL_IDLE_AFTER_MS,
   TerminalIdSchema,
   TerminalSnapshotSchema,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/terminal-vocab/schema";
 
 // ── User preferences (server-side, shared with client) ────────────────
 
@@ -500,7 +500,7 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //     path is `surface.surfaceApp.{buildInfo,identity}`. The `expectedKaval` axis
 //     it once extended `buildInfo` with moved to padi's `status` cell (W1.R7).
 //
-// The GENERIC `@kolu/terminal-workspace` surface is no longer served here: kolu's
+// The GENERIC `@kolu/terminal-vocab` surface is no longer served here: kolu's
 // own client reads padi's server-composed `terminals` collection, so kolu-server's
 // dormant `terminalWorkspace` sibling had zero consumers and was retired (W1.R7).
 // Its `terminalWorkspaceSurface` — and the `pulam` daemon that once served it —
@@ -618,7 +618,7 @@ export const koluSurface = defineSurface({
  *  `surfaceClients(link, surfaces)` (client), and `implementSurfaces(surfaces, …)`
  *  (server) all read this one map, so the keys can't drift across the three.
  *  kolu-server adds the `padi` sibling on top locally (`server/src/surface.ts`).
- *  The generic `@kolu/terminal-workspace` sibling was retired here — it had zero
+ *  The generic `@kolu/terminal-vocab` sibling was retired here — it had zero
  *  consumers once the client moved onto padi's `terminals` collection. */
 export const surfaces = {
   kolu: koluSurface,
