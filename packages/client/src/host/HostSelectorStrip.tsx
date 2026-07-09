@@ -176,16 +176,16 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // border/bg/text COLOR. Dual-daemon slot is fixed width always.
   return (
     <div
-      class="group flex items-center shrink-0 text-xs"
+      class="group -mb-px flex items-center shrink-0 text-xs"
       data-testid="host-chip"
       data-host={encodeHostKey(props.host)}
       data-active={isActive() ? "" : undefined}
     >
       <div
-        class="flex h-8 items-center rounded-t-md border border-b transition-colors focus-within:ring-2 focus-within:ring-accent/50"
+        class="flex h-8 items-center rounded-t-md border transition-colors focus-within:ring-2 focus-within:ring-accent/50"
         classList={{
           "border-edge border-b-surface-1 bg-surface-1 text-fg": isActive(),
-          "border-transparent border-b-edge/80 bg-transparent text-fg-2 hover:bg-surface-1/60 hover:text-fg":
+          "border-transparent bg-transparent text-fg-2 hover:bg-surface-1/60 hover:text-fg":
             !isActive(),
         }}
       >
@@ -231,13 +231,8 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           </Show>
         </button>
         <div
-          class="flex h-8 items-center border-l transition-colors"
-          classList={{
-            "rounded-tr-md": isLocal(),
-            "border-accent/25 bg-surface-2/25": isActive(),
-            "border-edge/70 bg-surface-0/35 group-hover:bg-surface-1/70":
-              !isActive(),
-          }}
+          class="flex h-8 items-center transition-colors"
+          classList={{ "rounded-tr-md": isLocal() }}
         >
           <HostDualDaemonSlot host={props.host} measure={props.measure} />
         </div>
@@ -247,11 +242,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
         <Show when={!isLocal()}>
           <button
             type="button"
-            class="pointer-events-auto shrink-0 h-8 w-6 inline-flex items-center justify-center rounded-tr-md border-l text-fg-3 hover:text-danger hover:bg-danger/10 opacity-60 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 transition-[opacity,color,background-color]"
-            classList={{
-              "border-accent/25": isActive(),
-              "border-edge/70": !isActive(),
-            }}
+            class="pointer-events-auto shrink-0 h-8 w-6 inline-flex items-center justify-center rounded-tr-md text-fg-3 hover:text-danger hover:bg-danger/10 opacity-45 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 transition-[opacity,color,background-color]"
             data-testid="host-remove"
             aria-label={`Remove host ${label(props.host)}`}
             title={`Remove ${label(props.host)}`}
@@ -445,7 +436,7 @@ const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
         type="button"
         ref={triggerEl}
         data-testid="host-overflow-trigger"
-        class="pointer-events-auto shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-t-md border border-b border-transparent border-b-edge/80 bg-transparent text-xs text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="pointer-events-auto shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-md bg-transparent text-xs text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         aria-label={`${props.hosts.length} more host${props.hosts.length === 1 ? "" : "s"}`}
         title={props.hosts.map(labelForKey).join(", ")}
         onClick={() => setOpen((v) => !v)}
@@ -477,7 +468,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
       <div
         role="tablist"
         aria-label="Hosts"
-        class="flex h-8 items-center rounded-t-md border border-b border-edge border-b-surface-1 bg-surface-1 text-fg focus-within:ring-2 focus-within:ring-accent/50 shrink-0"
+        class="-mb-px flex h-8 items-center rounded-t-md border border-b border-edge border-b-surface-1 bg-surface-1 text-fg focus-within:ring-2 focus-within:ring-accent/50 shrink-0"
         data-testid="host-dropdown-switcher"
       >
         <button
@@ -502,7 +493,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
             ▾
           </span>
         </button>
-        <div class="flex h-8 items-center rounded-tr-md border-l border-accent/25 bg-surface-2/25">
+        <div class="flex h-8 items-center rounded-tr-md">
           <Show keyed when={active()}>
             {(host) => <HostDualDaemonSlot host={host} />}
           </Show>
@@ -643,7 +634,7 @@ const HostSelectorStrip: Component = () => {
       // once narrowed. `flex-1` makes this box == the header's true leftover
       // space, independent of content, so the overflow computation has a
       // real budget to fit chips against.
-      class="pointer-events-auto relative flex flex-1 items-center gap-1.5 min-w-0"
+      class="pointer-events-auto relative flex h-8 flex-1 items-end gap-1.5 min-w-0 border-b border-edge/80"
       data-testid="host-selector-strip"
     >
       <Show
@@ -652,7 +643,7 @@ const HostSelectorStrip: Component = () => {
           <div
             role="tablist"
             aria-label="Hosts"
-            class="flex items-end gap-0 min-w-0 flex-nowrap border-b border-edge/80"
+            class="flex items-end gap-0 min-w-0 flex-nowrap"
           >
             <For each={renderableHosts()}>
               {(host) => <HostChip host={host} />}
@@ -672,7 +663,7 @@ const HostSelectorStrip: Component = () => {
           <div
             role="tablist"
             aria-label="Hosts"
-            class="flex items-end gap-0 min-w-0 flex-nowrap border-b border-edge/80"
+            class="flex items-end gap-0 min-w-0 flex-nowrap"
             data-testid="host-chip-row"
           >
             <For each={hostFit().visible}>
@@ -728,7 +719,7 @@ const HostSelectorStrip: Component = () => {
           fallback={
             <button
               type="button"
-              class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-t-md border border-b border-dashed border-edge/70 border-b-edge/80 text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               data-testid="host-add-open"
               aria-label="Add a host"
               title="Add a host (ssh target)"

@@ -118,7 +118,7 @@ const ChromeBar: Component<{
       // Solid chrome owns this strip's pointer area. Individual controls still
       // carry their own pointer/focus classes, but empty header space should
       // behave like header, not click through to the canvas behind it.
-      class="chrome-bar-surface flex items-center gap-3 border-b border-edge/80 bg-surface-0 px-3 py-2 shadow-sm shadow-black/20 select-none pointer-events-auto transition-colors duration-150"
+      class="chrome-bar-surface flex h-10 items-stretch gap-3 border-b border-edge/80 bg-surface-0 px-3 pt-2 pb-0 shadow-sm shadow-black/20 select-none pointer-events-auto transition-colors duration-150"
       // z-50 in BOTH modes. Without it on the docked branch, the
       // `backdrop-filter` we apply to the bar when the workspace
       // switcher is open creates a stacking context with auto z-index,
@@ -132,20 +132,20 @@ const ChromeBar: Component<{
       style={chromeStyle()}
     >
       {/* Quiet Kolu mark — connection + dialogs; versions live in the dialog. */}
-      <div class="shrink-0 pointer-events-auto">
+      <div class="flex h-8 shrink-0 items-center pointer-events-auto">
         <IdentityRail status={props.status} />
       </div>
 
       {/* Host tabs are primary nav. Every tab carries a fixed-width Padi/Kaval
        *  slot so daemon health is visible before switching and a host switch
        *  never reflows the strip — see HostDaemonChips.tsx. */}
-      <div class="flex-1 min-w-0 flex items-center pointer-events-none">
+      <div class="flex-1 min-w-0 flex items-end pointer-events-none">
         <HostSelectorStrip />
       </div>
 
       {/* Control cluster: recorder → maximize → dock → inspector → settings
        *  → ⌘K. Buttons share the chrome icon hover/focus language. */}
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex h-8 items-center gap-2 shrink-0">
         <RecordButton />
         <Tip label={maximizeLabel()}>
           <button

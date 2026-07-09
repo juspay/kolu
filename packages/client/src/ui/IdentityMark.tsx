@@ -1,10 +1,8 @@
-/** Shared identity mark for every process chip in the header — Kolu
- *  (`IdentityRail`) and per-host Padi/Kaval (`HostDaemonChips`).
+/** Shared identity mark geometry for process icons in the header — Kolu
+ *  (`IdentityRail`) uses the artwork only; per-host Padi/Kaval use the button
+ *  wrapper below.
  *
- *  ONE size: logo + status dot, sized for an `h-7` chrome row. ONE hit-target
- *  class for the clickable wrapper so Kolu and the dual-daemon marks can't
- *  drift (the inconsistency that made Kolu's padded pill look bigger than
- *  the host-chip icons). */
+ *  ONE size: logo + status dot, sized for an `h-7` chrome row. */
 
 import type { Component, JSX } from "solid-js";
 import type { WsStatus } from "../rpc/rpc";
@@ -12,8 +10,8 @@ import type { WsStatus } from "../rpc/rpc";
 const identityMarkFrameClass =
   "shrink-0 relative inline-flex h-7 w-7 items-center justify-center rounded-lg leading-none text-fg-2";
 
-/** Hit target for an icon+dot mark button — Kolu, Padi, Kaval. Square `h-7 w-7`
- *  so every process mark in the chrome bar is the same size. */
+/** Hit target for Padi/Kaval icon+dot mark buttons. Square `h-7 w-7` so both
+ *  daemon marks in the chrome bar are the same size. */
 export const identityMarkBtnClass = `${identityMarkFrameClass} pointer-events-auto transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer`;
 
 /** Same frame without button affordance, for decorative process marks inside a

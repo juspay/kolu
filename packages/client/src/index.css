@@ -60,12 +60,12 @@ body {
 .chrome-bar-surface[style*="--chrome-theme-color"] {
   background: color-mix(
     in oklch,
-    var(--color-surface-0) 84%,
+    var(--color-surface-0) 96%,
     var(--chrome-theme-color)
   );
   border-bottom-color: color-mix(
     in oklch,
-    var(--color-edge) 72%,
+    var(--color-edge) 90%,
     var(--chrome-theme-color)
   );
 }
@@ -73,12 +73,12 @@ body {
 html:not(.dark) .chrome-bar-surface[style*="--chrome-theme-color"] {
   background: color-mix(
     in oklch,
-    var(--color-surface-0) 92%,
+    var(--color-surface-0) 98%,
     var(--chrome-theme-color)
   );
   border-bottom-color: color-mix(
     in oklch,
-    var(--color-edge) 84%,
+    var(--color-edge) 94%,
     var(--chrome-theme-color)
   );
 }
