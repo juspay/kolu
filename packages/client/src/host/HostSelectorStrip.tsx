@@ -146,32 +146,30 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
   const isActive = () => sameHost(activeHost(), props.host);
-  // A non-interactive CONTAINER holding real buttons — SELECT, optional dual-
-  // daemon marks (active only), and guest REMOVE. Nested buttons stay siblings
-  // so a11y stays valid (no button-in-button).
+  // Layout: [ text pill | Padi·Kaval attached | ✕ ]
+  // The pill is name-only (dot + label + urgency). Daemon marks sit OUTSIDE
+  // the pill, flush on its right border — never inside `overflow-hidden`, so
+  // hover rings aren't clipped. Remove trails the whole unit so it doesn't
+  // sit between name and icons.
   //
-  // UNIFORM SHAPE: this chip's measurable SIZE never depends on `isActive()` —
-  // only border/bg/text COLOR (ring/accent) and the dual-slot's *content* do.
-  // The dual-daemon outer box is fixed-width on every chip (filled or empty),
-  // which is what makes `hostOverflow.ts`'s "a host switch never changes
-  // width/position" invariant true BY CONSTRUCTION.
+  // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
+  // border/bg/text COLOR. Dual-daemon slot is fixed width always.
   return (
     <div
-      class="group flex items-stretch rounded-lg border text-xs overflow-hidden shrink-0 transition-colors"
-      classList={{
-        "border-accent/60 ring-1 ring-accent/30": isActive(),
-        "border-edge": !isActive(),
-      }}
+      class="group flex items-center shrink-0 text-xs"
       data-testid="host-chip"
       data-host={encodeHostKey(props.host)}
       data-active={isActive() ? "" : undefined}
     >
+      {/* Text pill — no overflow-hidden on the outer group; only the pill
+       *  rounds its own corners. */}
       <button
         type="button"
-        class="pointer-events-auto flex items-center gap-1.5 h-7 pl-2 pr-1.5 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="pointer-events-auto flex items-center gap-1.5 h-7 pl-2 pr-2 rounded-lg border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         classList={{
-          "bg-surface-3 text-fg": isActive(),
-          "bg-surface-2/70 text-fg-2 hover:bg-surface-2 hover:text-fg":
+          "border-accent/60 ring-1 ring-accent/30 bg-surface-3 text-fg rounded-r-none":
+            isActive(),
+          "border-edge bg-surface-2/70 text-fg-2 hover:bg-surface-2 hover:text-fg rounded-r-none":
             !isActive(),
         }}
         data-testid="host-select"
@@ -207,29 +205,24 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           </span>
         </Show>
       </button>
-      {/* Fixed-width dual-daemon slot — fill derived from host vs activeHost. */}
+      {/* Daemon marks — attached to the pill's right edge (`-ml-px` shares the
+       *  border), NOT inside the pill. No overflow clip so hover rings paint. */}
       <div
+        class="flex h-7 items-center rounded-r-lg border border-l-0 -ml-px"
         classList={{
-          "bg-surface-3": isActive(),
-          "bg-surface-2/70": !isActive(),
+          "border-accent/60 bg-surface-3/80": isActive(),
+          "border-edge bg-surface-2/50": !isActive(),
         }}
       >
         <HostDualDaemonSlot host={props.host} measure={props.measure} />
       </div>
-      {/* Remove — guest hosts only. The local default is unremovable (the server
-       *  rejects it LOUD; we also hide the affordance so it never invites the error).
-       *  Visible DIMMED at rest above `lg` (opacity-60 on the muted text-fg-3 tone,
-       *  never opacity-0 there — a fully-invisible-until-hover ✕ reads as a blank
-       *  gap, the bug srid's screenshot flagged); below `lg` (narrow-window stage 2)
-       *  it hides at rest — `max-lg:opacity-0` — but stays reachable via
-       *  hover/focus (`group-hover:opacity-100`/`focus-visible:opacity-100`, both
-       *  UNPREFIXED so they win at every width). Landed standalone ahead of this
-       *  redesign — see c0e5d4cf4 — kept identical in spirit here, just narrower
-       *  at rest below `lg`. */}
+      {/* Remove — guest only, after the daemon cluster so it never wedges
+       *  between name and icons. Dimmed at rest above `lg`; hover/focus
+       *  reveals at every width. */}
       <Show when={!isLocal()}>
         <button
           type="button"
-          class="pointer-events-auto shrink-0 px-1.5 inline-flex items-center justify-center text-fg-3 hover:text-red-400 hover:bg-surface-3 opacity-60 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none transition-opacity"
+          class="pointer-events-auto shrink-0 h-7 w-6 inline-flex items-center justify-center rounded-md text-fg-3 hover:text-red-400 hover:bg-surface-3/60 opacity-60 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none transition-opacity"
           data-testid="host-remove"
           aria-label={`Remove host ${label(props.host)}`}
           title={`Remove ${label(props.host)}`}
@@ -307,14 +300,15 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
 
   return (
     <>
+      {/* Same text-pill + attached dual-daemon shape as HostChip (no overflow clip). */}
       <div
-        class="flex items-stretch rounded-lg border border-accent/60 ring-1 ring-accent/30 bg-surface-3 overflow-hidden shrink-0"
+        class="flex items-center shrink-0"
         data-testid="host-dropdown-switcher"
       >
         <button
           type="button"
           ref={triggerEl}
-          class="pointer-events-auto flex items-center gap-1.5 h-7 pl-2 pr-1.5 text-xs text-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          class="pointer-events-auto flex items-center gap-1.5 h-7 pl-2 pr-2 rounded-l-lg rounded-r-none border border-accent/60 ring-1 ring-accent/30 bg-surface-3 text-xs text-fg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           aria-label={`Switch host — currently ${label(active())}`}
           title={`Switch host — currently ${label(active())}`}
           onClick={() => setOpen((v) => !v)}
@@ -330,7 +324,9 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
             ▾
           </span>
         </button>
-        <HostDualDaemonSlot host={active()} />
+        <div class="flex h-7 items-center rounded-r-lg border border-l-0 border-accent/60 bg-surface-3/80 -ml-px">
+          <HostDualDaemonSlot host={active()} />
+        </div>
       </div>
       <OptionMenu
         triggerRef={() => triggerEl}
