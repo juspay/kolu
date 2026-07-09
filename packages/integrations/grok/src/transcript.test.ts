@@ -11,6 +11,7 @@ const {
   loadGrokTranscript,
   normalizeGrokToolInput,
   parseGrokChatHistory,
+  unwrapGrokUserText,
 } = await import("./transcript.ts");
 const { encodeCwd } = await import("./core.ts");
 const { SESSIONS_DIR } = await import("./config.ts");
@@ -32,6 +33,42 @@ describe("contentToText", () => {
 
   it("returns a bare string content", () => {
     expect(contentToText("plain")).toBe("plain");
+  });
+});
+
+describe("unwrapGrokUserText", () => {
+  it("extracts the inner user_query body", () => {
+    expect(unwrapGrokUserText("<user_query>\nhi\n</user_query>")).toBe("hi");
+  });
+
+  it("joins multiple user_query blocks", () => {
+    expect(
+      unwrapGrokUserText(
+        "<user_query>first</user_query>\n<user_query>second</user_query>",
+      ),
+    ).toBe("first\n\nsecond");
+  });
+
+  it("prefers user_query over sibling harness blocks (image_files, notices)", () => {
+    const raw = `<image_files>
+The following images were provided by the user and saved to the workspace for future use:
+1. /tmp/shot.jpg
+</image_files>
+
+<user_query>
+what's this user_query stuff
+</user_query>`;
+    expect(unwrapGrokUserText(raw)).toBe("what's this user_query stuff");
+  });
+
+  it("strips leftover harness tags when no closed user_query is present", () => {
+    expect(unwrapGrokUserText("<user_query>unclosed prompt")).toBe(
+      "unclosed prompt",
+    );
+  });
+
+  it("passes through plain text without inventing wrappers", () => {
+    expect(unwrapGrokUserText("just a prompt")).toBe("just a prompt");
   });
 });
 
@@ -79,7 +116,12 @@ describe("parseGrokChatHistory", () => {
       { type: "system", content: "You are Grok." },
       {
         type: "user",
-        content: [{ type: "text", text: "fix the bug" }],
+        content: [
+          {
+            type: "text",
+            text: "<user_query>\nfix the bug\n</user_query>",
+          },
+        ],
       },
       {
         type: "reasoning",

@@ -52,4 +52,5 @@ export {
   loadGrokTranscript,
   normalizeGrokToolInput,
   parseGrokChatHistory,
+  unwrapGrokUserText,
 } from "./transcript.ts";

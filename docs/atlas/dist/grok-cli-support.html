@@ -274,10 +274,13 @@ flags them.</li>
 <h2 id="transcript-export">Transcript export</h2>
 <p><code>loadGrokTranscript</code> maps <code>chat_history.jsonl</code> → the shared <code>Transcript</code> IR
 (<code>user</code> / <code>reasoning</code> / <code>assistant</code> / <code>tool_call</code> / <code>tool_result</code>). System
-prompts and <code>synthetic_reason</code> rows are dropped. Tool basenames
-(<code>run_terminal_command</code>, <code>read_file</code>, <code>search_replace</code>, …) normalize into the
-typed <code>ToolInput</code> union. <code>padi/src/transcript.ts</code> dispatches <code>kind: &quot;grok&quot;</code> to
-this loader; <code>transcript-core</code>’s <code>AGENT_KINDS</code> includes <code>&quot;grok&quot;</code>.</p>
+prompts and <code>synthetic_reason</code> rows are dropped. User rows unwrap Grok’s
+<code>&lt;user_query&gt;…&lt;/user_query&gt;</code> harness (and drop sibling <code>&lt;image_files&gt;</code> /
+compression-notice blocks) so the export shows the human prompt, not the wire
+envelope. Tool basenames (<code>run_terminal_command</code>, <code>read_file</code>,
+<code>search_replace</code>, …) normalize into the typed <code>ToolInput</code> union.
+<code>padi/src/transcript.ts</code> dispatches <code>kind: &quot;grok&quot;</code> to this loader;
+<code>transcript-core</code>’s <code>AGENT_KINDS</code> includes <code>&quot;grok&quot;</code>.</p>
 <h2 id="tests">Tests</h2>
 <p>Mirror the codex/opencode pattern — <strong>fixture writer, not a live Grok binary</strong>
 in CI:</p>

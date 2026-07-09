@@ -195,10 +195,13 @@ Minimal, exhaustive:
 
 `loadGrokTranscript` maps `chat_history.jsonl` → the shared `Transcript` IR
 (`user` / `reasoning` / `assistant` / `tool_call` / `tool_result`). System
-prompts and `synthetic_reason` rows are dropped. Tool basenames
-(`run_terminal_command`, `read_file`, `search_replace`, …) normalize into the
-typed `ToolInput` union. `padi/src/transcript.ts` dispatches `kind: "grok"` to
-this loader; `transcript-core`'s `AGENT_KINDS` includes `"grok"`.
+prompts and `synthetic_reason` rows are dropped. User rows unwrap Grok's
+`<user_query>…</user_query>` harness (and drop sibling `<image_files>` /
+compression-notice blocks) so the export shows the human prompt, not the wire
+envelope. Tool basenames (`run_terminal_command`, `read_file`,
+`search_replace`, …) normalize into the typed `ToolInput` union.
+`padi/src/transcript.ts` dispatches `kind: "grok"` to this loader;
+`transcript-core`'s `AGENT_KINDS` includes `"grok"`.
 
 ## Tests
 

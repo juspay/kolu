@@ -48,6 +48,38 @@ export function contentToText(content: unknown): string {
   return parts.join("\n");
 }
 
+/**
+ * Grok stores the human prompt inside harness tags on disk, e.g.
+ *   `<user_query>\nhi\n</user_query>`
+ * often next to other non-prompt blocks (`<image_files>…`, compression
+ * notices). The export must show what the human typed — not the wire
+ * envelope. Prefer the joined inner text of every `<user_query>` block;
+ * if none are present, strip known harness wrappers and leftover tags.
+ */
+export function unwrapGrokUserText(raw: string): string {
+  const queries: string[] = [];
+  for (const m of raw.matchAll(
+    /<user_query>\s*([\s\S]*?)\s*<\/user_query>/gi,
+  )) {
+    const inner = (m[1] ?? "").trim();
+    if (inner.length > 0) queries.push(inner);
+  }
+  if (queries.length > 0) return queries.join("\n\n");
+
+  // No well-formed user_query — drop known non-prompt harness blocks and
+  // any leftover open/close tags so a partial write never paints raw XML.
+  return raw
+    .replace(/<image_files>[\s\S]*?<\/image_files>/gi, "")
+    .replace(
+      /<image_compression_notice>[\s\S]*?<\/image_compression_notice>/gi,
+      "",
+    )
+    .replace(/<user_info>[\s\S]*?<\/user_info>/gi, "")
+    .replace(/<git_status>[\s\S]*?<\/git_status>/gi, "")
+    .replace(/<\/?user_query\b[^>]*>/gi, "")
+    .trim();
+}
+
 /** Map Grok tool basenames + JSON args onto the typed `ToolInput` union.
  *  Grok's names are snake_case (`run_terminal_command`, `read_file`, …)
  *  rather than Claude's PascalCase — same IR kinds. */
@@ -156,7 +188,7 @@ export function eventsFromGrokLine(entry: GrokHistoryLine): TranscriptEvent[] {
   if (type === "system") return []; // system prompt — not conversation
 
   if (type === "user") {
-    const text = contentToText(entry.content).trim();
+    const text = unwrapGrokUserText(contentToText(entry.content));
     if (!text) return [];
     return [{ kind: "user", text, ts }];
   }

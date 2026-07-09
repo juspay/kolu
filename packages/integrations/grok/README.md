@@ -16,7 +16,7 @@
 - **The client / UI** — icons and labels live in `packages/client`; this package renders nothing.
 - **Mutating `~/.grok`** — it is a **pure observer**. It never `mkdir`s Grok's tree; watchers wait for Grok to create its own paths and re-arm on appearance.
 - **SQLite / a WAL** — unlike Codex, Grok stores plain JSON/JSONL, so there is no DB subscription; watchers are `fs.watch` over the JSON files.
-- **Transcript HTML export** — `loadGrokTranscript` reads `chat_history.jsonl` into the shared IR; padi's export arm dispatches on `kind: "grok"` the same way it does for Claude/Codex/OpenCode.
+- **Transcript HTML export** — `loadGrokTranscript` reads `chat_history.jsonl` into the shared IR (unwraps Grok's `<user_query>` harness tags so the export shows the human prompt, not the wire envelope); padi's export arm dispatches on `kind: "grok"` the same way it does for Claude/Codex/OpenCode.
 
 ## Honest nulls
 
