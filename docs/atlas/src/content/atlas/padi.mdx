@@ -73,7 +73,7 @@ export const Switcher = () => (
   </div>
 );
 
-## User-facing description
+## What padi is
 
 <Switcher />
 
@@ -87,7 +87,7 @@ Two personas anchor the design, and both get the same shape: an **ephemeral clou
 We compared three designs against real usage: plain switching (A), switching with warm connections and badges (A+ — this design), and mixed tiles (B). A+ gives nearly everything B would: you find out when an agent elsewhere needs you, you respond in one click, every device shows a host's canvas the same way, and tearing down a cloud box removes it cleanly. B's one real advantage is watching two hosts' terminals side by side in one window. Its real cost: two tiles that look identical — same repo, same branch, one of them is prod — differing only by a tiny badge. That's a wrong-host paste waiting to happen. And when the app is in the background (most of the day), B's on-screen indicators are invisible anyway; both designs end up relying on the OS notification. So: ship A+, and keep B possible later — it would be a layer on top of the same daemons, nothing below changes. If switching ever feels insufficient, the first thing to try is a **cross-host dock** (W5): other hosts' agents listed in your dock, click = switch — you want attention across hosts, not tiles across hosts. The dock data reserves a host field from W1 so this can land without breaking the contract.
 </Callout>
 
-## Architecture-level changes
+## The architecture
 
 <Svg svg={arch} caption="The padi architecture. Every host runs kaval (PTY survivor, unchanged role) + padi (the workspace authority: registry, one fold on the host's clock, lifecycle, fs/git+bytes, persistence, kaval supervision) serving padiSurface — the ONE complete surface. kolu-server is a web shell holding a pool of warm bindings; each client connection is scoped to one binding, so a host switch closes one scope and opens another — no global rebind exists. Local and remote legs are byte-identical; remote adds ssh + frontDaemonOverStdio + Nix provisioning." />
 
@@ -153,9 +153,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 - **Server-global binding with a "rebind + client reset" switch** (the brief's own first draft): behind a constant origin, in-flight id/repoPath-keyed calls and every other device silently straddle a rebind — a two-actor temporal convention with a race window. Replaced by **per-connection binding scope**: a call minted under one binding cannot reach another, and other devices are untouched by your switch.
 - **Local padi as in-process library, process only for remote**: keeps two assemblies (the drift the one-library-two-homes era already suffered), keeps kolu-server fat, and forfeits warm-across-restart metadata and multi-client (kolu-tui) for the local host.
 
-## Implementation details
-
-**The law of every PR in this plan (srid, promoted note-wide 2026-07-04): a PR is self-sufficient and end-to-end — it ships NOTHING that isn't consumed within it.** No framework halves awaiting their consumer, no pools nobody switches, no contracts nobody serves: a capability with zero consumers is a *commit stage inside* the PR that consumes it, never a PR of its own (W2.2's "a daemon with zero consumers is a commit stage" ruling; the #1651 complete-but-unconsumed adapter is the canonical tell). The one sanctioned exception is a framework PR whose consumer-proof is a paired second consumer landing with it (the W2.1/drishti precedent).
+## Where this stands — and what's next
 
 <Phase id="W0" name="decks cleared — freeze the old contract, retire pulam-web, land the overflow frame, close the PRs" status="done" />
 <Phase id="W1" name="the padi seam, in place — padiSurface served in-process, client migrated, root oRPC dispositioned" status="shipped" needs={["W0"]} links={[{ label: "#1652", href: "https://github.com/juspay/kolu/pull/1652" }]} />
@@ -169,13 +167,67 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="todo" needs={["W4"]} />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
-**Where this stands (2026-07-09) — and what's next, in order:**
+**As of 2026-07-09, in order:**
 
 1. **W5 — cross-host attention** is the next feature phase: everything it needs is shipped — the warm pool and per-host entries (W4), and now W6 (<PrLink pr={1730} /> + its drishti pair [srid/drishti#92](https://github.com/srid/drishti/pull/92), both merged 2026-07-09) — and the need is user-visible (the 2026-07-08 field note below).
 2. **The cleanup ledger runs in parallel** — batched into right-sized PRs, not one-per-entry; the batch plan lives in [the ledger note](padi-cleanup.html).
 3. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed.
 
-**When packages are born** — graduation is a scheduled event, not a side effect:
+**The law of every PR in this plan (srid, promoted note-wide 2026-07-04): a PR is self-sufficient and end-to-end — it ships NOTHING that isn't consumed within it.** No framework halves awaiting their consumer, no pools nobody switches, no contracts nobody serves: a capability with zero consumers is a *commit stage inside* the PR that consumes it, never a PR of its own (W2.2's "a daemon with zero consumers is a commit stage" ruling; the #1651 complete-but-unconsumed adapter is the canonical tell). The one sanctioned exception is a framework PR whose consumer-proof is a paired second consumer landing with it (the W2.1/drishti precedent).
+
+<a id="w5"></a>
+
+### W5 — cross-host attention *(next up — everything it needs shipped with W4)*
+
+**In simple words:** today, if an agent on another host needs you, kolu mostly can't tell you — an OS notification escapes the app, but the unread badges live per host and only the host you're currently looking at renders them. After this phase, kolu watches every connected host and rolls the needs-you signal up in one place: each host's chip in the switcher shows a count, the app icon badge sums all hosts, and clicking the OS notification switches to the right host and focuses the terminal that wants you.
+
+kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
+- **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
+- *Field note (2026-07-08, srid on the W4 deploy):* the asymmetry is now user-visible — OS notifications escape the app (cross-host reach), but unread marks live in each host's `hostScope` owner (W7), whose only render surface is the active host's dock, so a background host's attention is invisible. W5's chip counts are the missing rollup. One wiring fact for the implementer: `useTerminalAlerts`'s transition watcher rides the ACTIVE host's swapped store — the urgency-projection member (this phase's wire design) is what makes background hosts observable, not the client-side watcher.
+
+<a id="cleanup"></a>
+
+### Consolidation — the cleanup ledger *(unnumbered — a parallel, ongoing track; scope lives in [its own note](padi-cleanup.html))*
+
+W2 and W3 ship at pace (a deliberate call); the ledger pays the pace's debts — refactors, decomplecting, framework-level electricity upstreaming, deletions. Nothing user-visible ships here; that is the point. **The full ledger — each entry a self-sufficient, lens-framed brief an implementing agent can execute under coordinator guidance — lives in [padi — the consolidation ledger](padi-cleanup.html)**, appraised and appended as each W phase lands (a shipped phase's "deferred / acceptable-for-scope" review items land there explicitly; an entry that never ripens is deleted with a reason). The index, for orientation:
+
+- **Shipped:** L3 the convergence kit (<PrLink pr={1674} />) · L5 (in W2.2) · L6 `padiBinding` split (<PrLink pr={1698} />) · L7 `terminal-workspace` re-cut (<PrLink pr={1734} />) · L14 memory via the mirror (<PrLink pr={1699} />) · L15+L16 write-seam/boot invariants (<PrLink pr={1703} />) · L23 remote arm on the kit (<PrLink pr={1700} />)
+- **Ready — batched into right-sized PRs** (the batch plan lives in the ledger note): the framework batch (L28 · L1 · L20·21, one drishti pair) · the hygiene batch (L8 · L13) · the padi/client batch (L17 · L18 · L24) · L26 (null/sentinel sweep + lint, its own PR) · L27 (server re-cut, its own pure-motion PR) · L11 (post-switch wire sweep, now unblocked) · L10 flaky debt · L12 (srid mints)
+- **Gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence
+
+<a id="w34"></a>
+
+### W3.4 — remote e2e parity in CI *(parked — machinery done + proven; the gate waits on the parity tail: [the remote-bind parity note](remote-bind-parity.html), srid 2026-07-05)*
+
+Today the full e2e suite (~493 scenarios) runs in CI per-PR **locally only**; the `KOLU_PADI_HOST` path has zero CI coverage (the sandbox claim is honest but the exposure is real — the two live bugs of 2026-07-04 were both found by hand). This phase closes it: **every PR's CI runs the existing e2e suite AS-IS, twice — local (as today) and with kolu-server bound remotely** (`KOLU_PADI_HOST=<a second pu box leased from the pool>`). No tagged subsets, no reduced tier: the same scenarios, a real ssh hop.
+
+Mechanics (we do NOT control the pool boxes' config — everything rides ssh we already have): the CI recipe leases a **pair** of pool boxes — box A runs the lane as today, box B is the bind target; box B's per-run hygiene (state wipe before, destructive-ack, provisioning via the baked drv map — which also exercises the cross-arch arm when the darwin lane binds a linux box) is done over the ssh session, never via box config. The `just e2e-ssh` transport lane folds into the same node.
+
+The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios that failed the one manual full-suite ssh run need their tight Playwright waits widened to remote-tolerant timeouts — behaviour was correct, the waits were not; (b) the agent-state scenarios get an honest mock — **decided 2026-07-04 (srid), replacing an earlier copy-files-over-ssh idea**: a small pretend-agent program runs INSIDE the kolu terminal like a real agent, driven through the terminal itself ("act busy", "act done"), writing its session files on its own machine at the real default paths. Wherever the terminal is, the files land on the right machine by construction — the tests contain no remote-vs-local branches at all, and the pretending gets MORE realistic (a foreground process writing its own files is exactly what production senses — including the file-watching layer where #1680 lived); (c) lane wall-time budgeted (remote suite ran ~2× local on the manual run) — it runs as a parallel odu node on the paired box, so the wall grows only if it becomes the slowest node.
+
+- **Done:** a PR that breaks any feature only-under-remote-binding goes RED in normal CI on both platform lanes; the remote node's scenario count equals the local node's (no silent exclusions — an excluded scenario is a named, counted skip with a reason); the pair-lease returns both boxes clean.
+
+<a id="future"></a>
+
+### Future work — demand-driven
+
+*(The researched, tiered menu for everything below — ecosystem survey × shipped primitives, plus the promoted [port-preview](port-preview.html) and [shared-canvas](shared-canvas.html) notes — lives in [remote-terminals-future](remote-terminals-future.html).)*
+
+**Cross-host dock** (B-lite: foreign hosts' rows, urgency-ranked, click = switch + focus — the host axis is already in the contract) is the first escalation if switching proves insufficient. **kolu-tui** — the graduation proof: consume padiSurface over the socket/ssh *without kolu-server*; done only when that named path renders a live canvas (the path, not the feature, is the unit of done). **Hybrid canvas** (model B) only if one-window side-by-side proves a recurring demand — it stays an aggregation layer over N bindings, zero daemon changes.
+
+### Risks, named, with mitigations
+
+- **Attach latency gains a local hop** (kaval→padi→kolu-server vs kaval→kolu-server). Measure typing-echo p99 before/after W2 with a budget (&lt; 5ms added); if breached, the carve-out permits a raw-byte relay on the padi→kolu-server leg (frontDaemonOverStdio-style, no decode) without touching the contract.
+- **Sensor code changes often, and any padi change restarts padi** (the restart-hash covers the whole package). Accepted: a padi restart re-reads its store and re-runs sensors — seconds, PTYs untouched. If deploys make this hurt in practice, the sensors can later be split out of the hash; we'll decide that on evidence, not up front.
+- **Multi-client writes** (two kolu-servers, one padi): padi serializes all chrome/layout procedures — one writer, last-write-wins, concurrent editors see each other's moves live. Accepted semantics (same as any shared session).
+- **drishti gate**: the graduated forwarding helpers (per-member policy, input-keyed forward) and any per-connection scope machinery landing in `@kolu/surface*` — paired drishti PR, pinned to final kolu HEAD, per `.claude/rules/surface.md`.
+- **N warm bindings have a standing cost** (one ssh session + one urgency subscription per host, even while parked elsewhere). Bounded: the pool holds only user-added hosts, the subscription is the count-sized urgency member (never `terminals`), and an unreachable host degrades its chip, not the app. Costed explicitly rather than discovered in production.
+- **Session-file migration**: one-shot import at padi's first boot, then hard cutover — a failed import crashes loudly (fail-fast), never silently starts empty.
+- **Testing W2.2 on zest**: that box runs TWO instances sharing `~/.config/kolu/config.json` — the deployed one and a `faint-bottom` dev worktree carrying an older, pre-fix pairing implementation that can null the shared file and poison any repro. Stop or reconcile `faint-bottom` before testing there. (The state-root move being tested is exactly what ends this collision class.)
+
+## The shipped record
+
+Each phase, compacted to what shipped and the facts that still govern; the full build narratives live in git history and the PRs. **When packages are born** — graduation is a scheduled event, not a side effect:
 
 | package | born | why then, not earlier/later |
 | --- | --- | --- |
@@ -226,7 +278,7 @@ W1 sealed the domain behind the contract as a library; W2 gave it a process. The
 
 <a id="w3"></a>
 
-### W3 — remote *(the binding · the full-peer gaps · CI parity)*
+### W3 — remote *(the binding · the full-peer gaps — the CI-parity leg [W3.4](#w34) is parked, under what's next)*
 
 <a id="w31"></a>
 
@@ -240,18 +292,6 @@ W1 sealed the domain behind the contract as a library; W2 gave it a process. The
 
 **Shipped 2026-07-05, two self-sufficient PRs.** **Preview** (#1685): a file on a remote machine now previews for real — the route asks padi for the bytes in bounded 8 MiB chunks, pinned by a strong ETag so a file changing mid-read aborts loudly instead of serving spliced bytes. **Inventory** (#1686): the "Running daemons" list shows the connected machine's daemons, each group labeled by machine. Together they met the W3 "full peer — nothing silently wrong-host" promise for the single-host binding.
 
-<a id="w34"></a>
-
-#### W3.4 — remote e2e parity in CI *(machinery done + proven; the GATE is parked until the parity tail clears — see [the remote-bind parity note](remote-bind-parity.html), srid 2026-07-05)*
-
-Today the full e2e suite (~493 scenarios) runs in CI per-PR **locally only**; the `KOLU_PADI_HOST` path has zero CI coverage (the sandbox claim is honest but the exposure is real — the two live bugs of 2026-07-04 were both found by hand). This phase closes it: **every PR's CI runs the existing e2e suite AS-IS, twice — local (as today) and with kolu-server bound remotely** (`KOLU_PADI_HOST=<a second pu box leased from the pool>`). No tagged subsets, no reduced tier: the same scenarios, a real ssh hop.
-
-Mechanics (we do NOT control the pool boxes' config — everything rides ssh we already have): the CI recipe leases a **pair** of pool boxes — box A runs the lane as today, box B is the bind target; box B's per-run hygiene (state wipe before, destructive-ack, provisioning via the baked drv map — which also exercises the cross-arch arm when the darwin lane binds a linux box) is done over the ssh session, never via box config. The `just e2e-ssh` transport lane folds into the same node.
-
-The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios that failed the one manual full-suite ssh run need their tight Playwright waits widened to remote-tolerant timeouts — behaviour was correct, the waits were not; (b) the agent-state scenarios get an honest mock — **decided 2026-07-04 (srid), replacing an earlier copy-files-over-ssh idea**: a small pretend-agent program runs INSIDE the kolu terminal like a real agent, driven through the terminal itself ("act busy", "act done"), writing its session files on its own machine at the real default paths. Wherever the terminal is, the files land on the right machine by construction — the tests contain no remote-vs-local branches at all, and the pretending gets MORE realistic (a foreground process writing its own files is exactly what production senses — including the file-watching layer where #1680 lived); (c) lane wall-time budgeted (remote suite ran ~2× local on the manual run) — it runs as a parallel odu node on the paired box, so the wall grows only if it becomes the slowest node.
-
-- **Done:** a PR that breaks any feature only-under-remote-binding goes RED in normal CI on both platform lanes; the remote node's scenario count equals the local node's (no silent exclusions — an excluded scenario is a named, counted skip with a reason); the pair-lease returns both boxes clean.
-
 <a id="w4"></a>
 
 ### W4 — the switch — *shipped* <PrLink pr={1714} />
@@ -260,16 +300,6 @@ The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios t
 
 Still live from the ship: **honest clocks (piece 5) is a named fast-follow** — the serving half (the control core's `clock.now`) has existed since W1, but the consuming half was never built anywhere, so remote hosts' ages mislabel until it lands (a pre-existing W3.1-era gap, not a switch regression). The per-host-state bugs the deploy surfaced (focus, splits, camera) got instance fixes in-PR; their class fix became [W7](#w7). The ledger's L11 sweep (the client's interim wire-shape scaffolding) follows.
 
-
-<a id="w5"></a>
-
-### W5 — cross-host attention *(next up — everything it needs shipped with W4)*
-
-**In simple words:** today, if an agent on another host needs you, kolu mostly can't tell you — an OS notification escapes the app, but the unread badges live per host and only the host you're currently looking at renders them. After this phase, kolu watches every connected host and rolls the needs-you signal up in one place: each host's chip in the switcher shows a count, the app icon badge sums all hosts, and clicking the OS notification switches to the right host and focuses the terminal that wants you.
-
-kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
-- **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
-- *Field note (2026-07-08, srid on the W4 deploy):* the asymmetry is now user-visible — OS notifications escape the app (cross-host reach), but unread marks live in each host's `hostScope` owner (W7), whose only render surface is the active host's dock, so a background host's attention is invisible. W5's chip counts are the missing rollup. One wiring fact for the implementer: `useTerminalAlerts`'s transition watcher rides the ACTIVE host's swapped store — the urgency-projection member (this phase's wire design) is what makes background hosts observable, not the client-side watcher.
 
 <a id="w7"></a>
 
@@ -317,34 +347,6 @@ type SshProv = "probing" | "copying" | "building";
 // derive from it, never hand-list phase names.
 ```
 
-
-<a id="cleanup"></a>
-
-### Consolidation — the cleanup ledger *(unnumbered — a parallel, ongoing track; scope lives in [its own note](padi-cleanup.html))*
-
-W2 and W3 ship at pace (a deliberate call); W4 pays the pace's debts — refactors, decomplecting, framework-level electricity upstreaming, deletions. Nothing user-visible ships here; that is the point. **The full ledger — each entry a self-sufficient, lens-framed brief an implementing agent can execute under coordinator guidance — lives in [padi — the consolidation ledger](padi-cleanup.html)**, appraised and appended as each W phase lands (a shipped phase's "deferred / acceptable-for-scope" review items land there explicitly; an entry that never ripens is deleted with a reason). The index, for orientation:
-
-- **Shipped:** L3 the convergence kit (<PrLink pr={1674} />) · L5 (in W2.2) · L6 `padiBinding` split (<PrLink pr={1698} />) · L7 `terminal-workspace` re-cut (<PrLink pr={1734} />) · L14 memory via the mirror (<PrLink pr={1699} />) · L15+L16 write-seam/boot invariants (<PrLink pr={1703} />) · L23 remote arm on the kit (<PrLink pr={1700} />)
-- **Ready — batched into right-sized PRs** (the batch plan lives in the ledger note): the framework batch (L28 · L1 · L20·21, one drishti pair) · the hygiene batch (L8 · L13) · the padi/client batch (L17 · L18 · L24) · L26 (null/sentinel sweep + lint, its own PR) · L27 (server re-cut, its own pure-motion PR) · L11 (post-switch wire sweep, now unblocked) · L10 flaky debt · L12 (srid mints)
-- **Gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence
-
-<a id="future"></a>
-
-### Future work — demand-driven
-
-*(The researched, tiered menu for everything below — ecosystem survey × shipped primitives, plus the promoted [port-preview](port-preview.html) and [shared-canvas](shared-canvas.html) notes — lives in [remote-terminals-future](remote-terminals-future.html).)*
-
-**Cross-host dock** (B-lite: foreign hosts' rows, urgency-ranked, click = switch + focus — the host axis is already in the contract) is the first escalation if switching proves insufficient. **kolu-tui** — the graduation proof: consume padiSurface over the socket/ssh *without kolu-server*; done only when that named path renders a live canvas (the path, not the feature, is the unit of done). **Hybrid canvas** (model B) only if one-window side-by-side proves a recurring demand — it stays an aggregation layer over N bindings, zero daemon changes.
-
-### Risks, named, with mitigations
-
-- **Attach latency gains a local hop** (kaval→padi→kolu-server vs kaval→kolu-server). Measure typing-echo p99 before/after W2 with a budget (&lt; 5ms added); if breached, the carve-out permits a raw-byte relay on the padi→kolu-server leg (frontDaemonOverStdio-style, no decode) without touching the contract.
-- **Sensor code changes often, and any padi change restarts padi** (the restart-hash covers the whole package). Accepted: a padi restart re-reads its store and re-runs sensors — seconds, PTYs untouched. If deploys make this hurt in practice, the sensors can later be split out of the hash; we'll decide that on evidence, not up front.
-- **Multi-client writes** (two kolu-servers, one padi): padi serializes all chrome/layout procedures — one writer, last-write-wins, concurrent editors see each other's moves live. Accepted semantics (same as any shared session).
-- **drishti gate**: the graduated forwarding helpers (per-member policy, input-keyed forward) and any per-connection scope machinery landing in `@kolu/surface*` — paired drishti PR, pinned to final kolu HEAD, per `.claude/rules/surface.md`.
-- **N warm bindings have a standing cost** (one ssh session + one urgency subscription per host, even while parked elsewhere). Bounded: the pool holds only user-added hosts, the subscription is the count-sized urgency member (never `terminals`), and an unreachable host degrades its chip, not the app. Costed explicitly rather than discovered in production.
-- **Session-file migration**: one-shot import at padi's first boot, then hard cutover — a failed import crashes loudly (fail-fast), never silently starts empty.
-- **Testing W2.2 on zest**: that box runs TWO instances sharing `~/.config/kolu/config.json` — the deployed one and a `faint-bottom` dev worktree carrying an older, pre-fix pairing implementation that can null the shared file and poison any repro. Stop or reconcile `faint-bottom` before testing there. (The state-root move being tested is exactly what ends this collision class.)
 
 ### Superseded by this note
 
