@@ -9,6 +9,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege — this job only needs the checkout and ATTIC_TOKEN secret.
+permissions:
+  contents: read
+
 concurrency:
   group: nix-cache-${{ github.ref }}
   cancel-in-progress: true
@@ -19,7 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: nixbuild/nix-quick-install-action@v31
+      # Pin by commit (CodeQL: unpinned third-party action). v31 → 889f318.
+      - uses: nixbuild/nix-quick-install-action@889f3180bb5f064ee9e3201428d04ae9e41d54ad # v31
         with:
           nix_conf: |
             extra-substituters = https://cache.nixos.asia/oss
