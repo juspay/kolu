@@ -370,26 +370,30 @@ const KavalStaticMark: Component<{ host: HostKey }> = (props) => (
   </span>
 );
 
-/** Fixed-width dual-daemon slot for one host chip.
- *
- *  Fills for every non-measure mount (active *and* inactive). Switcher rows ask
- *  for non-interactive marks so the transient switcher never owns a dialog that
- *  unmounts itself during host switching. Measure-row twins stay empty so width
- *  reserve ≠ second live pair. */
+/** Fixed-width dual-daemon slot for one host chip. Its THREE reachable states
+ *  are one named `mode`, never a pair of booleans (the old `measure ⊗
+ *  interactive` left `measure && interactive` type-expressible yet meaningless):
+ *   · `"interactive"` (default) — filled with this host's Padi/Kaval SUB-chips,
+ *     each owning its info dialog (active *and* inactive hosts alike, so a red
+ *     remote is obvious without switching first);
+ *   · `"static"` — filled with read-only marks; the transient host switcher asks
+ *     for these so it never owns a dialog that unmounts itself mid-switch;
+ *   · `"measure"` — empty, so a measuring-row twin reserves width without a
+ *     second live mount pair. */
 export const HostDualDaemonSlot: Component<{
   host: HostKey;
-  measure?: boolean;
-  interactive?: boolean;
+  mode?: "measure" | "interactive" | "static";
 }> = (props) => {
-  const filled = () => !props.measure;
-  const interactive = () => props.interactive ?? true;
+  const mode = () => props.mode ?? "interactive";
+  const filled = () => mode() !== "measure";
+  const interactive = () => mode() === "interactive";
   return (
     <div
       class={dualDaemonSlotClass}
       data-testid="host-dual-daemon-slot"
       data-filled={filled() ? "" : undefined}
-      data-interactive={filled() && interactive() ? "" : undefined}
-      aria-hidden={filled() && interactive() ? undefined : true}
+      data-interactive={interactive() ? "" : undefined}
+      aria-hidden={interactive() ? undefined : true}
     >
       <Show when={filled()}>
         <Show

@@ -249,7 +249,10 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           class="flex h-8 items-center transition-colors"
           classList={{ "rounded-tr-md": isLocal() }}
         >
-          <HostDualDaemonSlot host={props.host} measure={props.measure} />
+          <HostDualDaemonSlot
+            host={props.host}
+            mode={props.measure ? "measure" : "interactive"}
+          />
         </div>
         {/* Remove — guest only, inside the same host shell so it reads as
          *  a trailing host action, not a detached button. Dimmed at rest
@@ -363,7 +366,7 @@ const HostSwitcherRow: Component<{
         title={`Switch to ${label(host)}`}
         onClick={pickHost}
       >
-        <HostDualDaemonSlot host={host} interactive={false} />
+        <HostDualDaemonSlot host={host} mode="static" />
       </button>
       <Show when={!isLocal()} fallback={<span class="h-7 w-6" />}>
         <button
