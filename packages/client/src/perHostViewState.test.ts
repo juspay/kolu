@@ -1,9 +1,10 @@
-/** Per-host VIEW POSTURE + dock filters + right-panel bit (padi W7 TIER A) — the
- *  acceptance suite for the four view facts moved INTO the per-host `scopedByEntry`
- *  owner: the fullscreen posture (`canvasMaximized`) in `hostScope/createViewState`,
- *  the two dock filters (`activityWindow`, `showSleeping`) and the right-panel
- *  collapsed bit in the sibling `hostScope/createHostPrefs` (the sticky prefs a
- *  close-all must NOT clear). Each follows the maximized pattern: SET on host A → switch to
+/** Per-host VIEW POSTURE + dock filters (padi W7 TIER A) — the acceptance suite for
+ *  the view facts moved INTO the per-host `scopedByEntry` owner: the fullscreen
+ *  posture (`canvasMaximized`) in `hostScope/createViewState`, and the two dock
+ *  filters (`activityWindow`, `showSleeping`) in the sibling `hostScope/createHostPrefs`
+ *  (the sticky prefs a close-all must NOT clear). (The right-panel collapsed bit is
+ *  NOT per-host — it's a global viewer-layout pref that must survive reload.)
+ *  Each follows the maximized pattern: SET on host A → switch to
  *  host B sees the DEFAULT → switch BACK to A sees A's value RESTORED (the owner is
  *  RETAINED across a switch-away, disposed only on membership exit). For the two
  *  PERSISTED dock filters it also asserts the PER-HOST localStorage key is written
@@ -18,6 +19,7 @@
  *  clears it for isolation). */
 
 import type { HostKey } from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
 import { batch, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -153,23 +155,34 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
     });
   });
 
-  it("rightPanelCollapsed: set on A → B sees inherit (undefined default) → back to A restores the override", async () => {
+  it("reset() clears EVERY reset-on-close-all fact (completeness — a forgotten field fails HERE)", async () => {
     await createRoot(async (dispose) => {
       try {
         switchTo(HOST_A);
         await flush();
-        // `undefined` = "inherit the global pref"; the facade seeds the read from it.
-        expect(activeScope()?.prefs.rightPanelCollapsed()).toBeUndefined();
-        activeScope()?.prefs.setRightPanelCollapsed(true);
-        expect(activeScope()?.prefs.rightPanelCollapsed()).toBe(true);
-
-        switchTo(HOST_B);
-        await flush();
-        expect(activeScope()?.prefs.rightPanelCollapsed()).toBeUndefined();
-
-        switchTo(HOST_A);
-        await flush();
-        expect(activeScope()?.prefs.rightPanelCollapsed()).toBe(true);
+        const vs = activeScope()?.view;
+        if (!vs) throw new Error("no active view for HOST_A");
+        // Mutate EVERY reset-on-close-all fact this factory owns.
+        vs.writeActive("term-1" as TerminalId);
+        vs.setMruOrder(["term-1", "term-2"] as TerminalId[]);
+        vs.markUnread("term-1" as TerminalId);
+        vs.markBadgeAttention("term-2" as TerminalId);
+        vs.setCanvasMaximized(true);
+        // Sanity: all four facts are non-default.
+        expect(vs.activeId()).not.toBeNull();
+        expect(vs.mruOrder().length).toBeGreaterThan(0);
+        expect(vs.isUnread("term-1" as TerminalId)).toBe(true);
+        expect(vs.hasBadgeAttention("term-2" as TerminalId)).toBe(true);
+        expect(vs.canvasMaximized()).toBe(true);
+        // reset() must return EVERY fact to its default. A future reset-on-close-all
+        // fact added to this factory but FORGOTTEN in reset() fails this assertion —
+        // the completeness guard for the hand-enumerated reset (perfection review).
+        vs.reset();
+        expect(vs.activeId()).toBeNull();
+        expect(vs.mruOrder()).toEqual([]);
+        expect(vs.isUnread("term-1" as TerminalId)).toBe(false);
+        expect(vs.hasBadgeAttention("term-2" as TerminalId)).toBe(false);
+        expect(vs.canvasMaximized()).toBe(false);
       } finally {
         dispose();
       }
