@@ -1,0 +1,81 @@
+---
+title: Surface
+description: "A surface is a typed, reactive slice of live state you declare once — the framework derives the contract, the server, and the client. Start here."
+order: 200
+section: Surface
+koluHero:
+  eyebrow: "@kolu/surface"
+  headline: "Declare live state {once}."
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import StrataMap from "../../components/docs/diagrams/StrataMap.astro";
+
+A **surface** is a typed, reactive slice of live state — a handful of values,
+lists, streams, events, and callable procedures — that you declare _once_. From
+that one declaration the framework derives the wire contract, wires the server,
+and binds the client. You stop hand-writing "fetch, then subscribe, then
+reconcile, then reconnect" and just read the values.
+
+The same declaration works whether the state lives in the browser tab, in a
+long-lived daemon, or on a fleet of machines across an ssh network. You learn it
+once, in one process, and the same shape carries all the way out.
+
+<Aside type="tip" title="Never used a surface before?">
+  Start with the tutorial — [Your first surface](/surface/your-first-surface).
+  You will build a live `top` for your own machine and watch it update, in about
+  fifteen minutes, without writing a line of transport code.
+</Aside>
+
+## Three strata
+
+The docs are organised as three layers. **Basics** is the foundation.
+**Daemons** and **Multi-host** each build on the basics _independently_ — you can
+go straight to either. You only need the daemon layer for multi-host when a
+remote box happens to run one.
+
+<StrataMap />
+
+<CardGrid>
+  <LinkCard
+    title="Surface basics"
+    href="/surface/your-first-surface"
+    description="One app, one process. Define a surface, serve it, and consume it — in the browser, from a CLI, or through an agent."
+  />
+  <LinkCard
+    title="Surface daemons"
+    href="/surface/make-it-a-daemon"
+    description="Long-lived local processes. A single-instance pid gate, a frozen control core, and live recycle under a connected client. kaval is the exemplar."
+  />
+  <LinkCard
+    title="Surface multi-host"
+    href="/surface/across-the-hosts"
+    description="The same surface, mirrored from other machines over ssh, and a whole fleet gathered into one map. drishti is the exemplar."
+  />
+</CardGrid>
+
+The two upper strata are independent doors, not a ladder you must climb: **kaval**
+proves a daemon needn't be multi-host, and **drishti** proves a multi-host fleet
+needn't be daemons. Multi-host assumes the basics; daemons are optional to it.
+
+## What each layer answers
+
+<CardGrid>
+  <LinkCard
+    title="Why surfaces"
+    href="/surface/why-surfaces"
+    description="The problem the framework removes, and what a surface is and is not."
+  />
+  <LinkCard
+    title="Reference"
+    href="/surface/ref-surface"
+    description="The austere facts: defineSurface, the five member kinds, the server, the client, and the links."
+  />
+  <LinkCard
+    title="Glossary"
+    href="/surface/glossary"
+    description="New to the vocabulary? Plain-language definitions of every term — surface, mirror, entries, the daemon spine — each linked to where it's taught."
+  />
+</CardGrid>

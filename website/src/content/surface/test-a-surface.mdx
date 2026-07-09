@@ -1,0 +1,53 @@
+---
+title: How to test a surface
+description: "Exercise a surface in-process with directLink — no socket, no server — and assert on snapshots, procedures, and streams."
+order: 223
+section: Basics · How-to
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+`directLink` is the identity transport: it wraps the served router and invokes
+handlers in-process, with no socket and no subprocess. That makes it the tool for
+testing a surface — the client you drive in the test is the exact typed client a
+socket consumer would hold.
+
+## Build an in-process client
+
+Implement the surface, flatten the fragment, and wrap it in `directLink`. Pass
+it bare — `directLink` is the one link `surfaceClient` accepts without a watchdog,
+because its transport is always-live.
+
+<Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="client" />
+
+## Assert on a snapshot
+
+A cell or stream read yields a snapshot first, then deltas, as an async
+iterable. To assert on the current value, take the first frame. `firstFrameOrThrow`
+(`@kolu/surface/first-frame`) does exactly that, and throws if the stream closes
+empty — so a broken read fails the test instead of asserting on `undefined`.
+
+<Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="snapshot" />
+
+## Drive a procedure and assert the effect
+
+Procedures are plain awaited calls. Call one, then read the affected cell or
+collection back and assert the new snapshot.
+
+<Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="procedure" />
+
+## Read a run of stream frames
+
+When the value under test is a stream that emits over time, iterate it and
+collect the frames you care about. Because there is no socket, delivery is
+deterministic — no timers, no flushing.
+
+<Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="stream" />
+
+<Aside type="tip" title="Same client, real transport later">
+  Nothing above changes when the surface moves to a socket — the call sites are
+  identical across links. A directLink test therefore also protects the wire
+  contract: if a handler breaks, the in-process test catches it before a byte
+  ever crosses a socket.
+</Aside>

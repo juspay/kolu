@@ -1,0 +1,77 @@
+---
+title: How to mirror a surface over ssh
+description: "Front a remote surface locally: dial the host, pump its frames inward, and re-serve the same contract."
+order: 410
+section: Multi-host · How-to
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+import ThreeHopMirror from "../../components/docs/diagrams/ThreeHopMirror.astro";
+
+An agent serves its surface on the machine it runs on. A browser can't reach
+that process. This guide fronts the remote surface with a **local mirror**: you
+dial the host, keep a live local copy of everything it serves, and re-serve that
+copy to browsers over the same contract. The browser only ever talks to the
+local copy; the ssh pipe swaps invisibly behind it.
+
+<ThreeHopMirror />
+
+You need the remote agent's `defineSurface(…)` contract and its binary's `.drv`
+(a [Nix derivation](https://nixos.org/manual/nix/stable/language/derivations.html)).
+
+## 1. Dial the host
+
+A session over ssh is `makeSession` (the transport-agnostic reconnect loop) plugged
+with `sshConnector` (the ssh transport). You own the session — key your own map and
+tear it down yourself; there is no shared pool.
+
+<Snippet src="packages/surface/example/snippets/remote.ts" region="dial" />
+
+<Aside type="caution" title="Do not await resolveDrvPath at the call site">
+  Pass `resolveDrvPath` as a thunk, not a resolved value. Eager resolution runs
+  the ssh arch-probe *before* the session exists, so an unreachable host throws
+  out of construction. Deferred, the probe runs inside each spawn cycle, where an
+  unreachable host is a retryable `network` fault instead of a crash.
+</Aside>
+
+## 2. Pump its frames inward
+
+Implement the mirror surface locally, then run `pumpRemoteSurface` to fold the
+agent's frames into it. Wrap the base contract with `mirroredSurface` first — it
+adds the parent-authoritative `connection` cell (below).
+
+<Snippet src="packages/surface/example/snippets/remote.ts" region="pump" />
+
+`makeSink` is a *factory*: it takes `{ seq }` (the spawn counter, not a client)
+and the pump rebuilds it on every spawn, so no per-client fold survives a
+reconnect. When the mirrored surface carries `connection`, pass the pump a
+`connection: { set }` and it drives that cell for you off the session's state.
+
+## 3. Re-serve the same contract locally
+
+Flatten the fragment into a top-level router. A `directLink` over it is the
+in-process consumer; a browser reaches the same router over a WebSocket, with the
+app layer's `acceptSurfaceSocket` gating each upgrade (see
+[@kolu/surface-app](/surface/ref-surface-app)). The browser now consumes the
+local copy exactly as if the agent were in-process.
+
+<Snippet src="packages/surface/example/snippets/remote.ts" region="reserve" />
+
+<Aside type="tip" title="reServeSurface packages steps 2 and 3">
+  For the production path, `reServeSurface({ source, policy, session })` wires the
+  pump and the re-serve for one binding and returns `{ surface, router, done }`.
+  Its `policy` marks each member `value` (held open and replayed across an upstream
+  drop) or `delta` (a byte or liveness stream that fails through, so the client
+  re-subscribes end-to-end and a snapshot only ever leads a fresh stream).
+</Aside>
+
+## The connection cell is parent-authoritative
+
+Connection health is state the remote agent **cannot** report — it can't observe
+the link *to* itself. So the parent is the sole writer of the `connection` cell:
+`mirroredSurface(base)` reserves the name (it throws on a base that already
+declares one), and the pump projects the session's lifecycle onto it. Everything
+else in the surface is the agent's truth, mirrored; `connection` is the one cell
+the parent authors. For the model behind this pump, see
+[The server half](/surface/the-server-half).

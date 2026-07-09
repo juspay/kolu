@@ -1,0 +1,55 @@
+---
+title: How to bake an identity
+description: "Give a daemon a stable identity — a build hash and a git commit — baked in by Nix and read back at runtime, so clients recognise it across restarts."
+order: 310
+section: Daemons · How-to
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+A daemon that gets recycled needs to say *which build* it is running, so a
+supervisor can tell "the daemon I shipped" from "an older one still holding the
+gate." That identity is baked in at build time by [Nix](https://nix.dev) and read back at runtime by
+one shared recipe.
+
+## 1. Bake the pair with Nix
+
+Use `mkDaemonIdentity` (in `nix/daemon-identity.nix`) to `--set` two environment
+variables on the daemon binary, under a prefix of your choosing:
+
+- `<PREFIX>_BUILD_ID` — a hash over the daemon's *behavioural* source closure. It flips exactly when a restart would load different wire or behaviour code.
+- `<PREFIX>_COMMIT_HASH` — the git ref the daemon was built from.
+
+Select the behavioural fileset deliberately — it is the slice whose change means
+"a restart behaves differently." Everything outside it (docs, unrelated code) can
+change without flipping the build id.
+
+## 2. Read it back at runtime
+
+`readBakedIdentity(prefix)` (from `@kolu/surface-daemon`) is the one recipe both
+the reads share. It returns `{ staleKey, navigableCommit }`:
+
+<Snippet src="packages/surface/example/snippets/identity.ts" region="read" />
+
+`staleKey` is the build hash a supervisor compares; `navigableCommit` is the git
+ref you surface as a clickable identity in the UI.
+
+<Aside type="caution" title="Off-nix reads nothing — on purpose">
+  Run outside the Nix build (a raw `vitest`, a dev process without the env) and
+  `readBakedIdentity` returns empty strings. It shows nothing rather than
+  inventing an identity — the fail-fast rule. Do not paper over it with a
+  fallback build id; an absent identity is a real, readable state.
+</Aside>
+
+## 3. Decide what the build id hashes
+
+There is one policy choice: whether the daemon-spine code is inside the hashed
+closure.
+
+- If a contract-compatible spine change is behaviourally interchangeable — because the wire contract version is itself hashed — you can **exclude** the spine from the build id ([kaval](/kaval) does this; the contract version carries the compatibility signal).
+- If you prefer a cheap auto-drain where over-firing is harmless, **include** the whole closure (padi does this).
+
+Either way, the identity a client reads is now stable and meaningful across
+restarts, which is what [recycling and upgrading](/surface/recycle-and-upgrade)
+depends on.

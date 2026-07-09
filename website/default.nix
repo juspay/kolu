@@ -74,6 +74,26 @@ let
     fetcherVersion = 3;
   };
 
+  # The docs' <Snippet> component (src/components/docs/Snippet.astro) embeds real,
+  # workspace-typechecked example sources — packages/surface/example/{snippets,
+  # fleet-top} — by reading the files at build time as `../packages/…` relative to
+  # the website root, exactly as the working tree has them (website/ and packages/
+  # are siblings under the repo root). This hermetic sandbox's build root is the
+  # website src ALONE, so those files are absent and `astro build` fails loudly on
+  # the first <Snippet>. Vendor a clean copy (no node_modules/dist) and place it
+  # as the website root's sibling in the build tree (preBuild below), so the same
+  # relative read resolves — the store copy keeps CI faithful to the working tree.
+  exampleSnippetSrc = pkgs.lib.cleanSourceWith {
+    name = "surface-example-snippet-src";
+    src = ../packages/surface/example;
+    filter = path: _type:
+      let s = toString path; in
+      !(pkgs.lib.hasInfix "/node_modules/" s)
+      && !(pkgs.lib.hasSuffix "/node_modules" s)
+      && !(pkgs.lib.hasInfix "/dist/" s)
+      && !(pkgs.lib.hasSuffix "/dist" s);
+  };
+
   default = pkgs.stdenv.mkDerivation {
     pname = "kolu-website";
     inherit version;
@@ -93,6 +113,15 @@ let
       runHook preBuild
       pnpm build
       runHook postBuild
+    '';
+
+    # Place the vendored example sources as the website root's sibling so
+    # <Snippet>'s `../packages/…` reads resolve in the sandbox (see
+    # exampleSnippetSrc). Runs before `pnpm build`.
+    preBuild = ''
+      mkdir -p ../packages/surface
+      cp -r ${exampleSnippetSrc} ../packages/surface/example
+      chmod -R u+w ../packages
     '';
 
     installPhase = ''

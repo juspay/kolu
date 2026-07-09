@@ -1,0 +1,52 @@
+---
+title: "@kolu/surface-daemon-supervisor reference"
+description: "The client half: the endpoint state machine, the survivable spawn driver, the recycle sequence, and the convergence kit."
+order: 321
+section: Daemons · Reference
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+The client half — the code that spawns, watches, recycles, and upgrades a daemon.
+It runs in the *client* process, never the daemon, and carries no `@kolu/*` app
+dependency.
+
+## The endpoint
+
+`createEndpoint(spec)` is the state machine: `connecting → connected | dead`,
+then `connected → degraded` if the daemon dies mid-session. `ensure()` runs the
+always-recycle boot; `current()` is the live connection. It is generic over the
+client `C` and identity `I`.
+
+<Snippet src="packages/surface/example/snippets/supervisor.ts" region="endpoint" />
+
+| Export | Role |
+| --- | --- |
+| `createEndpoint(spec)` | the endpoint state machine (`ensure()`, `current()`) |
+| `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
+| `restart(endpoint, steps)` | the composed `capture → drain → recycle → reattach` sequence |
+| `waitForPidGone(pid, opts?)` | poll `isHolderLive` until the pid is reaped (`ESRCH`), so a respawn never races a live gate holder |
+
+## The convergence kit
+
+`converge(args)` is the live upgrade/recycle decision: it probes the running
+daemon's identity, asks a pure `decide`, and enacts through the endpoint's
+existing boot methods, returning a typed `ConvergenceOutcome` the caller wires
+to its own surfaces.
+
+<Snippet src="packages/surface/example/snippets/supervisor.ts" region="converge" />
+
+| Export | Role |
+| --- | --- |
+| `converge(args)` | probe → decide → enact; returns a `ConvergenceOutcome` |
+| `decide(baked, running, policy, fenceSpent)` | the pure, zero-I/O decision fold — the policy table, unit-tested directly |
+| `ConvergencePolicy<Cap>` · `createBuildDrainFence()` · `outcomeAdopted(outcome)` | the declared policy, the once-per-boot drain fence, the uniform "was a survivor adopted?" reader |
+| `contractIsNewer` · `contractIsCompatible` · `buildsMatch` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
+
+<Aside type="note" title="Two policies in the wild">
+  [kaval](/kaval) declares `recycle-on-skew`; [padi](/padi) declares `drain-newer-else-refuse` with
+  a drain-capable handshake. The step-by-step for both is in
+  [How to recycle and upgrade a daemon](/surface/recycle-and-upgrade); the rules
+  the kit enforces are in [Daemon invariants](/surface/surface-daemon-invariants).
+</Aside>

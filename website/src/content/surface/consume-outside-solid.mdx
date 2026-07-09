@@ -1,0 +1,58 @@
+---
+title: How to consume a surface outside SolidJS
+description: "Read a surface from a CLI or TUI with a transport-blind connection — awaited calls, iterated streams, and a live board via mirrorRemoteSurface."
+order: 221
+section: Basics · How-to
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+The `.use()` hooks are [SolidJS](https://docs.solidjs.com). A CLI or TUI has no reactive runtime, so it reads
+the surface directly off the typed client. The trick that keeps a CLI small is to
+hold **one transport-blind connection** so every command is written once,
+whether it runs against a local unix socket or a remote box over ssh.
+
+## Hold one connection shape
+
+Model the connection as `{ client, dispose }` and dial it once. Local and remote
+differ only in which link you build; the commands downstream never branch.
+
+<Snippet src="packages/surface/example/snippets/consume-cli.ts" region="connection" />
+
+## Call procedures with a plain await
+
+Procedures are ordinary async calls off the client. No hooks, no subscription.
+
+<Snippet src="packages/surface/example/snippets/consume-cli.ts" region="calls" />
+
+## Iterate a stream
+
+A cell, collection, or stream read is an async iterable — snapshot first, then
+deltas. Loop it and act on each frame.
+
+<Snippet src="packages/surface/example/snippets/consume-cli.ts" region="iterate" />
+
+For a **raw** (non-descriptor) stream, reach for `unenrolledStreamCall`
+(`@kolu/surface/client`) rather than calling the procedure bare — it carries the
+`STREAM_RETRY` reconnect context, so a dropped transport re-subscribes
+transparently instead of ending the loop.
+
+<Snippet src="packages/surface/example/snippets/consume-cli.ts" region="unenrolled" />
+
+## Drive a live board with mirrorRemoteSurface
+
+When the CLI is a live dashboard rather than a one-shot query, fold the surface
+into plain callbacks with `mirrorRemoteSurface` (`@kolu/surface/mirror`) — the
+consume-side dual of `implementSurface`. You supply a sink of collection and
+stream callbacks; it keeps them current and hands back the procedures plus a
+`done` promise.
+
+<Snippet src="packages/surface/example/snippets/consume-cli.ts" region="mirror" />
+
+<Aside type="caution" title="Delta-accumulate, don't coarse-copy">
+  A live board must fold deltas as they arrive — through the sink callbacks
+  above, or `createSubscription` + `reduce`. Do not read the whole collection and
+  copy it each tick: same-shaped frames coalesce and the board freezes. The
+  reasoning is in [Reactive honesty](/surface/reactive-honesty).
+</Aside>

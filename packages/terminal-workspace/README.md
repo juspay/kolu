@@ -30,9 +30,12 @@ title · command-run · foreground taps); the producer derives each field and
 **emits** it, and nothing more — it holds no memory and takes no seed. The host
 **folds** the observation stream into a stored value with the pure `fold`: the
 five snapshot fields are last-write-wins, and kolu's two _remembered_ facts —
-`lastActivityAt` (recency, on kolu's clock) and `lastAgentCommand` — are derived
-by the fold **alone**, never by the producer (a `TerminalSnapshot` has no field to
-spell them, so the write-fence _is_ the emit type). The snapshot-only half is
+`lastActivityAt` (recency, on kolu's clock — stamped on a live agent-identity
+change always, and on a same-identity output tick throttled to
+`RECENCY_THROTTLE_MS`, so a stable session's recency tracks its output instead of
+freezing) and `lastAgentCommand` — are derived by the fold **alone**, never by the
+producer (a `TerminalSnapshot` has no field to spell them, so the write-fence _is_
+the emit type). The snapshot-only half is
 factored out as `foldSnapshot` — the last-write-wins core `fold` builds the two
 remembered facts on top of.
 
