@@ -1,0 +1,131 @@
+---
+title: Make it a daemon
+description: "Turn fleet-top into a long-lived, single-instance daemon — then spawn, watch, and live-recycle it from a supervisor while a client stays connected."
+order: 300
+section: Daemons · Tutorial
+koluHero:
+  eyebrow: tutorial
+  headline: "Make it a {daemon}."
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+In [Your first surface](/surface/your-first-surface), fleet-top died when you
+closed the terminal. Here we make it **durable**: one long-lived process that
+holds a single-instance gate, serves the same surface over a unix socket, and can
+be replaced by a fresh build *while a client stays connected*. The surface itself
+does not change at all — only how it is reached and kept alive.
+
+<Aside type="note" title="Grab part 1">
+  Start from the finished part-1 code — the surface and the `createTop()` engine
+  are unchanged. The daemon code for this page lives at
+  `packages/surface/example/fleet-top/part-2`; it typechecks in CI, so the
+  snippets below are the real files. From that directory, run `pnpm install`.
+</Aside>
+
+## Wrap the engine in a daemon
+
+`daemonMain` is the entire **gate → serve → teardown** lifecycle. It claims an
+atomic single-instance gate, serves the router over a socket, waits for the
+lifetime to end, then closes the socket and releases the gate — returning a
+`DaemonExit` rather than calling `process.exit`, so the whole thing is drivable
+from a test.
+
+<Snippet src="packages/surface/example/fleet-top/part-2/src/daemon/main.ts" />
+
+We choose `{ kind: "forever" }`: an idle `top` still watches your machine, so an
+idle timeout would wrongly kill it. Note the router is the *same* `createTop()`
+from part 1, served verbatim.
+
+<Steps>
+
+1. Start the daemon.
+
+   ```sh
+   pnpm run daemon
+   ```
+
+   ```text
+   fleet-top daemon listening on /run/user/1000/fleet-top.sock (pid 48213)
+   ```
+
+   That friendly line comes from `onReady`; `stderrLogger` also writes a
+   structured JSON line per event to stderr, so you will see a `{…"msg":"daemon
+   listening"…}` line alongside it. Leave this running.
+
+2. In a second terminal, start it **again**.
+
+   ```sh
+   pnpm run daemon
+   ```
+
+   It exits immediately, logging one line that a live daemon already holds the
+   gate (`daemon already running; yielding to the live instance`), and steps
+   aside. That is the single-instance guarantee: `acquirePidGate` is an atomic
+   `link(2)` claim.
+
+</Steps>
+
+## Supervise it
+
+A daemon you cannot spawn, watch, and replace is not much use. `createEndpoint`
+is the supervisor half of the spine — it runs in the *client*, never the daemon.
+`ensure()` is an always-recycle boot: kill any live survivor, wait for its pid to
+be reaped, spawn a fresh daemon so it outlives us, connect, and handshake. Every
+transition is reported.
+
+<Snippet src="packages/surface/example/fleet-top/part-2/src/supervisor/main.ts" />
+
+The finale is the payoff: `restart` runs the fixed
+`capture → drain → recycle → reattach` sequence — a **live recycle**. The daemon
+is killed and a fresh one stood up underneath, while the connection we hold
+reconnects on the far side. This demo has nothing to preserve, so it passes the
+degenerate steps; [part 3](/surface/across-the-hosts) is where the same sequence
+carries real per-host state.
+
+<Steps>
+
+1. With a daemon still running from before, start the supervisor.
+
+   ```sh
+   pnpm run supervisor
+   ```
+
+   ```text
+   [supervisor] local: connecting
+   [supervisor] local: connected
+   [supervisor] connected — daemon reports 8 cores, 9.2 GB used
+   [supervisor] local: connecting
+   [supervisor] local: connected
+   [supervisor] live recycle complete
+   ```
+
+   The second `connecting` / `connected` pair is the live recycle itself:
+   `restart` re-runs `ensure()`, so the endpoint reconnects to the fresh daemon
+   and re-fires its status. (`stderrLogger` also emits a structured JSON line per
+   event to stderr; the `[supervisor]`-prefixed lines above are the ones to
+   read.)
+
+</Steps>
+
+Watch the order: the supervisor recycled the daemon you had running (the
+always-recycle boot), connected to the fresh one, read a cell straight off it,
+then recycled it *again* live — and the client it held simply reconnected. No
+dropped session, no lost socket.
+
+<Aside type="tip" title="What makes this safe">
+  The supervisor can always recycle the daemon because the daemon's identity is
+  read over a version-agnostic channel *before* the versioned handshake — so a
+  skew can never hide who is holding the gate. That frozen control core is the
+  subject of [The daemon spine](/surface/the-daemon-spine); the recipe for a real
+  upgrade is [Recycle and upgrade](/surface/recycle-and-upgrade).
+</Aside>
+
+## Next
+
+fleet-top now survives on one machine. In
+[Across the hosts](/surface/across-the-hosts) you will reach a fleet-top running
+on *another* box over ssh — and watch the same surface arrive in your browser
+from a machine you never deployed to by hand.

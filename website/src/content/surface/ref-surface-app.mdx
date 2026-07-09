@@ -1,0 +1,122 @@
+---
+title: "@kolu/surface-app reference"
+description: "The desktop-class shell around a surface app: serving the fresh shell, accepting a browser socket, connecting with a default-on watchdog, and build identity."
+order: 231
+section: Basics · Reference
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+The shell delivered *around* a `@kolu/surface` app — the static, installable
+layer for apps you run against your own server (kolu, [drishti](https://github.com/srid/drishti)). Surface is the
+live wire; surface-app is the shell served fresh around it. Exports are grouped
+by subpath.
+
+## Serving the fresh shell
+
+`installSurfaceApp` (`@kolu/surface-app/server`) serves the shell: a `no-store`
+`index.html` that names a content-hashed bundle, `immutable` `/assets/*`, a
+404-on-miss for a stale hash, an SPA fallback, `/sw.js`, and the web manifest.
+Staleness is structurally impossible because the one document that names the
+bundle is always re-fetched.
+
+| Export | Subpath | Role |
+| --- | --- | --- |
+| `installSurfaceApp` | `/server` | serve the no-store shell + immutable assets |
+| `installFreshStatic` | `/server` | fresh static + optional notification worker |
+| `installPwaManifest` | `/server` | the web manifest |
+| `surfaceApp()` | `/vite` | Vite plugin that injects the build commit onto the shell |
+| `buildSurfaceClient()` | `/bun` | the Bun build equivalent |
+
+<Aside type="caution" title="The commit rides the shell, never a bundle define">
+  The build commit is injected as `window.__SURFACE_APP_COMMIT__` onto the
+  `no-store` shell by the `surfaceApp()` plugin — never a bundler define. A
+  define bakes the sha into a content-hashed, `immutable` asset and strands
+  returning browsers. No app writes a sha.
+</Aside>
+
+## Accepting a browser socket
+
+`acceptSurfaceSocket` (`@kolu/surface-app/server`) accepts a browser WebSocket
+onto a served surface. It owns the server-side liveness reaper and sequences
+**stale-gate → enrol → dispatch** in one `accept(...)`, so a socket can never be
+dispatched un-enrolled. It is the server twin of the client's `connectSurface`
+watchdog.
+
+| Export | Role |
+| --- | --- |
+| `acceptSurfaceSocket` | accept + reap + sequence, in one call |
+| `gateStaleSocket` | the WS-upgrade handshake gate (error-handler-first; close `4001`) |
+| `startWsHeartbeat` | the server-side liveness reaper |
+
+## Connecting from the client
+
+`connectSurface` / `connectSurfaces` (`@kolu/surface-app/solid`) are the turnkey
+single- and multi-surface seams: each builds a socket, a `websocketLink`, the
+`surfaceClient(s)`, and a **default-on liveness heartbeat** in one call. The
+heartbeat probe defaults to the framework-reserved `system.live`
+(`@kolu/surface/liveness`), so no app supplies — or forgets — a probe.
+
+<Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
+
+`createServerLifecycle({ ws, probe })` derives the connection lifecycle
+(`connecting → connected → disconnected → reconnected / restarted`) from
+transport open/close plus a `processId` probe. Deriving a lifecycle cannot leave
+the socket un-watched: it owns a default-on half-open watchdog that reuses the
+`probe` on an interval and forces `ws.reconnect()` when a probe times out —
+catching a socket that is TCP-dead with no FIN/RST (laptop sleep, Wi-Fi roam,
+NAT idle-eviction).
+
+| Option | Effect |
+| --- | --- |
+| `heartbeat: false` | opt out of the default-on watchdog |
+| `onProcessId` | publish each observed id to echo back as the next reconnect's `pid` |
+| `onStaleRestart` | teardown hook fired at the single stale-close decode site |
+| `restartCloseCode` | that exact close code routes straight to `restarted` |
+
+<Aside type="caution" title="A websocket client requires a watchdog">
+  `surfaceClient` over a websocket requires a watchdog-backed, branded
+  `LiveSignal`; a bare or unbranded socket link throws, because it can
+  half-open. `createLiveSignal` (re-exported on `/solid`) is the only minter —
+  the seams wrap it; a hand-built client calls it directly. There is no
+  `HostSession` export; the per-host fleet seam is `connectSurface`.
+</Aside>
+
+## The client model
+
+`SurfaceAppProvider` (`@kolu/surface-app/solid`) is the turnkey source that
+handles the stale-tab handshake; its connection source is a union of `{ ws, probe }`
+(the provider derives the lifecycle) or `{ status }` (you already did). It takes
+a typed `controlPlane` whose `buildInfo` cell yields build identity, plus
+`clientCommit={shellCommit()}`.
+
+`useSurfaceApp()` is the headless model — no styled components ship:
+
+| Accessor | Meaning |
+| --- | --- |
+| `status()` | `"live" \| "reconnecting" \| "restarted" \| "down"` |
+| `presentingDown()` | grace-windowed down state |
+| `server()` | `{ commit, … }` server identity |
+| `reload()` | reload for an update |
+| `setAttention(n)` | OS app badge + title |
+| `canInstallPwa()` | true only in a secure context and not already installed |
+
+## Build identity
+
+Build identity is an interface. `defineBuildInfo({ schema, default, isStale? })`
+declares it; `buildInfoServer({ buildInfo? })` and `surfaceAppServer({ buildInfo?, equals? })`
+(`@kolu/surface-app/surface` / `/server`) implement it.
+
+<Aside type="note" title="buildInfo is a server cell">
+  Read it with `app.cells.buildInfo.use({ authority: "server" })`. The local
+  `{ initial }` shape will not typecheck — build identity is authoritative on the
+  server.
+</Aside>
+
+## Service worker stance
+
+- **No caching service worker, ever** — the ban is on a `fetch` handler that intercepts the network. Definitional for this class of app.
+- By default the package ships `SW_SOURCE`, a self-destructing retirement worker at `/sw.js`, plus `retireServiceWorker()` to retire any worker a prior build registered.
+- The one opt-in is a **fetch-less** notification worker (`NOTIFICATION_SW_SOURCE`), registered via `registerOrRetireServiceWorker()`. An app registers (notify) **or** retires (none) — never both.
+- Gate all service-worker logic on `window.isSecureContext`, never `location.protocol === "https:"`.

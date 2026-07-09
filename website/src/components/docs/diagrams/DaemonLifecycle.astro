@@ -1,0 +1,164 @@
+---
+// DaemonLifecycle — two coupled halves. The daemon binary runs a served
+// lifetime behind a single-instance pid gate; the supervisor drives it with
+// ensure() and restart(). The frozen control-core identity is read BEFORE the
+// versioned handshake, so it survives a version skew.
+---
+
+<figure class="doc-diagram">
+  <svg
+    viewBox="0 0 940 520"
+    width="100%"
+    height="auto"
+    role="img"
+    aria-labelledby="daemon-title daemon-desc"
+  >
+    <title id="daemon-title">The daemon spine — binary and supervisor</title>
+    <desc id="daemon-desc">
+      The daemon binary acquires a single-instance pid gate, serves its router
+      over a unix socket, waits its lifetime, then closes the socket and
+      releases the gate. The supervisor drives it: ensure kills, waits for the
+      pid to go, spawns, connects and handshakes; restart captures, drains,
+      recycles live, and reattaches. The frozen control-core identity is probed
+      version-agnostically before the versioned handshake, so it survives a
+      skew.
+    </desc>
+
+    <defs>
+      <marker id="dl-arr" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="context-stroke" />
+      </marker>
+    </defs>
+
+    <!-- ── DAEMON lane ─────────────────────────────── -->
+    <text x="30" y="34" font-family="var(--font-sans)" font-size="14" font-weight="700" letter-spacing="1.2" fill="var(--color-ink-muted)">DAEMON (binary) — the served lifetime</text>
+
+    <rect x="30" y="50" width="158" height="70" rx="10"
+      fill="color-mix(in srgb, var(--color-kolu-top-strong) 10%, var(--color-void-raised))"
+      stroke="var(--color-kolu-top-strong)" stroke-width="1.6" />
+    <text x="109" y="82" text-anchor="middle" font-family="var(--font-mono)" font-size="15.0" font-weight="700" fill="var(--color-ink)">acquirePidGate</text>
+    <text x="109" y="100" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">single-instance</text>
+
+    <rect x="214" y="50" width="158" height="70" rx="10" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+    <text x="293" y="82" text-anchor="middle" font-family="var(--font-sans)" font-size="15.0" font-weight="700" fill="var(--color-ink)">serve router</text>
+    <text x="293" y="100" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">over unix socket</text>
+
+    <rect x="398" y="50" width="140" height="70" rx="10" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+    <text x="468" y="90" text-anchor="middle" font-family="var(--font-sans)" font-size="15.0" font-weight="700" fill="var(--color-ink)">wait lifetime</text>
+
+    <rect x="564" y="50" width="168" height="70" rx="10"
+      fill="color-mix(in srgb, var(--color-kolu-top-strong) 10%, var(--color-void-raised))"
+      stroke="var(--color-kolu-top-strong)" stroke-width="1.6" />
+    <text x="648" y="82" text-anchor="middle" font-family="var(--font-sans)" font-size="15.0" font-weight="700" fill="var(--color-ink)">close socket ·</text>
+    <text x="648" y="100" text-anchor="middle" font-family="var(--font-sans)" font-size="15.0" font-weight="700" fill="var(--color-ink)">release gate</text>
+
+    <rect x="758" y="50" width="152" height="70" rx="10" fill="var(--color-void-sunk)" stroke="var(--color-rule-strong)" stroke-width="1.5" />
+    <text x="834" y="90" text-anchor="middle" font-family="var(--font-mono)" font-size="15.0" font-weight="700" fill="var(--color-ink-dim)">DaemonExit</text>
+
+    <g stroke="var(--color-kolu-primary)" stroke-width="1.8" fill="none">
+      <line x1="188" y1="85" x2="212" y2="85" marker-end="url(#dl-arr)" />
+      <line x1="372" y1="85" x2="396" y2="85" marker-end="url(#dl-arr)" />
+      <line x1="538" y1="85" x2="562" y2="85" marker-end="url(#dl-arr)" />
+      <line x1="732" y1="85" x2="756" y2="85" marker-end="url(#dl-arr)" />
+    </g>
+
+    <!-- ── frozen control-core probe (the survives-a-skew element) ── -->
+    <rect x="575" y="176" width="335" height="80" rx="12"
+      fill="color-mix(in srgb, var(--color-kolu-top-strong) 13%, var(--color-void-raised))"
+      stroke="var(--color-kolu-top-strong)" stroke-width="1.8" stroke-dasharray="7 4" />
+    <text x="742" y="203" text-anchor="middle" font-family="var(--font-sans)" font-size="15.6" font-weight="700" fill="var(--color-ink)">frozen control core — identity probe</text>
+    <text x="742" y="224" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">version-agnostic · read BEFORE the handshake</text>
+    <text x="742" y="244" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-kolu-top-strong)">so it survives a version skew</text>
+
+    <!-- ── SUPERVISOR lane ─────────────────────────── -->
+    <text x="30" y="322" font-family="var(--font-sans)" font-size="14" font-weight="700" letter-spacing="1.2" fill="var(--color-ink-muted)">SUPERVISOR (client) — drives the lifecycle</text>
+
+    <!-- ensure() row -->
+    <text x="30" y="352" font-family="var(--font-mono)" font-size="14" font-weight="700" fill="var(--color-kolu-primary)">ensure()</text>
+    <g>
+      <rect x="96" y="336" width="104" height="52" rx="9" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+      <text x="148" y="367" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" fill="var(--color-ink)">kill</text>
+      <rect x="220" y="336" width="152" height="52" rx="9" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+      <text x="296" y="367" text-anchor="middle" font-family="var(--font-mono)" font-size="14.4" fill="var(--color-ink)">waitForPidGone</text>
+      <rect x="392" y="336" width="150" height="52" rx="9" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+      <text x="467" y="360" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" fill="var(--color-ink)">spawn</text>
+      <text x="467" y="377" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">survivable</text>
+      <rect x="562" y="336" width="104" height="52" rx="9" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+      <text x="614" y="367" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" fill="var(--color-ink)">connect</text>
+      <rect x="746" y="336" width="164" height="52" rx="9" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+      <text x="828" y="360" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" fill="var(--color-ink)">handshake</text>
+      <text x="828" y="377" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">versioned</text>
+    </g>
+    <g stroke="var(--color-kolu-primary)" stroke-width="1.7" fill="none">
+      <line x1="200" y1="362" x2="218" y2="362" marker-end="url(#dl-arr)" />
+      <line x1="372" y1="362" x2="390" y2="362" marker-end="url(#dl-arr)" />
+      <line x1="542" y1="362" x2="560" y2="362" marker-end="url(#dl-arr)" />
+    </g>
+
+    <!-- connect -> probe (1) -> handshake (2): identity read before handshake -->
+    <path d="M614 336 C 614 296, 640 268, 662 258" fill="none" stroke="var(--color-kolu-top-strong)" stroke-width="1.9" marker-end="url(#dl-arr)" />
+    <text x="588" y="300" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-kolu-top-strong)">① identity</text>
+    <path d="M812 258 C 828 274, 830 300, 828 334" fill="none" stroke="var(--color-kolu-top-strong)" stroke-width="1.9" marker-end="url(#dl-arr)" />
+    <text x="872" y="300" text-anchor="middle" font-family="var(--font-sans)" font-size="14" font-weight="700" fill="var(--color-kolu-top-strong)">② then handshake</text>
+
+    <!-- restart() row -->
+    <text x="30" y="452" font-family="var(--font-mono)" font-size="14" font-weight="700" fill="var(--color-kolu-bottom-strong)">restart()</text>
+    <g>
+      <rect x="96" y="436" width="118" height="52" rx="9" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+      <text x="155" y="467" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" fill="var(--color-ink)">capture</text>
+      <rect x="234" y="436" width="110" height="52" rx="9" fill="var(--color-void-raised)" stroke="var(--color-kolu-primary)" stroke-width="1.5" />
+      <text x="289" y="467" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" fill="var(--color-ink)">drain</text>
+      <rect x="364" y="436" width="118" height="52" rx="9"
+        fill="color-mix(in srgb, var(--color-live-teal) 12%, var(--color-void-raised))"
+        stroke="var(--color-kolu-bottom-strong)" stroke-width="1.7" />
+      <text x="423" y="467" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" font-weight="700" fill="var(--color-ink)">recycle</text>
+      <rect x="502" y="436" width="118" height="52" rx="9"
+        fill="color-mix(in srgb, var(--color-live-teal) 12%, var(--color-void-raised))"
+        stroke="var(--color-kolu-bottom-strong)" stroke-width="1.7" />
+      <text x="561" y="467" text-anchor="middle" font-family="var(--font-sans)" font-size="14.4" font-weight="700" fill="var(--color-ink)">reattach</text>
+    </g>
+    <g stroke="var(--color-kolu-primary)" stroke-width="1.7" fill="none">
+      <line x1="214" y1="462" x2="232" y2="462" marker-end="url(#dl-arr)" />
+      <line x1="344" y1="462" x2="362" y2="462" marker-end="url(#dl-arr)" />
+      <line x1="482" y1="462" x2="500" y2="462" marker-end="url(#dl-arr)" />
+    </g>
+    <text x="650" y="456" font-family="var(--font-sans)" font-size="14" fill="var(--color-kolu-bottom-strong)" font-weight="700">the LIVE recycle</text>
+    <text x="650" y="474" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">a brief reconnect, not a dropped session</text>
+
+    <!-- coupling: the two halves meet at the pid gate and the socket -->
+    <path d="M109 120 C 109 210, 130 300, 145 334" fill="none" stroke="var(--color-ink-faint)" stroke-width="1.4" stroke-dasharray="4 4" />
+    <text x="86" y="230" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)" transform="rotate(-90 86 230)">single-instance pid gate</text>
+    <path d="M293 120 C 340 210, 470 300, 560 334" fill="none" stroke="var(--color-ink-faint)" stroke-width="1.4" stroke-dasharray="4 4" />
+    <text x="410" y="238" text-anchor="middle" font-family="var(--font-sans)" font-size="14" fill="var(--color-ink-muted)">the unix socket connects the halves</text>
+  </svg>
+  <figcaption>
+    Two coupled halves. The <strong>daemon</strong> runs a served lifetime behind
+    a single-instance pid gate; the <strong>supervisor</strong> drives it with{" "}
+    <code>ensure()</code> and a live <code>restart()</code>. The frozen
+    control-core identity is read <strong>before</strong> the versioned
+    handshake — the version-agnostic probe that survives a skew.
+  </figcaption>
+</figure>
+
+<style>
+  .doc-diagram {
+    margin: 1.75rem 0;
+    max-width: 100%;
+    text-align: center;
+  }
+  .doc-diagram svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.75rem;
+    background: var(--color-void-sunk);
+  }
+  .doc-diagram figcaption {
+    margin: 0.6rem 0 0;
+    color: var(--color-ink-muted);
+    font-size: 0.86rem;
+    line-height: 1.55;
+    text-align: left;
+  }
+</style>

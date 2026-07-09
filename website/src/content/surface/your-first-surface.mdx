@@ -1,0 +1,149 @@
+---
+title: Your first surface
+description: "Build a live 'top' for your own machine — load, memory, a process list, and a kill button — first in one process, then live in the browser."
+order: 210
+section: Basics · Tutorial
+koluHero:
+  eyebrow: tutorial
+  headline: "Your first {surface}."
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+We are going to build **fleet-top** — a live `top` for your own machine. By the
+end of this page it will run in your browser: load averages and memory in the
+header, a table of processes that updates on its own, and a button that kills a
+process. No polling code, no reconnect handling, no hand-written RPC — you
+declare the shape of the live state once and read it.
+
+We will get there in two hops. First we consume the surface *in the same
+process*, so you see it work with no network at all. Then we change one line and
+the same code is talking to a WebSocket. That is the whole point of a surface,
+and you will feel it by the end.
+
+<Aside type="note" title="The finished code">
+  Every file we build lives at `packages/surface/example/fleet-top/part-1` in the
+  kolu repo, and it typechecks in CI — so the snippets on this page are the real
+  files, not paraphrases. Grab that directory as your starting point and follow
+  along.
+</Aside>
+
+## Set up
+
+<Steps>
+
+1. Get the starting point and install its dependencies.
+
+   ```sh
+   cd packages/surface/example/fleet-top/part-1
+   pnpm install
+   ```
+
+   It is a bare Vite + [Solid](https://docs.solidjs.com) project — no framework shell, just enough to serve
+   a page and a WebSocket.
+
+</Steps>
+
+## Declare the surface
+
+A surface is a typed, reactive slice of live state, declared once with
+`defineSurface`. Ours has four members: two **cells** (load and memory — single
+values), one **collection** (the processes, keyed by pid), and one **procedure**
+(kill — the single mutation).
+
+<Snippet src="packages/surface/example/fleet-top/part-1/src/common/surface.ts" />
+
+That one declaration is the contract. From it the framework derives the server
+router and the client hooks — you never hand-write either. (For *why* there are
+four member kinds and not one, see [Why surfaces](/surface/why-surfaces); you do
+not need it to finish here.)
+
+## Fill in the data
+
+The surface says *what* the state is; ordinary code says where it comes from.
+`src/server/top.ts` starts a poll loop that reads the OS every second and writes
+the cells and the collection; `src/server/proc.ts` is the platform-specific bit
+that reads `/proc` on Linux or `ps` on macOS. Nothing framework-shaped is
+happening in there — it is just a timer that calls `set` and `upsert`. Open them
+if you are curious; you do not have to change a line.
+
+## See it work — in one process
+
+Before any network, the surface is consumable *in the same process*. `directLink`
+takes the served router and hands you the exact client a WebSocket consumer would
+get — every call runs the handler directly.
+
+<Snippet src="packages/surface/example/fleet-top/part-1/src/inproc.ts" />
+
+Run it:
+
+```sh
+pnpm run inproc
+```
+
+You will see one line, printed from live readings of your machine:
+
+```text
+load 0.42 0.38 0.31 over 8 cores · mem 9.2/16.0 GB · 431 processes
+```
+
+That is a working surface — defined, served, and consumed — with the transport
+collapsed to nothing. Notice `firstFrame`: a cell read is a *stream* whose first
+frame is the current snapshot, so we take that first frame. That is not an
+in-process quirk; every link yields the same snapshot-then-deltas shape, which is
+what keeps a reconnect honest (see [Reactive honesty](/surface/reactive-honesty)).
+
+## Put it on a WebSocket
+
+Now the same surface over the wire. `src/server/main.ts` serves the *same*
+`createTop()` engine — the same router — over a WebSocket for streaming
+subscriptions and HTTP for one-shot calls. On the client, the only thing that
+changes from the in-process version is the link: `createLiveSignal` builds the
+WebSocket link and wires the half-open heartbeat, then `surfaceClient` binds the
+hooks.
+
+<Snippet src="packages/surface/example/fleet-top/part-1/src/client/wire.ts" />
+
+The result — `app.cells.load`, `app.collections.processes`,
+`app.rpc.surface.process.kill` — is the exact shape `directLink` gave us
+in-process. Only the transport changed.
+
+## Render it live
+
+In the Solid component, each member becomes a bound `.use()` hook. There is no
+subscription lifecycle to manage: when a process appears or a load average
+changes, only the affected row re-renders.
+
+<Snippet src="packages/surface/example/fleet-top/part-1/src/client/App.tsx" region="hooks" />
+
+The `kill` handler is a plain procedure call. The rest of `App.tsx` is ordinary
+Solid markup — a header and a table — reading `load.value()`,
+`processes.byKey(pid)?.()`, and so on.
+
+## Watch it move
+
+Start the server and the client together:
+
+```sh
+pnpm run dev
+```
+
+Open **http://localhost:5175**. You will see your machine's load and memory in
+the header and a live process table, busiest first, updating every second on its
+own. Find a process you own and click **kill** — the row vanishes as the next
+snapshot lands. You did not write a refresh; the surface pushed the change.
+
+<Aside type="tip" title="What just happened">
+  You declared live state once and consumed it two ways — in-process, then over a
+  WebSocket — with the same call sites. That "same shape, any transport" property
+  is the thread the rest of these docs pull on.
+</Aside>
+
+## Next
+
+Right now fleet-top dies when you close the terminal. In
+[Make it a daemon](/surface/make-it-a-daemon) you will turn it into a long-lived
+process that survives, supervises itself, and can be upgraded live while your
+browser stays connected.

@@ -142,12 +142,17 @@ e2e: install
 unit: install
     {{ nix_shell }} pnpm test:unit
 
-# Build the @kolu/surface framework's example app (vite client + tsc on
-# server). Catches example-only regressions that the workspace-wide
-# typecheck doesn't see — broken Tailwind imports, JSX errors, missing
-# imports in the production bundle. Cheap (~1s).
+# Build EVERY @kolu/surface example client (the base example, remote-process-monitor,
+# and the fleet-top tutorial parts) — the `@kolu/surface-example*` filter runs
+# `build:client` in each package that defines it and skips those that don't (the
+# stdio-only mini-ci, the daemon-only fleet-top part 2). Catches example-only
+# regressions the workspace-wide typecheck doesn't see — broken Tailwind imports,
+# JSX errors, missing imports in the production bundle. These are LIVING DOCS: the
+# tutorial pages embed this code, so its clients must BUILD, not just typecheck.
+# (The fleet-top-agent binary is a flake package output, built by the `nix` lane.)
+# Cheap (~1s).
 surface-example-build: install
-    {{ nix_shell }} pnpm --filter @kolu/surface-example build:client
+    {{ nix_shell }} pnpm --filter "@kolu/surface-example*" build:client
 
 # Build the @kolu/surface-app library's example app (vite client). Same purpose
 # as surface-example-build but for surface-app: catches example-only regressions

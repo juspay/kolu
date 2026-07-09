@@ -1,0 +1,24 @@
+---
+/**
+ * Surface area pages at /surface/<slug>. getStaticPaths emits every entry in the
+ * `surface` collection EXCEPT `index` (the landing, owned by ./index.astro), so
+ * this route never double-renders /surface. Slugs are flat (no nested dirs), so
+ * a single-segment [slug] param suffices.
+ */
+import { getCollection, render } from "astro:content";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+export async function getStaticPaths() {
+  const pages = await getCollection("surface");
+  return pages
+    .filter((entry) => entry.id !== "index")
+    .map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content, headings } = await render(entry);
+---
+
+<DocsLayout entry={entry} headings={headings} collection="surface" basePath="/surface">
+  <Content />
+</DocsLayout>

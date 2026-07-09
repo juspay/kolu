@@ -20,6 +20,7 @@ import { KOLU_PALETTE, SITE_DESCRIPTION } from "../../site";
 
 const blog = await getCollection("blog");
 const docs = await getCollection("docs");
+const surface = await getCollection("surface");
 
 const pages: Record<string, { title: string; description: string }> = {
   site: {
@@ -35,6 +36,12 @@ const pages: Record<string, { title: string; description: string }> = {
   ...Object.fromEntries(
     docs.map(({ id, data }) => [
       `docs/${id}`,
+      { title: data.title, description: data.description ?? SITE_DESCRIPTION },
+    ]),
+  ),
+  ...Object.fromEntries(
+    surface.map(({ id, data }) => [
+      `surface/${id}`,
       { title: data.title, description: data.description ?? SITE_DESCRIPTION },
     ]),
   ),

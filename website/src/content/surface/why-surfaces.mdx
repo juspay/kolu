@@ -1,0 +1,82 @@
+---
+title: Why surfaces
+description: "Why the framework exists: declare a typed reactive surface once and let it derive the contract, server, and client instead of hand-wiring RPC."
+order: 240
+section: Basics · Explanation
+---
+
+import SurfaceAnatomy from "../../components/docs/diagrams/SurfaceAnatomy.astro";
+
+Most of what a client shows is live state that lives somewhere else — a load
+average on a server, a list of processes, the tail of a log. The honest way to
+render it is "fetch the current value, subscribe to changes, reconcile each
+change into the view, and re-subscribe when the connection drops." Written by
+hand, that is four or five moving parts per piece of state, and every one of
+them is a place to be subtly wrong: a subscription that never sends a fresh
+snapshot after a reconnect, an error that latches the view, a keyed list that
+re-renders every row when one row changes.
+
+A **surface** removes the hand-wiring. You declare the shape of the live state
+once, and the framework derives the wire contract, the server handlers, and the
+client hooks from that one declaration. The declaration is the contract.
+
+## One declaration, three derivations
+
+`defineSurface` takes a spec and returns a `Surface`. From it:
+
+- the **contract** is a compile-time [oRPC](https://orpc.dev/docs/contract-first/define-contract) router — a typed literal, not runtime reflection, because the typed client has to know the shape at compile time;
+- the **server** is `implementSurface(surface, deps)`, which wires every handler and hands you a `ctx` for mutations;
+- the **client** is `surfaceClient(surface, link)`, whose bound hooks you just read.
+
+<SurfaceAnatomy />
+
+The payoff is a rule the codebase actually enforces: adding a piece of live
+state is a **two-file change** — one entry in the shared spec, one entry in the
+server wiring. If that count creeps up, the abstraction is leaking, and it is
+worth stopping to ask why.
+
+## Why four primitives, not one
+
+It is tempting to model everything as one primitive — a cell holding a big
+object, say. The framework deliberately offers four, because the wire shape
+should not lie about what the state *is*:
+
+- A **cell** is one value with an identity over time. You can `set` it.
+- A **collection** is many values, each keyed and independently observable. Folding it into a cell of a map would re-render every subscriber whenever any single key changed.
+- A **stream** is a derived view computed from an input the server does not own. You cannot `set` a stream's output without turning it into a cache of unmanaged state — so streams are read-only by construction.
+- An **event** is an occurrence, not a value. Modelling `terminal.onExit` as a stream would force the consumer to render an iterator that yields once and closes; the wire shape would misrepresent the cardinality. Events therefore carry no snapshot and no current value — a handler fires per occurrence.
+
+A one-off command is not outside these shapes — that is what the fifth member,
+`procedures`, is for: the imperative escape hatch for a plain request/response
+call. What stays as raw oRPC is only what is genuinely outside the model — a
+bidirectional binary stream, bespoke retry plumbing. The surface is not trying to
+be the whole protocol; it is the typed, reactive slice of it.
+
+## The same shape, everywhere
+
+The reason this earns its own framework rather than living inside one app is that
+the *same* declaration serves radically different consumers. The real ones:
+
+- **[kolu](/)** — one browser talking to one Node server over a single WebSocket.
+- **[kaval](/kaval)** — a long-lived local daemon, consumed by a TUI over a unix socket, with no browser at all.
+- **[drishti](https://github.com/srid/drishti)** — a browser fronting an ssh fleet, one connection per host, every host serving the same surface.
+- **[odu](https://github.com/juspay/odu)** — a CI runner fanning stdio lanes into a unix-socket hub and projecting the surface as MCP tools.
+
+Daemons and multi-host are not a ladder. **kaval** is a daemon that is not
+multi-host; **drishti** is multi-host that is not a daemon. What they share is the
+surface. Learn it once in one process — the [tutorial](/surface/your-first-surface)
+does exactly that — and the same shape carries all the way out to a fleet.
+
+## The cost, named honestly
+
+The compile-time literal is what makes the end-to-end types work, and it is also
+the constraint: the spec is a **versioned wire contract**, not a place for casual
+edits. Two distinct fields carry that weight. A cell's `patchSchema` sets the
+*wire format* of its patch verb — changing it changes what crosses the socket. A
+cell's `patch` merge function is subtler: it runs on **both** the server and the
+client, so if the two sides deploy different versions of it, neither errors —
+they simply compute divergent state, and the drift surfaces as a view that is
+quietly wrong. Either way the lesson is the same: server and client redeploy
+together, and the surface declaration is treated with the seriousness of a
+protocol. The framework buys you honesty about live data at that price. For
+anything a client renders live, it is a good trade.
