@@ -54,6 +54,7 @@ import {
 import type { WebSocket as PartySocket } from "partysocket";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { floorConnectionInfo } from "./host/connectionFloor.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
@@ -349,9 +350,13 @@ export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
 export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
 
 /** The ACTIVE host's link-health cell value (`phase` + `log` tail), or `undefined`
- *  before its first frame. Drives the connect overlay's copying/building narration. */
+ *  before its first frame. Drives the connect overlay's copying/building narration. Floored
+ *  (C') on the SAME map-transport liveness the chip's `EntryStatus` uses (`padiMap.live`):
+ *  with our link to the publisher dead/half-open, a frozen `building`/`copying` cell stops
+ *  asserting a live phase — mirroring surface-map's `floorOnLiveness` for `EntryStatus`, so the
+ *  connection cell is no longer the one un-floored per-host authority (#1568 sibling). */
 export const connectionInfo = (): ConnectionInfo | undefined =>
-  hostScoped.connection.value();
+  floorConnectionInfo(hostScoped.connection.value(), padiMap.live());
 
 export const recentRepos = (): RecentRepo[] =>
   hostScoped.activityFeed.value()?.recentRepos ?? [];
