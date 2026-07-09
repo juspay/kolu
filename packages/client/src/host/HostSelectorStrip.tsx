@@ -211,7 +211,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           type="button"
           role="tab"
           aria-selected={isActive()}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-xl pl-2.5 pr-2 cursor-pointer transition-colors focus-visible:outline-none"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-xl pl-2.5 pr-2 transition-colors focus-visible:outline-none"
           classList={{
             "text-fg": isActive(),
             "text-fg-2 hover:text-fg": !isActive(),
@@ -600,7 +600,7 @@ const AddHostAffordance: Component = () => {
         type="button"
         ref={triggerEl}
         data-testid="host-add-open"
-        class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+        class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         aria-label="Add a host"
         title="Add a host (ssh target)"
         aria-expanded={open()}
