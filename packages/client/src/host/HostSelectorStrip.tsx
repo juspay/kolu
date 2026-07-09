@@ -1,12 +1,13 @@
 /** HostSelectorStrip — the multi-host selector, the visible face of the keyed padi
  *  host map (W4 "the switch").
  *
- *  Multi-host is NO LONGER gated on `KOLU_PADI_HOST` (the server's `hostMapGate`
- *  cell is no longer consumed here): every pool member gets a chip and the
+ *  Multi-host is NO LONGER gated on `KOLU_PADI_HOST` — the old server-authored
+ *  `hostMapGate` cell is gone entirely: every pool member gets a chip and the
  *  trailing "+ add a host" affordance is ALWAYS present. Remote hosts is an
  *  ALPHA feature, so that warning rides the "+" popover (`AddHostAffordance`)
  *  rather than an env gate. With no seed the pool is just the local host, so the
- *  resting strip is one chip + "+".
+ *  resting strip is one chip + "+". (`KOLU_PADI_HOST` still works as an optional
+ *  launch-time SEED — see `parseKoluPadiHostSeed`.)
  *
  *  Host-first: each host tab carries a FIXED-width dual-daemon slot
  *  (`HostDualDaemonSlot`) filled with THAT host's Padi + Kaval marks (active
@@ -220,7 +221,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           type="button"
           role="tab"
           aria-selected={isActive()}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-xl pl-2.5 pr-2 transition-colors focus-visible:outline-none"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-xl pl-2.5 pr-2 transition-colors focus-visible:outline-none cursor-pointer"
           classList={{
             "text-fg": isActive(),
             "text-fg-2 hover:text-fg": !isActive(),
@@ -277,7 +278,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
         <Show when={!isLocal()}>
           <button
             type="button"
-            class="pointer-events-auto shrink-0 h-8 w-6 inline-flex items-center justify-center rounded-tr-xl text-fg-3 hover:text-danger hover:bg-danger/10 opacity-45 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 transition-[opacity,color,background-color]"
+            class="pointer-events-auto shrink-0 h-8 w-6 inline-flex items-center justify-center rounded-tr-xl text-fg-3 hover:text-danger hover:bg-danger/10 opacity-45 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 transition-[opacity,color,background-color] cursor-pointer"
             data-testid="host-remove"
             aria-label={`Remove host ${hostLabel(props.host)}`}
             title={`Remove ${hostLabel(props.host)}`}
@@ -334,7 +335,7 @@ const HostSwitcherRow: Component<{
         data-testid={`${props.testIdPrefix}-option-${props.hostKey}`}
         aria-current={isActive() ? "true" : undefined}
         title={`${hostLabel(host)} — ${statusTitle(state())}`}
-        class="pointer-events-auto flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="pointer-events-auto flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         onClick={pickHost}
       >
         <span
@@ -374,7 +375,7 @@ const HostSwitcherRow: Component<{
       </button>
       <button
         type="button"
-        class="rounded-lg shadow-[inset_0_0_0_1px_var(--color-edge)]"
+        class="rounded-lg shadow-[inset_0_0_0_1px_var(--color-edge)] cursor-pointer"
         classList={{
           "bg-surface-0/70": isActive(),
           "bg-surface-0/45": !isActive(),
@@ -388,7 +389,7 @@ const HostSwitcherRow: Component<{
       <Show when={!isLocal()} fallback={<span class="h-7 w-6" />}>
         <button
           type="button"
-          class="pointer-events-auto h-7 w-6 inline-flex items-center justify-center rounded-lg text-fg-3 opacity-60 transition-[opacity,color,background-color] hover:bg-danger/10 hover:text-danger group-hover/host-row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          class="pointer-events-auto h-7 w-6 inline-flex items-center justify-center rounded-lg text-fg-3 opacity-60 transition-[opacity,color,background-color] hover:bg-danger/10 hover:text-danger group-hover/host-row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
           data-testid={`${props.testIdPrefix}-remove-${props.hostKey}`}
           aria-label={`Remove host ${hostLabel(host)}`}
           title={`Remove ${hostLabel(host)}`}
@@ -432,7 +433,7 @@ const HostSwitcherPopover: Component<{
         <div
           ref={panelRef}
           data-testid={`${props.testIdPrefix}-menu`}
-          class={`host-switcher-panel fixed z-50 w-[min(22rem,calc(100vw-1rem))] p-1.5 ${hostSwitcherChrome.class}`}
+          class={`fixed z-50 w-[min(22rem,calc(100vw-1rem))] p-1.5 ${hostSwitcherChrome.class}`}
           style={{ ...panelStyle(), ...hostSwitcherChrome.style }}
         >
           <div class="max-h-[min(22rem,calc(100vh-4rem))] space-y-1 overflow-y-auto">
@@ -471,7 +472,7 @@ const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
         type="button"
         ref={triggerEl}
         data-testid="host-overflow-trigger"
-        class="pointer-events-auto shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-md bg-transparent text-xs text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="pointer-events-auto shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-md bg-transparent text-xs text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         aria-label={`${props.hosts.length} more host${props.hosts.length === 1 ? "" : "s"}`}
         title={props.hosts.map(labelForKey).join(", ")}
         onClick={() => setOpen((v) => !v)}
@@ -512,7 +513,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
           aria-selected="true"
           aria-expanded={open()}
           ref={triggerEl}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-md pl-2 pr-2 text-xs text-fg transition-colors focus-visible:outline-none"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-md pl-2 pr-2 text-xs text-fg transition-colors focus-visible:outline-none cursor-pointer"
           aria-label={`Switch host — currently ${hostLabel(active())}`}
           title={`Switch host — currently ${hostLabel(active())}`}
           onClick={() => setOpen((v) => !v)}
@@ -608,7 +609,7 @@ const AddHostAffordance: Component = () => {
         type="button"
         ref={triggerEl}
         data-testid="host-add-open"
-        class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         aria-label="Add a host"
         title="Add a host (ssh target)"
         aria-expanded={open()}

@@ -297,12 +297,6 @@ export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
 export const PadiLinkSchema = z.enum(["connecting", "connected", "degraded"]);
 export type PadiLink = z.infer<typeof PadiLinkSchema>;
 
-/** The multi-host feature gate — whether the keyed-map selector strip renders. The
- *  server is the sole writer (from `KOLU_PADI_HOST` seeding more than the local
- *  default); the client reads it and NEVER reads env. */
-export const HostMapGateSchema = z.object({ enabled: z.boolean() });
-export type HostMapGate = z.infer<typeof HostMapGateSchema>;
-
 /** Live boot-time readout for the identity rail's uptime — kolu-server's OWN boot
  *  time and the bound padi's. Server-authored (kolu-server stamps its own boot at
  *  module init and reads padi's honest `startedAt` off the bound session's control-core
@@ -596,18 +590,6 @@ export const koluSurface = defineSurface({
     daemonInventory: {
       schema: DaemonInventorySchema,
       default: DEFAULT_DAEMON_INVENTORY,
-      verbs: ["get"],
-    },
-
-    /** The multi-host gate — is the keyed-map selector strip (chips + add/remove) to
-     *  render? Server-authored: `enabled: true` when `KOLU_PADI_HOST` seeds more than the
-     *  local default (`server/src/index.ts` via `koluSurfaceCtx.cells.hostMapGate.set`,
-     *  from `isMultiHost()`); clients read-only. The client NEVER reads env — this cell is
-     *  the SOLE cue. `enabled: false` (env-unset) → zero multi-host UI, single host
-     *  pixel-identical. */
-    hostMapGate: {
-      schema: HostMapGateSchema,
-      default: { enabled: false } satisfies z.infer<typeof HostMapGateSchema>,
       verbs: ["get"],
     },
   },

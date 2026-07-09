@@ -131,13 +131,6 @@ export function parseKoluPadiHostSeed(): HostKey[] {
   return [LOCAL_HOST, ...remotes];
 }
 
-/** Whether `KOLU_PADI_HOST` names any REMOTE host — i.e. the pool is multi-host and
- *  the client should render the selector strip. Drives the published gate cell; the
- *  client never reads env. Env unset / local-only → `false` → zero multi-host UI. */
-export function isMultiHost(): boolean {
-  return parseKoluPadiHostSeed().length > 1;
-}
-
 /** A host that cannot be removed from the pool — the local default (and the server's
  *  boot default). `hosts.remove` rejects with this rather than silently no-op'ing
  *  (the #1708 pin: `remove(default)` must fail LOUD, not "succeed"). */

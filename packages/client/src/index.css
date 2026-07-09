@@ -136,15 +136,6 @@ body {
   filter: none;
   opacity: 1;
 }
-/* Every interactive control in the host rail + its switcher popover shows the
- * hand cursor. Browsers don't give `<button>` a pointer by default, and the
- * rail mixes many (tab select, daemon marks, remove, add, overflow, dropdown,
- * switcher rows) — one scoped rule keeps them all consistent instead of a
- * per-button utility that's easy to forget on the next control. */
-.host-strip button:not(:disabled),
-.host-switcher-panel button:not(:disabled) {
-  cursor: pointer;
-}
 
 /* ── Pill border channels ────────────────────────────────────
  * Two visual channels live on the pill border:
