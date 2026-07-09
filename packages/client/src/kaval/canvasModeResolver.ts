@@ -25,7 +25,10 @@
  *      (terminal creation must wait for `connected`). */
 
 import type { DaemonState } from "@kolu/padi/surface";
-import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
+import type {
+  ConnectionInfo,
+  EntryFailedCause,
+} from "kolu-common/surfacesWithPadi";
 import { isConnectPhase } from "./connectCanvasCopy";
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
@@ -69,6 +72,18 @@ interface EntryLivenessFacts {
   isLocalHost: boolean;
 }
 
+/** The facts the two NOT-YET-CONNECTED arms (`warming` / `not-a-member`) share — the connect
+ *  overlay's routing input, declared ONCE here rather than on each arm. `connectPhase` lives
+ *  ONLY on these arms (never on `connected`/`failed`), so a stale/lagging connection cell can
+ *  never route the overlay over a host the map reports connected (A'). Typed as the real
+ *  `ConnectionInfo["phase"]` union — DERIVED from the one connection-state family, not bare
+ *  `string` — so an off-vocabulary phase (`"banana"`) is unconstructible and the `isConnectPhase`
+ *  narrowing below is compiler-checked, not a runtime-only guard. `undefined` before the cell's
+ *  first frame (or once C' floors a stale cell). */
+type NotYetConnectedFacts = EntryLivenessFacts & {
+  connectPhase: ConnectionInfo["phase"] | undefined;
+};
+
 /** The precedence decision's snapshot — a DISCRIMINATED UNION keyed on the active
  *  entry's connection state (`entry`). Only the `connected` arm carries the
  *  kaval-derived facts, so they cannot be read off a host whose re-served
@@ -76,20 +91,12 @@ interface EntryLivenessFacts {
  *  this from the live accessors is what makes {@link resolveCanvasMode} a pure,
  *  exhaustively testable total function. */
 export type CanvasFacts =
-  | (EntryLivenessFacts & {
+  | (NotYetConnectedFacts & {
       /** The active entry is `warming` — the host binding itself is still coming up
        *  (a remote's ssh dial + nix copy + build), NOT the kaval daemon restarting
-       *  (that is a CONNECTED-arm fact). */
+       *  (that is a CONNECTED-arm fact). Carries `connectPhase` via {@link NotYetConnectedFacts}. */
       entry: "warming";
       warmingLabel: string;
-      /** The ACTIVE host's OWN `connection` cell phase (`probing`/`copying`/`building`/
-       *  `connecting`/…), or `undefined` before its first frame — the SAME channel
-       *  `ConnectCanvas` narrates off. Present ONLY on the not-yet-connected arms (here +
-       *  `not-a-member`): a `connected` entry structurally CANNOT carry it, so a stale/
-       *  lagging connection cell can never route the connect overlay over a host the map
-       *  reports connected (the green-chip / "Building forever" trap is now a TYPE error at
-       *  resolve, not a runtime tie broken by arm order). */
-      connectPhase: string | undefined;
     })
   | (EntryLivenessFacts & {
       /** The active entry `failed` — an ssh dial/handshake or contract-level fault
@@ -99,14 +106,11 @@ export type CanvasFacts =
       cause: EntryFailedCause;
       reason: string;
     })
-  | (EntryLivenessFacts & {
+  | (NotYetConnectedFacts & {
       /** The active host is transiently not in the membership pool (mid-switch,
-       *  before a re-add lands). No entry facts to read — hold `connecting`. */
+       *  before a re-add lands). No entry facts to read — hold `connecting`. Carries
+       *  `connectPhase` via {@link NotYetConnectedFacts}. */
       entry: "not-a-member";
-      /** As on the `warming` arm — the connection cell phase narrates the overlay while
-       *  the host is not-yet-connected. Absent on the `connected` arm (see the warming
-       *  arm's note). */
-      connectPhase: string | undefined;
     })
   | (EntryLivenessFacts & {
       /** The active entry is `connected` — the ONLY arm on which the kaval-derived

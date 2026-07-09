@@ -10,8 +10,19 @@
  *  `disconnected`/`failed` are owned by the Skew-UX host-down card — NOT narrated here
  *  (a second failure surface is exactly what this must not build). */
 
-/** The phases the connect overlay narrates — a strict subset of `ConnectionInfo.phase`. */
-export type ConnectPhase = "probing" | "copying" | "building" | "connecting";
+import type { ConnectionInfo } from "kolu-common/surfacesWithPadi";
+
+/** The phases the connect overlay narrates — the UP-but-not-yet-connected subset of
+ *  `ConnectionInfo["phase"]`, DERIVED from the one source of truth rather than hand-listed:
+ *  it resolves to exactly `SshProv | "connecting"` today and auto-tracks any future `SshProv`
+ *  provisioning phase. Add a phase to `SshProv` and {@link connectCanvasCopy}'s switch fails
+ *  to compile (missing case) — the drift signal a hand-copied literal union silently swallowed
+ *  (the connect overlay would just stop narrating the new phase). Type-only import, so this
+ *  stays browser-safe and adds no runtime dependency. */
+export type ConnectPhase = Exclude<
+  ConnectionInfo["phase"],
+  "connected" | "disconnected" | "failed"
+>;
 
 export interface ConnectCopy {
   /** The headline line. */
