@@ -35,6 +35,18 @@ describe("connectCanvasCopy", () => {
     expect(c.showProgress).toBe(false);
   });
 
+  it("the GAP (undefined phase) is byte-identical to probing — kills the connect-copy flicker", () => {
+    // The pre-frame/gap case: no connect phase known yet (subscription pending, C' floored a
+    // stale cell, or a connected/down phase narrowed out). It returns the SAME copy as
+    // probing, so a routing flap between the boot-gate `connecting` mode and the `warming`
+    // overlay renders identical pixels — the flicker srid saw is gone, without hiding the
+    // state machine (a real copying/building still narrates its distinct copy).
+    const gap = connectCanvasCopy(undefined, "zest");
+    expect(gap).toEqual(connectCanvasCopy("probing", "zest"));
+    expect(gap.title).toContain("Connecting to zest");
+    expect(gap.showProgress).toBe(false);
+  });
+
   it("interpolates the real host name into every phase", () => {
     for (const phase of ["copying", "building", "connecting"] as const) {
       expect(connectCanvasCopy(phase, "alice@bob.example").title).toContain(

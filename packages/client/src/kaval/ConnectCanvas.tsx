@@ -22,6 +22,7 @@
 
 import type { DaemonState } from "@kolu/padi/surface";
 import { encodeHostKey } from "kolu-common/hostKey";
+import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import {
   createEffect,
   createMemo,
@@ -34,30 +35,39 @@ import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import { activeHost, connectionInfo } from "../wire";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
+import { DAEMON_STATE_PRESENTATION } from "./daemonPresentation";
 
 /** How many trailing `log` lines the live tail shows — a tail, not the whole Nix
  *  firehose (the reassurance is "named phase + real output + elapsed", not a scroll of
  *  every line). */
 const TAIL_LINES = 6;
 
-export function ConnectCanvas(props: {
-  label: string;
-  daemonState: DaemonState | undefined;
-}) {
+export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   const info = () => connectionInfo();
-  // Narrate off the cell ONLY for a host-binding-warming (`daemonState` undefined) whose
-  // phase is a narratable up phase; a kaval-restart warming (`daemonState` defined) or an
-  // unexpected phase falls back to the neutral label.
-  const phase = createMemo(() => {
-    if (props.daemonState !== undefined) return null;
-    const p = info()?.phase;
-    return p !== undefined && isConnectPhase(p) ? p : null;
-  });
+  // A CONNECTED host whose kaval is restarting (`daemonState` DEFINED) → the neutral kaval
+  // label, derived at render from the ONE daemon-presentation table (no baked-in string). A
+  // host BINDING still coming up (`daemonState` UNDEFINED) → narrate off the connection cell's
+  // phase, funneled through the ONE copy authority — which covers the `undefined` gap
+  // (subscription pending / floored / narrowed-out) with the SAME copy as `probing`, so no
+  // flicker.
   const host = () => encodeHostKey(activeHost());
-  const copy = createMemo(() => {
-    const p = phase();
-    return p === null ? null : connectCanvasCopy(p, host());
+  const phase = createMemo<ConnectPhase | undefined>(() => {
+    if (props.daemonState !== undefined) return undefined;
+    const p = info()?.phase;
+    return p !== undefined && isConnectPhase(p) ? p : undefined;
   });
+  const copy = createMemo(() =>
+    props.daemonState !== undefined
+      ? null // kaval-restart: the fallback below renders the daemon-presentation label
+      : connectCanvasCopy(phase(), host()),
+  );
+  // The kaval-restart label — read from the daemon-presentation table at render, never baked
+  // into the CanvasMode. Empty when `daemonState` is undefined (that branch renders `copy()`
+  // instead, so the fallback below is only reached with a defined state).
+  const kavalLabel = () =>
+    props.daemonState !== undefined
+      ? DAEMON_STATE_PRESENTATION[props.daemonState].canvasLabel
+      : "";
 
   // Elapsed since THIS host's current provisioning episode began. The SESSION owns the
   // truth: the server ships `sinceMs` — the episode duration on its single clock, reset
@@ -90,15 +100,15 @@ export function ConnectCanvas(props: {
     <Show
       when={copy()}
       fallback={
-        // kaval-restart warming (or a not-yet-classified frame): the neutral label,
-        // byte-identical to the pre-W6 surface (the `daemon-warming` testid + the
-        // `data-daemon-state` attribute the presentation tests read).
+        // kaval-restart warming (`daemonState` defined): the neutral label from the daemon-
+        // presentation table, byte-identical to the pre-W6 surface (the `daemon-warming`
+        // testid + the `data-daemon-state` attribute the presentation tests read).
         <div
           data-testid="daemon-warming"
           data-daemon-state={props.daemonState}
           class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
         >
-          {props.label}
+          {kavalLabel()}
         </div>
       }
     >

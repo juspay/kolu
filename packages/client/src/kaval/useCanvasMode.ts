@@ -33,7 +33,6 @@ import {
   downState,
   isActiveHostLocal,
   localDaemonStatus,
-  warmingCanvasLabel,
 } from "./useDaemonStatus";
 
 export type { CanvasMode } from "./canvasModeResolver";
@@ -76,12 +75,7 @@ export function canvasMode(deps: {
   let facts: CanvasFacts;
   switch (state.kind) {
     case "warming":
-      facts = {
-        ...liveness,
-        entry: "warming",
-        warmingLabel: warmingCanvasLabel(),
-        connectPhase,
-      };
+      facts = { ...liveness, entry: "warming", connectPhase };
       break;
     case "failed":
       facts = {
@@ -100,7 +94,6 @@ export function canvasMode(deps: {
         entry: "connected",
         down: downState(),
         warming: daemonWarming(),
-        warmingLabel: warmingCanvasLabel(),
         daemonState: localDaemonStatus()?.state,
         terminalCount: deps.terminalCount(),
         recordsAwaited: deps.recordsAwaited(),

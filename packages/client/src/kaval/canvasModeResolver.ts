@@ -40,7 +40,11 @@ export type CanvasMode =
   | { kind: "connecting" }
   | { kind: "down"; state: "dead" | "degraded" }
   | { kind: "host-failed"; cause: EntryFailedCause; reason: string }
-  | { kind: "warming"; label: string; daemonState: DaemonState | undefined }
+  // NO presentation string: the warming surface's copy is derived at RENDER (ConnectCanvas —
+  // the connection-cell phase via the ONE copy authority, or the kaval-restart label from the
+  // daemon-presentation table keyed on `daemonState`). With no string field on any mode arm, a
+  // resolver baking copy is a TYPE error — the four-duplicate-literal flicker is unspellable.
+  | { kind: "warming"; daemonState: DaemonState | undefined }
   | { kind: "empty" }
   | { kind: "workspace" };
 
@@ -96,7 +100,6 @@ export type CanvasFacts =
        *  (a remote's ssh dial + nix copy + build), NOT the kaval daemon restarting
        *  (that is a CONNECTED-arm fact). Carries `connectPhase` via {@link NotYetConnectedFacts}. */
       entry: "warming";
-      warmingLabel: string;
     })
   | (EntryLivenessFacts & {
       /** The active entry `failed` — an ssh dial/handshake or contract-level fault
@@ -118,7 +121,6 @@ export type CanvasFacts =
       entry: "connected";
       down: "dead" | "degraded" | undefined;
       warming: boolean;
-      warmingLabel: string;
       daemonState: DaemonState | undefined;
       terminalCount: number;
       /** How many listed terminals' composed records have NOT arrived yet (the
@@ -169,9 +171,9 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
       if (bindingUp) {
         return facts.pendingTimedOut && facts.isLocalHost
           ? { kind: "down", state: "dead" }
-          : // `label` is vestigial on the binding-up path — `ConnectCanvas` narrates off the
-            // connection cell (daemonState `undefined`), ignoring it — so a neutral constant.
-            { kind: "warming", label: "Connecting…", daemonState: undefined };
+          : // No copy baked here — `ConnectCanvas` narrates off the connection cell (its
+            // phase → the ONE copy authority), so the mode carries only `daemonState`.
+            { kind: "warming", daemonState: undefined };
       }
       // The residual boot gate — pre-first-frame (`connectPhase` still `undefined`) or a
       // non-binding-up phase: neutral "Connecting…" until both the session cell AND the
@@ -188,7 +190,7 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
       // yet); `not-a-member` holds neutral `connecting` (never a stale claim about a
       // non-member).
       return facts.entry === "warming"
-        ? { kind: "warming", label: facts.warmingLabel, daemonState: undefined }
+        ? { kind: "warming", daemonState: undefined }
         : { kind: "connecting" };
     }
 
@@ -207,11 +209,7 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
       // arms over a dead channel.
       if (facts.down) return { kind: "down", state: facts.down };
       if (facts.warming)
-        return {
-          kind: "warming",
-          label: facts.warmingLabel,
-          daemonState: facts.daemonState,
-        };
+        return { kind: "warming", daemonState: facts.daemonState };
       // Terminals on screen → show them. Otherwise "no terminals" is unconfirmable over a
       // dead channel: show `empty` only when the CHANNEL is LIVE, else neutral connecting.
       if (facts.terminalCount > 0) return { kind: "workspace" };

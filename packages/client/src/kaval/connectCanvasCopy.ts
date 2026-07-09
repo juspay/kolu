@@ -25,17 +25,26 @@ export interface ConnectCopy {
   showProgress: boolean;
 }
 
-/** Map a narratable phase + host to its overlay copy. Total over {@link ConnectPhase}. */
+/** Map a narratable phase — or the pre-frame/gap `undefined` — + host to its overlay copy.
+ *  The ONE copy authority for every not-yet-connected canvas render. Total over
+ *  {@link ConnectPhase} PLUS `undefined`: the gap is where no connect phase is known yet — the
+ *  connection-cell subscription is still pending, C' floored a stale cell, or a
+ *  `connected`/down phase narrowed out at the facts boundary. The gap returns the SAME
+ *  "Connecting to <host>…" copy as `probing`/`connecting`, so a routing flap between the
+ *  boot-gate `connecting` mode and the `warming` overlay produces IDENTICAL pixels — the
+ *  flicker srid saw dies WITHOUT hiding the state machine (a real `copying`/`building` still
+ *  narrates its distinct copy + tail). */
 export function connectCanvasCopy(
-  phase: ConnectPhase,
+  phase: ConnectPhase | undefined,
   host: string,
 ): ConnectCopy {
   switch (phase) {
+    // The gap + the two calm phases collapse to ONE copy: the arch probe / post-provision
+    // handshake / "nothing known yet" — nothing is being shipped, so no tail + no elapsed
+    // timer that would read as a stalled build.
+    case undefined:
     case "probing":
-      // The OPENING phase — the ssh arch probe + the warm "is it already here?"
-      // check, before any copy exists (and, on a WARM host, the whole story). Calm
-      // and progress-less, like `connecting`: nothing is being shipped, so no tail
-      // + no elapsed timer that would read as a stalled build.
+    case "connecting":
       return { title: `Connecting to ${host}…`, showProgress: false };
     case "copying":
       return {
@@ -47,8 +56,6 @@ export function connectCanvasCopy(
         title: `Building on ${host}… this can take a few minutes`,
         showProgress: true,
       };
-    case "connecting":
-      return { title: `Connecting to ${host}…`, showProgress: false };
   }
 }
 

@@ -38,7 +38,6 @@ const connected: CanvasFacts = {
   entry: "connected",
   down: undefined,
   warming: false,
-  warmingLabel: "Connecting…",
   daemonState,
   terminalCount: 1,
   recordsAwaited: 0,
@@ -55,7 +54,6 @@ const connectedWithPhase: CanvasFacts = {
   entry: "connected",
   down: undefined,
   warming: false,
-  warmingLabel: "Connecting…",
   daemonState,
   terminalCount: 1,
   recordsAwaited: 0,
@@ -73,7 +71,6 @@ const connectedArm: Extract<CanvasFacts, { entry: "connected" }> = {
   entry: "connected",
   down: undefined,
   warming: false,
-  warmingLabel: "Connecting…",
   daemonState,
   terminalCount: 1,
   recordsAwaited: 0,
@@ -82,11 +79,11 @@ const connectedArm: Extract<CanvasFacts, { entry: "connected" }> = {
 // @ts-expect-error — `connectPhase` does not exist on the connected arm.
 void connectedArm.connectPhase;
 
-// The `warming` arm carries the label + `connectPhase` + liveness facts, NO kaval facts.
+// The `warming` arm carries `connectPhase` + liveness facts, NO kaval facts (and no
+// presentation string — the warming mode's copy is derived at render).
 const warming: CanvasFacts = {
   ...liveness,
   entry: "warming",
-  warmingLabel: "Connecting…",
   connectPhase: "building",
   // @ts-expect-error — `daemonState` is a CONNECTED-arm-only kaval fact; a warming
   // host's re-served daemonStatus is stale, so the type makes it unspellable here.
@@ -102,7 +99,6 @@ void (warming.entry === "warming" ? warming.connectPhase : undefined);
 const warmingBadPhase: CanvasFacts = {
   ...liveness,
   entry: "warming",
-  warmingLabel: "Connecting…",
   // @ts-expect-error — `"banana"` is not a `ConnectPhase`, so it can't be a connectPhase.
   connectPhase: "banana",
 };
@@ -114,7 +110,6 @@ void warmingBadPhase;
 const warmingConnectedPhase: CanvasFacts = {
   ...liveness,
   entry: "warming",
-  warmingLabel: "Connecting…",
   // @ts-expect-error — `"connected"` is excluded from `ConnectPhase` (the narrated subset).
   connectPhase: "connected",
 };
@@ -147,7 +142,6 @@ void failedArm.daemonState;
 const warmingArm: Extract<CanvasFacts, { entry: "warming" }> = {
   ...liveness,
   entry: "warming",
-  warmingLabel: "Connecting…",
   connectPhase: undefined,
 };
 // @ts-expect-error — `terminalCount` does not exist on the `warming` arm.

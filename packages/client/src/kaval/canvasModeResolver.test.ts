@@ -31,7 +31,6 @@ function connected(
     entry: "connected",
     down: undefined,
     warming: false,
-    warmingLabel: "Connecting…",
     daemonState: "connected",
     terminalCount: 1,
     recordsAwaited: 0,
@@ -108,7 +107,6 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
       resolveCanvasMode({
         ...liveness,
         entry: "warming",
-        warmingLabel: "Connecting…",
         connectPhase: "copying",
         daemonPending: true,
         pendingTimedOut: true,
@@ -116,7 +114,6 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
       }),
     ).toEqual({
       kind: "warming",
-      label: "Connecting…",
       daemonState: undefined,
     });
   });
@@ -129,7 +126,6 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
       resolveCanvasMode({
         ...liveness,
         entry: "warming",
-        warmingLabel: "Connecting…",
         connectPhase: "connecting",
         daemonPending: true,
         pendingTimedOut: true,
@@ -154,19 +150,18 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
       kind: "empty",
     });
     // The cell flipped to `connected` but EntryStatus still says `warming` → the overlay does
-    // NOT show; the warming label shows. `connectPhase` is typed `ConnectPhase`, so a
-    // `connected` cell phase is UNCONSTRUCTIBLE on this arm — `useCanvasMode` narrows it to
-    // `undefined` at the facts boundary, which is what the resolver sees (no overlay).
+    // NOT show; the neutral warming surface does (its copy derived at render). `connectPhase`
+    // is typed `ConnectPhase`, so a `connected` cell phase is UNCONSTRUCTIBLE on this arm —
+    // `useCanvasMode` narrows it to `undefined` at the facts boundary, which is what the
+    // resolver sees (no overlay). The mode carries no string — just `daemonState: undefined`.
     expect(
       resolveCanvasMode({
         ...liveness,
         entry: "warming",
-        warmingLabel: "Restarting kaval…",
         connectPhase: undefined,
       }),
     ).toEqual({
       kind: "warming",
-      label: "Restarting kaval…",
       daemonState: undefined,
     });
   });
@@ -218,12 +213,10 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
       resolveCanvasMode({
         ...liveness,
         entry: "warming",
-        warmingLabel: "Connecting…",
         connectPhase: undefined,
       }),
     ).toEqual({
       kind: "warming",
-      label: "Connecting…",
       daemonState: undefined,
     });
   });
@@ -281,25 +274,23 @@ describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
     ).toEqual({ kind: "down", state: "degraded" });
   });
 
-  it("warming beats empty and carries its label + daemonState payload", () => {
+  it("warming beats empty and carries its daemonState payload (copy is derived at render)", () => {
     const daemonState: DaemonState = "restarting";
     expect(
       resolveCanvasMode(
         connected({
           warming: true,
-          warmingLabel: "Restarting kaval…",
           daemonState,
           terminalCount: 0,
         }),
       ),
     ).toEqual({
       kind: "warming",
-      label: "Restarting kaval…",
       daemonState: "restarting",
     });
   });
 
-  it("warming preserves an undefined daemonState (pre-first-yield label)", () => {
+  it("warming preserves an undefined daemonState (pre-first-yield)", () => {
     expect(
       resolveCanvasMode(connected({ warming: true, daemonState: undefined })),
     ).toMatchObject({ kind: "warming", daemonState: undefined });

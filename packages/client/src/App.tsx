@@ -411,11 +411,12 @@ const App: Component = () => {
             fine-grainedly. Keep this as `<Switch>`. */}
         <Switch>
           <Match when={mode().kind === "connecting"}>
-            {/* Neutral connecting state until BOTH the session cell AND the
-                daemon-status stream have produced their first value. */}
-            <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
-              Connecting...
-            </div>
+            {/* Neutral connecting state until BOTH the session cell AND the daemon-status
+                stream have produced their first value. Funnels through `ConnectCanvas` (the
+                ONE not-yet-connected renderer) with no `daemonState` — so it shows the SAME
+                "Connecting to <host>…" copy as the `warming` overlay's gap/probing case, and a
+                routing flap between the two modes produces identical pixels (no flicker). */}
+            <ConnectCanvas daemonState={undefined} />
           </Match>
           <Match when={downMode()}>
             {(m) => <DegradedCanvas state={m().state} />}
@@ -431,9 +432,7 @@ const App: Component = () => {
                 provision off the connection cell (copying → building, live log tail +
                 elapsed) instead of a mute "Connecting…"; a kaval-restart warming
                 (daemonState defined) keeps the neutral label. */}
-            {(m) => (
-              <ConnectCanvas label={m().label} daemonState={m().daemonState} />
-            )}
+            {(m) => <ConnectCanvas daemonState={m().daemonState} />}
           </Match>
           <Match when={mode().kind === "empty"}>
             {/* biome-ignore lint/a11y/noStaticElementInteractions: the zero-terminal canvas surface is the same pointer-driven canvas widget as TerminalCanvas (which lives in biome's spatial-mouse-canvas a11y override) — double-click-to-create's keyboard equivalent is the ⌘K/⌘T palette it opens, so role/tabIndex/fake onKeyDown would claim a11y it doesn't deliver. Scoped inline because App.tsx is the composition root, not a dedicated canvas file that warrants a file-wide override. */}
