@@ -302,6 +302,121 @@ dir that's wiped on every boot. The port is config; the folder is the daemon.
   never sends it over the wire — so two ways into one machine can't split its
   terminals across two daemons.
 
+## Talking over the wire
+
+Everything the browser does flows over a **single WebSocket** (`/rpc/ws`) via
+[oRPC](https://orpc.dev/). The contract lives in one package both sides share, so
+calls are type-checked at compile time and their payloads validated by
+[Zod](https://zod.dev/) at runtime. Two patterns cover all of it:
+
+<div class="doc-scroll">
+
+| Pattern | Semantics | Used for |
+| --- | --- | --- |
+| **Request / response** | a one-shot call you await | create a terminal, kill one, restart a daemon, add a host |
+| **Subscription** | the server pushes values over the socket as a stream | the terminal list, per-terminal metadata, server state |
+
+</div>
+
+A subscription becomes a fine-grained SolidJS signal on the client, so a single
+row changing repaints only that row. The shell CLIs are the one exception to the
+websocket: [`kaval-tui`](/kaval) and [`padi-tui`](/padi) reach their daemon over
+its **local unix socket** — same oRPC framing, a different transport.
+
+<Aside type="caution" title="The RPC surface is unauthenticated — so origin is gated">
+  Loopback binding doesn't defend the socket: an attacker's page runs in your own
+  browser. So a <strong>same-origin gate</strong> runs before oRPC on both
+  browser-reachable paths — it rejects a cross-site <code>Origin</code> at the
+  websocket upgrade and 403s a cross-site HTTP call. A reverse proxy or
+  <code>tailscale serve</code> front-end, whose origin differs from the forwarded
+  host, is allowlisted with <code>KOLU_ALLOWED_ORIGINS</code>.
+</Aside>
+
+## Two loops of data flow
+
+Two loops drive the system, both over that one websocket. The **terminal I/O
+loop** is the hot path — your keystrokes and the screen. The **metadata loop** is
+side-channel enrichment — the git, PR, and agent state that light up the dock.
+
+<figure class="doc-figure">
+  <svg viewBox="0 0 720 168" role="img" aria-labelledby="ax-flow-title">
+    <title id="ax-flow-title">Two data-flow loops across the four layers. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval's VT taps feed padi's sensors, which derive git, PR, and agent state and push it to the client.</title>
+    <defs>
+      <marker id="ax-flow-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
+      </marker>
+    </defs>
+
+    <text x="360" y="20" text-anchor="middle" class="ax-d-cap">TERMINAL I/O — keystrokes ⇄ screen</text>
+
+    <rect x="12" y="34" width="150" height="56" rx="10" class="ax-d-box"></rect>
+    <text x="87" y="58" text-anchor="middle" class="ax-d-label2">client</text>
+    <text x="87" y="77" text-anchor="middle" class="ax-d-sub">xterm.js</text>
+
+    <rect x="196" y="34" width="150" height="56" rx="10" class="ax-d-box"></rect>
+    <text x="271" y="58" text-anchor="middle" class="ax-d-label2">kolu-server</text>
+    <text x="271" y="77" text-anchor="middle" class="ax-d-sub">web shell</text>
+
+    <rect x="380" y="34" width="150" height="56" rx="10" class="ax-d-daemon"></rect>
+    <text x="455" y="58" text-anchor="middle" class="ax-d-daemon-label2">padi</text>
+    <text x="455" y="77" text-anchor="middle" class="ax-d-sub">sensors · fold</text>
+
+    <rect x="564" y="34" width="144" height="56" rx="10" class="ax-d-daemon"></rect>
+    <text x="636" y="58" text-anchor="middle" class="ax-d-daemon-label2">kaval</text>
+    <text x="636" y="77" text-anchor="middle" class="ax-d-sub">the PTY</text>
+
+    <path d="M162,54 H196" class="ax-d-flow" marker-start="url(#ax-flow-arrow)" marker-end="url(#ax-flow-arrow)"></path>
+    <path d="M346,54 H380" class="ax-d-flow" marker-start="url(#ax-flow-arrow)" marker-end="url(#ax-flow-arrow)"></path>
+    <path d="M530,54 H564" class="ax-d-flow" marker-start="url(#ax-flow-arrow)" marker-end="url(#ax-flow-arrow)"></path>
+
+    <path d="M636,90 V128 H87 V96" class="ax-d-socket" marker-end="url(#ax-flow-arrow)"></path>
+    <text x="360" y="150" text-anchor="middle" class="ax-d-tlabel">metadata — VT taps → git · PR · agent state (side channel)</text>
+  </svg>
+</figure>
+
+**Terminal I/O** (solid) — a keystroke goes over `sendInput` to the PTY that
+[kaval](/kaval) owns; kolu-server proxies the browser's socket to [padi](/padi),
+which drives kaval. Shell output flows back as an **attach stream** — a screen-state
+snapshot followed by live deltas, partitioned so nothing is lost or double-painted.
+kaval's headless mirror parses the VT sequences server-side, so a late-joining
+client gets ~4 KB of serialized screen state instead of replaying the raw buffer.
+
+**Metadata** (dashed) — every per-terminal sensor lives in padi's awareness
+producer. A CWD change (OSC 7) wakes the git sensor (branch, remote), which wakes
+the PR sensor (open PR + CI checks); agent detection tails each agent's session
+store. padi **folds** those observations into each terminal's record and serves it
+on one collection the client reads directly — no client-side join. Adding a new
+agent is one adapter here; adding a new forge is one adapter here. See
+[Agent detection](/agent-detection) for the agent half.
+
+## The packages
+
+kolu is a pnpm monorepo. The volatility boundaries — which hard problem each piece
+hides — decide where code lives, so a capability that hides transport, or GPU
+context, or persistence is its own package with the dependency arrow pointing
+_out_. The map, grouped:
+
+- **Faces** — `client` (SolidJS + xterm.js + Tailwind) and `server` (the Hono web
+  shell that serves the SPA, the preview route, and the websocket, and binds padi).
+- **Daemons** — [`padi`](/padi) (the per-host workspace daemon that owns the
+  terminal domain and serves `padiSurface`) and [`kaval`](/kaval) (the standalone
+  PTY daemon). Each ships a thin shell CLI — `padi-tui`, `kaval-tui`.
+- **The framework** — [`surface`](/surface) (typed reactive `Cell` / `Collection`
+  / `Stream` / `Event` + SolidJS hooks), `surface-remote` (the ssh mirror),
+  `surface-daemon` (the durable-daemon spine), and its supervisor half.
+- **Agent & forge integrations** — one leaf each for `claude-code`, `codex`,
+  `grok`, `opencode`, plus the agent-agnostic `anyagent` contract; `github` behind
+  the forge-agnostic `anyforge` kernel; and `git` for pure git operations.
+- **Shared UI leaves** — `theme`, `solid-statepip` (the status indicator),
+  `solid-pierre` (file tree + diffs), `solid-markdown`, `solid-fileview`,
+  `solid-browser`, `serve-dir`, and `artifact-sdk` (comments-on-files). Several are
+  shared with a sibling app, [drishti](https://github.com/srid/drishti).
+- **Contracts & small leaves** — `common` (the oRPC contract), `terminal-vocab`,
+  `terminal-protocol`, `transcript-core` / `transcript-html`, and a set of
+  zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, …).
+
+<LinkCard title="The repo — juspay/kolu" href="https://github.com/juspay/kolu" description="every package, with its full README, in one tree" />
+
 ## Next — your `other` machines
 
 The same surface contract already runs over ssh: it's how
