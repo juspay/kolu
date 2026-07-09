@@ -114,6 +114,20 @@ const LocalHomeGlyph: Component<{ host: HostKey }> = (props) => (
   </Show>
 );
 
+/** A host's on-screen identity: its home glyph (local only) immediately before
+ *  its role word, glyph first. The single owner of the glyph+label pairing, so
+ *  every visual site renders the local house-and-word treatment identically and
+ *  a new render site can't silently split or drop it. `labelClass` styles the
+ *  label `<span>` (truncation/max-width vary per site). */
+const HostIdentityLabel: Component<{ host: HostKey; labelClass?: string }> = (
+  props,
+) => (
+  <>
+    <LocalHomeGlyph host={props.host} />
+    <span class={props.labelClass}>{hostLabel(props.host)}</span>
+  </>
+);
+
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Independent of the
  *  dual-daemon slot CSS — measurement is truth; this only avoids dumping
@@ -236,13 +250,13 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
             class={`host-hue-ring inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state())}`}
             aria-hidden="true"
           />
-          <LocalHomeGlyph host={props.host} />
           {/* Ellipsizes to a NARROWER max-width below `lg` (narrow-window stage
            *  2) — a pure CSS breakpoint, so it only ever moves on a window
            *  resize, never a host switch. */}
-          <span class="truncate max-w-[5rem] lg:max-w-[10rem] font-medium">
-            {hostLabel(props.host)}
-          </span>
+          <HostIdentityLabel
+            host={props.host}
+            labelClass="truncate max-w-[5rem] lg:max-w-[10rem] font-medium"
+          />
           {/* Urgency badge — the host's awaiting count, hidden at zero. */}
           <Show when={awaiting() > 0}>
             <span
@@ -337,8 +351,7 @@ const HostSwitcherRow: Component<{
             class="flex min-w-0 items-center gap-1.5 text-xs font-medium"
             classList={{ "text-fg": isActive(), "text-fg-2": !isActive() }}
           >
-            <LocalHomeGlyph host={host} />
-            <span class="truncate">{hostLabel(host)}</span>
+            <HostIdentityLabel host={host} labelClass="truncate" />
             <Show when={isActive()}>
               <span class="shrink-0 rounded-full border border-accent/45 bg-accent/15 px-1.5 text-[9px] font-semibold leading-4 text-accent">
                 active
@@ -513,10 +526,10 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
             class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(padiMap.entry(active()).state())}`}
             aria-hidden="true"
           />
-          <LocalHomeGlyph host={active()} />
-          <span class="truncate max-w-[5rem] font-medium">
-            {hostLabel(active())}
-          </span>
+          <HostIdentityLabel
+            host={active()}
+            labelClass="truncate max-w-[5rem] font-medium"
+          />
           <span aria-hidden="true" class="text-fg-3">
             ▾
           </span>
