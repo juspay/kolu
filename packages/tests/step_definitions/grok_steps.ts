@@ -63,19 +63,35 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
 async function startFakeAgent(world: KoluWorld): Promise<number> {
   const bin = process.env.KOLU_FAKE_GROK_BIN;
   if (!bin) throw new Error("KOLU_FAKE_GROK_BIN must be set");
-  const marker = `GROK_PID_`;
   // Compound command keeps bash resident as foreground with comm="grok".
   // Echo $$ so the step can write active_sessions.json with the real pid.
   // The -c payload is SINGLE-quoted so the interactive shell does not expand
   // $$; the fake-grok bash expands it to its own pid (matchesAgent basename).
+  //
+  // Wait for GROK_PID=<digits> — NOT the bare prefix — so the typed command
+  // line (`…$$…`) cannot satisfy the poll before the process prints its pid.
   await world.page.keyboard.type(
-    `${bin} -c 'echo ${marker}$$; printf "\\033]0;grok\\007"; sleep 99999 ; :'`,
+    `${bin} -c 'echo GROK_PID=$$; printf "\\033]0;grok\\007"; sleep 99999 ; :'`,
   );
   await world.page.keyboard.press("Enter");
-  const buf = await waitForBufferContains(world.page, marker);
-  const m = new RegExp(`${marker}(\\d+)`).exec(buf);
-  if (!m?.[1]) throw new Error(`Failed to parse grok pid from buffer: ${buf}`);
-  return Number.parseInt(m[1], 10);
+  const pidRe = /GROK_PID=(\d+)/;
+  let pid: number | null = null;
+  await pollFor({
+    observe: () => readBufferText(world.page, ACTIVE_TERMINAL),
+    isDone: (buf) => {
+      const m = pidRe.exec(buf ?? "");
+      if (!m?.[1]) return false;
+      pid = Number.parseInt(m[1], 10);
+      return Number.isFinite(pid);
+    },
+    onTimeout: (last, ms) =>
+      new Error(
+        `Failed to parse grok pid from buffer after ${ms}ms: ${last ?? ""}`,
+      ),
+    timeoutMs: POLL_TIMEOUT,
+  });
+  if (pid === null) throw new Error("grok pid poll succeeded without a pid");
+  return pid;
 }
 
 async function mockGrokSession(
