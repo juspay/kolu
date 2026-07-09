@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-08T20:45:10.966081+00:00'
+generated_at: '2026-07-09T20:25:03.992094+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agents
@@ -29,6 +29,8 @@ dependencies:
   - .agents/skills/lens-debate
   - .agents/skills/lens-debate/SKILL.md
   - .agents/skills/lens-debate/debate.workflow.js
+  - .agents/skills/orchestrator
+  - .agents/skills/orchestrator/SKILL.md
   - .agents/skills/perfection-review
   - .agents/skills/perfection-review/SKILL.md
   - .agents/skills/surface
@@ -55,6 +57,8 @@ dependencies:
   - .claude/skills/lens-debate
   - .claude/skills/lens-debate/SKILL.md
   - .claude/skills/lens-debate/debate.workflow.js
+  - .claude/skills/orchestrator
+  - .claude/skills/orchestrator/SKILL.md
   - .claude/skills/perfection-review
   - .claude/skills/perfection-review/SKILL.md
   - .claude/skills/surface
@@ -75,6 +79,7 @@ dependencies:
     .agents/skills/kolu/SKILL.md: sha256:943bb2816bf9feb5b88cb5e461cfe2fa4aceedc60b81585d284342dd3865a160
     .agents/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .agents/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
+    .agents/skills/orchestrator/SKILL.md: sha256:cb0c26db0a96a782828c4b0c0bab439611724b2fd178ad7f448efd1121053836
     .agents/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .agents/skills/surface/SKILL.md: sha256:407652ca44fc119dba06be3816009eaa4331189f9bf3807c6b65e95f95b0cbad
     .claude/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
@@ -92,6 +97,7 @@ dependencies:
     .claude/skills/kolu/SKILL.md: sha256:943bb2816bf9feb5b88cb5e461cfe2fa4aceedc60b81585d284342dd3865a160
     .claude/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .claude/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
+    .claude/skills/orchestrator/SKILL.md: sha256:cb0c26db0a96a782828c4b0c0bab439611724b2fd178ad7f448efd1121053836
     .claude/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .claude/skills/surface/SKILL.md: sha256:407652ca44fc119dba06be3816009eaa4331189f9bf3807c6b65e95f95b0cbad
   source: local
