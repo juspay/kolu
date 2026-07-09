@@ -363,10 +363,13 @@ test-quick *args: install
     KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec "$PWD/packages/server/node_modules/.bin/tsx" "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
+    # Launch via `node --import` (same shape as the nix-built wrapper), NOT the
+    # `tsx` CLI: tsx spawns a worker process, so process.pid ≠ foreground pgid
+    # and Grok's active_sessions pid match fails (codex/opencode match on cwd).
     for kind in claude codex opencode grok; do
         cat > "$mock_bin/$kind" <<SCRIPT
     #!/bin/sh
-    exec "$PWD/packages/mock-agent/node_modules/.bin/tsx" "$PWD/packages/mock-agent/src/bin.ts" "$kind" "\$@"
+    exec node --import "$PWD/packages/mock-agent/node_modules/tsx/dist/loader.mjs" "$PWD/packages/mock-agent/src/bin.ts" "$kind" "\$@"
     SCRIPT
         chmod +x "$mock_bin/$kind"
     done

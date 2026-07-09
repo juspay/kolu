@@ -14,6 +14,7 @@
 
 import {
   mkdirSync,
+  readFileSync,
   rmSync,
   unlinkSync,
   utimesSync,
@@ -26,6 +27,34 @@ import type { AgentState, MockKind, StateOpts } from "./protocol.ts";
 /** Fixed uuidv7-shaped id so summary/startedAt paths stay deterministic across
  *  scenarios (and match the shape real Grok emits). */
 const SESSION_ID = "00000000-0000-7000-8000-000000000001";
+
+/**
+ * Pid the product matches against `active_sessions.json`.
+ *
+ * node-pty's `foregroundPid` is the foreground process-group id
+ * (`tcgetpgrp`) — equal to the group leader's pid. A real Grok binary is
+ * that leader, so `process.pid` is correct. The e2e `tsx` CLI, however,
+ * spawns a worker for the script: the leader is the tsx/node process and
+ * `process.pid` is the worker — writing the worker pid leaves resolveGrokSession
+ * stuck on "known pid, no map row". Prefer the process-group id from
+ * `/proc/self/stat` (Linux); fall back to `process.pid` elsewhere.
+ */
+function matchPid(): number {
+  try {
+    const stat = readFileSync("/proc/self/stat", "utf8");
+    // Format: pid (comm) state ppid pgrp … — comm is parenthesized and may
+    // contain spaces, so split only after the last ") ".
+    const endComm = stat.lastIndexOf(") ");
+    if (endComm !== -1) {
+      // After ") ": [state, ppid, pgrp, …]
+      const pgrp = Number(stat.slice(endComm + 2).split(" ")[2]);
+      if (Number.isFinite(pgrp) && pgrp > 0) return pgrp;
+    }
+  } catch {
+    /* non-linux / restricted /proc */
+  }
+  return process.pid;
+}
 
 function buildEvents(state: AgentState): string {
   const lines: object[] = [
@@ -164,7 +193,7 @@ export class GrokAgent implements MockKind {
         : JSON.stringify([
             {
               session_id: this.sessionId,
-              pid: process.pid,
+              pid: matchPid(),
               cwd: this.cwd,
               opened_at: "2026-07-09T15:00:00.000Z",
             },
