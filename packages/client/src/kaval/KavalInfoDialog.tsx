@@ -33,7 +33,6 @@ import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
-  daemonChannelLive,
   formatUptime,
   kavalDot,
 } from "./useDaemonStatus";
@@ -109,16 +108,17 @@ const KavalInfoDialog: Component<{
   triggerRef: () => HTMLElement | undefined;
   /** Host this panel describes — shown under the title so the anchor is obvious. */
   hostLabel: string;
+  /** Channel liveness for THIS host's status (not necessarily the canvas active host). */
+  live: boolean;
+  /** When true, this host is the canvas active host — restart / inventory apply. */
+  manage: boolean;
 }> = (props) => {
   const clockNow = getClockNow();
-  // The client's own honest presence sum (P4 — retires the "unknown"/"—" escape hatch):
-  // `identity` is MANDATORY on the `connected` arm, so a render can never show a
-  // synthesized dash beside a confirmed-connected kaval. Floored on `daemonChannelLive`
-  // exactly like the dot/label below — a dead/half-open channel folds to `warming`, never
-  // a stale `connected` claim over a frozen identity. See `daemonPresentation.ts`'s
-  // `toKavalPresence` + its `@ts-expect-error` pin in `daemonPresentation.test.ts`.
+  // Floored on props.live (this host's channel), not the canvas active host's
+  // daemonChannelLive — so a panel opened on an inactive host still paints that
+  // host honestly without switching the canvas.
   const presence = createMemo<KavalPresence>(() =>
-    toKavalPresence(props.status, daemonChannelLive()),
+    toKavalPresence(props.status, props.live),
   );
   const connected = ():
     | Extract<KavalPresence, { kind: "connected" }>
@@ -131,14 +131,11 @@ const KavalInfoDialog: Component<{
       expectedKaval()?.staleKey,
       props.status?.identity?.staleKey,
       props.status?.state,
-      daemonChannelLive(),
+      props.live,
     );
-  // The bound host's active kaval is still at the pre-padi legacy address (adopted on
-  // upgrade) — so the Restart-kaval button (which recycles the BOUND host's kaval via
-  // padiSurface) is the MANUAL way to converge it onto the padi address now (a reboot
-  // converges it automatically). The hint appears only while there's something to
-  // converge.
+  // Restart/inventory only when this host is the canvas host (`manage`).
   const convergePending = (): boolean =>
+    props.manage &&
     boundHostKavals().some((k) => k.held.active && k.held.atLegacyAddress);
 
   return (
@@ -177,10 +174,10 @@ const KavalInfoDialog: Component<{
           {(s) => (
             <div class="flex min-w-0 items-center gap-2">
               <span
-                class={`inline-block h-2 w-2 rounded-full ${kavalDot(s().state, daemonChannelLive())}`}
+                class={`inline-block h-2 w-2 rounded-full ${kavalDot(s().state, props.live)}`}
               />
               <Show
-                when={daemonChannelLive()}
+                when={props.live}
                 fallback={
                   <span class="text-xs font-medium text-fg-3">unknown</span>
                 }
@@ -189,7 +186,7 @@ const KavalInfoDialog: Component<{
                   {DAEMON_STATE_PRESENTATION[s().state].label}
                 </span>
               </Show>
-              <Show when={daemonChannelLive() && s().startedAt}>
+              <Show when={props.live && s().startedAt}>
                 {(t) => (
                   <span class="truncate text-[11px] tabular-nums text-fg-3">
                     up {formatUptime(clockNow() - t())}
@@ -267,38 +264,45 @@ const KavalInfoDialog: Component<{
         </div>
       </Show>
 
-      <div class="space-y-2">
-        <RestartKavalButton
-          status={props.status}
-          tone="neutral"
-          onConfirm={() => {
-            props.onOpenChange(false);
-            void restartDaemon();
-          }}
-        />
-        <p class="text-[11px] leading-relaxed text-fg-3">
-          Captures the session first, then offers restore on the fresh daemon.
-        </p>
-        <Show when={convergePending()}>
+      <Show
+        when={props.manage}
+        fallback={
           <p class="text-[11px] leading-relaxed text-fg-3">
-            Restart converges kaval to the padi address.
+            Switch to this host on the strip to restart kaval or inspect running
+            daemons.
           </p>
-        </Show>
-      </div>
+        }
+      >
+        <div class="space-y-2">
+          <RestartKavalButton
+            status={props.status}
+            tone="neutral"
+            onConfirm={() => {
+              props.onOpenChange(false);
+              void restartDaemon();
+            }}
+          />
+          <p class="text-[11px] leading-relaxed text-fg-3">
+            Captures the session first, then offers restore on the fresh daemon.
+          </p>
+          <Show when={convergePending()}>
+            <p class="text-[11px] leading-relaxed text-fg-3">
+              Restart converges kaval to the padi address.
+            </p>
+          </Show>
+        </div>
 
-      {/* The BOUND host's running kavals — active one badged, legacy/orphaned ones
-          flagged (a LEAKED post-upgrade kaval is diagnosable at a glance) — plus, under a
-          remote binding, a fenced scan of THIS machine. The section owns the heading,
-          live-gate, and fences; the kaval row is passed as `renderRow`. */}
-      <RunningDaemonsSection
-        noun="kaval"
-        testidPrefix="kaval"
-        boundHost={daemonScanBoundHost()}
-        live={boundHostInventoryLive()}
-        boundHostRows={boundHostKavals()}
-        localScanRows={localScanKavals()}
-        renderRow={(kaval) => <RunningKavalRow kaval={kaval} />}
-      />
+        {/* Running-daemons inventory is canvas-active-host scoped (manage). */}
+        <RunningDaemonsSection
+          noun="kaval"
+          testidPrefix="kaval"
+          boundHost={daemonScanBoundHost()}
+          live={boundHostInventoryLive()}
+          boundHostRows={boundHostKavals()}
+          localScanRows={localScanKavals()}
+          renderRow={(kaval) => <RunningKavalRow kaval={kaval} />}
+        />
+      </Show>
 
       <div class="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
         <div class="min-w-0">

@@ -50,7 +50,7 @@ import {
 import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
-import { activeHost, padiMap, setActiveHost } from "../wire";
+import { activeHost, padiMap } from "../wire";
 import { dotClass, sameHost, statusTitle } from "./hostChipTone";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
@@ -76,13 +76,9 @@ function hostLabel(h: HostKey): string {
   return h.kind === "local" ? "local" : h.target;
 }
 
-/** Switch to `host` if needed, then open the panel (body is active-scoped). */
-function activateThen(host: HostKey, open: (v: boolean) => void): void {
-  if (!sameHost(activeHost(), host)) setActiveHost(host);
-  open(true);
-}
-
-/** The Padi sub-chip for one host — icon + that host's entry-state dot. */
+/** The Padi sub-chip for one host — icon + that host's entry-state dot.
+ *  Click opens the info panel only; it never switches the canvas host (use
+ *  the host name on the chip for that). */
 const PadiSubChip: Component<{ host: HostKey }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl!: HTMLButtonElement;
@@ -90,6 +86,9 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
   const entry = (): EntryState => padiMap.entry(props.host).state();
   const entryLive = (): boolean =>
     channelLive(daemonLive(), entry().kind === "connected");
+  /** True when this chip is the canvas's active host — inventory/manage
+   *  actions in the panel require the active-host surface; glance status does not. */
+  const isCanvasHost = () => sameHost(activeHost(), props.host);
   // Per-host identity (version for the tip).
   const identity = padiMap.entry(props.host).cells.identity.use({
     onError: (err: Error) => toast.error(`Padi identity error: ${err.message}`),
@@ -134,7 +133,10 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
           type="button"
           ref={triggerEl}
           data-testid="padi-identity-chip"
-          onClick={() => activateThen(props.host, setOpen)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }}
           class={identityMarkBtnClass}
           aria-label={padiTip()}
           aria-expanded={open()}
@@ -151,12 +153,13 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
           </IdentityMark>
         </button>
       </Tip>
-      {/* Panel body is active-host scoped — only show while open on this host. */}
-      <Show when={open() && sameHost(activeHost(), props.host)}>
+      <Show when={open()}>
         <PadiInfoDialog
           open={open()}
           onOpenChange={setOpen}
           link={linkForDialog()}
+          live={entryLive()}
+          manage={isCanvasHost()}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
         />
@@ -165,7 +168,8 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
   );
 };
 
-/** The Kaval sub-chip for one host — icon + that host's daemon-state dot. */
+/** The Kaval sub-chip for one host — icon + that host's daemon-state dot.
+ *  Click opens the info panel only; never switches the canvas host. */
 const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl!: HTMLButtonElement;
@@ -174,6 +178,7 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   const entryConnected = (): boolean =>
     padiMap.entry(props.host).state().kind === "connected";
   const kavalLive = (): boolean => channelLive(daemonLive(), entryConnected());
+  const isCanvasHost = () => sameHost(activeHost(), props.host);
   // Each remote/local padi serves its kaval under the LOCAL location key
   // (that host's own "local" kaval — not the browser's host key).
   const daemonKey = encodeHostLocation(LOCAL_LOCATION);
@@ -233,7 +238,10 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
           type="button"
           ref={triggerEl}
           data-testid="kaval-identity-chip"
-          onClick={() => activateThen(props.host, setOpen)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }}
           class={identityMarkBtnClass}
           aria-label={kavalTip()}
           aria-expanded={open()}
@@ -248,11 +256,13 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
           </IdentityMark>
         </button>
       </Tip>
-      <Show when={open() && sameHost(activeHost(), props.host)}>
+      <Show when={open()}>
         <KavalInfoDialog
           open={open()}
           onOpenChange={setOpen}
           status={daemon()}
+          live={kavalLive()}
+          manage={isCanvasHost()}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
         />

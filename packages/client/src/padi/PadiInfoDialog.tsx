@@ -159,25 +159,21 @@ const PadiInfoDialog: Component<{
   triggerRef: () => HTMLElement | undefined;
   /** Host this panel describes — shown under the title so the anchor is obvious. */
   hostLabel: string;
+  /** Channel liveness for THIS host (not necessarily the canvas active host). */
+  live: boolean;
+  /** Canvas is viewing this host — inventory / active-host-only detail apply. */
+  manage: boolean;
 }> = (props) => {
   const clockNow = getClockNow();
-  // The client's own honest presence sum (P4 — retires the "unknown"/"—" escape hatch):
-  // `identity` is MANDATORY on the `connected` arm, so a render can never show a
-  // synthesized dash/"unknown" beside a confirmed-connected padi. Floored on
-  // `daemonTransportLive` exactly like the dot below — a dead/half-open ws, or the ACTIVE
-  // host's `identity` cell not having yielded its first frame yet, folds to `warming`,
-  // never a stale `connected` claim. `activePadiIdentity()` is the ACTIVE host's own
-  // per-host cell (W4 "the switch" — re-keys on `activeHost`, replacing the single
-  // legacy-bind `boundPadi.*` reads); its `commit` field being DECLARED `null` (a
-  // dev/off-nix build) is a legitimate `connected` identity, distinct from the cell
-  // itself being `undefined` (pending). See `padiPresentation.ts`'s `toPadiPresence` +
-  // its `@ts-expect-error` pin in `padiPresentation.test.ts`.
+  // Presence floors on props.live for THIS host. Identity/convergence are
+  // canvas-active-host facts — only fold them in when `manage` so an inactive
+  // host's panel never paints the wrong host's commit.
   const presence = createMemo<PadiPresence>(() =>
     toPadiPresence(
       props.link,
-      daemonTransportLive(),
-      activePadiIdentity(),
-      boundPadiConvergence(),
+      props.live,
+      props.manage ? activePadiIdentity() : undefined,
+      props.manage ? boundPadiConvergence() : null,
     ),
   );
   const connected = ():
@@ -222,7 +218,7 @@ const PadiInfoDialog: Component<{
         </Show>
         <div class="flex min-w-0 items-center gap-2">
           <span
-            class={`inline-block h-2 w-2 rounded-full ${padiDot(props.link, daemonTransportLive())}`}
+            class={`inline-block h-2 w-2 rounded-full ${padiDot(props.link, props.live)}`}
           />
           {/* The connection label is derived from `presence()` (P4): `connected` is
               reached ONLY once identity is confirmed (never a bare wire `"connected"`
@@ -266,72 +262,58 @@ const PadiInfoDialog: Component<{
         {/* A STANDING convergence anomaly (adopted-stale build / contract skew / drain- or
             link-failure) — surfaced as a visible banner so the user SEES a degraded bind,
             not just server logs. `adopted-stale` sits atop a live (connected) canvas. */}
-        <Show when={boundPadiConvergence()}>
+        <Show when={props.manage && boundPadiConvergence()}>
           {(conv) => <ConvergenceBanner conv={conv()} />}
         </Show>
       </div>
 
-      {/* Detail rows mirror the Kaval dialog's set + order: build commit, socket,
-          memory. padi's build commit is the RUNNING padi's OWN per-host `identity`
-          cell (the padi twin of kaval's `system.version` identity, W4 "the switch");
-          `<Commit>` renders it as the SAME navigable commit link the Kaval dialog
-          uses, or an honest "—" when unknown (#1034). */}
-      <div class="space-y-1">
-        <DetailRow label="build commit">
-          {/* Routed through `connected()` (P4): a confirmed-connected padi's identity
-              is present BY CONSTRUCTION (no `??`/ternary escape hatch to a synthesized
-              dash for the CELL-PENDING case — that state never reaches `connected` at
-              all, see `toPadiPresence`). `identity.buildCommit` is `string | null`: a
-              DECLARED `null` (padi's own dev/off-nix build has no commit) and a
-              non-connected/transport-dead padi's `undefined` both render "—" via
-              `<Commit>`'s own fallback — but only the former is a WIRE fact, the
-              latter is simply "no row to show". padi's `identity` cell works over ssh
-              too — no local active row under a remote binding. */}
-          <Commit sha={connected()?.identity.buildCommit ?? undefined} />
-        </DetailRow>
-        <DetailRow label="socket">
-          {/* Local bind → the padi's unix socket. Remote bind → the padi lives on the ssh
-              host, so its socket is a path THERE (not locally meaningful); name the host
-              instead of a misleading local "unavailable". */}
-          <Show
-            when={daemonScanBoundHost()}
-            fallback={
-              <span title={activePadi()?.socket}>
-                {activePadi()?.socket ?? "unavailable"}
-              </span>
-            }
-          >
-            {(host) => <span>ssh · {host()}</span>}
-          </Show>
-        </DetailRow>
-        <DetailRow label="memory">
-          {/* Same {@link padiMemoryDisplay} source the identity-rail chip reads (the
-              3-process `processMemory` cell — padi measures its own RSS), so the dialog
-              and the rail tooltip can't drift: `ok` → the RSS figure; `error` → an
-              honest poll-failure marker; `null` (stale link) → unavailable. */}
-          <span data-testid="padi-dialog-memory">
-            {match(padiMemoryDisplay())
-              .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))
-              .with({ kind: "error" }, () => "poll failed")
-              .with(P.nullish, () => "unavailable")
-              .exhaustive()}
-          </span>
-        </DetailRow>
-      </div>
+      <Show
+        when={props.manage}
+        fallback={
+          <p class="text-[11px] leading-relaxed text-fg-3">
+            Switch to this host on the strip for build/socket detail and running
+            daemons.
+          </p>
+        }
+      >
+        {/* Detail rows — canvas-active host only (identity/memory/inventory re-key). */}
+        <div class="space-y-1">
+          <DetailRow label="build commit">
+            <Commit sha={connected()?.identity.buildCommit ?? undefined} />
+          </DetailRow>
+          <DetailRow label="socket">
+            <Show
+              when={daemonScanBoundHost()}
+              fallback={
+                <span title={activePadi()?.socket}>
+                  {activePadi()?.socket ?? "unavailable"}
+                </span>
+              }
+            >
+              {(host) => <span>ssh · {host()}</span>}
+            </Show>
+          </DetailRow>
+          <DetailRow label="memory">
+            <span data-testid="padi-dialog-memory">
+              {match(padiMemoryDisplay())
+                .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))
+                .with({ kind: "error" }, () => "poll failed")
+                .with(P.nullish, () => "unavailable")
+                .exhaustive()}
+            </span>
+          </DetailRow>
+        </div>
 
-      {/* The BOUND host's running padis — active one badged — so a LEAKED second padi at
-          another state-root (the padi twin of the orphaned-kaval leak) is diagnosable at a
-          glance, plus, under a remote binding, a fenced scan of THIS machine. The section
-          owns the heading, live-gate, and fences; the padi row is passed as `renderRow`. */}
-      <RunningDaemonsSection
-        noun="padi"
-        testidPrefix="padi"
-        boundHost={daemonScanBoundHost()}
-        live={boundHostInventoryLive()}
-        boundHostRows={boundHostPadis()}
-        localScanRows={localScanPadis()}
-        renderRow={(padi) => <RunningPadiRow padi={padi} />}
-      />
+        <RunningDaemonsSection
+          noun="padi"
+          testidPrefix="padi"
+          boundHost={daemonScanBoundHost()}
+          live={boundHostInventoryLive()}
+          boundHostRows={boundHostPadis()}
+          localScanRows={localScanPadis()}
+          renderRow={(padi) => <RunningPadiRow padi={padi} />}
+        />
+      </Show>
     </InfoDialogShell>
   );
 };
