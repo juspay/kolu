@@ -19,10 +19,6 @@ const liveness = {
   daemonPending: false,
   pendingTimedOut: false,
   isLocalHost: true,
-  // The ACTIVE host's own connection-cell phase — the channel the connect overlay now
-  // routes on (W6 item 5). `undefined` = pre-first-frame; a per-test override drives the
-  // binding-up branch.
-  connectPhase: undefined as string | undefined,
 } as const;
 
 /** A fully "ready" CONNECTED-arm snapshot — one terminal — that resolves to
@@ -142,28 +138,23 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     ).toEqual({ kind: "down", state: "dead" });
   });
 
-  it("W6 item 5 — the connect overlay routes on the connection cell's phase, NOT EntryStatus (crossed frames can't lie)", () => {
-    // The bug: `resolveCanvasMode` routed off channel A (`entry` = coarse EntryStatus)
-    // while ConnectCanvas narrated off channel B (`connectPhase` = the connection cell),
-    // two independently-flushed subscriptions that disagree mid-transition. Fixed by
-    // routing BOTH off `connectPhase`.
-    // (a) EntryStatus already flipped to `connected` but the cell still says `copying`
-    //     → the overlay STILL shows (routes on the cell), no premature blank.
-    expect(
-      resolveCanvasMode(
-        connected({
-          connectPhase: "copying",
-          warming: false,
-          terminalCount: 5,
-        }),
-      ),
-    ).toEqual({
-      kind: "warming",
-      label: "Connecting…",
-      daemonState: undefined,
+  it("A' — a CONNECTED entry can NEVER show the connect overlay (the green-chip / Building-forever trap is unspellable)", () => {
+    // THE LIVE BUG (srid, deployed 5ec5347): EntryStatus `connected` (green chip) while the
+    // lagging/stale connection cell still read `building` routed the canvas to ConnectCanvas
+    // FOREVER — the connected arm's workspace path was structurally unreachable. A' removes
+    // `connectPhase` from the connected arm entirely, so a connected host with terminals
+    // resolves straight to the workspace; the contradiction is a TYPE error, not a runtime
+    // tie (pinned in `canvasModeResolver.test-d.ts`). The connect overlay routes off the cell
+    // ONLY while the entry itself is pre-connected (the warming/not-a-member arms below).
+    expect(resolveCanvasMode(connected({ terminalCount: 5 }))).toEqual({
+      kind: "workspace",
     });
-    // (b) The cell flipped to `connected` but EntryStatus still says `warming` → the
-    //     overlay does NOT show (routes on the cell); the warming arm's label doesn't flash.
+    // A connected-but-idle host still reaches `empty`, never a trapped overlay.
+    expect(resolveCanvasMode(connected({ terminalCount: 0 }))).toEqual({
+      kind: "empty",
+    });
+    // The cell flipped to `connected` but EntryStatus still says `warming` → the overlay does
+    // NOT show (connectPhase `connected` is not a connect phase); the warming label shows.
     expect(
       resolveCanvasMode({
         ...liveness,
@@ -226,6 +217,7 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
         ...liveness,
         entry: "warming",
         warmingLabel: "Connecting…",
+        connectPhase: undefined,
       }),
     ).toEqual({
       kind: "warming",
@@ -259,7 +251,13 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
   });
 
   it("a not-a-member entry (mid host-switch) holds the neutral connecting surface", () => {
-    expect(resolveCanvasMode({ ...liveness, entry: "not-a-member" })).toEqual({
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "not-a-member",
+        connectPhase: undefined,
+      }),
+    ).toEqual({
       kind: "connecting",
     });
   });

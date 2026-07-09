@@ -54,10 +54,14 @@ export function canvasMode(deps: {
     daemonPending: daemonStatusPending(),
     pendingTimedOut: daemonStatusPendingTimedOut(),
     isLocalHost: isActiveHostLocal(),
-    // The ACTIVE host's OWN connection-cell phase — the SAME channel `ConnectCanvas`
-    // narrates off, so the connect-overlay routing reads it too (no cross-channel skew).
-    connectPhase: connectionInfo()?.phase,
   };
+  // The ACTIVE host's OWN connection-cell phase — the SAME channel `ConnectCanvas`
+  // narrates off, so the connect-overlay routing reads it too (no cross-channel skew). Fed
+  // ONLY into the not-yet-connected arms (warming/not-a-member): the `connected` arm carries
+  // no `connectPhase`, so a stale/lagging cell can never route the overlay over a connected
+  // host (A'). `connectionInfo()` is floored on the map's transport liveness (C'), so a
+  // stale cell already demotes before it reaches here.
+  const connectPhase = connectionInfo()?.phase;
   // The active entry's connection state is the discriminant. A non-`connected`
   // host's re-served daemonStatus is frozen stale, so the kaval-derived facts are
   // gathered ONLY on the `connected` arm.
@@ -69,6 +73,7 @@ export function canvasMode(deps: {
         ...liveness,
         entry: "warming",
         warmingLabel: warmingCanvasLabel(),
+        connectPhase,
       };
       break;
     case "failed":
@@ -80,7 +85,7 @@ export function canvasMode(deps: {
       };
       break;
     case "not-a-member":
-      facts = { ...liveness, entry: "not-a-member" };
+      facts = { ...liveness, entry: "not-a-member", connectPhase };
       break;
     case "connected":
       facts = {

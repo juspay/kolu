@@ -1,16 +1,18 @@
 /**
- * TYPE-LEVEL pin — the Skew-UX CanvasFacts decision: the kaval-derived facts are
- * structurally reachable ONLY on the `connected` arm of {@link CanvasFacts}.
+ * TYPE-LEVEL pin — the Skew-UX CanvasFacts decision, plus A' (the live-bug fix):
+ *  1. the kaval-derived facts are structurally reachable ONLY on the `connected` arm; and
+ *  2. `connectPhase` (the connect-overlay's routing input) exists ONLY on the not-yet-
+ *     connected arms (`warming` / `not-a-member`), NEVER on `connected`.
  *
  * `tsc` GREEN over this file ⇒:
- *  - the `connected` arm carries the kaval facts (`daemonState`/`down`/
- *    `terminalCount`/…) — constructing and reading them there compiles.
- *  - the `warming` and `failed` arms carry NONE of them — constructing one is an
- *    excess-property error, and reading one off a non-`connected`-typed value is a
- *    "property does not exist" error (the `@ts-expect-error`s below). If any of
- *    those lines ever compiles, the discriminated union has regressed to a flat
- *    shape and a stale daemon fact could again be read off a host whose re-served
- *    `daemonStatus` is frozen.
+ *  - the `connected` arm carries the kaval facts (`daemonState`/`down`/`terminalCount`/…)
+ *    — constructing and reading them there compiles — but carries NO `connectPhase`
+ *    (constructing one with it, or reading `.connectPhase` off it, is a compile error).
+ *    So the "green chip + Building-forever" contradiction — a `connected` entry routed to
+ *    the connect overlay — is UNCONSTRUCTIBLE at resolve, not a runtime tie broken by arm
+ *    order.
+ *  - the `warming` / `not-a-member` arms DO carry `connectPhase`; the `warming` and
+ *    `failed` arms carry NONE of the kaval facts (the `@ts-expect-error`s below).
  *
  * House style mirrors `packages/common/src/entryFailedCause.test-d.ts`: bare
  * `const x: T = {...}; void x;` declarations plus inline `// @ts-expect-error`.
@@ -19,13 +21,13 @@
 import type { DaemonState } from "@kolu/padi/surface";
 import type { CanvasFacts } from "./canvasModeResolver";
 
-// Shared liveness facts every arm carries — spread into each literal below.
+// Shared liveness facts every arm carries — spread into each literal below. `connectPhase`
+// is NOT here anymore (A'): it belongs only to the not-yet-connected arms.
 const liveness = {
   isLoading: false,
   daemonPending: false,
   pendingTimedOut: false,
   isLocalHost: true,
-  connectPhase: undefined as string | undefined,
 };
 
 const daemonState: DaemonState = "connected";
@@ -46,18 +48,55 @@ void connected;
 // …and reading a kaval fact off the connected arm is fine.
 void (connected.entry === "connected" ? connected.daemonState : undefined);
 
-// The `warming` arm carries the label + liveness facts, NO kaval facts.
+// A' — the `connected` arm carries NO `connectPhase`: a "connected entry + connect overlay"
+// (the green-chip / Building-forever trap) is a TYPE error, not a runtime tie.
+const connectedWithPhase: CanvasFacts = {
+  ...liveness,
+  entry: "connected",
+  down: undefined,
+  warming: false,
+  warmingLabel: "Connecting…",
+  daemonState,
+  terminalCount: 1,
+  recordsAwaited: 0,
+  channelLive: true,
+  // @ts-expect-error — `connectPhase` does not exist on the connected arm (A'): the overlay
+  // cannot be routed while the map reports the host connected.
+  connectPhase: "building",
+};
+void connectedWithPhase;
+
+// Reading `connectPhase` off a value typed as the CONNECTED arm is a type error too — so no
+// resolver arm can consult a connect phase on a connected host.
+const connectedArm: Extract<CanvasFacts, { entry: "connected" }> = {
+  ...liveness,
+  entry: "connected",
+  down: undefined,
+  warming: false,
+  warmingLabel: "Connecting…",
+  daemonState,
+  terminalCount: 1,
+  recordsAwaited: 0,
+  channelLive: true,
+};
+// @ts-expect-error — `connectPhase` does not exist on the connected arm.
+void connectedArm.connectPhase;
+
+// The `warming` arm carries the label + `connectPhase` + liveness facts, NO kaval facts.
 const warming: CanvasFacts = {
   ...liveness,
   entry: "warming",
   warmingLabel: "Connecting…",
+  connectPhase: "building",
   // @ts-expect-error — `daemonState` is a CONNECTED-arm-only kaval fact; a warming
   // host's re-served daemonStatus is stale, so the type makes it unspellable here.
   daemonState,
 };
 void warming;
+// The warming arm DOES carry `connectPhase` — reading it here compiles.
+void (warming.entry === "warming" ? warming.connectPhase : undefined);
 
-// The `failed` arm carries the cause + reason, NO kaval facts.
+// The `failed` arm carries the cause + reason, NO kaval facts, NO connectPhase.
 const failed: CanvasFacts = {
   ...liveness,
   entry: "failed",
@@ -85,6 +124,7 @@ const warmingArm: Extract<CanvasFacts, { entry: "warming" }> = {
   ...liveness,
   entry: "warming",
   warmingLabel: "Connecting…",
+  connectPhase: undefined,
 };
 // @ts-expect-error — `terminalCount` does not exist on the `warming` arm.
 void warmingArm.terminalCount;
