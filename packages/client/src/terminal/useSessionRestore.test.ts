@@ -44,12 +44,12 @@ vi.mock("../wire", async () => {
   // reads `padiMap`. Stand up the shared mock map (single static local member —
   // these tests never switch hosts); `beforeEach` resets it so each test's latch
   // starts fresh.
-  const { mockPadiMap } = await import("../hostScope/mockHostMap.testlib");
+  const { mockPadiMap, mockPadiRpcOf } = await import(
+    "../hostScope/mockHostMap.testlib"
+  );
   return {
     padiMap: mockPadiMap,
-    padiRpcOf: () => ({
-      surface: { chrome: { setActive: vi.fn(async () => {}) } },
-    }),
+    padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
     activePadiRpc: {
       surface: {
         session: {

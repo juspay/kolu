@@ -46,6 +46,17 @@ export const mockPadiMap = {
   // biome-ignore lint/suspicious/noExplicitAny: a minimal SurfaceMapClient stub — scopedByEntry only touches entries + codec
 } as any;
 
+/** The `padiRpcOf(host)` stub the three per-host tests share — a partial padi RPC
+ *  whose ONE wired member is `surface.chrome.setActive` (where `createViewState`'s
+ *  `writeActive` reports the active tile). Pass the per-test `setActive` spy; the
+ *  shape lives HERE so a `padiRpcOf` contract change lands once, not in three
+ *  `vi.mock` factories. (`activePadiRpc` is NOT shared — its wired surface members
+ *  genuinely differ per test, so each factory stubs its own.) */
+export const mockPadiRpcOf =
+  (setActive: (...args: never[]) => unknown) => () => ({
+    surface: { chrome: { setActive } },
+  });
+
 /** Add a host to `entries` (idempotent) — a switch's ADD-AS-MEMBER half. */
 export function addHost(host: HostKey): void {
   const k = encodeHostKey(host);

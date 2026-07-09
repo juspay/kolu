@@ -67,13 +67,13 @@ const bag = vi.hoisted(() => ({
 // codec, from the shared `mockHostMap` testlib. `loadHost` drives membership via
 // its `addHost`; `beforeEach` empties it via `resetHosts`.
 vi.mock("./wire", async () => {
-  const { mockPadiMap } = await import("./hostScope/mockHostMap.testlib");
+  const { mockPadiMap, mockPadiRpcOf } = await import(
+    "./hostScope/mockHostMap.testlib"
+  );
   return {
     padiMap: mockPadiMap,
     // `createViewState`'s `writeActive` reports the active tile here.
-    padiRpcOf: () => ({
-      surface: { chrome: { setActive: rpcSpy.setActive } },
-    }),
+    padiRpcOf: mockPadiRpcOf(rpcSpy.setActive),
     activePadiRpc: {
       surface: {
         chrome: { setActive: rpcSpy.setActive },

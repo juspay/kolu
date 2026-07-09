@@ -29,12 +29,12 @@ const bag = vi.hoisted(() => ({
 }));
 
 vi.mock("./wire", async () => {
-  const { mockPadiMap } = await import("./hostScope/mockHostMap.testlib");
+  const { mockPadiMap, mockPadiRpcOf } = await import(
+    "./hostScope/mockHostMap.testlib"
+  );
   return {
     padiMap: mockPadiMap,
-    padiRpcOf: () => ({
-      surface: { chrome: { setActive: vi.fn(async () => {}) } },
-    }),
+    padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
     activeHost: () => bag.activeHost(),
   };
 });
