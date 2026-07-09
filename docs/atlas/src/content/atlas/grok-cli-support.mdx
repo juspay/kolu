@@ -108,14 +108,11 @@ invent a fifth paint class — reuse the closed set the Dock already folds.
 workflow journal). Grok's parallel subagents do not yet expose an equivalent
 on-disk journal kolu can observe without screen-scrape guesswork.
 
-**Honest nulls on first ship:**
+**Honest nulls:**
 
-- `contextTokens: null` — no stable context-window counter found in
-  `summary.json` / `events.jsonl` (unlike Codex's `token_count` / OpenCode's
-  `tokens.total`). Do not invent a percentage from `num_messages`.
 - `taskProgress: null` — plan entries appear in `updates.jsonl`
-  (`sessionUpdate: "plan"`) but are optional and shape-unstable; leave for a
-  follow-up once the plan event is pinned.
+  (`sessionUpdate: "plan"`) but are optional and shape-unstable; leave until
+  the plan event is pinned.
 
 **Filled fields:**
 
@@ -123,6 +120,7 @@ on-disk journal kolu can observe without screen-scrape guesswork.
 - `model` ← `summary.current_model_id`
 - `summary` ← `generated_title` ?? `session_summary`
 - `startedAt` ← parse `created_at` to epoch-ms
+- `contextTokens` ← `signals.json` `contextTokensUsed` (null until signals land)
 
 ## Session match
 
@@ -193,13 +191,17 @@ Minimal, exhaustive:
   `agent.kind` (transcript export, any icon tables) gain one arm; TypeScript
   flags them.
 
-## Transcript export (same PR if cheap, else follow-up)
+## Transcript export
 
-`padi/src/transcript.ts` already `match`es on `agent.kind` for HTML export. A
-loader that maps `chat_history.jsonl` → `Transcript` is desirable but **not**
-blocking for the chrome/dock story. Default: ship the adapter without export in
-PR1; add `loadGrokTranscript` when the JSONL schema is pinned by the fixture
-tests. The error string that lists agent names updates either way.
+`loadGrokTranscript` maps `chat_history.jsonl` → the shared `Transcript` IR
+(`user` / `reasoning` / `assistant` / `tool_call` / `tool_result`). System
+prompts and `synthetic_reason` rows are dropped. User rows unwrap Grok's
+`<user_query>…</user_query>` harness (and drop sibling `<image_files>` /
+compression-notice blocks) so the export shows the human prompt, not the wire
+envelope. Tool basenames (`run_terminal_command`, `read_file`,
+`search_replace`, …) normalize into the typed `ToolInput` union.
+`padi/src/transcript.ts` dispatches `kind: "grok"` to this loader;
+`transcript-core`'s `AGENT_KINDS` includes `"grok"`.
 
 ## Tests
 

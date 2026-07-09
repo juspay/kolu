@@ -189,8 +189,10 @@ _awaiting you_ even mid-tool, so a multiple-choice prompt never reads as "runnin
 tools".
 
 **Resume** uses `grok -c` (most recent in the directory) or `grok --resume <uuid>`
-(an exact conversation). Context tokens and task progress stay null until Grok
-exposes stable on-disk counters.
+(an exact conversation). **Context tokens** come from `signals.json`
+(`contextTokensUsed`); **task progress** stays null until Grok's plan checklist
+is a stable first-class count. **Transcript export** reads `chat_history.jsonl`
+(unwraps Grok's `<user_query>` harness so the HTML shows the human prompt).
 
 ## OpenCode
 

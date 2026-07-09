@@ -502,6 +502,9 @@ importers:
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
+      kolu-transcript-core:
+        specifier: workspace:*
+        version: link:../../transcript-core
       zod:
         specifier: ^4.3.6
         version: 4.3.6
