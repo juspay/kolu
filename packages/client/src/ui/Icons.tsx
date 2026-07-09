@@ -97,6 +97,19 @@ export const OpenCodeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Grok Build mark — a simple filled "G" monogram that reads at 12–16px
+ *  beside the other agent icons. `currentColor` so chrome theme inherits. */
+export const GrokIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3 h-3"}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 2.5c4.14 0 7.5 3.36 7.5 7.5 0 4.14-3.36 7.5-7.5 7.5S4.5 16.14 4.5 12 7.86 4.5 12 4.5zm-.75 3.25v4.5H16v2.25h-6.5V7.75h1.75z" />
+  </svg>
+);
+
 /** Local diff: pencil icon — uncommitted working-tree edits. */
 export const DiffLocalIcon: Component<{ class?: string }> = (props) => (
   <svg

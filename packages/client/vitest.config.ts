@@ -13,6 +13,10 @@ export default defineConfig({
         "./node_modules/solid-js/store/dist/store.js",
         import.meta.url,
       ).pathname,
+      "solid-js/web": new URL(
+        "./node_modules/solid-js/web/dist/web.js",
+        import.meta.url,
+      ).pathname,
       "solid-js": new URL(
         "./node_modules/solid-js/dist/solid.js",
         import.meta.url,
@@ -21,5 +25,21 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts"],
+    // The client is a BROWSER app: run its tests with a DOM so the browser
+    // `solid-js/web` build is honest (`isServer === false`) and module-load-time
+    // DOM access (`window.matchMedia` in `@solid-primitives/media`, etc.) works.
+    // Required by `scopedByEntry`'s `keyArray` (`@solid-primitives/keyed`), which
+    // takes a non-reactive SERVER branch when `isServer` is true — under the old
+    // bare-node env its per-key roots never tracked, so a host's owner never
+    // re-keyed. (fs-scanning tests resolve paths via `fileURLToPath(import.meta.url)`
+    // — NOT `new URL(…, import.meta.url)`, which the happy-dom global `URL` rejects.)
+    environment: "happy-dom",
+    // Inline `solid-js` (+ `@solid-primitives/keyed`) so they are transformed with
+    // the aliases above and resolve to the ONE browser-build core. Without this,
+    // `@kolu/surface-map`'s `scopedByEntry` + `keyArray` load their own
+    // externalized `solid-js` whose reactive graph never connects to the client's
+    // signals (a cross-instance split — membership updates silently never re-run
+    // the owner's memos). Same fix `packages/surface-map/vitest.config.ts` applies.
+    server: { deps: { inline: [/solid-js/, "@solid-primitives/keyed"] } },
   },
 });

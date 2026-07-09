@@ -42,7 +42,6 @@
 
 import {
   buildSshProbeCommand,
-  type FailureCause,
   isLocalHost,
   looksLikeNetworkError,
   nixSshOpts,
@@ -61,6 +60,22 @@ export interface ProvisionOptions {
    *  happens on the target host. */
   drvPath: string;
   onProgress: (line: string) => void;
+  /** Fired ONCE, on the COLD path, right before `nix copy --derivation` starts —
+   *  the moment a real copy actually begins (the warm realise-probe has already
+   *  MISSED). The connector uses it to advance its session phase from the opening
+   *  `probing` (the arch probe + warm check, where nothing is being shipped) to
+   *  `copying`, so a WARM host — which returns from the probe and never reaches
+   *  here — stays `probing` and its overlay stays calm, while a genuine cold copy
+   *  narrates honestly. Optional. */
+  onCopying?: () => void;
+  /** Fired ONCE, on the COLD path, at the copy→realise command boundary —
+   *  right before `nix-store --realise` starts the remote (or local) BUILD, the
+   *  minutes-long step. The connector uses it to advance its session phase from
+   *  `copying` (the `.drv` push) to `building` (the compile), so the overlay
+   *  narrates the two honestly. NOT fired on the warm short-circuit (the fused
+   *  realise probe already returned) — a warm reconnect never shows a build UI.
+   *  Optional: a caller with no phase to advance omits it. */
+  onBuilding?: () => void;
 }
 
 export type ProvisionResult =
@@ -68,8 +83,8 @@ export type ProvisionResult =
   // `cause` lets `HostSession` keep retrying a host that went unreachable
   // *mid-provision* (asleep/roaming after the arch probe succeeded) instead
   // of burning the give-up budget — while a genuine `"remote"` rejection
-  // (e.g. `trusted-users`) still fails loudly. See `FailureCause`.
-  | { ok: false; reason: string; cause: FailureCause };
+  // (e.g. `trusted-users`) still fails loudly.
+  | { ok: false; reason: string; cause: "network" | "remote" };
 
 /** Per-agent GC-root path for the realised output, or `null` when one
  *  can't be formed (see the localhost case below). Keyed on the .drv's
@@ -157,7 +172,7 @@ export async function provisionAgent(
   // numeric code — a signal-kill or a spawn failure is never ssh's 255, so both
   // fall through to the bounded `"remote"` default (correct: neither is a
   // transport blip), rather than being read off an overloaded `code: null`.
-  const causeFor = (res: ExitResult): FailureCause =>
+  const causeFor = (res: ExitResult): "network" | "remote" =>
     sawNetworkError || (res.kind === "exit" && res.code === 255)
       ? "network"
       : "remote";
@@ -180,6 +195,12 @@ export async function provisionAgent(
   //    otherwise make a clean first-time provision read as an error — so a
   //    transport failure here still classifies the fall-through as `"network"`.
   if (!isLocal && rootPath !== null) {
+    // One SYNTHESIZED, truthful line at probe start (NOT the raw nix stderr, which is
+    // suppressed via `onProbeProgress` because a cold miss writes a scary `error: …`).
+    // This is the sign-of-life for stderr/TUI consumers during the otherwise-silent
+    // probe; the connect overlay stays calm on its own (the `probing` phase renders
+    // with no tail), so this line never reads as a build in flight.
+    onProgress(`${opts.host}: checking for a cached agent…`);
     const warm = realiseAndPin(opts.host, opts.drvPath, rootPath);
     const warmRes = await runCapture(warm.command, warm.args, onProbeProgress);
     const warmPath = warmRes.stdout.trim();
@@ -194,6 +215,11 @@ export async function provisionAgent(
   // 2. Copy the .drv (and its build-inputs) to the remote. Skipped
   //    for localhost — the .drv is already in /nix/store.
   if (!isLocal) {
+    // The warm probe above MISSED (cold path), so a real copy is now starting —
+    // signal the `probing → copying` boundary so the overlay flips from the calm
+    // "checking" state to the honest "provisioning" narration. Localhost never
+    // copies, so it never enters `copying` — it goes `probing → building` directly.
+    opts.onCopying?.();
     onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
     const copyRes = await runProgress(
       "nix",
@@ -246,7 +272,10 @@ export async function provisionAgent(
   }
 
   // 3. Realise (build) the .drv on the target. Output is the agent's
-  //    nix-store path on that host.
+  //    nix-store path on that host. This is the minutes-long compile — signal
+  //    the copy→realise BOUNDARY so the connector advances `copying → building`
+  //    (only reached on the COLD path; a warm host returned at step 1 above).
+  opts.onBuilding?.();
   onProgress(
     isLocal
       ? `localhost: realising '${opts.drvPath}'…`

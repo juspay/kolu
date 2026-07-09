@@ -14,15 +14,18 @@
  * subagent shape by construction). The trailing `k=v` tokens carry the numeric
  * inputs the old per-step fixtures varied:
  *   input=<n>   cached=<n>     codex/claude token accounting
- *   context=<n>                opencode context tokens
+ *   context=<n>                opencode/grok context tokens
  *   todos=<total>/<completed>  opencode todo list
  *   tasks=<total>/<completed>  claude Workflow task progress
  *   stale-jsonl                claude MRU-regression previous-session file (flag)
+ *   no-active                  grok: write session tree without active_sessions
+ *                              pid map (the production "map lands late" race)
  */
 
 /** Every lifecycle + artifact variant the mock-agent can present. The base
- *  three (`thinking`/`tool_use`/`waiting`) are shared by all kinds; the rest are
- *  claude-only artifact variants that used to be distinct `MockState`s. */
+ *  four (`thinking`/`tool_use`/`waiting`/`awaiting_user`) are shared by all
+ *  kinds; the rest are claude-only artifact variants that used to be distinct
+ *  `MockState`s. */
 export type AgentState =
   | "thinking"
   | "tool_use"
@@ -37,12 +40,35 @@ export type AgentState =
   | "interrupted_tool_use"
   | "compact";
 
+/** Closed set of valid `state <name>` tokens — used by `parseCommand` so a
+ *  typo surfaces as an unknown command rather than a silent partial write. */
+export const AGENT_STATES = [
+  "thinking",
+  "tool_use",
+  "waiting",
+  "awaiting_user",
+  "running_background",
+  "orphaned_workflow",
+  "journalless_workflow",
+  "background_bash",
+  "fork",
+  "interrupted",
+  "interrupted_tool_use",
+  "compact",
+] as const satisfies readonly AgentState[];
+
+const AGENT_STATE_SET: ReadonlySet<string> = new Set(AGENT_STATES);
+
+export function isAgentState(s: string): s is AgentState {
+  return AGENT_STATE_SET.has(s);
+}
+
 export interface StateOpts {
   /** codex/claude: prompt input tokens (context-token accounting). */
   inputTokens?: number;
   /** codex: cached input tokens (must not double-count). */
   cachedInputTokens?: number;
-  /** opencode: running context-token total. */
+  /** opencode/grok: running context-token total. */
   contextTokens?: number;
   /** opencode: todo list to render. */
   todos?: { total: number; completed: number };
@@ -50,8 +76,11 @@ export interface StateOpts {
   tasks?: { total: number; completed: number };
   /** claude: also write the newer-stale previous-session JSONL (MRU guard). */
   staleJsonl?: boolean;
-  /** codex/opencode: session title. */
+  /** codex/opencode/grok: session title. */
   title?: string;
+  /** grok: write the session tree but leave `active_sessions.json` empty —
+   *  the production race where the TUI is foreground before the pid map lands. */
+  noActive?: boolean;
 }
 
 /** One agent kind's artifact surface. `setState` is idempotent (re-runnable for
@@ -83,11 +112,18 @@ export function parseCommand(raw: string): Command | null {
     return template ? { verb: "paint", template } : { verb: "unknown", raw };
   }
   if (verb === "state") {
-    const state = tokens[1] as AgentState;
+    const name = tokens[1];
+    if (!name || !isAgentState(name)) {
+      return { verb: "unknown", raw: name ? `state ${name}` : "state" };
+    }
     const opts: StateOpts = {};
     for (const tok of tokens.slice(2)) {
       if (tok === "stale-jsonl") {
         opts.staleJsonl = true;
+        continue;
+      }
+      if (tok === "no-active") {
+        opts.noActive = true;
         continue;
       }
       const eq = tok.indexOf("=");
@@ -119,7 +155,7 @@ export function parseCommand(raw: string): Command | null {
           break;
       }
     }
-    return { verb: "state", state, opts };
+    return { verb: "state", state: name, opts };
   }
   return { verb: "unknown", raw: verb };
 }

@@ -115,6 +115,7 @@ const AGENT_DIR_VARS = [
   "KOLU_CLAUDE_PROJECTS_DIR",
   "KOLU_CODEX_DIR",
   "KOLU_OPENCODE_DB",
+  "KOLU_GROK_DIR",
 ] as const;
 
 /** W3.4: the mock-agent (packages/mock-agent) writes agent artifacts at the
@@ -139,12 +140,13 @@ const agentHomeDefaults = (home: string) => ({
     "opencode",
     "opencode.db",
   ),
+  KOLU_GROK_DIR: path.join(home, ".grok"),
 });
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
   string | undefined
 > & { HOME?: string } =
-  // Recording launches the REAL claude/codex off the developer's real `~`, so
+  // Recording launches the REAL agents off the developer's real `~`, so
   // the overrides stay ABSENT and HOME inherited there.
   RECORDING || fixtureHome === undefined
     ? {
@@ -152,6 +154,7 @@ const serverModeEnv: Record<
         KOLU_CLAUDE_PROJECTS_DIR: undefined,
         KOLU_CODEX_DIR: undefined,
         KOLU_OPENCODE_DB: undefined,
+        KOLU_GROK_DIR: undefined,
       }
     : { ...agentHomeDefaults(fixtureHome), HOME: fixtureHome };
 for (const name of AGENT_DIR_VARS) {
@@ -164,20 +167,22 @@ for (const name of AGENT_DIR_VARS) {
 // codex WAL watcher (`createWalSubscription`) attaches an fs.watch to
 // `~/.codex` at padi boot; if that dir doesn't exist yet — the mock-agent
 // creates it lazily on its first write, which is AFTER padi boots — the watch
-// silently never attaches and a second-turn token update is never re-read. The
-// old ventriloquist mock got this for free (its dirs were `mkSubDir`'d before
-// the server spawned). Remote runs pre-create the SAME dirs on the bind target
-// as part of box B's provisioning. No-op under recording (no fixture home).
+// silently never attaches and a second-turn token update is never re-read. Grok's
+// active_sessions watcher similarly wants `~/.grok` present at boot. The old
+// ventriloquist mock got this for free (its dirs were `mkSubDir`'d before the
+// server spawned). Remote runs pre-create the SAME dirs on the bind target as
+// part of box B's provisioning. No-op under recording (no fixture home).
 if (fixtureHome !== undefined) {
   const d = agentHomeDefaults(fixtureHome);
   fs.mkdirSync(d.KOLU_CLAUDE_SESSIONS_DIR, { recursive: true });
   fs.mkdirSync(d.KOLU_CLAUDE_PROJECTS_DIR, { recursive: true });
   fs.mkdirSync(d.KOLU_CODEX_DIR, { recursive: true });
   fs.mkdirSync(path.dirname(d.KOLU_OPENCODE_DB), { recursive: true });
+  fs.mkdirSync(d.KOLU_GROK_DIR, { recursive: true });
 }
 
-// The agent mocks (claude/codex/opencode) are now `kolu-mock-agent` run INSIDE
-// the terminal by absolute store path (support/mockAgent.ts) — the old
+// The agent mocks (claude/codex/opencode/grok) are now `kolu-mock-agent` run
+// INSIDE the terminal by absolute store path (support/mockAgent.ts) — the old
 // renamed-`bash` fakes + KOLU_FAKE_*_BIN are gone. The recipe builds
 // `.#mock-agent` (and `nix copy`s it to any bind target) and exports
 // `KOLU_MOCK_AGENT_BIN`; assert it here (non-recording) so a misconfigured run
@@ -186,7 +191,7 @@ if (fixtureHome !== undefined) {
 if (!RECORDING && !process.env.KOLU_MOCK_AGENT_BIN) {
   throw new Error(
     "KOLU_MOCK_AGENT_BIN is unset — the e2e recipe must build `.#mock-agent` and " +
-      "export its bin dir (the terminal invokes <dir>/{claude,codex,opencode} by absolute path).",
+      "export its bin dir (the terminal invokes <dir>/{claude,codex,opencode,grok} by absolute path).",
   );
 }
 

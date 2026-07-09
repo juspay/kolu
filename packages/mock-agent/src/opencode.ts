@@ -134,7 +134,11 @@ export class OpenCodeAgent implements MockKind {
           now,
           JSON.stringify({ role: "user", time: { created: now } }),
         );
-      } else if (state === "tool_use") {
+      } else if (state === "tool_use" || state === "awaiting_user") {
+        // Unfinished assistant turn + a running tool part. Real-work tools
+        // (`shell` etc.) → product tool_use; AWAITING_USER_TOOLS (`question` /
+        // `plan_exit`) → awaiting_user. The previous else-branch used
+        // `finish: "stop"` for awaiting_user, which the product folds to waiting.
         db.prepare(
           "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
         ).run(
@@ -156,7 +160,11 @@ export class OpenCodeAgent implements MockKind {
         ).run(
           "p1",
           assistantId,
-          JSON.stringify({ type: "tool", state: { status: "running" } }),
+          JSON.stringify({
+            type: "tool",
+            tool: state === "awaiting_user" ? "question" : "shell",
+            state: { status: "running" },
+          }),
         );
       } else {
         db.prepare(

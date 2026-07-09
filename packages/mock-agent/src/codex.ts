@@ -16,7 +16,11 @@ import { DatabaseSync } from "node:sqlite";
 import { codexDir } from "./paths.ts";
 import type { AgentState, MockKind, StateOpts } from "./protocol.ts";
 
-const THREAD_ID = "00000000-0000-0000-0000-000000000001";
+/** Fixed uuidv7 so product `uuidV7TimestampMs` decodes a real `startedAt`
+ *  (a non-v7 id yields null). Epoch-ms = 0 from the leading 48 bits — fine
+ *  for e2e; the sleeping-terminals journey asserts this id in the resume
+ *  command. Version nibble `7`, variant `8`. */
+const THREAD_ID = "00000000-0000-7000-8000-000000000001";
 
 function buildRollout(opts: {
   state: AgentState;
@@ -47,7 +51,25 @@ function buildRollout(opts: {
     lines.push(
       JSON.stringify({
         type: "response_item",
-        payload: { type: "function_call", call_id: "call-1" },
+        payload: {
+          type: "function_call",
+          call_id: "call-1",
+          name: "shell",
+        },
+      }),
+    );
+  }
+  if (opts.state === "awaiting_user") {
+    // Open user-blocking tool with no function_call_output → product
+    // `parseRolloutState` returns awaiting_user (AWAITING_USER_TOOLS).
+    lines.push(
+      JSON.stringify({
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-await",
+          name: "request_user_input",
+        },
       }),
     );
   }

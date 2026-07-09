@@ -25,7 +25,10 @@
  *      (terminal creation must wait for `connected`). */
 
 import type { DaemonState } from "@kolu/padi/surface";
-import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
+import type {
+  ConnectPhase,
+  EntryFailedCause,
+} from "kolu-common/surfacesWithPadi";
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
  *  the down sub-state, the warming label, and the host-failure cause travel WITH
@@ -37,7 +40,11 @@ export type CanvasMode =
   | { kind: "connecting" }
   | { kind: "down"; state: "dead" | "degraded" }
   | { kind: "host-failed"; cause: EntryFailedCause; reason: string }
-  | { kind: "warming"; label: string; daemonState: DaemonState | undefined }
+  // NO presentation string: the warming surface's copy is derived at RENDER (ConnectCanvas —
+  // the connection-cell phase via the ONE copy authority, or the kaval-restart label from the
+  // daemon-presentation table keyed on `daemonState`). With no string field on any mode arm, a
+  // resolver baking copy is a TYPE error — the four-duplicate-literal flicker is unspellable.
+  | { kind: "warming"; daemonState: DaemonState | undefined }
   | { kind: "empty" }
   | { kind: "workspace" };
 
@@ -68,6 +75,19 @@ interface EntryLivenessFacts {
   isLocalHost: boolean;
 }
 
+/** The facts the two NOT-YET-CONNECTED arms (`warming` / `not-a-member`) share — the connect
+ *  overlay's routing input, declared ONCE here rather than on each arm. `connectPhase` lives
+ *  ONLY on these arms (never on `connected`/`failed`), so a stale/lagging connection cell can
+ *  never route the overlay over a host the map reports connected (A'). Typed as the framework's
+ *  {@link ConnectPhase} — the narrated up-but-not-yet-connected subset — which is TIGHTER than
+ *  the full phase union: `connected`/`disconnected`/`failed` are UNCONSTRUCTIBLE here (not just
+ *  an off-vocabulary `"banana"`), so `useCanvasMode` narrows those source phases to `undefined`
+ *  at the facts boundary and the resolver's "is a connect phase" collapses to "is defined" — no
+ *  runtime guard. `undefined` before the cell's first frame (or once C' floors a stale cell). */
+type NotYetConnectedFacts = EntryLivenessFacts & {
+  connectPhase: ConnectPhase | undefined;
+};
+
 /** The precedence decision's snapshot — a DISCRIMINATED UNION keyed on the active
  *  entry's connection state (`entry`). Only the `connected` arm carries the
  *  kaval-derived facts, so they cannot be read off a host whose re-served
@@ -75,12 +95,11 @@ interface EntryLivenessFacts {
  *  this from the live accessors is what makes {@link resolveCanvasMode} a pure,
  *  exhaustively testable total function. */
 export type CanvasFacts =
-  | (EntryLivenessFacts & {
+  | (NotYetConnectedFacts & {
       /** The active entry is `warming` — the host binding itself is still coming up
        *  (a remote's ssh dial + nix copy + build), NOT the kaval daemon restarting
-       *  (that is a CONNECTED-arm fact). */
+       *  (that is a CONNECTED-arm fact). Carries `connectPhase` via {@link NotYetConnectedFacts}. */
       entry: "warming";
-      warmingLabel: string;
     })
   | (EntryLivenessFacts & {
       /** The active entry `failed` — an ssh dial/handshake or contract-level fault
@@ -90,9 +109,10 @@ export type CanvasFacts =
       cause: EntryFailedCause;
       reason: string;
     })
-  | (EntryLivenessFacts & {
+  | (NotYetConnectedFacts & {
       /** The active host is transiently not in the membership pool (mid-switch,
-       *  before a re-add lands). No entry facts to read — hold `connecting`. */
+       *  before a re-add lands). No entry facts to read — hold `connecting`. Carries
+       *  `connectPhase` via {@link NotYetConnectedFacts}. */
       entry: "not-a-member";
     })
   | (EntryLivenessFacts & {
@@ -101,7 +121,6 @@ export type CanvasFacts =
       entry: "connected";
       down: "dead" | "degraded" | undefined;
       warming: boolean;
-      warmingLabel: string;
       daemonState: DaemonState | undefined;
       terminalCount: number;
       /** How many listed terminals' composed records have NOT arrived yet (the
@@ -124,75 +143,79 @@ export type CanvasFacts =
  *  #1034 / restart-drain precedence is unit-testable without mounting the
  *  daemon-status subscription. */
 export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
-  // A `failed` entry is decided by the entry-state switch below, NEVER this loading
-  // gate: the host BINDING itself failed (cause-typed), so no daemon-status is ever
-  // coming (`daemonPending` stays true forever) and the correct surface is the
-  // cause-typed host-down card — not a "Connecting…" spinner, and not the kaval-dead
-  // `down` card. Fall straight through so `case "failed"` renders the Skew-UX card.
-  // (This is why the guard excludes it: a `failed` host has no daemon-status to wait
-  // for, so the loading gate would otherwise strand it at connecting/down forever.)
-  //
-  // For every OTHER entry: neutral "connecting" until BOTH the session cell AND the
-  // daemon-status stream have produced their first value — reads only the liveness
-  // facts every arm carries, so it runs BEFORE the entry-state switch below. Gating
-  // on daemon-status-pending (not just the entry state) stops a `dead` boot from
-  // flashing the normal empty workspace first (#1034). BOUNDED: once the wait has
-  // run past the local endpoint's own connect timeout, "still pending" no longer
-  // means "about to arrive" — nothing will ever be published (a local padi that
-  // never came up), so resolve honestly to `down`/`dead` instead of spinning at
-  // "Connecting…" forever (the #1713 adopt-path sibling's canvas symptom). The 30s
-  // ceiling only earns that verdict for a LOCAL host (whose own connect watchdog it
-  // mirrors) — never a remote merely still provisioning (`warming`), whose ssh dial +
-  // nix copy + build can genuinely outlast 30s, and never a `failed` entry (above).
-  if ((facts.isLoading || facts.daemonPending) && facts.entry !== "failed") {
-    return facts.pendingTimedOut && facts.isLocalHost
-      ? { kind: "down", state: "dead" }
-      : { kind: "connecting" };
-  }
-  // Past the loading guard, the ACTIVE entry's connection state decides the surface.
-  // A non-connected host's re-served daemonStatus is FROZEN stale, so its arms never
-  // touch a kaval fact (they don't carry one) — only the `connected` arm consults the
-  // daemon-derived facts.
+  // Switch on the ACTIVE entry's connection state FIRST (A' — the resolver's spine). The
+  // connect overlay is read ONLY inside the not-yet-connected arms, where `connectPhase`
+  // exists; the `connected` arm has no `connectPhase`, so it can NEVER route to the overlay
+  // — a stale/lagging connection cell can no longer trap the canvas over a host the map
+  // reports connected (the green-chip / "Building forever" bug). `failed` has no
+  // daemon-status ever coming, so it renders its own cause-typed card, never the loading
+  // spinner or the kaval-dead `down` card.
   switch (facts.entry) {
-    case "warming":
-      // The host binding is still coming up. Show the neutral warming surface with no
-      // kaval `daemonState` — there is no connected daemon to describe yet.
-      return {
-        kind: "warming",
-        label: facts.warmingLabel,
-        daemonState: undefined,
-      };
     case "failed":
-      // The host binding itself failed (cause-typed). Its own surface — the Skew-UX
-      // host-down card ([Switch to local], no retry) — is distinct from `down` (a
-      // connected host's dead kaval).
+      // The host BINDING itself failed (cause-typed) — the Skew-UX host-down card
+      // ([Switch to local], no retry), distinct from `down` (a connected host's dead kaval).
       return { kind: "host-failed", cause: facts.cause, reason: facts.reason };
-    case "not-a-member":
-      // Transiently outside the pool (mid host-switch). Neutral connecting surface —
-      // never a stale claim about a host that is not currently a member.
-      return { kind: "connecting" };
+
+    case "warming":
+    case "not-a-member": {
+      // THE CONNECT OVERLAY (W6), routed off ONE channel: the ACTIVE host's binding is
+      // coming up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase —
+      // the SAME frame `ConnectCanvas` reads to narrate it, so routing and content never
+      // disagree mid-transition. `connectPhase` is typed `ConnectPhase` (the framework's
+      // narrated subset), so a `connected`/`disconnected`/`failed` phase is UNCONSTRUCTIBLE
+      // here — `useCanvasMode` narrows those to `undefined` at the facts boundary. So "is a
+      // connect phase" IS simply "defined", no runtime re-check. The #1713 safety: a LOCAL
+      // endpoint wedged past its own connect ceiling earns `down`/`dead` rather than narrating
+      // forever (a remote's ssh + nix copy + build legitimately outlasts that ceiling).
+      const bindingUp = facts.connectPhase !== undefined;
+      if (bindingUp) {
+        return facts.pendingTimedOut && facts.isLocalHost
+          ? { kind: "down", state: "dead" }
+          : // No copy baked here — `ConnectCanvas` narrates off the connection cell (its
+            // phase → the ONE copy authority), so the mode carries only `daemonState`.
+            { kind: "warming", daemonState: undefined };
+      }
+      // The residual boot gate — pre-first-frame (`connectPhase` still `undefined`) or a
+      // non-binding-up phase: neutral "Connecting…" until both the session cell AND the
+      // daemon-status stream have produced a value, bounded by the local connect ceiling
+      // (#1034 / #1713). Gating on daemon-status-pending stops a `dead` boot flashing the
+      // empty workspace first.
+      if (facts.isLoading || facts.daemonPending) {
+        return facts.pendingTimedOut && facts.isLocalHost
+          ? { kind: "down", state: "dead" }
+          : { kind: "connecting" };
+      }
+      // The entry-specific surface for a still-pre-connected host. `warming` shows the
+      // neutral warming surface (no kaval `daemonState` — no connected daemon to describe
+      // yet); `not-a-member` holds neutral `connecting` (never a stale claim about a
+      // non-member).
+      return facts.entry === "warming"
+        ? { kind: "warming", daemonState: undefined }
+        : { kind: "connecting" };
+    }
+
     case "connected": {
+      // A connected entry ALWAYS reaches its workspace/down/empty surface — there is no
+      // `connectPhase` on this arm, so no connect overlay can intercept it. The loading gate
+      // still covers a connected entry whose daemon-status stream has not produced its first
+      // value (#1034), bounded by the local connect ceiling (#1713).
+      if (facts.isLoading || facts.daemonPending) {
+        return facts.pendingTimedOut && facts.isLocalHost
+          ? { kind: "down", state: "dead" }
+          : { kind: "connecting" };
+      }
       // `down` and `warming` arrive ALREADY floored on channel liveness at their source
-      // accessors (`downState`/`daemonWarming`), so a stale daemon state never reaches
-      // these arms over a dead channel.
+      // accessors (`downState`/`daemonWarming`), so a stale daemon state never reaches these
+      // arms over a dead channel.
       if (facts.down) return { kind: "down", state: facts.down };
       if (facts.warming)
-        return {
-          kind: "warming",
-          label: facts.warmingLabel,
-          daemonState: facts.daemonState,
-        };
-      // Terminals on screen → show them. Otherwise "no terminals" is the remaining
-      // daemon-derived claim, and it too is unconfirmable over a dead channel: show
-      // `empty` only when the CHANNEL is LIVE (ws ∧ the active entry — it can confirm the
-      // set really is empty), else the neutral connecting surface. The post-grace
-      // TransportOverlay owns the disconnect messaging.
+        return { kind: "warming", daemonState: facts.daemonState };
+      // Terminals on screen → show them. Otherwise "no terminals" is unconfirmable over a
+      // dead channel: show `empty` only when the CHANNEL is LIVE, else neutral connecting.
       if (facts.terminalCount > 0) return { kind: "workspace" };
-      // Records still arriving after the key list resolved → a reload's live terminals
-      // are mid-compose, so `terminalCount === 0` is a NOT-YET-settled claim, not "no
-      // terminals". Hold `connecting` instead of flashing `empty`'s restore card. A
-      // genuine reboot's records arrive PARKED (awaited hits 0 with no live tile), so
-      // this falls through to `empty` and the restore card, exactly as intended.
+      // Records still arriving after the key list resolved → hold `connecting` instead of
+      // flashing `empty`'s restore card. A genuine reboot's records arrive PARKED (awaited
+      // hits 0 with no live tile), so this falls through to `empty` as intended.
       if (facts.recordsAwaited > 0) return { kind: "connecting" };
       return facts.channelLive ? { kind: "empty" } : { kind: "connecting" };
     }

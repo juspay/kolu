@@ -14,7 +14,7 @@
  */
 
 import { inMemoryStore } from "@kolu/surface/server";
-import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
+import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { ORPCError } from "@orpc/server";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

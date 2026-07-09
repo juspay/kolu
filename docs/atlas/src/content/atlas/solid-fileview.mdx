@@ -3,7 +3,7 @@ title: Code browser preview → @kolu/solid-fileview
 description: Invent the grid, slim the house — a Source ⇄ Rendered file-view toggle built on reusable leaf packages. Markdown is the first lit toggle; HTML/SVG next.
 parents: [electricity, feature]
 maturity: budding
-updated: 2026-06-10
+updated: 2026-07-09
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -40,7 +40,7 @@ smaller**, because the render mechanics move out to reusable libraries beside
 
 ## What can be previewed today
 
-Four render strategies, chosen below the `fsReadFile` wire boundary by file
+Five render strategies, chosen below the `fsReadFile` wire boundary by file
 extension. The classifier is deliberately node-free so server and client import
 the *same* lists.
 
@@ -48,10 +48,11 @@ the *same* lists.
 | --- | --- | --- | --- |
 | **Source text** (default) | `text` | `BrowseFileView` → Pierre `CodeView` (Shiki), wrapped in `CommentTextSurface` for line/range comments. | *Everything not listed below.* Truncated past 1 MB. |
 | **Raster image** | `binary` | `BrowsePreviewView` → plain `<img>` on a checkerboard. No iframe — image bytes can't execute. | `.png .jpg .jpeg .gif .webp .ico` |
-| **Sandboxed document** | `binary` | `BrowsePreviewView` → `allow-scripts`, opaque-origin `<iframe>`. HTML gets the artifact-sdk comment bridge; SVG/PDF verbatim. | `.html .htm .svg .pdf` |
+| **PDF document** | `binary` | `pdf` renderer → browser-native PDF viewer. | `.pdf` |
+| **Sandboxed document** | `binary` | `BrowsePreviewView` → `allow-scripts`, opaque-origin `<iframe>`. HTML gets the artifact-sdk comment bridge; SVG is served verbatim. | `.html .htm .svg` |
 | **Video player** | `binary` | `video` renderer → `<video controls>`, range-served (<PrLink pr={1219} />). | `.mp4 .m4v .webm .mov .ogv` |
 
-The three binary sets are disjoint; their union is `BINARY_PREVIEWABLE_EXTENSIONS` —
+The four binary sets are disjoint; their union is `BINARY_PREVIEWABLE_EXTENSIONS` —
 the partition is structural, so a new previewable format lands in exactly one
 category.
 
@@ -65,19 +66,19 @@ meaningful exactly at their intersection.
 | --- | --- | --- | --- |
 | plain code `.ts .rs .py` | ✓ | ✗ | Source only (today's default — correct) |
 | **Markdown** `.md` | ✓ | ✓ (client md render) | **Toggle** — default Rendered |
-| **HTML** `.html .htm` | ✓ | ✓ (iframe) | **Toggle** — default Rendered |
-| **SVG** `.svg` | ✓ | ✓ (iframe) | **Toggle** — default Rendered |
+| **HTML** `.html .htm` | ✗ today | ✓ (iframe) | Rendered only — source needs the `renderable` wire kind below |
+| **SVG** `.svg` | ✗ today | ✓ (iframe) | Rendered only — source needs the `renderable` wire kind below |
 | images `.png .jpg` | ✗ | ✓ (`<img>`) | Rendered only — *no source exists* |
-| PDF `.pdf` | ✗ | ✓ (iframe) | Rendered only — *no source exists* |
+| PDF `.pdf` | ✗ | ✓ (native PDF viewer) | Rendered only — *no source exists* |
 
-The toggle is offered **iff both columns are ✓**. This is a property of the
-format, not a per-presenter convention.
+The toggle is offered **iff both columns are ✓ in the current `FileData` shape**.
+This is a property of the data the host supplies, not a per-presenter convention.
 
 ```
   fsReadFile (server)                     wire kind          BrowseFileDispatcher (client)
   ┌───────────────────────┐   text   ┌───────────────┐   →  BrowseFileView   (Pierre CodeView)
   │ isBinaryPreviewable(p) │ ───────▶ │ {kind:"text"} │
-  │   in previewable.ts    │   binary │ {kind:"binary"}│  →  BrowsePreviewView (<img> | sandboxed iframe)
+  │   in previewable.ts    │   binary │ {kind:"binary"}│  →  BrowsePreviewView (<img> | video | PDF viewer | sandboxed iframe)
   └───────────────────────┘ ───────▶ └───────────────┘
                                        ▲ the single switch point — add a kind here
 ```
@@ -174,7 +175,7 @@ apart (Lowy), and neither is *about kolu*:
 | --- | --- | --- | --- |
 | `@kolu/solid-markdown` <Pill variant="todo">new</Pill> | marked + GFM + `safeHref` + md→Solid styling. Volatile: the spec, the sanitizer. | `<Markdown markdown variant="inline"\|"document" />` | The ~250 LOC token-walk core inside `intent/IntentMarkdown.tsx`. |
 | `@kolu/solid-fileview` <Pill variant="todo">new</Pill> | The toggle, mode-availability, renderer-registry pick. Knows nothing of oRPC, git, comments. | `<FileView path source? renderedUrl? source={Renderer} rendered={Renderer[]} />` | The render *mechanics* of `BrowseFileView` + `BrowsePreviewView` + `BrowseFileDispatcher`. |
-| `@kolu/solid-fileview/renderers/{markdown,image,iframe}` | Each strategy as an independent appliance. Generic, kolu-free. | Each is a `RenderedRenderer` value. | The strategy code hand-written in `BrowsePreviewView`. |
+| `@kolu/solid-fileview/renderers/{markdown,image,video,pdf,iframe}` | Each strategy as an independent appliance. Generic, kolu-free. | Each is a `RenderedRenderer` value. | The strategy code hand-written in `BrowsePreviewView`. |
 
 **Decoupling the source renderer too.** `FileView` does *not* hard-depend on a
 highlighter — the source view is an injected renderer like any other. kolu passes
@@ -222,7 +223,7 @@ working throughout — and kolu's LOC drops at each.
 | Package | Contents |
 | --- | --- |
 | `packages/solid-markdown` <Pill variant="ok">shipped</Pill> <PrLink pr={1079} /> | The token-walk core (`marked` + `safeHref`) + `inline`/`compact`/`document` variants. Its `document` variant now also backs the Code-tab markdown appliance. |
-| `packages/solid-fileview` <Pill variant="ok">shipped</Pill> <PrLink pr={1082} /> <PrLink pr={1093} /> | `FileView` host (toggle, mode-availability, registry) + the `SourceRenderer`/`RenderedRenderer` contracts. Core entry has no rendering deps. Sub-path renderers `/renderers/{image,iframe,markdown}`. |
+| `packages/solid-fileview` <Pill variant="ok">shipped</Pill> <PrLink pr={1082} /> <PrLink pr={1093} /> | `FileView` host (toggle, mode-availability, registry) + the `SourceRenderer`/`RenderedRenderer` contracts. Core entry has no rendering deps. Sub-path renderers `/renderers/{image,video,pdf,iframe,markdown}`. |
 
 **kolu — the net shrink:**
 

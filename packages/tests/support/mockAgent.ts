@@ -11,15 +11,16 @@
  * The mock-agent's bin dir is provisioned by the e2e recipe (a `nix build
  * .#mock-agent`, `nix copy`'d to the bind target) and surfaced as
  * `KOLU_MOCK_AGENT_BIN`. Invoked by ABSOLUTE store path so the head basename is
- * `claude`/`codex`/`opencode` (what the preexec command-name detector keys on)
- * and PATH-shadowing by a host's real agent install can't win — the store path
- * is identical on every box, so the SAME command line resolves on either side.
+ * `claude`/`codex`/`opencode`/`grok` (what the preexec command-name detector
+ * keys on) and PATH-shadowing by a host's real agent install can't win — the
+ * store path is identical on every box, so the SAME command line resolves on
+ * either side.
  */
 
 import { waitForBufferContains } from "./buffer.ts";
 import type { KoluWorld } from "./world.ts";
 
-export type AgentKind = "claude" | "codex" | "opencode";
+export type AgentKind = "claude" | "codex" | "opencode" | "grok";
 
 /** Options accepted by a `state <name>` command, rendered into `k=v` tokens. */
 export interface MockStateOpts {
@@ -29,6 +30,8 @@ export interface MockStateOpts {
   todos?: { total: number; completed: number };
   tasks?: { total: number; completed: number };
   staleJsonl?: boolean;
+  /** grok: write session tree without an active_sessions pid row. */
+  noActive?: boolean;
 }
 
 function mockAgentBin(kind: AgentKind): string {
@@ -123,6 +126,7 @@ function renderOpts(opts: MockStateOpts): string {
   if (opts.tasks)
     parts.push(`tasks=${opts.tasks.total}/${opts.tasks.completed}`);
   if (opts.staleJsonl) parts.push("stale-jsonl");
+  if (opts.noActive) parts.push("no-active");
   return parts.join(" ");
 }
 

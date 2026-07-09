@@ -1,0 +1,80 @@
+---
+title: Clipboard & Files
+description: "Paste an image with Ctrl+V and drag-and-drop files onto a terminal — kolu saves them server-side and bracketed-pastes the path, so agents that accept paste-as-file-path pick them up."
+order: 44
+section: Use Kolu
+koluHero:
+  eyebrow: paste & drop
+  headline: Hand a {file} to the agent.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+Many coding agents — Claude Code, Codex — take a **file path** on their input
+line and read the file themselves. kolu leans on exactly that: paste an image or
+drop a file, and kolu saves it on the server, then types its path into the
+terminal so the agent can pick it up. You never manage a temp file by hand.
+
+<figure class="doc-figure">
+  <svg viewBox="0 0 720 132" role="img" aria-labelledby="cb-flow-title">
+    <title id="cb-flow-title">A pasted image or a dropped file uploads to kolu-server, which saves it to disk and bracketed-pastes its path onto the terminal's input line, where the agent reads it.</title>
+    <defs>
+      <marker id="cb-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
+      </marker>
+    </defs>
+
+    <rect x="16" y="30" width="188" height="72" rx="10" class="ax-d-box"></rect>
+    <text x="110" y="62" text-anchor="middle" class="ax-d-label2">Ctrl+V · drop</text>
+    <text x="110" y="82" text-anchor="middle" class="ax-d-sub">image or file</text>
+
+    <path d="M204,66 H272" class="ax-d-flow" marker-end="url(#cb-arrow)"></path>
+    <text x="238" y="56" text-anchor="middle" class="ax-d-tlabel">upload</text>
+
+    <rect x="272" y="30" width="188" height="72" rx="10" class="ax-d-box"></rect>
+    <text x="366" y="62" text-anchor="middle" class="ax-d-label2">kolu-server</text>
+    <text x="366" y="82" text-anchor="middle" class="ax-d-sub">saves to disk</text>
+
+    <path d="M460,66 H528" class="ax-d-flow" marker-end="url(#cb-arrow)"></path>
+    <text x="494" y="56" text-anchor="middle" class="ax-d-tlabel">paste path</text>
+
+    <rect x="528" y="30" width="176" height="72" rx="10" class="ax-d-daemon"></rect>
+    <text x="616" y="62" text-anchor="middle" class="ax-d-daemon-label2">agent</text>
+    <text x="616" y="82" text-anchor="middle" class="ax-d-sub">reads the path</text>
+  </svg>
+</figure>
+
+## Paste an image
+
+Press <kbd>Ctrl+V</kbd> in a terminal with an image on the clipboard. kolu saves
+the clipboard image server-side and bracketed-pastes its path into the PTY. Any
+agent that accepts a pasted file path (Claude Code, Codex, …) picks it up as if
+you'd typed the path yourself — a screenshot straight into the conversation, no
+intermediate file.
+
+## Drag and drop a file
+
+Drag a file from your OS onto a terminal tile. It uploads to the server and its
+path is bracketed-pasted into the PTY, the same way a pasted image is.
+
+- **Size cap** — 10 MB per file. Oversize drops are rejected client-side with a
+  toast; they never hit the wire.
+- **Type allowlist** — a curated set covering text, code, structured data, common
+  documents, images, and video. A disallowed type is rejected client-side, also
+  with a toast.
+
+<Aside type="tip" title="What the agent sees">
+  Both paths arrive as a <strong>bracketed paste</strong> on the input line — text
+  for you to review, not a submitted command. The agent reads the file from disk
+  when you send your prompt. The same video and image types you can drop are the
+  ones the [Code tab](/concepts#the-code-browser) previews, so drop and preview
+  stay in lockstep.
+</Aside>
+
+<CardGrid>
+  <LinkCard title="Agent detection" href="/agent-detection" description="how kolu knows which agent is running in a terminal" />
+  <LinkCard title="Power features" href="/power-features" description="running many agents, sleep/wake, export, and recording" />
+</CardGrid>

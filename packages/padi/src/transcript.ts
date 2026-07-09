@@ -15,6 +15,7 @@ import { ORPCError } from "@orpc/server";
 import { prValue } from "anyforge/schemas";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
+import { loadGrokTranscript } from "kolu-grok";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
@@ -43,7 +44,7 @@ export async function exportTranscriptHtml(
   if (!agent) {
     throw new ORPCError("PRECONDITION_FAILED", {
       message:
-        "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
+        "No active agent session in this terminal — start Claude Code, OpenCode, Codex, or Grok first",
     });
   }
   const cwd = aw.cwd;
@@ -91,6 +92,17 @@ export async function exportTranscriptHtml(
         },
         log,
       ),
+    )
+    .with({ kind: "grok" }, (a) =>
+      loadGrokTranscript({
+        sessionId: a.sessionId,
+        title: a.summary,
+        repoName,
+        cwd,
+        model: a.model,
+        contextTokens: a.contextTokens,
+        pr,
+      }),
     )
     .exhaustive();
   if (!transcript) {

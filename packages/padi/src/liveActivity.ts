@@ -21,7 +21,7 @@ import { pollOnEvent } from "@kolu/surface/server";
 import {
   TERMINAL_IDLE_AFTER_MS,
   type TerminalId,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { registryMap } from "./terminal-registry.ts";

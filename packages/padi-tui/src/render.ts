@@ -8,7 +8,7 @@
  * padi's composed `terminals` collection (the same record the canvas Dock reads).
  * The `wait` verb compares the agent's coarse BUCKET (`agentBucket`), never the
  * raw `AgentInfo['state']`, so the one fold in
- * `@kolu/terminal-workspace/agentProjection` stays the single source of truth.
+ * `@kolu/terminal-vocab/agentProjection` stays the single source of truth.
  */
 
 import type { PadiTerminal } from "@kolu/padi/surface";
@@ -17,8 +17,8 @@ import {
   agentShortName,
   agentStatusLabel,
   DASH,
-} from "@kolu/terminal-workspace/agentProjection";
-import type { AgentInfo, TerminalId } from "@kolu/terminal-workspace/schema";
+} from "@kolu/terminal-vocab/agentProjection";
+import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import columnify from "columnify";
 
 /** How many leading chars of a terminal id the human views show. v4 UUIDs
@@ -79,7 +79,7 @@ export function resolveTerminalId(
  *  fold's vocabulary minus `other` (an `other` bucket never matches a real agent,
  *  so accepting it would only ever time out). `wait` compares against the
  *  *bucket*, never the raw `AgentInfo['state']` literals, so the one fold in
- *  `@kolu/terminal-workspace/agentProjection` stays the single source of truth
+ *  `@kolu/terminal-vocab/agentProjection` stays the single source of truth
  *  (see `.claude/rules/dock-fleet-mirror.md`). */
 export const WAIT_STATES = [
   "working",

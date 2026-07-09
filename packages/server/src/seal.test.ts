@@ -75,7 +75,7 @@ const WEB_SHELL_FILES = [
   // `makeSession` + the daemon-supervision members by spread — no `BoundPadi`, no
   // wrapper class. Web-shell glue (the arms' shared session type + spread helper).
   "padiSession",
-  // The pure `SessionState.connection` → koluSurface `padiLink` mapping — the web
+  // The pure `SessionState.phase` → koluSurface `padiLink` mapping — the web
   // shell's own honest view of its binding to padi (#1034), driven off the binding
   // session. Shell code (a projection of the binder's state onto kolu-server's OWN
   // surface), not terminal domain.
@@ -174,7 +174,7 @@ const PADI_PKG = resolve(PADI_SRC, "..", "package.json");
 const APP_PACKAGES = ["kolu-common", "kolu-server", "kolu-client"];
 
 /** Map every workspace package NAME → its `package.json` path, so a workspace
- *  dep (`@kolu/terminal-workspace`, `kaval`, `kolu-pty`, …) resolves to its dir
+ *  dep (`@kolu/terminal-vocab`, `kaval`, `kolu-pty`, …) resolves to its dir
  *  even when the dir name differs from the package name.
  *
  *  Discovery is RECURSIVE, mirroring the ROOT `pnpm-workspace.yaml`, whose sole

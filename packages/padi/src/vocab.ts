@@ -2,7 +2,7 @@
  * `@kolu/padi/surface` terminal VOCABULARY — the kolu-specific terminal-domain
  * schemas, records, and pure helpers the padi daemon (the terminal-domain
  * AUTHORITY) owns. These EXTEND the generic awareness base owned by
- * `@kolu/terminal-workspace/schema` (the `TerminalSnapshot` / agent / PR / memory
+ * `@kolu/terminal-vocab/schema` (the `TerminalSnapshot` / agent / PR / memory
  * primitives) with kolu's `location`, client/UI fields, the active|sleeping|
  * parked discriminant, session persistence, and the daemon-status axis.
  *
@@ -27,7 +27,7 @@ import {
   TerminalIdSchema,
   type TerminalSnapshot,
   TerminalSnapshotSchema,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/terminal-vocab/schema";
 import { exactRestoreTarget } from "anyagent/cli";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import { z } from "zod";
@@ -161,7 +161,7 @@ export function decodeHostLocation(s: string): HostLocation {
 //
 // After the awareness-derive-store cutover (PR #1621) a terminal's metadata has
 // three sources, joined at the client by `composeTerminalMetadata`:
-//   - the OBSERVATION (`@kolu/terminal-workspace`'s `TerminalSnapshot`: cwd · git · pr
+//   - the OBSERVATION (`@kolu/terminal-vocab`'s `TerminalSnapshot`: cwd · git · pr
 //     · agent · foreground) — what a memoryless host re-observes, served on the
 //     `terminalWorkspace.snapshots` collection and held in `entry.snapshot`;
 //   - kolu's AUTHORED record (`entry.meta`): the kolu-owned `location`, the
@@ -682,7 +682,7 @@ export type DaemonState = DaemonStatus["state"];
 // ── Process-memory readout (padi + its kaval) ─────────────────────────────
 
 // The honest three-way process-RSS union (`ProcessRssSchema`/`ProcessRss`) is OWNED
-// by the shared browser-safe `@kolu/terminal-workspace/schema` leaf that BOTH
+// by the shared browser-safe `@kolu/terminal-vocab/schema` leaf that BOTH
 // `@kolu/padi` and `kolu-common` already import — one declaration instead of a
 // lockstep copy on each side of the seal. Re-exported so `@kolu/padi/surface`'s
 // consumers (e.g. `memorySampler.ts`) resolve it from here unchanged.

@@ -45,6 +45,7 @@ import {
   resolveSystem,
   type Session,
   sshConnector,
+  type SshProv,
 } from "@kolu/surface-remote";
 import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
 import type { PadiConvergence } from "kolu-common/surface";
@@ -402,7 +403,7 @@ export function ensureRemotePadiBinding(
       }
     },
   });
-  const rawConnector: Connector<PadiSurfaceClient> = async (ctx) => {
+  const rawConnector: Connector<PadiSurfaceClient, SshProv> = async (ctx) => {
     const conn = await inner(ctx);
     combined = conn.client;
     return { ...conn, client: scopePadiSurface(conn.client) };
@@ -526,7 +527,7 @@ export function ensureRemotePadiBinding(
         crossSupervisorDetail = null;
         return {
           kind: "refuse",
-          state: { lastError: msg, failureCause: "remote" },
+          state: { error: msg, cause: "remote" },
         };
       }
 
@@ -675,7 +676,7 @@ export function ensureRemotePadiBinding(
     crossSupervisorDetail = msg;
     return {
       kind: "refuse",
-      state: { lastError: msg, failureCause: "remote" },
+      state: { error: msg, cause: "remote" },
     };
   }
 
@@ -693,16 +694,21 @@ export function ensureRemotePadiBinding(
     crossSupervisorDetail = null;
     return {
       kind: "refuse",
-      state: { lastError: msg, failureCause: "remote" },
+      state: { error: msg, cause: "remote" },
     };
   }
 
   // ── The base session + the daemon-member spread ─────────────────────────────
-  const base: Session<PadiSurfaceClient> = makeSession<PadiSurfaceClient>({
+  const base: Session<PadiSurfaceClient, SshProv> = makeSession<
+    PadiSurfaceClient,
+    SshProv
+  >({
     connectOnce: rawConnector,
     // The REMOTE ssh connector PROVISIONS — it nix-copies the padi closure to the
-    // host before the transport is up — so this session opens at "copying".
-    initialConnection: "copying",
+    // host before the transport is up (`copying`), then advances to `building`
+    // (`ctx.provisioning`) when the remote compile begins — so this session opens
+    // at "copying", its first provisioning phase.
+    initialConnection: "probing",
     admit,
     onLog: (line) => log.info({ host, line }, "remote padi session"),
     label: `host:${host}`,
@@ -713,7 +719,7 @@ export function ensureRemotePadiBinding(
   // anomaly (a standing skew/adopted-stale verdict from admit stays until the next
   // handshake re-decides). Mirrors the pre-S9 hostUnsub.
   base.onState((s) => {
-    if (s.connection === "failed") {
+    if (s.phase === "failed") {
       // `lastError` is REQUIRED on the down arm (juspay/kolu SessionState sum
       // split) — a `failed` session always carries the real reason it gave up,
       // so there is no invented fallback text left to write here.
@@ -721,19 +727,25 @@ export function ensureRemotePadiBinding(
         state: "link-failed",
         runningBuild: null,
         expectedBuild: null,
-        detail: s.lastError,
+        detail: s.error,
       };
       // A genuine ssh link death supersedes a standing cross-supervisor verdict — the
       // link is now the honest failure; a reconnect re-decides ownership from scratch.
       crossSupervisorDetail = null;
       combined = null;
-    } else if (s.connection === "disconnected") {
+      // The clock offset was measured against THIS (now-dead) episode's padi at admit; a
+      // reconnect re-measures it. Clearing it to null keeps the offset-at-hello contract
+      // honest — `projectState` reads `connecting` (offset === null) until admit re-stamps,
+      // so a reconnect race can't fold a PRIOR episode's offset into a fresh `connected`.
+      clockOffset = null;
+    } else if (s.phase === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the
       // next handshake); only a previously-healthy bind clears to null.
       if (convergence === null || convergence.state === "link-failed") {
         convergence = null;
       }
       combined = null;
+      clockOffset = null; // as above — re-measured at the next admit
     }
   });
 

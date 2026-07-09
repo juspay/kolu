@@ -63,6 +63,82 @@
       const closeBtn = this.querySelector<HTMLButtonElement>("button[data-close-modal]")!;
       const dialog = this.querySelector("dialog")!;
       const dialogFrame = this.querySelector(".nav-search-frame")!;
+      let stylesheetReady: Promise<void> | null = null;
+      let searchReady: Promise<void> | null = null;
+
+      const loadStylesheet = () => {
+        if (stylesheetReady) return stylesheetReady;
+        stylesheetReady = new Promise((resolve, reject) => {
+          const existing = document.querySelector<HTMLLinkElement>(
+            "link[data-pagefind-ui-css]",
+          );
+          if (existing) {
+            resolve();
+            return;
+          }
+
+          const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+          const link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = `${base}/pagefind/pagefind-ui.css`;
+          link.dataset.pagefindUiCss = "";
+          link.addEventListener("load", () => resolve(), { once: true });
+          link.addEventListener(
+            "error",
+            () => reject(new Error(`Failed to load ${link.href}`)),
+            { once: true },
+          );
+          document.head.append(link);
+        });
+        return stylesheetReady;
+      };
+
+      const mountSearch = async () => {
+        if (import.meta.env.DEV) return;
+        if (!searchReady) {
+          searchReady = (async () => {
+            await loadStylesheet();
+            // @ts-expect-error — no types for @pagefind/default-ui.
+            const { PagefindUI } = await import("@pagefind/default-ui");
+            new PagefindUI({
+              element: "#nav-search__pagefind",
+              baseUrl: import.meta.env.BASE_URL,
+              bundlePath: import.meta.env.BASE_URL.replace(/\/$/, "") + "/pagefind/",
+              filters: {
+                section: "Type",
+              },
+              processResult(result: { meta?: { section?: string; title?: string } }) {
+                const section = result.meta?.section;
+                if (
+                  section &&
+                  typeof result.meta?.title === "string" &&
+                  !result.meta.title.startsWith(`${section} · `)
+                ) {
+                  result.meta.title = `${section} · ${result.meta.title}`;
+                }
+                return result;
+              },
+              showImages: false,
+              showSubResults: true,
+            });
+            const labelPagefindInput = () => {
+              const input = this.querySelector<HTMLInputElement>(".pagefind-ui__search-input");
+              if (!input) return false;
+              input.id = "nav-search-input";
+              input.name = "q";
+              input.setAttribute("aria-label", "Search this site");
+              return true;
+            };
+            if (!labelPagefindInput()) {
+              const observer = new MutationObserver(() => {
+                if (labelPagefindInput()) observer.disconnect();
+              });
+              observer.observe(this, { childList: true, subtree: true });
+            }
+          })();
+        }
+        await searchReady;
+      };
 
       const onClick = (event: MouseEvent) => {
         const isLink = "href" in (event.target || {});
@@ -78,7 +154,9 @@
       const openModal = (event?: MouseEvent) => {
         dialog.showModal();
         document.body.toggleAttribute("data-search-modal-open", true);
-        this.querySelector("input")?.focus();
+        const input = this.querySelector("input");
+        if (input) input.focus();
+        else void mountSearch().then(() => this.querySelector("input")?.focus());
         event?.stopPropagation();
         window.addEventListener("click", onClick);
       };
@@ -97,50 +175,6 @@
           dialog.open ? closeModal() : openModal();
           e.preventDefault();
         }
-      });
-
-      window.addEventListener("DOMContentLoaded", () => {
-        if (import.meta.env.DEV) return;
-        const onIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1));
-        onIdle(async () => {
-          // @ts-expect-error — no types for @pagefind/default-ui.
-          const { PagefindUI } = await import("@pagefind/default-ui");
-          new PagefindUI({
-            element: "#nav-search__pagefind",
-            baseUrl: import.meta.env.BASE_URL,
-            bundlePath: import.meta.env.BASE_URL.replace(/\/$/, "") + "/pagefind/",
-            filters: {
-              section: "Type",
-            },
-            processResult(result: { meta?: { section?: string; title?: string } }) {
-              const section = result.meta?.section;
-              if (
-                section &&
-                typeof result.meta?.title === "string" &&
-                !result.meta.title.startsWith(`${section} · `)
-              ) {
-                result.meta.title = `${section} · ${result.meta.title}`;
-              }
-              return result;
-            },
-            showImages: false,
-            showSubResults: true,
-          });
-          const labelPagefindInput = () => {
-            const input = this.querySelector<HTMLInputElement>(".pagefind-ui__search-input");
-            if (!input) return false;
-            input.id = "nav-search-input";
-            input.name = "q";
-            input.setAttribute("aria-label", "Search this site");
-            return true;
-          };
-          if (!labelPagefindInput()) {
-            const observer = new MutationObserver(() => {
-              if (labelPagefindInput()) observer.disconnect();
-            });
-            observer.observe(this, { childList: true, subtree: true });
-          }
-        });
       });
     }
   }
@@ -276,8 +310,6 @@
 </style>
 
 <style is:global>
-  @import url("@pagefind/default-ui/css/ui.css");
-
   [data-search-modal-open] {
     overflow: hidden;
   }

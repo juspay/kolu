@@ -1,13 +1,13 @@
 /**
  * The fs/git watcher-pulse logic, ported from the retired
- * `@kolu/terminal-workspace/serveFsGit` test when padi absorbed the two
+ * `@kolu/terminal-vocab/serveFsGit` test when padi absorbed the two
  * change-pulse stream sources. Driven by a FAKE endpoint whose
  * `subscribeRepoChange` hands us the change callback — so seq / snapshot /
  * per-subscription behaviour is deterministic, with no real fs-watcher or
  * debounce timing (kolu-git's watcher firing is covered in kolu-git's own tests).
  */
 
-import type { RepoChangePulse } from "@kolu/terminal-workspace/schema";
+import type { RepoChangePulse } from "@kolu/terminal-vocab/schema";
 import pino from "pino";
 import { describe, expect, it } from "vitest";
 import type { TerminalEndpoint } from "./endpoint.ts";

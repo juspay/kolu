@@ -1,15 +1,20 @@
-import type { ConnectionState } from "@kolu/surface-remote";
 import { describe, expect, it } from "vitest";
 import { mapConnectionToPadiLink } from "./padiLink.ts";
 
-describe("mapConnectionToPadiLink — bound padi ConnectionState → koluSurface padiLink", () => {
+/** Every session `phase` the mapping is total over — derived from the mapping's
+ *  own parameter so a new phase added to the source union surfaces here too. */
+type SessionPhase = Parameters<typeof mapConnectionToPadiLink>[0];
+
+describe("mapConnectionToPadiLink — bound padi session phase → koluSurface padiLink", () => {
   it("maps a live binding to `connected`", () => {
     expect(mapConnectionToPadiLink("connected")).toBe("connected");
   });
 
   it("maps a (re)establishing binding to `connecting` (initial dial + the reconnect tail)", () => {
     expect(mapConnectionToPadiLink("connecting")).toBe("connecting");
+    expect(mapConnectionToPadiLink("probing")).toBe("connecting");
     expect(mapConnectionToPadiLink("copying")).toBe("connecting");
+    expect(mapConnectionToPadiLink("building")).toBe("connecting");
   });
 
   it("maps a dropped binding to `degraded` — the drain window and a failed dial alike", () => {
@@ -21,9 +26,11 @@ describe("mapConnectionToPadiLink — bound padi ConnectionState → koluSurface
     expect(mapConnectionToPadiLink("failed")).toBe("degraded");
   });
 
-  it("is total over every ConnectionState (a new phase is a compile error, not a silent gap)", () => {
-    const all: ConnectionState[] = [
+  it("is total over every session phase (a new phase is a compile error, not a silent gap)", () => {
+    const all: SessionPhase[] = [
+      "probing",
       "copying",
+      "building",
       "connecting",
       "connected",
       "disconnected",

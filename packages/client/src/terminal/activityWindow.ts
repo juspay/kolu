@@ -3,7 +3,9 @@
  *  the canvas minimap's tile fading, the workspace switcher's Idle column,
  *  the canvas tile dimming, and the badge-attention gate.
  *
- *  One vocabulary, one persisted user choice — see `useActivityWindow`. */
+ *  One vocabulary; the per-host user choice lives in the facade beside it —
+ *  see `activityWindowFilter.ts`. This module stays a PURE leaf (no per-host
+ *  owner import), so everything above can depend on it without a back-edge. */
 
 /** One hour in milliseconds. Lives here (and not in `staleness.ts`) so
  *  the threshold ladder used by `WINDOWS` has a single source with a
@@ -12,8 +14,6 @@
  *  otherwise leave `HOUR_MS` in TDZ when `activityWindow.ts` evaluates
  *  first under the bundler's resolution order. */
 export const HOUR_MS = 60 * 60 * 1000;
-
-import { persistedPref } from "../persistedPref";
 
 export type ActivityWindow = "all" | "4h" | "12h" | "24h" | "48h";
 
@@ -80,26 +80,6 @@ export function windowOption(w: ActivityWindow): WindowOption {
  *  parked-row AgentIndicator), without a wall of full reply cards
  *  drowning out fresh waiters. */
 export const DEFAULT_ACTIVITY_WINDOW: ActivityWindow = "24h";
-
-/** Per-device user choice of activity window. Singleton — one persisted
- *  store consumed by every surface that filters by staleness (dock,
- *  minimap, tile fade, badge gate). Localstorage-backed via makePersisted
- *  so the same setter from any surface updates every reader. */
-export const [activityWindow, setActivityWindow] =
-  persistedPref<ActivityWindow>({
-    name: "kolu-activity-window",
-    fallback: DEFAULT_ACTIVITY_WINDOW,
-    parse: (raw) => {
-      if (isActivityWindow(raw)) return raw;
-      throw new Error(`unrecognized activity window: ${raw}`);
-    },
-  });
-
-/** Reactive threshold (ms) for the currently-selected activity window.
- *  `null` when the user picked `"all"` — staleness is disabled. */
-export function activityWindowThresholdMs(): number | null {
-  return WINDOWS[activityWindow()].thresholdMs;
-}
 
 /** Pre-built `{value, label}` list for the activity-window picker menus —
  *  shared by the dock chip and the minimap chip so the option set is

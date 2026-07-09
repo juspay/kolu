@@ -6,14 +6,15 @@
  * `MakeSessionOptions.initialConnection` is narrowed to exactly the
  * connector's TRUE opening phase — `"connecting"` for the local/endpoint arm
  * (`Prov = never`), `Prov` for the provisioning arm (`"copying"` for ssh) —
- * rather than the full `LocalConnectionState` the local arm used to admit
- * (which would have let a local session's TYPE claim `"failed"`/`"connected"`/
+ * rather than the broad local phase set the local arm used to admit (which
+ * would have let a local session's TYPE claim `"failed"`/`"connected"`/
  * `"disconnected"` as a boot state, a lying first frame). See
  * `localSessionPhase.test-d.ts` for the TYPE-level pin that a down/other state
  * can't even be written as `initialConnection` in the first place.
  */
 import { describe, expect, it } from "vitest";
 import { makeSession } from "./session";
+import type { SshProv } from "./sshConnector";
 
 // A connector that's never invoked — every test here only constructs the
 // session (synchronous) and reads `.provisions`; none of them `.pin()`.
@@ -30,10 +31,10 @@ describe("session.provisions", () => {
     session.destroy();
   });
 
-  it("is TRUE for the provisioning arm (default Prov, opens at 'copying')", () => {
-    const session = makeSession<unknown>({
+  it("is TRUE for the provisioning arm (Prov = SshProv, opens at 'copying')", () => {
+    const session = makeSession<unknown, SshProv>({
       connectOnce: neverDial,
-      initialConnection: "copying",
+      initialConnection: "probing",
     });
     expect(session.provisions).toBe(true);
     session.destroy();

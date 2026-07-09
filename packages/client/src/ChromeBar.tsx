@@ -1,35 +1,40 @@
 /** ChromeBar — the always-visible workspace chrome band.
  *
- *  Carries app identity (logo + connection dot) on the left and the
- *  global control cluster (recorder, inspector, settings, command
- *  palette) on the right. The live-terminal navigator moved to the
- *  dock at the canvas's left edge (#903), so the chrome bar
- *  no longer hosts a workspace switcher slot.
+ *  Left → right: quiet Kolu mark, host tab strip (primary multi-host
+ *  nav; Padi/Kaval dual marks ride each host tab), global control
+ *  cluster (recorder, maximize, dock, inspector, settings, command palette).
+ *  The live-terminal navigator lives on the dock at the canvas's left edge
+ *  (#903) — not here.
  *
- *  Two positioning modes, switched on `posture.mode()`:
- *  - Tiled (default): absolute overlay above the canvas. Pure
- *    transparent so the grid reads through and the chrome looks like
- *    it floats ON the canvas, not capping it. When the right panel
- *    is open, the overlay's right edge stops at the panel's left
- *    edge (via inline `right: panelSize * 100vw`) so the controls
- *    cluster doesn't sit on top of the panel's tab bar.
- *  - Maximized mode: docked in flex flow so the maximized terminal
- *    owns the rest of the viewport without the terminal's own title
- *    bar overlapping the chrome.
+ *  A single DOCKED full-width top bar in BOTH postures (tiled + maximized):
+ *  `relative shrink-0` in flex flow, spanning the whole viewport, so the
+ *  canvas and the right inspector panel flow BELOW it rather than the bar
+ *  overlaying either. There is no panel-width right-offset — the header reads
+ *  as one continuous top rail across the workspace. The band is a solid chrome
+ *  surface tinted by the hostname-derived PWA theme color over the app base
+ *  surface, so installed-window chrome and in-app header belong together.
+ *  `posture.mode()` no longer changes the bar's positioning; it only picks the
+ *  maximize/restore affordance and the `data-maximized` marker.
  *
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createMemo, createSignal, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  type JSX,
+  Show,
+} from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
-import DaemonSlot from "./host/HostDaemonChips";
 import HostSelectorStrip from "./host/HostSelectorStrip";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
+import { useServerIdentity } from "./useServerIdentity";
 import SettingsPopover from "./settings/SettingsPopover";
 import {
   DockToggleIcon,
@@ -55,12 +60,18 @@ const ChromeBar: Component<{
 }> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
+  // The hostname-derived PWA theme tint — read straight off the
+  // `useServerIdentity` singleton (same as AboutDialog), not drilled through a
+  // prop: `useServerIdentity` was extracted precisely so the layout shell stops
+  // threading identity fields (see its module doc + no-preference-prop-drilling).
+  const { themeColor } = useServerIdentity();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
-  // Dock only when the terminal is maximized, so its own title bar
-  // doesn't collide with the chrome. Panel-open stays on the floating
-  // overlay — the `right:` offset below keeps controls off the panel.
+  // True when the terminal is maximized. The header is full-width docked in
+  // BOTH postures now (see the module comment), so this no longer gates
+  // positioning — it only drives the `data-maximized` marker and the
+  // maximize/restore toggle's active state and icon below.
   const docked = createMemo(() => posture.mode() === "maximized");
 
   // Gate the maximize affordance on a tile existing (posture's single
@@ -72,83 +83,57 @@ const ChromeBar: Component<{
   // drift out of sync with the posture.
   const maximizeLabel = createMemo(() => posturedActionLabel(posture.mode()));
 
+  // The header is a DOCKED full-width top bar in both postures now (tiled +
+  // maximized), so it spans the whole width — including over the right
+  // inspector panel, which sits BELOW it — exactly like maximized mode. No
+  // panel-width right-offset to maintain anymore; the only inline style is the
+  // hostname-derived PWA theme tint.
+  const chromeStyle = (): JSX.CSSProperties =>
+    themeColor() ? { "--chrome-theme-color": themeColor() } : {};
+
   return (
     <header
       data-testid="chrome-bar"
       data-maximized={docked() ? "" : undefined}
-      // pointer-events-none on the root so the transparent gaps don't
-      // eat clicks meant for the canvas under the overlay. Interactive
-      // children (identity row, workspace switcher, control cluster) re-enable
-      // pointer events on themselves.
-      class="chrome-bar-surface flex items-center gap-3 px-3 py-2 select-none pointer-events-none transition-colors duration-150"
-      // z-50 in BOTH modes. Without it on the docked branch, the
-      // `backdrop-filter` we apply to the bar when the workspace
-      // switcher is open creates a stacking context with auto z-index,
-      // which traps the dropdown panel's own z-50 inside the bar — the
-      // maximized tile (z-40 in the canvas) then paints on top of the
-      // panel at the App root's auto-z layer (DOM order wins).
-      classList={{
-        "absolute top-0 left-0 z-50": !docked(),
-        "relative shrink-0 z-50": docked(),
-      }}
-      style={
-        docked()
-          ? undefined
-          : {
-              // Stop the floating chrome's right edge at the right
-              // panel's left edge so the controls cluster (inspector,
-              // settings, ⌘K) doesn't sit on top of the panel's tab
-              // bar. `panelSize` is `@corvu/resizable`'s [0..1] fraction
-              // of *the Resizable container's* width — treating it as a
-              // fraction of viewport width is only correct because the
-              // host Resizable in `App.tsx` spans the full viewport in
-              // tiled mode (the Dock floats `position: absolute`, the
-              // canvas-container is the Resizable's left panel).
-              // Maintained by convention across the two files — if a
-              // sibling outside the Resizable ever shrinks the
-              // container, switch to a measured pixel offset or a
-              // host-published CSS custom property.
-              // `panelOpen()` (not raw `collapsed()`) so an empty workspace —
-              // where the panel host isn't even mounted (App's `showEmpty`)
-              // — reserves no width here. Otherwise the cluster floats 25vw
-              // shy of the right edge with nothing filling the gap.
-              right: rightPanel.panelOpen()
-                ? `${rightPanel.panelSize() * 100}vw`
-                : 0,
-            }
-      }
+      // Explicit marker for the themed-surface CSS (below), set only when a
+      // hostname-derived PWA theme color is present. The `.chrome-bar-surface`
+      // rules key off THIS attribute — not a `[style*="--chrome-theme-color"]`
+      // substring match on the serialized inline style, which was brittle to any
+      // reformat/rename of that custom property.
+      data-themed={themeColor() ? "" : undefined}
+      // Solid chrome owns this strip's pointer area. Individual controls still
+      // carry their own pointer/focus classes, but empty header space should
+      // behave like header, not click through to the canvas behind it.
+      //
+      // DOCKED full-width in BOTH postures (`relative shrink-0`) so the bar
+      // spans the whole viewport and the canvas + right inspector flow BELOW
+      // it — the tabbed header reads as one continuous top rail. No drop
+      // shadow: a shadow under the bar makes the tabs look like they float
+      // ABOVE the content, fighting the connected-tab metaphor. `z-50` keeps
+      // the workspace-switcher dropdown above the maximized tile (z-40).
+      class="chrome-bar-surface relative z-50 flex h-10 shrink-0 items-stretch gap-3 border-b border-edge/80 bg-surface-0 px-3 pt-2 pb-0 select-none pointer-events-auto transition-colors duration-150"
+      style={chromeStyle()}
     >
-      {/* Identity rail. Server details live in the rail dialogs, not as
-       * duplicate branding on the canvas. */}
-      <div class="shrink-0 pointer-events-auto">
+      {/* Quiet Kolu mark — connection + dialogs; versions live in the dialog. */}
+      <div class="flex h-8 shrink-0 items-center pointer-events-auto">
         <IdentityRail status={props.status} />
       </div>
 
-      {/* The STATIONARY daemon slot (W4 header redesign, iteration 2) — the
-       *  Padi + Kaval sub-chips, fixed right after the Kolu chip. Its position
-       *  and size never change on a host switch (only its CONTENT re-keys —
-       *  see HostDaemonChips.tsx); iteration 1 mounted this pair INSIDE the
-       *  active host chip instead, which inflated whichever chip was active
-       *  and reflowed the whole strip on every switch. */}
-      <div class="shrink-0 pointer-events-auto">
-        <DaemonSlot />
-      </div>
-
-      {/* Middle slot — the host selector strip. It ALWAYS carries at least the
-       *  active host's chip; the `hostMapGate` cell only controls whether
-       *  ADDITIONAL host chips + the "+ add" affordance appear beside it. Host
-       *  chips are now UNIFORM (dot + name + ✕) — the active one is marked by
-       *  a ring/accent only, never by expansion, so a switch never reflows
-       *  the strip. */}
-      <div class="flex-1 min-w-0 flex items-center pointer-events-none">
+      {/* Host tabs are primary nav. Every tab carries a fixed-width Padi/Kaval
+       *  slot so daemon health is visible before switching and a host switch
+       *  never reflows the strip — see HostDaemonChips.tsx. */}
+      <div class="flex-1 min-w-0 flex items-end pointer-events-none">
         <HostSelectorStrip />
       </div>
 
-      {/* Control cluster: inspector → settings → ⌘K. Cluster wrapper
-       *  itself stays pointer-events-none so the gap-2 spaces and any
-       *  area covered when the cluster overlaps the right panel pass
-       *  clicks through; each button re-enables pointer-events-auto. */}
-      <div class="flex items-center gap-2 shrink-0">
+      {/* Control cluster: recorder → maximize → dock → inspector → settings
+       *  → ⌘K. Buttons share the chrome icon hover/focus language.
+       *  These are TOOLBAR icons, not tab-row marks, so they sit vertically
+       *  CENTERED in the full header (symmetric top/bottom padding) rather
+       *  than riding the tab baseline. `-mt-2 h-10` cancels the header's
+       *  `pt-2` and spans the whole 40px so `items-center` lands them dead
+       *  centre. */}
+      <div class="-mt-2 flex h-10 items-center gap-2 shrink-0">
         <RecordButton />
         <Tip label={maximizeLabel()}>
           <button

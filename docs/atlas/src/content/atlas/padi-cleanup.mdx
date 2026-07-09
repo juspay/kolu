@@ -4,7 +4,7 @@ description: The living scope of padi's cleanup track (unnumbered — runs in pa
 parents: [padi]
 status: proposed
 maturity: seedling
-updated: 2026-07-05
+updated: 2026-07-09
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -14,30 +14,51 @@ import birdseye from "../../diagrams/padi-cleanup-birdseye.svg?raw";
 
 **The cleanup track's scope, as a living ledger** *(unnumbered — it runs in parallel with the numbered phases; srid de-phased it 2026-07-05)*. W2 and W3 ship at pace — a deliberate call. This note holds what that pace defers: refactors, decomplecting, framework-level electricity upstreaming, and deletions. Nothing here is user-visible; that is the point. Every entry names its **lens** (why it's structurally wrong today — [hickey](https://github.com/srid/agency) = things braided together that change separately; lowy = code living on the wrong side of a volatility boundary), its **gate** (what must be true before it's workable), and a **done-when** an implementer can't satisfy by the easy route.
 
-<Callout kind="note" title="How to execute an entry (the working protocol)">
-Each entry is **one PR on a fresh branch off master**, dispatched individually. The implementing agent: (1) reads this entry plus the files it names — the entry gives the shape, the code gives the truth; if they disagree, **message the coordinator before proceeding** (kolu terminal `bb994d02`, two-step send: `kaval-tui send bb994d02 "<msg>"` then a separate `--key Enter`; prefix `[Lx]`); (2) honors the entry's gate — a `drishti` gate means a paired srid/drishti PR green against final kolu HEAD per `.claude/rules/surface.md`; (3) never merges — undraft + summary, srid decides. UX must be byte-identical for every entry (no-pixel-delta is the track's invariant); the e2e suite + the seal test are the net.
+<Callout kind="note" title="How to execute (the working protocol)">
+Entries ship in **right-sized batches, one PR per batch on a fresh branch off master** (srid, 2026-07-09: no tiny one-entry PRs — the batch plan below groups them; one commit per entry inside the PR keeps review clean; the exceptions that stay solo are named there). The implementing agent: (1) reads each entry plus the files it names — the entry gives the shape, the code gives the truth; if they disagree, **message the coordinator before proceeding** (kolu terminal `c769cfcd`, two-step send: `kaval-tui send c769cfcd "<msg>"` then a separate `--key Enter`; prefix `[Lx]`); (2) honors the gate — a `drishti` gate means a paired srid/drishti PR green against final kolu HEAD per `.claude/rules/surface.md` (batching drishti-gated entries together is the point: one coordination, not three); (3) never merges — undraft + summary, srid decides. UX must be byte-identical for every entry (no-pixel-delta is the track's invariant); the e2e suite + the seal test are the net.
 </Callout>
 
-**Bird's-eye** — every entry is a node (click it to jump to its section); **an arrow means "do this after that"**; left→right within a lane is the preferred order; the lanes group by nature — only the top one is ordered, the third is parallel-safe in any order.
+**The batch plan** *(the "next things to do", in dispatch order — each a well-sized PR)*:
 
-<Svg svg={birdseye} wide caption="The ledger at a glance. Top lane: the switch-prep critical path (L3 shipped → L6 in flight → L23 queued → W4 the switch → L11's post-switch sweep). Amber-dashed = gated; pills are milestones that live outside this ledger." />
+1. **The framework batch** *(one kolu PR + ONE paired drishti PR · after W6 merges)*: **L28** (rung 2 — `clockNow` as a framework-reserved member; rung 1's dedup already landed inside W6's pair) + **L1** (poll-on-change client core → `@kolu/surface`) + **L20·21** (the re-serve internals dedup). Three `@kolu/surface*` moves, one drishti coordination.
+2. **The hygiene batch** *(one kolu PR, ready now)*: **L8** (the deleted-world doc sweep, 33 files) + **L13** (the seal's test-file flank).
+3. **The padi/client batch** *(one kolu PR, ready now)*: **L17** (chrome vocab split + the video-ext table home) + **L18** (`HydrationPhase`) + **L24** (`padi-tui --host`).
+4. **Solo by nature** (each right-sized alone): **L26** (the null/sentinel sweep ships WITH its lint — srid mints the lint's shape first) · **L27** (pure motion — rename-detection review must not fight other changes) · **L11** (the post-switch wire sweep — unblocked now that W4 shipped; inventory-driven, sizable alone) · **L10** (flaky debt — tracker-driven) · **L12** (srid mints the token; agent wires).
+5. **Not now:** L4 (awaits a named version) · L2 (kolu-tui) · L9, L22 (evidence).
+
+**Bird's-eye** — every entry is a node (click it to jump to its section). The top lane is the batch plan in dispatch order; the middle lanes are solo/waiting entries; the bottom row is the shipped record.
+
+<Svg svg={birdseye} wide caption="The ledger at a glance. Top: the three ready batches, one PR each — the framework batch waits for W6 to merge (one drishti pair covers all three of its entries). Middle: solo-by-nature and waiting entries. Bottom: shipped. Amber-dashed = waits on the named thing." />
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L26 · L17 (+ video-ext table, was L5b) · L18 · L27 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
-- **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
-- **Shipped:** L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
-- **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
+- **Ready now:** L1 · L8 · L10 · L11 (unblocked — W4 shipped <PrLink pr={1714} />) · L12 (srid mints) · L13 · L17 (+ video-ext table, was L5b) · L18 · L24 · L26 · L27 · L20·21 — and L28 rung 2 once W6 merges; L4 at a named version
+- **Gated:** L2 on kolu-tui (future work) · L9, L22 on evidence
+- **Shipped:** L7 — terminal-workspace re-cut into @kolu/padi + the @kolu/terminal-vocab leaf (#1734, 2026-07-09); L28's rung-1 dedup — drishti's `hostMapRegistry` clone deleted inside W6's pair (srid/drishti#92, in review); L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5 — both halves (ProcessRss in W2.2 `3b3550642`; the video-ext half folded into L17)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
 
 Each of these is a real volatility whose producer half already lives in the framework while its consumer half camps in an app — *location is structure*, and these locations lie.
 
+<a id="l28"></a>
+
+### L28 — `clockNow` graduates to a framework-reserved member *(rung 1's dedup landed inside W6; rung 2 is what remains)*
+
+*Status: rung 1 DONE inside W6's pair (in review); rung 2 READY once W6 merges · Lens: lowy (the clock requirement is framework electricity stranded in padi's app-level control core) · Gate: drishti pair PR (surface/surface-remote API touch) — ships in the framework batch*
+
+The W6-era appraisal found the one real defect in the connection-state family: the `SessionState → EntryConnectionState` projection existed **twice** — `serveHostMap.projectState` and drishti's `hostMapRegistry.projectState` (which admitted in its own header that it "mirrors serveHostMap's projectState exactly"). **That half is resolved:** W6's remediation replaced `serveHostMap`'s `ClockableSession` bound with an injected `offsetOf` hook, and drishti's pair PR ([srid/drishti#92](https://github.com/srid/drishti/pull/92)) **deleted `hostMapRegistry.ts` outright** — drishti now calls `serveHostMap` with `offsetOf: () => 0`. The projection has one home.
+
+**What remains — the perfect form:** `clockNow` joins `system.identity` as a **framework-reserved member** — every surface server auto-answers it (the reserved-member pattern already shipped for identity), `makeSession` measures the offset at admit automatically, and the `offsetOf` injection point ceases to be a caller obligation — every session is clockable by construction. Mandatory-and-free beats optional (no opt-out knob to audit), and offset-at-hello becomes a universal framework guarantee instead of a kolu convention. This is the old "control core graduates to the universal daemon preamble" idea, taken at its smallest useful member.
+
+**Where:** `packages/surface/src` (the reserved-member seam beside `system.identity`) · `packages/surface-remote/src/{measureClockOffset,session,serveHostMap}.ts` (fold the measurement into admit; retire the injected hook or default it).
+
+**Done when:** a fresh consumer gets clock-honest `EntryStatus.connected` with zero clock code of its own — no `offsetOf` to remember, no `clockNow` to hand-serve; drishti's `offsetOf: () => 0` stub deletes; paired drishti PR green.
+
 <a id="l1"></a>
 
 ### L1 — move the poll-on-change client core into `@kolu/surface`
 
-*Status: ready · Lens: lowy (consumer dual of a framework volatility, stranded app-side) · Gate: drishti*
+*Status: ready — ships in the framework batch · Lens: lowy (consumer dual of a framework volatility, stranded app-side) · Gate: drishti*
 
 In plain words: the surface framework ships data two ways — pushed values, or "here's a tick, re-ask me" (`{seq}` pulses). The *server* half of the second way (`pollOnEvent`) is a framework export; the *client* half (`createPolledQuery`: call the procedure, re-call on each pulse, drop no-op results) is kolu app code. Any other surface client (drishti, kolu-tui, a script) must reinvent it. The doctrine check (2026-07-03) confirmed nothing gates this on a second consumer — the volatility is already proven by its producer half.
 
@@ -93,9 +114,9 @@ After W2.3 moves `connectPadi` into `@kolu/padi/dial`, what remains in `packages
 
 <a id="l7"></a>
 
-### L7 — re-cut `@kolu/terminal-workspace` after the burial
+### L7 — re-cut `@kolu/terminal-workspace` after the burial *(SHIPPED — #1734, merged 2026-07-09)*
 
-*Status: READY (W2.3 shipped — the burial already absorbed the fs/git assemblers into padi and shrank the library to sensors·fold·schema·endpoint·agentProjection; re-verify what remains before cutting) · Lens: lowy (a package whose reason-to-exist changed) · Gate: none expected (verify no drishti surface touched)*
+*Status: SHIPPED (W2.3 shipped — the burial already absorbed the fs/git assemblers into padi and shrank the library to sensors·fold·schema·endpoint·agentProjection; re-verify what remains before cutting) · Lens: lowy (a package whose reason-to-exist changed) · Gate: none expected (verify no drishti surface touched)*
 
 terminal-workspace was born as "one library, two homes" (kolu + pulam). After W2.3 buries pulam and deletes the package's surface, its consumers are padi (sensors · fold · endpoint — node-side internals) and the client (schema · `agentProjection` — browser-safe vocabulary). That's two *different* consumer sets for two *different* halves — a sign the package boundary now cuts nothing.
 
@@ -141,7 +162,7 @@ W3.1's `RemotePadiSession` (`packages/server/src/remotePadiBinding.ts`) hand-mir
 
 ### L24 — `padi-tui --host`: the CLI's remote leg
 
-*Status: READY (W3.1 merged 2026-07-04) · Lens: parity (kaval-tui `--host` is the shipped precedent) · Gate: none (kolu-internal)*
+*Status: READY — ships in the padi/client batch · Lens: parity (kaval-tui `--host` is the shipped precedent) · Gate: none (kolu-internal)*
 
 Reach a padi on a remote machine from the CLI: `padi-tui --host <ssh> wait|status|create|watch`, the exact twin of kaval-tui's `--host`. Everything it needs ships in W3.1 — `getHostSession({binary:"padi", extraArgs:["--stdio"]})`, the stdio front, and the per-system drv map **already baked** onto padi-tui's wrapper (`PADI_AGENT_DRVS_JSON` in `default.nix`, wired there by #1675 with this exact consumer named in its comment). The work is a thin flag: resolve `--host` → `getHostSession` instead of the local socket, same verbs on top. Mind F1's lesson: the remote padi is the target host's PRODUCTION daemon — read verbs are safe, but `create` lands real terminals there (that's the point), and nothing here may drain/converge (a tui is a dial, #1313 — guests never converge).
 
@@ -180,7 +201,7 @@ Born from the surface-hosting-simplify debate (2026-07-05): the `SurfaceIdentity
 
 ### L17 — split the chrome vocabulary out of `vocab.ts`
 
-*Status: ready · Lens: lowy (two volatility axes in one 910-line module) · Gate: none*
+*Status: ready — ships in the padi/client batch · Lens: lowy (two volatility axes in one 910-line module) · Gate: none*
 
 `packages/padi/src/vocab.ts` mixes PTY-lifecycle shapes (`ActiveTerminalSchema`, `DaemonStatusSchema`) with UI-chrome shapes (`CanvasLayoutSchema`, `SubPanelStateSchema`, `CodeTabViewSchema`) — a canvas feature and a PTY change both churn one file; `viewLabel`/`rightPanelView` are presentation *logic* living in vocabulary. Split a sibling `chromeVocab.ts` (chrome schemas + their presentation helpers), same export surface.
 
@@ -238,7 +259,7 @@ The same file carries a second scattered invariant — **"does this write change
 
 ### L18 — a named `HydrationPhase` for session restore
 
-*Status: ready · Lens: hickey (a hand-rolled state machine in two booleans + an out-of-band re-arm) · Gate: none*
+*Status: ready — ships in the padi/client batch · Lens: hickey (a hand-rolled state machine in two booleans + an out-of-band re-arm) · Gate: none*
 
 `useSessionRestore.ts` (~51–99, ~187–197) runs `decided`/`viewSeeded` closure latches with `handleRestoreSession` resetting one from outside the owning effect — valid combinations never enumerated. Replace with one `HydrationPhase = "pending" | "decided-empty" | "decided-restore" | "seeded"` signal with named transitions (`markSeeded()`, `reseedForRestore()`). The W2.2 split-restore e2e pins behavior.
 
@@ -253,7 +274,7 @@ The same file carries a second scattered invariant — **"does this write change
 
 ### L20 · L21 — the re-serve internals dedup (two tiny hickey cuts, one drishti-gated PR)
 
-*Status: ready · Lens: hickey (duplication + repeated casts in the serving internals) · Gate: drishti (`@kolu/surface*`)*
+*Status: ready — ships in the framework batch · Lens: hickey (duplication + repeated casts in the serving internals) · Gate: drishti (`@kolu/surface*`)*
 
 Two small `@kolu/surface*` cleanups that both need a paired drishti run — so they ship as ONE PR (one drishti coordination, not two). Both live in the re-serve/serving internals:
 
@@ -276,7 +297,7 @@ W2.2's h2 bounded the **re-serve's** per-subscriber channels (HWM 4096, loud ove
 
 ### L11 — sweep the interim client-wire shapes after the binding-scoped rebuild
 
-*Status: gated on W4 (the switch) landing · Lens: hickey (transition scaffolding) · Gate: none expected*
+*Status: READY — W4 shipped (<PrLink pr={1714} />), the gate cleared · Lens: hickey (transition scaffolding) · Gate: none expected*
 
 W4 (the switch) rebuilds the client's module-level wire singletons (`wire.ts`, `useTerminalStore`, the `createSharedRoot` family) to be per-binding. Transitions of that shape leave scaffolding: compatibility shims, dual paths, "temporarily still global" markers. This entry is the post-landing sweep — inventory every switch-tagged interim in the client, delete each or convert it to the final shape.
 
@@ -296,13 +317,13 @@ The W2.2 adopter (a deploy adopts a running pre-W2.2 port-keyed kaval; converges
 
 <a id="l8"></a>
 
-### L8 — doc-and-comment sweep for the buried world
+### L8 — doc-and-comment sweep for the deleted world
 
-*Status: READY (W2.3 shipped) · Lens: hygiene · Gate: none*
+*Status: READY — ships in the hygiene batch (re-verified 2026-07-09: the `packages/pulam*` packages are fully DELETED from master, yet **33 non-test src files** still reference them in comments/prose — the sweep is riper than when filed) · Lens: hygiene · Gate: none*
 
-Comments and READMEs across the surface stack still cite pulam/pulam-web as their graduation examples, and pre-padi topology descriptions ("kolu-server spawns kaval", per-port sockets) linger in prose. Sweep: `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus the package READMEs; update each to the padi-era truth or delete. **Atlas notes are exempt** — they're historical record; this entry is *code-adjacent* prose only.
+Comments and READMEs across the stack still cite pulam/pulam-web as graduation examples or architectural context — references to packages that **no longer exist in the tree** (spread includes `client/src/wire.ts`, the dock model files, `padi/src/{surface,vocab,endpoint}.ts`, `surface-app`, the TUIs). Pre-padi topology phrasing may also linger (the 2026-07 spot-check of two files found none — treat it as a sweep target, not an asserted defect). Sweep: `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus the package READMEs; update each to the padi-era truth or delete. **Atlas notes are exempt** — they're historical record; this entry is *code-adjacent* prose only (so e.g. `pulam-web-mirror-health.mdx`, flagged during W6 for pre-reshape field names, is explicitly OUT of L8's scope).
 
-**Done when:** the grep returns only deliberate historical references (each with a comment saying so) — and the kolu/debate skills + rules docs already updated by W2.3 are verified consistent.
+**Done when:** the grep returns only deliberate historical references (each with a comment saying so) — and the kolu skill + the lens-/codex-debate skills + rules docs are verified consistent (the kolu skill re-verified clean 2026-07-09, 0 hits; the standalone `/debate` skill was removed from kolu entirely — `f8d98fb12` — and is out of scope).
 
 <a id="l10"></a>
 
@@ -318,7 +339,7 @@ The rotating e2e flakes (file-drop, file-ref-link — the #1534 swallow-emit cla
 
 ### L13 — close the seal's test-file flank
 
-*Status: ready · Lens: hygiene (an asymmetry between the seal's own arms) · Gate: none*
+*Status: ready — ships in the hygiene batch · Lens: hygiene (an asymmetry between the seal's own arms) · Gate: none*
 
 The seal's forward arm skips `*.test.ts` when walking import edges (`seal.test.ts` ~280) while the reverse arm explicitly includes tests — and a test already exploits the gap: `padiBinding.test.ts` imports `@kolu/padi/stateRoot`, a published subpath absent from `ALLOWED_PADI` (3 sanctioned vs 9 exported). Either widen `ALLOWED_PADI` to the deliberate export set and walk tests too, or narrow padi's export map to the sanctioned entries and let module resolution enforce. *(Context: the namespace-import/export-from evasion suspected from W1 is **verified closed** — arm (d) catches all forms via AST and arm (e) bans the underlying imports transitively; this entry is the one flank left.)*
 

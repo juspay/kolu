@@ -3,8 +3,10 @@
  *  Three storage layers because the right panel has three volatilities:
  *
  *  - **Workspace chrome** (collapsed, size, codeTabTreeSize) lives on
- *    `preferences.rightPanel` — global to the user, set once and forgotten.
- *    Drives the desktop Resizable's collapsed/expanded geometry.
+ *    `preferences.rightPanel` — global to the user, set once and forgotten. Drives
+ *    the desktop Resizable's collapsed/expanded geometry. (The collapsed bit is a
+ *    VIEWER layout preference per THE RULE — global, not per-host — and MUST survive
+ *    reload; a W7 attempt to make it per-host in-memory broke that across refresh.)
  *  - **Touch-layout drawer open state** (phone + compact) is session-local, NOT
  *    persisted. Dismissing the bottom-drawer host on a handheld is an ephemeral
  *    gesture; persisting it into account prefs would mean the next desktop
@@ -186,6 +188,15 @@ export function useRightPanel() {
    *  gap) and the toggle reads as open with nothing behind it. */
   const hasTerminals = () => tileStore.tileCount() > 0;
 
+  /** The desktop panel's collapsed bit — a GLOBAL, server-persisted viewer-layout
+   *  preference (like `size`/`codeTabTreeSize` below), NOT per-host. Whether the
+   *  inspector/code panel takes canvas space is a VIEWER choice (THE RULE), and it
+   *  MUST survive a page reload — a W7-TIER-A attempt to make it per-host in-memory
+   *  silently lost it across refresh (6 e2e persistence scenarios). The per-host
+   *  CONTENT the panel shows (active tab, selected file) is separately per-terminal
+   *  below; only the take-up-space layout bit is global. */
+  const collapsed = (): boolean => rp().collapsed;
+
   /** Read the per-terminal record for the active terminal, falling back
    *  to defaults when no terminal is active or the terminal has no record
    *  yet. The returned object is read-only — write through the mutators. */
@@ -220,20 +231,21 @@ export function useRightPanel() {
     reportToServer(id);
   }
 
-  /** Write the persisted desktop `collapsed` bit. No-op on an empty
-   *  workspace — the EmptyState owns the screen and there's no panel host,
-   *  so flipping the bit would just persist a ghost state. Every
-   *  collapsed-mutating path (toggle/collapse/expand and `reveal`'s desktop
-   *  branch) routes through here so the empty-workspace rule lives in one
-   *  place rather than per-caller. */
-  const setCollapsed = (collapsed: boolean) => {
+  /** Write the persisted desktop `collapsed` bit (global server pref). No-op on an
+   *  empty workspace — the EmptyState owns the screen and there's no panel host, so
+   *  flipping the bit would just record a ghost state. Every collapsed-mutating path
+   *  (toggle/collapse/expand and `reveal`'s desktop branch) routes through here so
+   *  the empty-workspace rule lives in one place rather than per-caller. */
+  const setCollapsed = (next: boolean) => {
     if (!hasTerminals()) return;
-    updatePreferences({ rightPanel: { collapsed } });
+    updatePreferences({ rightPanel: { collapsed: next } });
   };
 
   return {
-    // ── Workspace chrome (global) ────────────────────────────────────
-    collapsed: () => rp().collapsed,
+    // ── Workspace chrome ─────────────────────────────────────────────
+    // `collapsed`/`size`/`codeTabTreeSize` are all GLOBAL server prefs — viewer
+    // layout/density taste, per-tab by THE RULE.
+    collapsed,
     panelSize: () => rp().size,
     /** At least one terminal exists, so the desktop panel host is mounted
      *  (rather than the EmptyState). Desktop chrome gates its panel
@@ -244,8 +256,8 @@ export function useRightPanel() {
      *  when it isn't collapsed AND a terminal exists. ChromeBar keys its
      *  width offset and toggle state off this (not raw `collapsed`) so an
      *  empty workspace shows no ghost panel. */
-    panelOpen: () => hasTerminals() && !rp().collapsed,
-    togglePanel: () => setCollapsed(!rp().collapsed),
+    panelOpen: () => hasTerminals() && !collapsed(),
+    togglePanel: () => setCollapsed(!collapsed()),
     collapsePanel: () => setCollapsed(true),
     expandPanel: () => setCollapsed(false),
     setPanelSize: (size: number) => {
@@ -282,7 +294,7 @@ export function useRightPanel() {
      *  persisted `collapsed`) stay separate and are resolved here in one place. */
     reveal: () => {
       if (!isDesktop()) setDrawerOpen(true);
-      else if (rp().collapsed) setCollapsed(false);
+      else if (collapsed()) setCollapsed(false);
     },
 
     // ── Per-terminal task state ──────────────────────────────────────

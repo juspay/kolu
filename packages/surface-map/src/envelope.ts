@@ -2,7 +2,8 @@
  * The uniform fold envelope — the map's internal wire codec. Every entry-member
  * call carries its encoded wire key (the {@link KeyCodec}'s `encode` output, always
  * a plain string) in a `mapKey` field and its own input, verbatim, in an `input`
- * field: `{ mapKey, input }`. A no-input member sends `input: undefined`; an entry
+ * field: `{ mapKey, input }`. A void-input member carries NO `input` field at all
+ * (`{ mapKey }`, not `{ mapKey, input: undefined }` — see ENCODE below); an entry
  * input that itself has a `mapKey` field cannot collide with the folded key (it
  * rides `input`, nested).
  *

@@ -1,6 +1,6 @@
 # kolu-mock-agent
 
-A stand-in coding agent (`claude` / `codex` / `opencode`) the e2e harness runs
+A stand-in coding agent (`claude` / `codex` / `opencode` / `grok`) the e2e harness runs
 **inside a kolu terminal** to exercise agent-state detection — the Dock pips, the
 tile chrome indicators, context-token and task-progress readouts.
 
@@ -25,7 +25,7 @@ paths is exactly what production senses (including the fs-watch layer).
 ## How it's driven
 
 One `bin/` per kind, so the terminal invocation's head basename is
-`claude`/`codex`/`opencode` (what the preexec command-name detector keys on); the
+`claude`/`codex`/`opencode`/`grok` (what the preexec command-name detector keys on); the
 kind is baked as the first arg. The harness launches it, then sends the tiny
 line grammar over the PTY (the product's own wire):
 

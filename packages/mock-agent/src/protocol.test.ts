@@ -34,6 +34,28 @@ describe("parseCommand", () => {
     });
   });
 
+  it("parses grok no-active flag", () => {
+    expect(parseCommand("state thinking no-active")).toEqual({
+      verb: "state",
+      state: "thinking",
+      opts: { noActive: true },
+    });
+  });
+
+  it("rejects an unknown state name loudly", () => {
+    expect(parseCommand("state thnking")).toEqual({
+      verb: "unknown",
+      raw: "state thnking",
+    });
+  });
+
+  it("rejects a bare state verb", () => {
+    expect(parseCommand("state")).toEqual({
+      verb: "unknown",
+      raw: "state",
+    });
+  });
+
   it("parses quit", () => {
     expect(parseCommand("quit")).toEqual({ verb: "quit" });
   });

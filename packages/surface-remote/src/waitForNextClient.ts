@@ -33,7 +33,9 @@ export interface ClientCursor {
  *  forget to advance it and `next()` resolves instantly every iteration,
  *  busy-spinning exactly as the bug below describes. With the token hidden,
  *  there is nothing to forget. */
-export function makeClientCursor(session: Session): ClientCursor {
+export function makeClientCursor(
+  session: Session<SurfaceClientLike, string>,
+): ClientCursor {
   let previous: Promise<SurfaceClientLike> | null = null;
   return {
     async next() {
@@ -77,7 +79,7 @@ interface NextClient {
  *  spawn and is null between a link's death and the next spawn — so comparing
  *  *it* correctly blocks until a real reconnect. */
 function waitForNextClient(
-  session: Session,
+  session: Session<SurfaceClientLike, string>,
   previous: Promise<SurfaceClientLike> | null,
 ): Promise<NextClient> {
   return new Promise((resolve, reject) => {

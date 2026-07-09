@@ -50,6 +50,7 @@ import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
 import { claudeCodeAdapter } from "kolu-claude-code";
 import { codexAdapter } from "kolu-codex";
+import { grokAdapter } from "kolu-grok";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
@@ -62,7 +63,7 @@ import type {
   TerminalEvent,
   PrUnavailableSource,
   TerminalId,
-} from "./schema.ts";
+} from "@kolu/terminal-vocab/schema";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
  *  mirror that replaces the old `record.meta.agent` read-back) and the recognized
@@ -463,9 +464,9 @@ function isNotFoundError(err: unknown): boolean {
  *  the engine's last-emitted MIRROR — the one gate for "did kolu already reflect
  *  this?", so every publisher (watcher + screen-scrape poll + the session-ended
  *  branch) funnels through one equality check. The mirror REPLACES the old
- *  `record.meta.agent` read-back; recency (kolu's fold, on identity change) and
- *  the agent-session ref (collapsed into the frozen agent) are no longer the
- *  producer's concern. */
+ *  `record.meta.agent` read-back; recency (kolu's fold — an identity change
+ *  always, a same-identity output tick throttled) and the agent-session ref
+ *  (collapsed into the frozen agent) are no longer the producer's concern. */
 function emitAgentValue(
   agentState: AgentEngineState,
   emit: (o: TerminalEvent) => void,
@@ -868,6 +869,7 @@ export function startSensors(
   const stopClaude = startAgent(claudeCodeAdapter);
   const stopCodex = startAgent(codexAdapter);
   const stopOpenCode = startAgent(opencodeAdapter);
+  const stopGrok = startAgent(grokAdapter);
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   return () => {
     stopCwd();
@@ -877,6 +879,7 @@ export function startSensors(
     stopClaude();
     stopCodex();
     stopOpenCode();
+    stopGrok();
     stopProcess();
   };
 }

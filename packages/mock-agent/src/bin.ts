@@ -1,6 +1,6 @@
 /**
  * kolu-mock-agent — a stand-in for a real coding agent (claude / codex /
- * opencode), run INSIDE a kolu terminal by the e2e harness.
+ * opencode / grok), run INSIDE a kolu terminal by the e2e harness.
  *
  * It exists so agent-state scenarios are geography-free: instead of the test
  * process planting fixture files (which don't cross an ssh bind), a real
@@ -9,17 +9,19 @@
  * padi on the SAME box reads those paths. Local and remote become the same test.
  *
  * Which kind it impersonates is BAKED as `argv[2]` by the Nix wrapper (`bin/
- * claude` / `bin/codex` / `bin/opencode`), so the terminal invocation's head
- * basename is `claude`/`codex`/`opencode` — which is exactly what the preexec
- * command-name detector (`parseAgentCommand` → `lastAgentCommandName`, see
- * anyagent) keys on. It then reads the tiny stdin grammar in `protocol.ts` (one
- * line per command, delivered over the PTY) and stays resident as the foreground
- * process — like a real agent — until `quit` / EOF.
+ * claude` / `bin/codex` / `bin/opencode` / `bin/grok`), so the terminal
+ * invocation's head basename is `claude`/`codex`/`opencode`/`grok` — which is
+ * exactly what the preexec command-name detector (`parseAgentCommand` →
+ * `lastAgentCommandName`, see anyagent) keys on. It then reads the tiny stdin
+ * grammar in `protocol.ts` (one line per command, delivered over the PTY) and
+ * stays resident as the foreground process — like a real agent — until
+ * `quit` / EOF.
  */
 
 import { createInterface } from "node:readline";
 import { ClaudeAgent } from "./claude.ts";
 import { CodexAgent } from "./codex.ts";
+import { GrokAgent } from "./grok.ts";
 import { OpenCodeAgent } from "./opencode.ts";
 import { type MockKind, parseCommand } from "./protocol.ts";
 import { PROMPT_TEMPLATES } from "./prompts.ts";
@@ -42,9 +44,11 @@ function makeKind(kind: string): MockKind {
       return new CodexAgent();
     case "opencode":
       return new OpenCodeAgent();
+    case "grok":
+      return new GrokAgent();
     default:
       throw new Error(
-        `kolu-mock-agent: unknown kind '${kind}' (expected claude|codex|opencode)`,
+        `kolu-mock-agent: unknown kind '${kind}' (expected claude|codex|opencode|grok)`,
       );
   }
 }
@@ -128,8 +132,12 @@ function main(): void {
     // rather than silently no-op'ing.
     process.stdout.write(`MOCK-AGENT-ERROR unknown command '${cmd.raw}'\n`);
   });
-  // EOF (terminal closed / killAll) → tear down like `quit`.
+  // EOF (terminal closed / killAll) → remove artifacts then exit. Without
+  // `remove()`, a killed mock leaves session files under the fixture HOME that
+  // can poison the next scenario's match (especially codex/opencode fixed ids
+  // and grok's active_sessions map).
   rl.on("close", () => {
+    if (started) agent.remove();
     clearInterval(nudgeTimer);
     process.exit(0);
   });

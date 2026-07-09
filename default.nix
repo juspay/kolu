@@ -291,6 +291,7 @@ let
       (padiPkgRoot ./packages/integrations/io)
       (padiPkgRoot ./packages/integrations/claude-code)
       (padiPkgRoot ./packages/integrations/codex)
+      (padiPkgRoot ./packages/integrations/grok)
       (padiPkgRoot ./packages/integrations/opencode)
       (padiPkgRoot ./packages/integrations/anyagent)
       (padiPkgRoot ./packages/integrations/anyforge)
@@ -628,12 +629,13 @@ let
 
   # kolu-mock-agent (W3.4): a stand-in coding agent the e2e harness runs INSIDE
   # a kolu terminal. It writes real agent-state artifacts (claude JSONL · codex/
-  # opencode SQLite+WAL) at the REAL default `$HOME` paths of WHATEVER box the
-  # terminal lives on, so agent-state scenarios run identically local and over an
-  # ssh bind — no test-side "where does padi live" branch (the old fixture-file
-  # mock couldn't cross the ssh boundary). One bin per kind, so the terminal
-  # invocation's head basename is `claude`/`codex`/`opencode` — exactly what the
-  # preexec command-name detector keys on; the kind is baked as the first arg.
+  # opencode SQLite+WAL · grok events.jsonl) at the REAL default `$HOME` paths of
+  # WHATEVER box the terminal lives on, so agent-state scenarios run identically
+  # local and over an ssh bind — no test-side "where does padi live" branch (the
+  # old fixture-file mock couldn't cross the ssh boundary). One bin per kind, so
+  # the terminal invocation's head basename is `claude`/`codex`/`opencode`/`grok`
+  # — exactly what the preexec command-name detector keys on; the kind is baked
+  # as the first arg.
   # Runs from the SAME built workspace closure as `kolu` under tsx, so `nix copy`
   # onto a leased bind target transfers only this tiny wrapper (node + tsx + the
   # closure are already there via padi's provisioning). Not a runtime dep of
@@ -643,7 +645,7 @@ let
       nativeBuildInputs = [ pkgs.makeWrapper ];
     } ''
     mkdir -p $out/bin
-    for kind in claude codex opencode; do
+    for kind in claude codex opencode grok; do
       makeWrapper ${pkgs.nodejs}/bin/node $out/bin/$kind \
         --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
         --add-flags "${kolu}/packages/mock-agent/src/bin.ts" \

@@ -251,9 +251,12 @@ importers:
       '@kolu/surface-map':
         specifier: workspace:*
         version: link:../surface-map
-      '@kolu/terminal-workspace':
+      '@kolu/surface-remote':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../surface-remote
+      '@kolu/terminal-vocab':
+        specifier: workspace:*
+        version: link:../terminal-vocab
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
@@ -275,6 +278,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -471,6 +477,34 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/integrations/grok:
+    dependencies:
+      anyagent:
+        specifier: workspace:*
+        version: link:../anyagent
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
+      kolu-transcript-core:
+        specifier: workspace:*
+        version: link:../../transcript-core
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -684,9 +718,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
-      '@kolu/terminal-workspace':
+      '@kolu/terminal-vocab':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../terminal-vocab
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -720,6 +754,12 @@ importers:
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
+      kolu-github:
+        specifier: workspace:*
+        version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -775,9 +815,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@kolu/terminal-workspace':
+      '@kolu/terminal-vocab':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../terminal-vocab
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
@@ -855,9 +895,9 @@ importers:
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
-      '@kolu/terminal-workspace':
+      '@kolu/terminal-vocab':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../terminal-vocab
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -909,6 +949,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -1115,9 +1158,9 @@ importers:
 
   packages/solid-statepip:
     dependencies:
-      '@kolu/terminal-workspace':
+      '@kolu/terminal-vocab':
         specifier: workspace:*
-        version: link:../terminal-workspace
+        version: link:../terminal-vocab
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1319,6 +1362,9 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      '@solid-primitives/keyed':
+        specifier: ^1.5.3
+        version: 1.5.3(solid-js@1.9.11)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1787,23 +1833,14 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/terminal-workspace:
+  packages/terminal-vocab:
     dependencies:
-      '@kolu/surface':
-        specifier: workspace:*
-        version: link:../surface
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
-      kaval:
-        specifier: workspace:*
-        version: link:../kaval
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -1816,12 +1853,12 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-grok:
+        specifier: workspace:*
+        version: link:../integrations/grok
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
-      pino:
-        specifier: ^10.3.1
-        version: 10.3.1
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -2840,6 +2877,11 @@ packages:
 
   '@solid-primitives/event-listener@2.4.5':
     resolution: {integrity: sha512-nwRV558mIabl4yVAhZKY8cb6G+O1F0M6Z75ttTu5hk+SxdOnKSGj+eetDIu7Oax1P138ZdUU01qnBPR8rnxaEA==}
+    peerDependencies:
+      solid-js: ^1.6.12
+
+  '@solid-primitives/keyed@1.5.3':
+    resolution: {integrity: sha512-zNadtyYBhJSOjXtogkGHmRxjGdz9KHc8sGGVAGlUABkE8BED2tbIZoxkwSqzOwde8OcUEH0bb5DLZUWIMvyBSA==}
     peerDependencies:
       solid-js: ^1.6.12
 
@@ -5848,6 +5890,10 @@ snapshots:
   '@solid-primitives/event-listener@2.4.5(solid-js@1.9.11)':
     dependencies:
       '@solid-primitives/utils': 6.4.0(solid-js@1.9.11)
+      solid-js: 1.9.11
+
+  '@solid-primitives/keyed@1.5.3(solid-js@1.9.11)':
+    dependencies:
       solid-js: 1.9.11
 
   '@solid-primitives/media@2.3.5(solid-js@1.9.11)':

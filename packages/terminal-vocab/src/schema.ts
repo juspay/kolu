@@ -39,6 +39,7 @@ import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
 import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
 import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
+import { GrokInfoSchema } from "kolu-grok/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -67,6 +68,7 @@ export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
   CodexInfoSchema,
   OpenCodeInfoSchema,
+  GrokInfoSchema,
 ]);
 
 // ── PR resolution — closed forge union + wire result ──────────────────
@@ -173,8 +175,11 @@ export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
  *  either field). Kept FLAT on kolu's authored record (`updateMemory` is the one
  *  narrowed writer), so the on-disk JSON path for these two is unchanged. */
 export const AgentMemorySchema = z.object({
-  /** Workspace-switcher recency: epoch-millis of the last LIVE agent-IDENTITY
-   *  change (start / finish / new session), on kolu's clock. HONEST form: an
+  /** Workspace-switcher recency: epoch-millis of the last LIVE agent observation,
+   *  on kolu's clock — an agent-IDENTITY change (start / finish / new session)
+   *  stamps immediately, and a same-identity OUTPUT tick stamps through the
+   *  recency throttle (`RECENCY_THROTTLE_MS`, in `fold.ts`) so a stable long-lived
+   *  session tracks its output instead of freezing. HONEST form: an
    *  idle/never-active terminal is `null` — a real absence, not an in-band `0`.
    *  The old `0` sentinel did TWO jobs at once (a genuine — if absurd —
    *  Unix-epoch reading, AND "never active") and collided with a THIRD: the
@@ -294,6 +299,7 @@ export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type CodexInfo = z.infer<typeof CodexInfoSchema>;
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
+export type GrokInfo = z.infer<typeof GrokInfoSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;
 
 // ── fs/git wire schemas (the Code tab's raw reads + change-pulses) ─────────

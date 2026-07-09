@@ -4,15 +4,15 @@
  * `padiSurface.cells.urgency` cell.
  *
  * The fold reuses the ONE shared agent-state vocabulary
- * (`agentBucket` from `@kolu/terminal-workspace/agentProjection`) rather than a
+ * (`agentBucket` from `@kolu/terminal-vocab/agentProjection`) rather than a
  * hand-rolled switch over the state literals, so a new `AgentInfo["state"]`
  * forces its decision in the fenced fold, not here (see
  * `.claude/rules/dock-fleet-mirror.md`). A sleeping/parked entry carries
  * `agent: null` and contributes 0.
  */
 
-import { agentBucket } from "@kolu/terminal-workspace/agentProjection";
-import type { TerminalId } from "@kolu/terminal-workspace/schema";
+import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiUrgency } from "./surface.ts";
 import { terminalEntries } from "./terminal-registry.ts";
 

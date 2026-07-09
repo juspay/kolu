@@ -3,6 +3,7 @@ import {
   claudeProjectsDir,
   claudeSessionsDir,
   codexDir,
+  grokDir,
   opencodeDbPath,
 } from "./paths.ts";
 
@@ -34,5 +35,8 @@ describe("default agent paths under a fixed HOME", () => {
   });
   it("opencode db → ~/.local/share/opencode/opencode.db", () => {
     expect(opencodeDbPath()).toBe(`${HOME}/.local/share/opencode/opencode.db`);
+  });
+  it("grok → ~/.grok", () => {
+    expect(grokDir()).toBe(`${HOME}/.grok`);
   });
 });

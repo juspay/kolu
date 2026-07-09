@@ -15,7 +15,7 @@ Feature: Sleeping terminals
   Scenario: Waking a sleeping agent terminal resumes the SAME conversation
     # Run a real (mock) Codex agent in the terminal so the dock lights up with a
     # codex agent state and the server captures `lastAgentCommand` AND the live
-    # session id (the codex mock's fixed thread `00000000-0000-0000-0000-000000000001`).
+    # session id (the codex mock's fixed thread `00000000-0000-7000-8000-000000000001`).
     # Sleep it via the tile ☾ button: the live xterm/PTY is released and the dormant
     # body shows. Wake it: the PTY re-spawns on the SAME id and the server replays
     # the agent's RESUME-BY-ID form (`codex resume <session-id>`, juspay/kolu#1495)
@@ -32,7 +32,7 @@ Feature: Sleeping terminals
     And the dormant tile should show its saved working directory
     When I wake the slept terminal via the dormant body wake button
     Then the slept terminal should be live
-    And the woken terminal should replay the agent resume invocation "codex resume 00000000-0000-0000-0000-000000000001"
+    And the woken terminal should replay the agent resume invocation "codex resume 00000000-0000-7000-8000-000000000001"
     And the woken terminal should resume in the same working directory
     And there should be no page errors
 
@@ -74,7 +74,7 @@ Feature: Sleeping terminals
     Then the restored sleeping tile should be sleeping
     When I wake the restored sleeping tile via the dormant body wake button
     Then the restored sleeping tile should be live
-    And the woken terminal should replay the agent resume invocation "codex resume 00000000-0000-0000-0000-000000000001"
+    And the woken terminal should replay the agent resume invocation "codex resume 00000000-0000-7000-8000-000000000001"
     And there should be no page errors
 
   @kaval-restart

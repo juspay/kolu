@@ -4,69 +4,37 @@
  *
  *  ROOT CAUSE: the canvas camera (pan/zoom) was APP-LIFETIME module state while
  *  the tiles are PER-HOST (shape B). On switch the camera stayed where the OLD
- *  host left it, and nothing re-centered (a pure host switch never calls
- *  `activate`, the only path that fired the center impulse).
+ *  host left it, and the swap seam that bridged it to per-host storage raced the
+ *  incoming tile's mount — a defer-guard could narrow but never close it.
  *
- *  THE FIX (A)+(B): `HostView` gains a per-host `camera` snapshot saved/restored
- *  at the switch seam (A); on every switch-in the new host's active tile is
- *  ensured in view — seeded on first visit, re-centered when a saved pose went
- *  stale (B). The decision is the pure `switchInNeedsCenter`; the imperative half
- *  is a trivial viewport snapshot/restore. This suite composes those exactly as
- *  `useCanvasCameraSwap` does, DOM-free, and PINS the three switch-in cases:
- *    (1) first visit      → no saved camera → centered,
- *    (2) revisit visible  → saved camera restored + active tile visible → NO center,
+ *  THE W7 FIX — OWNERSHIP: the camera is now PER-HOST (`hostScope/createCamera`),
+ *  born in the host's `scopedByEntry` owner and RETAINED across switch-away. There
+ *  is no snapshot/restore swap: switching shows the host's saved pose by
+ *  construction. What remains is the switch-in center DECISION (the pure
+ *  `switchInNeedsCenter`): seed a never-positioned host on its active tile, keep a
+ *  valid pose, re-center a pose whose active tile drifted out of view. This suite
+ *  composes `createCamera` + `switchInNeedsCenter` exactly as `TerminalCanvas`'s
+ *  switch-in effect does, DOM-free, and PINS the three switch-in cases:
+ *    (1) first visit      → unpositioned camera → centered,
+ *    (2) revisit visible  → retained pose + active tile visible → NO center,
  *    (3) revisit stale    → tile moved while away → re-centered.
  *
- *  RED before the fix: with an app-lifetime camera and no switch-in center, the
- *  camera stays on the OLD host's region and the new host's active tile is off
- *  screen — cases (1) and (3) fail. GREEN after. */
+ *  (Behaviorally adapted from the pre-W7 suite, which pinned the swap MECHANISM
+ *  W7 deletes: `useViewState.writeCamera`/`readCamera` → the per-host
+ *  `createCamera` retained pose; `switchHost`'s (A) snapshot/restore → GONE (the
+ *  pose is retained); (B) center-on-active → unchanged. The three `it(...)` names
+ *  and their assertions map 1:1 — see the commit message for the old→new map.
+ *  RED before ownership: an app-lifetime camera left the new host's active tile
+ *  off screen — cases (1) and (3) failed. GREEN after.) */
 
-import type { HostKey } from "kolu-common/hostKey";
-import { encodeHostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createRoot } from "solid-js";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { isTileInViewport, switchInNeedsCenter } from "./canvas/cameraSwap";
 import type { TileLayout } from "./canvas/TileLayout";
 import { computeCenterPan } from "./canvas/viewport/transforms";
+import { createCamera, type HostCamera } from "./hostScope/createCamera";
 import type { Camera } from "./useViewState";
-
-// `useViewState` reads `activeHost` (for its selection accessors) and reports the
-// active terminal via `activePadiRpc` — neither is exercised by the camera
-// methods (which are keyed EXPLICITLY), so a bare local stub is enough.
-vi.mock("./wire", () => ({
-  activePadiRpc: {
-    surface: { chrome: { setActive: vi.fn(async () => {}) } },
-  },
-  activeHost: () => ({ kind: "local" }) as HostKey,
-}));
-
-// `canvasMaximized` pref — plain in-memory pair, no real localStorage.
-vi.mock("./persistedPref", () => ({
-  boolPref: () => {
-    let v = false;
-    return [
-      () => v,
-      (next: boolean | ((p: boolean) => boolean)) => {
-        v =
-          typeof next === "function"
-            ? (next as (p: boolean) => boolean)(v)
-            : next;
-      },
-    ];
-  },
-}));
-
-vi.mock("solid-sonner", () => ({
-  toast: Object.assign(() => {}, {
-    loading: () => 0,
-    success: () => {},
-    error: () => {},
-    warning: () => {},
-    info: () => {},
-  }),
-}));
-
-import { useViewState } from "./useViewState";
 
 const HOST_A: HostKey = { kind: "local" };
 const HOST_B: HostKey = { kind: "remote", target: "B" };
@@ -93,31 +61,52 @@ function centerOn(tile: TileLayout, zoom: number): Camera {
   return { panX, panY, zoom };
 }
 
-/** Drive one host switch exactly as `useCanvasCameraSwap` does, over a fake live
- *  camera: (A) snapshot the outgoing pose into its record + restore the incoming
- *  pose; (B) center the incoming active tile when `switchInNeedsCenter` says to.
+/** The per-host cameras (the W7 ownership model — one retained `createCamera` per
+ *  host, keyed by the canonical host string). `camFor` lazily builds a host's
+ *  camera (its `scopedByEntry` owner) on first activation and RETAINS it. */
+function makeCameras() {
+  const cameras = new Map<string, HostCamera>();
+  return (host: HostKey): HostCamera => {
+    const k = encodeHostKey(host);
+    let c = cameras.get(k);
+    if (!c) {
+      c = createCamera();
+      cameras.set(k, c);
+    }
+    return c;
+  };
+}
+
+/** Center a host's camera on a tile — the imperative half of the switch-in, as
+ *  `viewport.centerOnTile` → `setPan*`/`setZoom` do (every write marks the camera
+ *  `positioned`). */
+function center(cam: HostCamera, tile: TileLayout): void {
+  const c = centerOn(tile, cam.zoom());
+  cam.setPanX(c.panX);
+  cam.setPanY(c.panY);
+  cam.setZoom(c.zoom);
+}
+
+/** Drive one host switch under per-host camera OWNERSHIP: the active camera is
+ *  the incoming host's own (RETAINED pose — no snapshot/restore). Then the
+ *  switch-in center DECISION: a never-positioned host seeds (firstVisit → null),
+ *  a positioned host keeps its pose unless the active tile drifted out of view.
  *  Returns whether a center fired, so case (2) can assert it did NOT. */
 function switchHost(
-  view: ReturnType<typeof useViewState>,
-  live: { cam: Camera },
-  from: HostKey,
+  camFor: (host: HostKey) => HostCamera,
   to: HostKey,
   incomingActiveTile: TileLayout | null,
-): { centered: boolean } {
-  // (A) snapshot outgoing, restore incoming.
-  view.writeCamera(encodeHostKey(from), live.cam);
-  const saved = view.readCamera(encodeHostKey(to));
-  if (saved) live.cam = saved;
-  // (B) center-on-active if first-visit or stale geometry.
+): { centered: boolean; cam: HostCamera } {
+  const cam = camFor(to);
+  const savedPose = cam.positioned() ? cam.snapshot() : null; // firstVisit → null
   const centered = switchInNeedsCenter(
-    saved,
+    savedPose,
     incomingActiveTile,
     VIEWPORT_W,
     VIEWPORT_H,
   );
-  if (centered && incomingActiveTile)
-    live.cam = centerOn(incomingActiveTile, live.cam.zoom);
-  return { centered };
+  if (centered && incomingActiveTile) center(cam, incomingActiveTile);
+  return { centered, cam };
 }
 
 describe("cameraSwap pure core", () => {
@@ -148,24 +137,29 @@ describe("per-host canvas camera on host switch", () => {
   it("(1) FIRST VISIT: switching to a never-seen host centers on its active tile (no empty region)", () => {
     createRoot((dispose) => {
       try {
-        const view = useViewState();
+        const camFor = makeCameras();
         // Start viewing A, camera centered on A's active tile.
-        const live = { cam: centerOn(A_TILE, 1) };
-        expect(isTileInViewport(A_TILE, live.cam, VIEWPORT_W, VIEWPORT_H)).toBe(
-          true,
-        );
+        center(camFor(HOST_A), A_TILE);
+        expect(
+          isTileInViewport(
+            A_TILE,
+            camFor(HOST_A).snapshot(),
+            VIEWPORT_W,
+            VIEWPORT_H,
+          ),
+        ).toBe(true);
 
-        // Switch A → B (B never visited: no saved camera).
-        const { centered } = switchHost(view, live, HOST_A, HOST_B, B_TILE);
+        // Switch A → B (B never visited: its camera is unpositioned).
+        const { centered, cam } = switchHost(camFor, HOST_B, B_TILE);
 
         // Seeded on B's active tile — it is in view, not the old A region.
         expect(centered).toBe(true);
-        expect(isTileInViewport(B_TILE, live.cam, VIEWPORT_W, VIEWPORT_H)).toBe(
-          true,
-        );
-        expect(isTileInViewport(A_TILE, live.cam, VIEWPORT_W, VIEWPORT_H)).toBe(
-          false,
-        );
+        expect(
+          isTileInViewport(B_TILE, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
+        ).toBe(true);
+        expect(
+          isTileInViewport(A_TILE, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
+        ).toBe(false);
       } finally {
         dispose();
       }
@@ -175,27 +169,29 @@ describe("per-host canvas camera on host switch", () => {
   it("(2) REVISIT VISIBLE: switching back restores the saved pose and does NOT re-center", () => {
     createRoot((dispose) => {
       try {
-        const view = useViewState();
-        const live = { cam: centerOn(A_TILE, 1) };
+        const camFor = makeCameras();
+        center(camFor(HOST_A), A_TILE);
 
         // A → B (seed B), then pan B slightly so the saved pose is user-authored
         // yet still shows B's active tile.
-        switchHost(view, live, HOST_A, HOST_B, B_TILE);
-        live.cam = { ...live.cam, panX: live.cam.panX + 40 };
-        const bPose = { ...live.cam };
+        switchHost(camFor, HOST_B, B_TILE);
+        const camB = camFor(HOST_B);
+        camB.setPanX(camB.panX() + 40);
+        const bPose = camB.snapshot();
         expect(isTileInViewport(B_TILE, bPose, VIEWPORT_W, VIEWPORT_H)).toBe(
           true,
         );
 
-        // B → A (A visible), then A → B: B's saved pose is restored verbatim.
-        switchHost(view, live, HOST_B, HOST_A, A_TILE);
-        const { centered } = switchHost(view, live, HOST_A, HOST_B, B_TILE);
+        // B → A (A visible), then A → B: B's camera is RETAINED — its pose is
+        // still bPose, so the switch-in keeps it (no re-center).
+        switchHost(camFor, HOST_A, A_TILE);
+        const { centered, cam } = switchHost(camFor, HOST_B, B_TILE);
 
-        expect(centered).toBe(false); // valid saved pose showing the tile → no center
-        expect(live.cam).toEqual(bPose); // restored verbatim (user pan preserved)
-        expect(isTileInViewport(B_TILE, live.cam, VIEWPORT_W, VIEWPORT_H)).toBe(
-          true,
-        );
+        expect(centered).toBe(false); // valid retained pose showing the tile → no center
+        expect(cam.snapshot()).toEqual(bPose); // retained verbatim (user pan preserved)
+        expect(
+          isTileInViewport(B_TILE, cam.snapshot(), VIEWPORT_W, VIEWPORT_H),
+        ).toBe(true);
       } finally {
         dispose();
       }
@@ -205,29 +201,28 @@ describe("per-host canvas camera on host switch", () => {
   it("(3) REVISIT STALE: a saved pose whose active tile moved away is re-centered", () => {
     createRoot((dispose) => {
       try {
-        const view = useViewState();
-        const live = { cam: centerOn(A_TILE, 1) };
+        const camFor = makeCameras();
+        center(camFor(HOST_A), A_TILE);
 
         // A → B (seed B on B_TILE), then B → A.
-        switchHost(view, live, HOST_A, HOST_B, B_TILE);
-        switchHost(view, live, HOST_B, HOST_A, A_TILE);
+        switchHost(camFor, HOST_B, B_TILE);
+        switchHost(camFor, HOST_A, A_TILE);
 
         // While away, B's active tile moved to a far region (layout changed).
         const B_TILE_MOVED: TileLayout = { x: 9000, y: 9000, w: 300, h: 200 };
 
-        // A → B: the saved pose is restored but no longer shows the (moved) tile,
-        // so the switch-in re-centers.
-        const { centered } = switchHost(
-          view,
-          live,
-          HOST_A,
-          HOST_B,
-          B_TILE_MOVED,
-        );
+        // A → B: the retained pose no longer shows the (moved) tile, so the
+        // switch-in re-centers.
+        const { centered, cam } = switchHost(camFor, HOST_B, B_TILE_MOVED);
 
         expect(centered).toBe(true);
         expect(
-          isTileInViewport(B_TILE_MOVED, live.cam, VIEWPORT_W, VIEWPORT_H),
+          isTileInViewport(
+            B_TILE_MOVED,
+            cam.snapshot(),
+            VIEWPORT_W,
+            VIEWPORT_H,
+          ),
         ).toBe(true);
       } finally {
         dispose();

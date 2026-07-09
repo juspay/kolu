@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 420" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Grok CLI agent support: a new kolu-grok sibling adapter reads ~/.grok session files, implements AgentAdapter, and joins the closed AgentInfo union so sensors, dock, and client chrome treat grok like claude, codex, and opencode.">
+  <defs>
+    <marker id="g-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#475569"/>
+    </marker>
+    <style>
+      .t { fill:#0f172a; font-size:15px; font-weight:700; }
+      .s { fill:#64748b; font-size:11px; }
+      .m { font-family:ui-monospace, "SF Mono", Menlo, monospace; font-size:11px; fill:#334155; }
+      .box { fill:#F8FAFC; stroke:#94A3B8; stroke-width:1.5; }
+      .box-new { fill:#EEF2FF; stroke:#4F46E5; stroke-width:2; }
+      .box-leaf { fill:#ECFDF5; stroke:#059669; stroke-width:1.5; }
+      .box-disk { fill:#FFF7ED; stroke:#C2410C; stroke-width:1.5; }
+      .ht { fill:#0f172a; font-size:12.5px; font-weight:700; }
+      .hs { fill:#475569; font-size:10.5px; }
+      .badge { fill:#4F46E5; font-size:9.5px; font-weight:700; letter-spacing:0.06em; }
+      .edge { stroke:#475569; stroke-width:1.75; fill:none; marker-end:url(#g-arrow); }
+      .edge-dash { stroke:#64748b; stroke-width:1.5; stroke-dasharray:4 3; fill:none; marker-end:url(#g-arrow); }
+      .elabel { fill:#64748b; font-size:10px; font-style:italic; }
+    </style>
+  </defs>
+
+  <text class="t" x="28" y="28">Grok CLI as a fourth full agent adapter</text>
+  <text class="s" x="28" y="48">Same shape as codex/opencode — sibling package, closed union arm, one registry line in sensors</text>
+
+  <!-- Disk -->
+  <rect class="box-disk" x="28" y="78" width="220" height="196" rx="10"/>
+  <text class="ht" x="138" y="104" text-anchor="middle">~/.grok (on disk)</text>
+  <text class="m" x="44" y="128">active_sessions.json</text>
+  <text class="hs" x="44" y="144">pid · session_id · cwd</text>
+  <text class="m" x="44" y="172">sessions/&lt;enc-cwd&gt;/</text>
+  <text class="m" x="44" y="188">&lt;uuid&gt;/events.jsonl</text>
+  <text class="hs" x="44" y="204">phase_changed · turn_*</text>
+  <text class="m" x="44" y="228">…/summary.json</text>
+  <text class="hs" x="44" y="244">model · title · created_at</text>
+  <text class="hs" x="138" y="262" text-anchor="middle">watch + tail — no SQLite</text>
+
+  <!-- New adapter -->
+  <rect class="box-new" x="300" y="78" width="230" height="196" rx="10"/>
+  <text class="badge" x="415" y="100" text-anchor="middle">NEW · kolu-grok</text>
+  <text class="ht" x="415" y="124" text-anchor="middle">packages/integrations/grok</text>
+  <text class="m" x="318" y="150">grokAdapter : AgentAdapter</text>
+  <text class="hs" x="318" y="170">resolveSession  (pid → active_sessions,</text>
+  <text class="hs" x="318" y="186">               else cwd → latest uuid)</text>
+  <text class="hs" x="318" y="210">createWatcher   tail events.jsonl</text>
+  <text class="hs" x="318" y="226">                + summary.json</text>
+  <text class="hs" x="318" y="250">GrokInfoSchema  kind: "grok"</text>
+
+  <!-- anyagent leaf -->
+  <rect class="box-leaf" x="580" y="78" width="212" height="100" rx="10"/>
+  <text class="ht" x="686" y="108" text-anchor="middle">anyagent (unchanged contract)</text>
+  <text class="hs" x="598" y="130">AgentAdapter · matchesAgent</text>
+  <text class="hs" x="598" y="148">STABLE_FLAGS · AGENT_RESUME</text>
+  <text class="hs" x="598" y="166">AgentKindSchema += "grok"</text>
+
+  <!-- consumers -->
+  <rect class="box" x="580" y="198" width="212" height="76" rx="10"/>
+  <text class="ht" x="686" y="224" text-anchor="middle">closed union + wire</text>
+  <text class="hs" x="598" y="246">terminal-workspace AgentInfoSchema</text>
+  <text class="hs" x="598" y="262">client agentIcons / agentNames</text>
+
+  <!-- sensors -->
+  <rect class="box" x="300" y="310" width="492" height="78" rx="10"/>
+  <text class="ht" x="546" y="338" text-anchor="middle">@kolu/terminal-workspace sensors</text>
+  <text class="hs" x="320" y="360">startAgent(claudeCodeAdapter) · startAgent(codexAdapter) · startAgent(opencodeAdapter)</text>
+  <text class="m" x="320" y="378">+ startAgent(grokAdapter)   ← one more line; dock / pulam fold for free</text>
+
+  <!-- edges -->
+  <path class="edge" d="M248 176 H300"/>
+  <text class="elabel" x="258" y="168">read</text>
+  <path class="edge" d="M530 140 H580"/>
+  <text class="elabel" x="538" y="132">implements</text>
+  <path class="edge-dash" d="M415 274 V310"/>
+  <path class="edge" d="M686 274 V310"/>
+  <text class="elabel" x="430" y="298">register</text>
+</svg>

@@ -85,10 +85,27 @@ Connection health is state the remote agent cannot report (it can't observe the
 link *to* itself), so the parent authors it. This is the one graduated exception —
 the cell ships browser-safe from `@kolu/surface-remote/connection`.
 
+`ConnectionInfo` is the discriminated **mirror** of the session's `SessionState`
+sum, keyed on `phase`: the up arms (`probing` / `copying` / `building` — the ssh
+connector's provisioning phases, `probing` being the warm-check window where the
+agent is looked up but nothing is shipped yet — plus `connecting` / `connected`).
+Every arm carries two fields: a provenance-tagged `log` tail
+(`{ source: "local" | "remote"; line }[]`) and `sinceMs`, the server-stamped elapsed
+of the CURRENT episode in milliseconds — a **duration** on the server's single clock
+(never a foreign epoch the browser would subtract), which the browser extends smoothly
+with its own ticker. Both `log` and `sinceMs` are scoped to the current dial-to-up
+episode and RESET on a down→up crossing, so a reconnect never shows a stale tail under
+a fresh timer. `disconnected` adds `error` + `cause` (`"network"` unreachable /
+`"remote"` refused); `failed` is terminal with `cause` pinned to the `"remote"` literal
+(a network fault never gives up, so `failed` + `network` is unrepresentable). There is
+no separate `progressLines` / `remoteProgressLines` — provenance is the `source` field.
+
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `mirroredSurface(base)` | `/connection` | the public composition path: adds the gate-closed, get-only `connection` cell and reserves the name (throws on a base that already declares one) |
 | `connectionCell` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the exported fragment — read to seed a store or assert the shape, not to spread yourself |
+| `ConnectPhase` | `/connection` | the up-but-not-yet-connected phase subset a connect/progress UI narrates — `Exclude<ConnectionInfo["phase"], "connected" \| "disconnected" \| "failed">` (i.e. `SshProv \| "connecting"`), the ONE vocabulary a UI's exhaustive `switch`/`Record` keys on so a new provisioning phase fails to compile until handled (never a silent hand-listed copy) |
+| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — the browser type of a `SessionState.log` line |
 | `pipeSessionStateToCell(session, set)` | `/connection` | the node-side pump that drives the cell off `session.onState` (`pumpRemoteSurface` wires it for you when the mirrored surface carries `connection`) |
 
 ## A mirror, end to end

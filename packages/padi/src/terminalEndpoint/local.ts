@@ -4,7 +4,7 @@
  * it through the typed `ptyHostSurface` contract via the stable `ptyHostClient`
  * forwarding facade (`../ptyHost/index.ts`) over that daemon's own socket. This
  * endpoint forwards spawn/kill/write/resize/attach through that client AND
- * **runs the per-terminal sensor set** (`@kolu/terminal-workspace`) against the
+ * **runs the per-terminal sensor set** (`@kolu/terminal-vocab`) against the
  * pty-host's raw tap streams (cwd · title · command-run · foreground).
  *
  * Why route through the contract rather than call `PtyHost` directly: the
@@ -17,32 +17,34 @@
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * `TerminalEndpoint.fs/git` bind to the host-side wrapper lifted into
- * `@kolu/terminal-workspace` (R6) — `createTerminalWorkspaceEndpoint` shells out
+ * `@kolu/terminal-vocab` (R6) — `createTerminalWorkspaceEndpoint` shells out
  * to `kolu-git` for this machine; a remote endpoint (R8) mirrors the same
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
-  agentIdentityChanged,
   type CommandRunSample,
+  type SensorSignals,
+  startSensors,
+} from "../terminalWorkspace/sensors.ts";
+import {
   type FoldCtx,
   fold,
   restoreTargetEqual,
   restoreTargetOf,
-  type SensorSignals,
-  seedSnapshot,
-  startSensors,
-  type TerminalEvent,
-  type TerminalState,
-} from "@kolu/terminal-workspace";
-import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
+  seedRecencyBaseline,
+  stepRecencyBaseline,
+} from "../terminalWorkspace/fold.ts";
+import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
 import type {
   AgentIdentity,
   TerminalId,
   TerminalSnapshot,
-} from "@kolu/terminal-workspace/schema";
-import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
+  TerminalEvent,
+  TerminalState,
+} from "@kolu/terminal-vocab/schema";
+import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { ZodType } from "zod";
@@ -109,7 +111,7 @@ function registerAndInstall(id: TerminalId, entry: TerminalProcess): void {
 }
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
-// The thin wrapper over `kolu-git` was lifted to `@kolu/terminal-workspace`
+// The thin wrapper over `kolu-git` was lifted to `@kolu/terminal-vocab`
 // (R6) so kolu (here, in-process) and pulam (remote) drive ONE impl. This
 // endpoint binds that impl to its `TerminalEndpoint`; the surface streams in
 // `surface.ts` read it off `localEndpoint.fs/git` byte-identically.
@@ -715,8 +717,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  The producer runs HERE, in kolu-server, so it's always the current build's code
    *  (the freshness guarantee). kolu seeds `current` from the entry's durable
    *  observation + memory and folds each emitted observation: the five snapshot
-   *  fields are last-write-wins; `lastActivityAt` is stamped on a LIVE agent-identity
-   *  change with kolu's clock; `lastAgentCommand` + the derived `restoreTarget`
+   *  fields are last-write-wins; `lastActivityAt` is stamped from a LIVE agent
+   *  observation with kolu's clock — an identity change always, a same-identity
+   *  output tick throttled; `lastAgentCommand` + the derived `restoreTarget`
    *  are kolu's to remember. It commits the snapshot half to the `snapshot`
    *  collection, the memory half + the `restoreTarget` to `kolu.authored`, and arms
    *  the session autosave — each effect arm gated by ITS OWN delta so the ~150 ms
@@ -745,35 +748,31 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     };
 
-    // Recency frame phase, decided BY VALUE — no wall-clock window. The bump fires
-    // only when a re-resolved agent IDENTITY differs from the one we last knew,
-    // seeded from the durable restore target: an adopt / resuming-wake re-resolves
-    // the SAME session (`exact` target) → matches the baseline → no bump → the saved
-    // recency stands across the restart; a fresh spawn seeds `null`, so its first
-    // agent is genuinely new and bumps. This replaces the old 1.5 s timer whose race
-    // (a slow settle landing after it fired) could restamp saved recency.
-    const seededTarget = seedEntry.meta.restoreTarget;
-    let recencyBaseline: AgentIdentity | null =
-      seededTarget?.kind === "exact" ? seededTarget.agent : null;
+    // Recency frame phase, decided BY VALUE against the agent identity the producer
+    // last knew, seeded from the durable restore target: an adopt / resuming-wake
+    // re-resolves the SAME survivor (`exact` target) → matches the baseline → not live
+    // → the saved recency stands across the restart, however many same-identity settle
+    // emits land while its detail resolves; a fresh spawn seeds `null`, so its first
+    // agent is genuinely new and bumps. The fold then decides the stamp — an identity
+    // change always, a same-identity OUTPUT tick throttled — so a stable session's
+    // recency tracks its output instead of freezing. `runStartedAt` floors that
+    // throttle so the survivor-settle burst can't false-bump the saved recency. This
+    // replaces the old 1.5 s timer whose race could restamp saved recency.
+    let recencyBaseline: AgentIdentity | null = seedRecencyBaseline(
+      seedEntry.meta.restoreTarget,
+    );
+    const runStartedAt = Date.now();
 
     const emit = (o: TerminalEvent): void => {
       const before = current;
-      // The frame phase is a VALUE comparison on the agent's identity: a re-resolved
-      // identity equal to the baseline is a re-observation (not live); a different
-      // one is new activity. The baseline then tracks the latest authoritative agent.
-      let live = false;
-      if (o.kind === "agent" && o.agent !== "unknown") {
-        const next = o.agent.value;
-        live = agentIdentityChanged(recencyBaseline, next);
-        // Only re-seat the baseline when the identity actually changed (`live`):
-        // a same-identity tick (the ~150 ms firehose) already matches the baseline,
-        // so re-allocating an identical `{ kind, sessionId }` every tick is wasted.
-        if (live)
-          recencyBaseline = next
-            ? { kind: next.kind, sessionId: next.sessionId }
-            : null;
-      }
-      const ctx: FoldCtx = { live, at: Date.now() };
+      // The frame phase is a VALUE comparison on the agent identity: a re-resolved
+      // identity equal to the baseline is a re-observation (not live); a different one
+      // is new activity, and the baseline advances to it. Only an authoritative agent
+      // value carries recency — `stepRecencyBaseline` owns that step (incl. the
+      // non-agent / `unknown` guard) so the producer and its conformance test share it.
+      const step = stepRecencyBaseline(recencyBaseline, o);
+      recencyBaseline = step.baseline;
+      const ctx: FoldCtx = { live: step.live, at: Date.now(), runStartedAt };
       current = fold(current, o, ctx);
       // Cross-terminal MRUs (kolu's, fold-side) track the OBSERVATION itself — a git
       // context seen, a (non-replayed) agent command run — NOT the fold delta, so they

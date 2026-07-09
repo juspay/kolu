@@ -65,6 +65,7 @@ import {
   pumpRemoteSurface,
 } from "./hostFanout";
 import type { Session } from "./session";
+import type { SshProv } from "./sshConnector";
 import {
   failThroughStreamCore,
   type ForwardableStream,
@@ -86,11 +87,11 @@ export interface ReServeSurfaceOptions<S extends SurfaceSpec> {
    *  assembly fails loud (no silent-skip default). */
   policy: RelayPolicy;
   /** The long-lived session whose successive spawns are mirrored. Typed to the
-   *  loose {@link Session} ROLE — not a concrete class — so both an ssh `makeSession`
-   *  and kolu-server's padi arms plug in through the type system (no cast). The
-   *  mirror forwards the client structurally, so the contract type is not needed
-   *  here. */
-  session: Session;
+   *  loose {@link Session} ROLE. `Prov = SshProv` (the ssh connector's provisioning
+   *  vocabulary) so an ssh session and a `never` endpoint (`never extends SshProv`)
+   *  both plug in. The mirror
+   *  forwards the client structurally, so the contract type is not needed here. */
+  session: Session<SurfaceClientLike, SshProv>;
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
 }

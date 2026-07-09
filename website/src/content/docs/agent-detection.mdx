@@ -1,0 +1,239 @@
+---
+title: Agent Detection
+description: "How kolu reads the live state of Claude Code, Codex, Grok, and OpenCode from each terminal — the shared state vocabulary shown on the dock and tile, and what each agent can and can't report."
+order: 80
+section: Agents
+koluHero:
+  eyebrow: awareness
+  headline: kolu knows what your {agents} are doing.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+kolu watches the **foreground process** of every terminal. When that process is a
+coding agent it recognizes — [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
+[Codex](https://github.com/openai/codex), [Grok Build](https://x.ai/news/grok-build-cli),
+or [OpenCode](https://github.com/anomalyco/opencode) — it reads that agent's own
+on-disk session to derive whether it's thinking, running a tool, waiting on you,
+or done. That state paints the tile chrome, the dock row, and the minimap, so a
+glance across a workspace of twenty terminals tells you **who needs you**.
+
+There is no agent registry to configure and no per-agent setup. Run a supported
+agent in any terminal and detection lights up on its own.
+
+## One state vocabulary
+
+Every agent folds onto the same small set of states, drawn with the same glyphs
+everywhere kolu shows agent status. The **shape** carries the meaning, so the
+distinction survives a peripheral glance or reduced color sensitivity.
+
+<figure class="doc-figure">
+  <svg viewBox="0 0 720 96" role="img" aria-labelledby="ad-legend-title">
+    <title id="ad-legend-title">The five agent states and their indicators: thinking is a pulsing accent dot, tool use a pulsing amber dot, awaiting you a pulsing alert dot, working-in-background a spinning teal ring, and waiting a dim dot.</title>
+
+    <circle cx="72" cy="34" r="9" style="fill: var(--color-kolu-primary)"></circle>
+    <text x="72" y="66" text-anchor="middle" class="ax-d-label2">Thinking</text>
+    <text x="72" y="84" text-anchor="middle" class="ax-d-sub">generating</text>
+
+    <circle cx="216" cy="34" r="9" style="fill: var(--color-kolu-top)"></circle>
+    <text x="216" y="66" text-anchor="middle" class="ax-d-label2">Tool use</text>
+    <text x="216" y="84" text-anchor="middle" class="ax-d-sub">running tools</text>
+
+    <circle cx="360" cy="34" r="9" style="fill: var(--color-live-alert)"></circle>
+    <text x="360" y="66" text-anchor="middle" class="ax-d-label2">Awaiting you</text>
+    <text x="360" y="84" text-anchor="middle" class="ax-d-sub">blocked on input</text>
+
+    <circle cx="504" cy="34" r="8" style="fill: none; stroke: var(--color-kolu-bottom); stroke-width: 3"></circle>
+    <text x="504" y="66" text-anchor="middle" class="ax-d-label2">Working</text>
+    <text x="504" y="84" text-anchor="middle" class="ax-d-sub">background task</text>
+
+    <circle cx="648" cy="34" r="6" style="fill: var(--color-ink-muted)"></circle>
+    <text x="648" y="66" text-anchor="middle" class="ax-d-label2">Waiting</text>
+    <text x="648" y="84" text-anchor="middle" class="ax-d-sub">idle, your turn</text>
+  </svg>
+</figure>
+
+The **awaiting-you** hue sits deliberately outside the warm/pending family, so an
+agent that needs you never reads as a build still churning. When an agent finishes
+in the background and you haven't looked yet, its row also gains a small amber
+**unread badge** in the corner until you focus it.
+
+## How detection works
+
+The pipeline is the same for every agent; only the last step — which on-disk store
+holds the session — differs.
+
+<figure class="doc-figure">
+  <svg viewBox="0 0 720 116" role="img" aria-labelledby="ad-pipe-title">
+    <title id="ad-pipe-title">Detection reads each terminal's foreground process id, checks whether it's a known agent CLI, reads that agent's own session store (a JSONL transcript or a SQLite database), and derives the live state shown on the dock and tile.</title>
+    <defs>
+      <marker id="ad-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
+      </marker>
+    </defs>
+
+    <rect x="10" y="30" width="150" height="60" rx="10" class="ax-d-box"></rect>
+    <text x="85" y="56" text-anchor="middle" class="ax-d-label2">foreground</text>
+    <text x="85" y="76" text-anchor="middle" class="ax-d-sub">pid of the shell</text>
+
+    <path d="M160,60 H186" class="ax-d-flow" marker-end="url(#ad-arrow)"></path>
+
+    <rect x="186" y="30" width="150" height="60" rx="10" class="ax-d-box"></rect>
+    <text x="261" y="56" text-anchor="middle" class="ax-d-label2">known agent?</text>
+    <text x="261" y="76" text-anchor="middle" class="ax-d-sub">claude · codex · …</text>
+
+    <path d="M336,60 H362" class="ax-d-flow" marker-end="url(#ad-arrow)"></path>
+
+    <rect x="362" y="30" width="150" height="60" rx="10" class="ax-d-box"></rect>
+    <text x="437" y="56" text-anchor="middle" class="ax-d-label2">session store</text>
+    <text x="437" y="76" text-anchor="middle" class="ax-d-sub">JSONL · SQLite</text>
+
+    <path d="M512,60 H538" class="ax-d-flow" marker-end="url(#ad-arrow)"></path>
+
+    <rect x="538" y="30" width="172" height="60" rx="10" class="ax-d-daemon"></rect>
+    <text x="624" y="56" text-anchor="middle" class="ax-d-daemon-label2">live state</text>
+    <text x="624" y="76" text-anchor="middle" class="ax-d-sub">dock · tile · minimap</text>
+  </svg>
+</figure>
+
+kolu asks each terminal for its foreground process id (`tcgetpgrp`, POSIX — Linux
+and macOS alike), matches it against the known agents, and reads that agent's
+session from disk — tailing a JSONL transcript, or querying a SQLite database and
+watching its write-ahead log. No `/proc` scraping and no argv inspection. Adding a
+new agent is one small adapter and one line of registration; nothing server-wide
+changes.
+
+<Aside type="note" title="Some states can't come from the transcript alone">
+  A "waiting on you" prompt (a multiple-choice question, a permission gate) often
+  isn't written to the session file while it's pending. For agents where that's
+  true, kolu recognizes the prompt on the <strong>rendered screen</strong> instead
+  — matching the framework's own on-screen chrome — and buckets it as
+  <em>awaiting you</em> so the dock pings. It works for background tiles, mobile,
+  and remote terminals alike, because the screen is read server-side.
+</Aside>
+
+## Claude Code
+
+kolu finds a Claude session by checking whether `~/.claude/sessions/<foreground-pid>.json`
+exists, then tails its JSONL transcript to derive state. The tile also shows the
+session's title and a running token count.
+
+| State | Indicator | Meaning |
+| --- | --- | --- |
+| Thinking | pulsing accent dot | an API call is in flight — Claude is generating |
+| Tool use | pulsing amber dot | Claude is executing tools |
+| Running in background | spinning teal ring | Claude ended its turn while a dynamic workflow it launched is still running — busy-waiting, not blocked on you |
+| Awaiting input | pulsing alert | blocked on you — an `AskUserQuestion` prompt or a tool-permission gate |
+| Waiting | dim dot | finished responding (or interrupted with Esc) and idle |
+
+The awaiting-input state is the subtle one: while a question or permission prompt
+is pending, the transcript doesn't reveal it, so kolu reads the **rendered screen**
+for the framework's prompt chrome and buckets it as _awaiting you_.
+
+**What it can't detect:**
+
+- **Plan approval (`ExitPlanMode`)** — its on-screen shape has no arrow-nav footer
+  to anchor on yet; a deliberate follow-up.
+- **Streaming progress** — only final state transitions, not intermediate tokens.
+- **Wrapped invocations** — launched via a wrapper (e.g. `script -q out.log claude`),
+  the foreground pid is the wrapper, so the session lookup misses.
+- **Sub-agents** — nested spawns aren't tracked as separate sessions. (When the
+  parent waits on a launched _dynamic workflow_, kolu does surface that workflow's
+  name and live sub-agent count.)
+
+<Aside type="tip" title="When state seems stuck">
+  The command palette has a <strong>Debug → Show Claude transcript</strong> entry
+  (visible only when the active terminal has a Claude session). It shows the
+  server's state-change log beside the raw JSONL events from disk, so you can see
+  where a transition was missed.
+</Aside>
+
+## Codex
+
+When the foreground process is `codex`, kolu queries Codex's threads SQLite
+database (the highest-numbered `~/.codex/state_<N>.sqlite`) for the most recently
+updated thread whose working directory matches the terminal, and tails that
+thread's rollout JSONL for state and context-token count. Live updates ride a
+watch on the SQLite write-ahead log.
+
+| State | Indicator | Meaning |
+| --- | --- | --- |
+| Thinking | pulsing accent dot | latest lifecycle event is `task_started`, no open tool call |
+| Tool use | spinning amber | a `function_call` is open that isn't an awaiting-user tool |
+| Awaiting input | pulsing alert | every open call is an awaiting-user tool — `request_user_input`, `request_permissions`, or `request_plugin_install` |
+| Waiting | dim dot | latest lifecycle event is `task_complete` |
+
+The context count is Codex's own `last_token_usage.input_tokens` — the number its
+`/status` command shows — not a sum that would double-count cache re-reads.
+
+**What it can't detect (yet):**
+
+- **Task-progress checklist** — Codex has no user-visible todo list to read.
+- **Column-schema changes** — if an upstream release renames a depended-on column,
+  detection returns no match; set `KOLU_CODEX_DB` to pin a known-good database
+  while a fix ships.
+- **Same-directory disambiguation** — with multiple Codex threads in one directory,
+  kolu picks the most recently updated.
+
+## Grok
+
+When the foreground process is `grok`, kolu prefers the entry in
+`~/.grok/active_sessions.json` whose pid matches the terminal; otherwise it takes
+the most recently updated session under `~/.grok/sessions/`. State comes from
+tailing that session's `events.jsonl` — `phase_changed` for thinking / tool use /
+awaiting you, `turn_ended` for waiting. An open `ask_user_question` promotes to
+_awaiting you_ even mid-tool, so a multiple-choice prompt never reads as "running
+tools".
+
+**Resume** uses `grok -c` (most recent in the directory) or `grok --resume <uuid>`
+(an exact conversation). **Context tokens** come from `signals.json`
+(`contextTokensUsed`); **task progress** stays null until Grok's plan checklist
+is a stable first-class count. **Transcript export** reads `chat_history.jsonl`
+(unwraps Grok's `<user_query>` harness so the HTML shows the human prompt).
+
+## OpenCode
+
+When the foreground process is `opencode`, kolu queries OpenCode's SQLite database
+directly at `~/.local/share/opencode/opencode.db` for the most recently updated
+session whose directory matches the terminal. The database's write-ahead log
+drives live updates.
+
+| State | Indicator | Meaning |
+| --- | --- | --- |
+| Thinking | pulsing accent dot | latest assistant message has no `time.completed` |
+| Tool use | spinning amber | a running part whose tool is neither `question` nor `plan_exit` |
+| Awaiting input | pulsing alert | every running part is `question` or `plan_exit` — blocked on a reply |
+| Waiting | dim dot | latest assistant message is completed with `finish: "stop"` |
+
+Todo progress comes free from a count over OpenCode's `todo` table, and the tile
+shows the running token count OpenCode pre-sums itself.
+
+<Aside type="note" title="Why read SQLite, not an HTTP API?">
+  The OpenCode TUI doesn't expose an HTTP server by default. Reading the SQLite
+  database directly works against the actual TUI users run — no port discovery, no
+  extra process — and WAL mode lets kolu open it read-only without blocking
+  OpenCode's own writes.
+</Aside>
+
+**What it can't detect (yet):**
+
+- **Same-directory disambiguation** — most recently updated session wins.
+- **Non-default database location** — set `KOLU_OPENCODE_DB` to override the path.
+
+## Adding an agent
+
+Because detection is agent-agnostic, a new CLI doesn't wait on kolu. Once you've
+run a known agent in any terminal it also surfaces in the [command palette](/concepts)
+— as a launch option in the worktree-naming flow and in the **Recent agents**
+group. Teaching kolu to read a brand-new agent's state is a single adapter that
+reads its session store and emits the same five states; everything downstream —
+the dock, the tile border, the minimap, the fleet view — lights up unchanged.
+
+<CardGrid>
+  <LinkCard title="Core concepts" href="/concepts" description="the dock, tiles, and how state reaches every navigator" />
+  <LinkCard title="Power features" href="/power-features" description="running many agents at once and keeping them legible" />
+  <LinkCard title="Architecture" href="/architecture" description="where detection runs — padi, the workspace daemon" />
+</CardGrid>

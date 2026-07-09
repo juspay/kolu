@@ -46,13 +46,16 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import {
+  type ConnectionInfo,
   type HostKey,
   LOCAL_HOST,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import type { WebSocket as PartySocket } from "partysocket";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { floorConnectionInfo } from "./host/connectionFloor.ts";
+import { createRejoinKeyedSub } from "./host/connectionRearm.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
@@ -240,6 +243,26 @@ const hostScoped = createRoot(() => {
     onError: (err: Error) =>
       toast.error(`Saved-session subscription error: ${err.message}`),
   });
+  // The membership authority — shared by the connection re-arm (below), the host-membership
+  // reconcile (further down), and HostSelectorStrip (deduped via the base-client ref-count).
+  const members = padiMap.entries.use({ onError: onHostMembershipError });
+  // The ACTIVE host's link-health cell (W6 — "the honest connect"): its `phase`
+  // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a
+  // cold remote provision narrates its real phase instead of a mute "Connecting…".
+  // Re-keys with the entry on host switch AND on a membership RE-JOIN (d1): the server ends
+  // the per-entry connection stream TYPED when the host flaps out of membership (a re-add
+  // mints a fresh session; the captured forward correctly orphans), and `useEntry` does not
+  // re-key on a same-key re-join — so without this the cell would strand at its last phase
+  // over a live transport. `createRejoinKeyedSub` rebuilds a fresh subscription on re-join.
+  const connection = createRejoinKeyedSub<ConnectionInfo>(
+    activeHost,
+    () => members.keys(),
+    (host) =>
+      padiMap.entry(host).cells.connection.use({
+        onError: (err: Error) =>
+          toast.error(`Connection subscription error: ${err.message}`),
+      }).value,
+  );
   // The terminal-list keys stream carries STREAM_RETRY via `unenrolledStreamCall` (the
   // #1591 health carve-out — a re-attach must never flicker the health gate). It is a
   // `createReactiveSubscription` keyed on `activeHost`, so a host switch tears down the old
@@ -283,23 +306,52 @@ const hostScoped = createRoot(() => {
   // SAME `onHostMembershipError` reference into the shared dedup slot's per-consumer registry,
   // so a membership-stream failure surfaces once (not twice) regardless of which consumer
   // registers first — each registered handler now fires independently either way, so sharing
-  // this reference is just to avoid a duplicate toast, never to dodge a crash.
-  const members = padiMap.entries.use({ onError: onHostMembershipError });
+  // this reference is just to avoid a duplicate toast, never to dodge a crash. (`members` is
+  // defined ABOVE — shared with the connection re-arm.)
+  // Pending add-a-host intent: the host the user just added, to activate the frame it JOINS
+  // membership. `hosts.add` resolves BEFORE the `entries` stream delivers the new member, so a
+  // bare `setActiveHost` in the add `.then` reads as a departed host to the reconcile below and
+  // is bounced to local (adding an N+1th host always landed on local). Feeding the intent INTO
+  // the one reconcile decision — rather than a second effect racing it — keeps a single
+  // `setActiveHost` writer here. `requestActivateOnJoin` (exported) is just this setter.
+  const [pendingJoin, setPendingJoin] = createSignal<HostKey | null>(null);
+  // THE ONE active-host effect — enacts `hostReconcileTarget` for BOTH the join-activation and
+  // the departed-bounce (see its doc). One writer, one ordering to reason about.
   createEffect(() => {
-    const target = hostReconcileTarget(
+    const action = hostReconcileTarget(
       members.keys(),
       activeHost(),
+      pendingJoin(),
       LOCAL_HOST,
     );
-    if (target === null) return;
+    if (action === null) return;
+    if (action.kind === "activate-joined") {
+      setPendingJoin(null); // consume the intent — the added host is now active
+      setActiveHost(action.target);
+      return;
+    }
     const departed = activeHost();
-    setActiveHost(target);
+    setActiveHost(action.target);
     toast.warning(
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
-  return { activityFeed, session, terminalKeys, preferences, rpc: active.rpc };
+  return {
+    activityFeed,
+    session,
+    connection,
+    terminalKeys,
+    preferences,
+    requestActivateOnJoin: setPendingJoin,
+    rpc: active.rpc,
+  };
 });
+
+/** Register add-a-host intent: activate `host` as the active host once it appears in the pool
+ *  membership — the race-free replacement for a bare `setActiveHost` in the add-host `.then`.
+ *  Feeds the pending signal the ONE reconcile effect consumes (`hostReconcileTarget`'s
+ *  join-activation arm), so there is no second `setActiveHost` writer to reason about. */
+export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive
@@ -309,6 +361,15 @@ const hostScoped = createRoot(() => {
  *  `activePadiRpc.surface.<ns>.<verb>(...)` instead of re-deriving the host by hand via
  *  `padiRpcOf(activeHost())`. */
 export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
+
+/** The ACTIVE host's link-health cell value (`phase` + `log` tail), or `undefined`
+ *  before its first frame. Drives the connect overlay's copying/building narration. Floored
+ *  (C') on the SAME map-transport liveness the chip's `EntryStatus` uses (`padiMap.live`):
+ *  with our link to the publisher dead/half-open, a frozen `building`/`copying` cell stops
+ *  asserting a live phase — mirroring surface-map's `floorOnLiveness` for `EntryStatus`, so the
+ *  connection cell is no longer the one un-floored per-host authority (#1568 sibling). */
+export const connectionInfo = (): ConnectionInfo | undefined =>
+  floorConnectionInfo(hostScoped.connection(), padiMap.live());
 
 export const recentRepos = (): RecentRepo[] =>
   hostScoped.activityFeed.value()?.recentRepos ?? [];

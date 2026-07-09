@@ -57,6 +57,77 @@ dev-auto:
     # to the param, not the value.
     exec just dev "$SERVER_PORT" "$CLIENT_PORT"
 
+# Default slot = bare `just dev`; pass a port for `just dev PORT …` (e.g. 7780).
+# Shared across worktrees on the same slot — clears a foreign holder so the next
+# `just dev` spawns a padi from THIS tree. Never touches production.
+# Kill padi/kaval for a `just dev` slot and wipe its state dir.
+dev-clean SERVER_PORT="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    runtime="${XDG_RUNTIME_DIR:-/tmp}"
+    slot="${KOLU_DEV_SERVER_PORT:-{{ SERVER_PORT }}}"
+    slot="${slot:-default}"
+    dev_dir="$runtime/kolu-dev-$slot"
+    # Match padiDigest(): sha256 of path.resolve(stateRoot), first 16 hex chars.
+    # realpath -m keeps a stable absolute path even if the dir is already gone.
+    state_root="$(realpath -m "$dev_dir/padi-state")"
+    digest="$(printf '%s' "$state_root" | sha256sum | cut -c1-16)"
+    padi_rt="$runtime/padi-$digest"
+    kaval_rt="$runtime/kaval-$digest"
+
+    kill_pidfile() {
+      local f="$1" label="$2"
+      if [ ! -f "$f" ]; then
+        return 0
+      fi
+      local pid
+      pid="$(tr -d '[:space:]' <"$f" || true)"
+      if [ -z "$pid" ] || ! [[ "$pid" =~ ^[0-9]+$ ]]; then
+        echo "dev-clean: ignore junk $label pidfile $f"
+        return 0
+      fi
+      if ! kill -0 "$pid" 2>/dev/null; then
+        echo "dev-clean: $label pid $pid already dead"
+        return 0
+      fi
+      # Safety: only kill if the runtime dir's state-root manifest (when present)
+      # still names THIS state root — never a production / foreign digest collision.
+      local manifest
+      manifest="$(dirname "$f")/state-root"
+      if [ -f "$manifest" ]; then
+        local claimed
+        claimed="$(tr -d '[:space:]' <"$manifest" || true)"
+        if [ -n "$claimed" ] && [ "$claimed" != "$state_root" ]; then
+          echo "dev-clean: REFUSING to kill $label pid $pid — $manifest claims $claimed (expected $state_root)" >&2
+          return 1
+        fi
+      fi
+      echo "dev-clean: SIGTERM $label pid $pid"
+      kill -TERM "$pid" 2>/dev/null || true
+      for _ in 1 2 3 4 5 6 7 8 9 10; do
+        kill -0 "$pid" 2>/dev/null || return 0
+        sleep 0.1
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        echo "dev-clean: SIGKILL $label pid $pid"
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
+    }
+
+    echo "dev-clean: slot=$slot state-root=$state_root digest=$digest"
+    # Order: padi first (it owns/supervises kaval), then kaval, then dirs.
+    kill_pidfile "$padi_rt/supervisor.pid" "padi-supervisor" || true
+    kill_pidfile "$padi_rt/padi.pid" "padi" || true
+    kill_pidfile "$kaval_rt/kaval.pid" "kaval" || true
+
+    for dir in "$padi_rt" "$kaval_rt" "$dev_dir"; do
+      if [ -e "$dir" ]; then
+        echo "dev-clean: rm -rf $dir"
+        rm -rf "$dir"
+      fi
+    done
+    echo "dev-clean: done — next bare \`just dev\` will spawn a fresh padi for this worktree"
+
 [private]
 _dev: install _dev-parallel
 
@@ -292,7 +363,7 @@ test-quick *args: install
     KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec "$PWD/packages/server/node_modules/.bin/tsx" "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
-    for kind in claude codex opencode; do
+    for kind in claude codex opencode grok; do
         cat > "$mock_bin/$kind" <<SCRIPT
     #!/bin/sh
     exec "$PWD/packages/mock-agent/node_modules/.bin/tsx" "$PWD/packages/mock-agent/src/bin.ts" "$kind" "\$@"

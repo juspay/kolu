@@ -98,6 +98,20 @@ const STABLE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["goose", new Set([])],
   ["gemini", new Set([])],
   ["cursor-agent", new Set([])],
+  [
+    "grok",
+    new Set([
+      "--model",
+      "-m",
+      "--always-approve",
+      "--permission-mode",
+      "--agent",
+      "--no-plan",
+      "--no-subagents",
+      "--reasoning-effort",
+      "--effort",
+    ]),
+  ],
 ]);
 
 /** Basename of a path-like token (strips directory prefix). */
@@ -106,7 +120,7 @@ function basename(s: string): string {
   return slash === -1 ? s : s.slice(slash + 1);
 }
 
-type ResumableAgent = "claude" | "codex" | "opencode";
+type ResumableAgent = "claude" | "codex" | "opencode" | "grok";
 
 /** Canonical UUID shape (claude + codex session ids). */
 const UUID_RE =
@@ -163,6 +177,14 @@ const AGENT_RESUME: Record<
     byId: (id) => `--session ${id}`,
     idPattern: /^ses_[0-9a-zA-Z]{1,64}$/,
   },
+  // Grok Build: `-c` / `--continue` for most-recent in cwd; `-r` /
+  // `--resume <uuid>` for exact (optional id on the flag; we always pass it
+  // for byId so the shape gate stays meaningful).
+  grok: {
+    last: "-c",
+    byId: (id) => `--resume ${id}`,
+    idPattern: UUID_RE,
+  },
 };
 
 /** Maps the agent binary basename to the discriminator used by
@@ -176,6 +198,7 @@ const BASENAME_TO_KIND: Record<string, AgentKind> = {
   claude: "claude-code",
   codex: "codex",
   opencode: "opencode",
+  grok: "grok",
 };
 
 /**

@@ -8,12 +8,12 @@
  *  `lastActivityAt` is bumped only on agent semantic-key transitions
  *  (`packages/server/src/meta/agent.ts`), so terminals that never hosted an
  *  agent stay `null` (the honest never-active reading — see `AgentMemorySchema`
- *  in `@kolu/terminal-workspace/schema`) and are excluded — staleness only
+ *  in `@kolu/terminal-vocab/schema`) and are excluded — staleness only
  *  applies to terminals whose attention state has actually been observed at
  *  some point.
  *
  *  The active threshold flows from `activityWindowThresholdMs()` in
- *  `activityWindow.ts` — a per-device persisted choice exposed through
+ *  `activityWindowFilter.ts` — a per-host persisted choice exposed through
  *  one signal so every consumer (dock buckets, minimap fade, badge gate)
  *  agrees on what "stale" means. */
 
@@ -21,11 +21,8 @@ import { type Accessor, createSignal } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { getClockNow } from "../time/clock";
 import { compactDelta } from "../time/duration";
-import {
-  activityWindowThresholdMs,
-  type IdleBucketKey,
-  idleBucketFor,
-} from "./activityWindow";
+import { type IdleBucketKey, idleBucketFor } from "./activityWindow";
+import { activityWindowThresholdMs } from "./activityWindowFilter";
 
 const TICK_MS = 60_000;
 

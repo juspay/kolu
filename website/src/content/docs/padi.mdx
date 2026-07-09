@@ -27,7 +27,10 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 workspace _is_: terminals, sessions, restore state, repo context, the code tree,
 git status, diffs, and agent awareness. It sits above [`kaval`](/kaval), which
 owns the live PTYs. The split is simple: kaval keeps shells alive; padi keeps the
-workspace legible. The whole layer stack is in [Architecture](/architecture).
+workspace legible. The whole layer stack is in [Architecture](/architecture);
+padi is a [@kolu/surface daemon](/surface/the-daemon-spine), with the
+drain-capable [live recycle](/surface/recycle-and-upgrade) that keeps a client
+connected across an upgrade.
 
 ## Where it sits
 

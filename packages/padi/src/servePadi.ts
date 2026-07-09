@@ -18,7 +18,7 @@
  */
 
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
-import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
+import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
@@ -155,8 +155,9 @@ export function buildPadiSurfaceDeps(deps: {
       // `PadiIdentitySchema`'s doc comment in `surface.ts`).
       identity: { store: inMemoryStore(padiIdentity) },
       // Read-only build-currency axis — the expected-kaval identity, a build
-      // constant seeded once at boot (the client's `kavalUpdatePending` nudge
-      // reads it against the connected daemon's reported `daemonStatus.identity`).
+      // constant seeded once at boot (the client's kaval-update nudge — the
+      // amber pip + tooltip, via `kavalStale` — reads it against the connected
+      // daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
       // The running kaval + padi daemons on THIS padi's host — the "Running daemons"
       // leak diagnostic. In-memory (a live diagnostic has no on-disk slot); the

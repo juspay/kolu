@@ -15,7 +15,7 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
-import type { TerminalId } from "@kolu/terminal-workspace/schema";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";

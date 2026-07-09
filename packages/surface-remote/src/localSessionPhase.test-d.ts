@@ -1,129 +1,152 @@
 /**
- * TYPE-LEVEL pin (juspay/kolu#1716, juspay/kolu#1808): each session arm's
+ * TYPE-LEVEL pin (juspay/kolu#1716, juspay/kolu#1808, W6): each session arm's
  * `initialConnection` can ONLY name a phase ITS OWN connector can reach — the
  * OTHER arm's opening phase is UNREPRESENTABLE, not merely unused, in BOTH
- * directions.
+ * directions — AND the down-arm error shape is unforgeable.
  *
- * `"copying"` is the nix-closure-PROVISIONING phase, a remote-only fact. A
- * `makeSession<_, never>` (the non-provisioning endpoint arm, `Prov = never`) types
- * `initialConnection` as `LocalConnectionState` — so declaring the provisioning phase
- * is a type error. `tsc` GREEN over this file ⇒ the guarantee holds; deleting the
- * type-split would make the `@ts-expect-error` line below compile and fail the pin.
+ * The ssh connector's provisioning phases (`SshProv = "copying" | "building"`) are
+ * remote-only facts. A `makeSession<_, never>` (the non-provisioning endpoint arm,
+ * `Prov = never`) types `initialConnection` as EXACTLY `"connecting"` — so declaring
+ * a provisioning phase is a type error. `tsc` GREEN over this file ⇒ the guarantee
+ * holds; deleting the type-split would make the `@ts-expect-error` lines below
+ * compile and fail the pin.
  *
- * The REVERSE direction (#1808) closes the sibling hole: before it, a provisioning
- * arm's `initialConnection` was typed `LocalConnectionState | Prov` — so a
- * `makeSession<_>` (default `Prov = ProvisioningPhase`) could ALSO declare a
- * LOCAL-set opening phase (`"connecting"`, etc.), a constructible contradiction that
- * misled `session.provisions`'s runtime derivation (which reads `initialConnection`
- * as the erased `Prov`'s only witness) into `false` for a session that really does
- * provision — and later crashed `serveHostMap`'s belt the first time that session
- * legitimately entered `"copying"`. `initialConnection` now types as EXACTLY `Prov`
- * for a provisioning arm, so a local-set opening phase is a compile error there too.
+ * The REVERSE direction (#1808) closes the sibling hole: a provisioning arm's
+ * `initialConnection` types as EXACTLY `Prov`, so a LOCAL-set opening phase
+ * (`"connecting"`, a down state) is a compile error there too — the constructible
+ * contradiction that once misled `session.provisions`'s runtime derivation.
  */
 
+import type { SshProv } from "./sshConnector";
 import type { Connector, SessionState } from "./session";
 import { makeSession } from "./session";
 
-declare const connector: Connector<unknown>;
+declare const localConnector: Connector<unknown, never>;
+declare const sshConnector: Connector<unknown, SshProv>;
 
 // The LOCAL/endpoint arm (`Prov = never`) — `"connecting"` is the only legal opening
 // phase (a local daemon-already-here connector provisions nothing).
 makeSession<unknown, never>({
-  connectOnce: connector,
+  connectOnce: localConnector,
   initialConnection: "connecting",
 });
 
 makeSession<unknown, never>({
-  connectOnce: connector,
-  // @ts-expect-error — `"copying"` is the remote-only provisioning phase; the local arm
-  // (`Prov = never`, `initialConnection: LocalConnectionState`) cannot declare it. If this
+  connectOnce: localConnector,
+  // @ts-expect-error — `"copying"` is a remote-only provisioning phase; the local arm
+  // (`Prov = never`, `initialConnection: "connecting"`) cannot declare it. If this
   // line ever compiles, the type-level unrepresentability has regressed.
   initialConnection: "copying",
 });
 
-// The ssh/provisioning arm (default `Prov = ProvisioningPhase`) — `"copying"` is legal.
-makeSession<unknown>({ connectOnce: connector, initialConnection: "copying" });
+makeSession<unknown, never>({
+  connectOnce: localConnector,
+  // @ts-expect-error — `"building"` is likewise a remote-only provisioning phase the
+  // local arm can never spell.
+  initialConnection: "building",
+});
+
+makeSession<unknown, never>({
+  connectOnce: localConnector,
+  // @ts-expect-error — `"probing"` (the ssh connector's OPENING probe phase) is a
+  // remote-only provisioning phase too; the local arm can never spell it.
+  initialConnection: "probing",
+});
+
+// The ssh/provisioning arm (`Prov = SshProv`) — `"probing"` (its FIRST provisioning
+// phase, the arch probe + warm check) is the legal opening.
+makeSession<unknown, SshProv>({
+  connectOnce: sshConnector,
+  initialConnection: "probing",
+});
 
 // PIN (#1808): a provisioning arm's `initialConnection` can ONLY be a `Prov` value
-// (`"copying"`) — a LOCAL-set phase is now a compile error there too, closing the
-// constructible contradiction that misled `session.provisions`'s runtime read.
-makeSession<unknown>({
-  connectOnce: connector,
+// (`"copying"`/`"building"`) — a LOCAL-set phase is a compile error there too.
+makeSession<unknown, SshProv>({
+  connectOnce: sshConnector,
   // @ts-expect-error — `"connecting"` is a LOCAL-set phase; the provisioning arm
-  // (default `Prov = ProvisioningPhase`, `initialConnection: Prov`) cannot declare
-  // it. If this line ever compiles, a provisioning session could again be built
-  // with an initial state that misclassifies `session.provisions` as `false`.
+  // (`Prov = SshProv`, `initialConnection: Prov`) cannot declare it. If this line
+  // ever compiles, a provisioning session could again be built with an initial
+  // state that misclassifies `session.provisions` as `false`.
   initialConnection: "connecting",
 });
 
-/**
- * PIN (new — `initialConnection` narrowed from `LocalConnectionState` to
- * exactly `"connecting"` on the local arm): `initialConnection` is the
- * connector's OPENING phase, so neither arm may declare a DOWN state (or an
- * already-`"connected"` one) as its boot value — a session that hasn't dialed
- * yet cannot legally publish a first frame claiming it already gave up (or is
- * already live). Before this narrowing the local arm's type was the FULL
- * `LocalConnectionState` (all four local phases), so `initialConnection:
- * "failed"` type-checked even though no connector could ever legitimately open
- * there — a lying boot frame, and a value `session.provisions`'s set-membership
- * derivation was never designed to see at construction time.
- */
+// Neither arm may declare a DOWN state (or an already-`"connected"` one) as its boot
+// value — a session that hasn't dialed yet cannot legally publish a first frame
+// claiming it already gave up (or is already live).
 makeSession<unknown, never>({
-  connectOnce: connector,
+  connectOnce: localConnector,
   // @ts-expect-error — "failed" is not a legal OPENING phase for the local arm;
-  // only "connecting" is (a fresh session hasn't dialed and given up yet). If
-  // this line ever compiles, a local session could again boot claiming it's
-  // already terminal.
+  // only "connecting" is (a fresh session hasn't dialed and given up yet).
   initialConnection: "failed",
 });
 
-makeSession<unknown>({
-  connectOnce: connector,
-  // @ts-expect-error — same for the provisioning arm: only its own `Prov` value
-  // ("copying") is a legal opening phase, never a down state.
+makeSession<unknown, SshProv>({
+  connectOnce: sshConnector,
+  // @ts-expect-error — same for the provisioning arm: only its own `Prov` values
+  // ("probing"/"copying"/"building") are legal opening phases, never a down state.
   initialConnection: "failed",
 });
 
 /**
- * TYPE-LEVEL pin (juspay/kolu — `SessionState`'s down-arm sum): `connection`
- * discriminates an UP arm (`connecting`/`connected`/the provisioning `Prov`)
- * that carries NO `lastError`/`failureCause` FIELDS, and a DOWN arm
- * (`disconnected`/`failed`) that carries them as REQUIRED (never nullable) — so
- * "down with no reason" and "live with a stale error" are both
- * UNCONSTRUCTIBLE, not merely undocumented. Mirrors the `"copying"`-unrepresentable
- * split above one arm over: that pin makes the wrong PROVISIONING PHASE
- * unconstructible; this one makes the wrong ERROR SHAPE unconstructible.
+ * TYPE-LEVEL pin (W6 — `SessionState`'s ONE sum): `phase` discriminates an UP arm
+ * (`connecting`/`connected`/the provisioning `Prov`) that carries NO `error`/`cause`
+ * FIELDS, and a DOWN arm (`disconnected`/`failed`) that carries them as REQUIRED
+ * (never nullable) — so "down with no reason" and "live with a stale error" are both
+ * UNCONSTRUCTIBLE. `failed` additionally pins `cause` to the `"remote"` LITERAL: a
+ * `"network"` fault never gives up, so `failed`+`network` is a COMPILE error.
  */
 declare const upState: SessionState<never>;
-if (upState.connection === "connecting") {
-  // @ts-expect-error — the up arm has no `lastError` FIELD to read at all (not
-  // merely a null one) — a consumer must narrow to the down arm first. If this
-  // line ever compiles, the up/down split has regressed to a nullable product.
-  upState.lastError;
+if (upState.phase === "connecting") {
+  // @ts-expect-error — the up arm has no `error` FIELD to read at all (not merely a
+  // null one) — a consumer must narrow to the down arm first.
+  upState.error;
 }
 
-// A DOWN arm requires `lastError` + `failureCause` — omitting either is a
-// compile error, not a silently-null field a consumer could later invent text
-// for (the `?? "disconnected"`/`?? "failed"` fallbacks this split deleted).
-// @ts-expect-error — `disconnected` REQUIRES `lastError` + `failureCause`; a
-// down arm with no reason is exactly the state this split makes
-// unconstructible. If this line ever compiles, "down with no reason" is
-// representable again.
+// A local `SessionState<never>` can never SPELL a provisioning phase either — the
+// state type mirrors the opening-phase pin above one layer over. (`sinceMs` is supplied
+// so the ONLY error is the illegal `phase` — not an incidental missing-field one.)
+const localProbing: SessionState<never> = {
+  // @ts-expect-error — `"probing"` is not a phase a `Prov = never` session can inhabit.
+  phase: "probing",
+  log: [],
+  sinceMs: 0,
+};
+void localProbing;
+
+// A DOWN arm requires `error` + `cause` — omitting either is a compile error, not a
+// silently-null field a consumer could later invent text for (the `?? "disconnected"`
+// fallbacks this split deleted).
+// @ts-expect-error — `disconnected` REQUIRES `error` + `cause`; a down arm with no
+// reason is exactly the state this split makes unconstructible.
 const missingReason: SessionState<never> = {
-  connection: "disconnected",
-  progressLines: [],
-  remoteProgressLines: [],
+  phase: "disconnected",
+  log: [],
+  sinceMs: 0,
 };
 void missingReason;
 
-// An UP arm carrying an error field is equally illegal — the split cuts both
-// ways: a live/warming state can never carry a stale error either.
+// THE W6 PIN: `failed` + `"network"` is unrepresentable — a network fault retries
+// forever and never reaches the terminal `failed` state, so the type forbids it.
+const failedNetwork: SessionState<never> = {
+  phase: "failed",
+  error: "gave up",
+  // @ts-expect-error — `failed`'s `cause` is the `"remote"` literal; `"network"` is
+  // a compile error. If this line ever compiles, a terminal-give-up-on-a-transport-
+  // blip state is representable again.
+  cause: "network",
+  log: [],
+  sinceMs: 0,
+};
+void failedNetwork;
+
+// An UP arm carrying an error field is equally illegal — the split cuts both ways.
 const upWithStaleError: SessionState<never> = {
-  connection: "connecting",
-  progressLines: [],
-  remoteProgressLines: [],
-  // @ts-expect-error — the up arm has no `lastError` field to assign; if this
-  // line ever compiles, "live with a stale error" is representable again.
-  lastError: "should not compile",
+  phase: "connecting",
+  log: [],
+  sinceMs: 0,
+  // @ts-expect-error — the up arm has no `error` field to assign; if this line ever
+  // compiles, "live with a stale error" is representable again.
+  error: "should not compile",
 };
 void upWithStaleError;
