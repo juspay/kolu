@@ -21,8 +21,12 @@ export function pwaIdentityForHostname(hostname: string): PwaIdentity {
   return {
     hostname,
     name: appName(hostname),
-    // The window/chrome theme tint and the client's host tabs draw from ONE
-    // palette + hash (kolu-common/hostHue) so a host never wears two colours.
+    // The window/chrome theme tint and the client's host tabs share ONE palette +
+    // hash (kolu-common/hostHue), but seed it DIFFERENTLY on purpose: here we seed
+    // the raw hostname (so each machine's installed PWA window stays distinct),
+    // while the client keys `encodeHostKey` (local host → the literal `local`). So
+    // the colour is stable per surface — NOT guaranteed identical across the PWA
+    // chrome and the client's tab for the same host. See kolu-common/hostHue.
     themeColor: hostHueFor(hostname),
   };
 }

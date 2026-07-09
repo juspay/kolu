@@ -38,9 +38,10 @@ export interface ActionContext {
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   openNewTerminalMenu: () => void;
   openWorkspaceSwitcher: () => void;
-  /** Move the active host one step through the pool order (`Cmd+Alt+N`),
-   *  wrapping. A no-op with fewer than two hosts. The single keyboard writer
-   *  for host activation — mirrors the terminal positional/cycle writers. */
+  /** Move the active host one step through the pool order (`Ctrl+Cmd+N` on
+   *  macOS, `Ctrl+N` elsewhere), wrapping. A no-op with fewer than two hosts.
+   *  The single keyboard writer for host activation — mirrors the terminal
+   *  positional/cycle writers. */
   cycleHost: (direction: 1 | -1) => void;
   /** Flip the command palette (`Cmd+K`). A stable verb, not the raw signal
    *  setter — the palette controller owns the open-state. */

@@ -141,9 +141,10 @@ const atMd = createMediaQuery("(min-width: 48rem)");
 /** The "⋯ +N" overflow trigger's own rendered width + gap — reserved from
  *  the fit budget only once chips don't all fit (see `hostOverflow.ts`). */
 const OVERFLOW_TRIGGER_RESERVE: number = 44;
-/** The "+ add a host" affordance's own rendered width (`w-8`) + gap — always
- *  reserved from the fit budget now that the "+" is always present. */
-const ADD_BUTTON_RESERVE: number = 34;
+/** The "+ add a host" affordance's own rendered width (`w-8` = 32px) plus the
+ *  strip's `gap-1.5` (6px) that separates it from the chip row — always reserved
+ *  from the fit budget now that the "+" is always present. */
+const ADD_BUTTON_RESERVE: number = 38;
 
 // The explicit type annotation on `labelForKey` (rather than inferring off the
 // arrow function) is load-bearing, not decorative: this file's per-chip
@@ -780,9 +781,8 @@ const HostSelectorStrip: Component = () => {
        *  affects this container's own layout), invisible + inert, mounts
        *  every renderable host's chip a second time purely so its natural
        *  width can be read via the `ResizeObserver` above. NOTE for a future
-       *  e2e author: this means `[data-testid="host-chip"]` can match TWICE
-       *  per host while the gate is open — the real (visible) one and this
-       *  hidden twin. `aria-hidden` + `pointer-events-none` keep it out of
+       *  e2e author: this row is always mounted, so `[data-testid="host-chip"]`
+       *  matches TWICE per host — the real (visible) one and this hidden twin. `aria-hidden` + `pointer-events-none` keep it out of
        *  the accessibility tree and unclickable, and Playwright's
        *  visibility-aware actions (`.click()`) skip it, but a bare
        *  `.count()`/`.all()` would not — scope any such query under

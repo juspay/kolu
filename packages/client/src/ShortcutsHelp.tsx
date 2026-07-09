@@ -19,6 +19,7 @@ export const shortcutsHelp = createDisclosure();
 const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
   { id: "commandPalette" },
   { id: "openWorkspaceSwitcher" },
+  { id: "switchHostNext" },
   { id: "createTerminal" },
   { id: "newTerminalMenu" },
   { id: "cycleTerminalMru" },

@@ -173,13 +173,17 @@ hue + belly slide) so hopping hosts feels like moving, not repainting.
   </div>
 </div>
 
-<Callout kind="note" title="The hue already exists — we're just spending it better">
-Kolu already derives a per-hostname theme colour and tints the window chrome with it
-(<code>themeColor()</code> in <Cite file="packages/client/src/ChromeBar.tsx" />, read
-off <code>useServerIdentity</code>). Today it's a faint whole-bar wash. Promoting it
-to a *per-host* identity — one hue per tab, the active hue underglowing the belly —
-costs no new data, just a `--hue` custom property per chip. `color-mix` and
-`backdrop-filter` are the whole toolkit.
+<Callout kind="note" title="The hue already existed — we just spent it better">
+The starting point (before this note shipped): kolu derived a per-hostname theme
+colour and tinted the whole window chrome with it — a faint whole-bar wash read off
+<code>themeColor()</code> in <Cite file="packages/client/src/ChromeBar.tsx" />. The
+shipped design promotes that colour to a *per-host* identity — one hue per tab, the
+active hue underglowing the belly — and makes the header itself **neutral** (the
+colour lives on the tabs, not a same-hue band that swallowed them). The seed→palette
+function now lives in <Cite file="packages/common/src/hostHue.ts" /> as the single
+source of truth shared by the server's PWA <code>theme-color</code> and the client's
+tab/canvas hue; each chip just carries a <code>--hue</code> custom property.
+<code>color-mix</code> and <code>backdrop-filter</code> are the whole toolkit.
 </Callout>
 
 ## Out of the box · the host as a room

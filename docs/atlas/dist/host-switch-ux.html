@@ -109,12 +109,16 @@ tab’s belly bleed into the canvas (the connected-tab metaphor done right — n
 line between “active host” and “its canvas”); and <strong>cross-fade on switch</strong> (150 ms
 hue + belly slide) so hopping hosts feels like moving, not repainting.</p>
 <div class="hs-win"><div class="cv"><div class="gbar"><span class="hs-logo" aria-hidden="true"><i style="width:12px;background:#a21caf"></i><i style="width:16px;background:#7c3aed"></i><i style="width:20px;background:#16a34a"></i></span><span class="gtab" style="--hue:#64748b"><span class="huedot" style="background:#64748b"></span>local</span><span class="gtab on" style="--hue:#7c3aed"><span class="belly"></span><span class="huedot" style="background:#7c3aed"></span>srid@zest<span class="gdm hs-padi">P</span><span class="gdm hs-kaval">&gt;_</span><span class="gx">✕</span></span><span class="gtab" style="--hue:#0d9488"><span class="huedot" style="background:#0d9488"></span>sincereintent<span class="hs-badge">2</span></span><span class="gadd">+</span></div><div style="height:56px"></div></div><div class="hs-cap"><p>Same tabs, real craft. The band is <b>frosted glass</b> — the grid reads straight through it. Each host owns a <b>hue</b> (<span style="color:#64748b">slate</span> · <span style="color:#7c3aed">violet</span> · <span style="color:#0d9488">teal</span>); the active tab glows in its hue and its <b>belly dissolves into the canvas</b> — no seam. A switch cross-fades the hue and slides the belly. Resting tabs are quiet; the active one is rich.</p></div></div>
-<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>The hue already exists — we&#39;re just spending it better</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Kolu already derives a per-hostname theme colour and tints the window chrome with it
-(<code>themeColor()</code> in <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/ChromeBar.tsx" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/ChromeBar.tsx</a>, read
-off <code>useServerIdentity</code>). Today it’s a faint whole-bar wash. Promoting it
-to a <em>per-host</em> identity — one hue per tab, the active hue underglowing the belly —
-costs no new data, just a <code>--hue</code> custom property per chip. <code>color-mix</code> and
-<code>backdrop-filter</code> are the whole toolkit.</p></div></aside>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>The hue already existed — we just spent it better</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The starting point (before this note shipped): kolu derived a per-hostname theme
+colour and tinted the whole window chrome with it — a faint whole-bar wash read off
+<code>themeColor()</code> in <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/ChromeBar.tsx" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/ChromeBar.tsx</a>. The
+shipped design promotes that colour to a <em>per-host</em> identity — one hue per tab, the
+active hue underglowing the belly — and makes the header itself <strong>neutral</strong> (the
+colour lives on the tabs, not a same-hue band that swallowed them). The seed→palette
+function now lives in <a href="https://github.com/juspay/kolu/blob/master/packages/common/src/hostHue.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/common/src/hostHue.ts</a> as the single
+source of truth shared by the server’s PWA <code>theme-color</code> and the client’s
+tab/canvas hue; each chip just carries a <code>–hue</code> custom property.
+<code>color-mix</code> and <code>backdrop-filter</code> are the whole toolkit.</p></div></aside>
 <h2 id="out-of-the-box--the-host-as-a-room">Out of the box · the host as a room</h2>
 <p>Now leave the row. A host isn’t a document you tab between — it’s a <strong>place</strong> you’re
 <em>inside</em>. So drop the tab strip and let the active host own the whole window: its hue

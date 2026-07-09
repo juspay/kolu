@@ -84,8 +84,9 @@ KOLU_PADI_HOST=localhost,you@box kolu
 ```
 
 That puts your local host (always first) plus each remote in the pool at boot.
-With nothing set and nothing added, kolu shows exactly your local host,
-pixel-identical to single-host kolu.
+With nothing set and nothing added, the pool holds only your local host — a
+single local chip — with the **+ add** affordance always beside it, ready to
+connect a machine.
 
 ## First connect — provisioning over ssh
 
@@ -117,9 +118,10 @@ The host's chip dot tells you where it is:
 ## Switch hosts, and per-host canvases
 
 **Click a chip** to make that host active — the whole canvas switches to it live,
-no reload, bindings staying warm server-side. Each host owns its own canvas: its
-terminals, splits, and focused tile are restored as you left them when you switch
-back. Switching away doesn't tear a host's work down; it keeps running on that
+no reload, bindings staying warm server-side. You can also **cycle from the
+keyboard**: **Ctrl+Cmd+N** (Ctrl+N off macOS) steps to the next host in the strip,
+wrapping around. Each host owns its own canvas: its terminals, splits, and focused
+tile are restored as you left them when you switch back. Switching away doesn't tear a host's work down; it keeps running on that
 host. If the active host ever leaves the pool, kolu switches you back to local and
 says so.
 

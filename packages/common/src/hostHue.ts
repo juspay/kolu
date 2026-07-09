@@ -15,9 +15,11 @@
  *  `node:crypto`, which the client can't call synchronously at render time). */
 
 /** The fixed identity palette — twelve mid-saturation hues that read on both the
- *  light and dark chrome surface. Order is load-bearing: it's the index space
- *  {@link hostHueFor} maps into, so appending is safe but reordering re-colours
- *  every host. */
+ *  light and dark chrome surface. Both the length AND the order are load-bearing:
+ *  {@link hostHueFor} maps a seed into this space with `hash % length`, so ANY
+ *  change — appending, removing, or reordering — shifts the modulo and re-colours
+ *  existing hosts. Treat the palette as frozen; if it must grow append-only
+ *  without remapping, introduce a versioned mapping rather than editing in place. */
 export const HOST_HUE_PALETTE = [
   "#0f766e",
   "#1d4ed8",
