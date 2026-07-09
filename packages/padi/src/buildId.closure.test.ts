@@ -46,7 +46,7 @@ const HASHED_ROOTS: Record<string, string> = {
   "@kolu/terminal-protocol": "terminal-protocol",
   "@kolu/surface-daemon": "surface-daemon",
   "@kolu/surface-daemon-supervisor": "surface-daemon-supervisor",
-  "@kolu/terminal-workspace": "terminal-workspace",
+  "@kolu/terminal-vocab": "terminal-vocab",
   "@kolu/serve-dir": "serve-dir",
   "@kolu/shell-quote": "shell-quote",
   "@kolu/html-escape": "html-escape",

@@ -62,7 +62,7 @@ import type {
   TerminalEvent,
   PrUnavailableSource,
   TerminalId,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/terminal-vocab/schema";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
  *  mirror that replaces the old `record.meta.agent` read-back) and the recognized

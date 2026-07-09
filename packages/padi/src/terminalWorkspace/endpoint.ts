@@ -10,7 +10,7 @@
  *
  * This is the NODE face (it shells out to git via kolu-git's root), kept
  * strictly separate from the browser-safe terminal vocabulary
- * (`@kolu/terminal-workspace/schema`). The two interfaces below describe the
+ * (`@kolu/terminal-vocab/schema`). The two interfaces below describe the
  * impl, so they live with it; padi's composite `TerminalEndpoint` imports them
  * as types.
  */
@@ -76,7 +76,7 @@ export interface TerminalEndpointGit {
  * specifically to keep `local.ts` out of an import cycle with `surface.ts`
  * (#1005). Co-locating it here is now safe: (a) this module imports nothing
  * from any surface module, and (b) its remaining external consumer —
- * kolu-server's `router.ts` — reaches it across the `@kolu/terminal-workspace`
+ * kolu-server's `router.ts` — reaches it across the `@kolu/terminal-vocab`
  * package edge, not within kolu-server, so the #1005 cycle cannot reform.
  */
 export function unwrapGit<T>(result: GitResult<T>): T {

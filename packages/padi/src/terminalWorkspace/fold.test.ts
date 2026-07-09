@@ -17,7 +17,7 @@ import {
   seedSnapshot,
   type TerminalEvent,
   type TerminalState,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/terminal-vocab/schema";
 
 const gitInfo = (branch: string) => ({
   repoRoot: "/r",

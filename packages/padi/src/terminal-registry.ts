@@ -9,10 +9,7 @@
  * endpoint itself, not on `TerminalProcess`.
  */
 
-import type {
-  TerminalId,
-  TerminalSnapshot,
-} from "@kolu/terminal-workspace/schema";
+import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { ORPCError } from "@orpc/server";
 import type { TerminalHandle } from "./endpoint.ts";
 import type {

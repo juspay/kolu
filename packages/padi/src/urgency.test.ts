@@ -6,10 +6,7 @@
  * own read site (`HostSelectorStrip.tsx`'s `awaiting()`).
  */
 
-import type {
-  AgentInfo,
-  TerminalSnapshot,
-} from "@kolu/terminal-workspace/schema";
+import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type ActiveTerminalProcess,
