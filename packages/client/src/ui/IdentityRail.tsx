@@ -11,7 +11,7 @@ import type { KoluBuildInfo } from "kolu-common/surface";
 import { type Component, createSignal, Show } from "solid-js";
 import { daemonTransportLive, serverDot } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
-import { IdentityMark, StatusDot } from "./IdentityMark";
+import { identityMarkBtnClass, IdentityMark, StatusDot } from "./IdentityMark";
 import { joinTip } from "./joinTip";
 import KoluInfoDialog from "./KoluInfoDialog";
 import { mbText } from "./memory";
@@ -19,8 +19,11 @@ import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
 import { clientHeapUsedBytes, serverRssBytes } from "./useMemoryUsage";
 
-const koluIdentityBtnClass =
-  "pointer-events-auto shrink-0 relative inline-flex h-8 w-8 items-center justify-center rounded-lg leading-none transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer";
+// Kolu, Padi, and Kaval share ONE mark button — same frame size + same
+// hover language (`identityMarkBtnClass`) — so the three process marks read
+// as one consistent family. The Kolu mark's only distinction is its position
+// (leftmost, outside the host tab strip), never a different size or hover.
+const koluIdentityBtnClass = identityMarkBtnClass;
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const pwa = useSurfaceApp<KoluBuildInfo>();

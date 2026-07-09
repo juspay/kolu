@@ -182,10 +182,23 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
       data-active={isActive() ? "" : undefined}
     >
       <div
-        class="flex h-8 items-center rounded-t-md border transition-colors focus-within:ring-2 focus-within:ring-accent/50"
+        class="relative flex h-8 items-center rounded-t-md transition-colors focus-within:ring-2 focus-within:ring-accent/50 focus-within:ring-inset"
         classList={{
-          "border-edge border-b-surface-1 bg-surface-1 text-fg": isActive(),
-          "border-transparent bg-transparent text-fg-2 hover:bg-surface-1/60 hover:text-fg":
+          // Selected tab: brighter `surface-0` fill + `font-medium` label (the
+          // same "active tab" language the right-panel / sub-panel tab bars
+          // use), marked by the app `accent` — carried as a 2px top-rail, the
+          // browser-tab mirror of the panel tabs' accent underline (a rounded
+          // tab connects to content at its BOTTOM, so the rail rides the top).
+          // No bottom border: pulled 1px down by the wrapper's `-mb-px`, it
+          // merges through the strip baseline as the raised, connected tab.
+          "border-x border-t-2 border-x-edge border-t-accent bg-surface-0 text-fg shadow-sm":
+            isActive(),
+          // Inactive tabs are REAL, visible slots — a faint recessed fill that
+          // reads as a tab at rest and brightens on hover — never invisible
+          // text floating on the header. Kept softer than the active tab's
+          // lift so the selected tab stays the most prominent in BOTH the
+          // white light-mode header and the dark themed one.
+          "border border-transparent bg-surface-1/60 text-fg-2 hover:bg-surface-2 hover:text-fg":
             !isActive(),
         }}
       >
@@ -468,7 +481,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
       <div
         role="tablist"
         aria-label="Hosts"
-        class="-mb-px flex h-8 items-center rounded-t-md border border-b border-edge border-b-surface-1 bg-surface-1 text-fg focus-within:ring-2 focus-within:ring-accent/50 shrink-0"
+        class="-mb-px flex h-8 items-center rounded-t-md border-x border-t-2 border-x-edge border-t-accent bg-surface-0 text-fg shadow-sm focus-within:ring-2 focus-within:ring-accent/50 shrink-0"
         data-testid="host-dropdown-switcher"
       >
         <button
@@ -643,7 +656,7 @@ const HostSelectorStrip: Component = () => {
           <div
             role="tablist"
             aria-label="Hosts"
-            class="flex items-end gap-0 min-w-0 flex-nowrap"
+            class="flex items-end gap-1 min-w-0 flex-nowrap"
           >
             <For each={renderableHosts()}>
               {(host) => <HostChip host={host} />}
@@ -663,7 +676,7 @@ const HostSelectorStrip: Component = () => {
           <div
             role="tablist"
             aria-label="Hosts"
-            class="flex items-end gap-0 min-w-0 flex-nowrap"
+            class="flex items-end gap-1 min-w-0 flex-nowrap"
             data-testid="host-chip-row"
           >
             <For each={hostFit().visible}>
