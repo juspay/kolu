@@ -86,8 +86,10 @@ link *to* itself), so the parent authors it. This is the one graduated exception
 the cell ships browser-safe from `@kolu/surface-remote/connection`.
 
 `ConnectionInfo` is the discriminated **mirror** of the session's `SessionState`
-sum, keyed on `phase`: the up arms (`copying` / `building` — the ssh connector's
-provisioning phases — plus `connecting` / `connected`) carry only a provenance-tagged
+sum, keyed on `phase`: the up arms (`probing` / `copying` / `building` — the ssh
+connector's provisioning phases, `probing` being the warm-check window where the
+agent is looked up but nothing is shipped yet — plus `connecting` / `connected`)
+carry only a provenance-tagged
 `log` tail (`{ source: "local" | "remote"; line }[]`); `disconnected` adds
 `error` + `cause` (`"network"` unreachable / `"remote"` refused); `failed` is
 terminal with `cause` pinned to the `"remote"` literal (a network fault never gives
