@@ -121,13 +121,24 @@ function discardPendingGesture() {
   pending = { ...EMPTY };
 }
 
+/** Abort any input still aimed at the host we are LEAVING — the in-flight pan
+ *  tween AND the queued gesture delta. Both the animation callback and
+ *  `flushGesture` write pan/zoom through `activeScope()` (module-scope machinery,
+ *  one active canvas), so a frame-late callback that fires AFTER `activeHost`
+ *  changed would land the outgoing host's motion in the INCOMING host's per-host
+ *  camera. The active-host switch effect (`useCanvasCenterOnSwitch`) calls this up
+ *  front so a switch cannot corrupt the retained pose of the host switched TO. */
+function abortTransientInput() {
+  cancelPanAnimation();
+  discardPendingGesture();
+}
+
 /** Begin an authoritative absolute mutation: a programmatic write is the new
  *  truth, so it must kill BOTH competing input sources — the in-flight tween
  *  and the queued gesture delta. Every programmatic setter plugs into this one
  *  seam so it cannot forget half the arbitration. */
 function beginAuthoritativeMutation() {
-  cancelPanAnimation();
-  discardPendingGesture();
+  abortTransientInput();
 }
 
 // ── Public API ──
@@ -155,6 +166,12 @@ export interface CanvasViewport {
   /** Set pan offset directly (canvas-space coordinates). Instant — for
    *  per-frame gesture updates that must not animate. */
   setPan: (x: number, y: number) => void;
+  /** Abort transient input aimed at the active host — the in-flight pan
+   *  animation and any queued gesture flush. Called on an active-host switch so a
+   *  frame-late callback cannot write the OUTGOING host's motion into the INCOMING
+   *  host's per-host camera (the module-scope machinery writes through
+   *  `activeScope()`, which re-keys to the new host on switch). */
+  abortTransientInput: () => void;
   /** Current viewport dimensions in pixels (0×0 before mount). */
   viewportSize: () => { width: number; height: number };
   /** Canvas-space point at the viewport center — the forward projection of
@@ -319,6 +336,7 @@ const viewport: CanvasViewport = {
   centerOnTile,
   panTo,
   setPan,
+  abortTransientInput,
   viewportSize,
   viewportCenter,
   snapToGrid: snapToGridPure,

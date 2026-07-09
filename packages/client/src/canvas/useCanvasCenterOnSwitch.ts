@@ -34,6 +34,13 @@ export function useCanvasCenterOnSwitch(
   const [pendingCenter, setPendingCenter] = createSignal(false);
   createEffect(
     on(activeHost, (_curr, prev) => {
+      // A switch invalidates any input still aimed at the host we are leaving: an
+      // in-flight center/pan animation or a queued gesture flush writes pan/zoom
+      // through `activeScope()`, which has just re-keyed to the NEW host — so a
+      // frame-late callback would land the outgoing host's motion in the incoming
+      // host's camera. Drop both up front so the switch cannot corrupt the retained
+      // pose of the host switched to.
+      viewport.abortTransientInput();
       if (prev === undefined) return; // initial mount — no switch to service yet
       setPendingCenter(true);
     }),

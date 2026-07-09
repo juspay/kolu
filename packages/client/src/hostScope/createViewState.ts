@@ -124,9 +124,18 @@ export function createViewState(host: HostKey): HostViewState {
     // Report the active terminal to THIS owner's host for its session snapshot.
     // `writeActive` only ever runs for the shown host (you activate a tile on the
     // host you are viewing), so `padiRpcOf(host)` is the active-host client.
+    // A failure here leaves the server's saved-session snapshot momentarily stale
+    // (the NEXT activation re-reports and self-heals), so this is best-effort — but
+    // it must not vanish silently: log it so a persistent failure is visible rather
+    // than a stale restore with no trace. No toast — this fires on every tile
+    // activation, and a background bookkeeping report is not a user-facing action.
     void padiRpcOf(host)
       .surface.chrome.setActive({ id })
-      .catch(() => {});
+      .catch((err: Error) => {
+        console.error(
+          `hostScope: failed to report active terminal ${id} to ${encoded}: ${err.message}`,
+        );
+      });
   }
 
   function setMruOrder(
