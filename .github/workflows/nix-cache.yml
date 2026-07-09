@@ -1,6 +1,7 @@
-# Build the default package and push its closure to the shared Attic cache
-# (https://cache.nixos.asia/oss). The flake already lists this cache as a
-# substituter, so a green push here warms CI boxes and local `nix build`s.
+# Build the default package on linux + darwin and push each closure to the
+# shared Attic cache (https://cache.nixos.asia/oss). The flake already lists
+# this cache as a substituter, so a green push here warms CI boxes and local
+# `nix build`s on both platforms.
 name: nix-cache
 
 on:
@@ -19,7 +20,15 @@ concurrency:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-latest → x86_64-linux; macos-latest → aarch64-darwin
+        # (GitHub's current macos-latest image). Covers the two platforms
+        # that actually run kolu day-to-day; aarch64-linux / x86_64-darwin
+        # stay out of the matrix until something needs them warmed.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
