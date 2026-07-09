@@ -1,6 +1,6 @@
 ---
 title: padi — the per-host terminal-workspace daemon
-description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W4 + W7/W8 shipped; W6 in review; next up W5 (cross-host attention), with the cleanup ledger in parallel.
+description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W4 + W6–W8 shipped; next up W5 (cross-host attention), with the cleanup ledger in parallel.
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
@@ -37,7 +37,7 @@ export const ROADMAP = [
   { d: 0, g: "✓", c: "ship", l: "W4 · the switch — @kolu/surface-map + the multi-host canvas (Labs picker)", m: "#1714 · 2026-07-07", h: "#w4" },
   { d: 0, g: "✓", c: "ship", l: "W7 · per-host state by ownership, not enumeration", m: "#1723 · drishti#91 · 2026-07-08", h: "#w7" },
   { d: 0, g: "✓", c: "ship", l: "W8 · remote terminals, documented honestly (docs phase)", m: "#1722 · #1727 · 2026-07-08", h: "#w8" },
-  { d: 0, g: "▶", c: "prog", l: "W6 · the honest connect — the connection type made perfect + the connect overlay", m: "#1730 · in review", h: "#w6" },
+  { d: 0, g: "✓", c: "ship", l: "W6 · the honest connect — the connection type made perfect + the connect overlay", m: "#1730 · drishti#92 · 2026-07-09", h: "#w6" },
   { d: 0, g: "○", c: "prog", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "next — W4 ✓", h: "#w5" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
@@ -164,17 +164,16 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W4" name="the switch — host picker, per-view bindings, warm pool (+ @kolu/surface-map)" status="shipped" needs={["W3"]} links={[{ label: "#1714", href: "https://github.com/juspay/kolu/pull/1714" }]} />
 <Phase id="W7" name="per-host state by ownership, not enumeration" status="shipped" needs={["W4"]} links={[{ label: "#1723", href: "https://github.com/juspay/kolu/pull/1723" }]} />
 <Phase id="W8" name="remote terminals, documented honestly (docs phase)" status="shipped" needs={["W4"]} links={[{ label: "#1722", href: "https://github.com/juspay/kolu/pull/1722" }, { label: "#1727", href: "https://github.com/juspay/kolu/pull/1727" }]} />
-<Phase id="W6" name="the honest connect — the connection type made perfect + the connect overlay" status="in-flight" needs={["W4"]} links={[{ label: "#1730", href: "https://github.com/juspay/kolu/pull/1730" }]} />
+<Phase id="W6" name="the honest connect — the connection type made perfect + the connect overlay" status="shipped" needs={["W4"]} links={[{ label: "#1730", href: "https://github.com/juspay/kolu/pull/1730" }]} />
 <Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
 <Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="todo" needs={["W4"]} />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **Where this stands (2026-07-09) — and what's next, in order:**
 
-1. **W6 lands** — <PrLink pr={1730} /> + its drishti pair ([srid/drishti#92](https://github.com/srid/drishti/pull/92)) are in review endgame (type dedup + the `ConnectPhase` framework graduation folded in); srid merges both.
-2. **W5 — cross-host attention** is the next feature phase: everything it needs (the warm pool, per-host entries) is shipped, and the need is now user-visible (the 2026-07-08 field note below).
-3. **The cleanup ledger runs in parallel** — batched into right-sized PRs, not one-per-entry; the batch plan lives in [the ledger note](padi-cleanup.html).
-4. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed.
+1. **W5 — cross-host attention** is the next feature phase: everything it needs is shipped — the warm pool and per-host entries (W4), and now W6 (<PrLink pr={1730} /> + its drishti pair [srid/drishti#92](https://github.com/srid/drishti/pull/92), both merged 2026-07-09) — and the need is user-visible (the 2026-07-08 field note below).
+2. **The cleanup ledger runs in parallel** — batched into right-sized PRs, not one-per-entry; the batch plan lives in [the ledger note](padi-cleanup.html).
+3. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed.
 
 **When packages are born** — graduation is a scheduled event, not a side effect:
 
@@ -264,11 +263,13 @@ Still live from the ship: **honest clocks (piece 5) is a named fast-follow** —
 
 <a id="w5"></a>
 
-### W5 — cross-host attention *(needs W4 — the switch's warm pool is what urgency fans in from; the A+ bar from the UX evaluation)*
+### W5 — cross-host attention *(next up — everything it needs shipped with W4)*
+
+**In simple words:** today, if an agent on another host needs you, kolu mostly can't tell you — an OS notification escapes the app, but the unread badges live per host and only the host you're currently looking at renders them. After this phase, kolu watches every connected host and rolls the needs-you signal up in one place: each host's chip in the switcher shows a count, the app icon badge sums all hosts, and clicking the OS notification switches to the right host and focuses the terminal that wants you.
 
 kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
 - **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
-- *Field note (2026-07-08, srid on the W4 deploy):* the asymmetry is now user-visible — OS notifications escape the app (cross-host reach), but unread marks land in per-host `HostView.attention`, whose only render surface is the active host's dock, so a background host's attention is invisible. W5's chip counts are the missing rollup. One wiring fact for the implementer: `useTerminalAlerts`'s transition watcher rides the ACTIVE host's swapped store — the urgency-projection member (this phase's wire design) is what makes background hosts observable, not the client-side watcher.
+- *Field note (2026-07-08, srid on the W4 deploy):* the asymmetry is now user-visible — OS notifications escape the app (cross-host reach), but unread marks live in each host's `hostScope` owner (W7), whose only render surface is the active host's dock, so a background host's attention is invisible. W5's chip counts are the missing rollup. One wiring fact for the implementer: `useTerminalAlerts`'s transition watcher rides the ACTIVE host's swapped store — the urgency-projection member (this phase's wire design) is what makes background hosts observable, not the client-side watcher.
 
 <a id="w7"></a>
 
@@ -286,17 +287,11 @@ Two live edges. **K1, consciously excluded:** the owner retains only *cheap, cli
 
 <a id="w6"></a>
 
-### W6 — the honest connect — *in flight* <PrLink pr={1730} /> *(overlay + the connection type made perfect; drishti-gated — pair [srid/drishti#92](https://github.com/srid/drishti/pull/92))*
+### W6 — the honest connect — *shipped* <PrLink pr={1730} /> *(+ the [srid/drishti#92](https://github.com/srid/drishti/pull/92) pair — both merged 2026-07-09)*
 
-**Status (2026-07-09): implemented, in review endgame.** Both halves below are built and CI-green; live testing then hardened the batch — the coarse-chip/fine-cell divergence trap (a stale connection cell could route the overlay over a *connected* host forever) is now a **type error** (`connectPhase` exists only on the not-yet-connected facts arms), the cell is floored on transport liveness, and the phase vocabulary gained `probing` (the warm realise-probe, presented calmly) plus a server-stamped `sinceMs` (per-episode elapsed, one clock). The type-dedup review then graduated **`ConnectPhase`** to a `@kolu/surface-remote` export beside `ConnectionInfo`, as the vocabulary's owner; kolu's overlay consumes it (drishti's color map keys the full phase union directly, so it imports nothing extra). A final UX pass gave the connect copy one authority: `CanvasMode` arms carry no strings, and the scattered "Connecting…" literals died — so routing flaps render identical pixels. The types below are as shipped.
+**Shipped 2026-07-09** (merge `e4acb5b2f`) — a first connect to a fresh remote host can spend minutes in a Nix copy+build, and the canvas used to show one mute **"Connecting…"** for the whole window; now the connect overlay names the phase, streams a live tail of the actual build output, and shows a server-stamped elapsed — and the connection type was made perfect along the way (the server's state sum reaches the browser as a discriminated mirror, not a lying 4-nullable-field product; seven names collapsed into the family below; `remoteProgressLines` and the in-band `[local]`/`[remote]` prefixes deleted). Live testing hardened the batch: the coarse-chip/fine-cell divergence trap is a **type error** (`connectPhase` exists only on the not-yet-connected facts arms); the cell is **floored on transport liveness**; and the connect copy has **one authority** — `CanvasMode` arms carry no strings and no per-phase flags, display derives from the frame's data, so a silent or flickering connect window is unwritable. **`ConnectPhase`** graduated to a `@kolu/surface-remote` export beside `ConnectionInfo`, its owner; kolu's overlay is the consumer (drishti's color map keys the full phase union directly, so it imports nothing extra).
 
-**In simple words:** connecting to a remote host can compile+copy padi onto that machine over ssh — on a first connect to a fresh host that Nix build takes **minutes**. Today the whole canvas shows one dead word, **"Connecting…"**, indistinguishable from a hang (srid hit exactly this live — twice: on the original W4, and re-confirmed 2026-07-07 on the surface-map redesign, where the remote chip shows amber but the canvas stays mute). Drishti already narrates this window properly ("copying derivation…"); kolu should match. After this phase the overlay tells the truth: *which* phase it's in (provisioning vs connecting), a live tail of the actual build output, and an elapsed timer — so "it's working, first-time setup takes a moment" is unmistakable, and a real failure shows the real reason.
-
-**The reason this is cheap — the signal already exists and already reaches the browser; only the UI discards it.** The session lifecycle has a **distinct `copying` state** separate from `connecting` (`CONNECTION_STATES` in `packages/surface-remote/src/connection.ts` — and after the P4 type-split, `copying` is *remote-arm-only by type*, which makes the narration honest by construction), and the connection info already carries **`progressLines`** — the live `nix copy` / realise stderr, forwarded by `nixCopy.ts`'s `onProgress` and piped browser-ward by `connectionPipe.ts`. It also distinguishes **`failureCause`** — `network` (unreachable, retries) vs `remote` (reached, rejected, terminal). Under the surface-map redesign this all rides the **`entries` collection's per-host `EntryConnectionState`** (`serveHostMap`'s projection preserves `copying` distinctly), so the strip's chip and the canvas overlay read the same one authority. The bug is purely that the connect overlay collapses this rich state into `"Connecting…"`.
-
-**The work (ratified 2026-07-08 — two halves, one PR + the drishti pair):**
-
-**Half 1 — the connection type, made perfect** (per /architecture-first-principles; the server sum is flattened into a lying 4-nullable-field product at the browser boundary today, and three lens findings land together). The final types, verbatim:
+The type family as shipped — the reference for the connection vocabulary:
 
 ```ts
 // @kolu/surface-remote — ONE framework type; the connector declares its own phases
@@ -322,17 +317,6 @@ type SshProv = "probing" | "copying" | "building";
 // derive from it, never hand-list phase names.
 ```
 
-DELETED by this reshape: `remoteProgressLines` (a stored duplicate — now `log.filter(source === "remote")`), the `[local] `/`[remote] ` in-band string prefixes (provenance becomes a field), and the `ProvisioningPhase`/`UpConnectionState`/`LocalConnectionState`/`FailureCause`/`SessionStateCommon` name-chain (one type + one connector vocabulary + one zod const replace all seven names). The `copying`→`probing|copying|building` split is the connector updating its own declared vocabulary — zero framework change; `nixCopy.ts` already runs the steps as separate commands (`probing` was added when live testing showed the warm-probe window conflated with copying and read as hung). **Wire-schema change ⇒ the drishti gate applies** (drishti reads the cell at `App.tsx:690`; paired PR, green at final kolu HEAD).
-
-**Half 2 — the kolu overlay** (client-only, small): the connect overlay reads the active entry's connection cell and switches exhaustively on `phase` —
-- **`copying`** → "Provisioning padi on `zest`… (first connect ships the recipe)" · **`building`** → "Building padi on `zest`… this can take a few minutes" — each with a **live tail** of the last N `log` lines (dimmed monospace) and an **elapsed timer**, so long-but-progressing never reads as hung;
-- **`connecting`** → the brief post-provision handshake, distinct;
-- **`failed`** → the real `error` + the `log` tail (the actual "why"); `disconnected`+`network` ("`zest` unreachable — retrying") reads differently from a standing `remote` refuse (the Skew-UX card already owns those);
-- the **fast path stays calm** — a warm reconnect (the fused realise probe short-circuits) shows `connected` immediately, no build UI.
-
-**Design care:** show a *tail* (last few lines) + elapsed, not a firehose of the whole Nix log, and **not** a fake percentage bar (a Nix build has no honest progress %); the reassurance is "named phase + real output + elapsed + 'first-time setup'", which is truthful where a progress bar would lie.
-
-- **Done:** connect to a fresh remote host (cold Nix build) → the overlay names copying vs building, streams live log lines, and shows elapsed — never a mute "Connecting…"; a warm reconnect connects fast with no build UI; a genuine failure shows the real error tail, and unreachable reads differently from rejected. AND the types hold the line: `failed`+`network` is a compile error, `remoteProgressLines` no longer exists, the browser cell is the discriminated mirror of the server sum (drishti pair green).
 
 <a id="cleanup"></a>
 
