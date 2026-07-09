@@ -867,17 +867,19 @@ Then(
     const frame = await handle.contentFrame();
     if (frame === null)
       throw new Error("PDF preview iframe has no loaded frame");
-    await frame.waitForLoadState("domcontentloaded", { timeout: POLL_TIMEOUT });
-    const loadedUrl = frame.url();
-    if (
-      loadedUrl !== url.href &&
-      !loadedUrl.includes(encodeURIComponent(url.href)) &&
-      !loadedUrl.endsWith("/file/doc.pdf")
-    ) {
-      throw new Error(
-        `PDF preview iframe loaded ${loadedUrl}, expected ${url.href}`,
-      );
-    }
+    const isExpectedPdfFrameUrl = (loadedUrl: string) =>
+      loadedUrl === url.href ||
+      loadedUrl.includes(encodeURIComponent(url.href)) ||
+      loadedUrl.endsWith("/file/doc.pdf");
+    await pollFor({
+      observe: async () => frame.url(),
+      isDone: isExpectedPdfFrameUrl,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `PDF preview iframe loaded ${last ?? "<no frame url>"} after ${elapsedMs}ms, expected ${url.href}`,
+        ),
+    });
 
     const response = await this.page.request.get(url.href);
     const contentType = response.headers()["content-type"] ?? "";
