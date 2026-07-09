@@ -797,8 +797,10 @@ body {
    the zoom-scaled inline `background-size`/`background-position` vars, so the
    dots pan and scale with the canvas. */
 .canvas-grid-bg {
-  /* The canvas floor picks up the ACTIVE host's hue (`--canvas-hue`, set from
-   * `hostHue(activeHost())` in TerminalCanvas) as a faint wash, so switching
+  /* The canvas floor picks up the ACTIVE host's hue (`--canvas-hue`, published
+   * on the App-level canvas wrapper in App.tsx — the `relative flex flex-1
+   * min-h-0` div, NOT TerminalCanvas, so it inherits into every canvas surface)
+   * as a faint wash, so switching
    * hosts gently re-colours the whole workspace — the "room" cue — while the
    * active tab's stronger hue still stands out above it. Falls back to the
    * neutral surface before a hue is set. */
