@@ -94,7 +94,7 @@ let
       ./packages/terminal-themes
       ./packages/theme
       ./packages/memorable-names
-      ./packages/terminal-workspace
+      ./packages/terminal-vocab
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
@@ -125,7 +125,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-O8I6sP5AVV0PdVF/tzt5LXVMpBO6mZn9erp6q3lie6A=";
+    hash = "sha256-IHsO6sVq4CPC1szdDbOrlLVeebF5jtAaDcxztKOAeb8=";
     fetcherVersion = 3;
   };
 
@@ -267,10 +267,9 @@ let
       (padiPkgRoot ./packages/terminal-protocol)
       (padiPkgRoot ./packages/surface-daemon)
       (padiPkgRoot ./packages/surface-daemon-supervisor)
-      # terminal-workspace — the sensors + fold + fs/git endpoint padi's closure
-      # reaches (its dead `surface` / `serveFsGit` / `socket` were buried with
-      # pulam at W2.3, so the whole src hashes clean now).
-      (padiPkgRoot ./packages/terminal-workspace)
+      # terminal-vocab — the browser-safe TerminalSnapshot vocabulary +
+      # agentProjection folds (L7 re-cut from the old terminal-workspace package).
+      (padiPkgRoot ./packages/terminal-vocab)
       # The domain leaves padi's closure reaches: serving, the agent/forge/git
       # integrations, transcripts, and the shared utilities. (`@kolu/surface` and
       # the npm deps are NOT here — surface is the framework "electricity" (a
