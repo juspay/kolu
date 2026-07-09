@@ -542,9 +542,13 @@ export function createSessionWatcher(
       if (destroyed) return;
       // Out-of-order drop: a fetch dispatched before one already applied
       // resolved late — its result (and its completion timestamp) is stale.
+      // Advance the fence for ANY newest-so-far completion, including a
+      // no-change one: otherwise a newer no-op resolution would leave the fence
+      // un-advanced and let an OLDER in-flight fetch resolve later, pass the
+      // `seq <=` gate, and apply a stale summary + late recency stamp.
       if (seq <= lastAppliedSummarySeq) return;
-      if (summary === lastSummary) return;
       lastAppliedSummarySeq = seq;
+      if (summary === lastSummary) return;
       lastSummary = summary;
       if (!lastInfo) return;
       plog.debug(
