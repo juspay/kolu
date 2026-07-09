@@ -25,9 +25,14 @@ export const dualDaemonSlotClass =
 export const IdentityMark: Component<{
   logoSrc: string;
   children: JSX.Element;
+  /** Extra class on the logo `<img>` — the host daemon marks pass
+   *  `host-daemon-logo` so the strip can mute them to quiet glyphs at rest
+   *  (colour lives in the status dot) and bloom them on the active host /
+   *  hover. The Kolu brand mark in `IdentityRail` passes nothing. */
+  imgClass?: string;
 }> = (props) => (
   <span class="relative grid h-5 w-5 shrink-0 place-items-center">
-    <img src={props.logoSrc} alt="" class="h-4 w-4" />
+    <img src={props.logoSrc} alt="" class={`h-4 w-4 ${props.imgClass ?? ""}`} />
     {props.children}
   </span>
 );

@@ -49,6 +49,25 @@ export const ChevronUpIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** House glyph — marks the LOCAL host (the machine kolu runs on) as a role,
+ *  not a hostname, so its chip doesn't read like a machine literally named
+ *  "local". */
+export const HomeIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M2.5 7L8 2.5L13.5 7" />
+    <path d="M4 6.5V13h8V6.5" />
+  </svg>
+);
+
 /** Official Claude AI logo — from claude.ai/favicon.svg. */
 export const ClaudeCodeIcon: Component<{ class?: string }> = (props) => (
   <svg

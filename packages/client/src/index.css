@@ -54,33 +54,96 @@ body {
 }
 
 .chrome-bar-surface {
+  /* Neutral, glassy rail. The header is NOT tinted by any host/PWA hue — colour
+   * lives on the tabs, so the active tab (its host's hue) stands out instead of
+   * blending into a same-hue band. A faint top sheen reads as glass; a whisper
+   * hairline at the bottom separates the rail from the canvas without a heavy
+   * border. */
   background: var(--color-surface-0);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white 6%, transparent),
+    0 1px 0 color-mix(in oklch, var(--color-edge) 16%, transparent);
 }
 
-.chrome-bar-surface[data-themed] {
-  background: color-mix(
-    in oklch,
-    var(--color-surface-0) 96%,
-    var(--chrome-theme-color)
-  );
-  border-bottom-color: color-mix(
-    in oklch,
-    var(--color-edge) 90%,
-    var(--chrome-theme-color)
-  );
+/* ── Host tabs — a quiet rail where the per-host hue is the identity ──────
+ * `--host-hue` is set inline per chip (`hostHue()` → `kolu-common/hostHue`),
+ * the SAME palette the PWA theme-color draws from. It tints ONLY the active
+ * tab (a soft belly that merges into the canvas — no hard outline box) and the
+ * dot's identity ring; the connection dot's STATUS tone (green/amber/red) is
+ * never touched, and the Padi/Kaval logos ride along as quiet glyphs so a host
+ * reads name-first. The transition makes a switch cross-fade, not snap. */
+.host-tab {
+  border-radius: 12px 12px 0 0;
+  transition:
+    background-color 160ms ease,
+    box-shadow 220ms ease,
+    color 160ms ease;
 }
-
-html:not(.dark) .chrome-bar-surface[data-themed] {
-  background: color-mix(
-    in oklch,
-    var(--color-surface-0) 98%,
-    var(--chrome-theme-color)
-  );
-  border-bottom-color: color-mix(
-    in oklch,
-    var(--color-edge) 94%,
-    var(--chrome-theme-color)
-  );
+/* Resting tab: no box, quiet text; a faint hue wash blooms on hover. */
+.host-tab-idle {
+  color: var(--color-fg-2);
+}
+.host-tab-idle:hover {
+  color: var(--color-fg);
+  background: color-mix(in oklch, var(--host-hue) 9%, transparent);
+}
+/* Active tab: a soft hue-tinted belly that LIFTS — a hue glow rises off its
+ * TOP edge and a top highlight catches the light, so the tab reads as raised
+ * out of the rail. No bottom underline and no outline box: its bottom edge sits
+ * flush with the canvas, seamless. */
+.host-tab-active {
+  color: var(--color-fg);
+  background: color-mix(in oklch, var(--host-hue) 13%, var(--color-surface-0));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
+    0 -7px 18px -12px var(--host-hue);
+}
+/* The identity hue ring around each connection dot (status fills the dot). */
+.host-hue-ring {
+  box-shadow: 0 0 0 2.5px color-mix(in oklch, var(--host-hue) 24%, transparent);
+}
+/* Dark mode: a 13% hue mixed into the near-black surface collapses to a muddy
+ * grey — every host tab then looks the same. Over the dark surface the hue
+ * needs far more presence to read AS a colour and to tell hosts apart, so the
+ * active fill, the hover wash, and the dot ring all get boosted. */
+:root.dark .host-tab-active {
+  background: color-mix(in oklch, var(--host-hue) 32%, var(--color-surface-1));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white 10%, transparent),
+    0 -8px 20px -12px color-mix(in oklch, var(--host-hue) 80%, transparent);
+}
+:root.dark .host-tab-idle:hover {
+  background: color-mix(in oklch, var(--host-hue) 18%, transparent);
+}
+:root.dark .host-hue-ring {
+  box-shadow: 0 0 0 2.5px color-mix(in oklch, var(--host-hue) 55%, transparent);
+}
+/* Daemon logos are quiet grey glyphs at rest — colour lives in their status
+ * dots — and bloom to full colour on the active host or on hover, so the pair
+ * declutters the row without dropping any Padi/Kaval signal. */
+.host-daemon-logo {
+  filter: saturate(0);
+  opacity: 0.45;
+  transition:
+    filter 160ms ease,
+    opacity 160ms ease;
+}
+.host-tab-active .host-daemon-logo {
+  filter: none;
+  opacity: 0.95;
+}
+.host-strip button:hover .host-daemon-logo {
+  filter: none;
+  opacity: 1;
+}
+/* Every interactive control in the host rail + its switcher popover shows the
+ * hand cursor. Browsers don't give `<button>` a pointer by default, and the
+ * rail mixes many (tab select, daemon marks, remove, add, overflow, dropdown,
+ * switcher rows) — one scoped rule keeps them all consistent instead of a
+ * per-button utility that's easy to forget on the next control. */
+.host-strip button:not(:disabled),
+.host-switcher-panel button:not(:disabled) {
+  cursor: pointer;
 }
 
 /* ── Pill border channels ────────────────────────────────────
@@ -728,19 +791,33 @@ html:not(.dark) .chrome-bar-surface[data-themed] {
 }
 
 /* ── Canvas grid background ─────────────────────────────────── */
-/* Fine line grid gives spatial grounding to the freeform canvas.
-   Lines use the edge color at low opacity so they adapt to light/dark themes. */
+/* Fine dot grid grounds the freeform canvas in space without drawing a busy
+   lattice over the tiles — one soft dot per cell. The dot uses the edge color
+   at low opacity so it adapts to light/dark themes; the size and position ride
+   the zoom-scaled inline `background-size`/`background-position` vars, so the
+   dots pan and scale with the canvas. */
 .canvas-grid-bg {
-  background-image:
-    linear-gradient(
-      to right,
-      color-mix(in oklch, var(--color-edge) 40%, transparent) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(in oklch, var(--color-edge) 40%, transparent) 1px,
-      transparent 1px
-    );
+  /* The canvas floor picks up the ACTIVE host's hue (`--canvas-hue`, set from
+   * `hostHue(activeHost())` in TerminalCanvas) as a faint wash, so switching
+   * hosts gently re-colours the whole workspace — the "room" cue — while the
+   * active tab's stronger hue still stands out above it. Falls back to the
+   * neutral surface before a hue is set. */
+  background-color: color-mix(
+    in oklch,
+    var(--canvas-hue, var(--color-surface-0)) 5%,
+    var(--color-surface-0)
+  );
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--color-edge) 55%, transparent) 1.1px,
+    transparent 1.6px
+  );
   background-size: 24px 24px;
+}
+:root.dark .canvas-grid-bg {
+  background-color: color-mix(
+    in oklch,
+    var(--canvas-hue, var(--color-surface-0)) 9%,
+    var(--color-surface-0)
+  );
 }

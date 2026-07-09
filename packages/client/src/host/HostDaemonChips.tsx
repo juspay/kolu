@@ -163,7 +163,7 @@ function formatProcessMemoryText(m: ProcessRss | undefined): string {
 const PadiMark: Component<{ padi: ReturnType<typeof useHostPadi> }> = (
   props,
 ) => (
-  <IdentityMark logoSrc={PADI_LOGO_URL}>
+  <IdentityMark logoSrc={PADI_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
       data-padi-link={props.padi.link() ?? "unknown"}
       class={padiDot(props.padi.link(), props.padi.live())}
@@ -185,7 +185,7 @@ const KavalMark: Component<{
    *  rides the tooltip + dialog). Static switcher marks don't pass it. */
   stale?: boolean;
 }> = (props) => (
-  <IdentityMark logoSrc={KAVAL_LOGO_URL}>
+  <IdentityMark logoSrc={KAVAL_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
       data-daemon-state={
         props.kaval.live()

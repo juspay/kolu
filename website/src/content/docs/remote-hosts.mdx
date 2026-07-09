@@ -1,6 +1,6 @@
 ---
 title: Remote Hosts
-description: "Run terminals on other machines as first-class canvas tiles — enable multi-host with KOLU_PADI_HOST, add hosts, switch between them live, and the ssh-session limitations (including gh's 'The token in default is invalid')."
+description: "Run terminals on other machines as first-class canvas tiles — add hosts from the strip (or pre-seed with KOLU_PADI_HOST), switch between them live, and the ssh-session limitations (including gh's 'The token in default is invalid')."
 order: 52
 section: Use Kolu
 koluHero:
@@ -17,9 +17,10 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
 <Aside type="caution" title="alpha">
-  Remote hosts are an early preview, gated behind an environment variable (below).
-  The behaviour and the flags **will change** before this is finalized. The
-  [Known limitations](#known-limitations) at the end are honest, not exhaustive.
+  Remote hosts are an early preview — you can add one anytime from the **+** in
+  the host strip (which shows this same notice and links here). The behaviour and
+  the flags **will change** before this is finalized. The [Known
+  limitations](#known-limitations) at the end are honest, not exhaustive.
 </Aside>
 
 kolu can put terminals from **other machines** right on your canvas. A remote
@@ -56,25 +57,13 @@ from another device.
   </Card>
 </CardGrid>
 
-## Enable multi-host
-
-Multi-host is off by default: with nothing set, kolu shows exactly your local
-host, pixel-identical to single-host kolu. Turn it on by seeding
-`KOLU_PADI_HOST` with a comma-separated list of ssh targets:
-
-```sh
-KOLU_PADI_HOST=localhost,you@box kolu
-```
-
-That seeds the pool — your local host (always present, always first) plus each
-remote — and a **host strip** appears in the top bar. Until the pool holds more
-than the local default, the guest chips and the **+ add** affordance stay hidden,
-so single-host kolu looks unchanged.
-
 ## Add a host
 
-The trailing **+ add** on the host strip opens an inline input; what you type is
-added to the pool as a chip. Two formats work:
+The trailing **+ add** on the host strip is **always present** — you don't have
+to set anything to reach it. Clicking it opens a short popover: a reminder that
+remote hosts is alpha (linking back here) and an ssh-target box. What you type is
+added to the pool as a chip, and the canvas jumps to it. Your local host is
+always the first, unremovable chip. Two formats work:
 
 - an `~/.ssh/config` alias — `zest`
 - a `user@host` destination — `srid@zest`
@@ -83,6 +72,20 @@ Typing a **bare loopback** spelling — `localhost`, `127.0.0.1`, or `::1` — m
 your existing local host instead of minting a duplicate chip. (`user@localhost` is
 *not* deduped: ssh-ing to the loopback as a different user is a genuinely different
 session, so it's treated as a real remote.)
+
+### Pre-seed hosts at launch (optional)
+
+If you'd rather have some hosts already present when kolu starts — instead of
+adding them from the strip each time — seed `KOLU_PADI_HOST` with a
+comma-separated list of ssh targets:
+
+```sh
+KOLU_PADI_HOST=localhost,you@box kolu
+```
+
+That puts your local host (always first) plus each remote in the pool at boot.
+With nothing set and nothing added, kolu shows exactly your local host,
+pixel-identical to single-host kolu.
 
 ## First connect — provisioning over ssh
 

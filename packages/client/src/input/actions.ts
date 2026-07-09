@@ -38,6 +38,10 @@ export interface ActionContext {
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   openNewTerminalMenu: () => void;
   openWorkspaceSwitcher: () => void;
+  /** Move the active host one step through the pool order (`Cmd+Alt+N`),
+   *  wrapping. A no-op with fewer than two hosts. The single keyboard writer
+   *  for host activation — mirrors the terminal positional/cycle writers. */
+  cycleHost: (direction: 1 | -1) => void;
   /** Flip the command palette (`Cmd+K`). A stable verb, not the raw signal
    *  setter — the palette controller owns the open-state. */
   togglePalette: () => void;
@@ -203,6 +207,15 @@ const _ACTIONS = {
     label: "Workspace switcher",
     keybind: { key: "K", code: "KeyK", mod: true, shift: true },
     handler: (ctx) => ctx.openWorkspaceSwitcher(),
+  },
+  switchHostNext: {
+    label: "Switch to next host",
+    // `Ctrl+Cmd+N` on macOS (Ctrl+N elsewhere, where `mod` IS Ctrl). Matched by
+    // `code` so it's layout-proof. A distinctive chord that dodges the Mac
+    // Option-dead-key (⌥N → ñ), the terminal number-row, and the Ctrl+Tab
+    // terminal cycle.
+    keybind: { key: "n", code: "KeyN", mod: true, ctrl: true },
+    handler: (ctx) => ctx.cycleHost(1),
   },
   shortcutsHelp: {
     label: "Shortcuts help",
