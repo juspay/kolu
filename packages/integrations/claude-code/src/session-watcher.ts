@@ -143,10 +143,12 @@ export function createSessionWatcher(
   // takes the next `summaryFetchSeq`; a resolved fetch applies only if its seq
   // is still the newest applied. `getSessionInfo` has no ordering guarantee, so
   // two in-flight fetches can resolve out of order — without this fence an OLDER
-  // fetch could resolve last and (a) publish a STALE summary over a newer one and
-  // (b) stamp recency at its late completion time. The fence keeps `lastSummary`
-  // monotonic in dispatch order and, since the fold reads recency off this emit,
-  // bounds a summary-driven recency stamp to the newest fetch's completion.
+  // fetch could resolve last and publish a STALE summary over a newer one. The
+  // fence keeps `lastSummary` monotonic in dispatch order, and so also drops the
+  // spurious emit a stale late completion would otherwise fire. (Recency itself is
+  // guarded deeper: the fold stamps with kolu's OWN intake clock, throttled — it
+  // never imports a fetch's completion time — so this fence is about summary
+  // CONTENT, not the recency clock.)
   let summaryFetchSeq = 0;
   let lastAppliedSummarySeq = 0;
   // Conversation start = the transcript's first `timestamp`, immutable once the

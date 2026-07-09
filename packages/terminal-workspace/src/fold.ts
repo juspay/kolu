@@ -222,8 +222,12 @@ export function fold(
     return snapshot === cur.snapshot ? cur : { ...cur, snapshot };
   }
   // An authoritative agent `{ value }` (incl. a shell-idle null = session ended).
-  // RECENCY, two arms that COMPOSE, kolu's clock stamps both:
+  // RECENCY, two arms that COMPOSE, kolu's clock stamps both — one stamp shape:
   const next: TerminalState = { ...cur, snapshot };
+  const stamped = (): TerminalState => ({
+    ...next,
+    memory: { ...next.memory, lastActivityAt: ctx.at },
+  });
   //  - IDENTITY-change arm (#1626, unthrottled): NEW activity (`ctx.live`) whose
   //    identity differs from what the fold last held — a session starts / finishes /
   //    a new one appears. A re-observation of the survivor kolu already knew is
@@ -236,7 +240,7 @@ export function fold(
   //    BOTH is this file's producer-fence thesis applied to itself — a self-contained
   //    contract for any present-or-future caller, not a redundant AND to simplify away.
   if (ctx.live && agentIdentityChanged(cur.snapshot.agent, o.agent.value))
-    return { ...next, memory: { ...next.memory, lastActivityAt: ctx.at } };
+    return stamped();
   //  - THROTTLED-output arm (the freeze fix): a same-identity DETAIL tick is the
   //    agent producing OUTPUT. Stamp it too, but only once per RECENCY_THROTTLE_MS so
   //    the ~1s firehose doesn't recreate the per-tick write noise #1626 removed. The
@@ -247,7 +251,5 @@ export function fold(
   //    long-running session still throttles against its own last stamp.
   const prior = cur.memory.lastActivityAt ?? 0;
   const since = Math.max(prior, ctx.runStartedAt);
-  return ctx.at - since >= RECENCY_THROTTLE_MS
-    ? { ...next, memory: { ...next.memory, lastActivityAt: ctx.at } }
-    : next;
+  return ctx.at - since >= RECENCY_THROTTLE_MS ? stamped() : next;
 }
