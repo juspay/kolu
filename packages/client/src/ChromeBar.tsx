@@ -144,8 +144,12 @@ const ChromeBar: Component<{
       </div>
 
       {/* Control cluster: recorder → maximize → dock → inspector → settings
-       *  → ⌘K. Buttons share the chrome icon hover/focus language. */}
-      <div class="flex h-8 items-center gap-2 shrink-0">
+       *  → ⌘K. Buttons share the chrome icon hover/focus language.
+       *  `-translate-y-px`: same 1px lift as the Kolu rail — the host tabs
+       *  sit 1px above the header's centre (their strip's `border-b` raises
+       *  the `items-end` tabs), so the whole header reads on ONE row: Kolu ·
+       *  tabs · controls. */}
+      <div class="flex h-8 items-center gap-2 shrink-0 -translate-y-px">
         <RecordButton />
         <Tip label={maximizeLabel()}>
           <button

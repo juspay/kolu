@@ -185,19 +185,22 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
         // Every tab carries the SAME 1px border box (folder-tab outline) so
         // active and inactive share one geometry — content centers line up to
         // the pixel, no 1px hop on selection.
-        class="relative flex h-8 items-center rounded-t-md border transition-colors focus-within:ring-2 focus-within:ring-accent/50 focus-within:ring-inset"
+        class="relative flex h-8 items-center rounded-t-md border transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
         classList={{
-          // Selected tab: the brightest fill (`surface-0`) + a soft lift, and
-          // its bottom border goes transparent so — pulled 1px down by the
-          // wrapper's `-mb-px` — it merges through the strip baseline as the
-          // raised, OPEN tab. Selection reads from shape + fill + lift (the
-          // quiet Safari/Chrome cue), not a loud colored rail.
-          "border-edge border-b-transparent bg-surface-0 text-fg shadow-sm":
+          // Selected tab: a soft `accent` outline + faint accent-tinted fill
+          // (kolu's active-state language, `bg-accent/N`) so selection reads
+          // in BOTH modes — a neutral `surface-0` fill is invisible against
+          // the surface-0-based (theme-tinted) header, which made the dark
+          // tab bar unreadable. Bottom border transparent so — pulled by the
+          // wrapper's `-mb-px` — it merges through the baseline as the OPEN
+          // tab. Soft, not a loud rail; the click focus-ring is gated to
+          // keyboard (`has-[:focus-visible]`), never mouse.
+          "border-accent/55 border-b-transparent bg-accent/12 text-fg shadow-sm":
             isActive(),
-          // Inactive tabs are CLOSED folder tabs — a full soft outline + a
-          // faint recessed fill so they read as tabs at rest, brightening on
-          // hover. Never invisible text floating on the header.
-          "border-edge/50 bg-surface-1/50 text-fg-2 hover:border-edge hover:bg-surface-2 hover:text-fg":
+          // Inactive tabs are CLOSED folder tabs — a visible neutral outline +
+          // a recessed fill that lightens the dark header enough to read as a
+          // tab at rest, brightening on hover. Never invisible text.
+          "border-edge/70 bg-surface-2/40 text-fg-2 hover:border-edge hover:bg-surface-2 hover:text-fg":
             !isActive(),
         }}
       >
@@ -480,7 +483,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
       <div
         role="tablist"
         aria-label="Hosts"
-        class="-mb-px flex h-8 items-center rounded-t-md border border-edge border-b-transparent bg-surface-0 text-fg shadow-sm focus-within:ring-2 focus-within:ring-accent/50 shrink-0"
+        class="-mb-px flex h-8 items-center rounded-t-md border border-accent/55 border-b-transparent bg-accent/12 text-fg shadow-sm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 shrink-0"
         data-testid="host-dropdown-switcher"
       >
         <button
