@@ -1,0 +1,60 @@
+---
+title: Glossary
+description: "Plain-language definitions of every surface term — the primitives, the wiring, daemons, multi-host, and the real consumers — each linked to where it's taught."
+order: 250
+section: Surface
+---
+
+The surface docs use a handful of coined words. Here is each one in plain
+language, with a link to the page that explains it properly. If a term on
+another page is unfamiliar, this is the place to look it up.
+
+## The surface and its members
+
+- **Surface** — a typed, reactive slice of live state you declare *once* (with `defineSurface`). From that one declaration the framework derives the wire contract, the server, and the client. → [Why surfaces](/surface/why-surfaces)
+- **Cell** — one value that changes over time (a load average, a status). The server sends a full snapshot, then updates. → [Reference](/surface/ref-surface)
+- **Collection** — many values, each under a key (one row per process), each independently watchable. → [Reference](/surface/ref-surface)
+- **Stream** — a read-only view the server computes from an input (the live tail of a log). → [Reference](/surface/ref-surface)
+- **Event** — something that *happened*, not a value: a handler fires per occurrence, and there is no "current value." → [Reference](/surface/ref-surface)
+- **Procedure** — a plain call you make to *do* something (kill a process) — the imperative escape hatch. → [Reference](/surface/ref-surface)
+- **Contract** — the typed description of a surface that both the server and client compile against. Changing it is changing the wire. → [Why surfaces](/surface/why-surfaces)
+- **Snapshot-then-deltas** — every cell, collection, and stream opens with a full snapshot and then sends only changes, so a reconnect always re-seeds from truth. → [Reactive honesty](/surface/reactive-honesty)
+
+## Wiring it up
+
+- **Link** — how a client reaches a served surface over one transport; every link yields the *same* typed client. `directLink` (in-process), `websocketLink` (browser ⇄ server), `unixSocketLink` (local daemon), `stdioLink` (subprocess / ssh). → [Choose a link](/surface/choose-a-link)
+- **Watchdog / liveness** — a small heartbeat that tells a live connection from a silently dead one (a socket can read "open" while no bytes flow). On by construction. → [@kolu/surface-app](/surface/ref-surface-app)
+- **Health — a fact, not a verdict** — `client.health()` reports what is *true* (the transport is up, and each subscription's state); the app decides what to *show*. → [Reactive honesty](/surface/reactive-honesty)
+- **Reactive honesty** — the discipline that a live view never silently lies: it opens with a snapshot, fails loud on a broken stream, and is consumed fine-grained. → [Reactive honesty](/surface/reactive-honesty)
+
+## Long-lived processes (daemons)
+
+- **Daemon** — a long-lived local process that serves a surface over a socket and outlives the clients that connect to it. → [The daemon spine](/surface/the-daemon-spine)
+- **Pid gate / single-instance** — an atomic claim so only one daemon serves a given scope; a second instance steps aside. → [@kolu/surface-daemon](/surface/ref-surface-daemon)
+- **The daemon spine** — the part of a daemon that *never changes shape*, so a supervisor can always ask "who are you?" — even across a version mismatch. → [The daemon spine](/surface/the-daemon-spine)
+- **Frozen control core** — that unchanging identity channel, read *before* the versioned handshake so a skew can't hide it. → [The daemon spine](/surface/the-daemon-spine)
+- **Supervisor** — the client-side half that spawns, watches, and recycles a daemon. → [@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor)
+- **Recycle / converge** — replacing a running daemon with a new build without dropping connected clients; `converge` probes, decides by policy, then enacts. → [Recycle and upgrade](/surface/recycle-and-upgrade)
+- **Baked identity (`staleKey` / `navigableCommit`)** — a build hash and a git commit baked in by Nix, so a daemon can say which build it is. → [Bake an identity](/surface/bake-an-identity)
+- **Contract version vs build id** — contract versions are *ordered* (newer / older); build ids are *match-only* (the same, or not). → [Daemon invariants](/surface/surface-daemon-invariants)
+
+## Many machines (multi-host)
+
+- **Mirror** — fronting a remote surface locally: the browser always talks to a *local copy*; only the pipe behind it swaps. → [The server half](/surface/the-server-half)
+- **Pump / re-serve** — folding a remote agent's frames into a local implementation (pump), then serving that copy onward (re-serve). → [Mirror over ssh](/surface/mirror-over-ssh)
+- **Session** — the reconnecting appliance that keeps an ssh link to one host alive (`makeSession` + `sshConnector`). → [@kolu/surface-remote](/surface/ref-surface-remote)
+- **Surface map** — the same surface, keyed by host, served as one; reach any host through `app.entry(host)`. → [The client half](/surface/the-client-half)
+- **`entries`** — the one authoritative list of who is in the fleet; absence from it means "not a member." → [The client half](/surface/the-client-half)
+- **entry / `useEntry`** — the lens onto one host's cells and collections. → [@kolu/surface-map](/surface/ref-surface-map)
+- **EntryStatus (`warming` / `failed`)** — a host's status. `warming` = in motion, self-heals (an unreachable box retrying); `failed` = needs you (a standing fault). → [Entry contracts](/surface/entry-contracts)
+- **KeyCodec** — how a host key is encoded and decoded on the wire when it is not a plain string. → [@kolu/surface-map](/surface/ref-surface-map)
+- **Fold envelope / void-input** — the `{ mapKey, input }` shape every map call carries; a no-input member omits the `input` field entirely. → [Entry contracts](/surface/entry-contracts)
+- **Clock seam** — reprojecting a host-stamped time into your local clock; it returns `null` (never a fake) when there is no offset yet. → [@kolu/surface-map](/surface/ref-surface-map)
+
+## The real consumers (used as examples throughout)
+
+- **[kolu](/)** — one browser ⇄ one Node server; the app these docs ship with.
+- **[kaval](/kaval)** — kolu's PTY daemon — the daemon exemplar (a daemon that is *not* multi-host).
+- **[drishti](https://github.com/srid/drishti)** — a browser fronting an ssh fleet — the multi-host exemplar (multi-host that is *not* a daemon).
+- **[odu](https://github.com/juspay/odu)** — a CI runner that projects a surface as MCP tools.
+- **[padi](/padi)** — kolu's workspace daemon (a drain-capable recycle).
