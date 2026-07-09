@@ -311,13 +311,13 @@ The W2.2 adopter (a deploy adopts a running pre-W2.2 port-keyed kaval; converges
 
 <a id="l8"></a>
 
-### L8 — doc-and-comment sweep for the buried world
+### L8 — doc-and-comment sweep for the deleted world
 
-*Status: READY (W2.3 shipped) · Lens: hygiene · Gate: none*
+*Status: READY (re-verified 2026-07-09: the `packages/pulam*` packages are fully DELETED from master, yet **33 non-test src files** still reference them in comments/prose — the sweep is riper than when filed) · Lens: hygiene · Gate: none*
 
-Comments and READMEs across the surface stack still cite pulam/pulam-web as their graduation examples, and pre-padi topology descriptions ("kolu-server spawns kaval", per-port sockets) linger in prose. Sweep: `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus the package READMEs; update each to the padi-era truth or delete. **Atlas notes are exempt** — they're historical record; this entry is *code-adjacent* prose only.
+Comments and READMEs across the stack still cite pulam/pulam-web as graduation examples or architectural context — references to packages that **no longer exist in the tree** (spread includes `client/src/wire.ts`, the dock model files, `padi/src/{surface,vocab,endpoint}.ts`, `surface-app`, the TUIs). Pre-padi topology phrasing may also linger (the 2026-07 spot-check of two files found none — treat it as a sweep target, not an asserted defect). Sweep: `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus the package READMEs; update each to the padi-era truth or delete. **Atlas notes are exempt** — they're historical record; this entry is *code-adjacent* prose only (so e.g. `pulam-web-mirror-health.mdx`, flagged during W6 for pre-reshape field names, is explicitly OUT of L8's scope).
 
-**Done when:** the grep returns only deliberate historical references (each with a comment saying so) — and the kolu/debate skills + rules docs already updated by W2.3 are verified consistent.
+**Done when:** the grep returns only deliberate historical references (each with a comment saying so) — and the kolu skill + the lens-/codex-debate skills + rules docs are verified consistent (the kolu skill re-verified clean 2026-07-09, 0 hits; the standalone `/debate` skill was removed from kolu entirely — `f8d98fb12` — and is out of scope).
 
 <a id="l10"></a>
 
