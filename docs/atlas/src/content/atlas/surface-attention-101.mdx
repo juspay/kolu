@@ -1,0 +1,134 @@
+---
+title: The surface framework's attention pieces, taught
+description: "A plain-words primer on the three framework improvements W5's ratified cross-host attention design introduces — the Mirrored hydration fact in @kolu/surface-remote, the membership kernel + pure stepEntryAttention fold + eager watchByEntry in @kolu/surface-map, and service-worker notification delivery in @kolu/surface-app — each taught from the defect that forced it, with kolu and drishti as the two consumers."
+parents: [pedagogy, padi]
+status: proposed
+maturity: seedling
+updated: 2026-07-10
+---
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import pieces from "../../diagrams/surface-attention-101-pieces.svg?raw";
+
+This is the third primer in the series. [The hosting side](surface-hosting-101.html) taught how **one** surface crosses a machine; [the client half](surface-map-101.html) taught **many** keyed surfaces over one socket. This note teaches the layer [padi W5](padi.html#w5) ratified on top: turning a per-host fact ("these terminals need you", "this host's CPU is in trouble") into **attention you can trust** — a chip count, an app badge, an OS notification — without the framework ever lying across a reconnect. It is **ratified design, not shipped code**: read it to judge the design, or to implement it.<Footnote>The ratification record — a 12-agent /architecture-first-principles + /perfection-review fan-out plus an independent /hickey pass — is summarized in [padi § W5](padi.html#w5). This note teaches the result; the phase entry holds the scope and done-criteria.</Footnote>
+
+<Svg svg={pieces} wide caption="Three packages, each gaining one generic piece; two apps composing them. Left: attention is level state, written once per host by the endpoint that can know it (padi's awaiting fold; drishti's server, which holds the metrics history). Middle: surface-remote makes the first frame honest, surface-map turns frames into raised-item facts through one property-tested fold, surface-app delivers at the origin's one service worker. Right: each app keeps its own aggregation and click semantics." />
+
+One framing idea carries the whole design: **attention is level state, not an event log**. Each host publishes *what needs you now* — a plain value, in an ordinary per-entry cell, written by the one endpoint that can actually know it (padi's awaiting fold; drishti's server, which holds the 30-minute metrics ring, so threshold and hysteresis live there). Everything event-shaped — "a *new* item was raised, fire a notification" — is **derived at the consumer** by comparing consecutive values. That derivation is exactly where the bugs live, and each of the three framework pieces below exists because a specific derivation bug was constructed against the naive design.
+
+## The first frame is a lie — `Mirrored<V>` (@kolu/surface-remote)
+
+Start with the defect, because it is invisible until you look: when a re-served cell comes up today, its **first frame is the declared spec default** — and that frame is byte-indistinguishable from a value the authority actually asserted. The mirror has to show *something* before the upstream fold arrives, so it shows the default; nothing marks it as provisional. And the thing that sounds like it should help — `markConnected` — fires on *any* cell's first fold, not **this** cell's, so "the session is connected" never meant "this value is real".
+
+Now run the concrete construction that refuted every naive consumer:<Footnote>This is the "default-materialization double-fire", one of four adversarial constructions that killed browser-side frame-diffing during ratification — the other three are in the next section.</Footnote> kolu-server restarts. A still-open page reconnects and reads the attention cell: `{ items: [] }` — the default, asserted by **no authority**. A naive differ says "I saw empty". Then hydration lands with the real value — the same two terminals that were awaiting you before the restart — and the differ sees "empty → two items": it **re-fires both notifications** for terminals that have needed you for an hour. The consumer didn't misbehave; the wire handed it a fabricated "empty" it had no way to distinguish from truth.
+
+The fix is to make the distinction a **type**, so honesty stops being a timing assumption:
+
+```ts
+// @kolu/surface-remote — the blocking prerequisite: today a re-served cell's FIRST frame
+// is the declared spec default, indistinguishable from the authority's truth (the root of
+// every refuted reconnect double-fire). Every mirrored cell gains an honest hydration fact:
+type Mirrored<V> =
+  | { hydrated: false; value: V }   // the declared default — no authority asserted it
+  | { hydrated: true;  value: V };  // folded from the authority
+```
+
+A consumer that cares (the attention fold below) simply refuses to treat an unhydrated frame as an edge source. A consumer that doesn't care reads `.value` and behaves exactly as today. Note the scope: this is **not an attention feature** — every cell consumer that ever compared two frames (or seeded state from a first read) gets the same honesty for free. It lands in `@kolu/surface-remote` because the lie is born where mirroring is born.
+
+## One kernel, two policies; one fold, property-tested (@kolu/surface-map)
+
+The map package gains three things, and it's worth keeping them separate because each answers a different "why".
+
+**The membership kernel — factored out, not duplicated.** [W7's `scopedByEntry`](surface-map-101.html) already solved per-key lifecycle: fold the `entries` collection, key identity through the codec, give each key a retained reactive root via `keyArray`, dispose when the key leaves the map. Attention needs the *same* lifecycle — but with the opposite laziness: `scopedByEntry` builds a key's world on first **activation** (background hosts you never visit cost nothing), while an attention watcher must be **eager** (a background host is precisely the one you need to hear from). Same kernel, two policies. So the kernel — *entries fold · codec identity · keyArray per-key roots · dispose-on-exit* — is factored out of `scopedByEntry`, and both the lazy scope and the new eager watcher call it. The membership lifecycle is derived **once**; nobody re-implements "when does a host's world exist".
+
+**The pure fold — because "fires exactly once" must be a property test, not prose.** The naive design puts edge detection in the browser: keep the last frame per host, diff on each new frame, notify on additions. Ratification refuted it **four independent ways**, and the four are the pedagogy:
+
+1. **Unordered streams.** Nothing guarantees per-entry frame order across a re-serve seam; a late frame re-orders the diff and invents an edge.
+2. **Default-materialization double-fire.** The previous section's construction — a fabricated `{ items: [] }` after a restart makes every standing item look newly raised.
+3. **Per-window memory.** "Last frame per host" lives per tab; two open tabs hold two memories and fire the same notification twice (and a fresh tab fires everything again).
+4. **Clear→re-raise inside a gap.** An item clears and re-raises entirely within a link flap; frame-diffing across the gap sees identical before/after values and **misses the re-raise** — the one edge you most needed.
+
+The conclusion is structural: edge detection must be a **pure, exported fold** over an *ordered, tagged* event stream — one place where the semantics live, testable without a browser, a wire, or a clock:
+
+```ts
+//  · the pure per-entry transition — THE shared semantics, property-tested once:
+type EntryEvent<A> =
+  | { kind: "join" } | { kind: "exit" }
+  | { kind: "liveness"; live: boolean }
+  | { kind: "frame"; hydrated: boolean; value: A };
+function stepEntryAttention<A>(
+  prev: EntryAttentionState<A>,
+  event: EntryEvent<A>,
+  items: (a: A) => readonly string[],   // stable item ids — the app's one obligation
+): { next: EntryAttentionState<A>; raised: readonly string[] };
+```
+
+Every refuted failure becomes a **property test** against this one function: feed it a join, an unhydrated frame, a hydrated frame after a reconnect, a liveness flap — assert `raised` fires exactly once. The app's sole obligation is the `items` extractor returning **stable ids** (a terminal id, `"cpu"`); stability is what makes "same item, not a new one" decidable at all.
+
+**The eager watcher — thin by design, and deliberately incomplete:**
+
+```ts
+//  · a thin eager watcher pumping ordered events into that fold:
+function watchByEntry<A>(client, cell, items, onRaise): {
+  get(key): { kind: "live" | "stale"; value: A } | undefined;  // chips read this
+};  // deliberately NO total(): aggregation is app policy (the two consumers disagree)
+```
+
+`watchByEntry` is the kernel's eager policy plus a pump: subscribe every entry's cell, order the events, feed the fold, surface `raised` through `onRaise`, and answer point reads with an honest `live | stale` (a host whose link is down keeps its last value, *marked*). The missing method is the teaching point: there is **no `total()`**, because the two real consumers disagree about what "total" means — kolu sums *items* across live hosts (12 terminals need you); drishti counts *hosts in trouble* (3 machines are alerting — summing their alert items would be noise). When the framework can't pick without taking a side, the framework hands facts and the app folds. Same rule as [map-101's moral](surface-map-101.html): keyed volatility in the framework, policy in the app.
+
+## Delivery at the origin's one service worker (@kolu/surface-app)
+
+The last hop — actually showing an OS notification from a PWA — is short but mined. Two landmines, both real-world:
+
+- **`getRegistration()`, not `.ready`.** `navigator.serviceWorker.ready` is a promise that resolves only when an active service worker exists — in any context where none registers (a dev server, a degraded boot), it **hangs forever**, and your notification path silently never runs. `getRegistration()` answers honestly, including "there isn't one", which you can handle.
+- **The service worker shows it, never `new Notification()`.** In an installed (standalone) PWA, the page-context constructor throws **`Illegal constructor`** — notifications must go through `registration.showNotification()`. Code that worked in a browser tab dies precisely when the user commits to the app.
+
+Both are why delivery is a framework piece at all: one `notify` seam at the origin's **one** service worker, instead of N windows each attempting their own delivery:
+
+```ts
+// @kolu/surface-app — delivery at the origin's ONE service worker (never per window):
+notify.show({ tag: `${host}/${itemId}`, title, data: { host, itemId } });  // same tag replaces, never stacks
+notify.onClick(({ host, itemId }) => { /* the app routes */ });
+```
+
+The **tag** is the second half of the double-fire kill: refutation 3 above (per-window memory) means two tabs *will* sometimes both decide to show — and a tag-keyed `show` makes that harmless, because the OS replaces the same-tag notification instead of stacking a duplicate. And the click payload comes back to `onClick` as plain data (`{ host, itemId }`) that **the app routes** — the framework does not know what clicking attention *means*.
+
+## The two consumers, worked
+
+kolu (padi W5 — the phase this design was ratified for):
+
+```ts
+// padi — the one writer: the awaiting fold publishes its value shape
+attention.set({ items: awaiting.map(t => ({ id: t.id, label: t.title })) });
+
+// client — chips, badge, notification:
+const att = watchByEntry(padiMap, e => e.cells.attention, v => v.items.map(i => i.id),
+  (host, raised, v) => raised.forEach(id =>
+    notify.show({ tag: `${host}/${id}`, title: labelOf(v, id), data: { host, id } })));
+// chip(host): att.get(host) — count, dimmed when stale
+// badge: Σ items over LIVE hosts — kolu's own one-line fold
+notify.onClick(({ host, id }) => { switchHost(host); focusTerminal(id); });
+```
+
+drishti (the paired consumer — its adoption is committed and lands paired):
+
+```ts
+// server — the one writer, owns the 30-minute ring: threshold + hysteresis
+if (crossed(cpuPct, 80)) alerts.publish({ items: [{ id: "cpu", label: `CPU ${cpuPct}%` }] });
+
+// client:
+const att = watchByEntry(hostMap, e => e.cells.alerts, v => v.items.map(i => i.id),
+  (host, raised, v) => raised.forEach(id =>
+    notify.show({ tag: `${host}/${id}`, title: labelOf(v, id), data: { host, id } })));
+// badge: count of hosts with any live alert — drishti's own fold, NOT a sum
+notify.onClick(({ host }) => expandHost(host));
+```
+
+Read the two against each other and the boundary shows itself: the **writer** differs (an awaiting fold vs a metrics threshold — two folds that merely *rhyme*, deliberately not unified), the **value shape** differs, the **aggregation** differs (a sum vs a count), the **click** differs (switch+focus vs expand). What's identical is everything in between — the kernel, the fold, the watcher, the tag-keyed delivery — which is exactly the slice the framework took.
+
+## What stays app-side, and why
+
+Deliberately outside the framework: the **domain folds and value shapes** (unifying two folds that merely rhyme would complect two domains into one type), **every aggregation** (the two consumers' honest disagreement is the proof it's policy), the **pixels** (chips, badges, cards), and the **click semantics**. The framework's whole contract is: honest frames in, raised ids and live/stale values out.
+
+One semantic is named as the open question, to be pinned by the step fold's property tests **before** implementation: a **clear→re-raise of the same item id entirely inside a connectivity gap**. Level state cannot see it by construction — the value before and after the gap are equal — so the tests must state what the fold does there, and if level-only proves insufficient in the field, the fallback is already scoped: an occurrence counter in the *app's* value shape (the framework's contract doesn't move).
