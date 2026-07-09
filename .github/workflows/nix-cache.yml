@@ -33,8 +33,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Pin by commit (CodeQL: unpinned third-party action). v35 → 9f63be7.
-      # Defaults to Nix 2.34.7 (`nix profile add`; v31 was still on 2.29.0 /
-      # `profile install` only, which broke ryanccn/attic-action).
+      # Defaults to Nix 2.34.7 (`nix profile add`).
       - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
           nix_conf: |
@@ -42,20 +41,15 @@ jobs:
             extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
             accept-flake-config = true
 
-      - name: Install attic
-        run: nix profile add nixpkgs#attic-client
-
-      - name: Login to Attic
-        env:
-          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
-        run: attic login ci https://cache.nixos.asia "$ATTIC_TOKEN"
+      # Installs attic, logs in, uses the cache as a substituter, and at job
+      # end pushes every store path this run produced. Needs a Nix new enough
+      # for `nix profile add` (hence v35 above — v31's 2.29 only had
+      # `profile install`, which is why #1731 dropped this action).
+      - uses: ryanccn/attic-action@5635a15ef0c5462194ffbd05d1daeddc74625c3a # v0.5.0
+        with:
+          endpoint: https://cache.nixos.asia
+          cache: oss
+          token: ${{ secrets.ATTIC_TOKEN }}
 
       - name: Build
-        id: build
-        run: |
-          out=$(nix build -L --print-out-paths --no-link)
-          echo "out=$out" >> "$GITHUB_OUTPUT"
-          echo "Built: $out"
-
-      - name: Push to Attic
-        run: attic push ci:oss "${{ steps.build.outputs.out }}"
+        run: nix build -L --print-out-paths
