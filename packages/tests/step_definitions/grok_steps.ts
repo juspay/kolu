@@ -16,7 +16,11 @@ import {
   updateGrokFixture,
   writeGrokFixture,
 } from "../support/agent-mock-grok.ts";
-import { waitForBufferContains } from "../support/buffer.ts";
+import {
+  ACTIVE_TERMINAL,
+  readBufferText,
+  waitForBufferContains,
+} from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
