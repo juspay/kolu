@@ -38,6 +38,7 @@
     "kaval": "workspace:*",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
+    "kolu-grok": "workspace:*",
     "kolu-common": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",

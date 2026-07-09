@@ -43,7 +43,7 @@ export async function exportTranscriptHtml(
   if (!agent) {
     throw new ORPCError("PRECONDITION_FAILED", {
       message:
-        "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
+        "No active agent session in this terminal — start Claude Code, OpenCode, Codex, or Grok first",
     });
   }
   const cwd = aw.cwd;
@@ -92,6 +92,15 @@ export async function exportTranscriptHtml(
         log,
       ),
     )
+    // Grok transcript loader ships in a follow-up — refuse honestly with a
+    // "not yet" message so the user isn't told their live session is missing
+    // (the generic NOT_FOUND below reads like data loss, not "unsupported").
+    .with({ kind: "grok" }, () => {
+      throw new ORPCError("NOT_SUPPORTED", {
+        message:
+          "Transcript export for Grok is not available yet — its loader ships in a follow-up",
+      });
+    })
     .exhaustive();
   if (!transcript) {
     throw new ORPCError("NOT_FOUND", {

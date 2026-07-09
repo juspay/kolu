@@ -167,9 +167,23 @@ describe("parseAgentCommand", () => {
       "goose",
       "gemini",
       "cursor-agent",
+      "grok",
     ]) {
       expect(parseAgentCommand(agent)).toBe(agent);
     }
+  });
+
+  it("preserves grok stable flags and strips positionals", () => {
+    // `-m` takes a value; trailing prompt words after the last flag are
+    // positionals and drop. (A bare boolean like `--always-approve` followed
+    // by a word attaches that word as a value — same allowlist rule as every
+    // other agent — so keep the prompt after a valued flag.)
+    expect(parseAgentCommand("grok -m grok-4.5 fix the bug")).toBe(
+      "grok -m grok-4.5",
+    );
+    expect(parseAgentCommand("grok --always-approve --model grok-4.5")).toBe(
+      "grok --always-approve --model grok-4.5",
+    );
   });
 
   // Regression: a stable flag's VALUE can contain shell-significant
@@ -296,6 +310,8 @@ describe("resumeAgentCommand", () => {
       "opencode --agent build --pure",
       "opencode --continue --agent build --pure",
     ],
+    ["grok", "grok -c"],
+    ["grok -m grok-4.5", "grok -c -m grok-4.5"],
   ])("resume form of %j → %j", (normalized, expected) => {
     expect(resumeAgentCommand(normalized)).toBe(expected);
   });
@@ -355,6 +371,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   const CLAUDE_ID = "edb66a3b-9f17-4c39-9050-3b77904c313a";
   const CODEX_ID = "7f9f9a2e-1b3c-4c7a-9b0e-1d2e3f4a5b6c";
   const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
+  const GROK_ID = "019f4782-7854-7592-8d87-3ba3a205a0a1";
 
   it.each([
     [
@@ -386,6 +403,12 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       "opencode --agent build --pure",
       { kind: "opencode", sessionId: OPENCODE_ID },
       `opencode --session ${OPENCODE_ID} --agent build --pure`,
+    ],
+    ["grok", { kind: "grok", sessionId: GROK_ID }, `grok --resume ${GROK_ID}`],
+    [
+      "grok -m grok-4.5",
+      { kind: "grok", sessionId: GROK_ID },
+      `grok --resume ${GROK_ID} -m grok-4.5`,
     ],
   ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
     expect(resumeAgentCommand(normalized, session)).toBe(expected);
@@ -599,10 +622,11 @@ describe("agentKindFromCommand", () => {
     );
   });
 
-  it("maps codex and opencode basenames to matching kinds", () => {
+  it("maps codex, opencode, and grok basenames to matching kinds", () => {
     expect(agentKindFromCommand("codex")).toBe("codex");
     expect(agentKindFromCommand("codex --yolo --model gpt-5.5")).toBe("codex");
     expect(agentKindFromCommand("opencode --continue")).toBe("opencode");
+    expect(agentKindFromCommand("grok -m grok-4.5")).toBe("grok");
   });
 
   it("strips a path prefix on the agent binary", () => {

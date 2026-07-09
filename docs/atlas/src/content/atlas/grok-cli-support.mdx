@@ -1,0 +1,280 @@
+---
+title: Grok CLI as a fourth agent
+description: Plan for first-class Grok Build (binary `grok`) support — a sibling AgentAdapter that detects sessions under ~/.grok, surfaces state on the dock/tile, and joins claude · codex · opencode in the closed agent union.
+parents: [feature]
+status: implemented
+maturity: budding
+updated: 2026-07-09
+---
+
+import Callout from "../../components/Callout.astro";
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
+import diagram from "../../diagrams/grok-cli-support.svg?raw";
+
+xAI ships **[Grok Build](https://x.ai/news/grok-build-cli)** — a terminal coding agent
+whose binary is `grok`. Kolu already treats any shell program as a terminal; what
+it *doesn't* do yet is treat Grok as one of the three **icon-capable** agents
+(`claude-code` · `codex` · `opencode`): no tile chrome, no dock pip state, no
+worktree-leaf resume, no palette kind bridge. This note is the plan to add it as
+a fourth full adapter, not a detection-only basename.<Footnote>Detection-only agents (`aider`, `goose`, `gemini`, `cursor-agent`) only enter `STABLE_FLAGS` so the command palette remembers them. They never join `AgentKindSchema` or get a state indicator. Grok is in the full-adapter set because users run it as a primary coding agent the same way they run Claude / Codex / OpenCode — the bar is parity with that trio, not with the MRU-only list.</Footnote>
+
+<Callout kind="accent" title="What ships">
+Run `grok` in any kolu terminal → tile chrome shows a Grok icon and live state
+(thinking / tools / waiting / awaiting you), the dock ranks it like the other
+agents, sleep/restore resumes with `grok -c` or `grok --resume &lt;uuid&gt;`, and
+the worktree agent picker can re-launch the normalized command. Implemented in
+<PrLink pr={1732} />.
+</Callout>
+
+## Shape
+
+Same cut as every existing agent: a **sibling package** under
+`packages/integrations/`, implementing `anyagent`'s `AgentAdapter`, owning its
+own `*InfoSchema`, and joining the closed union one layer up. No new electricity
+— session files on disk are a bounded algorithm (leaf), not a transport/reconnect
+receptacle.
+
+<Svg
+  svg={diagram}
+  wide
+  caption="kolu-grok is a sibling of kolu-codex / kolu-opencode / kolu-claude-code. It reads ~/.grok, implements AgentAdapter, and is registered with one extra startAgent line. The anyagent contract and the closed AgentInfo union are the only shared seams that grow."
+/>
+
+| Layer | What changes |
+| --- | --- |
+| **`kolu-grok`** (new) | Adapter + session resolve + events tail + schemas |
+| **`anyagent`** | `STABLE_FLAGS["grok"]`, `BASENAME_TO_KIND`, `AGENT_RESUME`, `AgentKindSchema` |
+| **`@kolu/terminal-workspace`** | `AgentInfoSchema` arm + `startAgent(grokAdapter)` in sensors |
+| **client** | `GrokIcon`, `agentIcons` / `agentNames` entries |
+| **e2e** | `grok.feature` + fixture writer (mirrors codex/opencode) |
+
+## On-disk facts (verified)
+
+Grounded in a live `~/.grok` install (Grok Build beta, binary
+`/home/…/.local/bin/grok` → `~/.grok/bin/grok`). The marketing name is "Grok
+Build"; the process basename and CLI entrypoint are **`grok`**.
+
+```
+~/.grok/
+  active_sessions.json          # [{ session_id, pid, cwd, opened_at }, …]
+  sessions/<urlencode(cwd)>/
+    <uuid>/
+      events.jsonl              # phase_changed · tool_* · turn_started/ended
+      summary.json              # model, title, created_at, cwd
+      chat_history.jsonl        # full transcript (export later)
+      updates.jsonl             # ACP-style session/update stream
+      …
+```
+
+- **Session id** is a UUID (observed as uuid-shaped; often uuidv7-like). Resume:
+  `-c` / `--continue` (most recent in cwd), `-r` / `--resume [<SESSION_ID>]`
+  (exact).
+- **Cwd encoding** is full URL-encoding of the absolute path
+  (`/home/…` → `%2Fhome%2F…`) — same idea as Claude's project-dir encoding,
+  different alphabet.
+- **Live process map** is `active_sessions.json` (pid + cwd + session_id). This
+  is the preferred match signal — analogous to Claude's
+  `~/.claude/sessions/<pid>.json`.
+- **State stream** is `events.jsonl`. Observed `phase_changed.phase` values:
+  `waiting_for_model`, `streaming_reasoning`, `streaming_text`,
+  `tool_execution`, `permission_prompt`. Turn lifecycle:
+  `turn_started` / `turn_ended` (`outcome: completed | cancelled`).
+- **Metadata** lives in `summary.json`: `current_model_id`,
+  `generated_title` / `session_summary`, `created_at`, `info.id`, `info.cwd`.
+
+There is **no SQLite session DB** for the TUI path (unlike Codex / OpenCode).
+Watchers are plain `fs.watch` / refcounted dir watchers on JSON files — same
+family as Claude's transcript tail, not the WAL path.
+
+## State fold
+
+Map the last meaningful event after the latest `turn_started` (or
+`turn_ended` if no open turn) onto the shared agent-state vocabulary. Do **not**
+invent a fifth paint class — reuse the closed set the Dock already folds.
+
+| Grok signal | `AgentInfo.state` |
+| --- | --- |
+| open `ask_user_question` (`tool_started` without `tool_completed`) | `awaiting_user` (wins over a trailing `tool_execution` phase) |
+| open turn + `permission_prompt` (and no later phase) | `awaiting_user` |
+| open turn + `tool_execution` (no open ask-user tool) | `tool_use` |
+| open turn + `waiting_for_model` / `streaming_reasoning` / `streaming_text` | `thinking` |
+| `turn_ended` with no subsequent `turn_started` | `waiting` |
+| matched session, no events yet | `thinking` (bootstrapping) |
+
+`running_background` is **out of scope** for v1 (Claude-only today — dynamic
+workflow journal). Grok's parallel subagents do not yet expose an equivalent
+on-disk journal kolu can observe without screen-scrape guesswork.
+
+**Honest nulls on first ship:**
+
+- `contextTokens: null` — no stable context-window counter found in
+  `summary.json` / `events.jsonl` (unlike Codex's `token_count` / OpenCode's
+  `tokens.total`). Do not invent a percentage from `num_messages`.
+- `taskProgress: null` — plan entries appear in `updates.jsonl`
+  (`sessionUpdate: "plan"`) but are optional and shape-unstable; leave for a
+  follow-up once the plan event is pinned.
+
+**Filled fields:**
+
+- `sessionId` ← `summary.info.id` / `active_sessions.session_id`
+- `model` ← `summary.current_model_id`
+- `summary` ← `generated_title` ?? `session_summary`
+- `startedAt` ← parse `created_at` to epoch-ms
+
+## Session match
+
+Prefer the **pid map**, fall back to **cwd**:
+
+1. If `matchesAgent(state, "grok")` is false → `null`.
+2. Read `active_sessions.json`. If an entry's `pid` equals
+   `state.foregroundPid` → that `session_id` (+ cwd-encoded path for the
+   events file).
+3. Else look under `sessions/<urlencode(state.cwd)>/` for the most recently
+   `updated_at` (or mtime) session directory that still has a `summary.json`.
+4. No row / no dir → `null` (watcher not created).
+
+`externalChanges.isPresent` is true when `matchesAgent(…, "grok")` **or**
+`~/.grok` exists — same lazy-install pattern as Codex
+(<Cite file="packages/integrations/codex/src/agent-adapter.ts" lines="42-48" />).
+`install` watches `active_sessions.json` (and optionally the sessions root)
+with the existing refcounted dir-watcher helper so a brand-new machine that
+never ran Grok pays zero watcher cost.
+
+## Resume + CLI allowlist
+
+Extend `anyagent` in the three places a resume-capable agent always touches
+(<Cite file="packages/integrations/anyagent/src/agent-cli.ts" lines="52-179" />):
+
+```ts
+// STABLE_FLAGS
+["grok", new Set([
+  "--model", "-m",
+  "--always-approve",
+  "--permission-mode",
+  "--agent",
+  "--no-plan",
+  "--no-subagents",
+  "--reasoning-effort", "--effort",
+])],
+
+// BASENAME_TO_KIND / AgentKindSchema
+grok: "grok",
+
+// AGENT_RESUME
+grok: {
+  last: "-c",
+  byId: (id) => `--resume ${id}`,
+  idPattern: UUID_RE, // same shell-safe UUID gate as claude/codex
+},
+```
+
+`-p` / `--single` (headless one-shot) is an **exit-immediately** style
+invocation for our purposes only when the process ends — do **not** special-case
+it in `parseAgentCommand`; if someone runs it interactively it still
+normalizes. Prompt positionals are already stripped by the existing
+positional-drop rule.
+
+## Client surface
+
+Minimal, exhaustive:
+
+- `GrokIcon` in `packages/client/src/ui/Icons.tsx` (simple monochrome mark that
+  reads at 12–16px — no wordmark).
+- `agentIcons` / `agentNames` grow a `"grok"` arm in
+  <Cite file="packages/client/src/ui/agentDisplay.ts" lines="9-22" />.
+- `agentShortName` already returns `kind` as-is for non-`claude-code`
+  (<Cite file="packages/terminal-workspace/src/agentProjection.ts" lines="57-60" />)
+  — no change.
+- Dock / fleet paint folds over `AgentInfo["state"]` only — a new **kind** does
+  not touch `agentProjection` state switches. Exhaustive `match` sites over
+  `agent.kind` (transcript export, any icon tables) gain one arm; TypeScript
+  flags them.
+
+## Transcript export (same PR if cheap, else follow-up)
+
+`padi/src/transcript.ts` already `match`es on `agent.kind` for HTML export. A
+loader that maps `chat_history.jsonl` → `Transcript` is desirable but **not**
+blocking for the chrome/dock story. Default: ship the adapter without export in
+PR1; add `loadGrokTranscript` when the JSONL schema is pinned by the fixture
+tests. The error string that lists agent names updates either way.
+
+## Tests
+
+Mirror the codex/opencode pattern — **fixture writer, not a live Grok binary**
+in CI:
+
+1. **Unit** (`packages/integrations/grok/`): encode-cwd, resolve from a
+   synthetic `active_sessions.json` + session tree, state fold over a
+   scripted `events.jsonl` (thinking → tool_use → waiting; permission →
+   awaiting_user), `agentInfoEqual` stability.
+2. **anyagent unit**: `parseAgentCommand("grok -m grok-4.5 …")`,
+   `resumeAgentCommand` for `-c` and `--resume <uuid>`, refuse malformed id.
+3. **e2e** `grok.feature`: fake agent process named `grok` + write fixture
+   under a temp `HOME`/`KOLU_GROK_DIR` override if the adapter honors an env for
+   tests (preferred) **or** points at a tmpdir via the same test seam codex
+   uses. Assert tile chrome `kind=grok` and state transitions after
+   fixture rewrites.
+
+Pin `KOLU_GROK_DIR` (or reuse `HOME` with only `~/.grok` populated) so tests never
+scan the developer's real sessions — same isolation rule Claude tests already
+follow for `~/.claude`.
+
+## One PR, done criterion
+
+A single conventional-commit PR (`feat: detect Grok CLI sessions`) that:
+
+1. Adds `packages/integrations/grok` (`kolu-grok`) with `grokAdapter`.
+2. Extends `AgentKindSchema` + resume/allowlist tables.
+3. Registers the adapter in `startSensors`.
+4. Adds client icon + display tables.
+5. Passes unit + a `grok.feature` e2e path that proves **the adapter path**
+   (fixture → `resolveSession` → watcher → tile `kind`/`state`), not merely
+   "palette remembers the string `grok`".
+
+**Out of scope (explicit):**
+
+- Headless / ACP bot integration.
+- Screen-scrape promotion (no evidence Grok buffers prompts off-disk the way
+  Claude's AskUserQuestion does).
+- Token % / plan checklist chrome.
+- README marketing line ("claude, codex, opencode") updates — do them in the
+  same PR only where a table already enumerates the three; no README rewrite
+  for its own sake.
+
+## Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| Grok renames phases / moves home dir | Zod-parse events with unknown-phase → `thinking`; config constant for home (`path.join(os.homedir(), ".grok")`) + `KOLU_GROK_DIR` override for tests; schema tripwire test listing known phases |
+| `permission_prompt` flickers under `--always-approve` / yolo | Fold only the *latest* phase after debounce (~50–100 ms, same family as other watchers); yolo resolves permissions in the same event batch so a single read of the file tail lands on `tool_execution` |
+| Multiple sessions per cwd | Prefer `active_sessions` pid match; cwd fallback takes max `updated_at` / mtime — document as "foreground Grok for this cwd" |
+| Binary named something other than `grok` on some installs | Match basename `grok` only (verified install + help text). Do not also match `grok-build` unless a real process basename shows up in the wild |
+| Closed-union exhaustiveness across client/padi | Ship the kind arm + fix every `satisfies never` / `.exhaustive()` break in the same PR; CI typecheck is the gate |
+
+## Implementation sketch
+
+```
+packages/integrations/grok/
+  package.json                 # name: kolu-grok, exports . + ./schemas
+  src/
+    config.ts                  # KOLU_GROK_DIR override, GROK_DIR, paths
+    schemas.ts                 # GrokInfoSchema (browser-safe)
+    core.ts                    # encodeCwd, readActiveSessions, findSession, foldState
+    session-watcher.ts         # fs.watch events.jsonl + summary.json
+    agent-adapter.ts           # grokAdapter
+    index.ts                   # barrel
+    *.test.ts
+```
+
+Wire order for the implementer (so typecheck stays green):
+
+1. `schemas.ts` + unit tests for the fold (pure).
+2. `anyagent` kind/resume/flags (compile breaks surface every switch).
+3. `core` + `session-watcher` + `agent-adapter`.
+4. `terminal-workspace` schema union + sensors register.
+5. client icon/tables.
+6. e2e fixture + feature.
+7. `just fmt` + targeted unit/e2e.
