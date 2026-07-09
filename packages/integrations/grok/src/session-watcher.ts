@@ -59,18 +59,11 @@ export function createGrokWatcher(
   }
 
   function watchPath(p: string): void {
-    try {
-      const w = fs.watch(p, () => schedule());
-      watchers.push(w);
-      return;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        log?.error({ err, path: p }, "grok: failed to watch session file");
-        return;
-      }
-    }
-    // File not present yet — watch parent dir if it already exists (Grok
-    // created the session dir but hasn't flushed events). Never mkdir.
+    // Watch the parent (session) dir, never the file inode: Grok rewrites
+    // summary.json via temp+rename, which destroys an `fs.watch` pointed at
+    // the file itself (the same volatility active-sessions-watcher documents).
+    // A dir watch survives the rename AND re-arms when a not-yet-flushed file
+    // first appears, so one code path covers both. Never mkdir.
     const dir = path.dirname(p);
     const base = path.basename(p);
     try {
@@ -84,18 +77,27 @@ export function createGrokWatcher(
         }
       });
       watchers.push(w);
-    } catch (err2) {
-      // Parent missing too — derive handles absent files as thinking;
-      // active_sessions re-resolve will recreate the watcher when paths exist.
-      log?.debug(
-        { err: err2, path: p },
-        "grok: session path not watchable yet",
-      );
+    } catch (err) {
+      // ENOENT = session dir not created yet (derive handles absent files as
+      // thinking; the active_sessions re-resolve recreates the watcher once
+      // the dir exists). Anything else is a real fault — surface it.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log?.error({ err, path: dir }, "grok: failed to watch session dir");
+      } else {
+        log?.debug({ path: p }, "grok: session dir not present yet");
+      }
     }
   }
 
   watchPath(session.eventsPath);
   watchPath(session.summaryPath);
+  // Standard grep-able watcher-lifecycle line (matches active-sessions-watcher
+  // and the claude-code session watcher) so operator watcher-count correlation
+  // sees this per-session watcher come up.
+  log?.info(
+    { session: session.id, dir: path.dirname(session.eventsPath) },
+    "grok: session watcher installed",
+  );
   // Initial emit — lights the indicator immediately on match.
   emitIfChanged();
 
@@ -113,6 +115,7 @@ export function createGrokWatcher(
         }
       }
       watchers.length = 0;
+      log?.info({ session: session.id }, "grok: session watcher retired");
     },
   };
 }
