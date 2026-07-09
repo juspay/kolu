@@ -12,12 +12,7 @@ import { z } from "zod";
  *  `agentKind` enum, the renderer's friendly-label map, and the router
  *  dispatch table — adding a new vendor is one edit here plus the
  *  loader. */
-export const AGENT_KINDS = [
-  "claude-code",
-  "opencode",
-  "codex",
-  "grok",
-] as const;
+export const AGENT_KINDS = ["claude-code", "opencode", "codex"] as const;
 export type AgentKindLiteral = (typeof AGENT_KINDS)[number];
 
 /** Tool-call inputs, decoded into a typed union at parse time.
