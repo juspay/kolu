@@ -1,5 +1,5 @@
 /** Iframe rendered-appliance: a sandboxed, opaque-origin frame for documents
- *  that may carry scripts (HTML, SVG) or need a native viewer (PDF).
+ *  that may carry scripts (HTML, SVG).
  *
  *  `allow-scripts` WITHOUT `allow-same-origin` runs the page's JS in an
  *  opaque origin — it can't read the host's cookies or localStorage, and

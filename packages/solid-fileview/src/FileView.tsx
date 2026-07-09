@@ -89,7 +89,7 @@ export const FileView: Component<FileViewProps> = (props) => {
   });
 
   // The active appliance, for SINGLE-form files (no toggle — a binary image, a
-  // video, a sandboxed iframe, or plain source). Read as a child expression so
+  // video, PDF, a sandboxed iframe, or plain source). Read as a child expression so
   // Solid tracks `props.file`: a save mints a fresh `FileData` (new `url` for a
   // binary, new `content` for text), and the matching renderer has to re-run to
   // pick it up. The earlier `<Show>`-callback form ran the rendered branch once

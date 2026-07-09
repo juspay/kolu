@@ -831,8 +831,8 @@ Feature: Code tab (review + browse)
   # Pierre's syntax-highlighted `FileView`. The wire kind
   # (`FsReadFileOutput.kind`) only says "binary"; the client then dispatches by
   # extension — raster images (`isRasterImage`) to a plain `<img>`, videos
-  # (`isVideo`) to a `<video controls>` element, and documents to a sandboxed
-  # `<iframe>`.
+  # (`isVideo`) to a `<video controls>` element, PDFs (`isPdf`) to the native
+  # browser viewer, and HTML/SVG documents to a sandboxed `<iframe>`.
 
   Scenario: HTML file renders in an iframe instead of as code
     When I run "rm -rf /tmp/kolu-iframe-html && git init /tmp/kolu-iframe-html && cd /tmp/kolu-iframe-html"
@@ -851,6 +851,16 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "logo.svg" in the file browser
     Then the file preview iframe should be visible
+
+  Scenario: PDF file renders in the native PDF viewer, not the sandboxed iframe
+    When I run "rm -rf /tmp/kolu-pdf-doc && git init /tmp/kolu-pdf-doc && cd /tmp/kolu-pdf-doc"
+    And I run "printf '%s\n' '%PDF-1.4' '1 0 obj <<>> endobj' 'trailer <<>>' '%%EOF' > doc.pdf"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "doc.pdf" in the file browser
+    Then the file preview PDF should be visible
+    And the file preview iframe should not be visible
 
   Scenario: PNG image renders as an <img> preview, not an iframe
     When I run "rm -rf /tmp/kolu-img-png && git init /tmp/kolu-img-png && cd /tmp/kolu-img-png"
@@ -1557,7 +1567,7 @@ Feature: Code tab (review + browse)
     And I run "printf 'second version\n' > letters.txt"
     Then the file content should contain "second version"
 
-  # Live-update for the iframe-previewed kinds (.html/.svg/.pdf): editing the
+  # Live-update for the iframe-previewed kinds (.html/.svg): editing the
   # previewed file must refresh the iframe with no manual reload. Unlike the
   # text path above (new content arrives on the `fsReadFile` stream and re-feeds
   # Pierre), the binary path carries only a `url`. The refresh hinges on the

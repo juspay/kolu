@@ -40,9 +40,9 @@ export type SourceRenderer = {
   render: (file: FileData) => JSX.Element;
 };
 
-/** Renders a file's *rendered* form (image, sandboxed iframe, markdown
- *  document, …). `match` claims the paths this appliance handles; `FileView`
- *  picks the first matching renderer from the list it's given. */
+/** Renders a file's *rendered* form (image, video, PDF, sandboxed iframe,
+ *  markdown document, …). `match` claims the paths this appliance handles;
+ *  `FileView` picks the first matching renderer from the list it's given. */
 export type RenderedRenderer = {
   match: (path: string) => boolean;
   render: (file: FileData) => JSX.Element;

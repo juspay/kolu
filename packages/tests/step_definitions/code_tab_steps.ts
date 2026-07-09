@@ -675,7 +675,7 @@ When(
   },
 );
 
-// ── Iframe preview (.html / .svg / .pdf in browse mode) ──
+// ── Binary previews (.html / .svg / .pdf / image / video in browse mode) ──
 
 Then(
   "the file preview iframe should be visible",
@@ -840,6 +840,20 @@ Then(
     await this.page
       .locator('[data-testid="browse-preview-video"] video[controls]')
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the file preview PDF should be visible",
+  async function (this: KoluWorld) {
+    const pdf = this.page.locator('[data-testid="browse-preview-pdf"]');
+    await pdf.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const sandbox = await pdf.getAttribute("sandbox");
+    if (sandbox !== null) {
+      throw new Error(
+        `PDF preview must use the native browser viewer, not a sandboxed iframe; sandbox=${JSON.stringify(sandbox)}`,
+      );
+    }
   },
 );
 
