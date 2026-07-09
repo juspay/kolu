@@ -29,10 +29,7 @@
  * recycle rather than silently stopping. It ends only when its signal aborts.
  */
 
-import {
-  type TerminalId,
-  TerminalIdSchema,
-} from "@kolu/terminal-workspace/schema";
+import { type TerminalId, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import type { PtyHostInventoryEvent, PtyHostListEntry } from "kaval";
 import { log } from "../log.ts";
 import { ptyHostClient } from "../ptyHost/index.ts";

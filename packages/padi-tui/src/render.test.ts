@@ -1,5 +1,5 @@
 import type { PadiTerminal } from "@kolu/padi/surface";
-import type { AgentInfo } from "@kolu/terminal-workspace/schema";
+import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
   agentMatchesUntil,

@@ -28,7 +28,7 @@
 
 import { resolveRunningPadiSocket } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
-import type { TerminalId } from "@kolu/terminal-workspace/schema";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import {
   connectPadiTui,
   type Connection,

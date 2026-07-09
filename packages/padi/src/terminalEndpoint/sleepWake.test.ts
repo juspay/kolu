@@ -31,7 +31,7 @@ import type {
   AgentIdentity,
   RestoreTarget,
   TerminalSnapshot,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";

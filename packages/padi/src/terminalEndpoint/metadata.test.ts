@@ -15,7 +15,7 @@
  *     is a compile error.
  */
 
-import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
+import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   __resetPadiSurfaceCtxForTest,

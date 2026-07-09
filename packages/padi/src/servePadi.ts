@@ -18,7 +18,7 @@
  */
 
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
-import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
+import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
 import { worktreeCreate, worktreeRemove } from "kolu-git";

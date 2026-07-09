@@ -16,7 +16,7 @@
  * explicitly (the recycle gap outlasts the 500 ms autosave).
  */
 
-import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
+import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import {
   afterAll,
   afterEach,
