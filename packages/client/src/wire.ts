@@ -54,6 +54,7 @@ import {
 import type { WebSocket as PartySocket } from "partysocket";
 import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
+import { createAddedHostActivation } from "./host/hostAddActivation.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
@@ -307,15 +308,31 @@ const hostScoped = createRoot(() => {
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
+  // Activate a newly ADDED host once it JOINS membership — NOT the moment `hosts.add`
+  // resolves. Switching immediately races the reconcile above (the new host isn't in the
+  // `members` snapshot yet, so it reads as "departed" and bounces the tab to local), which
+  // is why adding an N+1th host used to always land on the local host. Deferring the switch
+  // to the membership-join frame makes the two effects agree. Shares the SAME `members`
+  // subscription as the reconcile (one owner), so join is observed on the same frame.
+  const requestActivateOnJoin = createAddedHostActivation(
+    () => members.keys(),
+    setActiveHost,
+  );
   return {
     activityFeed,
     session,
     connection,
     terminalKeys,
     preferences,
+    requestActivateOnJoin,
     rpc: active.rpc,
   };
 });
+
+/** Activate a just-added host as the active host once it appears in the pool membership —
+ *  the race-free replacement for a bare `setActiveHost` in the add-host `.then` (see
+ *  `createAddedHostActivation`). */
+export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive

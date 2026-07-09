@@ -98,6 +98,7 @@ import {
   client,
   onHostMembershipError,
   padiMap,
+  requestActivateOnJoin,
   setActiveHost,
 } from "../wire";
 
@@ -633,9 +634,12 @@ const HostSelectorStrip: Component = () => {
       .then(() => {
         setDraft("");
         setAdding(false);
-        // Jump the canvas to the host you just added so you see it come up
-        // first, rather than leaving the previously-active host in view.
-        setActiveHost(host);
+        // Jump the canvas to the host you just added so you see it come up first,
+        // rather than leaving the previously-active host in view. Deferred to the
+        // frame the host JOINS membership — a bare `setActiveHost(host)` here races
+        // the membership reconcile (the host isn't in the pool snapshot the instant
+        // `hosts.add` resolves) and gets bounced straight back to the local host.
+        requestActivateOnJoin(host);
       })
       .catch((err: Error) =>
         toast.error(`Couldn't add ${raw}: ${err.message}`),
