@@ -31,7 +31,11 @@ import {
   type EntryStatus as RealEntryStatus,
   type KeyCodec,
 } from "@kolu/surface-map";
-import { connectSurfaceMap, type Entry } from "@kolu/surface-map/client";
+import {
+  connectSurfaceMap,
+  type Entry,
+  scopedByEntry,
+} from "@kolu/surface-map/client";
 import {
   type EntryConnectionState,
   type EntryFault,
@@ -248,6 +252,40 @@ export function readMap(ws: WatchableSocket) {
   // #endregion useentry
 
   return { hosts, status, load, processes, active };
+}
+
+// ── Per-host CLIENT state (retained by membership) + the key codec ───────
+export function ownedState(ws: WatchableSocket) {
+  const app = connectMap(ws);
+  // `active` is APP POLICY and NULLABLE: `null` = nothing selected (drishti's
+  // fleet grid, no host chosen). kolu's `activeHost` is never null.
+  const [activeHost] = createSignal<string | null>("localhost");
+
+  // #region scopedbyentry
+  // Per-host CLIENT state whose lifetime is `entries` MEMBERSHIP — the retained
+  // dual of `useEntry`'s dispose-on-switch. An owner is built LAZILY on a key's
+  // first activation, RETAINED across every switch-away, and DISPOSED the instant
+  // its key leaves `entries` (a removed-then-re-added host is a FRESH member).
+  const scopes = scopedByEntry(app, activeHost, (host, ctx) => ({
+    tiles: new Map<number, string>(), // this host's OWN state — plain, per-host
+    focusedPid: createSignal<number | null>(null),
+    isFocused: ctx.isActive, // active-only discipline lives INSIDE the owner
+    label: host, // the key is in scope for whatever the owner builds
+  }));
+
+  scopes.active(); // the ACTIVE host's world: `T | undefined` (null / vanished)
+  scopes.get("web-01"); // a background peek at ANY key — never CREATES an owner
+  // #endregion scopedbyentry
+
+  // #region codec
+  // `codec` — the ONE key-identity authority: the canonical wire string every
+  // channel name, dedup key, and membership entry is keyed on. `scopedByEntry`
+  // folds each key through it rather than trusting `===` reference identity.
+  const wire: string = app.codec.encode("web-01"); // K → wire string
+  const key: string = app.codec.decode(wire); // wire string → K
+  // #endregion codec
+
+  return { scopes, wire, key };
 }
 
 // #region rpc
