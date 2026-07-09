@@ -4,7 +4,7 @@ description: The living scope of padi's cleanup track (unnumbered — runs in pa
 parents: [padi]
 status: proposed
 maturity: seedling
-updated: 2026-07-05
+updated: 2026-07-09
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -24,7 +24,7 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 
 **Status index** — updated as entries ripen or ship:
 
-- **Ready now:** L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L26 · L17 (+ video-ext table, was L5b) · L18 · L27 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
+- **Ready now:** L28 (the clockNow graduation + drishti registry deletion) · L1 · L7 · L8 · L10 · L12 (srid mints) · L13 · L26 · L17 (+ video-ext table, was L5b) · L18 · L27 · L20·21 (drishti, merged) · L23 · L24 (W3.1 merged 2026-07-04) — and L4 at a named version
 - **Gated:** L11 on W4 (the switch) · L2 on kolu-tui (future work) · L9, L22 on evidence
 - **Shipped:** L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5's fold-half
 - **Shipped:** L5's original scope (ProcessRssSchema — landed inside W2.2 itself, `3b3550642`)
@@ -34,6 +34,21 @@ Each entry is **one PR on a fresh branch off master**, dispatched individually. 
 Each of these is a real volatility whose producer half already lives in the framework while its consumer half camps in an app — *location is structure*, and these locations lie.
 
 <a id="l1"></a>
+
+### L28 — `clockNow` graduates to a framework-reserved member; drishti deletes its hand-rolled registry
+
+*Status: READY (W6 merged makes the appraisal current) · Lens: lowy (the clock requirement is framework electricity stranded in padi's app-level control core) + hickey (one projection written twice) · Gate: drishti pair PR (surface-remote/surface-map API touch)*
+
+The W6-era appraisal found the one real defect in the connection-state family: the `SessionState → EntryConnectionState` projection exists **twice** — `serveHostMap.projectState` and drishti's `hostMapRegistry.projectState`, which admits in its own header that it "mirrors serveHostMap's projectState exactly." W6 paid the drift tax: its type reshape had to edit both copies in lockstep. Root cause one level up: drishti hand-rolled its whole `MapRegistry` **only because** `serveHostMap` requires a `ClockableSession`, and drishti has no host-stamped-timestamp consumers to justify the clock machinery.
+
+Two rungs; the second is the target, the first is an acceptable waypoint:
+
+1. **Waypoint — drishti provides the clock (~15 lines):** its agent answers `control.core.clockNow → {epochMs}` (one honest line: `Date.now()`); its host-session calls the framework's `measureClockOffset` once at admit (the docstring already names drishti as the anticipated consumer) and exposes `clockOffset()`. Then `hostMapRegistry.ts` — registry, projection copy, and all — **deletes**, and drishti calls `serveHostMap` like kolu does. A same-clock host answers offset ≈ 0 honestly; unused truth is cheap.
+2. **The perfect form — `clockNow` joins `system.identity` as a framework-reserved member**: every surface server auto-answers it (the reserved-member pattern already shipped for identity), `makeSession` measures at admit automatically, and `ClockableSession` **ceases to exist as a requirement** — every session is clockable by construction. Mandatory-and-free beats optional (no opt-out knob to audit), and offset-at-hello becomes a universal framework guarantee instead of a kolu convention. This is the old "control core graduates to the universal daemon preamble" idea, taken at its smallest useful member.
+
+**Where:** `packages/surface/src` (the reserved-member seam beside `system.identity`) · `packages/surface-remote/src/{measureClockOffset,session,serveHostMap}.ts` (drop the Clockable requirement once universal) · drishti `packages/app/src/server/hostMapRegistry.ts` (the deletion that proves it).
+
+**Done when:** drishti's `hostMapRegistry.ts` no longer exists (it consumes `serveHostMap` directly) and `git grep projectState` in drishti returns nothing; the projection has ONE home; rung 2 only: `ClockableSession` is gone from `serveHostMap`'s signature and a fresh consumer gets clock-honest `EntryStatus.connected` with zero clock code of its own.
 
 ### L1 — move the poll-on-change client core into `@kolu/surface`
 
