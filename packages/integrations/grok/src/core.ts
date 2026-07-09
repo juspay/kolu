@@ -164,10 +164,12 @@ export interface GrokSession {
 }
 
 /** Resolve the Grok session for a terminal. Prefers an
- *  `active_sessions.json` entry whose `pid` matches `foregroundPid`;
- *  falls back to the most-recently-updated session directory under the
- *  cwd-encoded path. Returns null when Grok has no session for this
- *  terminal. */
+ *  `active_sessions.json` entry whose `pid` matches `foregroundPid`.
+ *  When the pid is known but absent from the map, returns null — wait
+ *  for the external active_sessions rewake rather than attaching a
+ *  previous cwd session. When pid is unknown (preexec-only match),
+ *  falls back to the most-recently-updated session under the
+ *  cwd-encoded path. */
 export function resolveGrokSession(
   foregroundPid: number | undefined,
   cwd: string,
@@ -175,10 +177,11 @@ export function resolveGrokSession(
 ): GrokSession | null {
   if (foregroundPid !== undefined) {
     const active = readActiveSessions(log).find((e) => e.pid === foregroundPid);
-    if (active) {
-      return sessionFromIds(active.cwd, active.session_id, log);
-    }
+    // Known process, unknown map row → wait for externalChanges rewake;
+    // do not attach a previous cwd session (would flash the wrong state).
+    return active ? sessionFromIds(active.cwd, active.session_id, log) : null;
   }
+  // No pid sample yet: recency under cwd is the only signal.
   return findLatestSessionByCwd(cwd, log);
 }
 
@@ -241,18 +244,20 @@ export function findLatestSessionByCwd(
 
 // --- State fold ---
 
-/** Known `phase_changed.phase` values observed in live Grok sessions.
- *  Unknown phases fold to `thinking` so an upstream rename degrades to
- *  a spinner rather than a crash. Exported for the tripwire unit test. */
-export const KNOWN_PHASES = [
-  "waiting_for_model",
-  "streaming_reasoning",
-  "streaming_text",
-  "tool_execution",
-  "permission_prompt",
-] as const;
+/** One table for Grok phase → AgentInfo.state. Unknown phases fold to
+ *  `thinking` so an upstream rename degrades to a spinner rather than a
+ *  crash. `KNOWN_PHASES` is derived so the list cannot drift from the map. */
+export const PHASE_TO_STATE = {
+  permission_prompt: "awaiting_user",
+  tool_execution: "tool_use",
+  waiting_for_model: "thinking",
+  streaming_reasoning: "thinking",
+  streaming_text: "thinking",
+} as const satisfies Record<string, GrokInfo["state"]>;
 
-export type GrokPhase = (typeof KNOWN_PHASES)[number] | string;
+export const KNOWN_PHASES = Object.keys(PHASE_TO_STATE) as Array<
+  keyof typeof PHASE_TO_STATE
+>;
 
 /** Pure fold: last meaningful turn/phase signal → AgentInfo.state.
  *  Walks events newest-first so a single tail pass is enough. */
@@ -273,18 +278,7 @@ export function foldEventsState(
 }
 
 function phaseToState(phase: string): GrokInfo["state"] {
-  switch (phase) {
-    case "permission_prompt":
-      return "awaiting_user";
-    case "tool_execution":
-      return "tool_use";
-    case "waiting_for_model":
-    case "streaming_reasoning":
-    case "streaming_text":
-      return "thinking";
-    default:
-      return "thinking";
-  }
+  return PHASE_TO_STATE[phase as keyof typeof PHASE_TO_STATE] ?? "thinking";
 }
 
 /** Tail-window for events.jsonl. Phases are tiny; 128 KB holds many

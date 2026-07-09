@@ -2,6 +2,11 @@
  * GrokWatcher — per-session lifecycle. Watches `events.jsonl` +
  * `summary.json` with a trailing-edge debounce and emits GrokInfo on
  * change, gated by `agentInfoEqual`.
+ *
+ * Pure observer: never creates paths under `~/.grok`. If a file is
+ * missing, watches its parent directory (when that exists) and re-arms
+ * when the basename appears — same observe-without-mutate idea as
+ * Claude's session watchers.
  */
 
 import fs from "node:fs";
@@ -55,36 +60,37 @@ export function createGrokWatcher(
 
   function watchPath(p: string): void {
     try {
-      // Ensure parent exists so fs.watch doesn't throw ENOENT on a
-      // brand-new session that hasn't flushed events yet.
-      const dir = path.dirname(p);
-      fs.mkdirSync(dir, { recursive: true });
       const w = fs.watch(p, () => schedule());
       watchers.push(w);
+      return;
     } catch (err) {
-      // File may not exist yet — watch the parent directory instead.
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        try {
-          const dir = path.dirname(p);
-          fs.mkdirSync(dir, { recursive: true });
-          const w = fs.watch(dir, (_evt, filename) => {
-            if (
-              filename === path.basename(p) ||
-              filename === `${path.basename(p)}.tmp`
-            ) {
-              schedule();
-            }
-          });
-          watchers.push(w);
-        } catch (err2) {
-          log?.error(
-            { err: err2, path: p },
-            "grok: failed to watch session dir",
-          );
-        }
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log?.error({ err, path: p }, "grok: failed to watch session file");
         return;
       }
-      log?.error({ err, path: p }, "grok: failed to watch session file");
+    }
+    // File not present yet — watch parent dir if it already exists (Grok
+    // created the session dir but hasn't flushed events). Never mkdir.
+    const dir = path.dirname(p);
+    const base = path.basename(p);
+    try {
+      const w = fs.watch(dir, (_evt, filename) => {
+        if (
+          filename === base ||
+          filename === `${base}.tmp` ||
+          filename === null
+        ) {
+          schedule();
+        }
+      });
+      watchers.push(w);
+    } catch (err2) {
+      // Parent missing too — derive handles absent files as thinking;
+      // active_sessions re-resolve will recreate the watcher when paths exist.
+      log?.debug(
+        { err: err2, path: p },
+        "grok: session path not watchable yet",
+      );
     }
   }
 
@@ -103,7 +109,7 @@ export function createGrokWatcher(
         try {
           w.close();
         } catch {
-          /* ignore */
+          /* ignore close races */
         }
       }
       watchers.length = 0;

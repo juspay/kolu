@@ -28,6 +28,7 @@ export {
   type GrokSummary,
   grokHomePresent,
   KNOWN_PHASES,
+  PHASE_TO_STATE,
   readActiveSessions,
   readSummary,
   resolveGrokSession,

@@ -5,7 +5,12 @@
  * event lands).
  *
  * Lazy: the orchestrator only calls `install` the first time any
- * terminal reports `isPresent`. One shared watcher for the process.
+ * terminal reports `isPresent`. One shared watcher for the process —
+ * install is once; a second call is a no-op (same contract as codex WAL).
+ *
+ * Pure observer: never creates `~/.grok`. If the home dir is absent,
+ * install fails soft (`installed` stays false) so a later `isPresent`
+ * via `matchesAgent` can retry after Grok creates the tree.
  */
 
 import fs from "node:fs";
@@ -14,36 +19,39 @@ import type { Logger } from "kolu-shared";
 import { ACTIVE_SESSIONS_PATH, GROK_DIR } from "./config.ts";
 
 let installed = false;
-const listeners = new Set<() => void>();
+let onFire: (() => void) | null = null;
+let onErr: ((err: unknown) => void) | null = null;
 
 export function subscribeActiveSessions(
   onChange: () => void,
   onError: (err: unknown) => void,
   log?: Logger,
 ): void {
-  listeners.add(onChange);
   if (installed) return;
-  installed = true;
 
-  try {
-    fs.mkdirSync(GROK_DIR, { recursive: true });
-  } catch (err) {
-    log?.debug({ err, dir: GROK_DIR }, "grok: could not ensure home dir");
+  if (!fs.existsSync(GROK_DIR)) {
+    log?.debug(
+      { dir: GROK_DIR },
+      "grok: home dir absent — active_sessions install deferred",
+    );
+    return;
   }
 
+  installed = true;
+  onFire = onChange;
+  onErr = onError;
+
   const fire = () => {
-    for (const l of listeners) {
-      try {
-        l();
-      } catch (err) {
-        onError(err);
-      }
+    if (!onFire) return;
+    try {
+      onFire();
+    } catch (err) {
+      onErr?.(err);
     }
   };
 
   try {
     // Process-lifetime watcher — never closed (matches codex WAL subscribe).
-    // Watch the parent dir so we catch create + rewrite of the file.
     fs.watch(GROK_DIR, (_evt, filename) => {
       if (
         filename === path.basename(ACTIVE_SESSIONS_PATH) ||
@@ -60,5 +68,7 @@ export function subscribeActiveSessions(
   } catch (err) {
     log?.error({ err, path: GROK_DIR }, "grok: failed to watch home dir");
     installed = false;
+    onFire = null;
+    onErr = null;
   }
 }

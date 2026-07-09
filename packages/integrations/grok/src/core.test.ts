@@ -147,11 +147,11 @@ describe("resolveGrokSession", () => {
     expect(session?.id).toBe(id);
   });
 
-  it("falls back to latest session under encoded cwd", () => {
+  it("falls back to latest session under encoded cwd when pid is unknown", () => {
     writeSession({
       cwd,
       id,
-      events: [{ type: "turn_ended", outcome: "completed" }],
+      events: [{ type: "turn_ended" }],
       title: "Older",
       updatedAt: "2026-07-09T15:01:00.000Z",
     });
@@ -169,8 +169,19 @@ describe("resolveGrokSession", () => {
     expect(session?.id).toBe(newerId);
   });
 
+  it("returns null when pid is known but absent from active_sessions (no cwd guess)", () => {
+    writeSession({
+      cwd,
+      id,
+      events: [{ type: "turn_ended" }],
+    });
+    // Stale leftover session under cwd must NOT match a live grok pid
+    // that hasn't written active_sessions yet.
+    expect(resolveGrokSession(9999, cwd)).toBeNull();
+  });
+
   it("returns null when nothing matches", () => {
-    expect(resolveGrokSession(9999, "/no/such/cwd")).toBeNull();
+    expect(resolveGrokSession(undefined, "/no/such/cwd")).toBeNull();
   });
 });
 

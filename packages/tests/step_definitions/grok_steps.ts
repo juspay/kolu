@@ -53,15 +53,23 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
   await waitForBufferContains(world.page, marker);
 }
 
-async function startFakeAgent(world: KoluWorld): Promise<void> {
+/** Launch the fake `grok` binary and return its foreground pid.
+ *  The adapter matches via active_sessions.json by pid — printing $$
+ *  from inside the resident bash is the load-bearing e2e seam. */
+async function startFakeAgent(world: KoluWorld): Promise<number> {
   const bin = process.env.KOLU_FAKE_GROK_BIN;
   if (!bin) throw new Error("KOLU_FAKE_GROK_BIN must be set");
-  // Same compound-command / OSC 2 pattern as codex_steps — keeps bash
-  // resident as foreground with comm="grok".
+  const marker = `GROK_PID_`;
+  // Compound command keeps bash resident as foreground with comm="grok".
+  // Echo $$ so the step can write active_sessions.json with the real pid.
   await world.page.keyboard.type(
-    `${bin} -c "printf '\\033]0;grok\\007'; sleep 99999 ; :"`,
+    `${bin} -c "echo ${marker}$$; printf '\\033]0;grok\\007'; sleep 99999 ; :"`,
   );
   await world.page.keyboard.press("Enter");
+  const buf = await waitForBufferContains(world.page, marker);
+  const m = new RegExp(`${marker}(\\d+)`).exec(buf);
+  if (!m?.[1]) throw new Error(`Failed to parse grok pid from buffer: ${buf}`);
+  return Number.parseInt(m[1], 10);
 }
 
 async function mockGrokSession(
@@ -74,10 +82,18 @@ async function mockGrokSession(
   cleanup();
 
   mockCwd = fs.mkdtempSync(path.join(os.tmpdir(), `kolu-grok-${process.pid}-`));
+  // Write session tree first (without pid); after the fake binary starts
+  // we learn the real pid and rewrite active_sessions.
   mockFixture = writeGrokFixture({ grokDir, cwd: mockCwd, state });
 
   await cdTerminalInto(world, mockCwd);
-  await startFakeAgent(world);
+  const pid = await startFakeAgent(world);
+  mockFixture = writeGrokFixture({
+    grokDir,
+    cwd: mockCwd,
+    state,
+    pid,
+  });
 }
 
 When(

@@ -62,6 +62,7 @@ const HASHED_ROOTS: Record<string, string> = {
   "kolu-io": "integrations/io",
   "kolu-claude-code": "integrations/claude-code",
   "kolu-codex": "integrations/codex",
+  "kolu-grok": "integrations/grok",
   "kolu-opencode": "integrations/opencode",
   anyagent: "integrations/anyagent",
   anyforge: "integrations/anyforge",
