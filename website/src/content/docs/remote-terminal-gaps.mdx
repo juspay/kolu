@@ -1,0 +1,168 @@
+---
+title: Remote Terminal Gaps
+description: "Why some tools work in a box's own terminal but break in a kolu remote terminal — including gh's 'The token in default is invalid' on macOS — and the ranked fix for each."
+order: 55
+section: Use Kolu
+koluHero:
+  eyebrow: "remote terminals · alpha"
+  headline: |
+    When a {remote} terminal
+    behaves {differently}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+<Aside type="caution" title="alpha">
+  kolu's remote terminals are an early preview. This page catalogues the rough
+  edges honestly rather than hiding them — expect it to grow, and expect the
+  behaviour it describes to improve, as the feature matures.
+</Aside>
+
+A kolu remote terminal is an **ssh session** on the other machine — and an ssh
+session is _not_ that machine's graphical login session. That one fact explains a
+whole class of "it works in the box's own terminal but breaks over kolu"
+surprises: tools that quietly lean on the GUI session — the macOS Keychain, your
+`ssh-agent`, the pasteboard, the launchd user domain, the environment your
+desktop shell sets up — don't get any of that over ssh. The command didn't break;
+it's running in a leaner room than the one you tested it in.
+
+This page catalogues the known gaps: the **symptom as you'd actually see it**, the
+**one-line cause**, and the **remedies ranked**. It applies to both remote
+terminals in the kolu canvas and shell-level [`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh)
+sessions — both are ssh, so both hit the same wall.
+
+## macOS Keychain-backed tools (`gh`, codesigning)
+
+**Symptom.** On a macOS host, [`gh`](https://cli.github.com/manual/gh_auth_status)
+reports that your token is invalid — the identical command works fine in the same
+box's Terminal.app. `gh auth status` prints a line like:
+
+```text
+X github.com: The token in default is invalid.
+```
+
+Codesigning and identity lookups (`codesign`, `security find-identity`) can fail
+the same way.
+
+**Cause.** `gh` stores its token in the **macOS Keychain**, and the login keychain
+is unlocked only for the _graphical_ login session. An ssh session doesn't inherit
+that unlock, so the stored token can't be read.
+
+**Remedies** (best first):
+
+1. **A scoped env token.** Set `GH_TOKEN` to a
+   [fine-grained personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)
+   scoped to only the repos you drive from that box, guarded so it applies to ssh
+   sessions alone:
+
+   ```sh
+   # in the host's shell rc (e.g. ~/.zshrc)
+   [ -n "$SSH_CONNECTION" ] && export GH_TOKEN="github_pat_…"
+   ```
+
+   `gh` favours `GH_TOKEN` for fine-grained PAT usage and never touches the
+   keychain when it's set. `$SSH_CONNECTION` is set by `sshd` only inside ssh
+   sessions, so your local GUI session keeps using the keychain untouched. A
+   fine-grained token also caps the blast radius if the box is ever compromised.
+
+2. **Unlock the keychain per session.** [`security unlock-keychain`](https://ss64.com/mac/security.html)
+   prompts for your login password and unlocks the login keychain for the current
+   session:
+
+   ```sh
+   security unlock-keychain
+   ```
+
+   Pass an inline password (`-p`) only in throwaway contexts — it lands in shell
+   history and is visible in `ps`.
+
+3. **Move `gh` off the keychain.**
+   [`gh auth login --insecure-storage`](https://cli.github.com/manual/gh_auth_login)
+   writes the token to a plain-text file (`~/.config/gh/hosts.yml`) instead of the
+   keychain, so ssh sessions read it directly. The trade-off is in the flag's
+   name: the token then sits unencrypted on disk.
+
+## ssh-agent and key forwarding
+
+**Symptom.** `git push`, ssh-based clones, or key-signed operations that work
+locally now prompt for a passphrase or fail with `Permission denied (publickey)`
+in a remote terminal.
+
+**Cause.** Your keys and the `ssh-agent` holding their unlocked copies live in your
+**local** session. The remote terminal's `SSH_AUTH_SOCK` points at nothing unless
+an agent runs on — or is forwarded to — the host.
+
+**Remedies** (best first):
+
+1. **Keep keys on the host.** Put a key on the remote box and add it to a host-side
+   `ssh-agent`. Durable and forwarding-free — nothing depends on your laptop
+   staying connected.
+
+2. **Forward your agent.** Reach the box with `ssh -A` (or `ForwardAgent yes` for
+   that host in `~/.ssh/config`) so the remote session borrows your local agent
+   over the link. Convenient, but any root user on the host can use your forwarded
+   keys while you're connected — forward only to hosts you trust. Confirm it took
+   with `ssh-add -l` _inside_ the remote terminal; it should list your keys.
+
+## GUI-session services (clipboard, launchd, notifications)
+
+**Symptom.** `pbcopy` / `pbpaste` do nothing, `launchctl` can't find your user
+services, and desktop notifications never appear from the remote terminal.
+
+**Cause.** These are wired to the macOS **GUI login session** — the pasteboard
+server and the per-user launchd (Aqua) domain. An ssh session runs in a different
+session context and isn't attached to that GUI bootstrap namespace.
+
+**Remedies** (best first):
+
+1. **Do GUI-bound work from a local terminal on that box.** Clipboard and
+   notifications are GUI-session facilities by design; the honest fix is to run
+   them where the GUI session is.
+
+2. **Target the GUI domain explicitly** for `launchctl`. Modern `launchctl` needs
+   the domain named — `launchctl print gui/$(id -u)` — rather than a bare
+   `launchctl load` that assumes your session's domain. (Manipulating a GUI domain
+   from ssh is limited by design and may need the box unlocked.)
+
+## Environment drift (login vs non-login rc, locale, PATH)
+
+**Symptom.** A command that resolves in the local terminal is "command not found"
+over the bind; locale-sensitive tools warn (`setlocale: LC_ALL: cannot change
+locale`); tools installed by a GUI installer aren't on `$PATH`.
+
+**Cause.** An ssh session often starts a **login** shell reading different rc files
+than your GUI terminal's non-login shell, inherits a leaner environment, and never
+sees `$PATH` entries injected by GUI-only launchers (macOS `path_helper`, a
+Homebrew `shellenv` sourced in only one rc, etc.).
+
+**Remedies** (best first):
+
+1. **Put PATH and locale in the rc file both shells read.** Move them out of
+   GUI-only spots (`~/.zprofile`, launchd env) into the file every shell sources
+   (`~/.zshrc`), or source one shared file from both — so local and remote
+   terminals converge on one environment.
+
+2. **Match the locale to the host.** kolu carries your presentation locale
+   (`LANG` / `LC_*`) across the wire, but the host must actually have that locale
+   generated. If it doesn't, set one the host has rather than one it can't honour.
+
+3. **Look before you guess.** Inside the remote terminal, `echo $PATH`, `locale`,
+   and `echo $0` show you exactly what that shell sees.
+
+<Aside type="note" title="This page grows by incident">
+  The catalogue above is a starting set. Every future "works in my local terminal,
+  breaks in a kolu remote terminal" report earns a row here — symptom, one-line
+  cause, ranked remedies — the same discipline a flaky-test tracker uses, applied
+  to environment gaps. If you hit one that isn't listed, that's the signal to add
+  it.
+</Aside>
+
+## Related
+
+<CardGrid>
+  <LinkCard title="Remote Access" href="/remote-access" description="reach the kolu browser app from another device over Tailscale" />
+  <LinkCard title="Kaval remote terminals" href="/kaval#reach-a-remote-kaval--over-ssh" description="drive a PTY daemon on another machine over ssh — and what environment it runs in" />
+</CardGrid>
