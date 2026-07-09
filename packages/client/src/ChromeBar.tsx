@@ -63,9 +63,10 @@ const ChromeBar: Component<{
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
-  // Dock only when the terminal is maximized, so its own title bar
-  // doesn't collide with the chrome. Panel-open stays on the floating
-  // overlay — the `right:` offset below keeps controls off the panel.
+  // True when the terminal is maximized. The header is full-width docked in
+  // BOTH postures now (see the module comment), so this no longer gates
+  // positioning — it only drives the `data-maximized` marker and the
+  // maximize/restore toggle's active state and icon below.
   const docked = createMemo(() => posture.mode() === "maximized");
 
   // Gate the maximize affordance on a tile existing (posture's single
