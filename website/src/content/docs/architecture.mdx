@@ -232,6 +232,8 @@ layer you restart or redeploy isn't the layer holding your shells.
 
 <LinkCard title="Announcing @kolu/surface" href="/blog/surface-framework" description="read the story behind the one contract every layer talks over" />
 
+<LinkCard title="@kolu/surface — the docs" href="/surface" description="the framework's own four-quadrant docs: declare a surface, serve it, daemonize it, and mirror it across an ssh fleet" />
+
 Every layer talks over the same thing: a _typed reactive surface_. You declare
 what a daemon exposes — a handful of primitives plus the verbs to change them — and
 get a client that stays in sync. Four primitives cover almost everything:
@@ -264,6 +266,11 @@ machine; what's still coming is kolu itself using it to bind a `padi` on a remot
 host. Swap the transport; the client code doesn't change. That's exactly how
 `padi` grew up: it ran in-process inside kolu-server, then moved out into its own
 process behind a unix socket, and the client never noticed.
+
+The [@kolu/surface docs](/surface) teach this end to end — [your first surface](/surface/your-first-surface),
+[make it a daemon](/surface/make-it-a-daemon) (the pattern kaval and padi are
+built on), and [across the hosts](/surface/across-the-hosts) (the ssh mirror
+drishti runs).
 
 <Aside type="note" title="The framework stands alone">
   It isn't kolu-shaped — a separate app,
