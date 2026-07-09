@@ -85,6 +85,48 @@ describe("foldEventsState", () => {
     ).toBe("tool_use");
   });
 
+  // Live capture (vira session 019f47d4-…): ask_user_question stays open
+  // under phase tool_execution after permission auto-allow — chrome must
+  // show awaiting_user, not "Running tools".
+  it("promotes open ask_user_question over tool_execution phase", () => {
+    expect(
+      foldEventsState([
+        { type: "turn_started" },
+        { type: "phase_changed", phase: "tool_execution" },
+        { type: "tool_started", tool_name: "ask_user_question" },
+        { type: "phase_changed", phase: "permission_prompt" },
+        {
+          type: "permission_resolved",
+          tool_name: "ask_user_question",
+        },
+        { type: "phase_changed", phase: "tool_execution" },
+      ]),
+    ).toBe("awaiting_user");
+  });
+
+  it("does not promote after ask_user_question completes", () => {
+    expect(
+      foldEventsState([
+        { type: "tool_started", tool_name: "ask_user_question" },
+        { type: "phase_changed", phase: "tool_execution" },
+        {
+          type: "tool_completed",
+          tool_name: "ask_user_question",
+        },
+        { type: "phase_changed", phase: "streaming_text" },
+      ]),
+    ).toBe("thinking");
+  });
+
+  it("does not promote ordinary open tools (read_file)", () => {
+    expect(
+      foldEventsState([
+        { type: "tool_started", tool_name: "read_file" },
+        { type: "phase_changed", phase: "tool_execution" },
+      ]),
+    ).toBe("tool_use");
+  });
+
   it("maps streaming phases → thinking", () => {
     for (const phase of [
       "waiting_for_model",

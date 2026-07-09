@@ -259,11 +259,39 @@ export const KNOWN_PHASES = Object.keys(PHASE_TO_STATE) as Array<
   keyof typeof PHASE_TO_STATE
 >;
 
-/** Pure fold: last meaningful turn/phase signal → AgentInfo.state.
- *  Walks events newest-first so a single tail pass is enough. */
+/**
+ * Tool basenames that block the user until they answer (multiple-choice
+ * / freeform prompts). Grok leaves these open under `phase:
+ * tool_execution` after auto-allowing the tool permission — so a pure
+ * phase fold reads `tool_use` while the UI is blocked on the user.
+ * Verified live: `tool_started ask_user_question` with no
+ * `tool_completed` until the answer is submitted.
+ */
+export const USER_BLOCKING_TOOLS: ReadonlySet<string> = new Set([
+  "ask_user_question",
+]);
+
+/** Event shape the fold consumes — phases plus tool start/complete so
+ *  open user-blocking tools can promote to `awaiting_user`. */
+export type GrokFoldEvent = {
+  type?: string;
+  phase?: string;
+  tool_name?: string;
+};
+
+/** Pure fold: last meaningful turn/phase/tool signal → AgentInfo.state.
+ *
+ *  Order of precedence:
+ *   1. An open user-blocking tool (`ask_user_question` started, not
+ *      completed) → `awaiting_user` — wins over a trailing
+ *      `tool_execution` phase (the real ask-user wait).
+ *   2. Newest turn boundary / phase_changed (existing phase map).
+ */
 export function foldEventsState(
-  events: ReadonlyArray<{ type?: string; phase?: string }>,
+  events: ReadonlyArray<GrokFoldEvent>,
 ): GrokInfo["state"] {
+  if (hasOpenUserBlockingTool(events)) return "awaiting_user";
+
   // Scan newest → oldest for the most recent turn boundary or phase.
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
@@ -275,6 +303,29 @@ export function foldEventsState(
     }
   }
   return "thinking";
+}
+
+/** True when some user-blocking tool has more starts than completes in
+ *  the event window (still open, waiting on the human). */
+export function hasOpenUserBlockingTool(
+  events: ReadonlyArray<GrokFoldEvent>,
+): boolean {
+  const open = new Map<string, number>();
+  for (const e of events) {
+    const name = e.tool_name;
+    if (!name || !USER_BLOCKING_TOOLS.has(name)) continue;
+    if (e.type === "tool_started") {
+      open.set(name, (open.get(name) ?? 0) + 1);
+    } else if (e.type === "tool_completed") {
+      const n = (open.get(name) ?? 0) - 1;
+      if (n <= 0) open.delete(name);
+      else open.set(name, n);
+    }
+  }
+  for (const n of open.values()) {
+    if (n > 0) return true;
+  }
+  return false;
 }
 
 function phaseToState(phase: string): GrokInfo["state"] {
@@ -305,11 +356,11 @@ export function deriveStateFromEvents(
       log?.debug({ err, path: eventsPath }, "grok events tail failed"),
   });
   if (!lines || lines.length === 0) return "thinking";
-  const events: { type?: string; phase?: string }[] = [];
+  const events: GrokFoldEvent[] = [];
   for (const line of lines) {
     if (!line.trim()) continue;
     try {
-      events.push(JSON.parse(line) as { type?: string; phase?: string });
+      events.push(JSON.parse(line) as GrokFoldEvent);
     } catch {
       /* drop partial / corrupt line */
     }

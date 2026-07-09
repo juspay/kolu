@@ -40,10 +40,34 @@ export function buildGrokEvents(state: AgentLifecycleState): string {
       });
       break;
     case "awaiting_user":
+      // Real ask_user_question flow: tool opens under tool_execution after
+      // a flash permission auto-allow — not a stuck permission_prompt.
       lines.push({
         ts: "2026-07-09T15:00:01.000Z",
         type: "phase_changed",
+        phase: "tool_execution",
+      });
+      lines.push({
+        ts: "2026-07-09T15:00:01.001Z",
+        type: "tool_started",
+        tool_name: "ask_user_question",
+      });
+      lines.push({
+        ts: "2026-07-09T15:00:01.002Z",
+        type: "phase_changed",
         phase: "permission_prompt",
+      });
+      lines.push({
+        ts: "2026-07-09T15:00:01.003Z",
+        type: "permission_resolved",
+        tool_name: "ask_user_question",
+        decision: "allow",
+        wait_ms: 0,
+      });
+      lines.push({
+        ts: "2026-07-09T15:00:01.004Z",
+        type: "phase_changed",
+        phase: "tool_execution",
       });
       break;
     case "waiting":

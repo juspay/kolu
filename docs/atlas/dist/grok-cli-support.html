@@ -169,11 +169,15 @@ invent a fifth paint class — reuse the closed set the Dock already folds.</p>
 </thead>
 <tbody>
 <tr>
+<td>open <code>ask_user_question</code> (<code>tool_started</code> without <code>tool_completed</code>)</td>
+<td><code>awaiting_user</code> (wins over a trailing <code>tool_execution</code> phase)</td>
+</tr>
+<tr>
 <td>open turn + <code>permission_prompt</code> (and no later phase)</td>
 <td><code>awaiting_user</code></td>
 </tr>
 <tr>
-<td>open turn + <code>tool_execution</code></td>
+<td>open turn + <code>tool_execution</code> (no open ask-user tool)</td>
 <td><code>tool_use</code></td>
 </tr>
 <tr>

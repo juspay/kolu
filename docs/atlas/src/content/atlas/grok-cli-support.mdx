@@ -97,8 +97,9 @@ invent a fifth paint class — reuse the closed set the Dock already folds.
 
 | Grok signal | `AgentInfo.state` |
 | --- | --- |
+| open `ask_user_question` (`tool_started` without `tool_completed`) | `awaiting_user` (wins over a trailing `tool_execution` phase) |
 | open turn + `permission_prompt` (and no later phase) | `awaiting_user` |
-| open turn + `tool_execution` | `tool_use` |
+| open turn + `tool_execution` (no open ask-user tool) | `tool_use` |
 | open turn + `waiting_for_model` / `streaming_reasoning` / `streaming_text` | `thinking` |
 | `turn_ended` with no subsequent `turn_started` | `waiting` |
 | matched session, no events yet | `thinking` (bootstrapping) |

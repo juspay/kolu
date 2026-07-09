@@ -13,8 +13,9 @@ export { TaskProgressSchema };
 export const GrokInfoSchema = z.object({
   kind: z.literal("grok"),
   /** Current state derived from the session's `events.jsonl` stream.
-   *  - `awaiting_user`: last phase is `permission_prompt` (blocked on reply).
-   *  - `tool_use`: last phase is `tool_execution`.
+   *  - `awaiting_user`: open `ask_user_question` tool, or last phase
+   *    `permission_prompt` (blocked on the human).
+   *  - `tool_use`: last phase is `tool_execution` (and no open ask-user tool).
    *  - `thinking`: model wait / streaming reasoning or text.
    *  - `waiting`: turn ended, no open turn. */
   state: z.enum(["thinking", "tool_use", "waiting", "awaiting_user"]),
