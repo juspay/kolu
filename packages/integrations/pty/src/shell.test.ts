@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   cleanEnv,
   koluIdentityEnv,
@@ -27,15 +27,40 @@ import {
   prepareShellInit,
 } from "./shell.ts";
 
+const shellSubprocessHome = mkdtempSync(
+  join(tmpdir(), "kolu-shell-test-home-"),
+);
+
+afterAll(() => {
+  rmSync(shellSubprocessHome, { recursive: true, force: true });
+});
+
+function shellSubprocessEnv(): NodeJS.ProcessEnv {
+  return {
+    HOME: shellSubprocessHome,
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    TERM: "xterm-256color",
+    TMPDIR: process.env.TMPDIR ?? tmpdir(),
+  };
+}
+
 /** Run a script in a clean bash subshell and return stdout. */
 function runBash(script: string, cwd = "/tmp"): string {
-  return execFileSync("bash", ["-c", script], { encoding: "utf8", cwd });
+  return execFileSync("bash", ["-c", script], {
+    cwd,
+    encoding: "utf8",
+    env: shellSubprocessEnv(),
+  });
 }
 
 /** Run a script in a clean zsh subshell and return stdout. Skips if zsh unavailable. */
 function runZsh(script: string, cwd = "/tmp"): string | null {
   try {
-    return execFileSync("zsh", ["-c", script], { encoding: "utf8", cwd });
+    return execFileSync("zsh", ["-c", script], {
+      cwd,
+      encoding: "utf8",
+      env: shellSubprocessEnv(),
+    });
   } catch (err) {
     // zsh not installed — skip
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -359,6 +384,7 @@ function execFileSyncBoth(script: string): string {
   try {
     return execFileSync("bash", ["-c", `${script} 2>&1`], {
       encoding: "utf8",
+      env: shellSubprocessEnv(),
     });
   } catch {
     return "";
