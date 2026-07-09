@@ -38,6 +38,7 @@ import type { SurfaceSpec } from "@kolu/surface/define";
 import { keyArray } from "@solid-primitives/keyed";
 import {
   type Accessor,
+  createEffect,
   createMemo,
   createRenderEffect,
   getOwner,
@@ -166,25 +167,42 @@ export function scopedByEntry<
     return m;
   });
 
+  // The active-scope memo stays PURE: `null` (inhabitant a — nothing selected) and a
+  // non-member key (inhabitant b — a removal race: the active host left the pool, a
+  // fallback re-points `active` a tick later) BOTH resolve to `undefined` (honest
+  // emptiness, not a throw). The dev-mode diagnostic for inhabitant (b) lives in the
+  // effect below, NOT here — warning from inside a derivation fires on every unrelated
+  // recompute (churn), rather than once when the state is entered.
   const activeScope: Accessor<T | undefined> = createMemo(() => {
     const a = active();
-    if (a === null) return undefined; // inhabitant (a): nothing selected — never warns
-    const encA = enc(a);
-    const scope = index().get(encA);
-    if (scope !== undefined) return scope;
-    // inhabitant (b): active names a NON-MEMBER — a legitimate removal race (the
-    // active host was removed; a fallback re-points `active` a tick later). Honest
-    // emptiness, not silent degradation, so `undefined` and not a throw. The
-    // dev-mode warning is the discriminator: precise, names the key, and says
-    // nothing at all for the null case above.
-    if (process.env.NODE_ENV !== "production") {
+    return a === null ? undefined : index().get(enc(a));
+  });
+
+  // Dev-mode discriminator for inhabitant (b): warn ONCE per entry into "active()
+  // names a non-member". `warnedFor` de-dupes — it fires when the state is entered (a
+  // new non-member key), stays silent while it persists, and re-arms once `active`
+  // resolves to a member (or null) again. `null` (inhabitant a) never warns.
+  if (process.env.NODE_ENV !== "production") {
+    let warnedFor: string | null = null;
+    createEffect(() => {
+      const a = active();
+      if (a === null) {
+        warnedFor = null;
+        return;
+      }
+      const encA = enc(a);
+      if (index().get(encA) !== undefined) {
+        warnedFor = null;
+        return;
+      }
+      if (warnedFor === encA) return;
+      warnedFor = encA;
       console.warn(
         `scopedByEntry: active() names non-member ${encA} — no owned world this ` +
           "tick (a removal race; a fallback should re-point active). Returning undefined.",
       );
-    }
-    return undefined;
-  });
+    });
+  }
 
   const get = (key: K): T | undefined => index().get(enc(key));
 
