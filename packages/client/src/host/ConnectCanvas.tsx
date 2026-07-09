@@ -38,8 +38,8 @@ import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import { activeHost, connectionInfo } from "../wire";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
-import { showsElapsed, tailOf } from "./connectCanvasView";
-import { DAEMON_STATE_PRESENTATION } from "./daemonPresentation";
+import { showsElapsed, tailOf } from "../kaval/connectCanvasView";
+import { DAEMON_STATE_PRESENTATION } from "../kaval/daemonPresentation";
 
 export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   const info = () => connectionInfo();
