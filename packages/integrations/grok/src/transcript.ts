@@ -49,35 +49,96 @@ export function contentToText(content: unknown): string {
 }
 
 /**
+ * Case-insensitive `indexOf` for a fixed needle. Avoids regex so the
+ * harness unwrap cannot trip CodeQL `js/polynomial-redos` (the previous
+ * `/<tag>[\s\S]*?<\/tag>/` form flagged high on PR #1738).
+ */
+function indexOfCi(haystack: string, needle: string, from = 0): number {
+  return haystack.toLowerCase().indexOf(needle.toLowerCase(), from);
+}
+
+/** Drop every `<tag>…</tag>` block (case-insensitive, fixed tag name).
+ *  Unclosed open tags drop from the open marker to end of string. */
+function stripBlockTag(s: string, tag: string): string {
+  const open = `<${tag}>`;
+  const close = `</${tag}>`;
+  let out = "";
+  let searchFrom = 0;
+  while (true) {
+    const openIdx = indexOfCi(s, open, searchFrom);
+    if (openIdx < 0) {
+      out += s.slice(searchFrom);
+      break;
+    }
+    out += s.slice(searchFrom, openIdx);
+    const afterOpen = openIdx + open.length;
+    const closeIdx = indexOfCi(s, close, afterOpen);
+    if (closeIdx < 0) break; // unclosed — drop remainder
+    searchFrom = closeIdx + close.length;
+  }
+  return out;
+}
+
+/** Extract every closed `<user_query>…</user_query>` body (index scan). */
+function extractUserQueries(raw: string): string[] {
+  const open = "<user_query>";
+  const close = "</user_query>";
+  const queries: string[] = [];
+  let searchFrom = 0;
+  while (true) {
+    const openIdx = indexOfCi(raw, open, searchFrom);
+    if (openIdx < 0) break;
+    const afterOpen = openIdx + open.length;
+    const closeIdx = indexOfCi(raw, close, afterOpen);
+    if (closeIdx < 0) break;
+    const inner = raw.slice(afterOpen, closeIdx).trim();
+    if (inner.length > 0) queries.push(inner);
+    searchFrom = closeIdx + close.length;
+  }
+  return queries;
+}
+
+/**
  * Grok stores the human prompt inside harness tags on disk, e.g.
  *   `<user_query>\nhi\n</user_query>`
  * often next to other non-prompt blocks (`<image_files>…`, compression
  * notices). The export must show what the human typed — not the wire
  * envelope. Prefer the joined inner text of every `<user_query>` block;
  * if none are present, strip known harness wrappers and leftover tags.
+ *
+ * Implemented with index scans only — no `[\s\S]*?` regex on library
+ * input (CodeQL `js/polynomial-redos`).
  */
 export function unwrapGrokUserText(raw: string): string {
-  const queries: string[] = [];
-  for (const m of raw.matchAll(
-    /<user_query>\s*([\s\S]*?)\s*<\/user_query>/gi,
-  )) {
-    const inner = (m[1] ?? "").trim();
-    if (inner.length > 0) queries.push(inner);
-  }
+  const queries = extractUserQueries(raw);
   if (queries.length > 0) return queries.join("\n\n");
 
   // No well-formed user_query — drop known non-prompt harness blocks and
   // any leftover open/close tags so a partial write never paints raw XML.
-  return raw
-    .replace(/<image_files>[\s\S]*?<\/image_files>/gi, "")
-    .replace(
-      /<image_compression_notice>[\s\S]*?<\/image_compression_notice>/gi,
-      "",
-    )
-    .replace(/<user_info>[\s\S]*?<\/user_info>/gi, "")
-    .replace(/<git_status>[\s\S]*?<\/git_status>/gi, "")
-    .replace(/<\/?user_query\b[^>]*>/gi, "")
-    .trim();
+  let out = raw;
+  for (const tag of [
+    "image_files",
+    "image_compression_notice",
+    "user_info",
+    "git_status",
+  ]) {
+    out = stripBlockTag(out, tag);
+  }
+  for (const marker of ["</user_query>", "<user_query>"]) {
+    let rebuilt = "";
+    let from = 0;
+    while (true) {
+      const i = indexOfCi(out, marker, from);
+      if (i < 0) {
+        rebuilt += out.slice(from);
+        break;
+      }
+      rebuilt += out.slice(from, i);
+      from = i + marker.length;
+    }
+    out = rebuilt;
+  }
+  return out.trim();
 }
 
 /** Map Grok tool basenames + JSON args onto the typed `ToolInput` union.
