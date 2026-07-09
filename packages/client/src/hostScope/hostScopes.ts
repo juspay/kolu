@@ -65,9 +65,3 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
  *  the empty view, exactly as the pre-W7 `hosts[hostKey()] ?? empty` did. */
 export const activeScope: Accessor<HostScope | undefined> = () =>
   scopes().active();
-
-/** A background peek at ANY host's owned world without activating it — reserved
- *  for W5's cross-host attention rollups. `undefined` until the host has been
- *  visited (owners are lazy) or if it is not a member. */
-export const scopeFor = (host: HostKey): HostScope | undefined =>
-  scopes().get(host);
