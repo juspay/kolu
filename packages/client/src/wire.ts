@@ -55,6 +55,7 @@ import type { WebSocket as PartySocket } from "partysocket";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { floorConnectionInfo } from "./host/connectionFloor.ts";
+import { createRejoinKeyedSub } from "./host/connectionRearm.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
@@ -242,14 +243,26 @@ const hostScoped = createRoot(() => {
     onError: (err: Error) =>
       toast.error(`Saved-session subscription error: ${err.message}`),
   });
+  // The membership authority — shared by the connection re-arm (below), the host-membership
+  // reconcile (further down), and HostSelectorStrip (deduped via the base-client ref-count).
+  const members = padiMap.entries.use({ onError: onHostMembershipError });
   // The ACTIVE host's link-health cell (W6 — "the honest connect"): its `phase`
   // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a
   // cold remote provision narrates its real phase instead of a mute "Connecting…".
-  // Re-keys with the entry on host switch, like the readouts above.
-  const connection = active.cells.connection.use({
-    onError: (err: Error) =>
-      toast.error(`Connection subscription error: ${err.message}`),
-  });
+  // Re-keys with the entry on host switch AND on a membership RE-JOIN (d1): the server ends
+  // the per-entry connection stream TYPED when the host flaps out of membership (a re-add
+  // mints a fresh session; the captured forward correctly orphans), and `useEntry` does not
+  // re-key on a same-key re-join — so without this the cell would strand at its last phase
+  // over a live transport. `createRejoinKeyedSub` rebuilds a fresh subscription on re-join.
+  const connection = createRejoinKeyedSub<ConnectionInfo>(
+    activeHost,
+    () => members.keys(),
+    (host) =>
+      padiMap.entry(host).cells.connection.use({
+        onError: (err: Error) =>
+          toast.error(`Connection subscription error: ${err.message}`),
+      }).value,
+  );
   // The terminal-list keys stream carries STREAM_RETRY via `unenrolledStreamCall` (the
   // #1591 health carve-out — a re-attach must never flicker the health gate). It is a
   // `createReactiveSubscription` keyed on `activeHost`, so a host switch tears down the old
@@ -293,8 +306,8 @@ const hostScoped = createRoot(() => {
   // SAME `onHostMembershipError` reference into the shared dedup slot's per-consumer registry,
   // so a membership-stream failure surfaces once (not twice) regardless of which consumer
   // registers first — each registered handler now fires independently either way, so sharing
-  // this reference is just to avoid a duplicate toast, never to dodge a crash.
-  const members = padiMap.entries.use({ onError: onHostMembershipError });
+  // this reference is just to avoid a duplicate toast, never to dodge a crash. (`members` is
+  // defined ABOVE — shared with the connection re-arm.)
   // Pending add-a-host intent: the host the user just added, to activate the frame it JOINS
   // membership. `hosts.add` resolves BEFORE the `entries` stream delivers the new member, so a
   // bare `setActiveHost` in the add `.then` reads as a departed host to the reconcile below and
@@ -356,7 +369,7 @@ export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
  *  asserting a live phase — mirroring surface-map's `floorOnLiveness` for `EntryStatus`, so the
  *  connection cell is no longer the one un-floored per-host authority (#1568 sibling). */
 export const connectionInfo = (): ConnectionInfo | undefined =>
-  floorConnectionInfo(hostScoped.connection.value(), padiMap.live());
+  floorConnectionInfo(hostScoped.connection(), padiMap.live());
 
 export const recentRepos = (): RecentRepo[] =>
   hostScoped.activityFeed.value()?.recentRepos ?? [];
