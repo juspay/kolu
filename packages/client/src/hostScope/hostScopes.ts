@@ -17,18 +17,21 @@
  *  those subs for instant switch-back — is consciously excluded from W7; see the
  *  atlas W7 stamp.)
  *
- *  The `scopedByEntry` call is built LAZILY, once, inside a `createRoot` that is
- *  never disposed (the sanctioned app-lifetime owner, the twin of `wire.ts`'s
- *  `hostScoped`). Lazy — rather than a module-const built at import — so the
- *  owner's `padiMap` read is decoupled from module-import ORDER: a unit test can
- *  stand up a mock `padiMap` (via `./wire`) before the owner first reads it, and
- *  production builds it on the first canvas render with no functional difference.
+ *  The `scopedByEntry` call is built through `createSharedRoot` — the in-repo
+ *  primitive for a lazy-once value inside a never-disposed `createRoot` (the
+ *  sanctioned app-lifetime owner); `wire.ts`'s `hostScoped` is the EAGER twin that
+ *  can't be lazy (it must establish its re-keying owner at import). Lazy — rather
+ *  than a module-const built at import — so the owner's `padiMap` read is decoupled
+ *  from module-import ORDER: a unit test can stand up a mock `padiMap` (via
+ *  `./wire`) before the owner first reads it, and production builds it on the first
+ *  canvas render with no functional difference.
  *  The facades (`useViewState`, `useCanvasViewport`, `useSessionRestore`,
  *  `TerminalCanvas`) read `activeScope()` as a WINDOW onto the owner. */
 
 import { type ScopedByEntry, scopedByEntry } from "@kolu/surface-map/client";
 import type { HostKey } from "kolu-common/hostKey";
-import { type Accessor, createRoot } from "solid-js";
+import type { Accessor } from "solid-js";
+import { createSharedRoot } from "../createSharedRoot";
 import { activeHost, padiMap } from "../wire";
 import { createCamera, type HostCamera } from "./createCamera";
 import {
@@ -44,19 +47,17 @@ export interface HostScope {
   restore: HostRestoreLatch;
 }
 
-let cached: ScopedByEntry<HostKey, HostScope> | undefined;
-const scopes = (): ScopedByEntry<HostKey, HostScope> =>
-  (cached ??= createRoot(() =>
-    scopedByEntry(
-      padiMap,
-      activeHost,
-      (host: HostKey, ctx): HostScope => ({
-        view: createViewState(host),
-        camera: createCamera(ctx),
-        restore: createSessionRestore(),
-      }),
-    ),
-  ));
+const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
+  scopedByEntry(
+    padiMap,
+    activeHost,
+    (host: HostKey, ctx): HostScope => ({
+      view: createViewState(host),
+      camera: createCamera(ctx),
+      restore: createSessionRestore(),
+    }),
+  ),
+);
 
 /** The ACTIVE host's owned world — `undefined` only during the removal race (the
  *  active host left the pool; `wire.ts`'s membership reconcile re-points
