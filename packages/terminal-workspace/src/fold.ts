@@ -228,6 +228,13 @@ export function fold(
   //    identity differs from what the fold last held — a session starts / finishes /
   //    a new one appears. A re-observation of the survivor kolu already knew is
   //    `!ctx.live`, so it never takes this arm.
+  //    The `agentIdentityChanged(cur.snapshot.agent, …)` conjunct is NOT belt-and-
+  //    suspenders with `ctx.live`: it is the fold's OWN identity fence. `ctx.live` is
+  //    the caller's frame-phase judgment (against a baseline the fold doesn't hold);
+  //    this fold bumps only on a change it can see against its OWN persisted
+  //    `snapshot.agent`, so it never trusts the caller's `ctx.live` blindly. Requiring
+  //    BOTH is this file's producer-fence thesis applied to itself — a self-contained
+  //    contract for any present-or-future caller, not a redundant AND to simplify away.
   if (ctx.live && agentIdentityChanged(cur.snapshot.agent, o.agent.value))
     return { ...next, memory: { ...next.memory, lastActivityAt: ctx.at } };
   //  - THROTTLED-output arm (the freeze fix): a same-identity DETAIL tick is the
