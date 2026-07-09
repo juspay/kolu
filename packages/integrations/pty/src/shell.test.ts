@@ -5,7 +5,7 @@
  * and asserting on the escape sequences they emit.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -32,6 +32,7 @@ const shellSubprocessHome = mkdtempSync(
 );
 
 afterAll(() => {
+  bashRunner.close();
   rmSync(shellSubprocessHome, { recursive: true, force: true });
 });
 
@@ -44,13 +45,109 @@ function shellSubprocessEnv(): NodeJS.ProcessEnv {
   };
 }
 
-/** Run a script in a clean bash subshell and return stdout. */
-function runBash(script: string, cwd = "/tmp"): string {
-  return execFileSync("bash", ["-c", script], {
-    cwd,
-    encoding: "utf8",
+const shQuote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+
+class BashRunner {
+  private readonly child = spawn("bash", ["--noprofile", "--norc"], {
     env: shellSubprocessEnv(),
+    stdio: ["pipe", "pipe", "pipe"],
   });
+  private stdout = "";
+  private stderr = "";
+  private nextId = 0;
+  private pending:
+    | {
+        marker: string;
+        resolve: (out: string) => void;
+        reject: (err: Error) => void;
+      }
+    | undefined;
+  private readonly queue: Array<{
+    cwd: string;
+    script: string;
+    resolve: (out: string) => void;
+    reject: (err: Error) => void;
+  }> = [];
+
+  constructor() {
+    this.child.stdout.setEncoding("utf8");
+    this.child.stderr.setEncoding("utf8");
+    this.child.stdout.on("data", (chunk: string) => {
+      this.stdout += chunk;
+      this.drain();
+    });
+    this.child.stderr.on("data", (chunk: string) => {
+      this.stderr += chunk;
+    });
+    this.child.on("exit", (code, signal) => {
+      const err = new Error(
+        `bash exited unexpectedly: code=${code} signal=${signal}`,
+      );
+      this.pending?.reject(err);
+      for (const job of this.queue) job.reject(err);
+      this.queue.length = 0;
+      this.pending = undefined;
+    });
+  }
+
+  run(script: string, cwd = "/tmp"): Promise<string> {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ cwd, script, resolve, reject });
+      this.pump();
+    });
+  }
+
+  close(): void {
+    this.child.stdin.end("exit\n");
+  }
+
+  private pump(): void {
+    if (this.pending || this.queue.length === 0) return;
+    const job = this.queue.shift();
+    if (!job) return;
+    const marker = `__KOLU_BASH_DONE_${process.pid}_${this.nextId++}__`;
+    this.pending = {
+      marker,
+      resolve: job.resolve,
+      reject: job.reject,
+    };
+    this.child.stdin.write(
+      `(\ncd ${shQuote(job.cwd)} || exit\n${job.script}\n)\n` +
+        `__kolu_status=$?\nprintf '${marker}:%s\\n' "$__kolu_status"\n`,
+    );
+  }
+
+  private drain(): void {
+    const job = this.pending;
+    if (!job) return;
+    const markerStart = this.stdout.indexOf(`${job.marker}:`);
+    if (markerStart === -1) return;
+    const statusStart = markerStart + job.marker.length + 1;
+    const statusEnd = this.stdout.indexOf("\n", statusStart);
+    if (statusEnd === -1) return;
+
+    const out = this.stdout.slice(0, markerStart);
+    const status = Number(this.stdout.slice(statusStart, statusEnd));
+    const stderr = this.stderr;
+    this.stdout = this.stdout.slice(statusEnd + 1);
+    this.stderr = "";
+    this.pending = undefined;
+
+    if (status === 0) {
+      job.resolve(out);
+    } else {
+      job.reject(new Error(`bash script exited ${status}\n${stderr}`));
+    }
+    this.pump();
+    this.drain();
+  }
+}
+
+const bashRunner = new BashRunner();
+
+/** Run a script in a clean bash subshell and return stdout. */
+function runBash(script: string, cwd = "/tmp"): Promise<string> {
+  return bashRunner.run(script, cwd);
 }
 
 /** Run a script in a clean zsh subshell and return stdout. Skips if zsh unavailable. */
@@ -165,8 +262,8 @@ describe("cleanEnv — kolu's own internal env never reaches a hosted shell", ()
 describe("OSC7_FN", () => {
   const hostnameStub = "hostname() { printf test-host; }\n";
 
-  it("emits OSC 7 with file:// URL containing hostname and cwd", () => {
-    const out = runBash(`${OSC7_FN}; ${hostnameStub}__kolu_osc7`, "/tmp");
+  it("emits OSC 7 with file:// URL containing hostname and cwd", async () => {
+    const out = await runBash(`${OSC7_FN}; ${hostnameStub}__kolu_osc7`, "/tmp");
     // Format: ESC ] 7 ; file://<hostname><pwd> ESC \
     // On macOS /tmp resolves to /private/tmp, so the path may end in
     // /tmp but contain /private as a prefix — accept any path ending
@@ -174,8 +271,8 @@ describe("OSC7_FN", () => {
     expect(out).toMatch(/^\x1b\]7;file:\/\/test-host.*\/tmp\x1b\\$/);
   });
 
-  it("reflects current PWD not the initial cwd", () => {
-    const out = runBash(
+  it("reflects current PWD not the initial cwd", async () => {
+    const out = await runBash(
       `${OSC7_FN}; ${hostnameStub}cd /; __kolu_osc7; cd /tmp; __kolu_osc7`,
       "/tmp",
     );
@@ -195,34 +292,41 @@ describe("OSC2_PREEXEC_FN", () => {
   // Order is NOT load-bearing — onCommandRun in terminals.ts publishes
   // its own reconcile trigger after stashing. See shell.ts docstring.
 
-  it("emits OSC 2 with the passed command string", () => {
-    const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);
+  it("emits OSC 2 with the passed command string", async () => {
+    const out = await runBash(
+      `${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`,
+    );
     expect(out).toContain("\x1b]2;vim foo.ts\x1b\\");
   });
 
-  it("emits OSC 633;E with the passed command string", () => {
-    const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);
+  it("emits OSC 633;E with the passed command string", async () => {
+    const out = await runBash(
+      `${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`,
+    );
     expect(out).toContain("\x1b]633;E;vim foo.ts\x1b\\");
   });
 
-  it("handles commands with special characters", () => {
-    const out = runBash(
+  it("handles commands with special characters", async () => {
+    const out = await runBash(
       `${OSC2_PREEXEC_FN}; __kolu_preexec 'grep "needle" file.txt'`,
     );
     expect(out).toContain('\x1b]2;grep "needle" file.txt\x1b\\');
     expect(out).toContain('\x1b]633;E;grep "needle" file.txt\x1b\\');
   });
 
-  it("emits empty payload for empty command", () => {
-    const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec ""`);
+  it("emits empty payload for empty command", async () => {
+    const out = await runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec ""`);
     expect(out).toContain("\x1b]2;\x1b\\");
     expect(out).toContain("\x1b]633;E;\x1b\\");
   });
 });
 
 describe("OSC2_PRECMD_BASH", () => {
-  it("emits OSC 2 with the current directory from dirs", () => {
-    const out = runBash(`${OSC2_PRECMD_BASH}; __kolu_title_precmd`, "/tmp");
+  it("emits OSC 2 with the current directory from dirs", async () => {
+    const out = await runBash(
+      `${OSC2_PRECMD_BASH}; __kolu_title_precmd`,
+      "/tmp",
+    );
     // Format: ESC ] 2 ; <path> ESC \
     expect(out).toMatch(/^\x1b\]2;[^\x1b]*\x1b\\$/);
     expect(out).toContain("tmp");
@@ -233,31 +337,31 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
   /** Common prelude that sets up preexec fn + guard. */
   const prelude = `${OSC2_PREEXEC_FN}\n${OSC2_PREEXEC_BASH_GUARD}\n`;
 
-  it("arm sets the ready flag", () => {
-    const out = runBash(
+  it("arm sets the ready flag", async () => {
+    const out = await runBash(
       `${prelude}__kolu_preexec_arm; printf 'ready=%s\\n' "$__kolu_preexec_ready" >&2`,
     );
     // stdout is empty (no OSC), stderr has ready=1 — but execFileSync only returns stdout.
     // Re-run capturing both streams:
-    const combined = execFileSyncBoth(
+    const combined = await execFileSyncBoth(
       `${prelude}__kolu_preexec_arm; echo "ready=$__kolu_preexec_ready"`,
     );
     expect(combined).toContain("ready=1");
     expect(out).toBe("");
   });
 
-  it("dispatch is no-op when ready flag is empty (no DEBUG trap installed)", () => {
+  it("dispatch is no-op when ready flag is empty (no DEBUG trap installed)", async () => {
     // Without arm(), dispatch should return immediately with no output
-    const out = runBash(`${prelude}__kolu_preexec_dispatch; echo "done"`);
+    const out = await runBash(`${prelude}__kolu_preexec_dispatch; echo "done"`);
     // "done" is printed to stdout; the OSC 2 line should NOT appear
     expect(out).not.toContain("\x1b]2;");
     expect(out).toContain("done");
   });
 
-  it("DEBUG trap emits for user command when armed via PS0", () => {
+  it("DEBUG trap emits for user command when armed via PS0", async () => {
     // Real integration: install DEBUG trap + arm manually (PS0 simulated),
     // then run a no-op command. The trap fires with BASH_COMMAND set by bash itself.
-    const out = runBash(
+    const out = await runBash(
       `${prelude}` +
         `trap '__kolu_preexec_dispatch' DEBUG\n` +
         `__kolu_preexec_arm\n` +
@@ -273,11 +377,11 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
     expect(titles).toContain("true");
   });
 
-  it("DEBUG trap does NOT emit when not armed (PROMPT_COMMAND simulation)", () => {
+  it("DEBUG trap does NOT emit when not armed (PROMPT_COMMAND simulation)", async () => {
     // Simulate the state after a user command: ready flag was set, dispatch
     // was called, flag got cleared. Now a PROMPT_COMMAND hook runs — no arm,
     // flag stays "". Verify no OSC 2 is emitted.
-    const out = runBash(
+    const out = await runBash(
       `${prelude}` +
         `trap '__kolu_preexec_dispatch' DEBUG\n` +
         // No arm — simulates PROMPT_COMMAND context
@@ -289,13 +393,13 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
     expect(out).not.toContain("__zoxide_hook");
   });
 
-  it("readline widget (fzf Ctrl+R) does not consume the ready flag", () => {
+  it("readline widget (fzf Ctrl+R) does not consume the ready flag", async () => {
     // Regression: when fzf's Ctrl+R binding fires, BASH_COMMAND is set to
     // `__fzf_history__` — a readline widget, not a user command. Before
     // the `__*` guard, dispatch would clear the ready flag for it, causing
     // the user's NEXT real command to see flag="" and get silently dropped
     // (the "had to run it twice" bug).
-    const out = runBash(
+    const out = await runBash(
       `${prelude}` +
         `trap '__kolu_preexec_dispatch' DEBUG\n` +
         `__fzf_history__() { :; }\n` +
@@ -314,10 +418,10 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
     expect(titles).toContain("true");
   });
 
-  it("full flow: user command emitted, PROMPT_COMMAND hook skipped", () => {
+  it("full flow: user command emitted, PROMPT_COMMAND hook skipped", async () => {
     // Most realistic test: install trap, simulate user command (arm + run),
     // then simulate PROMPT_COMMAND hook (no arm + run another command).
-    const out = runBash(
+    const out = await runBash(
       `${prelude}` +
         `trap '__kolu_preexec_dispatch' DEBUG\n` +
         `__zoxide_hook() { :; }\n` +
@@ -339,8 +443,8 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
   // `PS0='$(__kolu_preexec_arm)'` would set the flag in a subshell that
   // immediately exits — the parent shell's flag stays empty and dispatch
   // never emits. We now arm via PROMPT_COMMAND (end) instead.
-  it("regression: arming via PS0 subshell does NOT work (wrong approach)", () => {
-    const out = runBash(
+  it("regression: arming via PS0 subshell does NOT work (wrong approach)", async () => {
+    const out = await runBash(
       `${prelude}` +
         `trap '__kolu_preexec_dispatch' DEBUG\n` +
         // BAD: PS0 runs arm in a subshell, flag never reaches parent
@@ -357,10 +461,10 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
     expect(out).not.toContain("\x1b]2;true");
   });
 
-  it("correct approach: arming at end of PROMPT_COMMAND reaches parent", () => {
+  it("correct approach: arming at end of PROMPT_COMMAND reaches parent", async () => {
     // Simulate the real PROMPT_COMMAND cycle: arm runs as the last step of
     // PROMPT_COMMAND, which executes in the parent shell (no subshell).
-    const out = runBash(
+    const out = await runBash(
       `${prelude}` +
         `trap '__kolu_preexec_dispatch' DEBUG\n` +
         // PROMPT_COMMAND = "...;__kolu_preexec_arm" (simplified to just arm)
@@ -382,12 +486,9 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
 });
 
 /** Like runBash but returns combined stdout+stderr. */
-function execFileSyncBoth(script: string): string {
+async function execFileSyncBoth(script: string): Promise<string> {
   try {
-    return execFileSync("bash", ["-c", `${script} 2>&1`], {
-      encoding: "utf8",
-      env: shellSubprocessEnv(),
-    });
+    return await runBash(`${script} 2>&1`);
   } catch {
     return "";
   }
