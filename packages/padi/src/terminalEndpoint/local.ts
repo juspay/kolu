@@ -24,21 +24,22 @@
 
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
+  agentIdentityChanged,
   type CommandRunSample,
   type FoldCtx,
   fold,
   restoreTargetEqual,
   restoreTargetOf,
-  seedRecencyGate,
+  seedRecencyBaseline,
   type SensorSignals,
   seedSnapshot,
   startSensors,
-  stepRecencyGate,
   type TerminalEvent,
   type TerminalState,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
 import type {
+  AgentIdentity,
   TerminalId,
   TerminalSnapshot,
 } from "@kolu/terminal-workspace/schema";
@@ -746,29 +747,37 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     };
 
-    // Recency frame phase — the `ctx.live` the fold reads. On ADOPT / resuming-wake
-    // the run re-attaches to a survivor (an `exact` restore target): its FIRST agent
-    // observation re-reports state that came to be during downtime at an unknown
-    // time, so the gate holds it back (not live → no bump → the saved recency stands
-    // across the restart). Every observation after it is a live delta; a fresh spawn
-    // has no survivor, so the gate is open from the first. The fold then decides the
-    // stamp — an identity change always, a same-identity OUTPUT tick throttled — so a
-    // stable session's recency now tracks its output instead of freezing. This
+    // Recency frame phase, decided BY VALUE against the agent identity the producer
+    // last knew, seeded from the durable restore target: an adopt / resuming-wake
+    // re-resolves the SAME survivor (`exact` target) → matches the baseline → not live
+    // → the saved recency stands across the restart, however many same-identity settle
+    // emits land while its detail resolves; a fresh spawn seeds `null`, so its first
+    // agent is genuinely new and bumps. The fold then decides the stamp — an identity
+    // change always, a same-identity OUTPUT tick throttled — so a stable session's
+    // recency tracks its output instead of freezing. `runStartedAt` floors that
+    // throttle so the survivor-settle burst can't false-bump the saved recency. This
     // replaces the old 1.5 s timer whose race could restamp saved recency.
-    let recencyGate = seedRecencyGate(seedEntry.meta.restoreTarget);
+    let recencyBaseline: AgentIdentity | null = seedRecencyBaseline(
+      seedEntry.meta.restoreTarget,
+    );
+    const runStartedAt = Date.now();
 
     const emit = (o: TerminalEvent): void => {
       const before = current;
-      // `ctx.live` is the frame phase — a genuine live observation vs the one adopt
-      // re-observation the gate holds back. Only an authoritative agent value carries
-      // recency, so only it steps the gate.
+      // The frame phase is a VALUE comparison on the agent identity: a re-resolved
+      // identity equal to the baseline is a re-observation (not live); a different one
+      // is new activity, and the baseline advances to it. Only an authoritative agent
+      // value carries recency.
       let live = false;
       if (o.kind === "agent" && o.agent !== "unknown") {
-        const stepped = stepRecencyGate(recencyGate);
-        live = stepped.live;
-        recencyGate = stepped.gate;
+        const next = o.agent.value;
+        live = agentIdentityChanged(recencyBaseline, next);
+        if (live)
+          recencyBaseline = next
+            ? { kind: next.kind, sessionId: next.sessionId }
+            : null;
       }
-      const ctx: FoldCtx = { live, at: Date.now() };
+      const ctx: FoldCtx = { live, at: Date.now(), runStartedAt };
       current = fold(current, o, ctx);
       // Cross-terminal MRUs (kolu's, fold-side) track the OBSERVATION itself — a git
       // context seen, a (non-replayed) agent command run — NOT the fold delta, so they

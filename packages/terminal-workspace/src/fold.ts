@@ -31,7 +31,10 @@ import type {
  *  publish + session autosave on each). 60s is the compromise: an actively
  *  producing terminal's recency never drifts more than a window stale (the dock's
  *  "Nh ago" chip stays honest), while the write happens at most once a minute per
- *  terminal. An IDENTITY change is NOT throttled — it stamps immediately. */
+ *  terminal. An IDENTITY change is NOT throttled — it stamps immediately. The window
+ *  is also the coalescing window for the adopt survivor-settle (floored at the sensor
+ *  run's start): right after an adopt, same-identity output is held for one window
+ *  before it may re-stamp, so the settle burst can't false-bump the saved recency. */
 export const RECENCY_THROTTLE_MS = 60_000;
 
 /** Apply one observation to the OBSERVED half (last-write-wins). Shared by kolu's
@@ -83,41 +86,24 @@ export function agentIdentityChanged(
   return prev?.kind !== next?.kind || prev?.sessionId !== next?.sessionId;
 }
 
-/** The producer's transient RECENCY GATE — the one bit of state deciding whether a
- *  just-started sensor run's FIRST agent observation is live. On ADOPT (kolu
- *  re-attaches to a survivor whose agent state evolved during downtime at an
- *  unknown past time) that first observation REPORTS pre-existing state, not
- *  activity happening now — so it must not move recency; the saved `lastActivityAt`
- *  is the truth. Only the deltas AFTER it are live. A FRESH spawn has no downtime,
- *  so its first agent observation is already live. Opening the gate after the adopt
- *  re-observation is what lets a stable-session terminal's recency advance at all —
- *  the fold's throttled output bump then takes over. Transient: never persisted (a
- *  memory field would let the producer overwrite a remembered fact; the fence is
- *  the emit type). Extracted from padi's `emit` so the adopt-vs-fresh recency pins
- *  live at the pure, testable layer beside `fold`. */
-export type RecencyGate = { readonly awaitingAdoptReObservation: boolean };
-
-/** Seed the gate from the run's restore target: CLOSED (the next agent observation
- *  is the adopt re-observation, held back) iff this run adopted a live agent — an
- *  `exact` target. A fresh spawn / bare shell / migrated-legacy target has no
- *  survivor to re-observe, so the gate starts OPEN (already live). */
-export function seedRecencyGate(
+/** Seed the producer's transient RECENCY BASELINE — the agent identity the producer
+ *  last knew, so {@link agentIdentityChanged} against it says "is this observation
+ *  new activity or a re-observation of what we already knew?". On ADOPT / resuming
+ *  wake the run re-attaches to a SURVIVOR (an `exact` restore target), so the baseline
+ *  is that survivor's identity: its re-observation matches → not live → the saved
+ *  recency stands, however MANY same-identity settle emits the producer fires while
+ *  it resolves the survivor's detail. A genuinely-NEW agent (the survivor finished
+ *  during downtime and the user launched another) differs from the baseline → live →
+ *  it bumps. A fresh spawn / bare shell / migrated-legacy target has no survivor, so
+ *  the baseline is `null` and the first agent is genuinely new. This is identity-based,
+ *  not count-based: it survives the multi-emit adopt settle and never swallows a later
+ *  new-agent launch. Transient producer state (never persisted — the fence is the emit
+ *  type). The re-seat on a live change is the caller's (padi's `emit`), threading it
+ *  like `current`. */
+export function seedRecencyBaseline(
   restoreTarget: RestoreTarget | undefined,
-): RecencyGate {
-  return { awaitingAdoptReObservation: restoreTarget?.kind === "exact" };
-}
-
-/** Step the gate on ONE authoritative agent observation. While closed, this
- *  observation is the adopt re-observation → `live: false`, and the gate OPENS so
- *  every later observation is a live delta. While open, every observation is live.
- *  Only the FIRST observation is ever held. */
-export function stepRecencyGate(gate: RecencyGate): {
-  live: boolean;
-  gate: RecencyGate;
-} {
-  return gate.awaitingAdoptReObservation
-    ? { live: false, gate: { awaitingAdoptReObservation: false } }
-    : { live: true, gate };
+): AgentIdentity | null {
+  return restoreTarget?.kind === "exact" ? restoreTarget.agent : null;
 }
 
 /** kolu's RESTORE TARGET, derived from the folded state — the fold OWNS this
@@ -175,11 +161,16 @@ export function restoreTargetEqual(
 }
 
 /** Liveness + clock, kolu's own facts passed as VALUES (never a thunk the reducer
- *  may fire): `live` — true iff this came in a DELTA frame (a snapshot
- *  re-observation is not "new activity", so it never bumps recency); `at` — kolu
- *  samples its OWN clock ONCE at intake, so a remote producer's wall clock is never
- *  imported as ordering truth. */
-export type FoldCtx = { live: boolean; at: number };
+ *  may fire): `live` — true iff this is NEW activity (a change vs the producer's
+ *  recency baseline), not a re-observation of the survivor kolu already knew; `at` —
+ *  kolu samples its OWN clock ONCE at intake, so a remote producer's wall clock is
+ *  never imported as ordering truth; `runStartedAt` — kolu's clock at THIS sensor
+ *  run's start (the adopt/spawn moment). It floors the throttle clock so the adopt
+ *  SETTLE — a burst of same-identity emits clustered at run start while the producer
+ *  resolves the survivor's detail — coalesces against `runStartedAt` rather than
+ *  false-bumping against a week-old saved stamp. All three are same-host (`Date.now`
+ *  on the owning padi), so the `at - max(prior, runStartedAt)` delta is well-ordered. */
+export type FoldCtx = { live: boolean; at: number; runStartedAt: number };
 
 /** Fold one framed observation into a NEW `TerminalState` — nothing is mutated.
  *  Five snapshot fields: last-write-wins (via {@link foldSnapshot}). Two memory
@@ -205,23 +196,25 @@ export function fold(
     return snapshot === cur.snapshot ? cur : { ...cur, snapshot };
   }
   // An authoritative agent `{ value }` (incl. a shell-idle null = session ended).
-  // A re-observation replay (`!ctx.live` — the frame phase, not a producer flag) is
-  // never activity, so it never moves recency.
-  const next: TerminalState = { ...cur, snapshot };
-  if (!ctx.live) return next;
   // RECENCY, two arms that COMPOSE, kolu's clock stamps both:
-  //  - an IDENTITY change (a session starts / finishes / a new one appears) is a
-  //    discrete event — stamp it always (#1626);
-  //  - OTHERWISE a same-identity DETAIL tick is the agent producing OUTPUT — stamp
-  //    it too, but THROTTLED so the ~1s firehose doesn't recreate the per-tick write
-  //    noise #1626 removed. `lastActivityAt` IS the throttle clock (no separate
-  //    timer/state): a null (never active) or a stamp older than the window is due.
-  const prior = cur.memory.lastActivityAt;
-  const due =
-    agentIdentityChanged(cur.snapshot.agent, o.agent.value) ||
-    prior === null ||
-    ctx.at - prior >= RECENCY_THROTTLE_MS;
-  return due
+  const next: TerminalState = { ...cur, snapshot };
+  //  - IDENTITY-change arm (#1626, unthrottled): NEW activity (`ctx.live`) whose
+  //    identity differs from what the fold last held — a session starts / finishes /
+  //    a new one appears. A re-observation of the survivor kolu already knew is
+  //    `!ctx.live`, so it never takes this arm.
+  if (ctx.live && agentIdentityChanged(cur.snapshot.agent, o.agent.value))
+    return { ...next, memory: { ...next.memory, lastActivityAt: ctx.at } };
+  //  - THROTTLED-output arm (the freeze fix): a same-identity DETAIL tick is the
+  //    agent producing OUTPUT. Stamp it too, but only once per RECENCY_THROTTLE_MS so
+  //    the ~1s firehose doesn't recreate the per-tick write noise #1626 removed. The
+  //    throttle clock is `max(prior, runStartedAt)`, NOT `prior` alone: right after an
+  //    adopt `prior` is the (possibly week-old) SAVED stamp, and the survivor-settle
+  //    burst would each read "overdue" against it and false-bump to now — flooring at
+  //    `runStartedAt` coalesces that burst (it is clustered at run start) while a
+  //    long-running session still throttles against its own last stamp.
+  const prior = cur.memory.lastActivityAt ?? 0;
+  const since = Math.max(prior, ctx.runStartedAt);
+  return ctx.at - since >= RECENCY_THROTTLE_MS
     ? { ...next, memory: { ...next.memory, lastActivityAt: ctx.at } }
     : next;
 }
