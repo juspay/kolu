@@ -1,0 +1,52 @@
+# Build the default package and push its closure to the shared Attic cache
+# (https://cache.nixos.asia/oss). The flake already lists this cache as a
+# substituter, so a green push here warms CI boxes and local `nix build`s.
+name: nix-cache
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege — this job only needs the checkout and ATTIC_TOKEN secret.
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin by commit (CodeQL: unpinned third-party action). v31 → 889f318.
+      - uses: nixbuild/nix-quick-install-action@889f3180bb5f064ee9e3201428d04ae9e41d54ad # v31
+        with:
+          nix_conf: |
+            extra-substituters = https://cache.nixos.asia/oss
+            extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
+            accept-flake-config = true
+
+      - name: Install attic
+        # Prefer `install` — nix-quick-install's Nix still uses that subcommand
+        # (newer Nix renamed it to `add`; ryanccn/attic-action only tries `add`).
+        run: nix profile install nixpkgs#attic-client
+
+      - name: Login to Attic
+        env:
+          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+        run: attic login ci https://cache.nixos.asia "$ATTIC_TOKEN"
+
+      - name: Build
+        id: build
+        run: |
+          out=$(nix build -L --print-out-paths --no-link)
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+          echo "Built: $out"
+
+      - name: Push to Attic
+        run: attic push ci:oss "${{ steps.build.outputs.out }}"
