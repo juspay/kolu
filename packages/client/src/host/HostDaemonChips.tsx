@@ -23,7 +23,7 @@ import {
 } from "@kolu/padi/surface";
 import type { EntryState } from "@kolu/surface-map";
 import type { HostKey } from "kolu-common/hostKey";
-import type { PadiLink } from "kolu-common/surface";
+import type { PadiLink, ProcessRss } from "kolu-common/surface";
 import type {
   PadiEntryStatus,
   SkewVersionPair,
@@ -130,6 +130,29 @@ function useHostKaval(host: HostKey): {
   return { live, daemon };
 }
 
+/** The ONE per-host `processMemory` reader — the Padi and Kaval sub-chips read
+ *  `.padi` and `.kaval` off the SAME cell, so sharing one subscription (and one
+ *  `onError`) means a single memory-poll failure surfaces ONE toast, not one
+ *  per sub-chip. Same reader-as-shared-value discipline the daemonStatus reader
+ *  already follows. */
+function useHostProcessMemory(host: HostKey) {
+  return padiMap.entry(host).cells.processMemory.use({
+    onError: (err: Error) =>
+      toast.error(`Padi/kaval memory error: ${err.message}`),
+  });
+}
+
+/** The 4-arm process-RSS readout → tooltip text, in ONE place: the Padi and
+ *  Kaval tips rendered a byte-identical `match(...).exhaustive()` block each. */
+function formatProcessMemoryText(m: ProcessRss | undefined): string {
+  return match(m)
+    .with({ status: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
+    .with({ status: "error" }, () => "memory poll failed")
+    .with({ status: "absent" }, () => "memory unavailable")
+    .with(P.nullish, () => "memory unavailable")
+    .exhaustive();
+}
+
 /** Presentational Padi mark — logo + status dot for a host. Takes the ALREADY-
  *  constructed {@link useHostPadi} reader from its parent rather than opening its
  *  own: the static path and the interactive sub-chip each build the reader once
@@ -216,18 +239,16 @@ function useDaemonMarkOpen(host: HostKey): {
 
 /** The Padi sub-chip for one host — icon + that host's entry-state dot.
  *  Click switches to that host, then opens the complete info panel. */
-const PadiSubChip: Component<{ host: HostKey }> = (props) => {
+const PadiSubChip: Component<{
+  host: HostKey;
+  mem: ReturnType<typeof useHostProcessMemory>;
+}> = (props) => {
   const { open, setOpen, openForHost } = useDaemonMarkOpen(props.host);
   let triggerEl!: HTMLButtonElement;
   const padi = useHostPadi(props.host);
   // Per-host identity (version for the tip).
   const identity = padiMap.entry(props.host).cells.identity.use({
     onError: (err: Error) => toast.error(`Padi identity error: ${err.message}`),
-  });
-  // Per-host process memory (tip only).
-  const processMemory = padiMap.entry(props.host).cells.processMemory.use({
-    onError: (err: Error) =>
-      toast.error(`Padi/kaval memory error: ${err.message}`),
   });
   const padiVersion = (): string | undefined =>
     identity.value()?.surfaceVersion;
@@ -245,13 +266,7 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
     // being `connected`, so mirror that here.
     if (!padi.live() || padi.entry().kind !== "connected")
       return "memory unavailable";
-    const m = processMemory.value()?.padi;
-    return match(m)
-      .with({ status: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
-      .with({ status: "error" }, () => "memory poll failed")
-      .with({ status: "absent" }, () => "memory unavailable")
-      .with(P.nullish, () => "memory unavailable")
-      .exhaustive();
+    return formatProcessMemoryText(props.mem.value()?.padi);
   };
   const padiTip = (): string => {
     const skew = skewPairFor(props.host);
@@ -303,15 +318,14 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
 
 /** The Kaval sub-chip for one host — icon + that host's daemon-state dot.
  *  Click switches to that host, then opens the complete info panel. */
-const KavalSubChip: Component<{ host: HostKey }> = (props) => {
+const KavalSubChip: Component<{
+  host: HostKey;
+  mem: ReturnType<typeof useHostProcessMemory>;
+}> = (props) => {
   const { open, setOpen, openForHost } = useDaemonMarkOpen(props.host);
   let triggerEl!: HTMLButtonElement;
   const clockNow = getClockNow();
   const kaval = useHostKaval(props.host);
-  const processMemory = padiMap.entry(props.host).cells.processMemory.use({
-    onError: (err: Error) =>
-      toast.error(`Padi/kaval memory error: ${err.message}`),
-  });
   const padiStatus = padiMap.entry(props.host).cells.status.use({
     onError: (err: Error) => toast.error(`Kaval status error: ${err.message}`),
   });
@@ -335,13 +349,7 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
     // separate `!daemonTransportLive()` gate here would be unreachable.
     if (!kaval.live() || kaval.daemon()?.state !== "connected")
       return "memory unavailable";
-    const m = processMemory.value()?.kaval;
-    return match(m)
-      .with({ status: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
-      .with({ status: "error" }, () => "memory poll failed")
-      .with({ status: "absent" }, () => "memory unavailable")
-      .with(P.nullish, () => "memory unavailable")
-      .exhaustive();
+    return formatProcessMemoryText(props.mem.value()?.kaval);
   };
   // The at-a-glance staleness fact for THIS host's kaval — drives both the
   // amber update pip on the mark (glanceable, no hover) and the tooltip text.
@@ -422,6 +430,21 @@ const KavalStaticMark: Component<{ host: HostKey }> = (props) => {
   );
 };
 
+/** The interactive fill of one host's slot: builds the SHARED per-host
+ *  process-memory reader ONCE and hands it to both sub-chips (which each read a
+ *  different member off the same cell), so the pair opens one `processMemory`
+ *  subscription — and fires one poll-failure toast — not two. Mounts only in
+ *  the slot's `"interactive"` mode, so the measuring/static rows never open it. */
+const InteractiveDaemonMarks: Component<{ host: HostKey }> = (props) => {
+  const mem = useHostProcessMemory(props.host);
+  return (
+    <>
+      <PadiSubChip host={props.host} mem={mem} />
+      <KavalSubChip host={props.host} mem={mem} />
+    </>
+  );
+};
+
 /** Fixed-width dual-daemon slot for one host chip. Its THREE reachable states
  *  are one named `mode`, never a pair of booleans (the old `measure ⊗
  *  interactive` left `measure && interactive` type-expressible yet meaningless):
@@ -457,8 +480,7 @@ export const HostDualDaemonSlot: Component<{
             </>
           }
         >
-          <PadiSubChip host={props.host} />
-          <KavalSubChip host={props.host} />
+          <InteractiveDaemonMarks host={props.host} />
         </Show>
       </Show>
     </div>

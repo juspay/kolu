@@ -34,6 +34,7 @@ import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
+import { useServerIdentity } from "./useServerIdentity";
 import SettingsPopover from "./settings/SettingsPopover";
 import {
   DockToggleIcon,
@@ -56,10 +57,14 @@ const toggleBtnClass =
 const ChromeBar: Component<{
   status: WsStatus;
   onOpenPalette: () => void;
-  themeColor?: string;
 }> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
+  // The hostname-derived PWA theme tint — read straight off the
+  // `useServerIdentity` singleton (same as AboutDialog), not drilled through a
+  // prop: `useServerIdentity` was extracted precisely so the layout shell stops
+  // threading identity fields (see its module doc + no-preference-prop-drilling).
+  const { themeColor } = useServerIdentity();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
@@ -84,7 +89,7 @@ const ChromeBar: Component<{
   // panel-width right-offset to maintain anymore; the only inline style is the
   // hostname-derived PWA theme tint.
   const chromeStyle = (): JSX.CSSProperties =>
-    props.themeColor ? { "--chrome-theme-color": props.themeColor } : {};
+    themeColor() ? { "--chrome-theme-color": themeColor() } : {};
 
   return (
     <header
@@ -95,7 +100,7 @@ const ChromeBar: Component<{
       // rules key off THIS attribute — not a `[style*="--chrome-theme-color"]`
       // substring match on the serialized inline style, which was brittle to any
       // reformat/rename of that custom property.
-      data-themed={props.themeColor ? "" : undefined}
+      data-themed={themeColor() ? "" : undefined}
       // Solid chrome owns this strip's pointer area. Individual controls still
       // carry their own pointer/focus classes, but empty header space should
       // behave like header, not click through to the canvas behind it.

@@ -23,7 +23,6 @@
  * list — koluSurface's `daemonInventory.localScan`, in `./useDaemonInventory`.
  */
 
-import type { PadiIdentity } from "@kolu/padi/surface";
 import type { RunningKaval, RunningPadi } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
@@ -39,44 +38,6 @@ const sub = createRoot(() =>
       toast.error(`Host inventory error: ${err.message}`),
   }),
 );
-
-// padi's OWN identity — same host-scoped `useEntry(activeHost)` idiom, its own
-// standing subscription (a distinct cell from `hostInventory` above).
-const identitySub = createRoot(() =>
-  padiMap.useEntry(activeHost).cells.identity.use({
-    onError: (err: Error) => toast.error(`Padi identity error: ${err.message}`),
-  }),
-);
-
-/** The ACTIVE host's own padi identity — its DECLARED build commit (`null` is a
- *  genuine fact padi itself declared: a dev/off-nix build with no commit — never a
- *  placeholder for "not arrived yet"), padiSurface version, and RAW (foreign-clock)
- *  boot epoch. `undefined` until the cell's first frame lands: THIS is the pending
- *  state a render site must fold into "warming" — never synthesize a dash for it by
- *  reading `?.commit` off an absent identity (see `padiPresentation.ts`'s
- *  `toPadiPresence`, which takes this whole value so "pending" (undefined) and
- *  "declared no commit" (`{ commit: null, ... }`) can never be conflated into one
- *  `??`). Use {@link activePadiStartedAt} for the CLOCK-REPROJECTED boot time — never
- *  read `.startedAt` off this directly for an uptime computation. */
-export function activePadiIdentity(): PadiIdentity | undefined {
-  return identitySub.value();
-}
-
-/** The ACTIVE host's padi boot time, reprojected onto the BROWSER's clock via the
- *  entry's `clock.toLocal` — padi's `identity.startedAt` is stamped on padi's OWN
- *  clock (a RAW foreign epoch for any host but the local one), so computing
- *  `browserNow − rawStartedAt` directly would mix two clocks and report a bogus
- *  uptime under skew (the exact metadata-boundary bug `useDaemonStatus.ts`'s
- *  `localDaemonStatus` already fixes for `daemonStatus.startedAt` — this mirrors it
- *  for padi's own identity cell). `null` before the identity cell's first frame, or
- *  while the entry has no clock-offset sample yet (host still warming) — the
- *  PadiInfoDialog's uptime row gates on this exactly like the retired
- *  `useProcessUptime.padiStartedAt` did. */
-export function activePadiStartedAt(): number | null {
-  const raw = identitySub.value()?.startedAt;
-  if (raw === undefined) return null;
-  return padiMap.entry(activeHost()).clock.toLocal(raw) ?? null;
-}
 
 /** Every running kaval daemon on the BOUND host, each marked `active` when that host's
  *  padi owns it (empty before the first scan). */

@@ -534,6 +534,12 @@ const HostSelectorStrip: Component = () => {
   const members = padiMap.entries.use({ onError: onHostMembershipError });
   let addInputRef: HTMLInputElement | undefined;
 
+  // Focus the add-host input when it opens. Not the plain `autofocus`
+  // attribute: the input is toggled in by a `<Show>` AFTER this effect runs, so
+  // the ref isn't attached yet on the same tick — the `queueMicrotask` defers
+  // the focus until Solid has mounted it. `isConnected` guards the race where
+  // `adding()` flips back to false (Escape/blur) before the microtask runs, so
+  // we never focus a detached node.
   createEffect(() => {
     if (!adding()) return;
     queueMicrotask(() => {

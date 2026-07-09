@@ -88,20 +88,17 @@ export function statusTitle(status: EntryState): string {
   }
 }
 
-/** Terse one-word entry-state label for the host-switcher row's status subline
- *  — the compact sibling of {@link statusTitle} (which carries the fuller
- *  tooltip wording, including the failure reason). Kept in this one pure module
- *  keyed on the SAME `EntryState["kind"]` union so a new kind is a single
- *  exhaustiveness site, and the two wordings can't silently drift apart. */
+// Terse one-word entry-state labels for the host-switcher row's status subline —
+// the compact sibling of `statusTitle` (which carries the fuller tooltip wording
+// with the failure reason). A `Record` keyed on the full `EntryState["kind"]`
+// union, like `DOT_TONE` above: a fifth kind is a compile error here, not a
+// silent fall-through to a default a `switch` would hide.
+const STATUS_LABEL_SHORT: Record<EntryState["kind"], string> = {
+  connected: "connected",
+  warming: "connecting",
+  failed: "failed",
+  "not-a-member": "removed",
+};
 export function statusLabelShort(status: EntryState): string {
-  switch (status.kind) {
-    case "connected":
-      return "connected";
-    case "warming":
-      return "connecting";
-    case "failed":
-      return "failed";
-    default:
-      return "removed";
-  }
+  return STATUS_LABEL_SHORT[status.kind];
 }
