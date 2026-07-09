@@ -37,6 +37,7 @@ Every capability below is documented in full on [kolu.dev](https://kolu.dev):
 - **[Power features](https://kolu.dev/power-features)** — transcript export, workspace screen recording, and driving kolu from the shell.
 - **[Remote access](https://kolu.dev/remote-access)** & **[remote hosts](https://kolu.dev/remote-hosts)** — reach kolu over private HTTPS, and (alpha) run terminals on other machines as first-class tiles.
 
+
 ## Architecture
 
 kolu splits the terminal problem across a stack of daemons that each survive a different failure: the **PWA client** and **kolu-server** are faces that come and go, while **[padi](https://kolu.dev/padi)** (the per-host workspace daemon) and **[kaval](https://kolu.dev/kaval)** (the PTY daemon) survive restarts and redeploys — so your shells and the agents in them keep running. Every layer talks over one typed reactive contract, **[@kolu/surface](https://kolu.dev/surface)**.

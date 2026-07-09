@@ -1,7 +1,7 @@
 /**
  * GrokWatcher — per-session lifecycle. Watches `events.jsonl` +
- * `summary.json` with a trailing-edge debounce and emits GrokInfo on
- * change, gated by `agentInfoEqual`.
+ * `summary.json` + `signals.json` with a trailing-edge debounce and emits
+ * GrokInfo on change, gated by `agentInfoEqual`.
  *
  * Pure observer: never creates paths under `~/.grok`. If a file is
  * missing, watches its parent directory (when that exists) and re-arms
@@ -108,6 +108,8 @@ export function createGrokWatcher(
 
   watchPath(session.eventsPath);
   watchPath(session.summaryPath);
+  // signals.json carries contextTokensUsed — re-emit when the window moves.
+  watchPath(session.signalsPath);
   // Standard grep-able watcher-lifecycle line (matches active-sessions-watcher
   // and the claude-code session watcher) so operator watcher-count correlation
   // sees this per-session watcher come up.

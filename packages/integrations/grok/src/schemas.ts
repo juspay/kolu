@@ -27,10 +27,11 @@ export const GrokInfoSchema = z.object({
   /** Display title from `generated_title` or `session_summary`. */
   summary: z.string().nullable(),
   /** Grok plan checklist is not yet a stable first-class count — permanently
-   *  null in v1 so the field stays honest. */
+   *  null so the field stays honest until `updates.jsonl` plan events are
+   *  pinned. */
   taskProgress: TaskProgressSchema.nullable(),
-  /** No stable context-window counter in the on-disk session format yet —
-   *  permanently null in v1 (do not invent from `num_messages`). */
+  /** Running context-window token count from `signals.json`
+   *  (`contextTokensUsed`). Null until signals land or the field is absent. */
   contextTokens: z.number().nullable(),
   /** Epoch-ms the session was created (`summary.created_at`). Null if
    *  unparseable. Drives the inspector's "Running for" display. */

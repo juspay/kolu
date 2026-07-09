@@ -6,6 +6,8 @@
  *  - `active_sessions.json` — live map of `{ session_id, pid, cwd, opened_at }`
  *  - `sessions/<urlencode(cwd)>/<uuid>/events.jsonl` — phase + turn stream
  *  - `sessions/<urlencode(cwd)>/<uuid>/summary.json` — model, title, timestamps
+ *  - `sessions/<urlencode(cwd)>/<uuid>/signals.json` — contextTokensUsed, etc.
+ *  - `sessions/<urlencode(cwd)>/<uuid>/chat_history.jsonl` — export transcript
  *
  * No SQLite: watchers are plain fs.watch on JSON / JSONL files.
  */
@@ -36,6 +38,14 @@ export function eventsPathFor(cwd: string, sessionId: string): string {
 
 export function summaryPathFor(cwd: string, sessionId: string): string {
   return path.join(sessionDirFor(cwd, sessionId), "summary.json");
+}
+
+export function signalsPathFor(cwd: string, sessionId: string): string {
+  return path.join(sessionDirFor(cwd, sessionId), "signals.json");
+}
+
+export function chatHistoryPathFor(cwd: string, sessionId: string): string {
+  return path.join(sessionDirFor(cwd, sessionId), "chat_history.jsonl");
 }
 
 // --- Active sessions ---
@@ -150,6 +160,8 @@ export interface GrokSession {
   cwd: string;
   eventsPath: string;
   summaryPath: string;
+  /** Live context-window counters (`contextTokensUsed`, …). */
+  signalsPath: string;
   /** Epoch-ms from summary.created_at, or null until summary is readable. */
   startedAt: number | null;
 }
@@ -187,6 +199,7 @@ function sessionFromIds(
     cwd,
     eventsPath: eventsPathFor(cwd, sessionId),
     summaryPath: summaryPathFor(cwd, sessionId),
+    signalsPath: signalsPathFor(cwd, sessionId),
     startedAt: summary?.startedAt ?? null,
   };
 }
@@ -240,6 +253,7 @@ export function findLatestSessionByCwd(
         cwd: summary.cwd || cwd,
         eventsPath: path.join(dir, name, "events.jsonl"),
         summaryPath,
+        signalsPath: path.join(dir, name, "signals.json"),
         startedAt: summary.startedAt,
       };
     }
@@ -406,6 +420,29 @@ export function deriveStateFromEvents(
   return foldEventsState(events);
 }
 
+/** Read live context-window usage from `signals.json`.
+ *  Grok writes `contextTokensUsed` (absolute count) and
+ *  `contextWindowTokens` (cap) — we surface the used count to match
+ *  Claude/Codex/OpenCode's `contextTokens` field. Null when the file is
+ *  missing or the field is absent/non-numeric. */
+export function readContextTokens(
+  signalsPath: string,
+  log?: Logger,
+): number | null {
+  try {
+    const raw = fs.readFileSync(signalsPath, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const used = (parsed as Record<string, unknown>).contextTokensUsed;
+    return typeof used === "number" && Number.isFinite(used) ? used : null;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log?.error({ err, path: signalsPath }, "grok signals unreadable");
+    }
+    return null;
+  }
+}
+
 /** Assemble a full GrokInfo for a matched session. */
 export function deriveGrokInfo(session: GrokSession, log?: Logger): GrokInfo {
   const summary = readSummary(session.summaryPath, log);
@@ -416,7 +453,7 @@ export function deriveGrokInfo(session: GrokSession, log?: Logger): GrokInfo {
     model: summary?.model ?? null,
     summary: summary?.title ?? null,
     taskProgress: null,
-    contextTokens: null,
+    contextTokens: readContextTokens(session.signalsPath, log),
     startedAt: summary?.startedAt ?? session.startedAt,
   };
 }
