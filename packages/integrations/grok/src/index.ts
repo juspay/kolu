@@ -19,6 +19,7 @@ export {
 } from "./config.ts";
 export {
   type ActiveSessionEntry,
+  chatHistoryPathFor,
   deriveGrokInfo,
   deriveStateFromEvents,
   encodeCwd,
@@ -33,8 +34,10 @@ export {
   PHASE_TO_STATE,
   USER_BLOCKING_TOOLS,
   readActiveSessions,
+  readContextTokens,
   readSummary,
   resolveGrokSession,
+  signalsPathFor,
 } from "./core.ts";
 export {
   type GrokInfo,
@@ -43,3 +46,10 @@ export {
   TaskProgressSchema,
 } from "./schemas.ts";
 export { type GrokWatcher, createGrokWatcher } from "./session-watcher.ts";
+export {
+  contentToText,
+  eventsFromGrokLine,
+  loadGrokTranscript,
+  normalizeGrokToolInput,
+  parseGrokChatHistory,
+} from "./transcript.ts";

@@ -8,12 +8,15 @@ const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-grok-test-"));
 process.env.KOLU_GROK_DIR = tmpHome;
 
 const {
+  deriveGrokInfo,
   encodeCwd,
   foldEventsState,
   KNOWN_PHASES,
   readActiveSessions,
+  readContextTokens,
   readSummary,
   resolveGrokSession,
+  signalsPathFor,
 } = await import("./core.ts");
 const { ACTIVE_SESSIONS_PATH, SESSIONS_DIR } = await import("./config.ts");
 
@@ -250,6 +253,48 @@ describe("resolveGrokSession", () => {
 
   it("returns null when nothing matches", () => {
     expect(resolveGrokSession(undefined, "/no/such/cwd")).toBeNull();
+  });
+
+  it("includes signalsPath on a matched session", () => {
+    writeSession({
+      cwd,
+      id,
+      events: [{ type: "turn_started" }],
+    });
+    writeActiveSessions([{ session_id: id, pid: 4242, cwd }]);
+    const session = resolveGrokSession(4242, cwd);
+    expect(session?.signalsPath).toBe(signalsPathFor(cwd, id));
+  });
+});
+
+describe("readContextTokens / deriveGrokInfo", () => {
+  it("reads contextTokensUsed from signals.json", () => {
+    const cwd = "/tmp/proj";
+    const id = "sess-tokens";
+    writeSession({ cwd, id, events: [{ type: "turn_started" }] });
+    fs.writeFileSync(
+      signalsPathFor(cwd, id),
+      JSON.stringify({
+        contextTokensUsed: 247658,
+        contextWindowTokens: 500000,
+      }),
+    );
+    expect(readContextTokens(signalsPathFor(cwd, id))).toBe(247658);
+
+    writeActiveSessions([{ session_id: id, pid: 7, cwd }]);
+    const session = resolveGrokSession(7, cwd);
+    expect(session).not.toBeNull();
+    const info = deriveGrokInfo(session!);
+    expect(info.contextTokens).toBe(247658);
+  });
+
+  it("returns null contextTokens when signals.json is absent", () => {
+    const cwd = "/tmp/proj";
+    const id = "sess-no-sig";
+    writeSession({ cwd, id, events: [{ type: "turn_started" }] });
+    writeActiveSessions([{ session_id: id, pid: 8, cwd }]);
+    const info = deriveGrokInfo(resolveGrokSession(8, cwd)!);
+    expect(info.contextTokens).toBeNull();
   });
 });
 

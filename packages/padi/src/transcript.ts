@@ -15,6 +15,7 @@ import { ORPCError } from "@orpc/server";
 import { prValue } from "anyforge/schemas";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
+import { loadGrokTranscript } from "kolu-grok";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
@@ -92,15 +93,17 @@ export async function exportTranscriptHtml(
         log,
       ),
     )
-    // Grok transcript loader ships in a follow-up — refuse honestly with a
-    // "not yet" message so the user isn't told their live session is missing
-    // (the generic NOT_FOUND below reads like data loss, not "unsupported").
-    .with({ kind: "grok" }, () => {
-      throw new ORPCError("NOT_SUPPORTED", {
-        message:
-          "Transcript export for Grok is not available yet — its loader ships in a follow-up",
-      });
-    })
+    .with({ kind: "grok" }, (a) =>
+      loadGrokTranscript({
+        sessionId: a.sessionId,
+        title: a.summary,
+        repoName,
+        cwd,
+        model: a.model,
+        contextTokens: a.contextTokens,
+        pr,
+      }),
+    )
     .exhaustive();
   if (!transcript) {
     throw new ORPCError("NOT_FOUND", {

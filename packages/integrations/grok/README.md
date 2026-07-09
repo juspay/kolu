@@ -16,11 +16,11 @@
 - **The client / UI** — icons and labels live in `packages/client`; this package renders nothing.
 - **Mutating `~/.grok`** — it is a **pure observer**. It never `mkdir`s Grok's tree; watchers wait for Grok to create its own paths and re-arm on appearance.
 - **SQLite / a WAL** — unlike Codex, Grok stores plain JSON/JSONL, so there is no DB subscription; watchers are `fs.watch` over the JSON files.
-- **Transcript HTML export** — deferred to a follow-up; the export arm refuses with an explicit `NOT_SUPPORTED` and `grok` is intentionally absent from `transcript-core`'s `AGENT_KINDS` until a loader ships.
+- **Transcript HTML export** — `loadGrokTranscript` reads `chat_history.jsonl` into the shared IR; padi's export arm dispatches on `kind: "grok"` the same way it does for Claude/Codex/OpenCode.
 
-## Honest nulls (v1)
+## Honest nulls
 
-`taskProgress` and `contextTokens` are permanently `null` — Grok exposes no stable on-disk counters yet, and these are surfaced as honest nulls rather than invented from `num_messages`.
+`taskProgress` stays permanently `null` until Grok's plan checklist is a stable first-class count in `updates.jsonl`. `contextTokens` comes from `signals.json` (`contextTokensUsed`) and is null only when that file/field is absent.
 
 ## Logger injection
 

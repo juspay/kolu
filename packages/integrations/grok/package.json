@@ -19,6 +19,7 @@
     "anyagent": "workspace:*",
     "kolu-io": "workspace:*",
     "kolu-shared": "workspace:*",
+    "kolu-transcript-core": "workspace:*",
     "zod": "^4.3.6"
   },
   "devDependencies": {
