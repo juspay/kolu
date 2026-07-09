@@ -835,7 +835,7 @@ const padiBuildCommit = (): string | null => {
 };
 
 padiSession.onState((s) => {
-  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection));
+  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.phase));
   // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
   // time (constant) plus the bound padi's honest boot time (`null` while unbound). A
   // padi (re)connect refreshes padi's uptime and a drop clears it to the honest

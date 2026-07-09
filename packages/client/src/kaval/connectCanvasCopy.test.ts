@@ -1,0 +1,51 @@
+/** Pins the connect overlay's pure phase → narration mapping (W6): the copying/building
+ *  headlines, WHICH phases show a live tail + elapsed (the provisioning ones, never the
+ *  brief handshake), and that only the up-but-not-yet-connected phases are narratable
+ *  here (a down phase is the host-down card's, never a second failure surface). */
+
+import { describe, expect, it } from "vitest";
+import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
+
+describe("connectCanvasCopy", () => {
+  it("copying names the provision and shows progress (tail + elapsed)", () => {
+    const c = connectCanvasCopy("copying", "zest");
+    expect(c.title).toContain("Provisioning kolu onto zest");
+    expect(c.title).toContain("first connect ships the recipe");
+    expect(c.showProgress).toBe(true);
+  });
+
+  it("building names the compile and shows progress — 'this can take a few minutes'", () => {
+    const c = connectCanvasCopy("building", "zest");
+    expect(c.title).toContain("Building on zest");
+    expect(c.title).toContain("few minutes");
+    expect(c.showProgress).toBe(true);
+  });
+
+  it("connecting is a brief handshake with NO progress tail (nothing minutes-long to tail)", () => {
+    const c = connectCanvasCopy("connecting", "zest");
+    expect(c.title).toContain("Connecting to zest");
+    expect(c.showProgress).toBe(false);
+  });
+
+  it("interpolates the real host name into every phase", () => {
+    for (const phase of ["copying", "building", "connecting"] as const) {
+      expect(connectCanvasCopy(phase, "alice@bob.example").title).toContain(
+        "alice@bob.example",
+      );
+    }
+  });
+});
+
+describe("isConnectPhase", () => {
+  it("admits ONLY the narratable up phases", () => {
+    expect(isConnectPhase("copying")).toBe(true);
+    expect(isConnectPhase("building")).toBe(true);
+    expect(isConnectPhase("connecting")).toBe(true);
+  });
+
+  it("rejects `connected` and the down phases — the host-down card owns failure, and a connected host needs no overlay", () => {
+    expect(isConnectPhase("connected")).toBe(false);
+    expect(isConnectPhase("disconnected")).toBe(false);
+    expect(isConnectPhase("failed")).toBe(false);
+  });
+});

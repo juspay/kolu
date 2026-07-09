@@ -87,10 +87,11 @@ export interface ReServeSurfaceOptions<S extends SurfaceSpec> {
   policy: RelayPolicy;
   /** The long-lived session whose successive spawns are mirrored. Typed to the
    *  loose {@link Session} ROLE — not a concrete class — so both an ssh `makeSession`
-   *  and kolu-server's padi arms plug in through the type system (no cast). The
-   *  mirror forwards the client structurally, so the contract type is not needed
-   *  here. */
-  session: Session;
+   *  and kolu-server's padi arms plug in through the type system (no cast). `Prov =
+   *  string` (the phase-vocabulary TOP) so a provisioning ssh session
+   *  (`"copying" | "building"`) and a `never` endpoint both plug in. The mirror
+   *  forwards the client structurally, so the contract type is not needed here. */
+  session: Session<SurfaceClientLike, string>;
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
 }

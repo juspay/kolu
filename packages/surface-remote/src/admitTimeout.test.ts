@@ -17,6 +17,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ConnectContext, type Connection, makeSession } from "./session";
+import type { SshProv } from "./sshConnector";
 
 describe("admit handshake watchdog (S9 parity)", () => {
   beforeEach(() => {
@@ -42,7 +43,7 @@ describe("admit handshake watchdog (S9 parity)", () => {
     // The wedge: the control-core hello the admit hook awaits never settles.
     const admit = () => new Promise<never>(() => {});
 
-    const session = makeSession<unknown>({
+    const session = makeSession<unknown, SshProv>({
       initialConnection: "copying",
       connectOnce,
       admit,
@@ -84,7 +85,7 @@ describe("admit handshake watchdog (S9 parity)", () => {
     // A healthy daemon: admit adopts immediately.
     const admit = () => Promise.resolve({ kind: "adopt" as const });
 
-    const session = makeSession<unknown>({
+    const session = makeSession<unknown, SshProv>({
       initialConnection: "copying",
       connectOnce,
       admit,
@@ -134,14 +135,14 @@ describe("admit handshake watchdog (S9 parity)", () => {
           : ({
               kind: "refuse",
               state: {
-                lastError: "another kolu owns this host",
-                failureCause: "remote",
+                error: "another kolu owns this host",
+                cause: "remote",
               },
             } as const),
       );
 
     const states: string[] = [];
-    const session = makeSession<unknown>({
+    const session = makeSession<unknown, SshProv>({
       initialConnection: "copying",
       connectOnce,
       admit,
@@ -149,7 +150,7 @@ describe("admit handshake watchdog (S9 parity)", () => {
       reconnectDelayMs: 50,
       label: "refuse-recover",
     });
-    session.onState((s) => states.push(s.connection));
+    session.onState((s) => states.push(s.phase));
 
     const p = session.pin();
     p.catch(() => {});
@@ -189,7 +190,7 @@ describe("admit handshake watchdog (S9 parity)", () => {
     const admit = () => Promise.resolve({ kind: "adopt" as const });
 
     const states: string[] = [];
-    const session = makeSession<unknown>({
+    const session = makeSession<unknown, SshProv>({
       initialConnection: "copying",
       connectOnce,
       admit,
@@ -197,7 +198,7 @@ describe("admit handshake watchdog (S9 parity)", () => {
       reconnectDelayMs: 60_000,
       label: "no-connecting",
     });
-    session.onState((s) => states.push(s.connection));
+    session.onState((s) => states.push(s.phase));
 
     await session.pin();
     // The proven-live link reaches connected despite the skipped ctx.connecting() —

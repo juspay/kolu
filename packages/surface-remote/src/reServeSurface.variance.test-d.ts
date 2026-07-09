@@ -22,6 +22,7 @@
 import { defineSurface } from "@kolu/surface/define";
 import { z } from "zod";
 import { pumpRemoteSurface } from "./hostFanout";
+import type { SurfaceClientLike } from "@kolu/surface/project";
 import { makeSession, type Session } from "./session";
 import { type AgentClient, sshConnector } from "./sshConnector";
 
@@ -53,7 +54,11 @@ void pumpRemoteSurface({
 
 // (3) The concrete builder really does yield a specific-client session — the typed
 //     `AgentClient<C>` survives for a direct consumer (odu reads `session.pin()`'s
-//     typed client), while the loosening is confined to the receptacle's VIEW.
+//     typed client), while the CLIENT loosening is confined to the receptacle's VIEW.
+//     An ssh builder's session carries `Prov = SshProv` (it provisions); the pump's
+//     loose receptacle is `Session<SurfaceClientLike, string>` (phase-vocabulary TOP),
+//     so it accepts that provisioning `Prov` AND widens the CLIENT (`AgentClient<C>` →
+//     `SurfaceClientLike`) — the covariance this file pins.
 const built = makeSession({
   initialConnection: "copying",
   connectOnce: sshConnector<SpecificContract>({
@@ -62,7 +67,7 @@ const built = makeSession({
     resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
   }),
 });
-const looseBuilt: Session = built;
+const looseBuilt: Session<SurfaceClientLike, string> = built;
 void looseBuilt;
 const typedClient: Promise<AgentClient<SpecificContract>> = built.pin();
 void typedClient;

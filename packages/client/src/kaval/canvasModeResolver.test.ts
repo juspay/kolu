@@ -97,10 +97,14 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     ).toEqual({ kind: "down", state: "dead" });
   });
 
-  it("a REMOTE host past the local 30s ceiling stays `connecting` while its entry is merely provisioning (warming) — never a false 'kaval didn't start'", () => {
-    // srid's exact class: `copying`/`warming` (nix-copy + build) legitimately
-    // outlasts the LOCAL connect watchdog the ceiling mirrors. The entry is
-    // `warming` (not `failed`), so the ceiling must NOT fire for a remote host.
+  it("a REMOTE provisioning (warming) host falls through the loading gate to `warming` — so ConnectCanvas narrates copying/building, never a mute 'Connecting…' (W6)", () => {
+    // srid's exact class: `copying`/`building` (nix-copy + build) legitimately
+    // outlasts the LOCAL connect watchdog the ceiling mirrors, and its re-served
+    // daemon-status never yields until it CONNECTS — so `daemonPending` stays true
+    // the whole time. W6: a remote `warming` entry is EXEMPT from the loading gate
+    // (like `failed`), falling through to the `warming` arm whose ConnectCanvas reads
+    // the connection cell and narrates the real phase. Pre-W6 this returned a mute
+    // `{ kind: "connecting" }` — indistinguishable from a hang, the exact bug W6 fixes.
     expect(
       resolveCanvasMode({
         ...liveness,
@@ -110,7 +114,27 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
         pendingTimedOut: true,
         isLocalHost: false,
       }),
-    ).toEqual({ kind: "connecting" });
+    ).toEqual({
+      kind: "warming",
+      label: "Connecting…",
+      daemonState: undefined,
+    });
+  });
+
+  it("a LOCAL warming host still keeps the loading gate — only a REMOTE provision is exempt (a wedged local endpoint must still earn its down/dead verdict)", () => {
+    // The exemption is REMOTE-only: a local endpoint's own connect watchdog earns the
+    // `pendingTimedOut` → down/dead verdict, so a local warming past the ceiling must
+    // NOT fall through to a forever-narrating overlay.
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "warming",
+        warmingLabel: "Connecting…",
+        daemonPending: true,
+        pendingTimedOut: true,
+        isLocalHost: true,
+      }),
+    ).toEqual({ kind: "down", state: "dead" });
   });
 
   it("a FAILED entry reaches host-failed even with daemonPending + past the ceiling — the loading gate never intercepts a failed host (step-5 fix)", () => {

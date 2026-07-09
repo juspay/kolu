@@ -25,8 +25,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { provisionAgent } from "./nixCopy";
-import { makeSession, type SessionState } from "./session";
-import { sshConnector } from "./sshConnector";
+import {
+  type DownSessionState,
+  makeSession,
+  type SessionState,
+} from "./session";
+import { type SshProv, sshConnector } from "./sshConnector";
 
 vi.mock("./nixCopy", () => ({
   provisionAgent: vi.fn(),
@@ -53,9 +57,9 @@ const PROVISION_NETWORK_FAILURE = {
  *  fresh subscribe/unsubscribe reads the current state without waiting on async
  *  delta delivery. */
 function snap(session: {
-  onState(cb: (s: SessionState) => void): () => void;
-}): SessionState {
-  let s!: SessionState;
+  onState(cb: (s: SessionState<SshProv>) => void): () => void;
+}): SessionState<SshProv> {
+  let s!: SessionState<SshProv>;
   session.onState((state) => {
     s = state;
   })();
@@ -63,16 +67,12 @@ function snap(session: {
 }
 
 /** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
- *  the UP arm carries no `lastError`/`failureCause` fields at all, so a test
- *  that expects a down state asserts it here rather than reading a field that
- *  doesn't exist on a live/warming snapshot. */
-function down(
-  s: SessionState,
-): Extract<SessionState, { connection: "disconnected" | "failed" }> {
-  if (s.connection !== "disconnected" && s.connection !== "failed") {
-    throw new Error(
-      `expected a DOWN session state, got connection=${s.connection}`,
-    );
+ *  the UP arm carries no `error`/`cause` fields at all, so a test that expects a
+ *  down state asserts it here rather than reading a field that doesn't exist on a
+ *  live/warming snapshot. */
+function down(s: SessionState<SshProv>): DownSessionState {
+  if (s.phase !== "disconnected" && s.phase !== "failed") {
+    throw new Error(`expected a DOWN session state, got phase=${s.phase}`);
   }
   return s;
 }
@@ -179,7 +179,7 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     // sink had escaped `emit` (called from every transition), the state machine
     // would have wedged before reaching `failed`.
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(snap(session).connection).toBe("failed");
+    expect(snap(session).phase).toBe("failed");
 
     // The sink failure isn't swallowed silently — it's reported on stderr.
     const toTty = stderr.mock.calls.map((c) => String(c[0]));
@@ -211,7 +211,7 @@ describe("HostSession reconnect after give-up", () => {
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(20_000);
 
-    expect(snap(session).connection).toBe("failed");
+    expect(snap(session).phase).toBe("failed");
     // The invariant the fix restores: no spawn in flight ⇒ the slot the
     // reconnect guard reads is null. Pre-fix this held the last rejected
     // spawn promise because no child ever exited to clear it.
@@ -221,7 +221,7 @@ describe("HostSession reconnect after give-up", () => {
     // await, so re-arming is observable immediately. Pre-fix, the guard
     // saw a non-null slot and returned without spawning — state stuck.
     session.reconnect();
-    expect(snap(session).connection).toBe("copying");
+    expect(snap(session).phase).toBe("copying");
     expect(session.currentClient()).not.toBeNull();
 
     session.destroy();
@@ -257,8 +257,8 @@ describe("HostSession reconnect after give-up", () => {
     // Well past the 5th attempt a "remote" provision failure would have
     // given up at (1+2+4+8s).
     await vi.advanceTimersByTimeAsync(70_000);
-    expect(snap(session).connection).not.toBe("failed");
-    expect(down(snap(session)).failureCause).toBe("network");
+    expect(snap(session).phase).not.toBe("failed");
+    expect(down(snap(session)).cause).toBe("network");
 
     session.destroy();
   });
@@ -287,9 +287,9 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     session.pin().catch(() => {});
 
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(down(snap(session)).failureCause).toBe("network");
-    expect(down(snap(session)).lastError).toMatch(/exited 255/);
-    expect(snap(session).connection).not.toBe("failed");
+    expect(down(snap(session)).cause).toBe("network");
+    expect(down(snap(session)).error).toMatch(/exited 255/);
+    expect(snap(session).phase).not.toBe("failed");
 
     session.destroy();
   });
@@ -305,13 +305,13 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // stranding in terminal `failed` with a manual Reconnect as the only
     // way out.
     await vi.advanceTimersByTimeAsync(70_000);
-    expect(snap(session).connection).not.toBe("failed");
-    expect(down(snap(session)).failureCause).toBe("network");
+    expect(snap(session).phase).not.toBe("failed");
+    expect(down(snap(session)).cause).toBe("network");
 
     // Proof it sailed past the old MAX_CONSECUTIVE_FAILURES (=5) ceiling:
     // more than five "host unreachable" retry lines were emitted.
-    const retries = snap(session).progressLines.filter((l) =>
-      l.includes("host unreachable"),
+    const retries = snap(session).log.filter((e) =>
+      e.line.includes("host unreachable"),
     );
     expect(retries.length).toBeGreaterThan(5);
 
@@ -324,7 +324,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
 
     // First probe fails → disconnected with the backoff timer armed.
     await vi.advanceTimersByTimeAsync(10);
-    expect(snap(session).connection).toBe("disconnected");
+    expect(snap(session).phase).toBe("disconnected");
 
     // The bug: `recheck()` cleared the backoff timer, then early-returned
     // because `clientPromise` still held the *rejected* pre-child spawn
@@ -335,7 +335,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // `spawn()` sets "copying" before its first await, so the re-arm is
     // observable synchronously.
     session.recheck();
-    expect(snap(session).connection).toBe("copying");
+    expect(snap(session).phase).toBe("copying");
     expect(session.currentClient()).not.toBeNull();
 
     session.destroy();
@@ -346,7 +346,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     session.pin().catch(() => {});
 
     await vi.advanceTimersByTimeAsync(10);
-    expect(snap(session).connection).toBe("disconnected");
+    expect(snap(session).phase).toBe("disconnected");
 
     // A `pin()` (the surviving `ensureSpawned` entry point — `acquire` was
     // dropped in S9) landing during backoff must NOT spin up a second,
@@ -366,7 +366,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // The backoff timer is untouched, so recheck() takes the "cancel the
     // wait, drop the stale handle, respawn now" path and recovers cleanly.
     session.recheck();
-    expect(snap(session).connection).toBe("copying");
+    expect(snap(session).phase).toBe("copying");
     expect(session.currentClient()).not.toBeNull();
 
     session.destroy();

@@ -144,7 +144,20 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
   // ceiling only earns that verdict for a LOCAL host (whose own connect watchdog it
   // mirrors) — never a remote merely still provisioning (`warming`), whose ssh dial +
   // nix copy + build can genuinely outlast 30s, and never a `failed` entry (above).
-  if ((facts.isLoading || facts.daemonPending) && facts.entry !== "failed") {
+  // A REMOTE host still provisioning (`warming` + not the local endpoint) is EXEMPT
+  // from the loading gate too (W6): its re-served daemon-status will never produce a
+  // first value until it CONNECTS, so holding it at mute "Connecting…" here is exactly
+  // the hang-indistinguishable bug — it must fall through to `case "warming"`, whose
+  // ConnectCanvas narrates the real copying/building phase off the connection cell. A
+  // LOCAL warming keeps the gate (its own connect watchdog earns the `down`/`dead`
+  // verdict on a wedged endpoint — a remote's ssh + nix copy + build legitimately
+  // outlasts that ceiling).
+  const remoteProvisioning = facts.entry === "warming" && !facts.isLocalHost;
+  if (
+    (facts.isLoading || facts.daemonPending) &&
+    facts.entry !== "failed" &&
+    !remoteProvisioning
+  ) {
     return facts.pendingTimedOut && facts.isLocalHost
       ? { kind: "down", state: "dead" }
       : { kind: "connecting" };

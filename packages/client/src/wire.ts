@@ -46,6 +46,7 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import {
+  type ConnectionInfo,
   type HostKey,
   LOCAL_HOST,
   padiHostMap,
@@ -240,6 +241,14 @@ const hostScoped = createRoot(() => {
     onError: (err: Error) =>
       toast.error(`Saved-session subscription error: ${err.message}`),
   });
+  // The ACTIVE host's link-health cell (W6 — "the honest connect"): its `phase`
+  // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a
+  // cold remote provision narrates its real phase instead of a mute "Connecting…".
+  // Re-keys with the entry on host switch, like the readouts above.
+  const connection = active.cells.connection.use({
+    onError: (err: Error) =>
+      toast.error(`Connection subscription error: ${err.message}`),
+  });
   // The terminal-list keys stream carries STREAM_RETRY via `unenrolledStreamCall` (the
   // #1591 health carve-out — a re-attach must never flicker the health gate). It is a
   // `createReactiveSubscription` keyed on `activeHost`, so a host switch tears down the old
@@ -298,7 +307,14 @@ const hostScoped = createRoot(() => {
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
-  return { activityFeed, session, terminalKeys, preferences, rpc: active.rpc };
+  return {
+    activityFeed,
+    session,
+    connection,
+    terminalKeys,
+    preferences,
+    rpc: active.rpc,
+  };
 });
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
@@ -309,6 +325,11 @@ const hostScoped = createRoot(() => {
  *  `activePadiRpc.surface.<ns>.<verb>(...)` instead of re-deriving the host by hand via
  *  `padiRpcOf(activeHost())`. */
 export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
+
+/** The ACTIVE host's link-health cell value (`phase` + `log` tail), or `undefined`
+ *  before its first frame. Drives the connect overlay's copying/building narration. */
+export const connectionInfo = (): ConnectionInfo | undefined =>
+  hostScoped.connection.value();
 
 export const recentRepos = (): RecentRepo[] =>
   hostScoped.activityFeed.value()?.recentRepos ?? [];

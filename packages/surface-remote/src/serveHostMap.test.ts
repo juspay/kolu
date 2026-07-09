@@ -19,6 +19,7 @@ import { z } from "zod";
 import { buildRemotePool } from "./hostFanout";
 import { projectState, serveHostMap } from "./serveHostMap";
 import type { Session, SessionState } from "./session";
+import type { SshProv } from "./sshConnector";
 
 const entrySurface = defineSurface({
   cells: {
@@ -39,45 +40,40 @@ const identityCodec: KeyCodec<z.infer<typeof HostKey>> = {
 };
 const map = defineSurfaceMap(HostKey, entrySurface, identityCodec);
 
-/** Build a `SessionState` for the given `connection` phase. The DOWN arm
- *  (`disconnected`/`failed`) now REQUIRES a real `lastError` — the type no
- *  longer admits "down with no reason" — so this throws rather than silently
- *  defaulting one in, mirroring the production invariant at the test-helper
- *  boundary. */
+/** Build a `SessionState` for the given `phase`. The DOWN arm
+ *  (`disconnected`/`failed`) now REQUIRES a real `error` — the type no longer
+ *  admits "down with no reason" — so this throws rather than silently defaulting
+ *  one in, mirroring the production invariant at the test-helper boundary. Typed
+ *  over `SshProv` so the ssh arm's provisioning phases (`copying`/`building`) are
+ *  spellable here. */
 const st = (
-  connection: SessionState["connection"],
-  lastError?: string,
-): SessionState => {
-  if (connection === "disconnected" || connection === "failed") {
-    if (lastError === undefined) {
-      throw new Error(`st(${connection}): a down arm requires a lastError`);
+  phase: SessionState<SshProv>["phase"],
+  error?: string,
+): SessionState<SshProv> => {
+  if (phase === "disconnected" || phase === "failed") {
+    if (error === undefined) {
+      throw new Error(`st(${phase}): a down arm requires an error`);
     }
-    return {
-      connection,
-      progressLines: [],
-      remoteProgressLines: [],
-      lastError,
-      failureCause: "remote",
-    };
+    return { phase, log: [], error, cause: "remote" };
   }
-  return { connection, progressLines: [], remoteProgressLines: [] };
+  return { phase, log: [] };
 };
 
 type FakeSession = Session & { clockOffset(): number | null };
 
-/** `provisions` defaults `true` — the ssh arm, per `session.ts`'s own doc ("Prov =
- *  ProvisioningPhase (the ssh arm, the default)"). Pass `false` to model a
- *  non-provisioning (local/endpoint) session — the runtime twin of `Prov = never`. */
+/** `provisions` defaults `true` — the ssh arm (`Prov = SshProv`, the provisioning
+ *  transport). Pass `false` to model a non-provisioning (local/endpoint) session —
+ *  the runtime twin of `Prov = never`. */
 function fakeSession(
-  initial: SessionState,
+  initial: SessionState<SshProv>,
   offset: number | null,
   provisions = true,
 ) {
   let state = initial;
   let clockOffset = offset;
-  const listeners = new Set<(s: SessionState) => void>();
+  const listeners = new Set<(s: SessionState<SshProv>) => void>();
   const session = {
-    onState(cb: (s: SessionState) => void) {
+    onState(cb: (s: SessionState<SshProv>) => void) {
       cb(state);
       listeners.add(cb);
       return () => listeners.delete(cb);
@@ -88,7 +84,7 @@ function fakeSession(
   } as unknown as FakeSession;
   return {
     session,
-    setState(next: SessionState) {
+    setState(next: SessionState<SshProv>) {
       state = next;
       for (const l of [...listeners]) l(next);
     },

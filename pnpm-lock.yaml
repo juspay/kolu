@@ -251,6 +251,9 @@ importers:
       '@kolu/surface-map':
         specifier: workspace:*
         version: link:../surface-map
+      '@kolu/surface-remote':
+        specifier: workspace:*
+        version: link:../surface-remote
       '@kolu/terminal-workspace':
         specifier: workspace:*
         version: link:../terminal-workspace

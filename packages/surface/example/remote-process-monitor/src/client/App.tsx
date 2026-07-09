@@ -143,9 +143,9 @@ export default function App() {
             (the framework health FACT, which now includes the enrolled
             `processesSnapshot` stream and every per-core sub). `h.live` ALREADY
             implies the agent link is `connected`: the `connection` cell declares
-            `liveWhen: v => v.state === "connected"`, so `surfaceClient` AND-folds
+            `liveWhen: v => v.phase === "connected"`, so `surfaceClient` AND-folds
             that leg into `health().live` BY CONSTRUCTION — re-reading
-            `connection.state === "connected"` into the gate here would be pure
+            `connection.phase === "connected"` into the gate here would be pure
             redundancy (and would teach the fold this five-round effort retired).
             `<SurfaceGate>` owns the policy via its `ready` override; the
             `fallback` shows the connecting overlay, surfacing a subscription error
@@ -157,7 +157,7 @@ export default function App() {
           ready={(h) => h.live && !h.subs.some((s) => s.error)}
           fallback={(h) => (
             <ConnectingOverlay
-              state={h().live ? currentConnection().state : "connecting"}
+              state={h().live ? currentConnection().phase : "connecting"}
               error={h().subs.find((s) => s.error)?.error?.message}
             />
           )}
@@ -237,12 +237,12 @@ function Header(props: {
               ready={(h) => h.live && !h.subs.some((s) => s.error)}
               readyColor="#10b981"
               notReadyTone={() =>
-                props.connection.state === "failed" ? "#ef4444" : "#f59e0b"
+                props.connection.phase === "failed" ? "#ef4444" : "#f59e0b"
               }
-              pulse={props.connection.state !== "failed"}
-              title={props.connection.state}
+              pulse={props.connection.phase !== "failed"}
+              title={props.connection.phase}
             />
-            <span class="text-gray-500">{props.connection.state}</span>
+            <span class="text-gray-500">{props.connection.phase}</span>
           </span>
           <span class="text-gray-500">·</span>
           <span class="text-gray-500">
@@ -327,6 +327,7 @@ function ConnectingOverlay(props: { state: string; error?: string }) {
     props.error ??
     {
       copying: "Copying agent to remote…",
+      building: "Building agent on remote…",
       connecting: "Connecting…",
       disconnected: "Reconnecting…",
       failed: "Connection failed — gave up retrying.",

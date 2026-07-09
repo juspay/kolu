@@ -47,11 +47,8 @@ function fakeSession() {
   return {
     onState: (cb: (s: unknown) => void) => {
       cb({
-        connection: "connecting",
-        progressLines: [],
-        remoteProgressLines: [],
-        lastError: null,
-        failureCause: null,
+        phase: "connecting",
+        log: [],
       });
       return () => {};
     },

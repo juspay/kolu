@@ -44,6 +44,16 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
   ClientRetryPluginContext
 >;
 
+/** The ssh connector's OWN provisioning-phase vocabulary — the `Prov` a
+ *  `makeSession` over {@link sshConnector} carries. Split at the real command
+ *  boundary `nixCopy.ts` already runs as two steps:
+ *   - `"copying"`  — `nix copy --derivation …` pushes the `.drv` (fast).
+ *   - `"building"` — `ssh $host nix-store --realise …` compiles it (the minutes,
+ *                     on a first connect to a fresh host).
+ *  A session opens at `"copying"` and advances to `"building"` via
+ *  `ctx.provisioning` when the copy completes and the realise begins. */
+export type SshProv = "copying" | "building";
+
 export interface SshConnectorOptions {
   /** ssh target; `localhost` runs the realised binary directly. */
   host: string;
@@ -74,7 +84,7 @@ export interface SshConnectorOptions {
  *  the child's exit/error and whose `isAlive` is the reserved `system.live` probe. */
 export function sshConnector<C extends AnyContractRouter>(
   opts: SshConnectorOptions,
-): Connector<AgentClient<C>> {
+): Connector<AgentClient<C>, SshProv> {
   return async (ctx): Promise<Connection<AgentClient<C>>> => {
     // Resolve the derivation first — where the arch probe (or any deferred per-host
     // drv lookup) runs. A host unreachable at probe time rejects here and is
@@ -95,6 +105,9 @@ export function sshConnector<C extends AnyContractRouter>(
       host: opts.host,
       drvPath,
       onProgress: (line) => ctx.localProgress(line),
+      // Advance `copying → building` at the copy/realise boundary (cold path only),
+      // so the overlay names the minutes-long compile honestly.
+      onBuilding: () => ctx.provisioning("building"),
     });
     if (!provision.ok) {
       // `provisionAgent` classifies why: a `"remote"` rejection (e.g. `trusted-users`

@@ -85,10 +85,20 @@ Connection health is state the remote agent cannot report (it can't observe the
 link *to* itself), so the parent authors it. This is the one graduated exception —
 the cell ships browser-safe from `@kolu/surface-remote/connection`.
 
+`ConnectionInfo` is the discriminated **mirror** of the session's `SessionState`
+sum, keyed on `phase`: the up arms (`copying` / `building` — the ssh connector's
+provisioning phases — plus `connecting` / `connected`) carry only a provenance-tagged
+`log` tail (`{ source: "local" | "remote"; line }[]`); `disconnected` adds
+`error` + `cause` (`"network"` unreachable / `"remote"` refused); `failed` is
+terminal with `cause` pinned to the `"remote"` literal (a network fault never gives
+up, so `failed` + `network` is unrepresentable). There is no separate
+`progressLines` / `remoteProgressLines` — provenance is the `source` field.
+
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `mirroredSurface(base)` | `/connection` | the public composition path: adds the gate-closed, get-only `connection` cell and reserves the name (throws on a base that already declares one) |
 | `connectionCell` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the exported fragment — read to seed a store or assert the shape, not to spread yourself |
+| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — the browser type of a `SessionState.log` line |
 | `pipeSessionStateToCell(session, set)` | `/connection` | the node-side pump that drives the cell off `session.onState` (`pumpRemoteSurface` wires it for you when the mirrored surface carries `connection`) |
 
 ## A mirror, end to end

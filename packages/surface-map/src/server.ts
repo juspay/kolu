@@ -39,7 +39,7 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
  *  hello; `disconnected`/`failed` project to `failed(reason)`.
  *
  *  `Prov` mirrors `@kolu/surface-remote/session`'s `SessionState<Prov extends
- *  ProvisioningPhase>` split (juspay/kolu#1716) ONE LAYER UP: `"copying"` is the
+ *  string>` split (juspay/kolu#1716) ONE LAYER UP: `"copying"` is the
  *  nix-closure-PROVISIONING phase, a remote-only fact a LOCAL (non-provisioning)
  *  session can never reach. Before this parameter, a non-provisioning entry could
  *  still TYPE its state as `{ kind: "copying" }` here — only a runtime belt

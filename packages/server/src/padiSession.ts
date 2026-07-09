@@ -17,8 +17,7 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import type { DaemonSession, Session } from "@kolu/surface-remote";
-import type { ProvisioningPhase } from "@kolu/surface-remote/connection";
+import type { DaemonSession, Session, SshProv } from "@kolu/surface-remote";
 import type {
   EntryFailedCause,
   SkewVersionPair,
@@ -50,25 +49,27 @@ export type PadiEntryFailedDetail =
  *  intersects the daemon's supervision members onto the `Prov`-NARROWED base
  *  `Session<PadiSurfaceClient, Prov>`'s `onState` instead of `DaemonSession`'s own
  *  (always-full) one — so `PadiSession<never>` (the local arm, see
- *  `padiBinding.ts`) makes `"copying"` a compile error here too, the LAST consumer
- *  in this split's chain. The remote ssh arm keeps the default (full
- *  `ProvisioningPhase`, admitting `"copying"`); the heterogeneous local+remote pool
- *  (`index.ts`'s `buildRemotePool<PadiSession, …>`) still needs the common,
- *  un-parameterized `PadiSession` as its slot type — a local session widening
- *  into that slot is the same deliberate, structural widening `Session<_, never>`
- *  already undergoes to plug into a `Session` pool, not a silent one buried
- *  inside this alias. */
-export type PadiSession<Prov extends ProvisioningPhase = ProvisioningPhase> =
-  Omit<DaemonSession<PadiSurfaceClient, PadiConvergence>, "onState"> &
-    Pick<Session<PadiSurfaceClient, Prov>, "onState"> & {
-      /** The D1+D2 domain-cause detail for the map's `EntryStatus` (see
-       *  {@link PadiEntryFailedDetail}) — kolu-server's OWN extra member (not part of
-       *  the generic `@kolu/surface-remote` `DaemonSession` role, which knows nothing
-       *  of padi's causes; the volatility boundary D1 draws). `null` when the arm has
-       *  nothing to classify (the local arm always; the remote arm outside a
-       *  classifiable down state). */
-      entryFailedDetail(): PadiEntryFailedDetail | null;
-    };
+ *  `padiBinding.ts`) makes `"copying"`/`"building"` a compile error here too, the
+ *  LAST consumer in this split's chain. The remote ssh arm keeps the default (the
+ *  ssh connector's `SshProv` = `"copying" | "building"`); the heterogeneous
+ *  local+remote pool (`index.ts`'s `buildRemotePool<PadiSession, …>`) still needs
+ *  the common, un-parameterized `PadiSession` as its slot type — a local session
+ *  widening into that slot is the same deliberate, structural widening
+ *  `Session<_, never>` already undergoes to plug into a `Session` pool, not a
+ *  silent one buried inside this alias. */
+export type PadiSession<Prov extends string = SshProv> = Omit<
+  DaemonSession<PadiSurfaceClient, PadiConvergence>,
+  "onState"
+> &
+  Pick<Session<PadiSurfaceClient, Prov>, "onState"> & {
+    /** The D1+D2 domain-cause detail for the map's `EntryStatus` (see
+     *  {@link PadiEntryFailedDetail}) — kolu-server's OWN extra member (not part of
+     *  the generic `@kolu/surface-remote` `DaemonSession` role, which knows nothing
+     *  of padi's causes; the volatility boundary D1 draws). `null` when the arm has
+     *  nothing to classify (the local arm always; the remote arm outside a
+     *  classifiable down state). */
+    entryFailedDetail(): PadiEntryFailedDetail | null;
+  };
 
 /** padi's preservation strategy: its PTYs live in a SEPARATE kaval process, so a
  *  `renew()` (drain + respawn) is survived by them — a fresh padi adopts the running
@@ -84,12 +85,10 @@ export const PADI_PRESERVATION = { children: "survive" } as const;
  *  survives THROUGH this function instead of being discarded at the one place
  *  both arms funnel through: the local arm (`padiBinding.ts`) passes a
  *  `Session<_, never>` base and gets back a `PadiSession<never>` (still unable to
- *  report `"copying"`); the remote ssh arm (`remotePadiBinding.ts`) passes the
- *  default `Session<_>` (Prov = `ProvisioningPhase`) and gets back the default
- *  `PadiSession` (admits `"copying"`, its actual opening phase). */
-export function asPadiSession<
-  Prov extends ProvisioningPhase = ProvisioningPhase,
->(
+ *  report `"copying"`/`"building"`); the remote ssh arm (`remotePadiBinding.ts`)
+ *  passes a `Session<_, SshProv>` and gets back the default `PadiSession` (admits
+ *  `"copying"`/`"building"`, its actual provisioning phases). */
+export function asPadiSession<Prov extends string = SshProv>(
   base: Session<PadiSurfaceClient, Prov>,
   members: {
     convergence: () => PadiConvergence | null;

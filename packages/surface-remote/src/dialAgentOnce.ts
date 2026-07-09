@@ -28,7 +28,7 @@ import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
 import { resolveSystem } from "./arch";
 import { makeSession } from "./session";
-import { type AgentClient, sshConnector } from "./sshConnector";
+import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
 
 /** Parse + validate a `{ system → drvPath }` map from an already-read env value.
  *  The env-var NAME is the caller's (the Nix-wrapper boundary spells it
@@ -168,7 +168,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // `session.destroy()`, and each dial gets its own connector (resolver/drv map)
   // and its own teardown, so two concurrent dials never share a session where
   // either `dispose()` kills the other's link.
-  const session = makeSession<AgentClient<C>>({
+  const session = makeSession<AgentClient<C>, SshProv>({
     connectOnce: sshConnector<C>({
       host: opts.host,
       binary: opts.binary,
@@ -186,11 +186,15 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     label: `host:${opts.host}`,
   });
   // Capture the latest session state (snapshot-then-delta) so the failure path can
-  // read the agent's own fatal off `remoteProgressLines` — the role exposes no
-  // synchronous `current()` snapshot, so a live `onState` mirror stands in.
+  // read the agent's own fatal off the log's REMOTE-origin lines — the role exposes
+  // no synchronous `current()` snapshot, so a live `onState` mirror stands in. The
+  // remote lines are now the `source === "remote"` entries of the unified `log`
+  // (provenance is a field), reduced to their raw text.
   let latestRemoteLines: readonly string[] = [];
   const unsubState = session.onState((s) => {
-    latestRemoteLines = s.remoteProgressLines;
+    latestRemoteLines = s.log
+      .filter((e) => e.source === "remote")
+      .map((e) => e.line);
   });
   // The agent's OWN fatal reason, read off the session AFTER a failed dial. When
   // the agent exits before serving — a bad `--kaval` pick, a startup crash — the

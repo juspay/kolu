@@ -1,5 +1,5 @@
 /**
- * The pure `SessionState.connection` → `padiLink` cell mapping.
+ * The pure `SessionState.phase` → `padiLink` cell mapping.
  *
  * kolu-server's OWN shell surface owns the client's honest view of its binding to the
  * local padi (#1034): padi cannot serve its OWN unreachability, so kolu-server maps the
@@ -13,21 +13,34 @@
  * `koluSurfaceCtx.cells.padiLink.set` off it.
  */
 
-import type { ConnectionState } from "@kolu/surface-remote";
 import type { PadiLink } from "kolu-common/surface";
 import { match } from "ts-pattern";
 
-/** Collapse the bound padi session's five-phase `ConnectionState` onto the three-state
- *  `padiLink` the client folds:
- *    - `connected`               → `connected`  (bound to a live padi);
- *    - `connecting` / `copying`  → `connecting` (the binding is (re)establishing);
- *    - `disconnected` / `failed` → `degraded`   (the binding dropped; the loop re-dials).
- *  Total + `.exhaustive()` so a new `ConnectionState` is a compile error here, never a
+/** Every realised session `phase` — the local padi arm only ever emits the
+ *  non-provisioning four, but accepting the ssh connector's provisioning phases
+ *  (`copying`/`building`) too keeps this total and robust if the bound session is
+ *  ever the widened pool slot. */
+type SessionPhase =
+  | "connecting"
+  | "connected"
+  | "copying"
+  | "building"
+  | "disconnected"
+  | "failed";
+
+/** Collapse the bound padi session's `phase` onto the three-state `padiLink` the
+ *  client folds:
+ *    - `connected`                          → `connected`  (bound to a live padi);
+ *    - `connecting` / `copying` / `building` → `connecting` (the binding is
+ *                                              (re)establishing / provisioning);
+ *    - `disconnected` / `failed`            → `degraded`   (the binding dropped; the
+ *                                              loop re-dials).
+ *  Total + `.exhaustive()` so a new session `phase` is a compile error here, never a
  *  silent fall-through. */
-export function mapConnectionToPadiLink(connection: ConnectionState): PadiLink {
-  return match(connection)
+export function mapConnectionToPadiLink(phase: SessionPhase): PadiLink {
+  return match(phase)
     .with("connected", () => "connected" as const)
-    .with("connecting", "copying", () => "connecting" as const)
+    .with("connecting", "copying", "building", () => "connecting" as const)
     .with("disconnected", "failed", () => "degraded" as const)
     .exhaustive();
 }

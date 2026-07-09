@@ -4,37 +4,11 @@
  *  in one place so they evolve together. */
 
 import { shellQuoteArg } from "@kolu/shell-quote";
-import type { FailureCause } from "./connection";
 import { controlOptPairs } from "./controlMaster";
 
 export function isLocalHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
-
-/** Why a connection attempt failed — the discriminant the reconnect
- *  give-up gate keys on. Shared between `provisionAgent` (which decides it
- *  per provisioning step) and `HostSession` (which decides it per spawn
- *  phase and acts on it), so it lives here rather than in either consumer.
- *  Classified by *what kind* of thing failed, never by parsing error
- *  strings for control flow:
- *
- *   - `"network"` — couldn't reach the host (ssh transport failed to
- *     connect, the link dropped, an arch probe / `nix copy` over ssh hit a
- *     connection error). Transient: the host is asleep, roaming, or its
- *     VPN is down, so the loop retries at the capped backoff *forever* —
- *     the link self-heals once the host answers again.
- *   - `"remote"` — reached the host, but it rejected us, or the agent
- *     itself is broken: `nix copy`/`realise` exited non-zero for a
- *     non-transport reason (e.g. `trusted-users`), or the agent command
- *     ran and exited before the first RPC (bad binary, startup crash).
- *     Retrying can't fix a misconfiguration or a broken build, so after
- *     `MAX_CONSECUTIVE_FAILURES` it gives up into the terminal `failed`
- *     state.
- *
- *  The literal pair is single-sourced (with the cell's `z.enum`) from the
- *  browser-safe `./connection` tuple; re-exported here so `provisionAgent` /
- *  `HostSession` keep importing it from this module. */
-export type { FailureCause };
 
 /** A `resolveDrvPath` rejection that marks THIS failure as a NON-transport,
  *  bounded → terminal `"remote"` fault — not a transport blip.
@@ -50,8 +24,8 @@ export type { FailureCause };
  *  assuming `"network"`. A plain `Error` keeps the back-compatible `"network"`
  *  default.
  *
- *  `failureCause` is the LITERAL `"remote"`, not the full {@link FailureCause}:
- *  the class exists SOLELY to assert the non-transport fault, so a `"network"`
+ *  `failureCause` is the LITERAL `"remote"`, not the full `"network" | "remote"`
+ *  cause pair: the class exists SOLELY to assert the non-transport fault, so a `"network"`
  *  inhabitant would classify identically to a plain `Error` and buy nothing —
  *  making it representable was an uninhabitable variant. Both real producers
  *  (kolu-server's `makeResolvePadiDrv`) pass `"remote"`; the parameter is pinned
@@ -70,7 +44,7 @@ export type { FailureCause };
 export class ResolveDrvError extends Error {
   constructor(
     message: string,
-    readonly failureCause: Extract<FailureCause, "remote">,
+    readonly failureCause: "remote",
   ) {
     super(message);
     this.name = "ResolveDrvError";

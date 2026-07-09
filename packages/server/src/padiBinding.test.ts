@@ -295,7 +295,7 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // renders honestly, never as a fabricated process exit.
     const seenLines: string[] = [];
     const unsub = session.onState((s) => {
-      seenLines.push(...s.progressLines);
+      seenLines.push(...s.log.map((e) => e.line));
     });
 
     // Kill the bound padi (its detached kaval survives). The socket close flips the

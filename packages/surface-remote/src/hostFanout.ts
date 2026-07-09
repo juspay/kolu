@@ -114,9 +114,12 @@ export interface PumpRemoteSurfaceOptions<S extends SurfaceSpec> {
   /** The long-lived session whose successive clients are pumped. Typed to the
    *  loose {@link Session} receptacle — not a concrete class — so both an ssh
    *  `makeSession` and kolu-server's padi arms plug in through the type system (no
-   *  cast). The client is forwarded structurally (`SurfaceClientLike`); a caller
-   *  that wants the precise per-contract client reads it off its own typed session. */
-  session: Session;
+   *  cast). `Prov = string` (the TOP of the phase vocabulary) so a provisioning ssh
+   *  session (`"copying" | "building"`) plugs in alongside a `never` endpoint — the
+   *  pump is provisioning-vocabulary-agnostic. The client is forwarded structurally
+   *  (`SurfaceClientLike`); a caller that wants the precise per-contract client reads
+   *  it off its own typed session. */
+  session: Session<SurfaceClientLike, string>;
   /** Build the mirror sink for ONE freshly-spawned client. Called once per
    *  (re)spawn, so per-client state (first-frame flags, frame counters) resets
    *  naturally each reconnect. Wire `session.markConnected()` into whichever

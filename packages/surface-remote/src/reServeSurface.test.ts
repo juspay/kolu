@@ -24,7 +24,7 @@ import { type Controllable, controllable } from "./controllableStream.testutil";
 import type { RelayPolicy } from "./relayStream";
 import { reServeSurface } from "./reServeSurface";
 import type { Session as MirrorSession, SessionState } from "./session";
-import type { AgentClient } from "./sshConnector";
+import type { AgentClient, SshProv } from "./sshConnector";
 
 const delay = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -204,14 +204,13 @@ function makeUpstream(
  *  `onState`; `onState` also carries a `HostSessionState` so the connection pipe
  *  can project it. */
 function makeSession() {
-  const listeners = new Set<(s: SessionState) => void>();
+  const listeners = new Set<(s: SessionState<SshProv>) => void>();
   let destroyed = false;
   let clientPromise: Promise<AgentClient<typeof toySurface.contract>> | null =
     null;
-  let state: SessionState = {
-    connection: "copying",
-    progressLines: [],
-    remoteProgressLines: [],
+  let state: SessionState<SshProv> = {
+    phase: "copying",
+    log: [],
   };
   const fire = (): void => {
     for (const cb of [...listeners]) cb(state);
@@ -220,7 +219,7 @@ function makeSession() {
     pin: () => clientPromise ?? Promise.reject(new Error("no client yet")),
     isDestroyed: () => destroyed,
     currentClient: () => (destroyed ? null : clientPromise),
-    onState: (cb: (s: SessionState) => void) => {
+    onState: (cb: (s: SessionState<SshProv>) => void) => {
       listeners.add(cb);
       cb(state); // snapshot on subscribe, like the real inMemoryCell-backed onState
       return () => {
@@ -228,7 +227,7 @@ function makeSession() {
       };
     },
     markConnected: () => {
-      state = { ...state, connection: "connected" };
+      state = { ...state, phase: "connected" };
       fire();
     },
     destroy: () => {
@@ -311,7 +310,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
       await downstream.surface.connection.get(undefined),
       1,
     );
-    expect(conn?.state).toBe("connected");
+    expect(conn?.phase).toBe("connected");
 
     await teardown(session, done, upstream);
   });

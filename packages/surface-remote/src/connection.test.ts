@@ -2,7 +2,6 @@ import { defineSurface } from "@kolu/surface/define";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-  CONNECTION_STATES,
   ConnectionInfoSchema,
   connectionCell,
   DEFAULT_CONNECTION,
@@ -48,7 +47,7 @@ describe("connection cell", () => {
   it("is gate-closed by default (connecting) — a fresh cell never reads connected", () => {
     // The load-bearing invariant: a composed cell starts `connecting`, so
     // "healthy-empty before the first frame" is structurally unrepresentable.
-    expect(DEFAULT_CONNECTION.state).toBe("connecting");
+    expect(DEFAULT_CONNECTION.phase).toBe("connecting");
     expect(ConnectionInfoSchema.parse(DEFAULT_CONNECTION)).toEqual(
       DEFAULT_CONNECTION,
     );
@@ -66,35 +65,72 @@ describe("connection cell", () => {
     expect(connectionCell.verbs).not.toContain("set");
   });
 
-  it("CONNECTION_STATES mirrors the HostSession lifecycle 1:1", () => {
-    expect([...CONNECTION_STATES]).toEqual([
-      "copying",
-      "connecting",
-      "connected",
-      "disconnected",
-      "failed",
-    ]);
+  it("mirrors the session sum: the up phases carry only `log`, the down phases require error+cause", () => {
+    // UP arms — parse with only `log`, no error fields.
+    for (const phase of ["copying", "building", "connecting", "connected"]) {
+      expect(ConnectionInfoSchema.parse({ phase, log: [] })).toEqual({
+        phase,
+        log: [],
+      });
+    }
+    // `disconnected` requires error + cause (network | remote); `failed` pins cause
+    // to the `"remote"` literal — a `failed`+`network` value is rejected.
+    expect(() =>
+      ConnectionInfoSchema.parse({ phase: "disconnected", log: [] }),
+    ).toThrow();
+    expect(
+      ConnectionInfoSchema.parse({
+        phase: "failed",
+        error: "x",
+        cause: "remote",
+        log: [],
+      }),
+    ).toMatchObject({ phase: "failed", cause: "remote" });
+    expect(() =>
+      ConnectionInfoSchema.parse({
+        phase: "failed",
+        error: "x",
+        cause: "network",
+        log: [],
+      }),
+    ).toThrow();
   });
 
-  it("projectConnection keeps the browser-facing four, dropping the remote-only field", () => {
+  it("projectConnection is the discriminated mirror of the session sum", () => {
+    // DOWN arm — `error`/`cause` carried through, the unified provenance-tagged log
+    // preserved (a `remoteProgressLines`/`progressLines` split no longer exists).
     const s: SessionState = {
-      connection: "failed",
-      progressLines: ["[local] gave up", "[remote] kaval 3.2 vs pulam 3.3"],
-      remoteProgressLines: ["kaval 3.2 vs pulam 3.3"],
-      lastError: "exited with code 1",
-      failureCause: "remote",
+      phase: "failed",
+      error: "exited with code 1",
+      cause: "remote",
+      log: [
+        { source: "local", line: "gave up" },
+        { source: "remote", line: "kaval 3.2 vs pulam 3.3" },
+      ],
     };
     const info = projectConnection(s);
     expect(info).toEqual({
-      state: "failed",
-      lastError: "exited with code 1",
-      failureCause: "remote",
-      progressLines: ["[local] gave up", "[remote] kaval 3.2 vs pulam 3.3"],
+      phase: "failed",
+      error: "exited with code 1",
+      cause: "remote",
+      log: [
+        { source: "local", line: "gave up" },
+        { source: "remote", line: "kaval 3.2 vs pulam 3.3" },
+      ],
     });
-    // The projection NARROWED `HostSessionState` — `remoteProgressLines` is not
-    // on the browser-facing shape (and the result validates against the schema).
-    expect("remoteProgressLines" in info).toBe(false);
     expect(ConnectionInfoSchema.parse(info)).toEqual(info);
+
+    // UP arm — projects only `log`, no invented error fields.
+    const up = projectConnection({
+      phase: "copying",
+      log: [{ source: "local", line: "copying derivation…" }],
+    });
+    expect(up).toEqual({
+      phase: "copying",
+      log: [{ source: "local", line: "copying derivation…" }],
+    });
+    expect("error" in up).toBe(false);
+    expect(ConnectionInfoSchema.parse(up)).toEqual(up);
   });
 });
 

@@ -19,6 +19,7 @@
  */
 
 import { padiSurface } from "@kolu/padi/surface";
+import { mirroredSurface } from "@kolu/surface-remote/connection";
 import {
   defineSurfaceMap,
   type EntryStatus,
@@ -37,6 +38,15 @@ import { surfaces } from "./surface.ts";
 // them here beside the map so consumers still reach them through one module.
 export { type HostKey, HostKeySchema, LOCAL_HOST } from "./hostKey.ts";
 
+// The per-host `connection` cell's value type (+ its log-tail entry) — re-exported
+// here so a consumer reading `padiMap.entry(host).cells.connection` types the readout
+// through kolu-common (the map's home) rather than reaching into `@kolu/surface-remote`
+// directly. See {@link padiEntrySurface}.
+export type {
+  ConnectionInfo,
+  LogEntry,
+} from "@kolu/surface-remote/connection";
+
 export const surfacesWithPadi = {
   ...surfaces,
   padi: padiSurface,
@@ -54,7 +64,7 @@ const hostKeyCodec: KeyCodec<HostKey> = {
 
 /** The padi map's DOMAIN failure cause — "why did this host's padi entry fail", a
  *  STRUCTURAL classification never parsed from `reason` (the W4 types decision,
- *  D1). Distinct from `@kolu/surface-remote`'s `FailureCause` ("network" vs
+ *  D1). Distinct from `@kolu/surface-remote`'s transport cause ("network" vs
  *  "remote" — the TRANSPORT axis, shared with drishti/odu via `SessionState`);
  *  this is padi's OWN domain axis, one layer up — not duplication, a different
  *  question at a different layer.
@@ -109,11 +119,21 @@ export type PadiEntryStatus =
       cause: "contract-skew-refused";
     } & SkewVersionPair);
 
-/** The keyed map of padi surfaces — ONE entry surface (`padiSurface`) served N times,
- *  keyed by host. kolu-server serves it (`serveHostMap` over the warm ssh pool) and
- *  the client connects it (`connectSurfaceMap`); `padi` on the wire becomes this map's
- *  contract (the key-folded members + the `entries` membership collection). With the
- *  host env unset the map has exactly one member (the local host) — pixel-identical.
+/** The per-host entry surface — `padiSurface` MIRRORED with the get-only `connection`
+ *  cell (the same seam kolu-server's `reServeSurface` composes per host). Exposing the
+ *  cell on the MAP's entry surface is what lets the client read each host's honest link
+ *  health — the copying/building provisioning phase + the live `log` tail — per entry
+ *  (`padiMap.entry(host).cells.connection.use()`), the fine signal the coarse
+ *  `EntryStatus` chip (warming/connected/failed) folds away. The server already serves
+ *  this cell per host (its re-serve mirrors the same base); declaring it here is what
+ *  forwards it through the map to the browser (W6 — "the honest connect"). */
+export const padiEntrySurface = mirroredSurface(padiSurface);
+
+/** The keyed map of padi surfaces — ONE entry surface ({@link padiEntrySurface}) served
+ *  N times, keyed by host. kolu-server serves it (`serveHostMap` over the warm ssh pool)
+ *  and the client connects it (`connectSurfaceMap`); `padi` on the wire becomes this
+ *  map's contract (the key-folded members + the `entries` membership collection). With
+ *  the host env unset the map has exactly one member (the local host) — pixel-identical.
  *
  *  Instantiated at `EntryFailedCause` (D1, decision #1's option 2) — explicit type
  *  arguments, not inference: nothing in `defineSurfaceMap`'s runtime args
@@ -123,6 +143,6 @@ export type PadiEntryStatus =
  *  (never a bare `string` cause) by construction. */
 export const padiHostMap = defineSurfaceMap<
   typeof HostKeySchema,
-  typeof padiSurface.spec,
+  typeof padiEntrySurface.spec,
   EntryFailedCause
->(HostKeySchema, padiSurface, hostKeyCodec);
+>(HostKeySchema, padiEntrySurface, hostKeyCodec);

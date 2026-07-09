@@ -29,42 +29,52 @@ import {
   type ServeSurfaceMapResult,
   serveSurfaceMap,
 } from "@kolu/surface-map/server";
+import type { SurfaceClientLike } from "@kolu/surface/project";
 import type { z } from "zod";
 import type { RemotePool } from "./hostFanout";
-import type { Session, SessionState } from "./session";
+import type { DownSessionState, Session, SessionState } from "./session";
 
 /** A session that carries a measured clock offset — required, so a session lacking one
  *  is a compile error rather than a silent forever-`connecting`. `null` means the offset
- *  has not been stamped yet (the admit handshake stamps it). */
-type ClockableSession = Session & { clockOffset(): number | null };
+ *  has not been stamped yet (the admit handshake stamps it).
+ *
+ *  `Prov = string` (the TOP of the phase vocabulary), not the `never` default: this
+ *  adapter is provisioning-vocabulary-agnostic, and `Session<_, Prov>` is COVARIANT
+ *  in `Prov`, so `string` is the one receptacle every session — a `never` endpoint,
+ *  an ssh `"copying" | "building"` arm, any future connector — is assignable to. */
+type ClockableSession = Session<SurfaceClientLike, string> & {
+  clockOffset(): number | null;
+};
 
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
  *  `connectionPipe.projectConnection` (which targets the 4-field browser
  *  `ConnectionInfo`). `connected` REQUIRES the measured clock offset: until the admit
  *  handshake has stamped one, the entry honestly reads as still `connecting`
  *  (offset-at-hello is the contract — a `0` placeholder would be a lie). */
-export function projectState(
-  s: SessionState | undefined,
+export function projectState<Prov extends string>(
+  s: SessionState<Prov> | undefined,
   clockOffset: number | null,
 ): EntryConnectionState {
   if (s === undefined) return { kind: "connecting" };
-  switch (s.connection) {
-    case "copying":
-      return { kind: "copying" };
-    case "connecting":
-      return { kind: "connecting" };
-    case "connected":
-      return clockOffset === null
-        ? { kind: "connecting" }
-        : { kind: "connected", clockOffset };
-    case "disconnected":
-      // `lastError` is REQUIRED on the down arm now (juspay/kolu SessionState
-      // sum split) — a down link always has a real reason, so there is no
-      // invented `?? "disconnected"` fallback left to write.
-      return { kind: "disconnected", reason: s.lastError };
-    case "failed":
-      return { kind: "failed", reason: s.lastError };
+  if (s.phase === "disconnected" || s.phase === "failed") {
+    // A generic `Prov` defeats discriminated narrowing on the down arm; assert the
+    // `Prov`-independent {@link DownSessionState}. `error` is REQUIRED on the down
+    // arm (a down link always has a real reason), so there is no invented
+    // `?? "disconnected"` fallback left to write.
+    const down = s as DownSessionState;
+    return down.phase === "failed"
+      ? { kind: "failed", reason: down.error }
+      : { kind: "disconnected", reason: down.error };
   }
+  if (s.phase === "connected")
+    return clockOffset === null
+      ? { kind: "connecting" }
+      : { kind: "connected", clockOffset };
+  if (s.phase === "connecting") return { kind: "connecting" };
+  // A connector-declared provisioning phase (ssh's `copying`/`building`) — the
+  // map's coarse "warming" bucket (its `EntryStatus` collapses both to `warming`;
+  // the fine phase rides the per-host `connection` cell, not this projection).
+  return { kind: "copying" };
 }
 
 export interface ServeHostMapOptions<K, S, Cause extends string = string> {
@@ -89,13 +99,13 @@ export interface ServeHostMapOptions<K, S, Cause extends string = string> {
   causeFor?: (
     host: K,
     session: S,
-    state: SessionState,
+    state: SessionState<string>,
   ) => { cause: Cause } & Record<string, unknown>;
 }
 
 /** The pool surface `serveHostMap` consumes — a slice of {@link RemotePool} (it never
  *  adds/removes; the app's root RPCs do). */
-export type MembershipPool<S extends Session> = Pick<
+export type MembershipPool<S extends Session<SurfaceClientLike, string>> = Pick<
   RemotePool<S, unknown>,
   "hosts" | "has" | "getSession" | "subscribe"
 >;
@@ -122,7 +132,7 @@ export function serveHostMap<
   // own client/server halves use.
   const { encode, decode } = map.codec;
 
-  const latestState = new Map<string, SessionState>();
+  const latestState = new Map<string, SessionState<string>>();
   const stateSubs = new Map<string, () => void>();
   const links = new Map<string, unknown>();
   const changeListeners = new Set<() => void>();
@@ -207,7 +217,10 @@ export function serveHostMap<
       const state: EntryConnectionState<"copying", Cause> =
         (projected.kind === "disconnected" || projected.kind === "failed") &&
         opts.causeFor
-          ? { ...projected, ...opts.causeFor(k, session, raw as SessionState) }
+          ? {
+              ...projected,
+              ...opts.causeFor(k, session, raw as SessionState<string>),
+            }
           : // `projectState` never sets `cause` itself (untouched, Cause-agnostic —
             // see its own doc); this cast reflects that invariant, not a real widen.
             (projected as EntryConnectionState<"copying", Cause>);

@@ -48,6 +48,7 @@ import { createImportSessionAction } from "./importSessionAction";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
+import { ConnectCanvas } from "./kaval/ConnectCanvas";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import HostDownCanvas from "./kaval/HostDownCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
@@ -426,14 +427,12 @@ const App: Component = () => {
             {(m) => <HostDownCanvas cause={m().cause} reason={m().reason} />}
           </Match>
           <Match when={warmingMode()}>
+            {/* The host binding is coming up. `ConnectCanvas` narrates a REMOTE cold
+                provision off the connection cell (copying → building, live log tail +
+                elapsed) instead of a mute "Connecting…"; a kaval-restart warming
+                (daemonState defined) keeps the neutral label. */}
             {(m) => (
-              <div
-                data-testid="daemon-warming"
-                data-daemon-state={m().daemonState}
-                class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
-              >
-                {m().label}
-              </div>
+              <ConnectCanvas label={m().label} daemonState={m().daemonState} />
             )}
           </Match>
           <Match when={mode().kind === "empty"}>
