@@ -36,12 +36,14 @@ half-open guard, so the scope inherits the parent's watchdog by construction.
 ## The client
 
 `SurfaceMapClient` exposes `entries` (the one membership authority), `live`
-(resolved transport liveness), and two lenses onto an entry.
+(resolved transport liveness), `codec` (the one key-identity authority), and two
+lenses onto an entry.
 
 | Member | Returns |
 | --- | --- |
 | `entries` | `ReadOnlyBoundCollection<Key, EntryStatus>` — the single membership authority; upsert/delete only |
 | `live` | `Accessor<boolean>` — resolved transport liveness for the membership strip |
+| `codec` | `KeyCodec<Key>` — the one key-identity authority; `encode`/`decode` the canonical wire string |
 | `entry(key)` | `Entry<ES>` — the pure point lens (no owner, no I/O, total) |
 | `useEntry(keyAccessor)` | `Entry<ES>` — the Solid lens; re-keys on key change; throws ownerless |
 | `dispose()` | tear down |
@@ -69,6 +71,44 @@ consumer casts it **once** to its own surface's procedure shape; the key-injecti
 link still folds `{ mapKey }` into every call, so the caller never passes the key.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="rpc" />
+
+## `scopedByEntry` — per-key state retained by membership
+
+The second export of `/client`. It is the **retained-owner dual** of `useEntry`:
+where `useEntry` disposes the old key's world on every switch (right for cheap
+wire subscriptions), `scopedByEntry` builds a per-key reactive owner for the
+client's *own* state and keeps it across switches — the focused tile, the camera,
+per-host view posture — so switching hosts restores the world you left. Built over
+[`@solid-primitives/keyed`](https://primitives.solidjs.community/package/keyed)'s
+`keyArray` (the ecosystem's retained-per-key-root primitive), keyed by membership.
+
+```
+scopedByEntry(client, active, build) → { active(): T | undefined, get(key): T | undefined }
+```
+
+- **`active: Accessor<K | null>`** is app policy — `null` means *nothing selected*
+  (drishti's fleet grid; kolu never). It is not the map's business which key matters.
+- **`build(key, ctx)`** runs **once per key on its first activation**; its return
+  value is that key's owned world. `ctx.isActive` is an `Accessor<boolean>` — the
+  active-only discipline (WebGL release/re-acquire, center-on-active) lives *inside*
+  the owner, not as a bridge between two independently-timed lifecycles.
+- **Lifetime is `entries` membership, not the wire.** An owner is built **lazily**
+  (a never-visited background host costs nothing), **retained** across every
+  switch-away, and **disposed** the instant its key leaves `entries`. A
+  removed-then-re-added host is a fresh member — lazy again, never resurrected.
+- **`active()`** returns the active key's world, or **`undefined`** for both a
+  `null` active *and* an active key that is not a current member (a removal race; a
+  dev-mode `console.warn` names the vanished key). **`get(key)`** is a background
+  peek at any key's world (W5 attention rollups) that **never creates** an owner —
+  `undefined` when the key was never activated or is not a member.
+- Throws if called outside a reactive owner — it holds a `keyArray` of per-key
+  roots that must be disposed with the app.
+
+Keys are folded to their canonical wire string through `client.codec` (below), not
+compared by `===`: two logically-equal keys from independent decodes need not be
+reference-equal.
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="scopedbyentry" />
 
 ## `EntryStatus<Cause>` — the projected per-entry status
 
@@ -117,6 +157,14 @@ kolu's `HostKey` passes its own encode/decode. `decode` is paired with
 on the hottest paths (per-key cache lookup, membership fold, per-tick republish).
 The server re-derives and re-validates real `K` from the wire string via
 `codec.decode` then `keySchema.parse`.
+
+The connected `SurfaceMapClient` re-exposes this codec as its **`codec`** member —
+the one key-identity authority on the client. `scopedByEntry` and any consumer
+keying its own per-entry structure off membership fold a key through it rather than
+trusting `===` reference identity, which the client cannot guarantee across
+independent decodes of the same logical key.
+
+<Snippet src="packages/surface/example/snippets/map.ts" region="codec" />
 
 ## Typed sub ends and the clock seam
 

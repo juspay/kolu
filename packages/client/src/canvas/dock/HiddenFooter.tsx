@@ -25,7 +25,7 @@
  *  only appeared when it would relax something. */
 
 import { batch, type Component, createMemo, Show } from "solid-js";
-import { setActivityWindow } from "../../terminal/activityWindow";
+import { setActivityWindow } from "../../terminal/activityWindowFilter";
 import { setShowSleeping } from "../../terminal/showSleeping";
 import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
 import { DOCK_CARDS_GUTTER_CLASS } from "../../ui/chromeSpacing";

@@ -23,6 +23,10 @@ import { createSignal } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
+// HOST-SCOPING: host-INDEPENDENT by design — keyed by globally-unique TerminalId
+// (a transient drag-intent → server-echo bridge, cleared on canvas unmount), so a
+// pending override applies to its own tile regardless of which host is shown, not
+// durable per-host state.
 const [pending, setPending] = createStore<Record<string, TileLayout>>({});
 
 // One-shot create-time geometry slot — a distinct lifecycle from the

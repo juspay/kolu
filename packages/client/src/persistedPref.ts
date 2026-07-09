@@ -100,8 +100,8 @@ export function persistedPref<T>(
  *  {@link defaultSerialize}'s boolean note), so a boolean pref MUST parse
  *  exactly those two — never `Boolean(raw)` / `JSON.parse` + truthiness, which
  *  read the stored `"false"` back as `true` (the canvas-maximized bug). That
- *  strict parse lives here once so every boolean pref (`kolu-canvas-maximized`,
- *  `kolu-show-sleeping`, …) shares one seam instead of re-hand-rolling it. */
+ *  strict parse lives here once so every boolean pref (e.g. the per-host
+ *  `kolu-showSleeping:<host>`) shares one seam instead of re-hand-rolling it. */
 export function boolPref(opts: {
   name: string;
   fallback: boolean;
