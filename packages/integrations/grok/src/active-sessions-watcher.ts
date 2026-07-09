@@ -98,10 +98,9 @@ export function subscribeActiveSessions(
         // Standard watcher-retired lifecycle line (matches the receptacle's
         // `info` install/retire pair) so operator watcher-count correlation
         // sees this bootstrap watcher close, not just the real one attaching.
-        log?.info(
-          { dir: GROK_DIR, parent },
-          "grok: home-dir watcher retired — active_sessions watcher attaching",
-        );
+        // Message is the exact grep-able lifecycle phrase; the reason
+        // (active_sessions watcher now attaching) lives in this comment.
+        log?.info({ dir: GROK_DIR, parent }, "grok: home-dir watcher retired");
       }
       attach(onChange, onError, log);
     });
@@ -114,8 +113,7 @@ export function subscribeActiveSessions(
   // Standard watcher-installed lifecycle line at `info` (matches the
   // receptacle's `createDirFilenameWatcher` install log) so this long-lived
   // bootstrap watcher shows up in operator watcher-count correlation.
-  log?.info(
-    { dir: GROK_DIR, parent },
-    "grok: home-dir watcher installed — active_sessions install deferred until ~/.grok appears",
-  );
+  // Message is the exact grep-able lifecycle phrase; the reason (the real
+  // active_sessions install is deferred until ~/.grok appears) lives here.
+  log?.info({ dir: GROK_DIR, parent }, "grok: home-dir watcher installed");
 }
