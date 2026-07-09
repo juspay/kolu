@@ -3,7 +3,9 @@
  *  the canvas minimap's tile fading, the workspace switcher's Idle column,
  *  the canvas tile dimming, and the badge-attention gate.
  *
- *  One vocabulary, one persisted user choice — see `useActivityWindow`. */
+ *  One vocabulary; the per-host user choice lives in the facade beside it —
+ *  see `activityWindowFilter.ts`. This module stays a PURE leaf (no per-host
+ *  owner import), so everything above can depend on it without a back-edge. */
 
 /** One hour in milliseconds. Lives here (and not in `staleness.ts`) so
  *  the threshold ladder used by `WINDOWS` has a single source with a
@@ -12,14 +14,6 @@
  *  otherwise leave `HOUR_MS` in TDZ when `activityWindow.ts` evaluates
  *  first under the bundler's resolution order. */
 export const HOUR_MS = 60 * 60 * 1000;
-
-// The per-host owner reads this module's `DEFAULT_ACTIVITY_WINDOW`/`isActivityWindow`
-// to build each host's persisted window signal, and this module's facade reads the
-// owner back through `activeScope` — a benign import cycle: neither side touches the
-// other at module-init (the owner uses the vocab only inside `createViewState(host)`,
-// the facade uses `activeScope` only at call time), exactly like the deliberate
-// one-direction `HOUR_MS` handling above.
-import { activeScope } from "../hostScope/hostScopes";
 
 export type ActivityWindow = "all" | "4h" | "12h" | "24h" | "48h";
 
@@ -86,28 +80,6 @@ export function windowOption(w: ActivityWindow): WindowOption {
  *  parked-row AgentIndicator), without a wall of full reply cards
  *  drowning out fresh waiters. */
 export const DEFAULT_ACTIVITY_WINDOW: ActivityWindow = "24h";
-
-/** The ACTIVE host's activity-window choice — a per-host fact born in the host
- *  scope's `createViewState` (persisted per host under `kolu-activityWindow:<host>`),
- *  read here through the facade. W7 TIER A moved this OUT of one global localStorage
- *  singleton: switching hosts now shows each host's own dock filter, and the choice
- *  parameterizes a VIEW OF that host's terminals (per-host by THE RULE). Floors the
- *  removal race to the default, exactly as `useViewState` floors its per-host reads. */
-export function activityWindow(): ActivityWindow {
-  return activeScope()?.view.activityWindow() ?? DEFAULT_ACTIVITY_WINDOW;
-}
-
-/** Set the ACTIVE host's activity window (a no-op during the one-tick removal
- *  race, when there is no active scope to write). */
-export function setActivityWindow(next: ActivityWindow): void {
-  activeScope()?.view.setActivityWindow(next);
-}
-
-/** Reactive threshold (ms) for the currently-selected activity window.
- *  `null` when the user picked `"all"` — staleness is disabled. */
-export function activityWindowThresholdMs(): number | null {
-  return WINDOWS[activityWindow()].thresholdMs;
-}
 
 /** Pre-built `{value, label}` list for the activity-window picker menus —
  *  shared by the dock chip and the minimap chip so the option set is

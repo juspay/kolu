@@ -40,7 +40,10 @@ vi.mock("./wire", async () => {
 
 import { activeScope } from "./hostScope/hostScopes";
 import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
-import { activityWindow, setActivityWindow } from "./terminal/activityWindow";
+import {
+  activityWindow,
+  setActivityWindow,
+} from "./terminal/activityWindowFilter";
 import { setShowSleeping, showSleeping } from "./terminal/showSleeping";
 import { useViewState } from "./useViewState";
 
