@@ -88,13 +88,17 @@ the cell ships browser-safe from `@kolu/surface-remote/connection`.
 `ConnectionInfo` is the discriminated **mirror** of the session's `SessionState`
 sum, keyed on `phase`: the up arms (`probing` / `copying` / `building` — the ssh
 connector's provisioning phases, `probing` being the warm-check window where the
-agent is looked up but nothing is shipped yet — plus `connecting` / `connected`)
-carry only a provenance-tagged
-`log` tail (`{ source: "local" | "remote"; line }[]`); `disconnected` adds
-`error` + `cause` (`"network"` unreachable / `"remote"` refused); `failed` is
-terminal with `cause` pinned to the `"remote"` literal (a network fault never gives
-up, so `failed` + `network` is unrepresentable). There is no separate
-`progressLines` / `remoteProgressLines` — provenance is the `source` field.
+agent is looked up but nothing is shipped yet — plus `connecting` / `connected`).
+Every arm carries two fields: a provenance-tagged `log` tail
+(`{ source: "local" | "remote"; line }[]`) and `sinceMs`, the server-stamped elapsed
+of the CURRENT episode in milliseconds — a **duration** on the server's single clock
+(never a foreign epoch the browser would subtract), which the browser extends smoothly
+with its own ticker. Both `log` and `sinceMs` are scoped to the current dial-to-up
+episode and RESET on a down→up crossing, so a reconnect never shows a stale tail under
+a fresh timer. `disconnected` adds `error` + `cause` (`"network"` unreachable /
+`"remote"` refused); `failed` is terminal with `cause` pinned to the `"remote"` literal
+(a network fault never gives up, so `failed` + `network` is unrepresentable). There is
+no separate `progressLines` / `remoteProgressLines` — provenance is the `source` field.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
