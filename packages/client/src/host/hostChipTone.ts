@@ -22,6 +22,14 @@ export function sameHost(a: HostKey, b: HostKey): boolean {
   return encodeHostKey(a) === encodeHostKey(b);
 }
 
+/** Render a `HostKey` as its human display label — the LOCAL default reads
+ *  "local"; a remote reads its ssh target. The ONE source of truth for a host's
+ *  chip / dialog / tooltip label, shared by `HostSelectorStrip` and
+ *  `HostDaemonChips` (it was hand-rolled identically in both). */
+export function hostLabel(h: HostKey): string {
+  return h.kind === "local" ? "local" : h.target;
+}
+
 /** The gate DECISION — whether MULTIPLE-host chrome (the guest chips beyond the
  *  active one, plus the "+ add a host" affordance) renders. The strip itself is
  *  NEVER gated off entirely any more (W4 header redesign — "gate-off consistent

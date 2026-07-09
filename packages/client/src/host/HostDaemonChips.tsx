@@ -55,7 +55,7 @@ import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
 import { activeHost, padiMap, setActiveHost } from "../wire";
-import { sameHost, statusTitle } from "./hostChipTone";
+import { hostLabel, sameHost, statusTitle } from "./hostChipTone";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
@@ -74,10 +74,6 @@ function skewPairFor(host: HostKey): SkewVersionPair | undefined {
     return undefined;
   const { running, expected } = state as SkewVersionPair;
   return { running, expected };
-}
-
-function hostLabel(h: HostKey): string {
-  return h.kind === "local" ? "local" : h.target;
 }
 
 /** The ONE per-host reader for Padi liveness + entry state — the receptacle for

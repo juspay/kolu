@@ -85,6 +85,7 @@ import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
   dotClass,
   hostGateOpen,
+  hostLabel,
   sameHost,
   shouldRenderHostChip,
   statusTitle,
@@ -117,24 +118,23 @@ const OVERFLOW_TRIGGER_RESERVE: number = 44;
  *  reserved from the fit budget whenever it renders (gate open). */
 const ADD_BUTTON_RESERVE: number = 34;
 
-// Explicit type annotations on these two helpers (rather than inferring off
-// the arrow function) are load-bearing, not decorative: this file's
-// per-chip `.cells.urgency.use(...)` call (inside `HostChip`, properly
-// owned by that component's own reactive instance — no `createRoot` needed)
-// sits textually close to whichever top-level `const` happens to precede
-// `HostChip`. `standingSubscriptionOwnership.test.ts`'s heuristic flags any
-// UNTYPED top-level `const NAME = ` (its signal for "possibly a bare
-// standing subscription") and scans a fixed window past it — an untyped
-// `const label = (h) => ...` right before `HostChip` would fold that
+// The explicit type annotation on `labelForKey` (rather than inferring off the
+// arrow function) is load-bearing, not decorative: this file's per-chip
+// `.cells.urgency.use(...)` call (inside `HostChip`, properly owned by that
+// component's own reactive instance — no `createRoot` needed) sits textually
+// close to whichever top-level `const` happens to precede `HostChip`.
+// `standingSubscriptionOwnership.test.ts`'s heuristic flags any UNTYPED
+// top-level `const NAME = ` (its signal for "possibly a bare standing
+// subscription") and scans a fixed window past it — an untyped
+// `const labelForKey = (key) => ...` before `HostChip` would fold that
 // unrelated per-chip `.use()` into its window. Typing the identifier
 // (`const NAME: T = ...`) makes it visibly a plain value/helper, not a
 // candidate the heuristic needs to inspect.
-const label: (h: HostKey) => string = (h) =>
-  h.kind === "local" ? "local" : h.target;
 /** Decode-then-label in one step — used wherever a component only has the
  *  CANONICAL encoded string (an overflowed/menu
  *  key), never a `HostKey` object. */
-const labelForKey: (key: string) => string = (key) => label(decodeHostKey(key));
+const labelForKey: (key: string) => string = (key) =>
+  hostLabel(decodeHostKey(key));
 
 const statusLabel: (host: HostKey) => string = (host) => {
   return match(padiMap.entry(host).state())
@@ -149,7 +149,7 @@ const removeHost: (host: HostKey) => void = (host) => {
   client.hosts
     .remove({ host })
     .catch((err: Error) =>
-      toast.error(`Couldn't remove ${label(host)}: ${err.message}`),
+      toast.error(`Couldn't remove ${hostLabel(host)}: ${err.message}`),
     );
 };
 
@@ -160,7 +160,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   const isLocal = () => props.host.kind === "local";
   const urgency = padiMap.entry(props.host).cells.urgency.use({
     onError: (err: Error) =>
-      toast.error(`Host ${label(props.host)} urgency error: ${err.message}`),
+      toast.error(`Host ${hostLabel(props.host)} urgency error: ${err.message}`),
   });
   const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
   // The active-host signal + this chip's own host are compared by their CANONICAL
@@ -223,7 +223,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           onClick={() => {
             if (!isActive()) setActiveHost(props.host);
           }}
-          title={`${label(props.host)} — ${statusTitle(state())}`}
+          title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
         >
           <span
             class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state())}`}
@@ -233,7 +233,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
            *  2) — a pure CSS breakpoint, so it only ever moves on a window
            *  resize, never a host switch. */}
           <span class="truncate max-w-[5rem] lg:max-w-[10rem] font-medium">
-            {label(props.host)}
+            {hostLabel(props.host)}
           </span>
           {/* Urgency badge — the host's awaiting count, hidden at zero. */}
           <Show when={awaiting() > 0}>
@@ -262,8 +262,8 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
             type="button"
             class="pointer-events-auto shrink-0 h-8 w-6 inline-flex items-center justify-center rounded-tr-md text-fg-3 hover:text-danger hover:bg-danger/10 opacity-45 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 transition-[opacity,color,background-color]"
             data-testid="host-remove"
-            aria-label={`Remove host ${label(props.host)}`}
-            title={`Remove ${label(props.host)}`}
+            aria-label={`Remove host ${hostLabel(props.host)}`}
+            title={`Remove ${hostLabel(props.host)}`}
             onClick={() => removeHost(props.host)}
           >
             ✕
@@ -288,7 +288,7 @@ const HostSwitcherRow: Component<{
   const state = () => padiMap.entry(host).state();
   const urgency = padiMap.entry(host).cells.urgency.use({
     onError: (err: Error) =>
-      toast.error(`Host ${label(host)} urgency error: ${err.message}`),
+      toast.error(`Host ${hostLabel(host)} urgency error: ${err.message}`),
   });
   const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
   const pickHost = () => {
@@ -316,7 +316,7 @@ const HostSwitcherRow: Component<{
         type="button"
         data-testid={`${props.testIdPrefix}-option-${props.hostKey}`}
         aria-current={isActive() ? "true" : undefined}
-        title={`${label(host)} — ${statusTitle(state())}`}
+        title={`${hostLabel(host)} — ${statusTitle(state())}`}
         class="pointer-events-auto flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         onClick={pickHost}
       >
@@ -329,7 +329,7 @@ const HostSwitcherRow: Component<{
             class="flex min-w-0 items-center gap-1.5 text-xs font-medium"
             classList={{ "text-fg": isActive(), "text-fg-2": !isActive() }}
           >
-            <span class="truncate">{label(host)}</span>
+            <span class="truncate">{hostLabel(host)}</span>
             <Show when={isActive()}>
               <span class="shrink-0 rounded-full border border-accent/45 bg-accent/15 px-1.5 text-[9px] font-semibold leading-4 text-accent">
                 active
@@ -362,8 +362,8 @@ const HostSwitcherRow: Component<{
           "bg-surface-0/70": isActive(),
           "bg-surface-0/45": !isActive(),
         }}
-        aria-label={`Switch to ${label(host)}`}
-        title={`Switch to ${label(host)}`}
+        aria-label={`Switch to ${hostLabel(host)}`}
+        title={`Switch to ${hostLabel(host)}`}
         onClick={pickHost}
       >
         <HostDualDaemonSlot host={host} mode="static" />
@@ -373,8 +373,8 @@ const HostSwitcherRow: Component<{
           type="button"
           class="pointer-events-auto h-7 w-6 inline-flex items-center justify-center rounded-lg text-fg-3 opacity-60 transition-[opacity,color,background-color] hover:bg-danger/10 hover:text-danger group-hover/host-row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           data-testid={`${props.testIdPrefix}-remove-${props.hostKey}`}
-          aria-label={`Remove host ${label(host)}`}
-          title={`Remove ${label(host)}`}
+          aria-label={`Remove host ${hostLabel(host)}`}
+          title={`Remove ${hostLabel(host)}`}
           onClick={() => removeHost(host)}
         >
           ✕
@@ -496,8 +496,8 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
           aria-expanded={open()}
           ref={triggerEl}
           class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-md pl-2 pr-2 text-xs text-fg transition-colors focus-visible:outline-none"
-          aria-label={`Switch host — currently ${label(active())}`}
-          title={`Switch host — currently ${label(active())}`}
+          aria-label={`Switch host — currently ${hostLabel(active())}`}
+          title={`Switch host — currently ${hostLabel(active())}`}
           onClick={() => setOpen((v) => !v)}
         >
           <span
@@ -505,7 +505,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
             aria-hidden="true"
           />
           <span class="truncate max-w-[5rem] font-medium">
-            {label(active())}
+            {hostLabel(active())}
           </span>
           <span aria-hidden="true" class="text-fg-3">
             ▾
