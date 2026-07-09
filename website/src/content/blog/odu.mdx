@@ -191,9 +191,9 @@ None of them owns the truth; each is a thin adapter over one contract. When the 
 Step back and odu is almost entirely the same four pieces that power drishti and Kolu, pointed at a new domain:
 
 - **[oRPC](https://orpc.io/)** is the transport. The coordinator dials the lane's `odu-runner --stdio` over ssh; the contract is base64-framed over stdout, snapshot-then-deltas on the wire, no daemon and no port. The same typed client the browser would use, talking over a pipe instead of a socket.
-- **`@kolu/surface`** is the state. I declared odu's pipeline once — a cell, a stream, a procedure — and got it typed and reactive on every frontend, with the snapshot-then-deltas framing and race-free attach handled for me. I wrote zero subscribe-reconcile-retry code, which was the entire point of extracting surface in the first place.
-- **`@kolu/surface-nix-host`** is the provisioning. "Run my CI on that machine" becomes a `nix copy` of a closure and an ssh command, and the host needs nothing but ssh, Nix, and outbound https. The same property that lets drishti monitor a box you've never installed anything on lets odu *build* on one.
-- **`@kolu/surface-mcp`** is the agent face. Project the surface, serve it default-deny, add the two genuinely call-shaped tools, done.
+- **[`@kolu/surface`](/surface)** is the state. I declared odu's pipeline once — a cell, a stream, a procedure — and got it typed and reactive on every frontend, with the snapshot-then-deltas framing and race-free attach handled for me. I wrote zero subscribe-reconcile-retry code, which was the entire point of extracting surface in the first place.
+- **`@kolu/surface-nix-host`** is the provisioning. "Run my CI on that machine" becomes a `nix copy` of a closure and an ssh command, and the host needs nothing but ssh, Nix, and outbound https. The same property that lets drishti monitor a box you've never installed anything on lets odu *build* on one. ([How to mirror a surface over ssh](/surface/mirror-over-ssh) is the pattern.)
+- **`@kolu/surface-mcp`** is the agent face. Project the surface, serve it default-deny, add the two genuinely call-shaped tools, done. ([How to expose a surface to agents](/surface/expose-to-agents) walks the projection.)
 
 The way I think about it now, building a CI runner stopped being "build a CI runner." It was: declare a surface for the pipeline, provision the hosts over ssh, project the surface for agents. Three of those four steps were libraries I already had. odu is mostly the domain — the strict gate, the `just` DAG ingestion, the lane fan-in — sitting on a transport, a state model, a provisioner, and an adapter that Kolu and drishti proved out first.
 
@@ -209,4 +209,4 @@ If you've read the [surface](/blog/surface-framework) and [ssh](/blog/orpc-over-
 
 ---
 
-[odu](https://github.com/juspay/odu) · [`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface) · [`@kolu/surface-nix-host`](https://github.com/juspay/kolu/tree/master/packages/surface-remote) · [`@kolu/surface-mcp`](https://github.com/juspay/kolu/tree/master/packages/surface-mcp) · [oRPC](https://orpc.io/) · the earlier chapters: [Announcing @kolu/surface](/blog/surface-framework) and [Apps that ship themselves over ssh](/blog/orpc-over-ssh)
+[odu](https://github.com/juspay/odu) · [the @kolu/surface docs](/surface) · [`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface) · [`@kolu/surface-nix-host`](https://github.com/juspay/kolu/tree/master/packages/surface-remote) · [`@kolu/surface-mcp`](https://github.com/juspay/kolu/tree/master/packages/surface-mcp) · [oRPC](https://orpc.io/) · the earlier chapters: [Announcing @kolu/surface](/blog/surface-framework) and [Apps that ship themselves over ssh](/blog/orpc-over-ssh)

@@ -24,6 +24,7 @@ import { Hono } from "hono";
 import {
   BINARY_PREVIEWABLE_EXTENSIONS,
   buildTerminalFileUrl,
+  PDF_PREVIEWABLE_EXTENSIONS,
   RASTER_IMAGE_EXTENSIONS,
   SANDBOX_PREVIEWABLE_EXTENSIONS,
   TERMINAL_FILE_ROUTE_BASE,
@@ -62,9 +63,12 @@ describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifi
     expect(contentTypeForPath(`file${ext}`)).toMatch(/^image\//);
   });
 
-  // Sandbox-previewable kinds (.html/.htm/.svg/.pdf) span families (text/html,
-  // image/svg+xml, application/pdf), so the non-octet check is the right
-  // invariant for that bucket.
+  it.each(PDF_PREVIEWABLE_EXTENSIONS)("%s maps to application/pdf", (ext) => {
+    expect(contentTypeForPath(`file${ext}`)).toBe("application/pdf");
+  });
+
+  // Sandbox-previewable kinds (.html/.htm/.svg) span families (text/html,
+  // image/svg+xml), so the non-octet check is the right invariant for that bucket.
   it.each(
     SANDBOX_PREVIEWABLE_EXTENSIONS,
   )("%s has a non-octet Content-Type", (ext) => {

@@ -675,7 +675,7 @@ When(
   },
 );
 
-// ── Iframe preview (.html / .svg / .pdf in browse mode) ──
+// ── Binary previews (.html / .svg / .pdf / image / video in browse mode) ──
 
 Then(
   "the file preview iframe should be visible",
@@ -840,6 +840,47 @@ Then(
     await this.page
       .locator('[data-testid="browse-preview-video"] video[controls]')
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the file preview PDF should be visible",
+  async function (this: KoluWorld) {
+    const pdf = this.page.locator('[data-testid="browse-preview-pdf"]');
+    await pdf.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const sandbox = await pdf.getAttribute("sandbox");
+    if (sandbox !== null) {
+      throw new Error(
+        `PDF preview must use the native browser viewer, not a sandboxed iframe; sandbox=${JSON.stringify(sandbox)}`,
+      );
+    }
+
+    const src = await pdf.getAttribute("src");
+    if (src === null) throw new Error("PDF preview iframe has no src");
+    const url = new URL(src, this.page.url());
+    if (!url.pathname.endsWith("/file/doc.pdf")) {
+      throw new Error(`PDF preview src did not point at doc.pdf: ${url.href}`);
+    }
+
+    const handle = await pdf.elementHandle();
+    if (handle === null) throw new Error("PDF preview iframe has no handle");
+    const frame = await handle.contentFrame();
+    if (frame === null)
+      throw new Error("PDF preview iframe has no loaded frame");
+    // Chromium's native PDF viewer exposes a content frame here, but does not
+    // report a stable Playwright frame URL in headless mode. The route
+    // response below proves the iframe's `src` is a real PDF resource.
+
+    const response = await this.page.request.get(url.href);
+    const contentType = response.headers()["content-type"] ?? "";
+    if (
+      response.status() !== 200 ||
+      !contentType.toLowerCase().includes("application/pdf")
+    ) {
+      throw new Error(
+        `PDF preview route returned ${response.status()} ${JSON.stringify(contentType)} for ${url.href}`,
+      );
+    }
   },
 );
 

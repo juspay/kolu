@@ -4,9 +4,9 @@
  *  here in the consumer's renderer construction, not in the library — the
  *  library frame just exposes its element via `ref` for a host to bind.
  *
- *  HTML only carries the spliced `<script src="/api/artifact-sdk.js">`; SVG
- *  and PDF are served verbatim, so the bridge simply finds no SDK and stays
- *  inert there. */
+ *  HTML only carries the spliced `<script src="/api/artifact-sdk.js">`; SVG is
+ *  served verbatim, so the bridge simply finds no SDK and stays inert there.
+ *  PDF uses the native viewer renderer instead of this sandboxed path. */
 
 import {
   observeIframeHistory,
