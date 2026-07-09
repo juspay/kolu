@@ -25,6 +25,7 @@ Repo-agnostic skills that don't depend on kolu internals:
 | `perfection-review`  | Adversarial "ideal-bar" review, fanned out via Workflow                 |
 | `architecture-first-principles` | The state-and-time lens — 5 grounded CS principles (values, pure core, one-authority/clock, illegal-states-unrepresentable, end-to-end) |
 | `kolu`               | Drive one agent from another through kolu terminals (`kaval-tui`)       |
+| `orchestrator`       | Coordination rules for a supervisor driving agents on kolu terminals    |
 | `surface`            | Consume the shared `@kolu/surface` stack in a downstream app            |
 
 The package declares the shared packages these skills call
