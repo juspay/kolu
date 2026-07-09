@@ -128,6 +128,16 @@ export class CodexAgent implements MockKind {
     // Ensure `~/.codex` exists so the rollout write below has a directory. The
     // rollout JSONL carries the STATE; the DB write is only the WAL trigger that
     // wakes the provider to re-read the rollout.
+    this.writeArtifacts(state, opts);
+    // Replay rewrites BOTH the rollout and the DB row. Codex's session-watcher
+    // short-circuits re-parse when the rollout byte size is unchanged — a
+    // DB-only nudge after a dropped second-state write would leave contextTokens
+    // stuck at the first parse (null). Re-writing the rollout keeps size/content
+    // in sync with the current state so every kick re-derives.
+    this.replay = () => this.writeArtifacts(state, opts);
+  }
+
+  private writeArtifacts(state: AgentState, opts: StateOpts): void {
     mkdirSync(this.dir, { recursive: true });
     writeFileSync(
       this.rolloutPath,
@@ -138,7 +148,6 @@ export class CodexAgent implements MockKind {
       }),
     );
     this.writeThreadRow(opts);
-    this.replay = () => this.writeThreadRow(opts);
   }
 
   /** Open-write-CLOSE the thread row — the WAL trigger. Atomic row-swap: a reader

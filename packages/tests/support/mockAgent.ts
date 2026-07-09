@@ -34,6 +34,10 @@ export interface MockStateOpts {
   noActive?: boolean;
 }
 
+/** Monotonic ack id so each `setMockState` waits for ITS OWN
+ *  `MOCK-AGENT-STATE` line, not a prior one still on screen. */
+let stateSeq = 0;
+
 function mockAgentBin(kind: AgentKind): string {
   const dir = process.env.KOLU_MOCK_AGENT_BIN;
   if (!dir)
@@ -114,7 +118,7 @@ export async function launchMockAgent(
   active = { kind, state: "", opts: {}, cwd };
 }
 
-function renderOpts(opts: MockStateOpts): string {
+function renderOpts(opts: MockStateOpts, seq: number): string {
   const parts: string[] = [];
   if (opts.inputTokens !== undefined) parts.push(`input=${opts.inputTokens}`);
   if (opts.cachedInputTokens !== undefined)
@@ -127,23 +131,28 @@ function renderOpts(opts: MockStateOpts): string {
     parts.push(`tasks=${opts.tasks.total}/${opts.tasks.completed}`);
   if (opts.staleJsonl) parts.push("stale-jsonl");
   if (opts.noActive) parts.push("no-active");
+  parts.push(`seq=${seq}`);
   return parts.join(" ");
 }
 
 /** Send a `state <name> [opts]` command and wait for the mock-agent's ack, so
  *  the artifact write has happened before the caller polls the UI (deterministic,
- *  no sleep). */
+ *  no sleep). Each call uses a unique `seq=` so a second transition to the same
+ *  lifecycle name can't short-circuit on the previous ack still in the buffer. */
 export async function setMockState(
   world: KoluWorld,
   state: string,
   opts: MockStateOpts = {},
 ): Promise<void> {
-  const rendered = renderOpts(opts);
-  await world.page.keyboard.type(
-    `state ${state}${rendered ? ` ${rendered}` : ""}`,
-  );
+  stateSeq += 1;
+  const seq = stateSeq;
+  const rendered = renderOpts(opts, seq);
+  await world.page.keyboard.type(`state ${state} ${rendered}`);
   await world.page.keyboard.press("Enter");
-  await waitForBufferContains(world.page, `MOCK-AGENT-STATE ${state}`);
+  await waitForBufferContains(
+    world.page,
+    `MOCK-AGENT-STATE ${state} seq=${seq}`,
+  );
   if (!active)
     throw new Error("no active mock-agent — call launchMockAgent first");
   active.state = state;

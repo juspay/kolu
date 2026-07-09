@@ -20,6 +20,7 @@
  *   stale-jsonl                claude MRU-regression previous-session file (flag)
  *   no-active                  grok: write session tree without active_sessions
  *                              pid map (the production "map lands late" race)
+ *   seq=<n>                    harness-side unique ack id (echoed, not written)
  */
 
 /** Every lifecycle + artifact variant the mock-agent can present. The base
@@ -81,6 +82,10 @@ export interface StateOpts {
   /** grok: write the session tree but leave `active_sessions.json` empty —
    *  the production race where the TUI is foreground before the pid map lands. */
   noActive?: boolean;
+  /** Harness-only: unique id so the ack line can't match a prior
+   *  `MOCK-AGENT-STATE` still on screen (e.g. two consecutive `waiting`
+   *  transitions with different opts — the buffer would short-circuit). */
+  seq?: number;
 }
 
 /** One agent kind's artifact surface. `setState` is idempotent (re-runnable for
@@ -152,6 +157,9 @@ export function parseCommand(raw: string): Command | null {
         }
         case "title":
           opts.title = val;
+          break;
+        case "seq":
+          opts.seq = Number(val);
           break;
       }
     }

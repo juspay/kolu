@@ -42,6 +42,14 @@ describe("parseCommand", () => {
     });
   });
 
+  it("parses harness seq opt", () => {
+    expect(parseCommand("state waiting input=30000 seq=7")).toEqual({
+      verb: "state",
+      state: "waiting",
+      opts: { inputTokens: 30000, seq: 7 },
+    });
+  });
+
   it("rejects an unknown state name loudly", () => {
     expect(parseCommand("state thnking")).toEqual({
       verb: "unknown",

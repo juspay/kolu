@@ -108,8 +108,11 @@ function main(): void {
       // after each state change so the server resolves against fresh files/DB.
       emitTitle();
       // Acknowledge so the harness can wait for the write to have happened
-      // before it starts polling the UI (deterministic, no sleep).
-      process.stdout.write(`MOCK-AGENT-STATE ${cmd.state}\n`);
+      // before it starts polling the UI (deterministic, no sleep). Include
+      // `seq=` when present so a second `state waiting …` can't match the
+      // previous ack still sitting in the terminal buffer.
+      const seq = cmd.opts.seq !== undefined ? ` seq=${cmd.opts.seq}` : "";
+      process.stdout.write(`MOCK-AGENT-STATE ${cmd.state}${seq}\n`);
       return;
     }
     if (cmd.verb === "paint") {
