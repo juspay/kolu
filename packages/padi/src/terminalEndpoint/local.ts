@@ -24,13 +24,13 @@
 
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
-  agentIdentityChanged,
   type CommandRunSample,
   type FoldCtx,
   fold,
   restoreTargetEqual,
   restoreTargetOf,
   seedRecencyBaseline,
+  stepRecencyBaseline,
   type SensorSignals,
   seedSnapshot,
   startSensors,
@@ -767,17 +767,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // The frame phase is a VALUE comparison on the agent identity: a re-resolved
       // identity equal to the baseline is a re-observation (not live); a different one
       // is new activity, and the baseline advances to it. Only an authoritative agent
-      // value carries recency.
-      let live = false;
-      if (o.kind === "agent" && o.agent !== "unknown") {
-        const next = o.agent.value;
-        live = agentIdentityChanged(recencyBaseline, next);
-        if (live)
-          recencyBaseline = next
-            ? { kind: next.kind, sessionId: next.sessionId }
-            : null;
-      }
-      const ctx: FoldCtx = { live, at: Date.now(), runStartedAt };
+      // value carries recency — `stepRecencyBaseline` owns that step (incl. the
+      // non-agent / `unknown` guard) so the producer and its conformance test share it.
+      const step = stepRecencyBaseline(recencyBaseline, o);
+      recencyBaseline = step.baseline;
+      const ctx: FoldCtx = { live: step.live, at: Date.now(), runStartedAt };
       current = fold(current, o, ctx);
       // Cross-terminal MRUs (kolu's, fold-side) track the OBSERVATION itself — a git
       // context seen, a (non-replayed) agent command run — NOT the fold delta, so they

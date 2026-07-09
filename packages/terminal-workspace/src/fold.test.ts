@@ -7,6 +7,7 @@ import {
   RECENCY_THROTTLE_MS,
   restoreTargetOf,
   seedRecencyBaseline,
+  stepRecencyBaseline,
 } from "./fold.ts";
 import {
   type AgentIdentity,
@@ -239,10 +240,11 @@ const EXACT_TARGET: RestoreTarget = {
 };
 
 /** Simulate the producer's recency path (padi's `emit`): seed the identity BASELINE
- *  from the restore target, then per agent observation derive `ctx.live` off it,
- *  advance the baseline on a live change, and fold — with a fixed `runStartedAt` for
- *  the run. Mirrors the emit closure so the adopt-vs-fresh recency pins live at the
- *  pure layer. */
+ *  from the restore target, then per agent observation call the SAME
+ *  `stepRecencyBaseline` the producer uses to derive `ctx.live` and advance the
+ *  baseline, and fold — with a fixed `runStartedAt` for the run. Drives the real
+ *  step (not a mirror of it), so the adopt-vs-fresh recency pins bind at the pure
+ *  layer and can't drift from the wire. */
 function driveRecency(
   restoreTarget: RestoreTarget | undefined,
   from: TerminalState,
@@ -252,12 +254,10 @@ function driveRecency(
   let baseline: AgentIdentity | null = seedRecencyBaseline(restoreTarget);
   let state = from;
   for (const t of ticks) {
-    const live = agentIdentityChanged(baseline, t.agent);
-    if (live)
-      baseline = t.agent
-        ? { kind: t.agent.kind, sessionId: t.agent.sessionId }
-        : null;
-    state = fold(state, agentObs(t.agent), { live, at: t.at, runStartedAt });
+    const o = agentObs(t.agent);
+    const step = stepRecencyBaseline(baseline, o);
+    baseline = step.baseline;
+    state = fold(state, o, { live: step.live, at: t.at, runStartedAt });
   }
   return state;
 }

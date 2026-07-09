@@ -106,6 +106,32 @@ export function seedRecencyBaseline(
   return restoreTarget?.kind === "exact" ? restoreTarget.agent : null;
 }
 
+/** Advance the RECENCY BASELINE for one observation and decide `live` — the frame
+ *  phase's per-observation step, seeded by {@link seedRecencyBaseline} and threaded
+ *  by the caller like `current`. A non-agent mark or an `unknown` (mid-resolution)
+ *  tick touches nothing: `{ live: false, baseline }` — the SAME baseline, so a
+ *  mid-resolution `unknown` never disturbs liveness (#1626). An authoritative agent
+ *  `{ value }` is judged against the baseline via {@link agentIdentityChanged}; on a
+ *  live change the baseline advances to the new identity (a re-observation of what we
+ *  already knew is `!live` and leaves it be). Pure — the sole home of the frame
+ *  phase's step, exercised by the producer ({@link fold}'s caller, padi's `emit`) and
+ *  its conformance test alike, so the unknown guard lives once. */
+export function stepRecencyBaseline(
+  baseline: AgentIdentity | null,
+  o: TerminalEvent,
+): { live: boolean; baseline: AgentIdentity | null } {
+  if (o.kind !== "agent" || o.agent === "unknown")
+    return { live: false, baseline };
+  const next = o.agent.value;
+  const live = agentIdentityChanged(baseline, next);
+  return {
+    live,
+    baseline: live
+      ? next && { kind: next.kind, sessionId: next.sessionId }
+      : baseline,
+  };
+}
+
 /** kolu's RESTORE TARGET, derived from the folded state — the fold OWNS this
  *  projection rather than the shell assembling it. The discriminant is decided by
  *  the agent the fold just observed paired with the remembered launch line:
