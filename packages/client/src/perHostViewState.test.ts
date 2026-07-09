@@ -6,10 +6,13 @@
  *  NOT per-host — it's a global viewer-layout pref that must survive reload.)
  *  Each follows the maximized pattern: SET on host A → switch to
  *  host B sees the DEFAULT → switch BACK to A sees A's value RESTORED (the owner is
- *  RETAINED across a switch-away, disposed only on membership exit). For the two
- *  PERSISTED dock filters it also asserts the PER-HOST localStorage key is written
- *  (`kolu-activityWindow:<host>` / `kolu-showSleeping:<host>`) — the trade that buys
- *  reload-survival back after they lost their single global key.
+ *  RETAINED across a switch-away, disposed only on membership exit). All three are
+ *  PERSISTED per host, so each also asserts its PER-HOST localStorage key is written
+ *  (`kolu-canvasMaximized:<host>` / `kolu-activityWindow:<host>` / `kolu-showSleeping:<host>`)
+ *  — the trade that buys reload-survival while keeping each host's value isolated.
+ *  `canvasMaximized` adds a dedicated reload repro (a FRESH owner reads the persisted
+ *  key back) because restoring that reload-survival is exactly this fix — the W7
+ *  in-memory signal had dropped it.
  *
  *  Same real-owner fixture as `perHostCanvas.test.ts`: a REAL `scopedByEntry` over
  *  the shared mock `padiMap` (`hostScope/mockHostMap.testlib`), membership driven by
@@ -80,7 +83,7 @@ beforeEach(() => {
 });
 
 describe("per-host view posture + dock filters (W7 TIER A)", () => {
-  it("canvasMaximized: set on A → B sees tiled (default) → back to A restores maximized", async () => {
+  it("canvasMaximized: set on A → B sees tiled (default) → back to A restores maximized, and A's per-host key is written", async () => {
     await createRoot(async (dispose) => {
       try {
         const view = useViewState();
@@ -90,6 +93,10 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         expect(view.canvasMaximized()).toBe(false);
         view.toggleCanvasMaximized();
         expect(view.canvasMaximized()).toBe(true);
+        await flush();
+        // The trade: persisted PER HOST (like the dock filters) so a host's
+        // fullscreen posture survives reload — the pre-W7 behavior, restored.
+        expect(localStorage.getItem("kolu-canvasMaximized:local")).toBe("true");
 
         switchTo(HOST_B);
         await flush();
@@ -99,6 +106,25 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         switchTo(HOST_A);
         await flush();
         // A's owner was retained across the switch-away — its posture is restored.
+        expect(view.canvasMaximized()).toBe(true);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  it("canvasMaximized: survives a reload — a FRESH owner reads back the persisted posture (the W7-regression repro)", async () => {
+    // Simulate a reload: the persisted key already sits in localStorage BEFORE
+    // the host's owner is created (a page reload kills the process without
+    // running the Solid dispose that evicts the key). A fresh owner must read it
+    // back as maximized. Under the in-memory-only W7 posture this failed — the
+    // signal defaulted to `false` and the fullscreen posture was silently lost.
+    localStorage.setItem("kolu-canvasMaximized:local", "true");
+    await createRoot(async (dispose) => {
+      try {
+        const view = useViewState();
+        switchTo(HOST_A);
+        await flush();
         expect(view.canvasMaximized()).toBe(true);
       } finally {
         dispose();

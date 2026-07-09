@@ -21,13 +21,17 @@
  *  The sticky filters/collapsed bit live in `createHostPrefs` precisely because
  *  they must SURVIVE a close-all. Only the momentary `centerActiveRequest` command
  *  stays APP-level in the facade — a write-and-consume viewport impulse, never
- *  durable per-host state. The posture is in-memory (reload → tiled, matching the
- *  camera tier). */
+ *  durable per-host state. The posture is PERSISTED per host
+ *  (`kolu-canvasMaximized:<host>`, restoring the pre-W7 reload-survival that the
+ *  in-memory W7 signal had dropped) yet still reset-on-close-all — the one
+ *  persisted fact this factory owns, since a fullscreen posture over zero tiles is
+ *  meaningless; its key is evicted when the host leaves the pool. */
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createSignal, type Setter } from "solid-js";
+import { type Accessor, createSignal, onCleanup, type Setter } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
+import { boolPref } from "../persistedPref";
 import { padiRpcOf } from "../wire";
 
 type TerminalAttention = "unread" | "badge-only";
@@ -48,11 +52,13 @@ export interface HostViewState {
   isUnread: (id: TerminalId) => boolean;
   hasBadgeAttention: (id: TerminalId) => boolean;
   // ── Per-host VIEW POSTURE (W7 TIER A) ────────────────────────────────
-  /** Fullscreen-one-tile posture for THIS host. In-memory (reload resets to
-   *  tiled — the camera tier), per-host so a switch shows each host's own
-   *  posture. Cleared by `reset()` (a close-all drops back to tiled). The sticky
-   *  dock filters + right-panel bit live in `createHostPrefs` — they SURVIVE a
-   *  close-all, so they are NOT here. */
+  /** Fullscreen-one-tile posture for THIS host. Persisted per host
+   *  (`kolu-canvasMaximized:<host>`) so it survives reload — the pre-W7 behavior,
+   *  restored — and per-host so a switch shows each host's own posture. Cleared by
+   *  `reset()` (a close-all writes it back to tiled), so it is the one persisted
+   *  fact this factory owns that a close-all still resets: the sticky dock filters
+   *  in `createHostPrefs` deliberately SURVIVE a close-all, whereas a fullscreen
+   *  posture over zero tiles is meaningless, so close-all floors it. */
   canvasMaximized: Accessor<boolean>;
   setCanvasMaximized: Setter<boolean>;
   reset: () => void;
@@ -65,12 +71,31 @@ export function createViewState(host: HostKey): HostViewState {
     Record<TerminalId, TerminalAttention>
   >({});
 
-  // The canonical host string — the map's `codec.encode(host)`, used in the
-  // active-terminal report's error message below. Computed once per owner.
+  // The canonical host string — the map's `codec.encode(host)`, used both in the
+  // active-terminal report's error message below and as the posture's per-host
+  // storage-key suffix. Computed once per owner.
   const encoded = encodeHostKey(host);
 
-  // View posture: in-memory per host (reload → tiled, matching the camera tier).
-  const [canvasMaximized, setCanvasMaximized] = createSignal(false);
+  // View posture: persisted PER HOST (`kolu-canvasMaximized:<host>`) so a host's
+  // fullscreen posture survives reload — the pre-W7 behavior, restored — but keyed
+  // by host (unlike the pre-W7 GLOBAL `kolu-canvas-maximized` flag) so two hosts
+  // don't collide on one bit. A close-all `reset()` still writes it back to tiled
+  // (see `reset` below), matching the old global boolPref that `reset` also cleared.
+  const maximizedKey = `kolu-canvasMaximized:${encoded}`;
+  const [canvasMaximized, setCanvasMaximized] = boolPref({
+    name: maximizedKey,
+    fallback: false,
+  });
+
+  // EVICT this host's persisted posture key when it leaves the pool — the same
+  // unbounded-growth guard `createHostPrefs` runs for its dock filters:
+  // `scopedByEntry` disposes this owner the instant the host leaves
+  // `padiMap.entries`, firing this cleanup. A page RELOAD does NOT run it (the
+  // browser kills the process, not a Solid dispose), so the survive-reload
+  // contract holds; only a real host removal evicts. Without it, every distinct
+  // HostKey a tab ever activated — including kolu's ephemeral remote boxes with
+  // unique names — would orphan a `localStorage` key FOREVER.
+  onCleanup(() => localStorage.removeItem(maximizedKey));
 
   function writeActive(id: TerminalId | null): void {
     setActiveId(id);
@@ -132,12 +157,14 @@ export function createViewState(host: HostKey): HostViewState {
   }
 
   function reset(): void {
-    // This factory now owns ONLY reset-on-close-all state — the selection facts
+    // This factory owns ONLY reset-on-close-all state — the selection facts
     // (active tile, MRU, attention) plus the maximized posture. The sticky per-host
     // PREFERENCES moved to `createHostPrefs`, so there is no "clear these but not
     // the prefs" allow/deny list to keep in sync: `reset` unconditionally clears
     // every signal this factory owns. Closing every tile drops this host back to
-    // the tiled posture (matching the pre-per-host `reset` clearing `canvasMaximized`).
+    // the tiled posture (matching the pre-per-host `reset` clearing `canvasMaximized`);
+    // `setCanvasMaximized(false)` also writes `"false"` through the boolPref, so the
+    // persisted posture is floored too — a reload after a close-all stays tiled.
     setActiveId(null);
     setMru([]);
     setAttention(reconcile({}));
