@@ -154,13 +154,15 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
       kind: "empty",
     });
     // The cell flipped to `connected` but EntryStatus still says `warming` → the overlay does
-    // NOT show (connectPhase `connected` is not a connect phase); the warming label shows.
+    // NOT show; the warming label shows. `connectPhase` is typed `ConnectPhase`, so a
+    // `connected` cell phase is UNCONSTRUCTIBLE on this arm — `useCanvasMode` narrows it to
+    // `undefined` at the facts boundary, which is what the resolver sees (no overlay).
     expect(
       resolveCanvasMode({
         ...liveness,
         entry: "warming",
         warmingLabel: "Restarting kaval…",
-        connectPhase: "connected",
+        connectPhase: undefined,
       }),
     ).toEqual({
       kind: "warming",

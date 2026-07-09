@@ -26,10 +26,9 @@
 
 import type { DaemonState } from "@kolu/padi/surface";
 import type {
-  ConnectionInfo,
+  ConnectPhase,
   EntryFailedCause,
 } from "kolu-common/surfacesWithPadi";
-import { isConnectPhase } from "./connectCanvasCopy";
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
  *  the down sub-state, the warming label, and the host-failure cause travel WITH
@@ -75,13 +74,14 @@ interface EntryLivenessFacts {
 /** The facts the two NOT-YET-CONNECTED arms (`warming` / `not-a-member`) share — the connect
  *  overlay's routing input, declared ONCE here rather than on each arm. `connectPhase` lives
  *  ONLY on these arms (never on `connected`/`failed`), so a stale/lagging connection cell can
- *  never route the overlay over a host the map reports connected (A'). Typed as the real
- *  `ConnectionInfo["phase"]` union — DERIVED from the one connection-state family, not bare
- *  `string` — so an off-vocabulary phase (`"banana"`) is unconstructible and the `isConnectPhase`
- *  narrowing below is compiler-checked, not a runtime-only guard. `undefined` before the cell's
- *  first frame (or once C' floors a stale cell). */
+ *  never route the overlay over a host the map reports connected (A'). Typed as the framework's
+ *  {@link ConnectPhase} — the narrated up-but-not-yet-connected subset — which is TIGHTER than
+ *  the full phase union: `connected`/`disconnected`/`failed` are UNCONSTRUCTIBLE here (not just
+ *  an off-vocabulary `"banana"`), so `useCanvasMode` narrows those source phases to `undefined`
+ *  at the facts boundary and the resolver's "is a connect phase" collapses to "is defined" — no
+ *  runtime guard. `undefined` before the cell's first frame (or once C' floors a stale cell). */
 type NotYetConnectedFacts = EntryLivenessFacts & {
-  connectPhase: ConnectionInfo["phase"] | undefined;
+  connectPhase: ConnectPhase | undefined;
 };
 
 /** The precedence decision's snapshot — a DISCRIMINATED UNION keyed on the active
@@ -157,17 +157,15 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
     case "warming":
     case "not-a-member": {
       // THE CONNECT OVERLAY (W6), routed off ONE channel: the ACTIVE host's binding is
-      // coming up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase
-      // (`probing`/`copying`/`building`/`connecting`) — the SAME frame `ConnectCanvas` reads
-      // to narrate it, so routing and content never disagree mid-transition. The #1713
-      // safety: a LOCAL endpoint wedged past its own connect ceiling earns `down`/`dead`
-      // rather than narrating forever (a remote's ssh + nix copy + build legitimately
-      // outlasts that ceiling). A `disconnected`/`failed`/`connected` cell phase is NOT a
-      // connect phase → falls through.
-      const bindingUp =
-        facts.connectPhase !== undefined &&
-        facts.connectPhase !== "connected" &&
-        isConnectPhase(facts.connectPhase);
+      // coming up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase —
+      // the SAME frame `ConnectCanvas` reads to narrate it, so routing and content never
+      // disagree mid-transition. `connectPhase` is typed `ConnectPhase` (the framework's
+      // narrated subset), so a `connected`/`disconnected`/`failed` phase is UNCONSTRUCTIBLE
+      // here — `useCanvasMode` narrows those to `undefined` at the facts boundary. So "is a
+      // connect phase" IS simply "defined", no runtime re-check. The #1713 safety: a LOCAL
+      // endpoint wedged past its own connect ceiling earns `down`/`dead` rather than narrating
+      // forever (a remote's ssh + nix copy + build legitimately outlasts that ceiling).
+      const bindingUp = facts.connectPhase !== undefined;
       if (bindingUp) {
         return facts.pendingTimedOut && facts.isLocalHost
           ? { kind: "down", state: "dead" }

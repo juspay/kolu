@@ -15,7 +15,7 @@ export { resolveSystem } from "./arch";
 // members (`connectionCell`, `ConnectionInfoSchema`, `DEFAULT_CONNECTION`,
 // `LogEntry`, …) live solely on the `@kolu/surface-remote/connection` subpath,
 // which is where a surface composes them.
-export type { ConnectionInfo } from "./connection";
+export type { ConnectionInfo, ConnectPhase } from "./connection";
 export {
   pipeSessionStateToCell,
   projectConnection,

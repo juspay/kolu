@@ -16,11 +16,13 @@
  *  `isWarming`/`refuseIfWarming` — so the module never imports `terminal/`
  *  (no kaval→terminal cycle). */
 
+import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import {
   type CanvasFacts,
   type CanvasMode,
   resolveCanvasMode,
 } from "./canvasModeResolver";
+import { isConnectPhase } from "./connectCanvasCopy";
 import { connectionInfo } from "../wire";
 import {
   activeEntryState,
@@ -60,8 +62,13 @@ export function canvasMode(deps: {
   // ONLY into the not-yet-connected arms (warming/not-a-member): the `connected` arm carries
   // no `connectPhase`, so a stale/lagging cell can never route the overlay over a connected
   // host (A'). `connectionInfo()` is floored on the map's transport liveness (C'), so a
-  // stale cell already demotes before it reaches here.
-  const connectPhase = connectionInfo()?.phase;
+  // stale cell already demotes before it reaches here. NARROW to the framework's `ConnectPhase`
+  // (the narrated subset) at THIS boundary: a `connected`/`disconnected`/`failed` cell phase is
+  // not a connect phase → `undefined` (no overlay), so the resolver's arm can carry only a real
+  // connect phase and its routing is a plain `!== undefined`.
+  const phase = connectionInfo()?.phase;
+  const connectPhase: ConnectPhase | undefined =
+    phase !== undefined && isConnectPhase(phase) ? phase : undefined;
   // The active entry's connection state is the discriminant. A non-`connected`
   // host's re-served daemonStatus is frozen stale, so the kaval-derived facts are
   // gathered ONLY on the `connected` arm.

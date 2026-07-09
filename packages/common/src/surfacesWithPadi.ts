@@ -43,7 +43,12 @@ export { type HostKey, HostKeySchema, LOCAL_HOST } from "./hostKey.ts";
 // map's home) rather than reaching into `@kolu/surface-remote` directly. (The log-tail
 // element type is reachable as `ConnectionInfo["log"][number]` for the rare consumer
 // that needs it, so no separate `LogEntry` re-export.) See {@link padiEntrySurface}.
-export type { ConnectionInfo } from "@kolu/surface-remote/connection";
+// `ConnectPhase` (the up-but-not-yet-connected phase subset a connect/progress UI narrates)
+// rides the same re-export so the client's overlay imports it through this established path.
+export type {
+  ConnectionInfo,
+  ConnectPhase,
+} from "@kolu/surface-remote/connection";
 
 export const surfacesWithPadi = {
   ...surfaces,

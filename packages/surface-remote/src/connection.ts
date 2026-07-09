@@ -98,6 +98,20 @@ export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
  *  equal to it. */
 export type ConnectionInfo = SessionState<SshProv>;
 
+/** The up-but-not-yet-connected phases — what a connect/progress UI narrates (the connect
+ *  overlay, a per-host status/color map). The subset of `ConnectionInfo["phase"]` a UI shows
+ *  WHILE a host is still coming up: the connector's provisioning phases (`SshProv`) plus the
+ *  brief `connecting` handshake. `connected` (the workspace shows) and `disconnected`/`failed`
+ *  (their own down-surface) are excluded. DERIVED from the one phase family so it auto-tracks
+ *  any future `SshProv` phase — a UI's exhaustive `switch`/`Record` over `ConnectPhase` then
+ *  fails to compile until it handles the new phase, the drift signal a hand-listed copy
+ *  silently swallows. Lives HERE, beside `ConnectionInfo`, as the honest owner; consumers
+ *  (kolu's connect overlay, drishti's color map) import it rather than re-listing the literals. */
+export type ConnectPhase = Exclude<
+  ConnectionInfo["phase"],
+  "connected" | "disconnected" | "failed"
+>;
+
 /** Gate-closed by default: a freshly-composed cell reads `connecting`, so
  *  "healthy-empty before the first remote frame" is structurally
  *  unrepresentable. The parent overwrites it from the live session; the agent

@@ -96,17 +96,29 @@ void warming;
 // The warming arm DOES carry `connectPhase` — reading it here compiles.
 void (warming.entry === "warming" ? warming.connectPhase : undefined);
 
-// `connectPhase` is the real `ConnectionInfo["phase"]` union, NOT bare `string`: an
-// off-vocabulary phase is UNCONSTRUCTIBLE (the resolver's `isConnectPhase` narrowing is
-// compiler-checked, not a runtime-only guard).
+// `connectPhase` is the framework's `ConnectPhase` (the narrated subset), NOT bare `string`
+// and NOT even the full phase union: an off-vocabulary phase is UNCONSTRUCTIBLE, so the
+// resolver's "is a connect phase" is compiler-guaranteed, not a runtime-only guard.
 const warmingBadPhase: CanvasFacts = {
   ...liveness,
   entry: "warming",
   warmingLabel: "Connecting…",
-  // @ts-expect-error — `"banana"` is not a `ConnectionInfo["phase"]`, so it can't be a connectPhase.
+  // @ts-expect-error — `"banana"` is not a `ConnectPhase`, so it can't be a connectPhase.
   connectPhase: "banana",
 };
 void warmingBadPhase;
+
+// TIGHTER than the full phase union: a terminal/connected phase is unconstructible here too —
+// `connected`/`disconnected`/`failed` are NOT connect phases (`useCanvasMode` narrows them to
+// `undefined`), so they can never be carried on a not-yet-connected arm.
+const warmingConnectedPhase: CanvasFacts = {
+  ...liveness,
+  entry: "warming",
+  warmingLabel: "Connecting…",
+  // @ts-expect-error — `"connected"` is excluded from `ConnectPhase` (the narrated subset).
+  connectPhase: "connected",
+};
+void warmingConnectedPhase;
 
 // The `failed` arm carries the cause + reason, NO kaval facts, NO connectPhase.
 const failed: CanvasFacts = {
