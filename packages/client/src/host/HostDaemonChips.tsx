@@ -80,14 +80,92 @@ function hostLabel(h: HostKey): string {
   return h.kind === "local" ? "local" : h.target;
 }
 
+/** The ONE per-host reader for Padi liveness + entry state — the receptacle for
+ *  "how do I read a given host's Padi status from `padiMap`". Both the
+ *  presentational {@link PadiMark} and the interactive {@link PadiSubChip} read
+ *  through this, so the volatile axis (entry-state → padiLink projection, the
+ *  transport-liveness floor) lives in exactly one place, not sprayed across the
+ *  static and interactive marks. */
+function useHostPadi(host: HostKey): {
+  live: () => boolean;
+  entry: () => EntryState;
+  link: () => PadiLink | undefined;
+} {
+  const live = daemonTransportLive;
+  const entry = (): EntryState => padiMap.entry(host).state();
+  const link = (): PadiLink | undefined =>
+    live() ? entryAsPadiLink(entry()) : undefined;
+  return { live, entry, link };
+}
+
+/** The ONE per-host reader for Kaval liveness + daemon status — the receptacle
+ *  for "how do I read a given host's Kaval status from `padiMap`". `daemon`
+ *  reprojects `startedAt` onto the browser clock via `clock.toLocal` UNIFORMLY
+ *  (the static mark used to skip this — that silent divergence is gone now that
+ *  both marks read through this single reader). */
+function useHostKaval(host: HostKey): {
+  live: () => boolean;
+  daemon: () => DaemonStatus | undefined;
+} {
+  const entryConnected = (): boolean =>
+    padiMap.entry(host).state().kind === "connected";
+  const live = (): boolean =>
+    channelLive(daemonTransportLive(), entryConnected());
+  // Each remote/local padi serves its kaval under the LOCAL location key
+  // (that host's own "local" kaval — not the browser's host key).
+  const daemonKey = encodeHostLocation(LOCAL_LOCATION);
+  const daemonSub = padiMap.entry(host).collections.daemonStatus.use({
+    keys: () => [daemonKey],
+    onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
+  });
+  const daemon = (): DaemonStatus | undefined => {
+    const status = daemonSub.byKey(daemonKey)?.();
+    if (status === undefined || typeof status.startedAt !== "number")
+      return status;
+    const local = padiMap.entry(host).clock.toLocal(status.startedAt);
+    return { ...status, startedAt: local ?? 0 };
+  };
+  return { live, daemon };
+}
+
+/** Presentational Padi mark — logo + status dot for a host, derived from
+ *  {@link useHostPadi}. The static path wraps this bare in a span; the
+ *  interactive path wraps this SAME mark in the dialog-owning button. */
+const PadiMark: Component<{ host: HostKey }> = (props) => {
+  const padi = useHostPadi(props.host);
+  return (
+    <IdentityMark logoSrc={PADI_LOGO_URL}>
+      <StatusDot
+        data-padi-link={padi.link() ?? "unknown"}
+        class={padiDot(padi.link(), padi.live())}
+      />
+    </IdentityMark>
+  );
+};
+
+/** Presentational Kaval mark — logo + status dot for a host, derived from
+ *  {@link useHostKaval}. Same one-derivation-two-placements shape as
+ *  {@link PadiMark}. */
+const KavalMark: Component<{ host: HostKey }> = (props) => {
+  const kaval = useHostKaval(props.host);
+  return (
+    <IdentityMark logoSrc={KAVAL_LOGO_URL}>
+      <StatusDot
+        data-daemon-state={
+          kaval.live() ? (kaval.daemon()?.state ?? "unknown") : "unknown"
+        }
+        class={kavalDot(kaval.daemon()?.state, kaval.live())}
+      />
+    </IdentityMark>
+  );
+};
+
 /** The Padi sub-chip for one host — icon + that host's entry-state dot.
  *  Click switches to that host, then opens the complete info panel. */
 const PadiSubChip: Component<{ host: HostKey }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl!: HTMLButtonElement;
-  const daemonLive = daemonTransportLive;
-  const entry = (): EntryState => padiMap.entry(props.host).state();
-  const padiLive = (): boolean => daemonLive();
+  const padi = useHostPadi(props.host);
   /** True when this chip is the canvas's active host. */
   const isCanvasHost = () => sameHost(activeHost(), props.host);
   const openForHost = (): void => {
@@ -112,7 +190,7 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
     return padiMap.entry(props.host).clock.toLocal(raw) ?? null;
   };
   const padiMemoryText = (): string => {
-    if (!daemonLive()) return "memory unavailable";
+    if (!padi.live()) return "memory unavailable";
     const m = processMemory.value()?.padi;
     return match(m)
       .with({ status: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
@@ -124,7 +202,7 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
   const padiTip = (): string => {
     const skew = skewPairFor(props.host);
     return joinTip(
-      `padi ${daemonLive() ? statusTitle(entry()) : "unknown"}`,
+      `padi ${padi.live() ? statusTitle(padi.entry()) : "unknown"}`,
       skew
         ? `contract skew v${skew.running} → v${skew.expected}`
         : padiVersion()
@@ -134,8 +212,6 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
       "click for details",
     );
   };
-  const linkForDialog = (): PadiLink | undefined =>
-    padiLive() ? entryAsPadiLink(entry()) : undefined;
 
   return (
     <>
@@ -152,20 +228,15 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
           aria-label={padiTip()}
           aria-expanded={open()}
         >
-          <IdentityMark logoSrc={PADI_LOGO_URL}>
-            <StatusDot
-              data-padi-link={linkForDialog() ?? "unknown"}
-              class={padiDot(linkForDialog(), padiLive())}
-            />
-          </IdentityMark>
+          <PadiMark host={props.host} />
         </button>
       </Tip>
       <Show when={open()}>
         <PadiInfoDialog
           open={open()}
           onOpenChange={setOpen}
-          link={linkForDialog()}
-          live={padiLive()}
+          link={padi.link()}
+          live={padi.live()}
           identity={identity.value()}
           startedAt={padiStartedAt()}
           triggerRef={() => triggerEl}
@@ -182,23 +253,13 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl!: HTMLButtonElement;
   const clockNow = getClockNow();
-  const daemonLive = daemonTransportLive;
-  const entryConnected = (): boolean =>
-    padiMap.entry(props.host).state().kind === "connected";
-  const kavalLive = (): boolean => channelLive(daemonLive(), entryConnected());
+  const kaval = useHostKaval(props.host);
   const isCanvasHost = () => sameHost(activeHost(), props.host);
   const openForHost = (): void => {
     const alreadyActive = isCanvasHost();
     if (!alreadyActive) setActiveHost(props.host);
     setOpen((v) => (alreadyActive ? !v : true));
   };
-  // Each remote/local padi serves its kaval under the LOCAL location key
-  // (that host's own "local" kaval — not the browser's host key).
-  const daemonKey = encodeHostLocation(LOCAL_LOCATION);
-  const daemonSub = padiMap.entry(props.host).collections.daemonStatus.use({
-    keys: () => [daemonKey],
-    onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
-  });
   const processMemory = padiMap.entry(props.host).cells.processMemory.use({
     onError: (err: Error) =>
       toast.error(`Padi/kaval memory error: ${err.message}`),
@@ -206,30 +267,24 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   const padiStatus = padiMap.entry(props.host).cells.status.use({
     onError: (err: Error) => toast.error(`Kaval status error: ${err.message}`),
   });
-  const daemon = (): DaemonStatus | undefined => {
-    const status = daemonSub.byKey(daemonKey)?.();
-    if (status === undefined || typeof status.startedAt !== "number")
-      return status;
-    const local = padiMap.entry(props.host).clock.toLocal(status.startedAt);
-    return { ...status, startedAt: local ?? 0 };
-  };
-  const kavalVersion = (): string | undefined => daemon()?.contractVersion;
+  const kavalVersion = (): string | undefined =>
+    kaval.daemon()?.contractVersion;
   const kavalStateText = (): string => {
-    if (!kavalLive()) return "unknown";
-    const state = daemon()?.state;
+    if (!kaval.live()) return "unknown";
+    const state = kaval.daemon()?.state;
     return state ? DAEMON_STATE_PRESENTATION[state].label : "unknown";
   };
   const kavalUptimeText = (): string | undefined => {
-    if (!kavalLive() || daemon()?.state !== "connected") return undefined;
-    const startedAt = daemon()?.startedAt;
+    if (!kaval.live() || kaval.daemon()?.state !== "connected") return undefined;
+    const startedAt = kaval.daemon()?.startedAt;
     return startedAt === undefined || startedAt <= 0
       ? undefined
       : `running ${formatUptime(clockNow() - startedAt)}`;
   };
   const kavalMemoryText = (): string => {
-    if (!kavalLive() || daemon()?.state !== "connected")
+    if (!kaval.live() || kaval.daemon()?.state !== "connected")
       return "memory unavailable";
-    if (!daemonLive()) return "memory unavailable";
+    if (!daemonTransportLive()) return "memory unavailable";
     const m = processMemory.value()?.kaval;
     return match(m)
       .with({ status: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
@@ -240,13 +295,13 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   };
   const kavalUpdateText = (): string | undefined => {
     const expected = padiStatus.value()?.expectedKaval;
-    const status = daemon();
+    const status = kaval.daemon();
     if (
       !kavalStale(
         expected?.staleKey,
         status?.identity?.staleKey,
         status?.state,
-        kavalLive(),
+        kaval.live(),
       )
     )
       return undefined;
@@ -279,22 +334,15 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
           aria-label={kavalTip()}
           aria-expanded={open()}
         >
-          <IdentityMark logoSrc={KAVAL_LOGO_URL}>
-            <StatusDot
-              data-daemon-state={
-                kavalLive() ? (daemon()?.state ?? "unknown") : "unknown"
-              }
-              class={kavalDot(daemon()?.state, kavalLive())}
-            />
-          </IdentityMark>
+          <KavalMark host={props.host} />
         </button>
       </Tip>
       <Show when={open()}>
         <KavalInfoDialog
           open={open()}
           onOpenChange={setOpen}
-          status={daemon()}
-          live={kavalLive()}
+          status={kaval.daemon()}
+          live={kaval.live()}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
         />
@@ -303,49 +351,17 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
   );
 };
 
-const PadiStaticMark: Component<{ host: HostKey }> = (props) => {
-  const daemonLive = daemonTransportLive;
-  const entry = (): EntryState => padiMap.entry(props.host).state();
-  const link = (): PadiLink | undefined =>
-    daemonLive() ? entryAsPadiLink(entry()) : undefined;
+const PadiStaticMark: Component<{ host: HostKey }> = (props) => (
+  <span class={identityMarkStaticClass}>
+    <PadiMark host={props.host} />
+  </span>
+);
 
-  return (
-    <span class={identityMarkStaticClass}>
-      <IdentityMark logoSrc={PADI_LOGO_URL}>
-        <StatusDot
-          data-padi-link={link() ?? "unknown"}
-          class={padiDot(link(), daemonLive())}
-        />
-      </IdentityMark>
-    </span>
-  );
-};
-
-const KavalStaticMark: Component<{ host: HostKey }> = (props) => {
-  const daemonLive = daemonTransportLive;
-  const entryConnected = (): boolean =>
-    padiMap.entry(props.host).state().kind === "connected";
-  const kavalLive = (): boolean => channelLive(daemonLive(), entryConnected());
-  const daemonKey = encodeHostLocation(LOCAL_LOCATION);
-  const daemonSub = padiMap.entry(props.host).collections.daemonStatus.use({
-    keys: () => [daemonKey],
-    onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
-  });
-  const daemon = (): DaemonStatus | undefined => daemonSub.byKey(daemonKey)?.();
-
-  return (
-    <span class={identityMarkStaticClass}>
-      <IdentityMark logoSrc={KAVAL_LOGO_URL}>
-        <StatusDot
-          data-daemon-state={
-            kavalLive() ? (daemon()?.state ?? "unknown") : "unknown"
-          }
-          class={kavalDot(daemon()?.state, kavalLive())}
-        />
-      </IdentityMark>
-    </span>
-  );
-};
+const KavalStaticMark: Component<{ host: HostKey }> = (props) => (
+  <span class={identityMarkStaticClass}>
+    <KavalMark host={props.host} />
+  </span>
+);
 
 /** Fixed-width dual-daemon slot for one host chip.
  *
