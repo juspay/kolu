@@ -52,12 +52,6 @@ export interface StateOpts {
   staleJsonl?: boolean;
   /** codex/opencode: session title. */
   title?: string;
-  /** codex: model id. */
-  model?: string;
-  /** opencode: model id. */
-  modelID?: string;
-  /** opencode: provider id. */
-  providerID?: string;
 }
 
 /** One agent kind's artifact surface. `setState` is idempotent (re-runnable for

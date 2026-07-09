@@ -271,6 +271,13 @@ export class ClaudeAgent implements MockKind {
     `${SESSION_ID}.jsonl`,
   );
   private readonly sessionFile = join(this.sessionsDir, `${this.pid}.json`);
+  // Captured ONCE at construction, never per-transition. The adapter's
+  // sessionKey is `sessionId:pid:startedAt` (agent-adapter.ts), so a fresh
+  // `Date.now()` on every setState would change the key each transition and
+  // tear-down + cold-re-resolve the transcript watcher — a churn neither the
+  // real Claude nor the old mock produces (both stamp startedAt once). Pinning
+  // it keeps ONE stable watcher; detection still fires via the transcript write.
+  private readonly startedAt = Date.now();
   private removed = false;
 
   setState(state: AgentState, opts: StateOpts): void {
@@ -298,7 +305,7 @@ export class ClaudeAgent implements MockKind {
         pid: this.pid,
         sessionId: SESSION_ID,
         cwd: this.cwd,
-        startedAt: Date.now(),
+        startedAt: this.startedAt,
       }),
     );
   }

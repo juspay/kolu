@@ -176,10 +176,3 @@ export async function quitMockAgent(world: KoluWorld): Promise<void> {
   await world.page.keyboard.press("Enter");
   active = null;
 }
-
-/** After-hook teardown: if a mock-agent is still resident, quit it so its
- *  artifacts are removed on WHATEVER box the terminal lives (geography-free) —
- *  the next scenario's `terminal/killAll` then tears down the bare shell. */
-export async function quitActiveMockAgent(world: KoluWorld): Promise<void> {
-  if (active) await quitMockAgent(world);
-}

@@ -130,7 +130,7 @@ export class CodexAgent implements MockKind {
         this.cwd,
         Date.now(),
         opts.title ?? "codex-mock test thread",
-        opts.model ?? "gpt-5",
+        "gpt-5",
       );
       db.exec("COMMIT;");
     } catch (e) {
@@ -146,6 +146,14 @@ export class CodexAgent implements MockKind {
     // trailing debounce can settle, starving `performRefresh` so a real state
     // change is never re-read. Each `setState`'s own WAL commit already wakes the
     // watcher; that's the whole signal.
+    //
+    // Recovery story if that single commit's fs event IS lost: there is no
+    // per-tick kick to re-fire it. Under heavy N-worker parallel load a commit's
+    // notification can be coalesced/dropped, and on darwin the provider's WAL
+    // `fs.watch` is itself fragile (#1680) — in both cases the indicator stays
+    // null until the scenario's next `setState` or the `CUCUMBER_RETRY` re-run.
+    // Closing that gap with a periodic kick is rejected on purpose (it starves
+    // the debounce, above); it is the accepted trade vs the old per-tick nudge.
   }
 
   remove(): void {

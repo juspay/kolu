@@ -88,8 +88,8 @@ export class OpenCodeAgent implements MockKind {
       now,
     );
 
-    const modelID = opts.modelID ?? "qwen2.5-coder";
-    const providerID = opts.providerID ?? "test";
+    const modelID = "qwen2.5-coder";
+    const providerID = "test";
     const assistantId = `${SESSION_ID}-m-assistant`;
     const userId = `${SESSION_ID}-m-user`;
 
