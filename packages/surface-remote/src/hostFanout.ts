@@ -36,6 +36,7 @@ import type { SurfaceClientLike } from "@kolu/surface/project";
 import type { ConnectionInfo } from "./connection";
 import { pipeSessionStateToCell } from "./connectionPipe";
 import type { DestroyableSession, Session } from "./session";
+import type { SshProv } from "./sshConnector";
 import { makeClientCursor } from "./waitForNextClient";
 
 // ── pumpRemoteSurface — the reconnect-mirror loop ──────────────────────────
@@ -114,9 +115,12 @@ export interface PumpRemoteSurfaceOptions<S extends SurfaceSpec> {
   /** The long-lived session whose successive clients are pumped. Typed to the
    *  loose {@link Session} receptacle — not a concrete class — so both an ssh
    *  `makeSession` and kolu-server's padi arms plug in through the type system (no
-   *  cast). The client is forwarded structurally (`SurfaceClientLike`); a caller
-   *  that wants the precise per-contract client reads it off its own typed session. */
-  session: Session;
+   *  cast). `Prov = SshProv` (the ssh connector's provisioning vocabulary — the only
+   *  sessions whose health the ssh-specific `connection` cell mirrors) so an ssh
+   *  session plugs in alongside a `never` endpoint (`never extends SshProv`). The client is forwarded structurally
+   *  (`SurfaceClientLike`); a caller that wants the precise per-contract client reads
+   *  it off its own typed session. */
+  session: Session<SurfaceClientLike, SshProv>;
   /** Build the mirror sink for ONE freshly-spawned client. Called once per
    *  (re)spawn, so per-client state (first-frame flags, frame counters) resets
    *  naturally each reconnect. Wire `session.markConnected()` into whichever

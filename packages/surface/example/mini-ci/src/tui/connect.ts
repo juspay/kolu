@@ -19,11 +19,14 @@ import {
   type Session,
   type SessionState,
   sshConnector,
+  type SshProv,
 } from "@kolu/surface-remote";
 import type { surface } from "../common/surface";
 
 export type RunnerClient = AgentClient<typeof surface.contract>;
-export type RunnerSession = Session<RunnerClient>;
+// The ssh connector PROVISIONS, so the session's `Prov` is `SshProv`
+// (`"copying" | "building"`) — the runner overlay narrates both.
+export type RunnerSession = Session<RunnerClient, SshProv>;
 
 export interface Connection {
   /** The typed runner client, once the link is live. */
@@ -37,8 +40,8 @@ export interface Connection {
 export interface ConnectOptions {
   /** ssh target; `localhost` runs the realised binary directly. */
   host: string;
-  /** Connection-state updates (copying / connecting / connected / …). */
-  onState?: (state: SessionState) => void;
+  /** Connection-state updates (copying / building / connecting / connected / …). */
+  onState?: (state: SessionState<SshProv>) => void;
 }
 
 /** Open a session and resolve once the link is up (the agent spawned). The
@@ -52,8 +55,8 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
         "  Use `just run [host]` (resolves it via an arch probe), or `nix run .#mini-ci` (bakes the current system's drv).",
     );
   }
-  const session = makeSession<RunnerClient>({
-    initialConnection: "copying",
+  const session = makeSession<RunnerClient, SshProv>({
+    initialConnection: "probing",
     connectOnce: sshConnector<typeof surface.contract>({
       host: opts.host,
       binary: "mini-ci-runner",

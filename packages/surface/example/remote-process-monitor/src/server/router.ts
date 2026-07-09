@@ -36,6 +36,7 @@ import {
   pipeSessionStateToCell,
   type Session,
   seedConnectionCell,
+  type SshProv,
 } from "@kolu/surface-remote";
 import { implement } from "@orpc/server";
 import {
@@ -53,7 +54,7 @@ import {
 type ProcessMonitorAgent = AgentClient<typeof surface.contract>;
 
 export interface BuildRouterOptions {
-  session: Session<AgentClient<typeof surface.contract>>;
+  session: Session<AgentClient<typeof surface.contract>, SshProv>;
 }
 
 /** Build the parent's oRPC router. The session's connection state
@@ -229,7 +230,7 @@ function log(line: string): void {
  *  (`makeClientCursor`) and the per-client re-mirror stay the demo's job, because
  *  stdio links don't recover mid-stream. */
 async function bridgeAgentToParent(
-  session: Session<AgentClient<typeof surface.contract>>,
+  session: Session<AgentClient<typeof surface.contract>, SshProv>,
   fragment: FragmentCtx,
   browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {

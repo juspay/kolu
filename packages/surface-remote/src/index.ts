@@ -10,15 +10,12 @@ export { resolveSystem } from "./arch";
 // The connection-health cell + its node-side pump. The cell fragment
 // (`connectionCell`, schema, default) is ALSO exported from the browser-safe
 // `@kolu/surface-remote/connection` subpath — a surface composes it from
-// there; node consumers (the pump) read it from the root.
-// `ConnectionState` / `FailureCause` are re-exported below from `./session` —
-// their single source now that `hostSession.ts` is gone (`./session` in turn
-// re-exports them from `./connection` / `./host`). The root surfaces only the
-// NODE-side pump + the `ConnectionInfo`
-// it produces; the browser-safe cell members (`connectionCell`, schema,
-// `CONNECTION_STATES`, …) live solely on the `@kolu/surface-remote/connection`
-// subpath, which is where a surface composes them.
-export type { ConnectionInfo } from "./connection";
+// there; node consumers (the pump) read it from the root. The root surfaces only
+// the NODE-side pump + the `ConnectionInfo` it produces; the browser-safe cell
+// members (`connectionCell`, `ConnectionInfoSchema`, `DEFAULT_CONNECTION`,
+// `LogEntry`, …) live solely on the `@kolu/surface-remote/connection` subpath,
+// which is where a surface composes them.
+export type { ConnectionInfo, ConnectPhase } from "./connection";
 export {
   pipeSessionStateToCell,
   projectConnection,
@@ -98,10 +95,8 @@ export {
   type ConnectContext,
   ConnectError,
   type Connection,
-  type ConnectionState,
   type Connector,
   type DestroyableSession,
-  type FailureCause,
   type MakeSessionOptions,
   makeSession,
   type Session,
@@ -112,5 +107,6 @@ export {
   type AgentClient,
   type SshConnectorOptions,
   sshConnector,
+  type SshProv,
 } from "./sshConnector";
 export { type ClientCursor, makeClientCursor } from "./waitForNextClient";

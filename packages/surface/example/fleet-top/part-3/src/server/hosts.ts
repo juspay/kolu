@@ -31,6 +31,7 @@ import {
   type Session,
   type SessionState,
   sshConnector,
+  type SshProv,
 } from "@kolu/surface-remote";
 import type { EntryConnectionState } from "@kolu/surface-map/server";
 import {
@@ -56,25 +57,32 @@ export interface HostBinding {
  *  bounded remote fault reads `failed` (needs intervention) — an unreachable box
  *  stays `warming` and retries, it does not become `failed`. (This demo doesn't
  *  measure a clock offset, so `connected` carries 0 — no clock reprojection.) */
-function projectState(s: SessionState): EntryConnectionState<"copying"> {
-  switch (s.connection) {
+function projectState(
+  s: SessionState<SshProv>,
+): EntryConnectionState<"copying"> {
+  switch (s.phase) {
+    case "probing":
     case "copying":
+    case "building":
       return { kind: "copying" };
     case "connecting":
       return { kind: "connecting" };
     case "connected":
       return { kind: "connected", clockOffset: 0 };
     case "disconnected":
-      return { kind: "disconnected", reason: s.lastError };
+      return { kind: "disconnected", reason: s.error };
     case "failed":
-      return { kind: "failed", reason: s.lastError };
+      return { kind: "failed", reason: s.error };
   }
 }
 
 export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   // #region dial
-  const session: Session<AgentClient<typeof surface.contract>> = makeSession({
-    initialConnection: "copying",
+  const session: Session<
+    AgentClient<typeof surface.contract>,
+    SshProv
+  > = makeSession({
+    initialConnection: "probing",
     connectOnce: sshConnector<typeof surface.contract>({
       host,
       binary: "fleet-top-agent",
@@ -161,7 +169,7 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   const router = implement(surface.contract).router({ ...fragment.router });
   const link = directLink<typeof surface.contract>(router);
 
-  let latest: SessionState = { connection: "copying" } as SessionState;
+  let latest: SessionState<SshProv> = { phase: "probing", log: [], sinceMs: 0 };
   const unsub = session.onState((s) => {
     latest = s;
   });

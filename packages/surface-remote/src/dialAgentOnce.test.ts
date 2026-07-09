@@ -37,16 +37,13 @@ const h = vi.hoisted(() => ({
     destroy: ReturnType<typeof vi.fn>;
   }>,
   // The `SessionState` the fake session's `onState` delivers — the failure-surfacing
-  // path reads `remoteProgressLines` off it (via a live `onState` mirror; the role
-  // has no synchronous `current()` snapshot). Default: a benign "connecting" state
-  // (no agent-quit), so the raw probe error is preserved; a test swaps in a stderr
-  // tail.
+  // path reads the `source === "remote"` entries of the unified `log` off it (via a
+  // live `onState` mirror; the role has no synchronous `current()` snapshot). Default:
+  // a benign "connecting" state (no agent-quit), so the raw probe error is preserved;
+  // a test swaps in a stderr tail.
   state: {
-    connection: "connecting",
-    progressLines: [] as string[],
-    remoteProgressLines: [] as string[],
-    lastError: null as string | null,
-    failureCause: null as string | null,
+    phase: "connecting",
+    log: [] as Array<{ source: "local" | "remote"; line: string }>,
   },
 }));
 
@@ -105,11 +102,8 @@ afterEach(() => {
   vi.clearAllMocks();
   h.sessions.length = 0;
   h.state = {
-    connection: "connecting",
-    progressLines: [],
-    remoteProgressLines: [],
-    lastError: null,
-    failureCause: null,
+    phase: "connecting",
+    log: [],
   };
 });
 
@@ -296,33 +290,39 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     // error, but the session captured the agent's stderr tail. dialAgentOnce must
     // surface THAT — and the WHOLE block, not just the prefixed first line: pulam's
     // ambiguity error lists each `--kaval <socket>` candidate the user needs to
-    // recover, and `forEachLine` split those onto their own `remoteProgressLines`
-    // entries (only the first carries `pulam:`).
+    // recover, and `forEachLine` split those onto their own `source === "remote"`
+    // log entries (only the first carries `pulam:`).
     fakeSession({});
     h.state = {
-      connection: "disconnected",
-      // The session's local lifecycle lives in the unified `progressLines` (with
-      // its `[local]`/`[remote]` tags); the agent's OWN stderr is also exposed
-      // UNTAGGED on `remoteProgressLines`, which is the field dialAgentOnce reads
-      // by origin — matching the caller's `fatalPrefix`, not re-parsing the
-      // session's internal `[remote] ` tag.
-      progressLines: [
-        "[remote] pulam: more than one kaval is running on this host — say which to read by re-running with --kaval:",
-        "[local] agent exited (code=1, signal=null)",
-        "[local] reconnecting in 2000ms… (attempt 1/5)",
+      phase: "disconnected",
+      // The unified `log` carries every line with its provenance as a `source`
+      // FIELD; dialAgentOnce reads the `source === "remote"` entries (the agent's
+      // OWN stderr) and matches the caller's `fatalPrefix` against them. The `local`
+      // lifecycle lines are present too and MUST be excluded by the origin filter.
+      // The remote block has a noise line BEFORE the fatal (so the prefix match, not
+      // `at(-1)`, picks the block start) and the candidate lines AFTER it (so the
+      // block capture, not a single line, keeps them).
+      log: [
+        { source: "remote", line: "spawning awareness sensors" },
+        {
+          source: "remote",
+          line: "pulam: more than one kaval is running on this host — say which to read by re-running with --kaval:",
+        },
+        {
+          source: "remote",
+          line: "  --kaval /run/user/1000/kaval-7692/pty-host.sock    (kolu-server on port 7692)",
+        },
+        {
+          source: "remote",
+          line: "  --kaval /run/user/1000/kaval/pty-host.sock    (standalone kaval)",
+        },
+        {
+          source: "remote",
+          line: "(e.g. pulam-tui --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
+        },
+        { source: "local", line: "agent exited (code=1, signal=null)" },
+        { source: "local", line: "reconnecting in 2000ms… (attempt 1/5)" },
       ],
-      // The remote-origin lines, untagged — a noise line BEFORE the fatal (so
-      // the prefix match, not `at(-1)`, picks the block start) and the candidate
-      // lines AFTER it (so the block capture, not a single line, keeps them).
-      remoteProgressLines: [
-        "spawning awareness sensors",
-        "pulam: more than one kaval is running on this host — say which to read by re-running with --kaval:",
-        "  --kaval /run/user/1000/kaval-7692/pty-host.sock    (kolu-server on port 7692)",
-        "  --kaval /run/user/1000/kaval/pty-host.sock    (standalone kaval)",
-        "(e.g. pulam-tui --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
-      ],
-      lastError: "agent exited (code=1, signal=null)",
-      failureCause: null,
     };
     let msg = "";
     await dialAgentOnce({
@@ -362,13 +362,13 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     // separate "no derivation baked" error.)
     fakeSession({});
     h.state = {
-      connection: "disconnected",
-      progressLines: [],
-      remoteProgressLines: [
-        "kaval --stdio: the durable daemon failed to come up — its socket never appeared",
+      phase: "disconnected",
+      log: [
+        {
+          source: "remote",
+          line: "kaval --stdio: the durable daemon failed to come up — its socket never appeared",
+        },
       ],
-      lastError: "agent exited (code=1, signal=null)",
-      failureCause: null,
     };
     let msg = "";
     await dialAgentOnce({
@@ -391,7 +391,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
   });
 
   it("keeps the raw error for a transport fault (agent did not quit)", async () => {
-    // No agent stderr on `remoteProgressLines` (the default state) — a transport
+    // No agent stderr in the remote-source `log` entries (the default state) — a transport
     // hiccup, not the agent exiting — so the original error is the better signal,
     // not overridden.
     fakeSession({});

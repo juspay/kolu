@@ -446,6 +446,11 @@ const reServedPadiClient = surfaceClientRef(
 const padiMap = serveHostMap(padiHostMap, pool, {
   // biome-ignore lint/suspicious/noExplicitAny: ReServedSurface.router is opaque (`unknown`); directLink forwards it structurally, exactly as the memory sampler's `surfaceClientRef` does above.
   linkFor: (h, s) => directLink(reServeFor(h, s).router as any),
+  // The clock offset is now INJECTED (no `ClockableSession` type bound): padi's
+  // arms measure it at the admit handshake, so hand `serveHostMap` the real
+  // measurer. `null` until the first hello stamps it (offset-at-hello is the
+  // contract) → the entry reads `connecting` until then.
+  offsetOf: (s) => s.clockOffset(),
   // D1 + D2: the DOMAIN cause (+ D2's typed running/expected pair on
   // contract-skew-refused) — padi's own knowledge (`session.entryFailedDetail()`,
   // derived from `convergence()`/the drv-resolution fault, both arm-local), never
@@ -835,7 +840,7 @@ const padiBuildCommit = (): string | null => {
 };
 
 padiSession.onState((s) => {
-  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection));
+  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.phase));
   // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
   // time (constant) plus the bound padi's honest boot time (`null` while unbound). A
   // padi (re)connect refreshes padi's uptime and a drop clears it to the honest

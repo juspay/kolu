@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { provisionAgent } from "./nixCopy";
 import { makeSession, type Session } from "./session";
-import { type AgentClient, sshConnector } from "./sshConnector";
+import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
 import { makeClientCursor } from "./waitForNextClient";
 
 vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
@@ -69,7 +69,7 @@ function flakyChild(liveMs: number) {
 }
 
 describe("reconnect bridge loop", () => {
-  let session: Session<AgentClient<typeof contract>>;
+  let session: Session<AgentClient<typeof contract>, SshProv>;
 
   beforeEach(() => {
     vi.mocked(provisionAgent).mockResolvedValue({
@@ -84,8 +84,8 @@ describe("reconnect bridge loop", () => {
   });
 
   it("does not busy-spin after a connected link drops", async () => {
-    session = makeSession<AgentClient<typeof contract>>({
-      initialConnection: "copying",
+    session = makeSession<AgentClient<typeof contract>, SshProv>({
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -140,8 +140,8 @@ describe("reconnect bridge loop", () => {
     // parked `next()` rejects and the pump loop can exit.
     vi.mocked(spawn).mockImplementation(() => flakyChild(40) as never);
 
-    session = makeSession<AgentClient<typeof contract>>({
-      initialConnection: "copying",
+    session = makeSession<AgentClient<typeof contract>, SshProv>({
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "destroyhost",
         binary: "agent",

@@ -31,6 +31,7 @@
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/surface-map": "workspace:*",
+    "@kolu/surface-remote": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "anyagent": "workspace:*",

@@ -29,42 +29,51 @@ import {
   type ServeSurfaceMapResult,
   serveSurfaceMap,
 } from "@kolu/surface-map/server";
+import type { SurfaceClientLike } from "@kolu/surface/project";
 import type { z } from "zod";
 import type { RemotePool } from "./hostFanout";
-import type { Session, SessionState } from "./session";
+import type { DownSessionState, Session, SessionState } from "./session";
 
-/** A session that carries a measured clock offset — required, so a session lacking one
- *  is a compile error rather than a silent forever-`connecting`. `null` means the offset
- *  has not been stamped yet (the admit handshake stamps it). */
-type ClockableSession = Session & { clockOffset(): number | null };
+/** The session role this adapter needs — just {@link Session}. The clock offset is
+ *  NO LONGER a type BOUND on the session (`& { clockOffset() }`): that bound locked
+ *  out any consumer whose session lacks the method, forcing drishti to hand-clone the
+ *  whole registry (~90 lines) + a second `projectState`. It is now an INJECTED
+ *  capability — `ServeHostMapOptions.offsetOf` — so a session that measures an offset
+ *  passes its measurer and one that doesn't passes `() => 0`, and both reuse this one
+ *  adapter. `Prov = string` (the phase-vocabulary TOP) so every session — a `never`
+ *  endpoint, an ssh arm, any connector — is assignable by `Prov`-covariance. */
+type MappableSession = Session<SurfaceClientLike, string>;
 
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
  *  `connectionPipe.projectConnection` (which targets the 4-field browser
  *  `ConnectionInfo`). `connected` REQUIRES the measured clock offset: until the admit
  *  handshake has stamped one, the entry honestly reads as still `connecting`
  *  (offset-at-hello is the contract — a `0` placeholder would be a lie). */
-export function projectState(
-  s: SessionState | undefined,
+export function projectState<Prov extends string>(
+  s: SessionState<Prov> | undefined,
   clockOffset: number | null,
 ): EntryConnectionState {
   if (s === undefined) return { kind: "connecting" };
-  switch (s.connection) {
-    case "copying":
-      return { kind: "copying" };
-    case "connecting":
-      return { kind: "connecting" };
-    case "connected":
-      return clockOffset === null
-        ? { kind: "connecting" }
-        : { kind: "connected", clockOffset };
-    case "disconnected":
-      // `lastError` is REQUIRED on the down arm now (juspay/kolu SessionState
-      // sum split) — a down link always has a real reason, so there is no
-      // invented `?? "disconnected"` fallback left to write.
-      return { kind: "disconnected", reason: s.lastError };
-    case "failed":
-      return { kind: "failed", reason: s.lastError };
+  if (s.phase === "disconnected" || s.phase === "failed") {
+    // A generic `Prov` defeats discriminated narrowing on the down arm; assert the
+    // `Prov`-independent {@link DownSessionState}. `error` is REQUIRED on the down
+    // arm (a down link always has a real reason), so there is no invented
+    // `?? "disconnected"` fallback left to write.
+    const down = s as DownSessionState;
+    return down.phase === "failed"
+      ? { kind: "failed", reason: down.error }
+      : { kind: "disconnected", reason: down.error };
   }
+  if (s.phase === "connected")
+    return clockOffset === null
+      ? { kind: "connecting" }
+      : { kind: "connected", clockOffset };
+  if (s.phase === "connecting") return { kind: "connecting" };
+  // A connector-declared provisioning phase (ssh's `probing`/`copying`/`building`) —
+  // the map's coarse "warming" bucket (its `EntryStatus` collapses them all to
+  // `warming`; the fine phase rides the per-host `connection` cell, not this
+  // projection).
+  return { kind: "copying" };
 }
 
 export interface ServeHostMapOptions<K, S, Cause extends string = string> {
@@ -73,6 +82,17 @@ export interface ServeHostMapOptions<K, S, Cause extends string = string> {
    *  injected). Called once per host; the result is cached here and evicted on
    *  removal, so a re-serve mirror is never built twice for a host. */
   linkFor: (host: K, session: S) => unknown;
+  /** The session's measured clock offset (remote-host ↔ serving-process, stamped at
+   *  the admit handshake), folded into the `connected` `EntryStatus`. INJECTED — not
+   *  a type bound on the session — so a consumer whose session measures one passes
+   *  its measurer (`(s) => s.clockOffset()`) and one that doesn't passes `() => 0`;
+   *  either way this ONE adapter serves both (the bound it replaces is exactly why
+   *  drishti used to hand-clone the registry). REQUIRED, no silent default: a consumer
+   *  must DECLARE its offset story — a forgotten `offsetOf` is a compile error, never a
+   *  silent forever-`connecting`. `null` means "not yet stamped" → the entry reads
+   *  `connecting` until it is (offset-at-hello is the contract; a `0` placeholder for a
+   *  session that genuinely can't measure is that session's OWN honest declaration). */
+  offsetOf: (session: S) => number | null;
   /** Classify (and optionally ENRICH) a DOWN session's domain `cause` for the
    *  map's published `EntryStatus` — this adapter is transport-only (it projects a
    *  bare `SessionState`, which carries only the transport-axis `failureCause`,
@@ -89,13 +109,13 @@ export interface ServeHostMapOptions<K, S, Cause extends string = string> {
   causeFor?: (
     host: K,
     session: S,
-    state: SessionState,
+    state: SessionState<string>,
   ) => { cause: Cause } & Record<string, unknown>;
 }
 
 /** The pool surface `serveHostMap` consumes — a slice of {@link RemotePool} (it never
  *  adds/removes; the app's root RPCs do). */
-export type MembershipPool<S extends Session> = Pick<
+export type MembershipPool<S extends Session<SurfaceClientLike, string>> = Pick<
   RemotePool<S, unknown>,
   "hosts" | "has" | "getSession" | "subscribe"
 >;
@@ -106,7 +126,7 @@ export type MembershipPool<S extends Session> = Pick<
 export function serveHostMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
-  S extends ClockableSession,
+  S extends MappableSession,
   Cause extends string = string,
 >(
   map: SurfaceMap<KS, ES, Cause>,
@@ -122,7 +142,7 @@ export function serveHostMap<
   // own client/server halves use.
   const { encode, decode } = map.codec;
 
-  const latestState = new Map<string, SessionState>();
+  const latestState = new Map<string, SessionState<string>>();
   const stateSubs = new Map<string, () => void>();
   const links = new Map<string, unknown>();
   const changeListeners = new Set<() => void>();
@@ -143,8 +163,23 @@ export function serveHostMap<
     const session = pool.getSession(enc);
     if (session === undefined) return;
     const off = session.onState((s) => {
+      // Cache the frame FIRST — the republish below must never lose it (d3).
       latestState.set(enc, s);
-      fire();
+      try {
+        fire();
+      } catch (err) {
+        // d3 — `fire()` drives the map's republish over EVERY member (resolve →
+        // projectState → linkFor → belt). A throw for ONE member must NOT propagate out of
+        // this `onState` consumer: that would end its consume loop and FREEZE `EntryStatus`
+        // at its last value while the SIBLING connection-cell consumer keeps advancing — the
+        // green-chip-frozen / "Building forever" divergence. Surface it LOUDLY and keep
+        // consuming (never one-projection-dead); `latestState` is already updated, so the
+        // next frame republishes.
+        console.error(
+          `[serveHostMap] entries republish threw for member ${enc}; status stream kept alive:`,
+          err,
+        );
+      }
     });
     stateSubs.set(enc, off);
   };
@@ -194,7 +229,7 @@ export function serveHostMap<
       const session = sessionOf(k);
       if (session === undefined)
         return { kind: "fault", failed: `unknown host: ${enc}` };
-      const offset = session.clockOffset();
+      const offset = opts.offsetOf(session);
       const raw = latestState.get(enc);
       const projected = projectState(raw, offset);
       // Attach the DOMAIN cause (+ any extra typed detail, e.g. padi's D2
@@ -207,7 +242,10 @@ export function serveHostMap<
       const state: EntryConnectionState<"copying", Cause> =
         (projected.kind === "disconnected" || projected.kind === "failed") &&
         opts.causeFor
-          ? { ...projected, ...opts.causeFor(k, session, raw as SessionState) }
+          ? {
+              ...projected,
+              ...opts.causeFor(k, session, raw as SessionState<string>),
+            }
           : // `projectState` never sets `cause` itself (untouched, Cause-agnostic —
             // see its own doc); this cast reflects that invariant, not a real widen.
             (projected as EntryConnectionState<"copying", Cause>);

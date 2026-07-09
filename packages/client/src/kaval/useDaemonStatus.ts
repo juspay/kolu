@@ -29,12 +29,7 @@ import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
 import { getClockNow } from "../time/clock";
 import { activeHost, app, padiMap } from "../wire";
-import {
-  channelLive,
-  DAEMON_STATE_PRESENTATION,
-  liveDownState,
-  liveWarming,
-} from "./daemonPresentation";
+import { channelLive, liveDownState, liveWarming } from "./daemonPresentation";
 import {
   isPendingTimedOut,
   type PendingWindow,
@@ -326,18 +321,6 @@ export function daemonConnected(): boolean {
   return (
     !daemonStatusPending() && !daemonWarming() && downState() === undefined
   );
-}
-
-/** The warming-canvas message for the current daemon state — the verbier,
- *  capitalized `canvasLabel` projection the App.tsx warming arm renders (e.g.
- *  "Restarting kaval…" / "Connecting…"). Projects from the presentation table
- *  like every other consumer (so a new warming state's copy lands in one place),
- *  and defaults to the boot-`connecting` copy before the first status yield —
- *  the canvas only shows this while `daemonWarming()`, so the default is moot in
- *  practice but keeps the read total without a non-null assertion. */
-export function warmingCanvasLabel(): string {
-  const state = localDaemonStatus()?.state;
-  return DAEMON_STATE_PRESENTATION[state ?? "connecting"].canvasLabel;
 }
 
 /** The single warming-refusal gate for terminal creation: if the daemon is
