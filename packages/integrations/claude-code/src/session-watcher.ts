@@ -139,6 +139,18 @@ export function createSessionWatcher(
   let transcriptWatching: TranscriptWatching = { kind: "none" };
   let lastInfo: ClaudeCodeInfo | null = null;
   let lastSummary: string | null = null;
+  // Ordering fence for the async summary fetch. Each `refreshSummary` dispatch
+  // takes the next `summaryFetchSeq`; a resolved fetch applies only if its seq
+  // is still the newest applied. `getSessionInfo` has no ordering guarantee, so
+  // two in-flight fetches can resolve out of order — without this fence an OLDER
+  // fetch could resolve last and publish a STALE summary over a newer one. The
+  // fence keeps `lastSummary` monotonic in dispatch order, and so also drops the
+  // spurious emit a stale late completion would otherwise fire. (Recency itself is
+  // guarded deeper: the fold stamps with kolu's OWN intake clock, throttled — it
+  // never imports a fetch's completion time — so this fence is about summary
+  // CONTENT, not the recency clock.)
+  let summaryFetchSeq = 0;
+  let lastAppliedSummarySeq = 0;
   // Conversation start = the transcript's first `timestamp`, immutable once the
   // first message exists. Resolved lazily off the transcript head and cached:
   // null until the first message lands, then the head read never runs again. NB
@@ -525,10 +537,19 @@ export function createSessionWatcher(
 
   async function refreshSummary() {
     if (destroyed) return;
+    const seq = ++summaryFetchSeq;
     pendingSummaryFetches++;
     try {
       const summary = await fetchSessionSummary(session.sessionId, session.cwd);
       if (destroyed) return;
+      // Out-of-order drop: a fetch dispatched before one already applied
+      // resolved late — its result (and its completion timestamp) is stale.
+      // Advance the fence for ANY newest-so-far completion, including a
+      // no-change one: otherwise a newer no-op resolution would leave the fence
+      // un-advanced and let an OLDER in-flight fetch resolve later, pass the
+      // `seq <=` gate, and apply a stale summary + late recency stamp.
+      if (seq <= lastAppliedSummarySeq) return;
+      lastAppliedSummarySeq = seq;
       if (summary === lastSummary) return;
       lastSummary = summary;
       if (!lastInfo) return;

@@ -1,5 +1,9 @@
 import { Then, When } from "@cucumber/cucumber";
 import type { Locator } from "playwright";
+import {
+  type IdentityChipTestid,
+  identityChipSelector,
+} from "../support/hostChip.ts";
 import type { KoluWorld } from "../support/world.ts";
 
 /** Memory details live on the actual identity chip tooltip/aria-label rather
@@ -8,27 +12,28 @@ import type { KoluWorld } from "../support/world.ts";
  *  padi's sampler poll is folded into the rail cell (padi owns kaval now). */
 async function assertChipMemoryLabel(
   world: KoluWorld,
-  testid: "kolu-identity-chip" | "padi-identity-chip" | "kaval-identity-chip",
+  testid: IdentityChipTestid,
   pattern: RegExp,
 ): Promise<void> {
-  const chip = world.page.locator(`[data-testid="${testid}"]`);
-  await assertLabelEventually(chip, pattern, testid);
+  const selector = identityChipSelector(testid);
+  const chip = world.page.locator(selector);
+  await assertLabelEventually(chip, pattern, selector);
 }
 
 async function assertLabelEventually(
   locator: Locator,
   pattern: RegExp,
-  testid: string,
+  selector: string,
 ): Promise<void> {
   await locator.waitFor({ state: "attached", timeout: 15_000 });
   await locator.page().waitForFunction(
-    ({ selector, source, flags }) => {
+    ({ sel, source, flags }) => {
       const text =
-        document.querySelector(selector)?.getAttribute("aria-label") ?? "";
+        document.querySelector(sel)?.getAttribute("aria-label") ?? "";
       return new RegExp(source, flags).test(text);
     },
     {
-      selector: `[data-testid="${testid}"]`,
+      sel: selector,
       source: pattern.source,
       flags: pattern.flags,
     },
@@ -75,7 +80,7 @@ Then(
 );
 
 When("I open the Kaval details dialog", async function (this: KoluWorld) {
-  await this.page.locator('[data-testid="kaval-identity-chip"]').click();
+  await this.page.locator(identityChipSelector("kaval-identity-chip")).click();
 });
 
 Then(

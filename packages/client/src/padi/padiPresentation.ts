@@ -1,7 +1,7 @@
 /** Pure, side-effect-free presentation for kolu-server's binding to padi — the
- *  `padiLink` → tone/label table the rail dot and the Padi dialog read.
+ *  `padiLink` → tone/label table the host-chip dot and the Padi dialog read.
  *
- *  Mirrors kaval's `daemonPresentation`: the padi rail dot is the padiLink sibling
+ *  Mirrors kaval's `daemonPresentation`: the padi status dot is the padiLink sibling
  *  of {@link kavalDot}, floored on transport liveness the same way (a dead
  *  browser↔kolu-server ws leaves the retained `padiLink` STALE, so the dot reads the
  *  grey "unknown" tone rather than a definite verdict painted off a value the dead
@@ -109,7 +109,7 @@ export function toPadiPresence(
   };
 }
 
-/** The Padi rail chip's REMOTE-HOST segment — names WHERE padi is and reads as
+/** The Padi host-chip REMOTE-HOST segment — names WHERE padi is and reads as
  *  remote. `boundHost` is `daemonScanBoundHost()`: the ssh host kolu-server's padi
  *  is bound to (`KOLU_PADI_HOST`), or `null` for a LOCAL binding. Returns the
  *  `ssh · <host>` label ONLY when bound remotely, and `null` when local — so the

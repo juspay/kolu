@@ -13,11 +13,16 @@
  *  is the deliberate, reviewable exception, not a silent ratchet. */
 
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+// Resolve via `fileURLToPath(import.meta.url)` + `node:path` (not `new URL(…,
+// import.meta.url)`): under the `happy-dom` test env the GLOBAL `URL` is the
+// browser one, which rejects a `file:` base — so build the path from the module's
+// own file URL instead.
 const APP_SRC = readFileSync(
-  fileURLToPath(new URL("./App.tsx", import.meta.url)),
+  join(dirname(fileURLToPath(import.meta.url)), "App.tsx"),
   "utf8",
 );
 

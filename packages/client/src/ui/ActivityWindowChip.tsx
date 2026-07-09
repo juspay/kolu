@@ -13,12 +13,11 @@
  *  "all") is the same wherever the chip lives. */
 
 import { type Component, createSignal } from "solid-js";
+import { WINDOW_OPTIONS, windowOption } from "../terminal/activityWindow";
 import {
   activityWindow,
   setActivityWindow,
-  WINDOW_OPTIONS,
-  windowOption,
-} from "../terminal/activityWindow";
+} from "../terminal/activityWindowFilter";
 import { FILTER_CHIP_BASE, filterChipAccent } from "./filterChip";
 import { OptionMenu } from "./OptionMenu";
 import type { AnchorSide } from "./useAnchoredPopover";

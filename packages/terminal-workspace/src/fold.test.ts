@@ -4,10 +4,15 @@ import {
   type FoldCtx,
   fold,
   foldSnapshot,
+  RECENCY_THROTTLE_MS,
   restoreTargetOf,
+  seedRecencyBaseline,
+  stepRecencyBaseline,
 } from "./fold.ts";
 import {
+  type AgentIdentity,
   type AgentInfo,
+  type RestoreTarget,
   seedMemory,
   seedSnapshot,
   type TerminalEvent,
@@ -43,8 +48,19 @@ const seed = (): TerminalState => ({
   memory: seedMemory(),
 });
 
-const delta = (at: number): FoldCtx => ({ live: true, at });
-const snapshot = (at: number): FoldCtx => ({ live: false, at });
+// `runStartedAt` defaults: a DELTA models steady-state activity long after the run
+// started (0 → the throttle anchors on the prior stamp); a SNAPSHOT models the adopt
+// re-observation at run start (`at` → the settle coalesces against it).
+const delta = (at: number, runStartedAt = 0): FoldCtx => ({
+  live: true,
+  at,
+  runStartedAt,
+});
+const snapshot = (at: number, runStartedAt = at): FoldCtx => ({
+  live: false,
+  at,
+  runStartedAt,
+});
 
 const agentObs = (agent: AgentInfo | null): TerminalEvent => ({
   kind: "agent",
@@ -151,6 +167,158 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
     };
     const next = fold(cur, { kind: "agent", agent: "unknown" }, delta(9999));
     expect(next).toBe(cur); // no-op
+  });
+});
+
+describe("fold — a stable session's OUTPUT advances recency, THROTTLED (the freeze fix)", () => {
+  const busy = (at: number): TerminalState => ({
+    snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
+    memory: { lastActivityAt: at },
+  });
+
+  it("bumps on a same-identity output tick once the throttle window has elapsed", () => {
+    // The diagnosed freeze: a week-old stable session actively producing output
+    // whose recency never moved because only an IDENTITY change bumped. A live
+    // detail tick past the window now stamps.
+    const next = fold(
+      busy(500),
+      agentObs(claude("A", "tool_use")),
+      delta(500 + RECENCY_THROTTLE_MS),
+    );
+    expect(next.snapshot.agent?.state).toBe("tool_use");
+    expect(next.memory.lastActivityAt).toBe(500 + RECENCY_THROTTLE_MS);
+  });
+
+  it("COALESCES output ticks inside the window to a single write (throttle pin)", () => {
+    let cur = busy(500);
+    // Two ticks well within the window: recency holds — no per-tick write noise.
+    cur = fold(cur, agentObs(claude("A", "tool_use")), delta(500 + 10_000));
+    expect(cur.memory.lastActivityAt).toBe(500);
+    cur = fold(cur, agentObs(claude("A", "thinking")), delta(500 + 20_000));
+    expect(cur.memory.lastActivityAt).toBe(500);
+    // The first tick PAST the window writes once; the clock resets to it.
+    cur = fold(
+      cur,
+      agentObs(claude("A", "tool_use")),
+      delta(500 + RECENCY_THROTTLE_MS),
+    );
+    expect(cur.memory.lastActivityAt).toBe(500 + RECENCY_THROTTLE_MS);
+  });
+
+  it("does NOT identity-bump a `!live` re-observation, and its throttle coalesces at run start", () => {
+    // The adopt re-observation at the fold level: `cur.snapshot.agent` was seeded null
+    // and the survivor A is re-observed with `live:false`. The identity arm needs
+    // `ctx.live`, so it doesn't fire; the throttle arm's clock is floored at
+    // `runStartedAt` (= now), so the re-observation coalesces rather than false-bumping
+    // the (here week-past) saved recency.
+    const adoptedIdle: TerminalState = {
+      snapshot: { ...seedSnapshot("/a"), agent: null },
+      memory: { lastActivityAt: 500 },
+    };
+    const now = 500 + 10 * RECENCY_THROTTLE_MS;
+    const next = fold(adoptedIdle, agentObs(claude("A", "waiting")), {
+      live: false,
+      at: now,
+      runStartedAt: now,
+    });
+    expect(next.snapshot.agent?.sessionId).toBe("A");
+    expect(next.memory.lastActivityAt).toBe(500);
+  });
+
+  it("an IDENTITY change still bumps INSIDE the window (unthrottled — #1626 composes)", () => {
+    // The throttle governs only same-identity output; a session start/finish is a
+    // discrete event that stamps immediately regardless of the window.
+    const next = fold(busy(500), agentObs(claude("B", "thinking")), delta(600));
+    expect(next.memory.lastActivityAt).toBe(600);
+  });
+});
+
+const EXACT_TARGET: RestoreTarget = {
+  kind: "exact",
+  command: "claude --model sonnet",
+  agent: { kind: "claude-code", sessionId: "A" },
+};
+
+/** Simulate the producer's recency path (padi's `emit`): seed the identity BASELINE
+ *  from the restore target, then per agent observation call the SAME
+ *  `stepRecencyBaseline` the producer uses to derive `ctx.live` and advance the
+ *  baseline, and fold — with a fixed `runStartedAt` for the run. Drives the real
+ *  step (not a mirror of it), so the adopt-vs-fresh recency pins bind at the pure
+ *  layer and can't drift from the wire. */
+function driveRecency(
+  restoreTarget: RestoreTarget | undefined,
+  from: TerminalState,
+  runStartedAt: number,
+  ticks: { agent: AgentInfo | null; at: number }[],
+): TerminalState {
+  let baseline: AgentIdentity | null = seedRecencyBaseline(restoreTarget);
+  let state = from;
+  for (const t of ticks) {
+    const o = agentObs(t.agent);
+    const step = stepRecencyBaseline(baseline, o);
+    baseline = step.baseline;
+    state = fold(state, o, { live: step.live, at: t.at, runStartedAt });
+  }
+  return state;
+}
+
+describe("recency baseline — adopt survives its multi-emit settle, then output flows", () => {
+  // An adopted terminal seeds `agent: null` (a live-only field the producer
+  // re-derives) and carries the SAVED recency on its memory.
+  const adopted = (savedAt: number): TerminalState => ({
+    snapshot: { ...seedSnapshot("/a"), agent: null },
+    memory: { lastActivityAt: savedAt },
+  });
+
+  it("fresh spawn: baseline is null, so the first agent is live and bumps (#1626)", () => {
+    const out = driveRecency(undefined, seed(), 999, [
+      { agent: claude("A", "thinking"), at: 1000 },
+    ]);
+    expect(out.memory.lastActivityAt).toBe(1000);
+  });
+
+  it("adopt idle, MULTI-emit settle: the whole survivor burst holds saved recency", () => {
+    // The producer re-resolves the survivor across SEVERAL same-identity emits (the
+    // summary/token detail settles asynchronously), not one. Every emit matches the
+    // seeded baseline → not live → and each coalesces against `runStartedAt`, so the
+    // week-old saved recency survives the whole burst. (A one-shot gate that held only
+    // the FIRST emit would let the second false-bump to now — the regression this pins.)
+    const out = driveRecency(EXACT_TARGET, adopted(1000), 999_999, [
+      { agent: claude("A", "waiting"), at: 999_999 }, // re-observation (summary null)
+      { agent: claude("A", "waiting"), at: 999_999 + 50 }, // summary settle, same identity
+      { agent: claude("A", "waiting"), at: 999_999 + 120 }, // token settle, same identity
+    ]);
+    expect(out.memory.lastActivityAt).toBe(1000);
+  });
+
+  it("adopt then output: the settle holds, a later live tick past the window advances", () => {
+    const advanced = driveRecency(EXACT_TARGET, adopted(1000), 999_999, [
+      { agent: claude("A", "thinking"), at: 999_999 }, // survivor re-observation
+      { agent: claude("A", "tool_use"), at: 999_999 + RECENCY_THROTTLE_MS + 5 }, // real output
+    ]);
+    expect(advanced.memory.lastActivityAt).toBe(
+      999_999 + RECENCY_THROTTLE_MS + 5,
+    );
+  });
+
+  it("adopt, survivor gone during downtime, then a NEW agent launches → its start bumps", () => {
+    // The survivor's session ended silently during the restart, so there is no
+    // re-observation of it — the first observation is a genuinely-new agent B. Because
+    // the baseline is the survivor's IDENTITY (not a one-shot count), B differs from it
+    // → live → B's launch stamps recency. (A one-shot gate would swallow it — pinned.)
+    const out = driveRecency(EXACT_TARGET, adopted(1000), 999_999, [
+      { agent: claude("B", "thinking"), at: 1_000_050 },
+    ]);
+    expect(out.memory.lastActivityAt).toBe(1_000_050);
+  });
+
+  it("seedRecencyBaseline: an exact target seeds the survivor identity; none/absent seed null", () => {
+    expect(seedRecencyBaseline(EXACT_TARGET)).toEqual({
+      kind: "claude-code",
+      sessionId: "A",
+    });
+    expect(seedRecencyBaseline({ kind: "none" })).toBeNull();
+    expect(seedRecencyBaseline(undefined)).toBeNull();
   });
 });
 

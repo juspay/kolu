@@ -29,6 +29,7 @@ const KoluInfoDialog: Component<{
   status: WsStatus;
   live: boolean;
   dotClass: string;
+  triggerRef: () => HTMLElement | undefined;
 }> = (props) => {
   const pwa = useSurfaceApp<KoluBuildInfo>();
   const server = () => pwa.server();
@@ -41,6 +42,7 @@ const KoluInfoDialog: Component<{
       size="sm"
       logoSrc="/favicon.svg"
       name="Kolu"
+      triggerRef={props.triggerRef}
       version={
         <Show when={server()?.version}>
           {(v) => <VersionChip>v{v()}</VersionChip>}
@@ -84,8 +86,8 @@ const KoluInfoDialog: Component<{
         </DetailRow>
         <DetailRow label="memory">
           {/* kolu-server's RSS and this browser's JS heap — the two processes this
-              dialog names. padi and kaval have their own rail chips + dialogs, so
-              their RSS reads out there rather than being folded in here. */}
+              dialog names. padi and kaval have their own host-chip marks +
+              dialogs, so their RSS reads out there rather than being folded in here. */}
           <span>
             server {mbText(serverRssBytes())}
             <span class="text-fg-3"> / </span>

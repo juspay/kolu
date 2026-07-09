@@ -28,7 +28,7 @@ import {
 } from "@kolu/surface/solid";
 import { type Accessor, createEffect, getOwner, runWithOwner } from "solid-js";
 import type { z } from "zod";
-import type { EntryState, EntryStatus, SurfaceMap } from "./define";
+import type { EntryState, EntryStatus, KeyCodec, SurfaceMap } from "./define";
 import { fold } from "./envelope";
 
 // ── Entry & client shapes ───────────────────────────────────────────────
@@ -152,6 +152,12 @@ export interface SurfaceMapClient<
    *  a websocket's watchdog otherwise. The per-key clients already fold it into their
    *  own `health().live`; this exposes it for the membership-strip UI. */
   readonly live: Accessor<boolean>;
+  /** The map's key codec — the ONE key-identity authority. `scopedByEntry` (and
+   *  any consumer keying its own per-entry structure off membership) folds a key
+   *  to its canonical wire string through this rather than trusting `===`
+   *  reference identity, which the client cannot guarantee across independent
+   *  decodes of the same logical key (the map client's own cache vs. the caller's). */
+  readonly codec: KeyCodec<z.infer<KS>>;
   /** PURE lens — partial application of the key. No owner, no I/O, safe
    *  anywhere. Total. */
   entry(key: z.infer<KS>): Entry<ES, Cause>;
@@ -577,5 +583,11 @@ export function connectSurfaceMap<
     clients.clear();
   };
 
-  return { entries, live, entry, useEntry, dispose };
+  return { entries, live, codec: map.codec, entry, useEntry, dispose };
 }
+
+// `scopedByEntry` — per-key CLIENT-side state owned by `entries` membership (the
+// retained-owner dual of `useEntry`'s dispose-on-switch). Lives here on the
+// inherently-Solid `@kolu/surface-map/client` entrypoint (the package has no
+// separate `/solid` subpath by design — see index.ts).
+export { type ScopedByEntry, scopedByEntry } from "./scoped";

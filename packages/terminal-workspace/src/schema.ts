@@ -173,8 +173,11 @@ export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
  *  either field). Kept FLAT on kolu's authored record (`updateMemory` is the one
  *  narrowed writer), so the on-disk JSON path for these two is unchanged. */
 export const AgentMemorySchema = z.object({
-  /** Workspace-switcher recency: epoch-millis of the last LIVE agent-IDENTITY
-   *  change (start / finish / new session), on kolu's clock. HONEST form: an
+  /** Workspace-switcher recency: epoch-millis of the last LIVE agent observation,
+   *  on kolu's clock — an agent-IDENTITY change (start / finish / new session)
+   *  stamps immediately, and a same-identity OUTPUT tick stamps through the
+   *  recency throttle (`RECENCY_THROTTLE_MS`, in `fold.ts`) so a stable long-lived
+   *  session tracks its output instead of freezing. HONEST form: an
    *  idle/never-active terminal is `null` — a real absence, not an in-band `0`.
    *  The old `0` sentinel did TWO jobs at once (a genuine — if absurd —
    *  Unix-epoch reading, AND "never active") and collided with a THIRD: the
