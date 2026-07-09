@@ -67,6 +67,18 @@ import {
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import {
+  FsListAllInputSchema,
+  FsListAllOutputSchema,
+  GitDiffInputSchema,
+  GitDiffOutputSchema,
+  GitStatusInputSchema,
+  GitStatusOutputSchema,
+  WorktreeCreateInputSchema,
+  WorktreeCreateOutputSchema,
+  WorktreeRemoveInputSchema,
+} from "kolu-git/schemas";
+import { z } from "zod";
+import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
 } from "./transcriptSchema.ts";
@@ -89,18 +101,6 @@ import {
   TerminalInfoSchema,
   TerminalOnExitOutputSchema,
 } from "./vocab.ts";
-import {
-  FsListAllInputSchema,
-  FsListAllOutputSchema,
-  GitDiffInputSchema,
-  GitDiffOutputSchema,
-  GitStatusInputSchema,
-  GitStatusOutputSchema,
-  WorktreeCreateInputSchema,
-  WorktreeCreateOutputSchema,
-  WorktreeRemoveInputSchema,
-} from "kolu-git/schemas";
-import { z } from "zod";
 
 // The terminal VOCABULARY (schemas · records · pure helpers) now lives HERE, in
 // `@kolu/padi` — the terminal-domain authority. Re-exported from this browser-safe
@@ -112,13 +112,17 @@ export * from "./vocab.ts";
 /** The wire-shape `major.minor` this build of `padiSurface` serves and expects.
  *  1.0 is the initial contract (the padi plan of record, PR #1649); 1.1 ADDS the
  *  `lifecycle.recycleKaval` procedure (the "Restart kaval" button's session-
- *  preserving kaval recycle — a new member, so a MINOR bump). Additive growth (a
- *  new optional field / stream / procedure) is a minor bump; a shape-breaking
- *  change a major. A remote dial gates an incompatible padi via
- *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION},
- *  which is frozen forever so a contract-revving deploy can still reach the
- *  daemon's control core. */
-export const PADI_SURFACE_VERSION = "1.1";
+ *  preserving kaval recycle); 1.2 ADDS the `hostInventory` cell (padi serving the
+ *  running kaval + padi daemons on its OWN host — the "Running daemons" leak
+ *  diagnostic, which rides the re-served surface so it works identically local and
+ *  remote); 1.3 ADDS the `identity` cell (padi's own build commit / surfaceVersion /
+ *  boot time, the per-host twin of the control-core `hello` — see
+ *  {@link PadiIdentitySchema}). Additive growth (a new optional field / stream /
+ *  procedure / cell) is a minor bump; a shape-breaking change a major. A remote dial
+ *  gates an incompatible padi via `isContractVersionCompatible`. Distinct from
+ *  {@link CONTROL_CORE_VERSION}, which is frozen forever so a contract-revving
+ *  deploy can still reach the daemon's control core. */
+export const PADI_SURFACE_VERSION = "1.3";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -127,6 +131,50 @@ export type PadiVersion = z.infer<typeof PadiVersionSchema>;
 /** The value a fresh `version` subscriber sees — this build's version. */
 export const DEFAULT_PADI_VERSION: PadiVersion = {
   contractVersion: PADI_SURFACE_VERSION,
+};
+
+// ── Identity (padi's own build commit · surfaceVersion · boot time) ───────
+
+/** The `identity` cell payload — padi's own honest identity, PER HOST. padi is the
+ *  sole authority on its own identity (P3): these are the EXACT facts it already
+ *  advertises on the frozen control-core `hello` ({@link PadiHelloSchema}'s
+ *  `commit`/`surfaceVersion`/`startedAt`, below) — re-served here, on `padiSurface`
+ *  itself, so a per-host `padiMap` entry (W4's cross-host dock) can read the
+ *  RUNNING padi's own identity directly instead of riding the single legacy bind
+ *  (`daemonInventory.boundPadi` / `app.cells.padiLink`), which only ever describes
+ *  whichever ONE padi kolu-server happens to be bound to — a wrong-host lie the
+ *  instant a REMOTE host is active.
+ *
+ *  `commit` is DECLARED, not "absent until known": `null` means padi ITSELF has
+ *  declared "no commit" (a dev/off-nix build with no `PADI_COMMIT_HASH`) — a real
+ *  fact, rendered "—". This is NEVER the encoding for "the cell hasn't arrived over
+ *  the wire yet" — that is the subscription's own pending state (the client reads
+ *  `undefined`, not a synthesized `null`), so the two "unknown"s can't be conflated
+ *  (see `padiPresentation.ts`'s `toPadiPresence` on the client). `surfaceVersion`
+ *  and `startedAt` are likewise always DECLARED once the cell arrives — never
+ *  optional-absent.
+ *
+ *  `startedAt` is padi's RAW boot epoch, stamped on padi's OWN clock — a consumer
+ *  on a DIFFERENT host must reproject it through that entry's `clock.toLocal`
+ *  before computing an uptime (never `browserNow − rawRemoteEpoch`, the
+ *  metadata-boundary bug `useDaemonStatus.ts`'s `localDaemonStatus` already fixed
+ *  for `daemonStatus.startedAt` — this cell's consumer must mirror it). */
+export const PadiIdentitySchema = z.object({
+  commit: z.string().nullable(),
+  surfaceVersion: z.string(),
+  startedAt: z.number(),
+});
+export type PadiIdentity = z.infer<typeof PadiIdentitySchema>;
+
+/** The pre-boot placeholder — practically unobservable: padi computes the real
+ *  identity synchronously (no I/O) at surface-deps construction and seeds the
+ *  store with it directly, so a fresh subscriber sees the real value from the
+ *  first frame. Kept only because every cell needs a `default` (spec completeness,
+ *  the `liveWhen`-adjacent contract every other cell here follows). */
+export const DEFAULT_PADI_IDENTITY: PadiIdentity = {
+  commit: null,
+  surfaceVersion: PADI_SURFACE_VERSION,
+  startedAt: 0,
 };
 
 // ── Status (the per-host build-currency axis) ─────────────────────────────
@@ -149,6 +197,102 @@ export type PadiStatus = z.infer<typeof PadiStatusSchema>;
 /** The value a fresh `status` subscriber sees before padi seeds it — no expected
  *  kaval known yet. */
 export const DEFAULT_PADI_STATUS: PadiStatus = {};
+
+// ── Host-daemon inventory rows (the "Running daemons" leak diagnostic) ─────
+//
+// One running kaval / padi the host-daemon scan enumerated — the read-only diagnostic
+// rows the Kaval + Padi info dialogs list so a LEAKED daemon (a pre-upgrade kaval, a
+// second padi at another state-root) is visible AT A GLANCE. (srid hit this dogfooding
+// W2.2: a leaked pre-W2.2 kaval was invisible in the UI — only a `kaval-tui: more than
+// one kaval daemon is running` CLI error surfaced it.) Read-only enumeration: scan the
+// runtime dir, read each gate pid, best-effort probe status — it NEVER kills/reaps.
+//
+// These live HERE, in @kolu/padi's browser-safe surface vocabulary, because padi OWNS
+// the daemon domain (it discovers, adopts, and supervises the host's daemons — a kaval
+// gate pid is a padi-domain fact, NOT terminal-awareness). One scan implementation (in
+// @kolu/padi), one wire shape here. kolu-server's local-machine scan
+// (`kolu-common/surface`'s `daemonInventory` cell) IMPORTS these shapes from here — the
+// established `kolu-common → @kolu/padi` direction (the reverse is what the seal forbids).
+//
+// Honesty (#1034): every field the probe couldn't read is an honest `null` (rendered
+// "—"), never a fabricated zero/version.
+
+export const RunningKavalSchema = z.object({
+  /** The rendezvous socket path — the pasteable `--socket` value. */
+  socket: z.string(),
+  /** Discovery's human label ("standalone kaval" | "kolu @ <state-root>" |
+   *  "kolu-server on port <port>"), decided at discovery's matching branch. */
+  label: z.string(),
+  /** The structural kind: `stateRoot` (a padi's kaval — carries a state-root
+   *  manifest, incl. an ADOPTED legacy-address kaval), `port` (an UN-adopted legacy
+   *  `kaval-<port>/` with NO manifest — a genuine stray/leak), `standalone`, or
+   *  `unknown`. */
+  kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
+  /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
+  gatePid: z.number().int().nullable(),
+  /** Live terminal count from a best-effort `terminal.list` probe, or null when the
+   *  probe failed / the daemon didn't answer (never a fake 0). */
+  terminalCount: z.number().int().nullable(),
+  /** The kaval's build commit (`navigableCommit`) from a best-effort `system.version`
+   *  probe, or null when unreadable. */
+  buildCommit: z.string().nullable(),
+  /** The pty-host contract version from the probe, or null when unreadable. */
+  contractVersion: z.string().nullable(),
+  /** Whether the scanning host's kolu ACTIVELY owns this kaval ("in use by kolu"), and —
+   *  when it does — whether it sits at the pre-padi LEGACY `kaval-<port>/` address (padi
+   *  ADOPTED a live pre-W2.2 kaval on upgrade rather than leaking it — a KNOWN converging
+   *  state, not a leak, until the next recycle spawns it at the digest address).
+   *
+   *  A discriminated pair, NOT two independent booleans: `atLegacyAddress` exists ONLY on
+   *  the `active` arm, so the nonsense "legacy-but-not-owned" state is UNREPRESENTABLE
+   *  (P4). Only the host serving its OWN `hostInventory` marks `active` — a local-machine
+   *  scan under a remote binding is always `{ active: false }` (kolu is bound elsewhere). */
+  held: z.discriminatedUnion("active", [
+    z.object({ active: z.literal(false) }),
+    z.object({ active: z.literal(true), atLegacyAddress: z.boolean() }),
+  ]),
+});
+export type RunningKaval = z.infer<typeof RunningKavalSchema>;
+
+export const RunningPadiSchema = z.object({
+  /** padi's rendezvous socket path. */
+  socket: z.string(),
+  /** padi's state-root (from the digest→root manifest), or null if unreadable. */
+  stateRoot: z.string().nullable(),
+  /** The gate-holder pid (`padi.pid`), or null if unreadable. */
+  gatePid: z.number().int().nullable(),
+  /** True iff this is the padi the scanning host's kolu owns ("in use by kolu"). The
+   *  active padi's contract version + build commit do NOT ride this row — padi cannot
+   *  probe a foreign padi, so every non-active row would carry nulls; the one bound
+   *  padi's identity is published once on `daemonInventory.boundPadi` (the honest
+   *  fresh-each-tick live read that also works over ssh). */
+  active: z.boolean(),
+});
+export type RunningPadi = z.infer<typeof RunningPadiSchema>;
+
+/** One host's daemon inventory — every running kaval + padi on a single machine. The ONE
+ *  container both `padiSurface.hostInventory` (the bound host's own scan) and
+ *  `kolu-common/surface`'s `daemonInventory.localScan` (kolu-server's local-machine scan)
+ *  compose, so the scanner returns one neutral shape, not two lockstep copies. */
+export const HostDaemonInventorySchema = z.object({
+  kavals: z.array(RunningKavalSchema),
+  padis: z.array(RunningPadiSchema),
+});
+export type HostDaemonInventory = z.infer<typeof HostDaemonInventorySchema>;
+
+/** The `hostInventory` cell payload — the bound padi's scan of its OWN host, riding the
+ *  re-served surface so the dialog's bound-host list works identically local and remote.
+ *  Structurally {@link HostDaemonInventorySchema} (the same shape kolu-server's local
+ *  scan uses). */
+export const PadiHostInventorySchema = HostDaemonInventorySchema;
+export type PadiHostInventory = z.infer<typeof PadiHostInventorySchema>;
+
+/** The honest pre-sample value — empty lists, so a fresh subscriber renders no
+ *  fabricated daemons until padi's first scan lands. */
+export const DEFAULT_PADI_HOST_INVENTORY: PadiHostInventory = {
+  kavals: [],
+  padis: [],
+};
 
 // ── The composed `terminals` value — active | sleeping | parked ───────────
 
@@ -204,12 +348,16 @@ export type PadiTerminal = z.infer<typeof PadiTerminalSchema>;
 
 /** The recency-FREE urgency fold off the registry: how many terminals await
  *  the user, and which. The ONE thing kolu-server reads from every warm binding
- *  (for cross-host badge fan-in), so it deliberately carries counts + ids and NO
- *  recency — nothing cross-host ever compares two hosts' clocks. */
+ *  (for cross-host badge fan-in), so it deliberately carries ids and NO
+ *  recency — nothing cross-host ever compares two hosts' clocks. No separate
+ *  count: a count that could disagree with `awaitingIds` is a second source of
+ *  truth for one fact, so the count is DERIVED at every read site as
+ *  `awaitingIds.length` (see `HostSelectorStrip.tsx`'s `awaiting()`), never
+ *  carried on the wire. */
 export const PadiUrgencySchema = z.object({
-  /** Count of terminals whose agent is awaiting the user (`awaiting_user`). */
-  awaiting: z.number().int().nonnegative(),
-  /** The ids of those awaiting terminals — for a badge deep-link to focus one. */
+  /** The ids of the terminals whose agent is awaiting the user
+   *  (`awaiting_user`) — for a badge deep-link to focus one, and for the badge
+   *  COUNT (`.length`), read at the consumer, never duplicated here. */
   awaitingIds: z.array(TerminalIdSchema),
 });
 export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
@@ -327,11 +475,13 @@ export const PadiPreviewReadInputSchema = z.object({
 /** `preview.repoRootForTerminal` — resolve a TERMINAL's git repo root from padi's
  *  OWN in-process registry (`snapshotFor(id)?.git?.repoRoot`), the single source of
  *  truth for that mapping. The re-serving binder (kolu-server's iframe preview
- *  route) calls this to turn the URL's terminal id into a repo path, then STREAMS
- *  the file itself off the local disk via the shared `previewFile` (bounded heap
- *  for large videos) — so the mapping stays in padi while the byte streaming stays
- *  a local, uncapped stream (never forced whole through a base64 procedure). Null
- *  when the terminal is unknown or has no git repo. */
+ *  route) calls this to turn the URL's terminal id into a repo path, then reads the
+ *  bytes by binding: a LOCAL bind streams the file off THIS disk via the shared
+ *  `previewFile` (bounded heap for large videos); a REMOTE bind (`KOLU_PADI_HOST`)
+ *  dials `preview.read` in bounded chunks and reassembles them — either way never
+ *  forced whole through a base64 procedure. So the mapping stays in padi while the
+ *  byte read stays a bounded stream. Null when the terminal is unknown or has no
+ *  git repo. */
 export const PadiRepoRootForTerminalInputSchema = z.object({
   terminalId: TerminalIdSchema,
 });
@@ -345,8 +495,10 @@ export const PadiPreviewReadOutputSchema = z.object({
    *  `500`, verbatim from `serveFile`. */
   status: z.number().int(),
   /** Response headers verbatim from serve-dir (`Content-Type`, `Accept-Ranges`,
-   *  `X-Content-Type-Options`, `Cache-Control`, and `Content-Range` on a
-   *  206/416). The client replays them onto the reconstructed `Response`. */
+   *  `X-Content-Type-Options`, `Cache-Control`, a strong `ETag` on every 200/206,
+   *  and `Content-Range` on a 206/416). The client replays them onto the
+   *  reconstructed `Response`; the re-serving preview arm reads the `ETag` back to
+   *  pin the file snapshot across a multi-chunk reassembly. */
   headers: z.record(z.string(), z.string()),
   /** Base64-encoded response body — the (possibly ranged) file bytes on a
    *  200/206, the plain-text reason on a 400/403/404/416/500. */
@@ -376,11 +528,20 @@ export const padiSurface = defineSurface({
   cells: {
     /** padi's self-declared surface contract version (1.0). */
     version: { schema: PadiVersionSchema, default: DEFAULT_PADI_VERSION },
+    /** padi's own honest identity — build commit / surfaceVersion / boot time, PER
+     *  HOST (see {@link PadiIdentitySchema}). Read-only on the client; padi seeds it
+     *  ONCE at boot, from the same source constants the control-core `hello` reads
+     *  (never re-derived), so this and `hello` can't drift. */
+    identity: {
+      schema: PadiIdentitySchema,
+      default: DEFAULT_PADI_IDENTITY,
+      verbs: ["get"],
+    },
     /** The recency-free urgency projection — read-only on the client; padi's
      *  registry fold is the sole writer. */
     urgency: {
       schema: PadiUrgencySchema,
-      default: { awaiting: 0, awaitingIds: [] } satisfies PadiUrgency,
+      default: { awaitingIds: [] } satisfies PadiUrgency,
       verbs: ["get"],
     },
     /** Host-side build-currency facts — today the `expectedKaval` axis (the kaval
@@ -389,6 +550,16 @@ export const padiSurface = defineSurface({
     status: {
       schema: PadiStatusSchema,
       default: DEFAULT_PADI_STATUS,
+      verbs: ["get"],
+    },
+    /** The running kaval + padi daemons on THIS padi's host — the "Running daemons"
+     *  leak diagnostic the Kaval + Padi dialogs list. Read-only on the client; padi's
+     *  periodic host-inventory sampler (`hostInventory.ts`, wired into daemon boot)
+     *  is the sole writer. Rides the re-served surface, so the dialog's bound-host
+     *  list works identically whether kolu-server is bound locally or over ssh. */
+    hostInventory: {
+      schema: PadiHostInventorySchema,
+      default: DEFAULT_PADI_HOST_INVENTORY,
       verbs: ["get"],
     },
     /** Live process-memory readout — padi's OWN RSS + its kaval daemon's, each the
@@ -626,8 +797,10 @@ export type ForwardingPolicy = "value" | "delta";
 export const PADI_FORWARDING_POLICY = {
   // cells
   version: "value",
+  identity: "value",
   urgency: "value",
   status: "value",
+  hostInventory: "value",
   processMemory: "value",
   activityFeed: "value",
   // collections

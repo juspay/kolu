@@ -7,13 +7,14 @@
  *  fetch the shell still owned) so the layout shell stops carrying a non-layout
  *  fetch and drilling `appTitle` through every consumer. */
 
-import type { ServerIdentity } from "kolu-common/contract";
+import type { PwaIdentity } from "kolu-common/contract";
 import { createSignal } from "solid-js";
 import { createSharedRoot } from "./createSharedRoot";
-import { client } from "./wire";
+import { hostTitle } from "./host/hostTitle";
+import { activeHost, client } from "./wire";
 
 export const useServerIdentity = createSharedRoot(() => {
-  const [identity, setIdentity] = createSignal<ServerIdentity>();
+  const [identity, setIdentity] = createSignal<PwaIdentity>();
   void client.server
     .info()
     .then((info) => setIdentity(info.identity))
@@ -25,10 +26,15 @@ export const useServerIdentity = createSharedRoot(() => {
   // Expose only the named projections, not the raw `identity()` signal: a
   // consumer reaching past these to read `identity()?.name` would re-scatter the
   // "kolu" default `appTitle` centralizes and couple itself to the
-  // `ServerIdentity` shape. A future field gets its own projection here.
+  // `PwaIdentity` shape. A future field gets its own projection here.
   return {
-    /** Document/window title — the server's name, or the "kolu" default. */
-    appTitle: () => identity()?.name ?? "kolu",
+    /** Document/window title — tab IDENTIFICATION: which host this tab views
+     *  (`hostTitle` over the reactive `activeHost` signal), so the tab re-titles the
+     *  instant you switch hosts on the ChromeBar strip. The server identity no longer
+     *  drives the title (it names kolu-server's OWN host, not the viewed one, and under
+     *  always-map would fold the KOLU_PADI_HOST seed-list); this module keeps the
+     *  `server.info` fetch only for `themeColor`. */
+    appTitle: () => hostTitle(activeHost()),
     /** PWA chrome theme-color, or undefined before the fetch resolves. */
     themeColor: () => identity()?.themeColor,
   } as const;

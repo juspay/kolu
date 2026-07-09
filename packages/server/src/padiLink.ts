@@ -1,5 +1,5 @@
 /**
- * The pure `HostSessionState.connection` → `padiLink` cell mapping.
+ * The pure `SessionState.connection` → `padiLink` cell mapping.
  *
  * kolu-server's OWN shell surface owns the client's honest view of its binding to the
  * local padi (#1034): padi cannot serve its OWN unreachability, so kolu-server maps the
@@ -13,7 +13,7 @@
  * `koluSurfaceCtx.cells.padiLink.set` off it.
  */
 
-import type { ConnectionState } from "@kolu/surface-nix-host";
+import type { ConnectionState } from "@kolu/surface-remote";
 import type { PadiLink } from "kolu-common/surface";
 import { match } from "ts-pattern";
 

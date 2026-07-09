@@ -23,13 +23,13 @@ install:
 dev: install
     cd {{ here }} && {{ nix_shell }} pnpm dev
 
-# Full check — astro type-check AND a real build, plus the build-helper unit
-# tests. `astro check` alone does NOT catch MDX/JSX compile errors (malformed
-# inline components, block-body arrow exports, `//` comments glued above an
-# `export const`, …); only the build does. The `node --test` pass covers the
-# stable-inline-styles normalizer (the #1209 cross-note-locality invariant),
-# which a build can't prove on its own. Run all three so `just atlas::check` is a
-# true "all errors" gate.
+# Full check — `astro sync && tsc --noEmit`, a real build, plus the build-helper
+# unit tests. `tsc` checks the generated Astro types and TS/TSX files; the build
+# catches MDX/JSX compile errors (malformed inline components, block-body arrow
+# exports, `//` comments glued above an `export const`, …). The `node --test`
+# pass covers the stable-inline-styles normalizer (the #1209 cross-note-locality
+# invariant), which a build can't prove on its own. Run all three so
+# `just atlas::check` is a true "all errors" gate.
 check: install
     cd {{ here }} && {{ nix_shell }} sh -c 'pnpm check && pnpm build && node --test build/*.test.mjs'
 

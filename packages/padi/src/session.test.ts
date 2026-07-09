@@ -7,19 +7,20 @@
  * `snapshotSession` deliberately EXCLUDES. Without a guard, a `terminals:dirty`
  * autosave firing while parked entries linger persists a snapshot that omits them
  * — shrinking (or nulling) the saved session on disk, the restore source of
- * truth. The fix is one line in `session.ts`'s autosave callback:
- *   `if (hasParkedTerminals()) return;`
- * Tests (vi) and (iv) are red-when-reverted against that line; the two control
- * cases pin that the guard is scoped (normal autosave still persists / clears).
+ * truth. The guard lives in `autosaveGate.ts`'s fire decision: the LIVE
+ * `isRestorePending()` query short-circuits to `suppressed-parked` before any
+ * persist. Tests (vi) and (iv) are red-when-reverted against that guard; the two
+ * control cases pin that it is scoped (normal autosave still persists / clears).
  *
- * Async-timer pattern mirrors `packages/server/src/session.test.ts`'s
- * `initSessionAutoSave` test: REAL timers, a `terminalsDirtyChannel.publish({})`
- * to arm the loop, a short tick to let it schedule the 500 ms timer, then a
- * longer wait to pass the autosave window.
+ * Async-timer pattern mirrors `packages/server/src/session.test.ts`'s autosave
+ * test: REAL timers, a `terminalsDirtyChannel.publish({})` to arm the gate, a
+ * short tick to let it schedule the 500 ms timer, then a longer wait to pass the
+ * autosave window.
  */
 
 import type { TerminalSnapshot } from "@kolu/terminal-workspace/schema";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -27,17 +28,16 @@ import {
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID } from "./ptyHost/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import {
-  cancelPendingAutosave,
   getSavedSession,
-  initSessionAutoSave,
+  saveSession,
   setSavedSession,
   setSavedSessionFromSnapshot,
 } from "./session.ts";
 import {
   type ActiveTerminalProcess,
+  hasParkedTerminals,
   type ParkedTerminalProcess,
   registerTerminal,
   terminalEntries,
@@ -48,6 +48,7 @@ import {
   type AuthoredActiveTerminal,
   AuthoredParkedSchema,
   type AuthoredParkedTerminal,
+  encodeHostLocation,
   LOCAL_LOCATION,
   type SavedActiveTerminal,
   type SavedSession,
@@ -179,7 +180,11 @@ async function fireAutosave(): Promise<void> {
 // The autosave loop subscribes exactly ONCE — register it here, not per test, and
 // give the async subscription a moment to attach before the first publish.
 beforeAll(async () => {
-  initSessionAutoSave(snapshotSession);
+  initAutosaveGate({
+    snapshot: snapshotSession,
+    isRestorePending: hasParkedTerminals,
+    persist: saveSession,
+  });
   await tick(10);
 });
 
@@ -264,7 +269,9 @@ describe("session autosave — the PATH-B session-clobber guard", () => {
     const savedBefore = getSavedSession();
 
     // The supervisor flips the local kaval to degraded on daemon death.
-    publishDaemonStatus(LOCAL_HOST_ID, { state: "degraded" });
+    publishDaemonStatus(encodeHostLocation(LOCAL_LOCATION), {
+      state: "degraded",
+    });
 
     // The degraded transition writes ONLY status — never the session, never the
     // registry. Nobody wires a session-clobber into the degraded path.

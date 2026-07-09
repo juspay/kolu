@@ -122,6 +122,9 @@ export class KoluWorld extends World {
   savedActiveTerminalId?: string;
   savedScrollTop?: number;
   savedVisibleText?: string;
+  /** The last draft typed into the Inspector's Compose box, so a follow-up
+   *  step can assert it reached the terminal. */
+  composedDraft?: string;
   snapshotCols?: Record<string, number>;
   /** Snapshot of `data-zoom` from `before I zoom the canvas in` so the
    *  follow-up `Then the canvas zoom level should have changed` step can

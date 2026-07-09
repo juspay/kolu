@@ -554,6 +554,80 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
     const body = (read.contents[0] as { text: string }).text;
     expect(JSON.parse(body)).toEqual({ v: "answer" });
   });
+
+  it("reading an ABSENT collection item returns not-found promptly, never hangs", async () => {
+    const over = buildEdgeSurface();
+    const { mcp, served } = await connectEdge(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // The collection `get` now HOLDS OPEN for a not-yet-born key (the #1681 fix),
+    // so a one-shot read must resolve membership from `keys` first and report the
+    // absent key as not-found instead of awaiting a `get` frame that never comes.
+    // A 2s race guards against a regression back to the indefinite hang.
+    const read = mcp.readResource({ uri: "surface://collections/rows/99" });
+    const outcome = await Promise.race([
+      read.then(
+        () => ({ kind: "resolved", message: "" }),
+        (e: unknown) => ({
+          kind: "rejected",
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      ),
+      new Promise<{ kind: string; message: string }>((r) =>
+        setTimeout(() => r({ kind: "timeout", message: "" }), 2000),
+      ),
+    ]);
+    expect(outcome.kind).toBe("rejected");
+    // A well-formed but not-yet-present key reads as "no value yet", NOT the
+    // generic "unknown resource" a malformed/unaddressable URI gets — the two
+    // absence causes must not collapse to one message.
+    expect(outcome.message).toMatch(/no value yet|not present/i);
+  });
+
+  it("a collection item DELETED before the read returns not-found promptly (delete race)", async () => {
+    const over = buildEdgeSurface();
+    const { mcp, served } = await connectEdge(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // 42 exists at boot; reading it returns its value.
+    const present = await mcp.readResource({
+      uri: "surface://collections/rows/42",
+    });
+    expect(JSON.parse((present.contents[0] as { text: string }).text)).toEqual({
+      v: "answer",
+    });
+
+    // Remove it — AWAIT the delete so the removal is applied and published
+    // BEFORE the read subscribes; otherwise the ordering is unpinned and the read
+    // could race a still-present 42 (a resolved value), never exercising the
+    // delete case this test names. With the delete settled, the read's `keys`
+    // snapshot omits 42. Because the item `get` HOLDS OPEN for an absent key, a
+    // read that relied on `get` alone would hang forever here; the bounded read
+    // resolves not-found from the `keys`-absence watch instead — so a regression
+    // back to the hang trips the 2s timeout and fails this test.
+    await over.client.surface.rows.delete({ key: 42 });
+    const read = mcp.readResource({ uri: "surface://collections/rows/42" });
+    const outcome = await Promise.race([
+      read.then(
+        () => ({ kind: "resolved", message: "" }),
+        (e: unknown) => ({
+          kind: "rejected",
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      ),
+      new Promise<{ kind: string; message: string }>((r) =>
+        setTimeout(() => r({ kind: "timeout", message: "" }), 2000),
+      ),
+    ]);
+    expect(outcome.kind).toBe("rejected");
+    expect(outcome.message).toMatch(/no value yet|not present/i);
+  });
 });
 
 describe("serveSurfaceAsMcp — boot-time guards", () => {

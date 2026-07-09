@@ -1,0 +1,83 @@
+---
+title: The daemon spine
+description: "Why a long-lived local process needs a frozen control core and a versioned contract — the spine that lets it be recycled without lying to its clients."
+order: 330
+section: Daemons · Explanation
+---
+
+import DaemonLifecycle from "../../components/docs/diagrams/DaemonLifecycle.astro";
+
+A surface in a browser tab lives and dies with the tab. A surface in a **daemon**
+outlives every client that connects to it — and, more awkwardly, outlives its own
+code. You will ship a new build while a client is mid-session, and the old
+process is still there, holding the socket, serving the old surface. The daemon
+stratum exists to make that moment safe.
+
+<DaemonLifecycle />
+
+## The problem a daemon has that a page does not
+
+A page never has to answer "which version of me are you talking to?" — there is
+only one, and it reloads. A daemon has to answer it constantly, because the
+process a client is attached to and the build you just shipped can be different
+things. If the client cannot tell them apart, an upgrade either drops every
+session or, worse, quietly serves stale behaviour under the new build's name.
+
+So a daemon needs two things a page does not: a way to say *which build it is*
+(covered in [How to bake an identity](/surface/bake-an-identity)), and a small
+part of itself that **never changes shape**, so that question can always be
+asked — even across a version skew. That unchanging part is the spine.
+
+## The control core is frozen so it survives a skew
+
+Identity is read over a version-agnostic channel, *before* the versioned
+handshake. That ordering is the whole trick: if reading a daemon's identity
+required speaking its current contract, then the one situation where you most
+need the identity — a version mismatch — is exactly when you could not read it.
+By freezing the control core and probing it pre-connect, a supervisor can always
+learn what it is looking at, then decide whether to talk to it, recycle it, or
+drain it.
+
+Everything *behind* the spine is free to churn. The surface can grow cells, the
+handlers can change, the build can be replaced wholesale — as long as the frozen
+core still answers "who are you?" the same way it always has.
+
+## Recycle without lying
+
+With a stable identity and a version-agnostic probe, a live upgrade becomes a
+decision rather than a gamble. `converge` reads the running identity, compares it
+to what you baked, and acts by a declared policy — recycle on skew, or drain the
+newer build in. The client sees a brief reconnect, not a dropped session. The
+contract is the promise the daemon keeps across that swap: a recycle may replace
+every byte of the process, but it must not change what the wire says without
+saying so. This is the same instinct as
+[reactive honesty](/surface/reactive-honesty), one layer down — a recovered
+connection must not silently be talking to a different thing.
+
+## Why the halves are two packages
+
+The daemon *binary* code and the *supervising* code are split into two packages,
+and the split is load-bearing, not tidiness. A supervisor runs in the client and
+must never be able to change what a daemon restart loads — so it is kept out of
+the daemon's hashed closure entirely. The package boundary *is* the hash
+boundary: you cannot accidentally make a supervisor edit look like a new daemon
+build, because the supervisor is not in the build id at all.
+
+## A daemon is not a fleet
+
+It is tempting to assume that "long-lived" and "runs on other machines" travel
+together. They do not. **[kaval](/kaval)** is the proof: a daemon on your own box, one
+process, no ssh, no map — everything in this stratum, none of the
+[multi-host](/surface/across-the-hosts) one. The spine is what a daemon needs to
+be recycled honestly; it says nothing about *where* the daemon runs. That is a
+separate axis, with its own exemplar.
+
+## The trade
+
+Freezing a control core is a real cost: you are committing to a shape *forever*,
+because the entire recycle story depends on old and new agreeing on how to ask
+"who are you?" Change that, and you break the one channel that was supposed to
+survive change. The daemon stratum accepts a small, permanent rigidity at the
+core in exchange for total freedom to replace everything around it. For a process
+that must be upgraded under load without dropping its clients, that is the trade
+worth making — and the narrowness of the frozen part is what keeps the price low.

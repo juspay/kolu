@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 400" font-family="system-ui, sans-serif">
+  <rect width="920" height="400" fill="#0f1117"/>
+  <!-- lanes -->
+  <text x="90" y="30" fill="#8b95a7" font-size="13" font-weight="600">REMOTE HOSTS</text>
+  <text x="330" y="30" fill="#8b95a7" font-size="13" font-weight="600">SERVER — the map</text>
+  <text x="640" y="30" fill="#8b95a7" font-size="13" font-weight="600">BROWSER — the client</text>
+
+  <!-- hosts -->
+  <g>
+    <rect x="30" y="60" width="150" height="44" rx="8" fill="#1a2130" stroke="#2dd4a7" stroke-width="1.5"/>
+    <text x="105" y="80" fill="#e6eaf2" font-size="13" text-anchor="middle">local</text>
+    <text x="105" y="96" fill="#8b95a7" font-size="11" text-anchor="middle">padi (same box)</text>
+    <rect x="30" y="120" width="150" height="44" rx="8" fill="#1a2130" stroke="#e8b44c" stroke-width="1.5"/>
+    <text x="105" y="140" fill="#e6eaf2" font-size="13" text-anchor="middle">srid@zest</text>
+    <text x="105" y="156" fill="#8b95a7" font-size="11" text-anchor="middle">padi over ssh</text>
+    <rect x="30" y="180" width="150" height="44" rx="8" fill="#1a2130" stroke="#e05252" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <text x="105" y="200" fill="#e6eaf2" font-size="13" text-anchor="middle">naiveintent</text>
+    <text x="105" y="216" fill="#8b95a7" font-size="11" text-anchor="middle">failed(cause)</text>
+  </g>
+
+  <!-- server map -->
+  <rect x="250" y="52" width="270" height="240" rx="10" fill="#141925" stroke="#3d4a63" stroke-width="1.5"/>
+  <text x="385" y="76" fill="#e6eaf2" font-size="13" font-weight="600" text-anchor="middle">serveSurfaceMap</text>
+  <rect x="268" y="90" width="234" height="52" rx="6" fill="#1a2130" stroke="#5b8def"/>
+  <text x="385" y="110" fill="#9db4e8" font-size="12" text-anchor="middle">MapRegistry</text>
+  <text x="385" y="128" fill="#8b95a7" font-size="10.5" text-anchor="middle">members · subscribe · resolve ⇒ session | fault</text>
+  <rect x="268" y="152" width="234" height="52" rx="6" fill="#1a2130" stroke="#5b8def"/>
+  <text x="385" y="172" fill="#9db4e8" font-size="12" text-anchor="middle">entries: Collection&lt;Key, EntryStatus&gt;</text>
+  <text x="385" y="190" fill="#8b95a7" font-size="10.5" text-anchor="middle">warming · connected(clockOffset) · failed(cause)</text>
+  <rect x="268" y="214" width="234" height="52" rx="6" fill="#1a2130" stroke="#3d4a63"/>
+  <text x="385" y="234" fill="#c8d0de" font-size="12" text-anchor="middle">one session per member key</text>
+  <text x="385" y="252" fill="#8b95a7" font-size="10.5" text-anchor="middle">membership = the registry's word, nothing else</text>
+
+  <!-- host->server arrows -->
+  <g stroke="#3d4a63" stroke-width="1.5" fill="none">
+    <path d="M182 82 C 215 82, 220 100, 248 105"/>
+    <path d="M182 142 C 215 142, 220 150, 248 160"/>
+    <path d="M182 202 C 215 202, 220 230, 248 236" stroke-dasharray="5 3"/>
+  </g>
+
+  <!-- the one socket -->
+  <rect x="540" y="140" width="60" height="60" rx="30" fill="#1a2130" stroke="#c07ae8" stroke-width="1.5"/>
+  <text x="570" y="165" fill="#dbb8f0" font-size="11" text-anchor="middle">ONE</text>
+  <text x="570" y="180" fill="#dbb8f0" font-size="11" text-anchor="middle">socket</text>
+  <path d="M522 170 L 538 170" stroke="#c07ae8" stroke-width="1.5"/>
+  <path d="M602 170 L 618 170" stroke="#c07ae8" stroke-width="1.5"/>
+  <text x="570" y="222" fill="#8b95a7" font-size="10.5" text-anchor="middle">every frame enveloped</text>
+  <text x="570" y="236" fill="#c8d0de" font-size="10.5" text-anchor="middle">{ mapKey, input }</text>
+
+  <!-- client -->
+  <rect x="620" y="52" width="270" height="240" rx="10" fill="#141925" stroke="#3d4a63" stroke-width="1.5"/>
+  <text x="755" y="76" fill="#e6eaf2" font-size="13" font-weight="600" text-anchor="middle">map client</text>
+  <rect x="638" y="90" width="234" height="52" rx="6" fill="#1a2130" stroke="#2dd4a7"/>
+  <text x="755" y="110" fill="#7fe3c3" font-size="12" text-anchor="middle">entries (bound collection)</text>
+  <text x="755" y="128" fill="#8b95a7" font-size="10.5" text-anchor="middle">absence = not in the map — no "absent" arm</text>
+  <rect x="638" y="152" width="234" height="52" rx="6" fill="#1a2130" stroke="#2dd4a7"/>
+  <text x="755" y="172" fill="#7fe3c3" font-size="12" text-anchor="middle">per-key singleton slots</text>
+  <text x="755" y="190" fill="#8b95a7" font-size="10.5" text-anchor="middle">(proc, input) dedup · last-listener eviction</text>
+  <rect x="638" y="214" width="234" height="52" rx="6" fill="#1a2130" stroke="#e8b44c"/>
+  <text x="755" y="234" fill="#f0d49b" font-size="12" text-anchor="middle">useEntry(activeHost)</text>
+  <text x="755" y="252" fill="#8b95a7" font-size="10.5" text-anchor="middle">which key is active = APP policy, not framework</text>
+
+  <!-- bottom moral -->
+  <rect x="250" y="320" width="640" height="52" rx="8" fill="#141925" stroke="#3d4a63"/>
+  <text x="570" y="342" fill="#c8d0de" font-size="12" text-anchor="middle">The framework owns the KEYED volatility: membership, per-key lifecycles, dedup, honest per-key status.</text>
+  <text x="570" y="360" fill="#8b95a7" font-size="12" text-anchor="middle">The app owns POLICY: which keys exist (the gate) and which one the canvas shows (activeHost).</text>
+</svg>

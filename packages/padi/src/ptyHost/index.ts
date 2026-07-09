@@ -21,6 +21,7 @@ import {
   converge,
   createBuildDrainFence,
   createEndpoint,
+  daemonBuild,
   type Endpoint,
   type EndpointStatus,
   outcomeAdopted,
@@ -38,6 +39,7 @@ import {
 } from "kaval";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import { log } from "../log.ts";
+import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
   connectKaval,
   type KavalConnectionMetadata,
@@ -51,14 +53,6 @@ import {
 import { kavalGatePath, localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity | undefined;
-
-/** The single local kaval host's id — the daemon-status key the endpoint reports
- *  under and consumers (e.g. boot adoption's `setAdoptedCount`) read by. Owned
- *  here, where `ensureLocalEndpoint` defines the daemon's identity/lifecycle.
- *  This is a *daemon* identity (the kaval host), distinct from a terminal's
- *  `location` (a `HostLocation` DU in kolu-common); a terminal placed on the
- *  local endpoint carries `{ kind: "local" }`, not this string. */
-export const LOCAL_HOST_ID = "local";
 
 /**
  * kaval's declaration into the shared daemon-convergence kit (`converge`). kaval is
@@ -191,7 +185,15 @@ export function __setEndpointForTest(
  *  Resolves whether or not the daemon came up — a boot failure reports `dead`
  *  via `onStatus` and leaves `ptyHostClient` throwing, so the server can still
  *  listen and the UI honestly shows the dead/degraded state (never a crash, never
- *  an import-time throw). */
+ *  an import-time throw).
+ *
+ *  This boot is NOT re-cast as a typed pipeline (unlike `runPadiDaemon`, L16): its
+ *  step order is already enforced by DATA FLOW, not prose. `ep = createEndpoint(...)`
+ *  produces the value `converge({ endpoint: ep })` and the `onAdopted`/`onNotAdopted`
+ *  branches consume — you cannot converge or reconcile before the endpoint exists,
+ *  because there is no `ep` to pass. There is no side-effecting "must run before X"
+ *  ordering here for a token to guard, so the same shape read as a latent hazard in
+ *  `runPadiDaemon` (setters with no data edge between them) is a non-issue here. */
 export async function ensureLocalEndpoint(opts: {
   /** The exact socket this endpoint's kaval serves and is dialed on — resolved by
    *  the caller. The padi process passes its digest-keyed
@@ -244,7 +246,7 @@ export async function ensureLocalEndpoint(opts: {
   // when an upgrade adopts the port kaval, and a spawn resets it back.
   setLocalSocketPath(socketPath);
   const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
-    hostId: LOCAL_HOST_ID,
+    hostId: encodeHostLocation(LOCAL_LOCATION),
     gatePath: kavalGatePath(socketPath),
     socketPath,
     driver: localKavalDriver(socketPath),
@@ -285,7 +287,7 @@ export async function ensureLocalEndpoint(opts: {
       endpoint: ep,
       baked: {
         contractVersion: PTY_HOST_CONTRACT_VERSION,
-        buildId: currentPtyHostIdentity().staleKey,
+        build: daemonBuild(currentPtyHostIdentity().staleKey),
       },
       probe: () => probeKavalForConvergence(socketPath),
       policy: KAVAL_CONVERGENCE_POLICY,

@@ -32,6 +32,10 @@ check: install
 build: install
     cd {{ here }} && {{ nix_shell }} pnpm build
 
+# Build and serve ./dist locally so the Pagefind search index is available
+search-preview: build
+    cd {{ here }} && {{ nix_shell }} pnpm exec astro preview --port 4321
+
 # Build the static site via Nix (reproducible) — prints the store path
 nix-build:
     nix build {{ root }}#website --print-out-paths

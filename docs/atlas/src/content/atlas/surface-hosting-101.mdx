@@ -1,0 +1,246 @@
+---
+title: The surface framework's hosting side, taught
+description: A plain-words primer on how a surface travels between machines — serve, mirror, re-serve, sessions, and the host registry — ending at the exact type-vs-volatility fork the W4 switch ran into.
+parents: [pedagogy, padi]
+maturity: seedling
+updated: 2026-07-05
+---
+
+*(This primer teaches the machinery behind [the padi plan](padi.html)’s W4 switch; the post-switch feature menu is [remote-terminals-future](remote-terminals-future.html).)*
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import map from "../../diagrams/surface-hosting-101-map.svg?raw";
+import roles from "../../diagrams/surface-hosting-101-roles.svg?raw";
+import after from "../../diagrams/surface-hosting-101-after.svg?raw";
+
+This note teaches one slice of the `@kolu/surface` stack — the slice that moves a surface **between machines** — from the ground up, in plain words. It ends at a real, current decision (the W4 switch's server pool) so the teaching has a point. You should be able to read this cold and then judge that decision yourself.
+
+<Svg svg={map} wide caption="Two apps, one framework. Top: kolu's story — a browser bound to ONE host's padi through a mirror kolu-server holds. Bottom: drishti's story — a fleet of hosts behind a registry that picks by ?host=. Middle: the shared parts both are built from." />
+
+## A surface is a menu of live things
+
+A **surface** is a typed menu a server offers: *these are the things you can watch and ask*. The menu has four kinds of item:
+
+- a **cell** — one value that changes over time (the padi connection state, your preferences);
+- a **collection** — a keyed set of values (the `terminals` collection: one entry per terminal);
+- a **procedure** — ask once, get an answer (`git.getDiff`, `preview.read`);
+- a **stream** — live bytes or events (`terminalAttach`: your terminal's screen).
+
+One side calls `implementSurface` and backs each item with real code. The other side gets a **client** and subscribes — in the browser through Solid hooks (`.use()`), so a cell changing repaints the UI by itself. The wire underneath (websocket, unix socket, ssh pipe) is interchangeable; the menu doesn't care.<Footnote>Kolu's browser actually talks to three sibling surfaces over one websocket — `app` (the web shell), `padi` (everything terminal), `surfaceApp` (build identity). One socket, three menus.</Footnote>
+
+## A mirror is how a surface crosses a machine
+
+Now the interesting part. padi serves its surface on a **unix socket on its own machine**. Your browser can't reach that. So kolu-server sits in the middle and does two things at once:
+
+1. **subscribe to everything** padi serves, and keep a live local copy (the *mirror*);
+2. **serve that copy onward** to browsers, forwarding writes back up.
+
+That combination is `reServeSurface` — *mirror it, then serve it again*. It's how the same canvas works whether padi is local or on another machine: the browser always talks to kolu-server's copy; only the pipe **behind** the copy changes.
+
+One rule makes this safe, and it's per-item: **values may be held and replayed; live byte streams must break loudly.** If the pipe to padi blips, the mirror keeps showing the last known terminal *list* (a value — replaying it is honest) but your terminal's *screen* stream must end and reattach fresh (replaying stale bytes would silently lie).<Footnote>This per-item rule is declared in the contract itself and pinned by a test — every member says which kind it is. The gray-chip bug (#1681) lived one layer below this: asking the mirror for a key that didn't exist *yet* used to kill the subscription; since #1687 it politely waits.</Footnote>
+
+## A session is the thing that owns the pipe
+
+First, one word this note leans on: **bound**. Kolu-server can talk to a daemon two ways — a **dial** (connect, do one thing, leave — `padi-tui status`, `kaval-tui`) or a **bound session**: a durable, supervised relationship it *keeps* — holds open across reconnects, watches health, converges on version mismatch, re-serves to browsers, outlives any single browser tab. A **bound daemon** is one kolu-server holds a bound session to. Today that is **only padi**; kaval is bound one layer down, by padi, through different (in-process) machinery — which is why "a second bound daemon" below does not mean kaval.
+
+Something has to own the messy lifecycle of that behind-the-copy pipe: dial it, notice it died, redial, give up loudly after too many failures. That something is a **session**, and there are two words to keep apart:
+
+- **`RemoteMirrorSession` is a *role*** — a small interface saying only: *"I can hand you a live client, and tell you the connection's state."* Anything satisfying it can sit behind `reServeSurface`.
+- **`HostSession` is one *class* that plays the role over ssh** — it also Nix-provisions the binary onto the host, runs it through an ssh pipe, reconnects with backoff, and gives up loudly. Drishti uses it directly for every machine in its fleet.
+
+Kolu defines its own flavor of the role, **`BoundPadi`**: a `RemoteMirrorSession` *plus* the padi-specific verbs kolu needs (drain the daemon for restart; report its identity). It has two implementations — the **local arm** (plain unix socket to a padi on this machine) and the **remote arm** (which *wraps* a `HostSession`, adding padi's convergence policy on top). Same role, two transports; `reServeSurface` can't tell them apart. That indifference is the whole design.
+
+**Three session-ish names is a smell — so let's be exact about why the code is (mostly) innocent.** These are not three ways of doing one thing; they are one *plug shape*, one *appliance*, and one *plug-with-extra-pins*:
+
+| name | what it is | runs anything? |
+| --- | --- | --- |
+| `RemoteMirrorSession` | the **role** — the plug shape every session must fit | no — pure interface |
+| `HostSession` | the **one appliance** for "pipe to another machine" (ssh + Nix + reconnect) | yes |
+| `BoundPadi` | the role **plus the two padi-only verbs**: *drain* ("save state and exit gracefully" — the Restart button; kaval + PTYs survive) and *identity* (who is on the other end: started-when · contract version · build commit, off the `hello` handshake) — a domain extension, not a re-implementation | no — interface; its two arms run |
+
+A fair follow-up (srid asked it): *why shouldn't the generic `HostSession` optionally offer drain and identity?* Because they aren't plumbing — they're **conversation**: `drain` and `hello` are procedures the *far end* serves; the transport only carries them. Three precise points that came out of pushing on this:
+
+- **Identity SHOULD already be universal — there is no "if."** Every durable daemon stamps its identity (started-at · commit · contract version) and answers `hello`, and the L3 kit already extracted that as a generic type (`ConvergenceIdentity`) used for both padi and kaval. So identity is *already* universal in substance; the only unfinished bit is putting an `identity()` accessor on a shared daemon-session role. That is plumbing left undone, not a design bet — the frozen control core was always planned to graduate into the shared daemon package as the standard preamble. State it flatly: **daemon identity is universal; graduating `hello` finishes a job, it doesn't take a risk.**
+- **Drain vs recycle are NOT one verb with a flag — and the difference is the one thing a user cares about.** A `kill(respawn: true)` flag would hide *"do my running programs survive?"*, which is catastrophic to bury in a boolean. The split traces to ONE root — **where the daemon's valuable state lives**: padi's PTYs live in *kaval* (a separate process), so padi can *drain* — persist, exit gracefully (never a kill-9; #1313), programs SURVIVE, a fresh padi adopts them, automatic. kaval's PTYs are its OWN children, so it cannot drain: its supervisor (padi) must orchestrate capture→kill→respawn→restore from outside — scrollback returns, **running programs die** — which is why it's human-gated. Different level, too: `drain` is self-served on padi's control core; `recycle` is done TO kaval from outside. The L3 kit types the capability so the false promise can't compile (`DrainableProbe` vs `PlainProbe`).
+- **The real unification is at INTENT, not the verb (open question).** Both verbs serve one intent — *"the running daemon isn't the build I want; make it so, preserving what user-state can be preserved"* — which the kit already unifies (`decide()`/`converge()`). What differs is enactment, and it differs by a fact each daemon could *declare*: "my state is external → drain me" vs "my state is internal → snapshot-kill-restore me." Whether a supervisor `renew()` should branch on a declared preservation strategy is a genuine open design question — see Proposed solution.
+- **"Second bound daemon" precisely:** drishti's far end today is an *ephemeral* agent (lives and dies with the link — no gate, no state-root, nothing to drain), so it is not a bound daemon. padi is the only daemon kolu-server binds. So the trigger for packaging a shared `SupervisedSession` is "a second daemon kolu-server BINDS" — not yet real. The identity half, per the first point, needn't wait for it at all.
+
+The one place mechanism-duplication was genuinely suspected — the local arm's reconnect loop vs `HostSession`'s — was formally audited (ledger L6, verdict c): different transports honestly dictate different reconnect mechanisms, while the *policy* both arms follow is shared through the L3 convergence kit. Acquitted, with the reasoning on record.
+
+<Svg svg={roles} wide caption="TODAY's shapes (what the code on master looks like as you read this). The red arrow is the smell that started everything: the registry's slot names the class. The AFTER picture — post-ledger — is at the end of the note, next to the final API." />
+
+Where a real smell *does* live, your nose is right — twice, in fact — and that's the last section's subject.
+
+## The registry is "many sessions, picked by name"
+
+Drishti's product is a *fleet*: N machines at once. So the framework grew `buildHostRegistry`: a map from host name to `{ session, handler }`, plus a dispatcher — when a websocket arrives with `?host=zest`, hand it zest's entry. It also has fleet-keeping verbs: add a host, remove one, `reconnect(host)`, `recheckAll()`.
+
+Notice what this *is*: **"hold a session per host and dispatch by name" — extracted once, as a shared part**, because drishti proved the need. In this codebase's vocabulary that makes it *electricity*: a receptacle in the framework wall, not app code.
+
+## The fork we just hit — and how to judge it
+
+The W4 switch needs kolu-server to hold **several bound padis at once** and pick one per browser tab. Read the last two sections again: that is *literally* what `buildHostRegistry` does. So the plan said "consume it."
+
+The agent then hit a wall, and the wall is worth understanding precisely. The registry's slot is typed with the **class**:
+
+```ts
+// today — the slot names a concrete class:
+interface HostEntry<C> { session: HostSession<C>; handler: WsRpcHandler }
+```
+
+`HostSession` has private fields, and in TypeScript a class with private fields can only be satisfied by *itself*.<Footnote>Normally TypeScript is structural — anything with the right shape fits. Private fields switch a class to effectively *nominal*: only real instances qualify. That's why `BoundPadi`, despite having everything the registry actually uses, cannot compile into that slot.</Footnote> Kolu's `BoundPadi` is a role, not that class — so it doesn't fit, and the tempting exit is: *"fine, I'll hand-roll my own little map in kolu-server."*
+
+Here is the discipline for judging that exit, and it's one question: **is the mismatch about *behavior* or about a *type annotation*?** Check what the registry's code actually *calls* on the slot. Answer (verified): the core calls only `.destroy()`; `reconnect`/`recheck` are used by exactly two fleet-keeping methods kolu never invokes. The behavior fits perfectly — only the annotation doesn't. That's a **type problem**, and the fix for a type problem is to fix the type:
+
+```ts
+// the widen — name the role the registry actually needs:
+interface PoolableSession<C> extends RemoteMirrorSession<C> {
+  destroy(): void;
+  reconnect?(): void;   // fleet-keeping; only reconnect(host) touches it
+  recheck?(): void;     // fleet-keeping; only recheckAll() touches it
+}
+interface HostEntry<C> { session: PoolableSession<C>; handler: WsRpcHandler }
+```
+
+`HostSession` already has all four members, so drishti compiles unchanged — its green CI is the proof the widening broke nobody. `BoundPadi` has the two required ones, so kolu now fits. One receptacle, two consumers.
+
+And the road not taken, named honestly: a bespoke `Map<host, …>` in kolu-server would have been a **second implementation of one volatility** — exactly the duplication the L3 convergence-kit work just spent two PRs deleting elsewhere. The type wall made the clone *tempting*; it never made it *right*.<Footnote>One refinement still open to the review lenses: optional methods that silently don't exist are a mild fallback smell. The stricter shape makes "reconnectable" a declared capability, so calling `reconnect` on a pool of non-reconnectable sessions is a compile error rather than a no-op. Whether that rigor is worth its complexity is a per-review judgment.</Footnote>
+
+**The takeaway rule, beyond this case:** when your thing won't fit a framework slot, first ask what the slot's code actually *does* with it. If the behavior fits and only the annotation refuses — widen the slot to the role. If the behavior genuinely differs — that's when you're allowed to build your own.
+
+## The final API — what you'll write as a framework user
+
+*(Build-time refinements the implementing agent surfaced — four roadblocks resolved in code — live in [surface-hosting-roadblocks](surface-hosting-roadblocks.html); they refine a few specifics below — notably the reserved `system.identity` member is BUNDLED into this PR, so `identity()` is on the base `Session` role (named `SurfaceIdentity`), and `DaemonSession` adds only supervision.)*
+
+**Three consumers move together on this** — kolu, [drishti](https://github.com/srid/drishti), and [odu](https://github.com/juspay/odu) — so it lands as THREE paired PRs, all green before any merges (the paired-PR gate, extended to three). *(The shapes below are the ratified end-state — the three-AI debate record that produced them lives in this branch's git history, `debates/surface-hosting-simplify/` at commit `0fad064e8^`; none of it is needed to use this.)*
+
+<Svg svg={after} wide caption="After the series lands — with the implementations shown. MirrorSession has THREE implementations (HostSession + the two padi arms); DaemonSession has exactly TWO (the padi arms — the only sessions that supervise); BoundPadi is the alias naming their shared type; the remote arm composes a HostSession rather than reimplementing it. No red arrows left." />
+
+### The types you'll touch
+
+```ts
+// ── @kolu/surface-daemon — identity is ONE value, served by EVERY server ──
+interface ServerIdentity {
+  contractVersion: string;
+  startedAt: number;
+  buildId: string;        // convergence currency (the staleKey) — deliberately
+  commit: string | null;  // distinct from the navigable commit; never merged
+}
+
+// ── @kolu/surface-nix-host ──
+interface MirrorSession<Client = SurfaceClientLike> {
+  pin(): Promise<Client>;
+  currentClient(): Promise<Client> | null;
+  isDestroyed(): boolean;
+  onState(cb: (s: SessionState) => void): () => void;
+  markConnected(): void;
+  destroy(): void;
+  /** Universal — every server answers hello (the framework stamps it), so this
+   *  is null only transiently before first contact, never null-forever. */
+  identity(): ServerIdentity | null;
+}
+
+/** The daemon flavor adds supervision — and supervision INCLUDES replacement:
+ *  renew() is the manual trigger of the same machinery convergence() reports on,
+ *  and preservation declares what replacement costs (the fact a user cares about). */
+interface DaemonSession<Client = SurfaceClientLike> extends MirrorSession<Client> {
+  convergence(): DaemonConvergence | null;  // adopted-stale · skew-refused · unconverged · link-failed
+  readonly preservation: PreservationStrategy; // padi: children "survive" · (kaval's vocab: "die")
+  renew(): Promise<void>;                   // replace the daemon per its declared strategy
+}
+
+/** The registry demands exactly what it calls — one method. */
+interface DestroyableSession { destroy(): void }
+interface HostEntry<S extends DestroyableSession, H> { session: S; handler: H }
+
+function buildHostRegistry<S extends DestroyableSession, H>(opts: {
+  initialHosts: readonly string[];
+  buildEntry(host: string): HostEntry<S, H>;
+  persist?: (hosts: string[]) => Promise<void>;
+  /** Supply this and the RETURNED TYPE gains reconnect(host)/recheckAll().
+   *  Omit it and those members don't exist — calling them won't compile. */
+  controls?: { reconnect(s: S): void; recheck(s: S): void };
+}): HostRegistry<S, H>;
+```
+
+```ts
+// ── kolu's whole padi-session vocabulary, after: THERE ISN'T ONE ──
+// BoundPadi is deleted (srid: the alias was redundant — once renew/preservation
+// fold into the `DaemonSession` sub-role, nothing padi-specific remains to name).
+// Call sites write the instantiation directly:
+DaemonSession<PadiSurfaceClient>
+```
+
+### kolu's usage sites
+
+The server pool (W4-PR1) — note there are **no fleet controls**, so `pool.reconnect` doesn't exist and can't be called by accident:
+
+```ts
+const pool = buildHostRegistry<DaemonSession<PadiSurfaceClient>, WsRpcHandler>({
+  initialHosts: [LOCAL_HOST],
+  buildEntry: (host) => {
+    const session: DaemonSession<PadiSurfaceClient> =
+      host === LOCAL_HOST ? ensurePadiBinding({ … }) : bindRemotePadi({ host });
+    const reServed = reServeSurface({ source: padiSurface, policy, session });
+    return { session, handler: reServed.wsHandler };
+  },
+  persist: (hosts) => prefs.patch({ recentHosts: hosts }),
+});
+// websocket upgrade: pool.getHandler(hostOf(req)) — each tab names its host
+```
+
+The dialogs and the restart button — six bespoke readouts become two accessors and one verb:
+
+```ts
+const id = session.identity();          // { startedAt, commit, contractVersion, buildId } | null
+const conv = session.convergence();     // the standing banner state, or null when healthy
+await session.renew();                  // the Restart verb; session.preservation.children === "survive"
+```
+
+The browser (W4-PR2's entire framework delta):
+
+```ts
+<SurfaceAppProvider controlPlane={() => active().clients.surfaceApp} …>
+//                  today's static callers just write: {() => surfaceApp}
+```
+
+### drishti's usage sites
+
+The fleet — **with** controls, so the fleet verbs exist, typed:
+
+```ts
+const fleet = buildHostRegistry<HostSession<AgentContract>, WsRpcHandler>({
+  initialHosts: cfg.hosts,
+  buildEntry: (host) => {
+    const session = makeSession({ connectOnce: sshConnector<AgentContract>({ host, binary: "drishti-agent" }) });
+    return { session, handler: agentHandler(session) };
+  },
+  controls: { reconnect: (s) => s.reconnect(), recheck: (s) => s.recheck() },
+});
+fleet.reconnect("zest");   // exists BECAUSE controls were declared
+fleet.recheckAll();
+```
+
+The fleet rows — identity for free on every agent (they auto-serve hello now; drishti writes nothing):
+
+```ts
+const id = fleet.getSession(host)?.identity();
+row.uptime = id && Date.now() - id.startedAt;
+row.build  = id?.commit ?? id?.buildId.slice(0, 8);
+```
+
+### The two arms, precisely (they differ ONLY below the waterline)
+
+| | `LocalPadiSession` *(today: `PadiBindingSession` — renamed for symmetry; the name should say the one thing that differs)* | `RemotePadiSession` |
+|---|---|---|
+| gets the pipe | unix socket to a padi it adopt-or-spawns via the local endpoint | wraps a `HostSession` (Nix-provisions padi, fronts it over ssh) |
+| keeps the pipe | its own reconnect loop (bridges the one-shot endpoint onto the mirror contract — the L6-audited, transport-dictated exception) | delegates to `HostSession`'s ssh reconnect |
+| knows a drain "took" | waits on the unix socket CLOSE (authoritative kernel signal) | polls `hello` under the instance-keyed fence (ssh has no close signal) |
+| extras | the legacy-kaval adoption hint · spawn-flag forwarding | the drv map · the ssh-user caveat |
+
+Everything above that line is shared and identical: one convergence policy (both feed the kit's `decide()`), one verb set, one identity readout, the same surfaced degraded states. Two transports, one behavior — both simply `DaemonSession<PadiSurfaceClient>`; no alias needed (deleted per srid).
+
+### What a user never sees anymore
+
+`RemoteMirrorSession` (→ `Session` — reconnecting is universal, so the qualifier was noise; opposed to a *dial*) · `DaemonMirrorSession` (→ `DaemonSession` — "Mirror" named the consumer) · `HostSession` **and** `SshHostSession` (both DELETED — post-S9 "a session over ssh" is no type or class, just `makeSession({ connectOnce: sshConnector(…) })`; the connector is the primitive, the composition inlined — the `BoundPadi` rule again) · `BoundPadi` (deleted — after renew/preservation joined `DaemonSession`, nothing padi-specific remained to name) · `PadiBindingSession`/`RemotePadiSession` as classes (gone — one `makeSession` loop + `endpointConnector`/`sshConnector` plugs + one `admit` hook; the two arms are two calls to `padiSession(connector)`, daemon members added by object spread — no wrapper classes, no forwarding boilerplate) · the role's dead `<C>` generic · `PoolableSession` (never shipped) · the six bespoke identity readouts (→ one `identity()`) · `drainBoundPadi` (→ `renew()`, survival in the type) · `evictHostSession` (zero production callers; deleted). **`getHostSession` and its module-global session pool are DELETED (S10).** The pool duplicated what every consumer already keeps in its own structure (kolu's registry, odu's lane set, drishti's fleet), collided with `buildHostRegistry`'s own map (the source of the "destroyed-instance" dance), and was a shared mutable place with no single owner. Consumers now compose directly — `makeSession({ connectOnce: sshConnector(opts) })` — and own the session they get, tearing down their own on shutdown. So `evictHostSession` and `destroyAllSessions` go too (odu loops its own lane sessions). `HostSessionState`→`SessionState` still moves in odu's PR.

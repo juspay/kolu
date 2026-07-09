@@ -9,18 +9,19 @@ import { startHeapDiagnostics } from "@kolu/heap-diag";
 // publisher size (a diagnostic); it no longer runs the terminal domain.
 import {
   discoverPadiDaemons,
-  padiKavalSocketPath,
-  padiSocketPath,
   previewFile,
+  probeKavalStatus,
   publisherSize,
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
-import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import {
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
   padiSurface,
 } from "@kolu/padi/surface";
+import type { ServeResult } from "@kolu/serve-dir";
+import { directLink } from "@kolu/surface/links/direct";
+import { surfaceClientRef } from "@kolu/surface/project";
 import {
   gateHttpRpcOrigin,
   gateWsOrigin,
@@ -31,20 +32,34 @@ import {
   installFreshStatic,
   installPwaManifest,
 } from "@kolu/surface-app/server";
-import { reServeSurface } from "@kolu/surface-nix-host";
+import {
+  buildRemotePool,
+  type ReServedSurface,
+  reServeSurface,
+  serveHostMap,
+} from "@kolu/surface-remote";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
+import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import { DEFAULT_PORT } from "kolu-common/config";
+import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
+import {
+  type HostKey,
+  HostKeySchema,
+  LOCAL_HOST,
+  padiHostMap,
+} from "kolu-common/surfacesWithPadi";
 import { type WebSocket, WebSocketServer } from "ws";
+import { startDaemonInventorySampler } from "./daemonInventory.ts";
 import {
   serverHostname,
   serverProcessId,
@@ -52,24 +67,29 @@ import {
   serverVersion,
 } from "./hostname.ts";
 import {
+  assembleRemotePreview,
   previewTailFromRawUrl,
   rawTargetFromContext,
-  remotePreviewBlock,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import {
-  probeKavalStatus,
-  startDaemonInventorySampler,
-} from "./daemonInventory.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { type BoundPadi, ensurePadiBinding } from "./padiBinding.ts";
-import {
-  ensureRemotePadiBinding,
-  remotePadiHost,
-} from "./remotePadiBinding.ts";
+import { ensurePadiBinding, handlePadiBootFailure } from "./padiBinding.ts";
 import { mapConnectionToPadiLink } from "./padiLink.ts";
+import type { PadiSession } from "./padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import {
+  assertRemovableHost,
+  ensureRemotePadiBinding,
+  isMultiHost,
+  parseKoluPadiHostSeed,
+} from "./remotePadiBinding.ts";
+import { pruneToMembers } from "./reServeEviction.ts";
+import { installRouteErrorLogging } from "./routeErrors.ts";
 import { buildAppRouter } from "./router.ts";
+import {
+  claimLocalSupervisor,
+  supervisorConflictError,
+} from "./supervisorClaim.ts";
 import { koluSurfaceCtx, koluSurfaceRouter } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
@@ -138,6 +158,12 @@ if (argv.flags.verbose) {
 
 const app = new Hono();
 
+// Catch-all error logger: an uncaught route/middleware fault (e.g. the artifact-sdk
+// HTML decorator draining a remote-preview stream that faults mid-chunk, past the
+// preview route's own 503 `try`) is LOGGED, not answered as Hono's default,
+// unlogged 500. See `routeErrors.ts`.
+installRouteErrorLogging(app, log);
+
 // --- HTTP request logging (debug level to avoid noise in normal operation) ---
 app.use(
   pinoLogger({
@@ -153,6 +179,13 @@ app.use(
   }),
 );
 
+// The local-supervisor gate's release (set once the gate is claimed at boot,
+// below). Released on a clean shutdown so a same-lineage restart re-claims
+// immediately rather than reaping a stale (still-correct-but-tidier) gate. `null`
+// until the claim lands; a crash skips it and the next boot's liveness reap
+// handles the stale pid.
+let releaseLocalSupervisor: (() => void) | null = null;
+
 // --- Graceful shutdown ---
 // Signals map to a clean exit; the fatal handlers make a floating promise or a
 // sync throw as terminal as each other (the supervisor restarts clean). There is
@@ -162,6 +195,7 @@ app.use(
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(sig, () => {
     log.info({ signal: sig }, "shutting down");
+    releaseLocalSupervisor?.();
     process.exit(0);
   });
 }
@@ -212,95 +246,257 @@ const rpcPlugins = [
 // `padi` key beside kolu-server's own `kolu`+`surfaceApp` fragment, so the browser
 // reaches padi's members at `/surface/padi/*`.
 //
-// Awaited BEFORE the HTTP server listens (as `ensureLocalEndpoint` was) so no RPC
-// races an unready binding; a boot failure reports the down state through the
-// re-serve's `connection` cell rather than crashing (fail-open).
+// NEVER awaited before the HTTP server listens — for EITHER arm. A slow/failed padi
+// (a stale gate, a wedged spawn, a genuinely down host) must not hold `serve()` back;
+// a boot failure reports the down state through the re-serve's `connection` cell
+// rather than crashing OR blocking (fail-open). See the LOCAL-arm pin below for the
+// W4 fix that extended this from remote-only to both arms.
 // ─────────────────────────────────────────────────────────────────────────────
-// The host-selection knob (W3.1): `KOLU_PADI_HOST=<ssh host>` binds a REMOTE padi
-// over ssh — the whole canvas becomes that host — while UNSET keeps today's LOCAL
-// binding byte-identical. OFF by default, no UI (the picker + per-view bindings are
-// W3.2). Both arms return a `BoundPadi`, so `reServeSurface` and the router below
-// are identical; only the session's front (local Endpoint vs ssh HostSession)
-// differs. The remote arm does NOT await first-connect — provisioning a closure
-// over ssh can take seconds, and the binding is fail-open (the connection cell
-// reports copying/connecting/degraded while it warms).
-const remoteHost = remotePadiHost();
-const padiSession: BoundPadi = remoteHost
-  ? ensureRemotePadiBinding({
-      host: remoteHost,
-      // Forward THIS kolu build's app version so the remote-spawned PTYs' own
-      // `TERM_PROGRAM_VERSION` is the kolu app version (byte-identical to the local
-      // arm's `--spawn-version`), not the remote padi's own commit. Rides through
-      // `padi --stdio`'s re-exec to the durable daemon.
-      spawnVersion: serverVersion,
-    })
-  : await ensurePadiBinding({
-      // The nix-shell env whitelist rides padi's CLI flag (kolu-server no longer
-      // spawns PTYs — padi's kaval does — so `configureNixShellEnv` is FORWARDED to
-      // padi, not called here).
-      nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
-      // The W2.2 upgrade bridge: hand padi THIS binder's OWN listen-port legacy
-      // kaval socket, so a first W2.2 boot ADOPTS a running pre-W2.2 kaval
-      // (`kaval-<port>/`) instead of spawning a fresh digest kaval and leaking it.
-      // The binder is the ONLY hinter — and only of its OWN port — so a dev instance
-      // at another port is never adopted; padi ignores the hint once its digest
-      // kaval is live, so it converges.
-      legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
-      // Forward the kolu app version so spawned PTYs' `TERM_PROGRAM_VERSION` stays
-      // the kolu app version (byte-identical to the pre-cutover in-process spawn),
-      // not padi's own commit hash. padi stamps this via its `--spawn-version` flag.
-      spawnVersion: serverVersion,
-      // Forward `--verbose` to padi's process (as `LOG_LEVEL=debug`) so its OWN pino
-      // domain logger emits debug — the split-process twin of the pre-cutover
-      // `padiLog.level = "debug"`.
-      verbose: argv.flags.verbose,
-    });
+// The KOLU_PADI_HOST seed — the pool's host set. LOCAL_HOST is the implicit,
+// UNREMOVABLE default (always `seed[0]`); the env may append remote hosts. ALWAYS-MAP:
+// env-unset = a 1-member pool = pixel-identical to today's single local padi.
+const seed = parseKoluPadiHostSeed();
+// LOCAL_HOST — the unremovable default the canvas boots on (always `seed[0]`; the `??`
+// only satisfies the indexed-access optional — the parser always prepends it).
+const defaultHost = seed[0] ?? LOCAL_HOST;
 
-// Pin the contract type param explicitly: `padiSession` is a `BoundPadi` (the
-// local `PadiBindingSession` or the remote `RemotePadiSession`, both implementing
-// `RemoteMirrorSession<padi contract>`), and the pump's `session:
-// RemoteMirrorSession<C>` param can't reverse-infer `C` from that value (it hides
-// inside the mapped `AgentClient<C>`). Naming the contract here plugs `padiSession`
-// in checked — the old `as unknown as HostSession<…>` double-cast is gone.
-const reServedPadi = reServeSurface<
-  typeof padiSurface.spec,
-  typeof padiSurface.contract
->({
-  source: padiSurface, // the BASE surface; reServeSurface adds `connection` internally.
-  policy: PADI_FORWARDING_POLICY, // per-member value|delta forwarding.
-  session: padiSession,
-  log: (line) => log.debug({ line }, "padi re-serve"),
+// ── P0: the local-supervisor ownership gate ────────────────────────────────────
+// kolu-server SUPERVISES the local padi (spawns / adopts / drains it). A SECOND
+// kolu-server pointed at the SAME state root would co-supervise the one padi and
+// the two would drain-and-respawn it in a livelock (the two-local-kolu war). Claim
+// a `supervisor.pid` gate BEFORE building the pool (so a foreign owner fails fast
+// before we touch padi at all); a LIVE foreign holder is structurally unresolvable
+// (retrying can't make it go away), so — exactly like a `PadiAdoptionRefusedError`
+// — exit loud with the remedy rather than fight. A same-lineage restart (dead
+// predecessor pid) reaps the stale gate and claims `self`, so it still drains. The
+// REMOTE arm's twin is `remotePadiBinding.ts`'s anti-livelock fight-detection →
+// `cross-supervisor` cause (D3), with `KOLU_REMOTE_PADI_STATE_DIR` the isolation lever.
+const localSupervisorStateRoot = resolvePadiStateRoot();
+const supervisorClaim = claimLocalSupervisor(localSupervisorStateRoot);
+if (supervisorClaim.kind !== "self") {
+  const err = supervisorConflictError(
+    supervisorClaim,
+    localSupervisorStateRoot,
+  );
+  log.fatal({ err }, err.message);
+  process.exit(1);
+}
+releaseLocalSupervisor = supervisorClaim.release;
+
+// The warm padi pool — one session per seed host. `buildRemotePool`'s host set is ALWAYS
+// a plain string (the ssh pool's own key), so the seed's `HostKey` objects are ENCODED
+// going in; `buildEntry` DECODES back to pick the local/remote arm and, for a remote,
+// pass its bare ssh target (never the "remote:"-prefixed wire form) to `sshConnector`.
+// `buildEntry` is SYNC (`makeSession` defers the dial into its own reconnect loop), so an
+// unreachable seed host surfaces as a `failed` entry, never a boot throw. BOTH the
+// default (local) arm and remote arms are fail-open (a local spawn+connect, or ssh
+// provisioning, both take real time — the connection cell reports copying/connecting
+// meanwhile, exactly the same shape for either). The `?host=` handler is unused (the
+// map forwards by key-in-input, not a per-host socket), so `H = undefined`.
+const pool = buildRemotePool<PadiSession, undefined>({
+  initialHosts: seed.map(encodeHostKey),
+  buildEntry: (h) => {
+    const key = decodeHostKey(h);
+    return {
+      session:
+        key.kind === "local"
+          ? ensurePadiBinding({
+              nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
+              legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
+              spawnVersion: serverVersion,
+              verbose: argv.flags.verbose,
+              // A genuine adoption refusal is fatal on ANY dial, not just the boot
+              // pin's first one below — a reconnect's own fire-and-forget loop would
+              // otherwise swallow a LATER refusal silently (see the option's doc in
+              // padiBinding.ts). Wired to the SAME handler the boot pin's catch uses,
+              // so a first-dial and a later-dial refusal fail identically.
+              onAdoptionRefused: (err) =>
+                handlePadiBootFailure(err, { log, exit: process.exit }),
+            })
+          : ensureRemotePadiBinding({
+              host: key.target,
+              spawnVersion: serverVersion,
+            }),
+      handler: undefined,
+    };
+  },
 });
 
-// `done` must never float (#1661 candidate 9): it settles on a clean session
-// destroy, or REJECTS on a terminal mirror fault (a SinkError / client mismatch)
-// that STOPS the pump — after which the internal `connection` cell is frozen at a
-// stale-but-healthy value. Fail LOUD (fail-fast per the design philosophy); the
-// supervisor restarts kolu-server clean.
-reServedPadi.done
-  .then(() => log.info({}, "padi re-serve pump exited (session destroyed)"))
-  .catch((err) => {
-    log.fatal({ err }, "padi re-serve pump died — binding is unrecoverable");
-    process.exit(1);
-  });
+// W4: pin the LOCAL padi arm WITHOUT awaiting it — extends the REMOTE arm's
+// fail-open stance to local too, so a slow/wedged local padi (e.g. the #1713-class
+// XDG_RUNTIME_DIR socket-path mismatch this fix half addresses, or any other spawn
+// stall) can no longer hold the HTTP server's `serve()` back for its ~30s connect
+// timeout. `makeSession` warms on the first `pin()`; this call (like the REMOTE
+// arm's, and `reServeSurface`'s own pump below — `pin()` is idempotent, ref-counted)
+// merely KICKS OFF that warm-up. A request racing the warm-up window sees the SAME
+// thing a remote host's guest already shows meanwhile: the map/`padiLink` cell
+// reports `connecting`/`disconnected` (never a lying `copying` — the local arm is a
+// non-provisioning session, `serveHostMap`'s belt in juspay/kolu#1716), and a
+// procedure call in that window fails loudly rather than silently (reServeSurface's
+// documented "a call while the link is down throws"; the client already retries via
+// its warming-chip UX, exactly as it does for a remote host). Fail-OPEN: a boot
+// failure surfaces on the connection cell and the loop retries, so don't crash boot.
+//
+// ONE exception, handled by `handlePadiBootFailure`: a `PadiAdoptionRefusedError` is
+// structurally UNRESOLVABLE (a resident padi owns this state root at a contract skew
+// #1313 forbids touching) — retrying forever would just be a silent spinner behind
+// the fail-open UI, which the boot acceptance bar forbids, so THAT one case exits
+// loudly instead, naming the conflict + the remedy the error already composed.
+pool
+  .getSession(encodeHostKey(LOCAL_HOST))
+  ?.pin()
+  .catch((err: unknown) =>
+    handlePadiBootFailure(err, { log, exit: process.exit }),
+  );
 
-// Splice the re-serve's INNER surface object under the `padi` key beside
-// kolu-server's own siblings. The re-serve router is a top-level single-surface
-// router (`{ surface: { <padi members>, connection } }`), so nesting its `.surface`
-// under `padi` yields `/surface/padi/<member>` with no `surface/surface` double
-// prefix (proved empirically by the padiBinding integration test).
+// The default (local) session — kolu-server's OWN binding. The samplers (memory,
+// daemon-inventory, uptime) and the `padiLink` `onState` below are kolu-server's own
+// host-INDEPENDENT facts, so they bind to THIS unremovable default; the per-host padi
+// facts (urgency, terminals, daemonStatus) ride the map's `entries`/members instead.
+// `defaultHost` was just seeded into the pool above, so this lookup can't miss — but PROVE it
+// (a named throw, not a bare `!`), so a future seed/pool refactor that broke the invariant fails
+// fast with a clear error instead of a silent non-null narrowing. The IIFE keeps `padiSession`
+// typed non-nullable so the closures below (samplers, `onState`) don't re-widen it to `undefined`.
+const padiSession = ((): PadiSession => {
+  const s = pool.getSession(encodeHostKey(defaultHost));
+  if (s === undefined)
+    throw new Error(
+      `boot invariant violated: default host "${encodeHostKey(defaultHost)}" was seeded but has no pool session`,
+    );
+  return s;
+})();
+
+// `padiSession` is a `PadiSession` (a `DaemonSession<PadiSurfaceClient>`, from the
+// local or remote arm's `makeSession` + spread); it plugs into `reServeSurface`'s loose
+// `Session` receptacle checked (S3 dropped the dead contract `<C>` at the role
+// boundary, so only the SURFACE spec is named here).
+// Re-serve one host's padi surface on demand, CACHED per host — keyed by the CANONICAL
+// STRING (`encodeHostKey`), never the `HostKey` object itself (a `Map`/`===` compares an
+// object by reference, so two logically-equal `HostKey`s would never collide). `.done`
+// enacts the #1708 pump-fault pins: the DEFAULT (local) host's pump death is FATAL
+// (fail-fast — the supervisor restarts kolu-server clean); a GUEST host's death RETIRES
+// just that host (`pool.remove` ends its map subs typed; the client's `hostReconcile`
+// effect then switches `activeHost` off the departed host to the local default, so the
+// canvas falls back with a toast rather than stranding the tab on a dead host). The map
+// forwards each host's calls to `directLink(reServeFor(h, s).router)`.
+const reServes = new Map<string, ReServedSurface<typeof padiSurface.spec>>();
+const reServeFor = (
+  h: HostKey,
+  s: PadiSession,
+): ReServedSurface<typeof padiSurface.spec> => {
+  const enc = encodeHostKey(h);
+  let r = reServes.get(enc);
+  if (r === undefined) {
+    r = reServeSurface<typeof padiSurface.spec>({
+      source: padiSurface, // the BASE surface; reServeSurface adds `connection` internally.
+      policy: PADI_FORWARDING_POLICY, // per-member value|delta forwarding.
+      session: s,
+      log: (line) => log.debug({ line, host: enc }, "padi re-serve"),
+    });
+    reServes.set(enc, r);
+    r.done
+      .then(() =>
+        log.info(
+          { host: enc },
+          "padi re-serve pump exited (session destroyed)",
+        ),
+      )
+      .catch((err) => {
+        if (enc === encodeHostKey(defaultHost)) {
+          log.fatal(
+            { err, host: enc },
+            "default padi re-serve pump died — binding is unrecoverable",
+          );
+          process.exit(1);
+        }
+        log.error(
+          { err, host: enc },
+          "guest padi re-serve pump died — retiring the host",
+        );
+        void pool.remove(enc);
+      });
+  }
+  return r;
+};
+
+// Evict a re-served mirror when its host leaves the pool (see `pruneToMembers` for the full
+// stale-reserve-on-flap rationale): a guest remove→re-add of the SAME key must build a FRESH
+// mirror, never the dead one still pinned to the destroyed session. `pool.subscribe` fires
+// only after `has()` reflects the drop, so the slot is gone before any re-add can re-request
+// it; the unremovable LOCAL host never leaves, so its eager mirror stays.
+pool.subscribe(() => pruneToMembers(reServes, (h) => pool.has(h)));
+
+// Eagerly re-serve the LOCAL (default) host so the memory sampler has its in-process
+// client — a `directLink` over the mirror's own router, no socket/ssh hop. It reads
+// padi's `{ padi, kaval }` off the value the re-serve already folds into its per-binding
+// store, instead of opening a second transport to padi.
+// `padiSession` (above) already holds the resolved LOCAL/default session — reuse it rather
+// than re-looking it up + re-asserting non-null (defaultHost === LOCAL_HOST by construction).
+const localReServe = reServeFor(LOCAL_HOST, padiSession);
+const reServedPadiClient = surfaceClientRef(
+  localReServe.surface,
+  localReServe.router as Parameters<typeof surfaceClientRef>[1],
+);
+
+// Serve the padi MAP over the warm pool — the key-folded members + the `entries`
+// membership collection, keyed by host. env-unset = a 1-member map = pixel-identical.
+// The local arm is a non-provisioning `makeSession<_, never>` (padiBinding), typed
+// without "copying"; `serveHostMap`'s belt (juspay/kolu#1716) checks that off each
+// session's own `provisions` fact now, so there is no app-nominated "local key" to pass.
+const padiMap = serveHostMap(padiHostMap, pool, {
+  // biome-ignore lint/suspicious/noExplicitAny: ReServedSurface.router is opaque (`unknown`); directLink forwards it structurally, exactly as the memory sampler's `surfaceClientRef` does above.
+  linkFor: (h, s) => directLink(reServeFor(h, s).router as any),
+  // D1 + D2: the DOMAIN cause (+ D2's typed running/expected pair on
+  // contract-skew-refused) — padi's own knowledge (`session.entryFailedDetail()`,
+  // derived from `convergence()`/the drv-resolution fault, both arm-local), never
+  // guessed generically by `serveHostMap` (a transport-only adapter). Falls through
+  // to `@kolu/surface-map`'s own `"other"` fallback when the session is down for a
+  // reason padi hasn't classified.
+  causeFor: (_host, session) =>
+    session.entryFailedDetail() ?? { cause: "other" },
+});
+
+// Publish the multi-host gate as a cell — the client reads THIS to render the selector
+// strip (env-unset → false → zero multi-host UI). The client NEVER reads env directly.
+koluSurfaceCtx.cells.hostMapGate.set({ enabled: isMultiHost() });
+
+// Splice the map's INNER surface object under the `padi` key beside kolu-server's own
+// siblings. `serveHostMap` returns a top-level single-surface router
+// (`{ surface: { <folded members>, entries } }`), so nesting its `.surface` under `padi`
+// yields `/surface/padi/<folded-member>` + `/surface/padi/entries`, no double prefix.
 const surfaceRouter = {
   surface: {
     ...koluSurfaceRouter.surface,
-    padi: (reServedPadi.router as { surface: Record<string, unknown> }).surface,
+    padi: (padiMap.router as { surface: Record<string, unknown> }).surface,
   },
 };
 
 const appRouter = buildAppRouter({
   surfaceRouter,
-  // The re-targeted "restart": drain the bound padi (persist + exit; kaval + its
+  // The re-targeted "restart": drain the DEFAULT bound padi (persist + exit; kaval + its
   // PTYs survive; the reconnect loop re-spawns padi). Never a kill-9.
-  drainBoundPadi: () => padiSession.drainBoundPadi(),
+  drainBoundPadi: () => padiSession.renew(),
+  // Runtime pool membership (the selector strip's add/remove). `pool.add` uses the
+  // pool's stored `buildEntry` — a guest host takes the remote ssh arm. `remove` fails
+  // LOUD for the unremovable default (LOCAL_HOST / the boot default): the canvas must
+  // always keep a host to fall back to, and "being able to override" is never a feature.
+  addHost: (host) => pool.add(encodeHostKey(host)),
+  removeHost: async (host) => {
+    assertRemovableHost(host, defaultHost);
+    await pool.remove(encodeHostKey(host));
+  },
+  // The host-down card's [Reconnect]: force the held session to RE-DIAL now via
+  // `recheck()` (force-cycle the held connection through the reconnect loop). A
+  // STANDING refuse (cross-supervisor / contract-skew / unconverged) holds degraded
+  // WITHOUT auto-reconnecting, so once the operator clears the cause this is the only
+  // recovery path short of remove+re-add. An unknown host is a loud throw (the strip
+  // surfaces it as a rejected call), never a silent no-op.
+  reconnectHost: (host) => {
+    const s = pool.getSession(encodeHostKey(host));
+    if (s === undefined)
+      throw new Error(`cannot reconnect unknown host "${encodeHostKey(host)}"`);
+    s.recheck();
+  },
 });
 
 // --- oRPC handlers (HTTP non-streaming + WS streaming) ---
@@ -346,7 +542,7 @@ app.get("/api/health", (c) => c.text("kolu"));
 // Self-contained — registers the SDK bundle route and a middleware that
 // splices the SDK <script> into text/html responses on the iframe-preview
 // route. The byte-streaming `iframePreviewRoute` below stays untouched.
-const PREVIEW_ROUTE_PATTERN = `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
+const PREVIEW_ROUTE_PATTERN = `${TERMINAL_FILE_ROUTE_BASE}/:host/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
 mountArtifactSdk(app, {
   sdkScriptPath: "/api/artifact-sdk.js",
   htmlRoutePrefix: PREVIEW_ROUTE_PATTERN,
@@ -359,18 +555,23 @@ mountArtifactSdk(app, {
 // shadow this route with `serveStatic`'s `/*` matcher.
 app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const terminalId = c.req.param("terminalId");
-  // Remote binding (KOLU_PADI_HOST): the terminal registry lives on the ssh HOST, so
-  // `repoRootForTerminal` below answers with an absolute path in the REMOTE
-  // filesystem. `previewFile` further down reads THIS machine's LOCAL disk, so handing
-  // it a remote path would serve unrelated local bytes from the same absolute path (or
-  // 404) — a wrong-data path that violates the remote-host contract. There is no remote
-  // preview STREAM yet (that rides a later slice with the picker), so fail CLOSED with a
-  // loud 501 rather than read the wrong machine's disk — fail-fast per conventions.md,
-  // never a silent local read of a remote path.
-  const remoteBlock = remotePreviewBlock(remoteHost);
-  if (remoteBlock) {
-    return c.text(remoteBlock.body, remoteBlock.status);
+  // The preview reads a per-HOST terminal's bytes, so the tab's active host rides
+  // in the URL (`buildTerminalFileUrl`, as `encodeHostKey`'s canonical string) and we
+  // resolve against THAT host's padi — not the local default. Without this, switching
+  // to a remote host would ask the LOCAL padi about a remote terminal id (a 404, or
+  // the wrong bytes on an id collision). Decode + re-validate the key through the
+  // SAME codec + schema the map is keyed by (rejects a malformed segment → 400), then
+  // find its warm session; a key that isn't a current pool member (an unseeded or
+  // departed host) is a loud 404, never a silent fall-through to the default host.
+  const rawHostParam = c.req.param("host");
+  let host: HostKey;
+  try {
+    host = HostKeySchema.parse(decodeHostKey(rawHostParam));
+  } catch {
+    return c.text("invalid host key", 400);
   }
+  const session = pool.getSession(encodeHostKey(host));
+  if (!session) return c.text(`unknown host "${encodeHostKey(host)}"`, 404);
   // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
   // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
   // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
@@ -389,20 +590,25 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const rawTarget = rawTargetFromContext(c);
   if (rawTarget === undefined)
     return c.text("raw request target unavailable", 500);
-  const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
+  const rawTail = previewTailFromRawUrl(rawTarget, rawHostParam, terminalId);
 
   // Which directory this terminal serves (its git repo root) — RE-SOURCED from
-  // padi's registry over the bound session, since padi (not kolu-server) owns the
-  // terminal registry now. padi resolves terminal id → repoRoot; kolu-server then
-  // STREAMS the file itself via the shared `previewFile` (bounded heap, forwarding
-  // the browser's `Range` so a `<video>` seek answers 206), exactly as the retired
-  // in-process route did — so a multi-GB video is never forced whole through a
-  // base64 procedure.
-  const clientPromise = padiSession.currentClient();
+  // padi's registry over the SELECTED host's session, since padi (not kolu-server)
+  // owns the terminal registry now. padi resolves terminal id → repoRoot; how
+  // kolu-server then reads the bytes forks on the host (local disk vs. the remote
+  // host), see below. Either way the file is never forced whole through the base64
+  // procedure.
+  const clientPromise = session.currentClient();
+  // A degraded/warming binding (skew · unconverged · linkFailed · not-yet-connected)
+  // yields a NULL `currentClient()` (`remotePadiBinding.ts` currentClient) — a loud
+  // 503 here, never a hang. Both the client AWAIT and the repoRoot resolve stay INSIDE
+  // the try so a client-promise rejection (a fresh spawn that fails its handshake) maps
+  // to the same 503 link-fault, not an uncaught 500.
   if (!clientPromise) return c.text("padi is not connected", 503);
+  let client: Awaited<typeof clientPromise>;
   let repoRoot: string | null;
   try {
-    const client = await clientPromise;
+    client = await clientPromise;
     ({ repoRoot } = await client.surface.preview.repoRootForTerminal({
       terminalId,
     }));
@@ -410,24 +616,64 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
     // padi's `repoRootForTerminal` returns `{ repoRoot: null }` for an
     // unknown/unmapped terminal — it never THROWS for the no-repo case (that is
     // the `if (!repoRoot)` 404 below). So a thrown error here is an OPERATIONAL
-    // failure of the bound link (padi went down mid-read, a protocol error, an
-    // unexpected handler fault), NOT "no repo". Surface it as a 503 so the real
-    // fault is visible instead of masqueraded as an ordinary missing-file 404.
+    // failure of the bound link (the client promise rejected, padi went down
+    // mid-read, a protocol error, an unexpected handler fault), NOT "no repo".
+    // Surface it as a 503 so the real fault is visible instead of masqueraded as an
+    // ordinary missing-file 404.
     log.error({ err, terminalId }, "padi repoRoot resolve failed (link fault)");
     return c.text("padi link fault resolving terminal repo", 503);
   }
   if (!repoRoot) return c.text("terminal has no repo", 404);
+  // Bind to a const so the non-null narrowing survives into the remote closure.
+  const repoPath = repoRoot;
 
-  // The SAME serve-dir read + realpath guard `padiSurface.preview.read` serves,
-  // but the STREAMING form: a `ReadableStream` body on 2xx (disk→socket, bounded
-  // heap), the browser's `Range` forwarded (206 on a `<video>` seek), and the
-  // symlink-escape 403 re-enforced before any byte is read. The artifact-sdk HTML
-  // decorator (mounted above) rewrites text/html downstream.
-  const r = await previewFile({
-    repoPath: repoRoot,
-    filePath: rawTail,
-    range: c.req.header("range"),
-  });
+  const range = c.req.header("range");
+  // `If-Range` guards a `<video>` seek against the file changing mid-session: both
+  // arms honor the `Range` only while this validator still matches the file's
+  // current ETag (RFC 9110 §13.1.3), else serve the full 200.
+  const ifRange = c.req.header("if-range");
+  // The byte read forks on the SELECTED host — but the file tail + repoRoot (and
+  // their `..`/`%2f` defenses above) are identical for both arms, so a remote path
+  // never reaches a local read, and vice versa.
+  //   - REMOTE host: the file lives on the ssh HOST, so dial that host's padi
+  //     `preview.read` in bounded chunks (`assembleRemotePreview`) — the RIGHT
+  //     host's bytes, streamed back with an O(chunk) heap on both hops. padi
+  //     re-enforces its realpath/403 guard host-side inside the read.
+  //   - LOCAL default (`host.kind === "local"`): read THIS machine's disk directly via
+  //     the shared streaming `previewFile` (the same underlying serve-dir read padi
+  //     serves) — no hop, no base64 round trip, byte-identical to before.
+  // Both return serve-dir's `ServeResult` shape; the artifact-sdk HTML decorator
+  // (mounted above) rewrites text/html downstream in either case.
+  let r: ServeResult;
+  if (host.kind !== "local") {
+    // The remote arm's METADATA dials (the 1-byte probe + any re-dial) run
+    // synchronously inside this await; a link fault there maps to the SAME logged
+    // 503 as the repoRoot resolve above. The streaming body's per-chunk dials run
+    // LATER, when the Response is consumed, so a fault there can't reach THIS catch —
+    // but it is NOT swallowed: for a binary preview the stream goes straight to the
+    // socket and the fault resets the connection (loud at the transport); for a
+    // `text/html` preview the artifact-sdk decorator buffers the body via
+    // `res.text()`, so the fault throws in that middleware and is caught by the
+    // app-wide `installRouteErrorLogging` handler (a LOGGED 500). Either way loud,
+    // never a silent short body.
+    try {
+      r = await assembleRemotePreview(
+        (chunkRange) =>
+          client.surface.preview.read({
+            repoPath,
+            filePath: rawTail,
+            range: chunkRange,
+          }),
+        range,
+        ifRange,
+      );
+    } catch (err) {
+      log.error({ err, terminalId }, "padi preview read failed (link fault)");
+      return c.text("padi link fault serving preview", 503);
+    }
+  } else {
+    r = await previewFile({ repoPath, filePath: rawTail, range, ifRange });
+  }
   return new Response(r.body as BodyInit, {
     status: r.status,
     headers: r.headers,
@@ -491,23 +737,34 @@ const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
   kaval: { status: "error" },
 };
 
-// Read padi's `{ padi, kaval }` memory pair off the bound session — a one-shot
-// read of padi's `processMemory` cell (a snapshot-first subscription; take the
-// first frame — padi's last published value — and stop). Returns `null` ONLY when
-// padi is down (no live client), so the fold reports padi + kaval as the honest
-// `absent`, never a fake zero; a read that FAILS through a live client returns the
-// `error` reading instead (never `null`), so a real anomaly stays distinct from
-// `absent`. kaval runs inside the padi process now, so padi (not kolu-server) is the
-// source of that pair; the sampler folds it in below.
+// Read padi's `{ padi, kaval }` memory pair off the RE-SERVE MIRROR — a one-shot
+// read of the mirror's own `processMemory` cell (a snapshot-first subscription; take
+// the first frame — the value the re-serve already folded into its per-binding store
+// — and stop). This is the SAME reading the browser sees on `/surface/padi/*`, so
+// the rail consumes the source of truth once folded rather than re-dialing padi on a
+// second transport. Returns `null` when padi is DOWN (no live client), so a down padi
+// folds to the honest `absent` — the liveness GATE decides down-ness, NOT the mirror
+// store, which deliberately HOLDS its last value across an upstream drop (reading the
+// store alone would report a dead process's stale-but-live figure). The one window the
+// gate does not cover is a fresh REBIND: `currentClient()` flips live the instant padi
+// reconnects, a beat before the mirror re-folds, so a resample in that beat can briefly
+// surface the last-known reading until the next fold/tick overwrites it — bounded to one
+// fold cycle and self-correcting on the coarse rail (a named, accepted residual; Ledger
+// L14). A read that FAILS through a live mirror returns the `error` reading instead
+// (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside the
+// padi process now, so padi (not kolu-server) is the source of that pair; the sampler
+// folds it in below.
 async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
-  const clientPromise = padiSession.currentClient();
-  if (!clientPromise) return null;
+  // The bound padi's liveness is the gate — no live client → honest `absent` (the gate,
+  // not the held store, decides down-ness). M2 (a standing skew nulls the client) and
+  // the onState flip-to-absent both ride this exactly as the old bound-session read did;
+  // a fresh rebind has a bounded stale-read window until the mirror re-folds (see above).
+  if (!padiSession.currentClient()) return null;
   const ctl = new AbortController();
   try {
-    // `currentClient()` already returns the typed `PadiSurfaceClient`, so the cell
-    // verb is reachable checked — no structural retype needed.
-    const client = await clientPromise;
-    const iterable = await client.surface.processMemory.get(
+    // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so
+    // this reads the folded store with no socket/ssh hop and the same cell verb.
+    const iterable = await reServedPadiClient.surface.processMemory.get(
       {},
       { signal: ctl.signal },
     );
@@ -516,15 +773,16 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
     // not "no process to measure". Report `error`, not `absent`, and log at `error`
     // (a live-client read that produced nothing is a failed read, not a degraded-but-
     // recoverable state — see `.agency/code-police.md` errors-must-log-at-error).
-    log.error({}, "padi memory read yielded no frame through a live client");
+    log.error({}, "padi memory read yielded no frame through the mirror");
     return PADI_MEMORY_READ_ERROR;
   } catch (err) {
-    // padi was BELIEVED up (a live client) yet the read threw — surface the honest
-    // `error` state, distinct from `absent`, rather than collapsing a caught error
-    // to the empty "no process" reading. padi's liveness still rides the re-serve's
-    // own `connection` cell; this only affects the memory rail's three-way readout.
-    // A caught read failure is a real error, not `warn` (errors-must-log-at-error).
-    log.error({ err }, "padi memory read failed through a live client");
+    // padi was BELIEVED up (a live client) yet the mirror read threw — surface the
+    // honest `error` state, distinct from `absent`, rather than collapsing a caught
+    // error to the empty "no process" reading. padi's liveness still rides the
+    // re-serve's own `connection` cell; this only affects the memory rail's three-way
+    // readout. A caught read failure is a real error, not `warn`
+    // (errors-must-log-at-error).
+    log.error({ err }, "padi memory read failed through the mirror");
     return PADI_MEMORY_READ_ERROR;
   } finally {
     ctl.abort();
@@ -554,6 +812,28 @@ startMemorySampler(
 // WHOLE drain window instead of a frozen re-served daemonStatus (#1034). `onState` fires
 // the current state synchronously on subscribe, so the cell is seeded before the first
 // transition.
+// Map the base `session.identity()` sum onto the three daemon-inventory readouts the
+// dialog reads (uptime · contract version · navigable commit). `identity()` is TOTAL
+// (disconnected | anonymous | identified); padi always DECLARES its build, so a bound
+// padi is always `identified`, a mid-reconnect gap is `disconnected` (never
+// `anonymous`). This REPLACES the six bespoke `padiStartedAt`/`padiSurfaceVersion`/…
+// readouts with one universal member (S4).
+const padiStartedAt = (): number | null => {
+  const id = padiSession.identity();
+  return id.kind === "disconnected" ? null : id.startedAt;
+};
+const padiSurfaceVersion = (): string | null => {
+  const id = padiSession.identity();
+  return id.kind === "identified" ? id.baked.contractVersion : null;
+};
+const padiBuildCommit = (): string | null => {
+  const id = padiSession.identity();
+  // A navigable commit → its sha; a dev build (or unidentified) → null (honest "—").
+  return id.kind === "identified" && id.baked.commit.kind === "commit"
+    ? id.baked.commit.sha
+    : null;
+};
+
 padiSession.onState((s) => {
   koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection));
   // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
@@ -563,41 +843,36 @@ padiSession.onState((s) => {
   // that moves neither boot time. kaval's uptime is NOT here (it rides `daemonStatus`).
   koluSurfaceCtx.cells.processStartedAt.set({
     server: serverStartedAt,
-    padi: padiSession.padiStartedAt(),
+    padi: padiStartedAt(),
   });
 });
 
-// Feed the Kaval + Padi dialogs' host-daemon inventory: enumerate EVERY running kaval
-// + padi on this host (read-only — scan the runtime dir, read each gate `.pid`, and a
-// best-effort `system.version`/`terminal.list` probe per kaval; NEVER touches a
-// daemon's lifecycle), mark which one kolu's bound padi owns, and publish
-// `daemonInventory`. So a LEAKED post-upgrade daemon — invisible in the UI before,
-// surfaced only by a `kaval-tui` CLI error — is diagnosable at a glance. kolu's active
-// kaval is marked by socket identity against the address padi actually HOLDS: the DIGEST
-// address normally, or the pre-padi LEGACY `kaval-<port>/` address padi ADOPTED on a
-// W2.2 upgrade (`legacyKavalSocketPath(this binder's port)`, the SAME hint the adopter
-// hands padi) — so an adopted legacy kaval reads as kolu's converging active one, not a
-// leak. The active padi's honest `surfaceVersion` (off its control-core `hello`) rides
-// the bound session. A padi (re)bind force-samples so version + marking refresh at once.
-const inventoryStateRoot = resolvePadiStateRoot();
+// Feed the Kaval + Padi dialogs' host-daemon inventory. The BOUND host's daemons now
+// ride padiSurface's `hostInventory` member (padi scans its OWN host — the one scanner,
+// homed in @kolu/padi — and marks the kaval it holds + itself active); that member rides
+// the re-served surface straight to the client, so the dialog's bound-host list works
+// identically local and remote. Here kolu-server publishes only what IT knows on
+// koluSurface's `daemonInventory`: the binding host, its OWN machine's scan (only under a
+// remote binding, where that machine is not the bound host — so a leak on the machine
+// you're actually using stays visible; the SAME `enumerateHostDaemons` the member uses,
+// marking none active), and the bound padi's honest identity + a standing convergence
+// anomaly off its control-core `hello`. A padi (re)bind force-samples so version +
+// convergence refresh at once.
 startDaemonInventorySampler(
   {
     discoverKavals: discoverKavalDaemons,
     discoverPadis: discoverPadiDaemons,
     probe: probeKavalStatus,
-    digestKavalSocket: padiKavalSocketPath(inventoryStateRoot),
-    legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
-    activePadiSocket: padiSocketPath(inventoryStateRoot),
-    activePadiSurfaceVersion: () => padiSession.padiSurfaceVersion(),
-    activePadiBuildCommit: () => padiSession.padiBuildCommit(),
-    activePadiConvergence: () => padiSession.padiConvergence(),
-    // The SINGLE bind knob: the remote host (`KOLU_PADI_HOST`), or null for a local bind
-    // (`|| null` folds an empty KOLU_PADI_HOST to null, matching the `remoteHost ?` bind
-    // decision above). daemonInventory derives `boundLocally = boundHost === null` — a
-    // REMOTE binding owns no LOCAL daemon, so the local scan lists discovered daemons (a
-    // leak stays visible) but marks none active, pins no remote identity onto a local
-    // socket, and the dialog labels the scan "this machine, not the bound host".
-    boundHost: remoteHost || null,
+    activePadiSurfaceVersion: () => padiSurfaceVersion(),
+    activePadiBuildCommit: () => padiBuildCommit(),
+    activePadiConvergence: () => padiSession.convergence(),
+    // Under ALWAYS-MAP the host this sampler describes is the unremovable LOCAL default
+    // (`padiSession` binds it), so `boundHost` is null — a local bind. daemonInventory
+    // derives `boundLocally = boundHost === null`, and the local default padi's
+    // `hostInventory` member already covers this machine, so no duplicate `localScan` is
+    // published. The per-host inventories of any guest hosts ride the map's members, not
+    // this kolu-server-own sampler.
+    boundHost: null,
     publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
   },
   (resample) => padiSession.onState(() => resample()),

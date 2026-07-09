@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The boot reconcile reads the surviving daemon's live PTYs off `ptyHostClient`.
 // There is no kaval in the unit env, so stub the ONE call the empty-daemon path
 // makes (`terminal.list`) to model a REPLACED, empty daemon; every other export
-// (LOCAL_HOST_ID, buildTerminalSpawnInput, …) rides through untouched.
+// (buildTerminalSpawnInput, …) rides through untouched.
 const listEntries = vi.hoisted(() => ({ value: [] as PtyHostListEntry[] }));
 vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../ptyHost/index.ts")>();
@@ -51,7 +51,6 @@ import {
 } from "../padiSurfaceCtx.ts";
 import type { PairedDaemon } from "../pairedDaemon.ts";
 import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID } from "../ptyHost/index.ts";
 import { getSavedSession, setSavedSession } from "../session.ts";
 import {
   getTerminal,
@@ -59,6 +58,7 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import {
+  encodeHostLocation,
   LOCAL_LOCATION,
   type SavedActiveTerminal,
   type SavedSession,
@@ -171,7 +171,7 @@ const S_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
  *  `identity`/`metadata` fields the connected `EndpointStatus` arm carries are
  *  immaterial to the startedAt gate under test, so they take placeholder values. */
 function connectDaemon(startedAt: number): void {
-  publishDaemonStatus(LOCAL_HOST_ID, {
+  publishDaemonStatus(encodeHostLocation(LOCAL_LOCATION), {
     state: "connected",
     identity: undefined,
     startedAt,

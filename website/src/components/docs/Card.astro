@@ -1,0 +1,43 @@
+---
+/**
+ * A fact/feature card for the docs. Styled like the original pages' `.pd-fact`
+ * cells: a dark raised panel with a
+ * mono primary-coloured title and dimmed body copy.
+ */
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+
+<article class="doc-card">
+  <p class="doc-card__title">{title}</p>
+  <div class="doc-card__body"><slot /></div>
+</article>
+
+<style>
+  .doc-card {
+    border: 1px solid var(--color-rule);
+    border-radius: 0.6rem;
+    background: var(--color-void-raised);
+    padding: 1.15rem 1.25rem;
+  }
+  .doc-card__title {
+    margin: 0 0 0.5rem;
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    font-size: 0.82rem;
+    color: var(--color-kolu-primary);
+  }
+  .doc-card__body {
+    color: var(--color-ink-dim);
+    font-size: 0.93rem;
+    line-height: 1.6;
+  }
+  .doc-card__body :global(> :first-child) {
+    margin-top: 0;
+  }
+  .doc-card__body :global(> :last-child) {
+    margin-bottom: 0;
+  }
+</style>

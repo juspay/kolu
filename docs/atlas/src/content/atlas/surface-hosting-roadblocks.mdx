@@ -1,0 +1,223 @@
+---
+title: Surface hosting — the four build-time roadblocks, in code
+description: The implementing agent inventoried all three consumers (kolu · drishti · odu) and hit four design questions before writing code. Each answered here in code, refined with srid; the ratified answers fold into the plan.
+parents: [reference, padi]
+status: proposed
+maturity: seedling
+updated: 2026-07-05
+---
+
+import Callout from "../../components/Callout.astro";
+
+The agent inventoried all three consumers and raised four design questions before writing code. All four are now resolved (srid). The headline: **the reserved `system.identity` member is bundled into this same PR** (its value is a null-free `SurfaceIdentity` sum — see roadblock 5) — so identity lands on the base `Session` role directly, no two-step. (This is NOT "universal hello" — that name was borrowed from padi's *daemon* control-core `hello()`; the honest name is `system.identity`, the identity twin of the framework's existing reserved `system.live`.)
+
+## 1. `system.identity` is IN this PR — identity on the base `Session` role
+
+The framework already auto-attaches a reserved **`system` namespace** to every surface (`packages/surface/src/liveness.ts`: `defineSurface` carries `surface.system.live`, which `implementSurface` auto-answers; `define.ts` even anticipates a `system.version`-style member). We add **`system.identity`** to that same reserved namespace — the identity twin of `system.live`. Originally scoped out as "a behavior-preserving refactor can't add a contract member." srid's ruling: **bundle it.** This is a coordinated three-repo PR — every server and consumer moves together — so the cross-deploy-drift danger doesn't apply, and `system.live` already proves the exact pattern.
+
+What it means concretely — one more reserved member in the `system` namespace, framework-served on **every** surface:
+
+```ts
+function defineSurface(members) {
+  return implement({ ...members, system: { live, identity } }); // `identity` is the NEW reserved member; `live` already exists in the same `system` namespace
+}
+// The MEMBER is auto-served on every surface (zero code). The DATA source is supplied by the
+// server that has a reader — see roadblock 5 for the A/B on where the four fields come from.
+```
+
+So `identity()` lives on the base role, and it is **never null-forever** — because every server truly answers:
+
+```ts
+interface Session<Client> {
+  pin(): Promise<Client>;
+  currentClient(): Promise<Client> | null;
+  isDestroyed(): boolean;
+  onState(cb): () => void;
+  markConnected(): void;
+  destroy(): void;
+  reconnect(): void;                      // universal to sessions (roadblock 2)
+  recheck(): void;
+  identity(): SurfaceIdentity;            // universal, TOTAL — a null-free sum; "no link" is a kind, not null
+}
+
+interface DaemonSession<Client> extends Session<Client> {
+  convergence(): DaemonConvergence | null;   // ONLY supervision is daemon-specific
+  readonly preservation: PreservationStrategy;
+  renew(): Promise<void>;
+}
+```
+
+The one real cost of bundling, named honestly — **every surface's contract test changes**, and here's why that test exists:
+
+<Callout kind="note" title="What the contract set-equality test is FOR — and why bundling trips all of them">
+```ts
+test("laneSurface members", () => {
+  expect(memberNames(laneSurface)).toEqual(new Set(["progress", "logLine", "result"]));
+});
+```
+A surface is a **contract between two processes** (one serves, one consumes, often on different machines). **The set of members IS the contract.** This test freezes that set so a member can never be added or dropped *by accident* — any change fails the test and forces a human to ratify it deliberately.
+
+Adding `system.identity` to the reserved `system` namespace changes every surface's member set, so **every one of these tests updates to include it.** That is not a problem to route around — it is the test doing its job: each update is the deliberate, reviewed ratification of the (intended) contract change. Mechanical churn across three repos, all in this PR, all moving together.
+</Callout>
+
+## 2. Fleet verbs go on `Session` (srid's call — cleaner)
+
+You asked why `reconnect()`/`recheck()` can't just be on `Session`. They can, and they should — same reason the role is `Session` not `ReconnectingSession`: every session reconnects (a one-shot is a *dial*, not a session), so the manual triggers of that universal capability belong on the role. That's why they're already in the `Session` interface above — no `Session & { reconnect; recheck }` intersection.
+
+Whether a **registry** surfaces `registry.reconnect(host)` is still a per-registry choice (S2) — the session always has the method; the registry exposes a fleet verb only when built with `controls` (drishti's fleet does; kolu's future pool need not):
+
+```ts
+buildHostRegistry({
+  buildEntry: (host) => ({ session: makeSession({ connectOnce: sshConnector({ host }) }), handler }),
+  controls: { reconnect: (s) => s.reconnect(), recheck: (s) => s.recheck() }, // trivial passthrough now
+});
+// controls supplied ⇒ registry.reconnect(host)/recheckAll() EXIST (typed). Omitted ⇒ they don't.
+```
+
+(`reServeSurface` consumes `Session` and carries `reconnect`/`recheck` it never calls — harmless, since they're *guaranteed present*, not optional-maybe-absent. The registry's own slot stays minimal `DestroyableSession { destroy() }`.)
+
+## 3. The name: `SurfaceIdentity` (srid's call — the better one)
+
+You proposed `SurfaceIdentity`; it's better than `ServerIdentity`, and `system.identity` is exactly why: identity is literally a **reserved member of every surface**, so the value is *"the identity a surface carries"* — named for the framework's core noun, and dodging the overloaded word "server" (kolu-*server* means something else).
+
+```ts
+// @kolu/surface — a SUM, no nulls (final shape; see roadblock 5)
+type SurfaceIdentity =
+  | { kind: "disconnected" }
+  | { kind: "anonymous";  startedAt: number }
+  | { kind: "identified"; startedAt: number; baked: BakedIdentity };
+interface BakedIdentity {
+  contractVersion: string;
+  buildId: string;                                             // content hash — convergence CURRENCY (staleKey)
+  commit: { kind: "commit"; sha: string } | { kind: "dev" };  // navigable vs dev — a SUM, distinct from buildId
+}
+```
+
+Lives in **`@kolu/surface`** (the base package — it's a universal surface member now). The colliding `kolu-common ServerIdentity` (the PWA identity) is kolu's to rename; the framework name is perfect, the app moves.
+
+## 4. Scope — the framework happens in full; only kolu's *pool* defers
+
+| In THIS three-PR refactor | Out (its own later PR) |
+|---|---|
+| `Session` (identity · reconnect · recheck) / `DaemonSession` (convergence · renew · preservation) roles + all renames | **kolu-server GROWING a `buildHostRegistry` pool** (the W4 switch) |
+| **`system.identity`** — the new reserved member (twin of `system.live`), framework-stamped on every surface; `identity()` on the base role; every contract test updated | |
+| `makeSession` + `sshConnector` + `endpointConnector` | |
+| **S1/S2: `buildHostRegistry` → `DestroyableSession` slot + typed `controls`** | |
+| S10: delete `getHostSession` + the global pool + evict/destroyAll | |
+| Migrate the three existing consumers: kolu single-padi arm · drishti fleet · odu lanes (odu owns its own teardown) | |
+
+## 5. `system.identity` — where does the DATA come from? (needs your call)
+
+**No nulls anywhere** (srid — make illegal states unrepresentable; don't lean on `null`). Every state of "who is the far end" is a named arm of ONE sum; the reader is forced to branch, and impossible states (identified-but-no-`startedAt` · `baked`-while-disconnected · a commit that might-be-dev-might-be-error) simply can't be written:
+
+```ts
+type BuildCommit =
+  | { readonly kind: "commit"; readonly sha: string }   // a navigable commit — link to it
+  | { readonly kind: "dev" };                           // built from an uncommitted tree — no navigable commit
+
+interface BakedIdentity {           // the server-DECLARED triple — always whole (matches readBakedIdentity)
+  contractVersion: string;
+  buildId: string;
+  commit: BuildCommit;              // a SUM, never `string | null` — dev-vs-real is explicit
+}
+
+type SurfaceIdentity =              // ONE sum. NO null. every state named.
+  | { kind: "disconnected" }                                          // no live link — nothing to identify
+  | { kind: "anonymous"; startedAt: number }                          // connected; server declared no build
+  | { kind: "identified"; startedAt: number; baked: BakedIdentity };  // connected; declared its build
+
+// on the Session role:
+identity(): SurfaceIdentity;        // TOTAL — never null; the caller matches on `.kind`
+```
+
+Why this is the honest shape:
+- **No `null` doing double duty.** The hack was `identity(): … | null` (null = no link) *plus* `baked: … | null` (null = no build) — two nulls, two meanings, a reader guessing which. Now each is a named `kind`.
+- **Impossible states can't be written.** `startedAt` exists only on the connected arms; `baked` only on `identified`; `commit` is never a bare string that might secretly mean "dev". No contradiction is constructible.
+- **`padi` (the sole reader) matches `disconnected | identified`; `anonymous` honestly covers drishti/odu** (connected, declared nothing) — no fake, no sentinel.
+
+**Load-bearing fact:** only kolu-server's padi arm ever *reads* `.identity()`. drishti + odu never do. So only **padi** declares a `baked`.
+
+```ts
+// ── OPTION A (recommended) — implementSurface takes an optional identity; only padi wires it ──
+implementSurface(surface, deps, { identity?: SurfaceIdentity });
+
+// padi — the one server whose identity is read — declares its baked identity:
+implementSurface(padiSurface, deps, {
+  identity: { contractVersion: PADI_SURFACE_VERSION, ...readBakedIdentity("PADI") }, // → framework serves { kind:"identified", startedAt, baked }
+});
+
+// drishti-agent / odu-runner — omit it → the framework serves { kind:"anonymous", startedAt }. No sentinel; nobody reads it:
+implementSurface(laneSurface, deps);
+```
+
+```ts
+// ── OPTION B — truly zero-code, but a 3-repo-wide ripple for ZERO readers today ──
+defineSurface(members, { contractVersion });   // every defineSurface call changes
+// + every server's nix wrapper bakes framework-standard SURFACE_BUILD_ID / SURFACE_COMMIT
+// + padi's existing PADI_* must ALSO bake the standard names
+```
+
+**Why A:** identity stays a *universal capability* (member on every surface, `identity()` on base role) while the *source* is wired only where read (padi). B builds baked-var machinery for identity on drishti/odu that **has no reader** — a receptacle for population zero. A doesn't foreclose B later.
+
+**Two consequences to reconcile:** (1) the L3 convergence kit's `buildId === ""` "off-nix" check becomes `baked === null` — the same sentinel-removal one layer down. (2) the dialog's build-commit line branches on the `BuildCommit` sum — `kind:"commit"` → a navigable link, `kind:"dev"` → a "dev build" badge (no more null-means-maybe-dev-maybe-error).
+
+> **A (with the `Maybe`-typed identity above)?** — needs your call. Agent is building everything else meanwhile.
+
+## 6. The convergence kit's `buildId === ""` — RULED: fix it here (srid)
+
+Surfaced mid-build. There are **two separate "what build is padi?" paths, on two different wires** — and only one is in this PR's scope:
+
+```ts
+// PATH 1 — the READOUT (this PR fully converts it to the null-free sum):
+session.identity()   // → { kind:"identified", startedAt, baked:{ …, commit: BuildCommit } }
+//   the dialogs read this; commit branches: {kind:"commit"} → link · {kind:"dev"} → badge.  ✅ done here.
+
+// PATH 2 — the CONVERGENCE decision (a DIFFERENT wire: control-core hello, not system.identity):
+// packages/surface-daemon-supervisor/.../decide.ts
+if (baked.buildId === "") return "adopt";   // "" = off-nix, can't judge builds — the OLD sentinel
+//   reads ConvergenceIdentity {contractVersion, buildId} off control.core.hello().
+//   NOT touched by the readout refactor. This is the exact hack L26 targets.
+```
+
+Two options:
+
+> **srid RULED (a) — the sentinel dies in THIS PR (2026-07-05).** *Why it was still there:* the null-free `SurfaceIdentity` sum lives on the `system.identity` wire (what the dialogs read); the convergence decision reads padi's build off a DIFFERENT wire (`control.core.hello` → `ConvergenceIdentity`), which the readout refactor never reached — so the `buildId === ""` sentinel sat untouched. srid's point: shipping the clean design while the SAME-data sentinel survives one wire over is the exact "two ways to say the same thing" incoherence the refactor exists to kill. **It must not survive the PR that establishes the rule.**
+
+**The fix (a):** make the convergence identity null-free too — off-nix becomes a *typed* absence (a `kind`/null), never `""`; `decide.ts` matches that instead of `=== ""`. Behavior-preserving shape swap (the agent confirmed), touching surface-daemon-supervisor + control-core hello + `probePadiForConvergence`.
+
+**One thing for the agent to report, not decide:** the deeper coherence win is convergence consuming the SAME identity representation as the readout (one identity, not two) — but convergence may *need* its own `control.core.hello` wire (pre-handshake, version-agnostic — it runs before the surface is established). So: kill the sentinel now (make `ConvergenceIdentity` null-free on its existing wire); and tell the coordinator whether unifying the two identity paths is safe or whether the control-core wire is load-bearing for pre-handshake convergence. If unification would force a behavior change, STOP — that's a separate decision.
+
+**L26 no longer owns this instance** (this PR does); L26 keeps the *other*, scattered null/sentinel instances + the lint.
+
+*(Q1 identity-sourcing and Q2 endpointConnector-is-a-kolu-leaf were pure confirmations of the ratified design — resolved, not open.)*
+
+**Unification question RESOLVED (agent report, 2026-07-05): the two identity wires do NOT unify — the control-core wire is load-bearing.** Convergence must read a running daemon's identity *pre-handshake and across a contract skew* (`controlCore.ts`: "the version-agnostic side channel — a binder dials the running daemon and reads its identity at ANY skew"); deciding whether to drain a skewed daemon is the whole point. `system.identity` lives on the *surface*, which needs a compatible handshake — unreachable exactly during a skew. So they're not the "two ways to say the same thing" smell — they're a **justified volatility separation** (a version-agnostic side channel vs a surface readout). The fix kills the `""` sentinel on **both** wires *independently*: the readout gets `SurfaceIdentity`; the convergence wire gets its own null-free `DaemonBuild = { kind:"known"; id } | { kind:"off-nix" }` (`decide.ts` matches `.kind === "off-nix"`, not `=== ""`), right-sized for what convergence needs (it judges builds by id; it doesn't display commits). **Do not merge the wires** — that would break skew-convergence; a future deeper unification would require the control core itself to carry a version-agnostic identity (a bigger, separate cut).
+
+## 7. The two arms don't share `padiAdmit` — they share the DECISION (build-time; RULED (a))
+
+S9's prose said "both arms share `padiAdmit`". Building it revealed that quietly assumed both transports converge POST-connect — but they don't, and the difference is real, rooted in the transports:
+
+```ts
+// REMOTE (ssh): hands you a RAW client → converge AFTER connect. `admit` IS that seam:
+const remotePadi = makeSession({ connectOnce: sshConnector({ binary: "padi" }), admit: padiAdmit });
+
+// LOCAL (supervisor Endpoint): converges AS it connects, BY DESIGN —
+//   endpoint.adoptOrSpawnOrRefuse() = probe → decide → drain-enact → THEN connect.
+//   There is no "raw adopt-or-spawn without the check" method. So NO post-connect admit:
+const localPadi = makeSession({ connectOnce: endpointConnector(endpoint) });  // admit omitted — self-converged
+
+// The REAL dedup both arms share (this is what S9 was actually after):
+//   • ONE PADI_CONVERGENCE_POLICY / decide()      • drainViaControlCore
+//   • the daemon-member spread { ...base, convergence, renew, preservation }
+```
+
+**Ruling: (a).** Local convergence stays pre-connect inside `endpointConnector` (the `Endpoint` is UNCHANGED — honors Q3's "don't touch surface-daemon-supervisor"); the remote arm carries `admit: padiAdmit`. This is not a divergence from S9 — it's the correct use of S9's **`admit?` optional**: the local connector already converges, so it has no post-connect hook to pass. It preserves both arms' exact convergence timing, still deletes `BoundPadi` + the wrapper classes, and still collapses to closures + spread + one policy + one drain — S9's whole intent.
+
+Rejected **(b)** (rip out the `Endpoint`, force a shared post-connect admit): it deletes a working mechanism to rebuild local adopt-or-spawn from scratch, risks a local-convergence timing change (briefly connecting to an about-to-be-drained padi), and brushes the Q3 boundary — a bigger, riskier change for a *literal* symmetry the transports don't support.
+
+## Status of the four — all resolved
+
+1. **`system.identity` BUNDLED** — the new reserved `system`-namespace member (twin of `system.live`); `identity()` on the base `Session` role; no separate follow-up. ✅ srid's call. (Name: `system.identity`, NOT "universal hello".)
+2. **`reconnect`/`recheck` on `Session`** — ✅ srid's call.
+3. **`SurfaceIdentity` in `@kolu/surface`** (rename kolu's collider) — ✅ srid's call.
+4. **Scope**: full framework reshape in (incl. `system.identity` + `buildHostRegistry` S1/S2); only kolu-server's *pool adoption* (W4) out. ✅ confirmed.

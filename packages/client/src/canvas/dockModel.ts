@@ -80,7 +80,7 @@ export type AgentBucketKind = AgentPaintClass | "idle";
  *  Idle leads the row — it's the triage column the user opens the
  *  switcher to scan first. Then live attention (Awaiting, Working),
  *  with "No agent" trailing as the narrow plain-shells bucket
- *  (`lastActivityAt === 0`, never hosted an agent). */
+ *  (`lastActivityAt === null`, never hosted an agent). */
 export const AGENT_BUCKETS = [
   {
     key: "idle",
@@ -250,11 +250,11 @@ export function metaBucket(
  *  but-still-awaiting agents is preserved at the *render* layer
  *  (`QuietRowBody` paints `AgentIndicator` when `meta.agent` is set).
  *  A `null` classifier result keeps the entry on its agent-state column;
- *  the classifier itself is what enforces the `lastActivityAt === 0`
- *  plain-shell exclusion. */
+ *  the classifier itself is what enforces the never-active
+ *  (`lastActivityAt === null`) plain-shell exclusion. */
 export function entryBucket(
   info: TerminalDisplayInfo,
-  idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null,
+  idleClassifier?: (lastActivityAt: number | null) => IdleBucketKey | null,
 ): AgentBucketKind {
   if (idleClassifier?.(info.meta.lastActivityAt)) return "idle";
   return metaBucket(info.meta);
@@ -371,7 +371,7 @@ export function buildDockModel(
     query?: string;
     repoFilter?: string | null;
     getRecency?: (id: TerminalId) => number;
-    idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null;
+    idleClassifier?: (lastActivityAt: number | null) => IdleBucketKey | null;
   } = {},
 ): DockModel {
   const ordered = options.getRecency

@@ -11,31 +11,41 @@
  *  the App-root call site, which was an unenforceable convention
  *  ("deps never change identity") held together by a comment. */
 
-import { padiRpc } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { padi } from "../wire";
+import { activePadiRpc } from "../wire";
 
 export type IntentEditorSession = {
   title: string;
   initialValue: string;
+  /** Whether Clear is a MEANINGFUL action for this session (there's something to
+   *  clear) — the ONE gate the dialog renders/hides the button on. `clear` below
+   *  is unconditionally constructible (nuking an already-empty intent is a safe
+   *  no-op RPC), so its own optionality never encoded a second "can't clear"
+   *  state — it was always present at this module's one construction site. Kept
+   *  required (not `clear?`) so there is exactly one place to disagree about
+   *  clearability: this field. */
   allowClear: boolean;
   save: (intent: string) => void;
-  clear?: () => void;
+  clear: () => void;
 };
 
 function init() {
   const store = useTerminalStore();
+  // HOST-SCOPING: host-INDEPENDENT by design — ephemeral open-editor session; a
+  // host switch while open doesn't bleed silently, it fails loud (Save routes
+  // through `activePadiRpc` to the now-active host, which rejects the captured
+  // terminal id with a toast, never a silent wrong-host write).
   const [session, setSession] = createSignal<IntentEditorSession | null>(null);
 
   const close = () => setSession(null);
 
   const writeIntent = (id: TerminalId, intent: string) => {
-    void padiRpc(padi)
-      .surface.chrome.setIntent({ id, intent })
+    void activePadiRpc.surface.chrome
+      .setIntent({ id, intent })
       .catch((err: Error) =>
         toast.error(`Failed to save intent: ${err.message}`),
       );
@@ -73,7 +83,7 @@ function init() {
       if (!open) close();
     },
     save: (intent: string) => session()?.save(intent),
-    clear: () => session()?.clear?.(),
+    clear: () => session()?.clear(),
   } as const;
 }
 

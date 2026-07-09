@@ -1,0 +1,127 @@
+---
+title: Padi — Typing-Echo Latency Baseline
+description: The W1 baseline owed by padi W1 (PR 1652) before W2.2 starts — keystroke→echo latency measured through the real stack on current master, both clock points on kolu-server's websocket so the padi hop W2.2 adds is measured honestly. Method, box spec, numbers, and how to re-run for the sub-5ms added-p99 budget.
+parents: [padi, reference]
+status: implemented
+maturity: seedling
+updated: 2026-07-02
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import path from "../../diagrams/padi-latency-baseline-path.svg?raw";
+
+**The number W2.2 has to beat.** [padi](padi.html) W2.2 slips a whole new process
+— padi — *between* kolu-server and kaval, so every keystroke gains a hop. The plan
+budgets that hop at **&lt; 5ms added p99** and says the ceiling is measured, not
+guessed: W1 (<PrLink pr={1652} />) owes a baseline of today's echo latency, and
+W2.2's done-criterion (e) compares against it. This note is that baseline — what we
+measure, where the clock starts and stops, the box it ran on, the numbers, and the
+one command that re-runs it identically.
+
+<Svg svg={path} caption="The measured path. The probe writes a keystroke (t0) via padiSurface.lifecycle.sendInput over kolu-server's /rpc/ws; the PTY line discipline echoes it; the echoed byte returns as a padiSurface.terminalAttach delta (t1). Both clock points sit on the client side of kolu-server's websocket — which is exactly where padi's future hop lands, so W2.2 re-running this probe measures the added cost and nothing else." />
+
+## What the baseline measures
+
+One keystroke's full round-trip through the **real stack**, timed by a headless
+client that speaks the same wire the browser does:
+
+- **t0 — the clock starts** the instant the probe dispatches
+  `padiSurface.lifecycle.sendInput({ id, data: <char> })` over kolu-server's
+  websocket (`/rpc/ws`).
+- The write travels kolu-server → kaval → PTY, where the shell's line discipline
+  **echoes** the typed character back.<Footnote>We type into a fresh shell's line editor (readline), which echoes each character verbatim in raw mode — the same echo a user sees. The probe never sends a newline, so no command ever runs; between measurements it sends a Backspace so the input line stays one character wide and long-line redraws can't pollute later samples.</Footnote>
+- **t1 — the clock stops** when that echoed character first appears in a
+  `padiSurface.terminalAttach` delta frame on the same websocket.
+
+`latency = t1 − t0`, both read from **one process's** monotonic clock
+(`process.hrtime.bigint()`), so absolute clock skew is irrelevant — only the delta
+matters.
+
+<Callout kind="important" title="Why both clock points are on kolu-server's wire, not kaval's socket">
+The comparability is the whole point, and it hinges on *where* we clock. W2.2
+inserts padi **between kolu-server and kaval**. A probe that dialled kaval's unix
+socket directly would sit on the far side of that future hop — it would measure a
+path W2.2 never changes and report a fake near-zero delta. Clocking `sendInput` →
+`terminalAttach` over kolu-server's `/rpc/ws` puts **both** endpoints on the near
+(client) side of the new hop, so when W2.2 re-runs this identical probe, the whole
+added cost of the padi process shows up in the difference. Like-for-like beats a
+prettier absolute number.
+</Callout>
+
+## The measured baseline
+
+Current master (<PrLink pr={1652} /> at merge — the padi domain served
+**in-process**, no separate padi process yet), a nix-built kolu (`.#default`), on a
+quiet ephemeral box with nothing else running. **2400 warm keystrokes** (8 terminals
+× 300 measured, 50 warm-up discarded per terminal):
+
+| percentile | latency |
+| --- | --- |
+| p50 | **2.14 ms** |
+| p90 | 3.16 ms |
+| p95 | **3.42 ms** |
+| p99 | **4.36 ms** |
+| min / mean / max | 0.16 / 2.36 / 20.9 ms |
+
+A second independent run agreed within noise (p50 2.04, p95 3.45, **p99 4.21** ms),
+so the percentiles are stable, not a lucky draw.<Footnote>Percentiles use the nearest-rank method on the ascending-sorted samples (the value at rank ⌈p/100·n⌉) — no interpolation, so the computation itself is deterministic and W2.2 compares like for like. The lone ~21 ms max is a single GC/scheduler outlier well outside p99.</Footnote>
+
+**The box** — recorded in the result JSON, so a re-run on a different box is never
+mistaken for the same conditions: `pu` ephemeral Incus container (NixOS), Intel
+Core i9-14900K, 32 logical CPUs, 125 GiB RAM, Linux 6.12.85 x86_64; kolu's bundled
+Node v22.22.1; kolu built from master via `nix build .#default`.
+
+<Callout kind="note" title="The budget this sets for W2.2">
+W2.2's added hop must keep p99 **within 5 ms of this baseline** — i.e. a W2.2 p99
+under **≈ 9.3 ms** (baseline p99 ≈ 4.3 ms + 5 ms) **on the same box, same run**. If
+breached, padi's carve-out permits a raw-byte relay on the padi→kolu-server leg
+(no decode) without touching the contract.
+</Callout>
+
+## How the probe drives the stack
+
+The measurement is a small, reusable script — not a one-off — so W2.2 re-runs the
+**identical** method (bench + this note shipped in <PrLink pr={1660} />):
+
+- **`packages/server/bench/typingEchoLatency.ts`** — the client probe. It dials
+  `ws://host:port/rpc/ws` with Node's global `WebSocket`, wraps it in
+  `@kolu/surface`'s `websocketLink`, then for each terminal: `lifecycle.create({})`
+  a bare shell, subscribe to `terminalAttach` (skipping the first frame, which is
+  the scrollback snapshot), and ping single keystrokes **serially** — send one,
+  wait for its echo, record, repeat. Serial by design: only one keystroke is ever
+  in flight, so an echo can never be attributed to the wrong key.
+- **`packages/server/bench/run.sh`** — the orchestrator. Boots a **private,
+  isolated** kolu (its own kaval via a throwaway `$XDG_RUNTIME_DIR` +
+  `KOLU_KAVAL_SOCKET`, its own state dir, a throwaway `$HOME`, an OS-assigned free
+  port), waits for it to listen, runs the probe, and tears everything down. The
+  private socket means kolu's always-recycle can only ever reap *its own* kaval —
+  it can never touch a production daemon.
+
+Both live under `packages/server/` because the probe imports `@kolu/surface` and
+`ws`, which that package already depends on — no new dependency, no lockfile churn.
+
+## Re-running it
+
+From a checkout, on a quiet box:
+
+```
+just bench-typing-echo
+```
+
+That builds `.#default`, boots the private server, runs the probe, prints the
+percentiles, and cleans up. Knobs (all optional) are environment variables:
+`KOLU_BENCH_SAMPLES` (measured keystrokes per terminal), `KOLU_BENCH_TERMINALS`,
+`KOLU_BENCH_WARMUP`, `KOLU_BENCH_INTERKEY_MS`, `KOLU_BENCH_OUT` (write the full JSON,
+raw samples included), and `KOLU_BENCH_BIN` (point at a pre-built `bin/kolu` to skip
+the nix build).
+
+<Callout kind="note" title="For an honest W2.2 comparison">
+Run the baseline **and** the W2.2 build back-to-back on the *same* freshly-provisioned
+quiet box, with the same `KOLU_BENCH_*` settings — the absolute numbers drift with
+CPU and load, so only a same-box A/B is a fair test of the added hop. Provision the box
+with the `/pu` skill (this baseline ran on one); the box spec lands in the result JSON
+either way.
+</Callout>

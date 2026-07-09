@@ -20,7 +20,7 @@
  * The env-read RECIPE is shared with kaval via `readBakedIdentity` in
  * `@kolu/surface-daemon` (padi passes prefix `PADI`, kaval `KAVAL`); these are the thin
  * padi-prefixed façade over it, so the public `currentPadiBuildId` /
- * `currentPadiCommitHash` / `currentPadiIdentity` names its callers use are unchanged.
+ * `currentPadiCommitHash` / `currentPadiBuildIdentity` names its callers use are unchanged.
  */
 
 import {
@@ -32,18 +32,16 @@ import {
  *  `PADI_*` env namespace via the shared `readBakedIdentity` recipe (the same one
  *  kaval's `currentPtyHostIdentity` uses, prefixed `KAVAL`), so the env-read pattern
  *  and the `{ staleKey, navigableCommit }` shape live once, in `@kolu/surface-daemon`. */
-export type PadiIdentity = DaemonBuildIdentity;
-
-export function currentPadiIdentity(): PadiIdentity {
+export function currentPadiBuildIdentity(): DaemonBuildIdentity {
   return readBakedIdentity("PADI");
 }
 
 /** padi's staleKey — the nix-baked hash of padi's daemon source closure. */
 export function currentPadiBuildId(): string {
-  return currentPadiIdentity().staleKey;
+  return currentPadiBuildIdentity().staleKey;
 }
 
 /** The navigable git commit this padi was built from. */
 export function currentPadiCommitHash(): string {
-  return currentPadiIdentity().navigableCommit;
+  return currentPadiBuildIdentity().navigableCommit;
 }

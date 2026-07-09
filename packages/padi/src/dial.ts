@@ -22,8 +22,6 @@
  * padi it cannot speak to, loudly) — and nothing that mutates padi's lifecycle.
  */
 
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
 import {
   isContractVersionCompatible,
   scopeSibling,
@@ -34,6 +32,8 @@ import {
   DaemonContractSkewError,
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
+import type { ContractRouterClient } from "@orpc/contract";
 import {
   PADI_SURFACE_VERSION,
   type PadiDaemonContract,
@@ -48,10 +48,11 @@ import {
 // terminal-domain `@kolu/padi/assembly` barrel (the daemon runtime) just to
 // compute a socket path.
 export {
+  discoverPadiDaemons,
   type PadiDaemon,
   type PadiSocketResolution,
-  discoverPadiDaemons,
   padiSocketPath,
+  residentPadiSocket,
   resolvePadiStateRoot,
   resolveRunningPadiSocket,
 } from "./stateRoot.ts";
@@ -61,10 +62,10 @@ export {
 /** The client a dial produces — typed to the COMBINED contract, so the handshake
  *  reaches `.surface.control.core.hello()` AND a consumer can scope
  *  `.surface.padi` (via `scopeSibling`). Structurally identical to
- *  surface-nix-host's `AgentClient<PadiDaemonContract>` (both are
+ *  surface-remote's `AgentClient<PadiDaemonContract>` (both are
  *  `ContractRouterClient<C, ClientRetryPluginContext>` — the shape `stdioLink`
  *  returns), spelled from padi's OWN oRPC deps so the dial kit adds no
- *  surface-nix-host edge to padi's closure. */
+ *  surface-remote edge to padi's closure. */
 export type PadiDaemonClient = ContractRouterClient<
   PadiDaemonContract,
   ClientRetryPluginContext
@@ -91,17 +92,24 @@ export function scopePadiSurface(client: PadiDaemonClient): PadiSurfaceClient {
 
 /** padi's wire identity, from its control-core `hello`. `commit` is the RUNNING
  *  padi's navigable git build (the Padi dialog's "build commit"); optional — a
- *  survivor padi predating the hello field omits it (honest "—"). */
-export type PadiIdentity =
-  | { stateRoot: string; surfaceVersion: string; commit?: string }
-  | undefined;
+ *  survivor padi predating the hello field omits it (honest "—"). No bare
+ *  `undefined` variant: a `DaemonConnection`/`EndpointStatus` only ever carries
+ *  an `I` when `state === "connected"` (the surrounding union's OTHER arms omit
+ *  `identity` entirely via `identity?: never`), and {@link connectPadi} always
+ *  builds a full object — so a connected padi's identity is never absent, and
+ *  the absent case already has its own representation one level up. */
+export type PadiHelloIdentity = {
+  stateRoot: string;
+  surfaceVersion: string;
+  commit?: string;
+};
 export type PadiConnectionMetadata = {
   surfaceVersion: string;
   controlCoreVersion: string;
 };
 export type PadiConnection = DaemonConnection<
   PadiDaemonClient,
-  PadiIdentity,
+  PadiHelloIdentity,
   PadiConnectionMetadata
 >;
 

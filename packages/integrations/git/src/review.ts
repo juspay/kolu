@@ -39,11 +39,26 @@ import { detectDefaultBranch } from "./worktree.ts";
 
 const execFileP = promisify(execFile);
 
-/** Coerce a raw porcelain / name-status letter into the typed enum,
- *  falling back to "?" for anything unexpected. */
+/** Coerce a raw porcelain / name-status letter into the typed enum.
+ *
+ *  Every letter git actually emits from `git status --porcelain` or `git
+ *  diff --name-status` is a member of `GitChangeStatusSchema` — an
+ *  unrecognized letter means git surfaced something we've never seen (its
+ *  own docs call name-status's `X` "most probably a bug, please report
+ *  it"). Silently folding that into "?" would misreport a genuinely
+ *  tracked/committed file as untracked — a real UI lie in `branch` mode,
+ *  which never has untracked files at all. Both call sites (`getStatus`'s
+ *  local and branch paths) sit inside its try/catch, so this throw comes
+ *  out the other end as a loud `GIT_FAILED` result, not a corrupted file
+ *  list. */
 function toChangeStatus(letter: string): GitChangeStatus {
   const parsed = GitChangeStatusSchema.safeParse(letter);
-  return parsed.success ? parsed.data : "?";
+  if (!parsed.success) {
+    throw new Error(
+      `git-review: unrecognized change-status letter ${JSON.stringify(letter)}`,
+    );
+  }
+  return parsed.data;
 }
 
 /** True if the repo has an `origin` remote configured. A repo with no
@@ -172,6 +187,20 @@ async function getLocalStatus(repoPath: string): Promise<{
   }
   for (const p of status.not_added) {
     if (!seen.has(p)) seen.set(p, { path: p, status: "?" });
+  }
+
+  // simple-git types `current` as `string | null` defensively (it's the
+  // class's pre-parse default), but a real `git status -b` invocation
+  // always emits the `##` branch header — `current` is never actually
+  // null, not even on a detached HEAD (git names it literally "HEAD"
+  // there; see `GitBranchStatusSchema`). Assert rather than default to a
+  // placeholder: a genuinely null `current` means `-b`'s header line
+  // didn't parse at all, which should surface loudly, not silently degrade
+  // `name`.
+  if (status.current === null) {
+    throw new Error(
+      "git-review: `git status -b` produced no branch header (status.current is null)",
+    );
   }
 
   // The two porcelain columns answer different questions: the index column

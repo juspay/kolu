@@ -5,6 +5,7 @@
  *  (gestures, transforms, coordinates) are implementation details. */
 
 import { type Accessor, createSignal } from "solid-js";
+import type { Camera } from "../../useViewState";
 import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
 import {
@@ -135,6 +136,15 @@ export interface CanvasViewport {
   /** Set pan offset directly (canvas-space coordinates). Instant — for
    *  per-frame gesture updates that must not animate. */
   setPan: (x: number, y: number) => void;
+  /** Read the live camera pose (pan + zoom) — the per-host switch seam snapshots
+   *  the OUTGOING host's pose with this before restoring the incoming host's. */
+  snapshotCamera: () => Camera;
+  /** Restore a saved camera pose (pan + zoom) atomically. An authoritative
+   *  absolute write — like `setPan`, it goes through `beginAuthoritativeMutation`
+   *  so it kills any in-flight tween AND discards the queued gesture delta,
+   *  leaving the #1308 rAF write-coalescing intact (this is a COARSE per-switch
+   *  restore, not a per-event hook). */
+  restoreCamera: (camera: Camera) => void;
   /** Current viewport dimensions in pixels (0×0 before mount). */
   viewportSize: () => { width: number; height: number };
   /** Canvas-space point at the viewport center — the forward projection of
@@ -256,6 +266,17 @@ function setPan(x: number, y: number) {
   setPanY(y);
 }
 
+function snapshotCamera(): Camera {
+  return { panX: panX(), panY: panY(), zoom: zoom() };
+}
+
+function restoreCamera(camera: Camera) {
+  beginAuthoritativeMutation();
+  setPanX(camera.panX);
+  setPanY(camera.panY);
+  setZoom(camera.zoom);
+}
+
 // Not reactive on container resize — reads DOM directly. Pan/zoom signals
 // trigger dependents often enough that stale dimensions are short-lived.
 function viewportSize() {
@@ -299,6 +320,8 @@ const viewport: CanvasViewport = {
   centerOnTile,
   panTo,
   setPan,
+  snapshotCamera,
+  restoreCamera,
   viewportSize,
   viewportCenter,
   snapToGrid: snapToGridPure,

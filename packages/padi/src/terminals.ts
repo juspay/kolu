@@ -16,7 +16,7 @@
  */
 
 import type { TerminalId } from "@kolu/terminal-workspace/schema";
-import { terminalsDirtyChannel } from "./publisher.ts";
+import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import {
@@ -270,7 +270,7 @@ function assignActiveTerminalId(id: TerminalId | null): void {
  *  list at that point, which would clear the saved session. */
 export function setActiveTerminalId(id: TerminalId | null): void {
   assignActiveTerminalId(id);
-  if (id !== null) terminalsDirtyChannel.publish({});
+  if (id !== null) notifyDirty();
 }
 
 /** Restore the active-terminal marker from a session being adopted at boot

@@ -8,8 +8,11 @@
  * the fact to `<HostStatusPip>` / `<SurfaceGate>` — a green/ready dot over a
  * dead or half-open transport, the #1564 lie, reachable without ever touching a
  * socket or a watchdog. Its twin `buildSurfaceClient` (which also takes a raw
- * `live`) is deliberately package-private for exactly this reason; exposing the
- * registry minter through the barrel re-opened the same seam one module over.
+ * `live`) IS now exposed — but only for FRAMEWORK COMPOSITION (`@kolu/surface-map`
+ * threads an app-RESOLVED `live` into its per-key clients), gated by the half-open
+ * guard at `resolveTransport`. The registry minter has no such composition need and
+ * no guard, so exposing IT would re-open the raw-`live` forge one module over — this
+ * test pins that it stays private.
  *
  * The honest producers — `surfaceClient` / `surfaceClients`, which derive `live`
  * from a branded `LiveSignalHandle` (or constant-true for an in-process

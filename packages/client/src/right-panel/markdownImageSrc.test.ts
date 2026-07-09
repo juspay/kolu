@@ -6,39 +6,39 @@ import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 // the resolved path wraps into a per-terminal file-route URL, and a rejected
 // ref yields undefined.
 const resolve = (mdPath: string, src: string) =>
-  resolveMarkdownImageSrc("term-1", mdPath, src);
+  resolveMarkdownImageSrc("local", "term-1", mdPath, src);
 
 describe("resolveMarkdownImageSrc", () => {
   it("resolves a sibling image against the markdown file's directory", () => {
     expect(resolve("docs/readme.md", "logo.png")).toBe(
-      "/api/terminals/term-1/file/docs/logo.png",
+      "/api/terminals/local/term-1/file/docs/logo.png",
     );
     expect(resolve("docs/readme.md", "./logo.png")).toBe(
-      "/api/terminals/term-1/file/docs/logo.png",
+      "/api/terminals/local/term-1/file/docs/logo.png",
     );
   });
 
   it("resolves a top-level markdown image from the repo root", () => {
     expect(resolve("README.md", "assets/icon.svg")).toBe(
-      "/api/terminals/term-1/file/assets/icon.svg",
+      "/api/terminals/local/term-1/file/assets/icon.svg",
     );
   });
 
   it("collapses ../ against the file's directory", () => {
     expect(resolve("docs/guide/readme.md", "../img/x.png")).toBe(
-      "/api/terminals/term-1/file/docs/img/x.png",
+      "/api/terminals/local/term-1/file/docs/img/x.png",
     );
   });
 
   it("treats a root-absolute src as repo-root-relative", () => {
     expect(resolve("docs/readme.md", "/img/x.png")).toBe(
-      "/api/terminals/term-1/file/img/x.png",
+      "/api/terminals/local/term-1/file/img/x.png",
     );
   });
 
   it("percent-encodes path segments", () => {
     expect(resolve("README.md", "my images/a b.png")).toBe(
-      "/api/terminals/term-1/file/my%20images/a%20b.png",
+      "/api/terminals/local/term-1/file/my%20images/a%20b.png",
     );
   });
 
@@ -60,7 +60,7 @@ describe("resolveMarkdownImageSrc", () => {
   it("decodes URL-escaped segments so they aren't double-encoded", () => {
     // `my%20images` names a `my images` dir on disk; the route re-encodes once.
     expect(resolve("README.md", "my%20images/logo.png")).toBe(
-      "/api/terminals/term-1/file/my%20images/logo.png",
+      "/api/terminals/local/term-1/file/my%20images/logo.png",
     );
   });
 

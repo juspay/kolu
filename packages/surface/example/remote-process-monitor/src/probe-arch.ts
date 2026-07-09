@@ -1,14 +1,14 @@
 /**
  * Print the nix-system identifier for the host given as argv[2].
  *
- * Thin CLI wrapper around `@kolu/surface-nix-host`'s `resolveSystem`,
+ * Thin CLI wrapper around `@kolu/surface-remote`'s `resolveSystem`,
  * exposed so the example's `just dev` recipe can do its per-host arch
  * probe without shelling `nix-instantiate` + quote-stripping by hand.
  * Shell stays the right tool for the `just` layer; the probe stays the
  * library's responsibility.
  */
 
-import { resolveSystem } from "@kolu/surface-nix-host";
+import { resolveSystem } from "@kolu/surface-remote";
 
 const host = process.argv[2];
 if (host === undefined || host.length === 0) {

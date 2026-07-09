@@ -1,0 +1,153 @@
+---
+title: "@kolu/surface reference"
+description: "The core API: defineSurface and the five member kinds, implementSurface and the stores, the SolidJS client, the link family, and liveness."
+order: 230
+section: Basics · Reference
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Snippet from "../../components/docs/Snippet.astro";
+
+The core package. You declare a surface with `defineSurface`, serve it with
+`implementSurface`, and consume it with `surfaceClient`. Everything below is
+imported from a `@kolu/surface/*` subpath.
+
+## Defining a surface
+
+`defineSurface(spec)` declares the whole reactive surface of an app at one site
+and returns a `Surface<S>`. The contract is a compile-time literal built from
+the spec — the framework does not reflect it at runtime, because the typed
+client needs the literal at compile time.
+
+<Snippet src="packages/surface/example/snippets/surface.ts" region="define" />
+
+A surface has five member kinds. The first four are the reactive primitives;
+`procedures` is the imperative escape hatch.
+
+| Member | Question it answers | Cardinality | Server sends | Client-mutable | Current value |
+| --- | --- | --- | --- | --- | --- |
+| `cells` | "What's the current X?" | one singleton | snapshot, then deltas | yes | yes |
+| `collections` | "current X for each key?" | many, keyed | per-key snapshot, then deltas | yes | yes (per key) |
+| `streams` | "live output for input I?" | one per input | snapshot, then deltas | no | yes |
+| `events` | "has X happened?" | occurrences | occurrences, **no snapshot** | no | no (handler-based) |
+| `procedures` | "do this now" | per call | a return value | — | — |
+
+Cells, collections, and streams are *state* — a current value to render. An
+event is an *occurrence* — a handler fires per yield and there is no current
+value. Anything genuinely outside these shapes (bidirectional binary streams,
+commands) stays as raw [oRPC](https://orpc.dev/docs/contract-first/define-contract). For why these four and not one, see
+[Why surfaces](/surface/why-surfaces).
+
+The `Surface<S>` value carries `surface.contract` (the typed oRPC router that
+replaces a hand-written `oc.router`), `surface.descriptors`, and `surface.spec`.
+Read member types back with `SurfaceTypes<typeof surface.spec>`.
+
+Every surface also carries two framework-reserved procedures,
+`surface.system.live` and `surface.system.identity`, both injected by
+`defineSurface` and auto-answered by the server — no app declares or implements
+them (see [Liveness](#liveness-and-health)).
+
+To key several standalone surfaces under one namespace over one transport, use
+`composeSurfaceContracts({ <key>: surface })`.
+
+## Serving a surface
+
+`implementSurface(surface, deps)` wires every handler and returns a router
+fragment plus a `ctx` for typed mutations. Persistence and pub/sub are supplied
+as dependencies.
+
+<Snippet src="packages/surface/example/snippets/serve.ts" region="implement" />
+
+Dependency shapes, per member:
+
+- `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`.
+- `collections: { <k>: { readAll, upsert, remove } }` — persistence only; the surface wraps publish.
+- `streams: { <k>: { source } }` — or a declarative poll form `{ read, install, isEqual }`. Supplying both is a type error.
+- `procedures: { <ns>: { <verb>: async ({ input, ctx, signal }) => … } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single.
+
+Stores and channels:
+
+| Adapter | Import | Purpose |
+| --- | --- | --- |
+| `inMemoryStore<T>(initial)` | `@kolu/surface/server` | in-memory cell store |
+| `confStore<T>(conf, key)` | `@kolu/surface/server` | conf-backed persistent cell |
+| `inMemoryChannel<T>()` | `@kolu/surface/server` | single-process broadcast |
+| `inMemoryChannelByName()` | `@kolu/surface/server` | the `channel` factory form |
+| `publisherChannel<T>(publisher, name)` | `@kolu/surface/server` | `@orpc/experimental-publisher` adapter |
+
+`implementSurfaces(surfaces, framework, deps)` serves N surfaces over one
+transport, keyed the same as the map.
+
+<Aside type="caution" title="Flatten before you serve">
+  `implementSurface` returns a router **fragment** shaped `{ surface: … }`.
+  Passing it straight to a transport double-prefixes the matcher tree
+  (`/surface/surface/…`) and every request 404s. Wrap it once:
+
+  <Snippet src="packages/surface/example/snippets/serve.ts" region="flatten" />
+
+  (`implement` is re-exported from `@kolu/surface/peer-server`.)
+</Aside>
+
+## Consuming in SolidJS
+
+`surfaceClient(surface, link)` returns a client with a bound accessor per
+member. It replaces the `source` / `mutate` / `keyToInput` refs you would
+otherwise thread at every hook.
+
+<Snippet src="packages/surface/example/snippets/consume-solid.ts" region="solid" />
+
+| Member | Hook | Returns |
+| --- | --- | --- |
+| cell | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | an accessor; mutate with `.set(v)` / `.patch(p)` |
+| collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)` |
+| stream | `.streams.X.use(inputFn, { onError? })` | an accessor plus `.pending()` and `.error()` |
+| event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
+| procedure | `.rpc.surface.<ns>.<verb>(input)` | the typed result |
+
+A cell's `authority` is `"server"` (default — every push reconciles) or
+`"local"` (the local store wins after the first server yield). An `inputFn`
+that returns `null` pauses a stream or event. `surfaceClients(link, map)` splits
+one combined transport into a sibling client per surface.
+
+<Aside type="caution" title="Wire links must carry a watchdog">
+  `surfaceClient` throws if handed a bare wire link — a `websocketLink` /
+  `stdioLink` / `unixSocketLink` can silently half-open. Pass a watchdog-backed
+  handle from `connectSurface` (see [@kolu/surface-app](/surface/ref-surface-app)),
+  or a bare `directLink` (its transport is honestly always-live).
+</Aside>
+
+## Links
+
+A link maps a way of reaching the served contract to a typed client. Pick one
+per transport; see [How to choose a link](/surface/choose-a-link).
+
+| Link | Import | Reaches |
+| --- | --- | --- |
+| `websocketLink(ws)` | `@kolu/surface/links/websocket` | a server over a WebSocket (the browser path) |
+| `stdioLink({ read, write })` | `@kolu/surface/links/stdio` | a subprocess or ssh stdio pair |
+| `unixSocketLink({ socketPath })` | `@kolu/surface/links/unix-socket` | a daemon on the same machine (async; it dials) |
+| `directLink(router)` | `@kolu/surface/links/direct` | the in-process handlers, no wire (the identity element) |
+
+Matching serve-side entry points: `serveOverStdio`, `serveOverUnixSocket`, and
+oRPC's `RPCHandler` (`.upgrade(ws)`) for browsers.
+
+## Liveness and health
+
+Liveness is on by construction. `surface.system.live` (`@kolu/surface/liveness`)
+is a contract-agnostic round-trip a client watchdog calls to tell a live link
+from a silently half-open one — no app nominates its own probe. `probeSurfaceLive(client)`
+is the one-liner that calls it; the socket and ssh seams default their watchdog
+to it.
+
+`client.health()` returns a **fact**, not a verdict:
+`{ live: boolean, subs: [{ name, pending, error }] }`. `live` is the full
+conjunction of transport-live and every readiness predicate; a subscription
+error stays in `subs` and is never folded into `live`. This is what lets the
+UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
+
+## Cross-cutting invariants
+
+- **Snapshot-then-deltas.** The first frame of every stream is a fresh full snapshot; every server helper enforces it, because the retry plugin re-invokes the source on each reconnect and a delta-first frame would silently lose state.
+- **`patch` is a cross-runtime contract.** A cell's `patch(current, p)` runs on both the server and the client. Treat any change to it as a wire-format change and redeploy both sides together.
+- **A raw stream joins health through `client.rawStream` / `client.enroll`** so it can't escape `health()`. `unenrolledStreamCall` (`@kolu/surface/client`) carries the reconnect context for non-descriptor shapes.
+- **The 2-file invariant.** Adding a member is one spec entry plus one wiring entry. If the count creeps up, something is wrong.

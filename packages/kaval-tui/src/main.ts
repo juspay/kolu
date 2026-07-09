@@ -31,7 +31,7 @@
  * The CLI comes and goes; the daemon keeps owning the PTYs — `create` mints one,
  * the daemon holds it until `kill` (or another client) ends it.
  */
-import { writeSync } from "node:fs";
+import { fstatSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
@@ -54,11 +54,13 @@ import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { runKill } from "./kill.ts";
 import {
   ACCEPTED_KEY_NAMES,
-  DEFAULT_SUBMIT_GRACE_MS,
   encodeKey,
-  parseSubmitGrace,
   planSend,
-  submitSwallowedPositional,
+  rejectUnknownSendFlags,
+  resolveSendInput,
+  type SendInput,
+  sourceIsStream,
+  sourceLabel,
 } from "./send.ts";
 import { executeSendPlan } from "./sendExec.ts";
 import {
@@ -193,9 +195,9 @@ const argv = cli({
       parameters: ["<id>", "[text...]"],
       help: {
         description:
-          "Write input to a terminal — e.g. a prompt to a Claude Code / Codex / opencode agent running in it. Sends EXACTLY the text (and any `--key`s) you pass — no implicit Enter. To submit a prompt in ONE command, add `--submit`: it writes the text, waits a grace, then sends Enter (the delay clears the TUI's paste debounce, which silently drops an Enter sent in the same breath). Or submit by hand as its own step: `kaval-tui send <id> --key Enter`. Multiline or piped-stdin text is sent as one bracketed paste so it lands as a block, not line-by-line. Text comes from the positional words or stdin; `--key` sends named/control keys (" +
+          'Write input to a terminal — e.g. a prompt to a Claude Code / Codex / opencode agent running in it. Sends EXACTLY the text you pass, OR the `--key`s — NEVER both in one send, and never an implicit Enter. Submitting a prompt is its OWN command, because a same-breath Enter is raced by the TUI\'s paste debounce and dropped. The canonical three-step flow for a NORMAL-size prompt: `send <id> "the prompt"` (the text) · `wait <id> --until idle:300` (observe the TUI settle) · `send <id> --key Enter` (submit). Known limitation: a LARGE paste that Claude Code folds into a placeholder does not reliably submit on Enter (issue #1702) — for a big brief, write it to a file and send a short `read <path>` prompt instead. Multiline, `--file`, or piped-stdin text is sent as one bracketed paste so it lands as a block, not line-by-line. Text comes from the positional words, `--file <path>`, or stdin; `--key` sends named/control keys (' +
           ACCEPTED_KEY_NAMES +
-          "; chords: C-c, M-b) after it. <id> is the short id from `list` or any unique prefix.",
+          "; chords: C-c, M-b). <id> is the short id from `list` or any unique prefix.",
       },
       flags: {
         ...endpointFlags,
@@ -216,26 +218,19 @@ const argv = cli({
         key: {
           type: [String],
           description:
-            "a named/control key to send after the text — repeatable, in order. Pass `--key Enter` to submit by hand (or use `--submit`). Names: " +
+            "a named/control key to send — repeatable, in order. Submit a staged prompt with `--key Enter` as its OWN send (never in the same command as text). Names: " +
             ACCEPTED_KEY_NAMES +
             "; chords: C-c, M-b.",
         },
-        // A String flag, not Boolean: a Boolean silently swallows `--submit=250`
-        // (drops the tuned grace), whereas String captures "" for a bare
-        // `--submit` and the digits for `--submit=<ms>`. Parsed + validated in
-        // the dispatch (`parseSubmitGrace`), inside the command's try, so a bad
-        // value fails as a clean `kaval-tui:` error, not an argv-parse crash.
-        submit: {
+        file: {
           type: String,
           description:
-            "after writing the text, wait a grace then send Enter — submit a prompt in one command. The delay clears the TUI's paste debounce (an Enter sent in the same breath is dropped). Bare `--submit` waits " +
-            DEFAULT_SUBMIT_GRACE_MS +
-            "ms; `--submit=<ms>` tunes it. Owns the Enter, so it is mutually exclusive with --key.",
+            'read the send text from a file instead of the positional words — avoids the `"$(cat file)"` shell mangling of payloads with backticks / $( ). Mutually exclusive with positional text and piped stdin. Sent as a bracketed paste, same as any block: it fixes the SHELL hazard, NOT the wire bytes — a large --file payload still hits the large-paste-doesn\'t-submit limitation (issue #1702), so it is not a large-paste workaround.',
         },
         json: {
           type: Boolean,
           description:
-            "machine-readable JSON output ({ id, bytes, paste, keys }; adds submitted + graceMs under --submit)",
+            "machine-readable JSON output ({ id, bytes, paste, keys })",
           default: false,
         },
       },
@@ -252,7 +247,7 @@ const argv = cli({
         until: {
           type: String,
           description:
-            "the condition to wait for: idle:<ms> (no output for <ms> — turn ended) or match:<regex> (new output matches)",
+            "the condition to wait for: idle:<ms> (no output for <ms> — turn ended / at the prompt) or match:<regex> (new output matches). Note: idle never fires against a target that streams output continuously (a busy, mid-turn agent) — pair it with --timeout there and treat a timeout as 'target busy'.",
         },
         timeout: {
           type: Number,
@@ -463,21 +458,67 @@ async function cmdCreate(
   );
 }
 
-/** Read all of stdin to a UTF-8 string — the `send` payload when no positional
- *  text is given (a piped file or heredoc). Called only when stdin is NOT a tty,
- *  so it never blocks on an interactive keyboard. */
+/** Read all of stdin to a UTF-8 string — the `send` payload for a `< file`
+ *  redirect, heredoc, or `| cmd` pipe. Called only when {@link stdinIsPayload}
+ *  is true, so it never blocks on an interactive keyboard or an ambient socket. */
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** Is fd 0 a DELIBERATE stdin payload — a `fifo` (`| cmd`) or a `regular file`
+ *  (`< file` / a heredoc)? A bare `!isTTY` is too broad: an agent driving `send`
+ *  from a subprocess inherits a `socket` on stdin (and `/dev/null` is a char
+ *  device), neither of which is a payload the user piped in. Distinguishing them
+ *  by `fstat` keeps `--file` usable in exactly that agent context (stdin isn't a
+ *  competing source) while still catching a real `< file` collision. A closed or
+ *  unstattable fd 0 is treated as "no payload" (fail-safe, not fail-loud — the
+ *  absence of readable stdin, not a corrupt one). */
+function stdinIsPayload(): boolean {
+  try {
+    const st = fstatSync(0);
+    return st.isFIFO() || st.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Read the send TEXT from the resolved, pre-validated source. `resolveSendInput`
+ *  has already rejected every illegal combination, so this just fetches from the
+ *  one live source: the positional words re-joined (the shell already split
+ *  them), a `--file` payload, piped stdin, or nothing (a keys-only send). */
+async function readSendText(
+  input: SendInput,
+  textArgs: readonly string[],
+): Promise<string> {
+  switch (input.kind) {
+    case "positional":
+      return textArgs.join(" ");
+    case "stdin":
+      return readStdin();
+    case "file":
+      // The path rides the descriptor (no cast). Read it as raw UTF-8 — no shell
+      // in the loop, so backticks / $( ) in the payload reach the wire byte-exact.
+      try {
+        return readFileSync(input.path, "utf8");
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException;
+        throw new Error(
+          `--file ${JSON.stringify(input.path)}: ${e.code === "ENOENT" ? "no such file" : e.message}`,
+        );
+      }
+    case "none":
+      return "";
+  }
+}
+
 /** Write input to a terminal — the *raw* write half of driving a program (a
  *  prompt to an agent). One-shot: it issues each planned `terminal.write` in
- *  order and exits, with no `enqueue` serialization (that guards `attach`'s
- *  concurrent keystroke+resize loop; a single send has nothing to race). With
- *  `--submit` it adds one scheduled step: after the writes, wait the grace then
- *  write Enter — the only place a `send` emits an Enter the caller didn't type. */
+ *  order (bounded by the send write deadline) and exits, with no `enqueue`
+ *  serialization (that guards `attach`'s concurrent keystroke+resize loop; a
+ *  single send has nothing to race). It never synthesizes an Enter — submit is
+ *  the caller's own separate `send <id> --key Enter`. */
 async function cmdSend(
   conn: Connection,
   id: string,
@@ -486,20 +527,23 @@ async function cmdSend(
     json: boolean;
     paste: boolean | undefined;
     key: readonly string[];
-    /** `--submit`'s grace in ms, or `undefined` for a plain send. The caller has
-     *  already parsed the flag and rejected `--submit` + `--key`. */
-    submitGraceMs: number | undefined;
+    /** The single validated text source (`resolveSendInput`), carrying its own
+     *  payload locus — the `--file` path rides the descriptor. */
+    input: SendInput;
   },
 ): Promise<void> {
-  // The text to send: the positional words re-joined (the shell already split
-  // them), or piped stdin when no positional is given. Read stdin only when it's
-  // not a tty, so an interactive `send <id>` with nothing to say fails loud below
-  // instead of blocking on the keyboard.
-  let text = textArgs.join(" ");
-  let fromStdin = false;
-  if (text === "" && !process.stdin.isTTY) {
-    text = await readStdin();
-    fromStdin = true;
+  const text = await readSendText(flags.input, textArgs);
+
+  // A text source that reads back EMPTY (an empty --file, an empty pipe/heredoc,
+  // or a literal `send <id> ""`) has nothing to submit — fail loud instead of a
+  // silent 0-byte "sent" that would mask the upstream failure that produced the
+  // empty payload. `none` (a keys-only send) has no text and is exempt. Emptiness
+  // is a property of the READ content, so it's caught here (post-read) rather than
+  // in `resolveSendInput` (which validates the flag combination, pre-read).
+  if (flags.input.kind !== "none" && text.length === 0) {
+    fail(
+      `nothing to send — ${sourceLabel(flags.input)} is empty. A 0-byte send is a no-op that would hide whatever produced the empty payload; pass non-empty text, or use --key to send a key.`,
+    );
   }
 
   // Encode the named/control keys up front so an unknown key fails loud BEFORE
@@ -515,47 +559,43 @@ async function cmdSend(
     keyData += bytes;
   }
 
-  if (text === "" && keyData === "" && flags.submitGraceMs === undefined) {
-    fail(
-      'nothing to send — pass text, pipe it on stdin, or use --key (e.g. `kaval-tui send <id> "hello"` or `kaval-tui send <id> --key Escape`).',
-    );
-  }
-
-  const plan = planSend({
-    text,
-    paste: flags.paste,
-    fromStdin,
-    keyData,
-    submitGraceMs: flags.submitGraceMs,
-  });
+  // The resolved source already settled text-vs-keys (a `none` source is a
+  // keys-only send; anything else is a text send — `resolveSendInput` forbids the
+  // mix), so pick the plan arm from it rather than re-sniffing `text.length`. That
+  // keeps the single source of truth for "text vs keys" in `resolveSendInput` and
+  // makes text+keys unspellable at the plan boundary.
+  const plan =
+    flags.input.kind === "none"
+      ? planSend({ kind: "keys", keyData })
+      : planSend({
+          kind: "text",
+          text,
+          paste: flags.paste,
+          // A --file or piped-stdin payload is a block, so it auto-pastes even
+          // when single-line (a file is one payload, not a line typed at a prompt).
+          fromStream: sourceIsStream(flags.input),
+        });
   // Drive the plan through the shared executor: it issues each write in order
-  // (backpressure preserved), then — under `--submit` — waits the grace and
-  // sends Enter past the TUI's paste debounce. The acceptance test runs this
+  // (backpressure preserved) under a bounded write deadline, so a terminal that
+  // isn't draining fails loud instead of hanging. The acceptance test runs this
   // SAME function, so it validates the shipped sequencing, not a replica.
-  await executeSendPlan(plan, async (data) => {
-    await conn.client.surface.terminal.write({ id, data });
-  });
+  await executeSendPlan(
+    plan,
+    async (data) => {
+      await conn.client.surface.terminal.write({ id, data });
+    },
+    shortId(id),
+  );
 
-  // Carry the plan's coupled submit shape ({ graceMs } | null) on the internal
-  // result — one field, so a grace can't exist without the submit. formatSend
-  // reads it directly; the flat --json contract is projected only at the edge.
   const result = {
     id,
     bytes: plan.bytes,
     paste: plan.paste,
     keys: flags.key,
-    submit: plan.submit,
   };
   if (flags.json) {
-    // Full id (for scripts), 2-space indented like `create --json`. The wire
-    // contract stays the documented flat pair — flatten the coupled `submit`
-    // ONLY here, at the serialization edge, never on the internal shape.
-    const { submit, ...rest } = result;
-    const json = {
-      ...rest,
-      ...(submit ? { submitted: true as const, graceMs: submit.graceMs } : {}),
-    };
-    await writeOut(`${JSON.stringify(json, null, 2)}\n`);
+    // Full id (for scripts), 2-space indented like `create --json`.
+    await writeOut(`${JSON.stringify(result, null, 2)}\n`);
     return;
   }
   // Quiet stdout, status on stderr — there's no scriptable payload, so a non-json
@@ -864,56 +904,45 @@ async function main(): Promise<void> {
     };
   }
 
-  // `send`'s flag checks are pure too, so validate + parse them BEFORE the dial,
-  // same as `wait`: a conflicting/junk flag fails fast with no connection to tear
-  // down (and, under --host, no daemon to provision then drop). `sendCall`
-  // carries the whole validated invocation — the resolved paste tristate, the
-  // keys, the parsed submit grace, and the output mode — and is non-null exactly
-  // when the command is `send`, so the dispatch keys off it directly.
+  // `send`'s flag checks are pure too, so validate them BEFORE the dial, same as
+  // `wait`: a conflicting flag fails fast with no connection to tear down (and,
+  // under --host, no daemon to provision then drop). `sendCall` carries the whole
+  // validated invocation — the resolved paste tristate, the keys, the resolved
+  // text source, and the output mode — and is non-null exactly when the command
+  // is `send`, so the dispatch keys off it directly.
   let sendCall: {
     text: readonly string[];
     paste: boolean | undefined;
     key: readonly string[];
-    submitGraceMs: number | undefined;
+    input: SendInput;
     json: boolean;
   } | null = null;
   if (argv.command === "send") {
-    // The tristate lives in two Boolean flags, so the both-set combination is
-    // expressible but illegal — crash loud rather than silently pick one.
-    if (argv.flags.paste && argv.flags.noPaste)
-      fail(
-        "--paste and --no-paste are mutually exclusive — pass at most one (omit both for auto).",
-      );
-    // `--submit` carries the Enter itself, so pairing it with `--key` (the
-    // control-sequence channel — Escape, C-c, Enter) is ambiguous about who owns
-    // the submit. Reject it; for manual control use raw `send … --key Enter`.
-    if (argv.flags.submit !== undefined && argv.flags.key.length > 0)
-      fail(
-        "--submit and --key are mutually exclusive — --submit owns the Enter. Drop --key, or use raw `send … --key Enter` (no --submit) for manual control.",
-      );
-    // type-flag resolves a bare `--submit <word>` (space, no `=`) by swallowing
-    // the next positional as the grace — silently dropping the prompt text. Catch
-    // that here so it fails loud instead of submitting an empty line: the grace
-    // must come via `=`, or a bare `--submit` must sit after the text.
-    if (
-      argv.flags.submit !== undefined &&
-      submitSwallowedPositional(process.argv, argv.flags.submit)
-    )
-      fail(
-        "`--submit <value>` is ambiguous — a bare `--submit` swallows the next word as its grace, dropping your prompt text. Pass the grace with an equals (`--submit=<ms>`), or put a bare `--submit` after the text.",
-      );
+    // `send`'s flags are a closed set, so an unknown flag is a typo or a removed
+    // flag — fail loud, never silently ignore (a `--submit` quietly dropped would
+    // send the text UNSUBMITTED, the exact footgun this command removed). `--submit`
+    // gets a migration message; cleye collects the rest in `unknownFlags`.
+    rejectUnknownSendFlags(Object.keys(argv.unknownFlags));
+    // Validate the WHOLE send-input combination and resolve the single text
+    // source — the paste/no-paste exclusion, text+--key, two sources at once, and
+    // the empty send all live in this ONE pure validator, pre-dial. It throws a
+    // teaching error surfaced as `kaval-tui:` by main()'s catch; `stdinIsPayload()`
+    // `fstat`s fd 0 so an agent's ambient socket stdin doesn't read as a source.
+    const input = resolveSendInput({
+      hasPositional: argv._.text.length > 0,
+      file: argv.flags.file,
+      stdinIsPayload: stdinIsPayload(),
+      hasKeys: argv.flags.key.length > 0,
+      paste: argv.flags.paste === true,
+      noPaste: argv.flags.noPaste === true,
+    });
     sendCall = {
       text: argv._.text,
-      // Tristate: `--paste` forces on, `--no-paste` off, neither = auto.
+      // Tristate: `--paste` forces on, `--no-paste` off, neither = auto. (The
+      // both-set conflict is already rejected by resolveSendInput above.)
       paste: argv.flags.paste ? true : argv.flags.noPaste ? false : undefined,
       key: argv.flags.key,
-      // Absent flag → undefined (plain send); present → parse "" | "<ms>" into
-      // the grace, failing loud on junk (parseSubmitGrace throws here, pre-dial,
-      // surfacing as a clean `kaval-tui:` error via main()'s catch).
-      submitGraceMs:
-        argv.flags.submit === undefined
-          ? undefined
-          : parseSubmitGrace(argv.flags.submit),
+      input,
       json: argv.flags.json,
     };
   }
@@ -982,7 +1011,7 @@ async function main(): Promise<void> {
         json: sendCall.json,
         paste: sendCall.paste,
         key: sendCall.key,
-        submitGraceMs: sendCall.submitGraceMs,
+        input: sendCall.input,
       });
     } else if (waitCall !== null) {
       // `waitCall` is non-null exactly when the command is `wait` (parsed +

@@ -2,10 +2,12 @@ import { isContractVersionCompatible } from "@kolu/surface/define";
 import { describe, expect, it } from "vitest";
 import {
   CONTROL_CORE_VERSION,
+  DEFAULT_PADI_IDENTITY,
   DEFAULT_PADI_VERSION,
   PADI_FORWARDING_POLICY,
   PADI_SURFACE_VERSION,
   PadiHelloSchema,
+  PadiIdentitySchema,
   PadiPreviewReadInputSchema,
   PadiPreviewReadOutputSchema,
   PadiTerminalSchema,
@@ -22,17 +24,19 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 1.1, and DEFAULT_PADI_VERSION carries + validates it", () => {
-    // 1.1 ADDS `lifecycle.recycleKaval` (the "Restart kaval" button) — an
-    // additive minor over 1.0.
-    expect(PADI_SURFACE_VERSION).toBe("1.1");
+  it("is version 1.3, and DEFAULT_PADI_VERSION carries + validates it", () => {
+    // 1.1 ADDED `lifecycle.recycleKaval` (the "Restart kaval" button); 1.2 ADDS the
+    // `hostInventory` cell (the "Running daemons" leak diagnostic); 1.3 ADDS the
+    // `identity` cell (padi's own build commit/surfaceVersion/boot time, per host)
+    // — all additive minors over 1.0.
+    expect(PADI_SURFACE_VERSION).toBe("1.3");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
     );
     // A newer additive minor (a future 1.x) still serves a 1.0 consumer; a
     // major bump is mutually incompatible in both directions.
-    expect(isContractVersionCompatible("1.1", "1.0")).toBe(true);
+    expect(isContractVersionCompatible("1.3", "1.0")).toBe(true);
     expect(isContractVersionCompatible("2.0", "1.0")).toBe(false);
     expect(isContractVersionCompatible("1.0", "2.0")).toBe(false);
   });
@@ -41,8 +45,10 @@ describe("padiSurface 1.0 contract", () => {
     const spec = padiSurface.spec;
     expect(Object.keys(spec.cells ?? {})).toEqual([
       "version",
+      "identity",
       "urgency",
       "status",
+      "hostInventory",
       "processMemory",
       "activityFeed",
       "session",
@@ -119,6 +125,34 @@ describe("padiSurface 1.0 contract", () => {
     ]);
   });
 
+  it("the 1.3 `identity` cell DECLARES a nullable commit — never conflated with cell-pending (absence)", () => {
+    // `commit: null` is a legitimate, DECLARED value on the wire (a dev/off-nix
+    // build with no commit) — schema-valid, unlike an absent field.
+    const declaredNoCommit = {
+      commit: null,
+      surfaceVersion: PADI_SURFACE_VERSION,
+      startedAt: 1_700_000_000_000,
+    };
+    expect(PadiIdentitySchema.parse(declaredNoCommit)).toEqual(
+      declaredNoCommit,
+    );
+    // A real commit round-trips too.
+    const withCommit = { ...declaredNoCommit, commit: "abc1234" };
+    expect(PadiIdentitySchema.parse(withCommit)).toEqual(withCommit);
+    // `commit` is REQUIRED-but-nullable on the wire shape — an absent `commit` key
+    // fails validation (it must be an explicit `null`, never an omitted field) —
+    // the schema-level half of "pending ≠ declared-null": the client's OWN
+    // pending state is the SUBSCRIPTION never having yielded this shape at all,
+    // never a value that validates with the field missing.
+    expect(() =>
+      PadiIdentitySchema.parse({
+        surfaceVersion: PADI_SURFACE_VERSION,
+        startedAt: 0,
+      }),
+    ).toThrow();
+    expect(DEFAULT_PADI_IDENTITY.commit).toBeNull();
+  });
+
   it("annotates EVERY member with a forwarding policy — no gap, no orphan", () => {
     const members = new Set(padiMemberKeys());
     const annotated = new Set(Object.keys(PADI_FORWARDING_POLICY));
@@ -145,6 +179,10 @@ describe("padiSurface 1.0 contract", () => {
     // a rebind replays the current session / activity-feed snapshot.
     expect(PADI_FORWARDING_POLICY.session).toBe("value");
     expect(PADI_FORWARDING_POLICY.activityFeed).toBe("value");
+    // The 1.2 host-inventory cell is value — a rebind replays the current daemon
+    // scan snapshot (so the re-served surface hands the dialog the bound host's
+    // list identically local and remote).
+    expect(PADI_FORWARDING_POLICY.hostInventory).toBe("value");
   });
 
   it("the terminals value carries the active | sleeping | parked union", () => {

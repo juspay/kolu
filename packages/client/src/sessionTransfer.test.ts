@@ -34,7 +34,11 @@ describe("parseSavedSession", () => {
   });
 
   it("accepts an empty-terminals session", () => {
-    const empty: SavedSession = { terminals: [], savedAt: 1 };
+    const empty: SavedSession = {
+      terminals: [],
+      activeTerminalId: null,
+      savedAt: 1,
+    };
     expect(parseSavedSession(JSON.stringify(empty))).toEqual(empty);
   });
 

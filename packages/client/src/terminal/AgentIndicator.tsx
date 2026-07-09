@@ -54,6 +54,10 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const label = () => stateLabels[props.agent.state];
   // Live elapsed-since formatter for the running-for badge; ticks every second
   // off the shared clock, the same readout the inspector's "Running for" uses.
+  // `startedAt` is already reprojected to the browser clock at the metadata INGESTION
+  // boundary (`useTerminalMetadata.reprojectClock`), so a plain local-clock duration +
+  // absolute instant are correct here — no per-consumer reprojection (the boundary owns
+  // it; a warming host's `startedAt` arrives as 0, gated out by the `<Show>` below).
   const runningFor = useDuration();
   return (
     <span

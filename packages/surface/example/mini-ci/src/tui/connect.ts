@@ -1,5 +1,5 @@
 /**
- * Connect the TUI to the runner via `@kolu/surface-nix-host`'s `HostSession`
+ * Connect the TUI to the runner via `@kolu/surface-remote`'s `HostSession`
  * — **the drishti way**. `nix copy`s the prebuilt `mini-ci-runner` closure to
  * the host (skipped for localhost), realises it there, and runs
  * `mini-ci-runner --stdio` over ssh; `HostSession` owns the ref-count,
@@ -15,14 +15,15 @@
 
 import {
   type AgentClient,
-  getHostSession,
-  type HostSession,
-  type HostSessionState,
-} from "@kolu/surface-nix-host";
+  makeSession,
+  type Session,
+  type SessionState,
+  sshConnector,
+} from "@kolu/surface-remote";
 import type { surface } from "../common/surface";
 
 export type RunnerClient = AgentClient<typeof surface.contract>;
-export type RunnerSession = HostSession<typeof surface.contract>;
+export type RunnerSession = Session<RunnerClient>;
 
 export interface Connection {
   /** The typed runner client, once the link is live. */
@@ -37,7 +38,7 @@ export interface ConnectOptions {
   /** ssh target; `localhost` runs the realised binary directly. */
   host: string;
   /** Connection-state updates (copying / connecting / connected / …). */
-  onState?: (state: HostSessionState) => void;
+  onState?: (state: SessionState) => void;
 }
 
 /** Open a session and resolve once the link is up (the agent spawned). The
@@ -51,12 +52,16 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
         "  Use `just run [host]` (resolves it via an arch probe), or `nix run .#mini-ci` (bakes the current system's drv).",
     );
   }
-  const session = getHostSession<typeof surface.contract>({
-    host: opts.host,
-    // Constant resolver: the justfile already picked the host-arch drv. A
-    // consumer that defers the probe would call `resolveSystem(host)` here.
-    resolveDrvPath: () => Promise.resolve(drv),
-    binary: "mini-ci-runner",
+  const session = makeSession<RunnerClient>({
+    initialConnection: "copying",
+    connectOnce: sshConnector<typeof surface.contract>({
+      host: opts.host,
+      binary: "mini-ci-runner",
+      // Constant resolver: the justfile already picked the host-arch drv. A
+      // consumer that defers the probe would call `resolveSystem(host)` here.
+      resolveDrvPath: () => Promise.resolve(drv),
+    }),
+    label: `host:${opts.host}`,
   });
   if (opts.onState !== undefined) session.onState(opts.onState);
   const client = await session.pin();

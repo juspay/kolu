@@ -25,7 +25,7 @@
 
 // The shared, gate-closed connection cell + the seam that composes it — the
 // SAME source of truth pulam-web uses, instead of a hand-rolled parallel copy.
-import { mirroredSurface } from "@kolu/surface-nix-host/connection";
+import { mirroredSurface } from "@kolu/surface-remote/connection";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import { z } from "zod";
 
@@ -33,7 +33,7 @@ export {
   type ConnectionInfo,
   type ConnectionState,
   DEFAULT_CONNECTION,
-} from "@kolu/surface-nix-host/connection";
+} from "@kolu/surface-remote/connection";
 
 const PidSchema = z.number().int().nonnegative();
 const ProcessSchema = z.object({
@@ -102,7 +102,7 @@ export const surface = defineSurface({
       default: DEFAULT_SYSTEM,
     },
     // NOTE: no `connection` cell here. Link health is composed ONLY at the
-    // nix-host re-serve seam via `mirroredSurface(surface)` below — the agent
+    // remote re-serve seam via `mirroredSurface(surface)` below — the agent
     // serves this connection-free base; the parent mirrors it and adds the cell.
   },
   collections: {

@@ -26,7 +26,14 @@ dependencies:
     # alongside the remote packages below. See agents/README.md.
     - path: ./agents
     - srid/agency#master
-    - srid/llm-debate
+    # NOTE: srid/llm-debate (the `/debate` skill, added in #1622) was REMOVED here.
+    # It's a full apm PACKAGE (has its own apm.yml), so no ref form both (a) scopes
+    # to just its `debate` skill — avoiding llm-debate's apm.yml, whose stale
+    # self-reference to kolu's own `kolu` skill clobbers it under last-installed-wins
+    # — AND (b) emits `.claude/skills/debate/`. The org/repo/path skill-path form
+    # (like the juspay/skills entries below) only emits for a repo WITHOUT an
+    # apm.yml. Dropped for now; to be re-added properly in a future PR (e.g. after
+    # llm-debate's apm.yml pin to kolu's `kolu` skill is bumped past the padi rename).
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - juspay/skills/skills/pg

@@ -1,0 +1,98 @@
+---
+title: The surface framework's client half, taught — what surface-map added
+description: "A plain-words primer on @kolu/surface-map — a dynamic keyed map of remote surfaces over one socket — and the client story built on it: the entries membership authority, EntryStatus<Cause>, useEntry, per-key subscription slots, and typed teardown. kolu and drishti appear as the two proving consumers."
+parents: [pedagogy, padi]
+maturity: budding
+updated: 2026-07-08
+---
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import shape from "../../diagrams/surface-map-101-shape.svg?raw";
+
+This is the companion to [the hosting side, taught](surface-hosting-101.html). That note taught how **one** surface crosses a machine. This note teaches the layer <PrLink pr={1714} /> added above it: **many** surfaces of the same type, keyed by host, changing membership at runtime, consumed over **one** socket — `@kolu/surface-map`. It replaces the earlier client-half note ("binding-101"): the interim W4 API that note taught (`createActiveConnectionManager`, `connectionScoped`, `bindingScoped`) was deleted by the surface-map redesign, and this note teaches what shipped instead.<Footnote>The deleted manager owned "N connections, exactly one active, retire on switch." The redesign inverted the ownership: the framework owns the *keyed map* (membership, per-key lifecycle, dedup), and "which key is active" became **app policy** — kolu's `activeHost` signal, drishti's tab strip. That inversion is why drishti could adopt the map by *deleting* its own host registry rather than adapting to a manager's opinions.</Footnote>
+
+<Svg svg={shape} wide caption="One surface type, N keyed instances. The server folds every member behind one socket with enveloped frames; the client re-derives per-key facts from the entries collection. The framework owns the keyed volatility; the app owns which keys exist and which one it shows." />
+
+## The volatility being tamed
+
+A multi-host client faces one hard problem: **N same-shaped remote surfaces whose set changes while you watch**. Hosts get added and removed at runtime; each has its own connection lifecycle (warming, live, dropped, refused); every fact on the wire is true *of one host*; and the UI must never show host A's data under host B's name. None of that is kolu-specific — drishti's fleet dashboard faces exactly the same thing — so it lives in the framework. What stays out of the framework is just as deliberate: *which* hosts exist (kolu gates that behind `KOLU_PADI_HOST`) and *which one* the canvas shows (`activeHost`) are policy, one signal each, in app code.
+
+## Defining a map: one surface type, keyed instances
+
+`defineSurfaceMap(surface)` takes an ordinary surface definition — the same cells/collections/procedures the hosting note taught — and produces its *map* form: every member's input gains a key, so one socket can carry all instances. The mechanics:
+
+- **The fold envelope.** Each member's input is wrapped as `{ mapKey, input }` — the fold is mechanical and type-preserving, and a **void-input member carries no `input` key at all**.<Footnote>That last clause is load-bearing, learned the hard way: `{ input: undefined }` doesn't survive JSON (the key is dropped), and whether a validator accepts the missing key turned out to be a **zod version mood** — drishti's lockfile floated to zod 4.4.x, which rejects it, and every void-input cell in its fleet view went dark while kolu's 4.3.6 shrugged. The fix made the fold emit *no* key for void members — one representation, no dependence on the validator's leniency — and drishti unpinned zod and re-proved itself on the once-breaking version.</Footnote>
+- **The key codec.** Keys are branded, not strings-by-convention: kolu's `HostKey` is a sum (`{kind:"local"} | {kind:"remote", target}`) with one codec (`local` / `remote:<target>` on the wire) and a canonicalizing cache so the same host is always the same object identity. Parsing human input (`localhost`, `127.0.0.1`, `user@host`) is a **separate boundary** from decoding canonical wire keys — two functions, so a loose parse can never leak into the wire vocabulary.
+
+## `entries` — the one membership authority
+
+The map publishes a single collection: `entries: Collection<Key, EntryStatus<Cause>>`. Two design commitments do most of the work:
+
+**Absence means absence.** A key not in `entries` is *not in the map* — there is no `"absent"` status arm, because a collection already expresses absence by not containing the key. (The client-side fold adds an explicit `not-a-member` value when *you* ask about a key that isn't there, so reads stay total — but the wire never carries it.)
+
+**The status sum is small and honest.** `EntryStatus<Cause>` has exactly three arms:
+
+```ts
+| { kind: "warming" }                              // in motion — coming up, or coming back on its own
+| { kind: "connected"; clockOffset: number }        // live; the offset is THIS entry's clock seam
+| { kind: "failed"; reason: string; cause: Cause }  // NOT proceeding without intervention
+```
+
+The arm meanings are a **projection contract**, not vibes: `warming` = the system is doing something and will resolve on its own (first provision *and* a transient reconnect-backoff both land here); `failed` = it will *not* resolve without someone acting (a terminal give-up, or a *standing refuse* like "another kolu owns this host's padi").<Footnote>Both halves of that contract were paid for in blood the week this shipped. First a retriable reconnect window rendered as a steady red "failed" chip (indistinguishable from dead — the architecture review's one confirmed defect); the fix over-corrected, and standing refuses got masked as an eternal "Connecting…" spinner. The settled contract discriminates the session's down state by its **domain cause**: a specific cause (cross-supervisor, contract-skew) is a standing condition → `failed` + an actionable card; no specific cause is a transient drop → `warming`. The invariant "every refuse verdict carries a specific cause" is pinned at the session layer so the discrimination can't rot.</Footnote>
+
+`Cause` is a **type parameter, not a baked-in list** — the generic package doesn't know padi's failure taxonomy; kolu instantiates `EntryStatus<PadiEntryFailedCause>` and attaches domain extras (the typed `running`/`expected` version pair on a contract-skew) through the schema's loose arm. That's the volatility-boundary rule applied to a type: domain vocabulary stays in the domain.
+
+## Reading one entry: `entry(key)` and `useEntry`
+
+`entry(key)` is a **total lens** — ask about any key, get an honest answer (`not-a-member` included). `useEntry(keyAccessor)` is its Solid form: hand it a *reactive* key (kolu hands it `activeHost`) and every read re-keys when the key changes. This is the load-bearing consumer pattern in kolu — every per-host fact the UI shows (daemon status, identity, the canvas's connection state) reads through `useEntry(activeHost)`, which is what makes "switch the chip, every readout follows" true by wiring rather than by discipline.
+
+Underneath sits the **keyed subscription cache**: one singleton slot per `(procedure, stable-input-hash)`, so ten components reading the same host's daemon status share one wire subscription; the last listener's disposal evicts the slot; and a slot's lifetime is tied to the key's **membership** — remove the host and its subscriptions end with a *typed* end (`{reason: "removed"}`), not an error toast.<Footnote>The teardown invariant survives from the old note because it's timeless: *a disposed subscription cannot report anything.* Its modern regression was subtle — a leak fix routed reads through a shared root but left one path that could subscribe **ownerless**, resurrecting undisposable subscriptions; the fix pins every read under a real owner (`runUnderOwner`), and the "unknown daemon dialog" bug it caused is why the pin exists.</Footnote>
+
+## Serving a map: `serveSurfaceMap` and the `MapRegistry` seam
+
+The server side takes an explicit **`MapRegistry`** — `members` / `subscribe` / `has` / `resolve(key) ⇒ EntrySession | EntryFault` (a `kind`-tagged sum, so the two arms are provably disjoint). Membership must be *observable* (the registry's subscribe drives `entries`), and status is a **projection of session state** — there is no second writer. kolu's instance is `serveHostMap` (sessions from `@kolu/surface-remote`, causes via a `causeFor` hook); drishti proved the seam's width by adapting its own pre-existing host registry to `MapRegistry` in one file. Clock stays per-entry: `connected.clockOffset` is *that host's* clock seam, and a consumer reprojects remote timestamps through it — never through its own wall clock.
+
+## What survived, what died, and the moral
+
+**Survived:** `createKeyedRoot` (the dispose-on-key-change atom — still under everything that re-keys), the shared-singleton reading pattern (now *inside* the cache instead of at call sites), and the teardown invariant. **Died:** the active-connection manager and its whole vocabulary — retire-on-switch, pick epochs, `bindingScoped` — because once the framework owns a keyed map and the app owns one `activeHost` signal, "switching" stops being machinery and becomes *changing which key you read*. The moral, which is also the test for the next addition: **the framework owns keyed volatility; the app owns policy.** If a proposed framework feature encodes an opinion about which key matters, it's policy wearing a framework costume.
+
+**The consumers as proof.** kolu consumes the map unconditionally (the always-map wire — the gate only controls whether the UI offers more than `local`). drishti adopted it by **deletion** (its hand-rolled host membership replaced by the map; net shrink in the core files). odu consumes only `@kolu/surface-remote` — the boundary between "keyed map" and "remote session" is cut so that taking one without the other is natural. Two-and-a-half consumers, no escape hatches: the framework earned the noun.
+
+## Where this goes next: per-host state by *ownership* (W7)
+
+Everything above keys the **wire** reads. The remaining hole is the client's **own** state — and W4 shipped a bug family proving it: the focused terminal, the split layout, and the camera each quietly lived at app lifetime while the tiles around them became per-host, found one at a time by switching hosts live ([padi W7](padi.html#w7) is the ratified phase; this section is the framework design it will land).
+
+**Why `useEntry` can't be the answer.** `useEntry` is built on `createKeyedRoot`, whose contract is *dispose-on-key-change* — on a switch it synchronously tears down the old key's root and rebuilds (that ordering is what makes swaps leak-free for *wire* subscriptions, which are cheap to re-open). App state needs the opposite lifetime: **retained on switch-away, restored on switch-back, disposed only when the host leaves the map**. Today kolu fakes that with an enumerated record (`useViewState`'s `HostView = {activeId, mruOrder, attention}`, swapped by hand at the switch seam) — and *enumeration is the bug*: the camera was a forgotten field, and nothing asks a new `createSignal` which axis it lives on.
+
+**The primitive is not ours to write** — the ecosystem survey (mandatory after `createKeyedRoot` turned out to be `mapArray` in a trenchcoat) found it: [`@solid-primitives/keyed`](https://primitives.solidjs.community/package/keyed)'s **`keyArray`** already has exactly the retained-owner contract — *a key that persists keeps its reactive root even as data changes; the root is disposed when the key leaves the source list*. Retained across switches, disposed on membership exit. So layer 1 is `keyArray` over the map's member list plus a small `get(key)` index — a dependency, not an invention.<Footnote>The near-miss worth recording: `rootless`'s `createRootPool` (already a dependency) passes its factory an `active` signal — the exact `ScopeCtx.isActive` ergonomic — but a *pool* reuses roots by availability across different args, so per-*key* state retention isn't its contract. Right shape, wrong lifetime model; `keyArray` keys by identity, which is the lifetime W7 needs.</Footnote> What remains framework work is only the map-tied glue (`@kolu/surface-map/solid`):
+
+```ts
+// Layer 2: membership drives the key set (via keyArray); "active" stays app policy.
+scopedByEntry<K, T>(map: SurfaceMapClient<…>, active: Accessor<K>,
+                    build: (key: K, ctx: { isActive: Accessor<boolean> }) => T): {
+  active: Accessor<T>;              // the active key's world — re-keys on switch
+  get(key: K): T | undefined;       // background peek (attention rollups, W5)
+}
+```
+
+The load-bearing line: **the owner's lifetime is `entries` membership** — the same authority that ends a removed host's subscriptions disposes its state world; no second lifecycle to reconcile. And `ctx.isActive` is where the active-only discipline (WebGL release/re-acquire, center-on-activate) stops being a bridge between two independently-timed lifecycles — the camera's post-mortem showed such a bridge is a race a guard narrows but never closes; inside the scope the ordering is intrinsic.
+
+**kolu adopts it** by dissolving the enumeration:
+
+```ts
+export const hostScopes = scopedByEntry(padiMap, activeHost, (host, ctx) => ({
+  view: createViewState(),          // activeId / mru / attention — plain signals now
+  camera: createCamera(ctx),        // born per-host; centers on ctx.isActive
+  tiles: createTileStore(host),
+  restore: createSessionRestore(host),
+}));
+hostScopes.active().view.activeId; // always the ACTIVE host's — by construction
+```
+
+The `HostView` record, `ensureHost`, the hand-swap at the seam, the per-host restore latches — deleted. A future dev's bare `createSignal` inside `build` is per-host with zero ceremony; a slim boundary test (no module-scope state constructors in the host/canvas domain) fences the one place ownership can't reach.
+
+**drishti adopts it** for a different prize. Its per-host view state (e.g. `selectedPid`, the process expanded in a host's detail panel) is already *safe* — but by hand-rolled discipline: documented-ephemeral, cleared by an effect when the pid leaves the live set, and simply **lost** on every tab switch. Under `scopedByEntry(hostMap, selectedHost, …)` each host's selection/sort/expansion **survives tab-away and restores verbatim** (the shape-B behavior kolu's users already have), the manual clearing effect dissolves into the scope's disposal, and a removed host's view state dies with its subscriptions. Same primitive, `selectedHost` instead of `activeHost` — the "active" slot staying app policy is the proof it belongs in the framework.
+
+**Two settled defaults, one open question.** Settled: owners are created **lazily** (first activation) and retained thereafter — background hosts you never visit cost nothing, and W5's attention rollups read the *wire* (the urgency projection), not the scope. Settled: the app-level state that is genuinely host-independent (theme, palette, dialog stack — the audited seventeen) stays outside; nobody scopes the whole app. Open: whether `get()` should *create* a scope on background access (an attention badge wanting to write into an unvisited host's world) — today's answer is no, revisit when a real consumer demands it.

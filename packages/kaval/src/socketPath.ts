@@ -26,6 +26,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -150,21 +151,31 @@ export function isPrivateOwnedDir(dir: string): boolean {
   }
 }
 
-/** Discover the rendezvous sockets of running pty-host daemons under the per-user
- *  runtime root, EACH LABELED by the branch that matched — a bare standalone
- *  `kaval/` (→ "standalone kaval"), a padi's digest-keyed `kaval-<digest>/`
- *  (labeled from its state-root manifest → "kolu @ <state-root>"), and, for the
- *  transition, a legacy `kaval-<port>/` (no manifest, numeric suffix → "kolu-server
- *  on port <port>"). Lets a flag-less `kaval-tui` dial the daemon without knowing
- *  padi's digest, and a `many`-candidate error name each one correctly.
+/** Discover the rendezvous sockets of running pty-host daemons across BOTH
+ *  per-user runtime roots — the env-derived `$XDG_RUNTIME_DIR/kaval*` AND the
+ *  fixed `/tmp/kaval-$UID*` fallback — EACH LABELED by the branch that matched: a
+ *  bare standalone `kaval/` (→ "standalone kaval"), a padi's digest-keyed
+ *  `kaval-<digest>/` (labeled from its state-root manifest → "kolu @ <state-root>"),
+ *  and, for the transition, a legacy `kaval-<port>/` (no manifest, numeric suffix
+ *  → "kolu-server on port <port>"). Lets a flag-less `kaval-tui` dial the daemon
+ *  without knowing padi's digest, and a `many`-candidate error name each one.
  *
- *  The runtime root and the env's namespace decoration are NOT re-derived here:
- *  they are READ BACK from `getRuntimeSocketPath` itself, so discovery can never
- *  spell the path shape differently than construction. Build the bare daemon's
- *  socket path, then walk back up — its grandparent is the root to scan, its
- *  parent's basename is the (possibly `-$UID`-decorated) bare namespace dir. The
- *  per-port pattern is the same decoration with a `(\d+)` capture substituted for
- *  the port, learnt from a probe build with port `0`.
+ *  BOTH roots are scanned unconditionally, because a daemon registers in whichever
+ *  drawer ITS binder's env pointed at — a daemon spawned with XDG unset lives under
+ *  /tmp even on a host whose interactive processes have XDG set — so a discoverer
+ *  that read only its own env-derived drawer would be blind to the other (the bug
+ *  where the Kaval dialog and a nix-shell `kaval-tui` reported disjoint sets). The
+ *  union is de-duped by canonical path. See {@link candidatesUnderRegime} for the
+ *  per-root scan.
+ *
+ *  Neither root nor the env's namespace decoration is re-spelled here: both are
+ *  READ BACK from `getRuntimeSocketPath` itself (the /tmp spelling via the builder
+ *  with XDG forced off), so discovery can never spell the path shape differently
+ *  than construction. Build the bare daemon's socket path, then walk back up — its
+ *  grandparent is the root to scan, its parent's basename is the (possibly
+ *  `-$UID`-decorated) bare namespace dir. The per-port pattern is the same
+ *  decoration with a `(\d+)` capture substituted for the port, learnt from a probe
+ *  build with port `0`.
  *
  *  Labeling is the INVERSE of `kavalNamespace`, derived from THIS match — not a
  *  later re-parse of the basename. That distinction matters: a re-parse of a bare
@@ -181,12 +192,81 @@ export function isPrivateOwnedDir(dir: string): boolean {
  *  itself be a socket — not any file a name-squatter dropped in. Returns every
  *  surviving `<ns>/pty-host.sock`; never throws (an unreadable root → []). */
 export function discoverKavalCandidates(): KavalSocketCandidate[] {
+  // A kaval registers in ONE of two drawers, decided by the BINDER's env at spawn
+  // time: `$XDG_RUNTIME_DIR/kaval*` when XDG is set (production padi/kolu-server),
+  // else `/tmp/kaval-$UID*` (a nix-shell / e2e / test daemon with XDG unset). A
+  // scan of only the DISCOVERER's own env-derived drawer is environment-blind: a
+  // caller with XDG set (the Kaval dialog) never sees the /tmp daemons, and one
+  // with XDG unset (a nix-shell kaval-tui) never sees the XDG daemon — the two
+  // report DISJOINT sets on the same box. So union BOTH roots: the env-derived
+  // one AND the fixed `/tmp` fallback, ALWAYS, whatever this process's env says.
+  //
+  // Both roots are read back from `getRuntimeSocketPath` — the SAME construction
+  // the binder uses — so discovery can never spell a path the binder wouldn't.
+  // The `/tmp` spelling is obtained by asking the builder with XDG forced off
+  // (`forceTmp`), NOT by hand-writing `/tmp/kaval-$UID`.
+  const candidates = [
+    ...candidatesUnderRegime(false), // this process's env (XDG when set, else /tmp)
+    ...candidatesUnderRegime(true), // the fixed /tmp fallback, always
+  ];
+
+  // De-dup by CANONICAL path: when XDG is unset both regimes resolve to /tmp (so
+  // every candidate appears twice), and even with XDG set a daemon reachable via
+  // two spellings (e.g. a symlinked runtime dir) must be listed once. `realpath`
+  // collapses them; a socket that vanished mid-scan falls back to its raw path.
+  const seen = new Set<string>();
+  const unique: KavalSocketCandidate[] = [];
+  for (const candidate of candidates) {
+    const key = canonicalPath(candidate.socket);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(candidate);
+  }
+  return unique;
+}
+
+/** Build a kaval socket path exactly as {@link getRuntimeSocketPath} would, but
+ *  under a chosen runtime-root regime: `forceTmp` evaluates the builder with
+ *  `$XDG_RUNTIME_DIR` momentarily unset so it yields the fixed `/tmp/<app>-$UID`
+ *  fallback even when this process has XDG set. The save/restore is synchronous
+ *  and re-entrancy-free (no `await` between them, Node runs it on one thread), so
+ *  it can never race another caller's view of the env. Reusing the builder — not
+ *  re-spelling `/tmp/kaval-$UID` here — keeps discovery's path shape and
+ *  construction's provably identical. */
+function socketPathForApp(app: string, forceTmp: boolean): string {
+  if (!forceTmp) {
+    return getRuntimeSocketPath({ app, file: PTY_HOST_SOCK_FILE });
+  }
+  const saved = process.env.XDG_RUNTIME_DIR;
+  delete process.env.XDG_RUNTIME_DIR;
+  try {
+    return getRuntimeSocketPath({ app, file: PTY_HOST_SOCK_FILE });
+  } finally {
+    if (saved !== undefined) process.env.XDG_RUNTIME_DIR = saved;
+  }
+}
+
+/** The canonical (symlink-resolved) form of `path`, or `path` verbatim if it
+ *  can't be resolved (already unlinked, or a broken link) — the de-dup key that
+ *  collapses two spellings of the same daemon into one. */
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/** Every kaval candidate under ONE runtime-root regime (the env-derived root, or
+ *  the forced `/tmp` fallback). The name grammar is regime-specific — off XDG the
+ *  bare namespace is `kaval-$UID` and the decorated one `kaval-<x>-$UID` — so each
+ *  regime derives its OWN `bareName`/`decoratedRe` from the builder, never a
+ *  cross-regime reuse. {@link discoverKavalCandidates} unions and de-dups both. */
+function candidatesUnderRegime(forceTmp: boolean): KavalSocketCandidate[] {
   // The bare daemon's socket: `<root>/<bareDir>/pty-host.sock`. Whatever shape
   // surface gives it (XDG `kaval/`, or `/tmp` `kaval-$UID/`) the decoration is
   // baked into `bareDir`, never re-decided here.
-  const bareDir = dirname(
-    getRuntimeSocketPath({ app: KAVAL_NS_PREFIX, file: PTY_HOST_SOCK_FILE }),
-  );
+  const bareDir = dirname(socketPathForApp(KAVAL_NS_PREFIX, forceTmp));
   const root = dirname(bareDir);
   const bareName = basename(bareDir);
 
@@ -197,12 +277,7 @@ export function discoverKavalCandidates(): KavalSocketCandidate[] {
   // — then read the suffix back to disambiguate by the manifest below. (Escape
   // the rest so a `/tmp` path can't inject regex metacharacters.)
   const decoratedName = basename(
-    dirname(
-      getRuntimeSocketPath({
-        app: kavalNamespace(0),
-        file: PTY_HOST_SOCK_FILE,
-      }),
-    ),
+    dirname(socketPathForApp(kavalNamespace(0), forceTmp)),
   );
   const decoratedRe = new RegExp(
     `^${decoratedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "([0-9a-f]+)")}$`,
@@ -335,21 +410,31 @@ export interface KavalDaemon extends KavalSocketCandidate {
  *  lives here, beside the namespace construction it inverts, so a consumer only
  *  renders the `many`/`none` cases in its own error surface. */
 export type KavalSocketResolution =
-  | { kind: "explicit" | "one" | "none"; socket: string }
+  | { kind: "explicit" | "env" | "one" | "none"; socket: string }
   | { kind: "many"; candidates: KavalSocketCandidate[] };
 
-/** Resolve which running kaval to dial. An explicit path wins (verbatim — it's a
- *  user-supplied `--socket`/`--kaval` flag). Otherwise discover the running
- *  daemon: padi keys its kaval by a digest of its state-root (`kaval-<digest>/`),
- *  so there is no single fixed path to assume. Exactly one found → `one`. More than
- *  one → `many`, with each candidate LABELED (the caller renders a pick-one
- *  error). None → `none` with the bare `kaval` default, so a connect error names
- *  a sensible path. */
+/** Resolve which running kaval to dial, in precedence order (the mirror of
+ *  padi-tui's `resolveRunningPadiSocket`):
+ *   1. an explicit `--socket` path wins verbatim — a user-supplied override;
+ *   2. `$KAVAL_SOCKET` — stamped into every PTY a kaval/padi spawns (the `$TMUX`
+ *      convention) — names the daemon that OWNS this terminal, so a flag-less
+ *      `kaval-tui` INSIDE a kolu terminal "just works" and an agent driving its
+ *      siblings never falls through to discovery's ambiguous `many`. Authoritative
+ *      when set+non-empty: it SHORT-CIRCUITS discovery entirely (no scan runs);
+ *   3. else discover the running daemon: padi keys its kaval by a digest of its
+ *      state-root (`kaval-<digest>/`), so there is no single fixed path to assume.
+ *      Exactly one found → `one`; more than one → `many`, each candidate LABELED
+ *      (the caller renders a pick-one error); none → `none` with the bare `kaval`
+ *      default, so a connect error names a sensible path. */
 export function resolveRunningKavalSocket(
   explicit?: string,
 ): KavalSocketResolution {
   if (explicit !== undefined && explicit !== "") {
     return { kind: "explicit", socket: explicit };
+  }
+  const env = process.env.KAVAL_SOCKET;
+  if (env !== undefined && env !== "") {
+    return { kind: "env", socket: env };
   }
   const found = discoverKavalCandidates();
   const [first, ...rest] = found;

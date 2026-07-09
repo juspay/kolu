@@ -14,7 +14,7 @@
  *
  *   - the BROWSER leg (`@kolu/surface-app`'s partysocket `createHeartbeat`) passes
  *     `isLive: () => ws.readyState === ws.OPEN` and `onStale: () => ws.reconnect()`;
- *   - the SSH leg (`@kolu/surface-nix-host`'s HostSession) passes
+ *   - the SSH leg (`@kolu/surface-remote`'s HostSession) passes
  *     `isLive: () => this.connection === 'connected'` and `onStale: () => this.recheck()`.
  *
  * The two variation points the legs differ on — the "is the link live enough to
@@ -82,6 +82,16 @@ const monotonicNow = (): number =>
   typeof performance !== "undefined" && typeof performance.now === "function"
     ? performance.now()
     : Date.now();
+
+type TimerHandle =
+  | ReturnType<typeof setTimeout>
+  | ReturnType<typeof setInterval>;
+
+function unrefTimer(handle: TimerHandle): void {
+  if (handle === null || typeof handle !== "object") return;
+  const unref = (handle as { unref?: unknown }).unref;
+  if (typeof unref === "function") unref.call(handle);
+}
 
 /** The app-facing knob to TUNE (never disable) the watchdog the connect seams /
  *  `createLiveSignal` wire. Framework-free (no solid) so the framework-free
@@ -322,7 +332,7 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       }
       settled(true, gen);
     }, timeoutMs);
-    probeTimer.unref?.();
+    unrefTimer(probeTimer);
     // A SYNCHRONOUS throw from `probe` means NO round-trip was made at all — the
     // probe is miswired (a bad client cast, a missing method), not a liveness
     // signal — so it must NOT be silently classified as alive the way a genuine
@@ -395,7 +405,7 @@ export function createHeartbeat(opts: HeartbeatOptions): {
     tick();
   }
   const handle = setInterval(tick, intervalMs);
-  handle.unref?.();
+  unrefTimer(handle);
   return {
     dispose: () => {
       disposed = true;

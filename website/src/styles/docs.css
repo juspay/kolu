@@ -1,0 +1,616 @@
+/* Docs presentation — loaded by DocsLayout. Covers the markdown prose
+ * (`.docs-prose`) and the pieces the migrated pages bring across verbatim: the
+ * hand-authored inline SVG diagrams and the tmux/zellij comparison table.
+ * Warnings / card grids / steps / link cards are the site-native components in
+ * src/components/docs/. Every colour pulls from the global --color-* tokens, so
+ * the whole thing tracks the light/dark theme automatically — no hard-coded hex.
+ */
+
+/* ── Markdown prose ──────────────────────────────────────────────────────────
+   The docs body. Section headings (h2) get the original pages' pink accent-bar
+   treatment, applied to EVERY page's markdown so a new .md inherits it for free. */
+.docs-prose {
+  color: var(--color-ink-dim);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+.docs-prose > :first-child {
+  margin-top: 0;
+}
+.docs-prose p {
+  margin: 1.15rem 0;
+  max-width: 44rem;
+}
+.docs-prose strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.docs-prose em {
+  color: var(--color-ink);
+}
+
+.docs-prose h2 {
+  position: relative;
+  margin: 2.6rem 0 1.4rem;
+  padding-left: 1.15rem;
+  font-family: var(--font-sans);
+  font-size: clamp(1.7rem, 1.05rem + 2.1vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  color: var(--color-ink);
+  text-wrap: balance;
+  scroll-margin-top: 4.5rem;
+}
+.docs-prose h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.16em;
+  bottom: 0.16em;
+  width: 5px;
+  border-radius: 3px;
+  background: var(--color-kolu-primary);
+  box-shadow: 0 0 14px -1px
+    color-mix(in srgb, var(--color-kolu-primary) 60%, transparent);
+}
+.docs-prose h3 {
+  margin: 2rem 0 0.6rem;
+  font-family: var(--font-sans);
+  font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.25rem);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  scroll-margin-top: 4.5rem;
+}
+
+.docs-prose a {
+  color: var(--color-kolu-primary);
+  text-decoration: none;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-kolu-primary) 40%, transparent);
+  transition: border-color 120ms ease;
+}
+.docs-prose a:hover {
+  border-bottom-color: var(--color-kolu-primary);
+}
+
+.docs-prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  padding: 0.08rem 0.38rem;
+  font-size: 0.88em;
+  color: var(--color-kolu-top-strong);
+  font-weight: 500;
+}
+.docs-prose kbd {
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.35rem;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+.docs-prose pre {
+  position: relative;
+  margin: 1.4rem 0;
+  padding: 0.95rem 1.1rem;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.7rem;
+  background: var(--color-void-sunk);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+.docs-prose pre code {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+.docs-prose pre:hover .doc-copy,
+.doc-copy:focus-visible {
+  opacity: 1;
+}
+/* biome-ignore lint/style/noDescendingSpecificity: the base hidden state is
+   authored AFTER the higher-specificity :hover / :focus-visible reveal on
+   purpose — the reveal always wins regardless of source order, and reordering
+   would only trade this for a descending pair against `.doc-copy:hover` below. */
+.doc-copy {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--color-void-raised) 86%, transparent);
+  color: var(--color-ink-muted);
+  padding: 0.22rem 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+.doc-copy:hover {
+  color: var(--color-kolu-primary);
+  border-color: var(--color-kolu-primary);
+}
+.doc-copy.is-copied {
+  color: var(--color-live-lime);
+  border-color: var(--color-live-lime);
+}
+
+.docs-prose ul,
+.docs-prose ol {
+  margin: 1.15rem 0;
+  padding-left: 1.3rem;
+  max-width: 44rem;
+}
+.docs-prose li {
+  margin: 0.4rem 0;
+}
+.docs-prose li::marker {
+  color: var(--color-kolu-primary);
+}
+.docs-prose details {
+  margin: 1rem 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.55rem;
+  background: var(--color-void-raised);
+  overflow: hidden;
+}
+.docs-prose summary {
+  cursor: pointer;
+  padding: 0.82rem 1rem;
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.docs-prose details[open] summary {
+  border-bottom: 1px solid var(--color-rule);
+}
+.docs-prose details > :not(summary) {
+  margin-inline: 1rem;
+}
+.docs-prose details > :last-child {
+  margin-bottom: 1rem;
+}
+
+/* Markdown tables (the command references + the survival table). */
+.docs-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  font-size: 0.9rem;
+  display: block;
+  overflow-x: auto;
+}
+.docs-prose th,
+.docs-prose td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid var(--color-rule);
+  line-height: 1.5;
+}
+.docs-prose thead th {
+  border-top: none;
+  border-bottom: 1px solid var(--color-rule-strong);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-kolu-primary);
+}
+.docs-prose td {
+  color: var(--color-ink-dim);
+}
+
+/* Horizontal-scroll wrapper for a wide block (the comparison table) so the
+   page body never scrolls sideways on a narrow viewport. */
+.doc-scroll {
+  overflow-x: auto;
+}
+
+/* Bordered frame around each diagram — the old `figure` shell. */
+.doc-figure {
+  margin: 1.75rem 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.75rem;
+  padding: 1.5rem 1.25rem;
+  overflow-x: auto;
+}
+.doc-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.doc-figure text {
+  font-family: var(--font-mono);
+}
+.doc-shot {
+  margin: 1.75rem 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.75rem;
+  background: var(--color-void-sunk);
+  overflow: hidden;
+  box-shadow: 0 0 70px -34px
+    color-mix(in srgb, var(--color-kolu-primary) 35%, transparent);
+}
+.doc-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.doc-shot figcaption {
+  margin: 0;
+  padding: 0.75rem 0.95rem;
+  border-top: 1px solid var(--color-rule);
+  color: var(--color-ink-muted);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+/* ── padi stack diagram ─────────────────────────────────────────────── */
+.pd-d-box {
+  fill: var(--color-void-raised);
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.4;
+}
+.pd-d-daemon {
+  fill: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 12%,
+    var(--color-void-raised)
+  );
+  stroke: var(--color-kolu-primary);
+  stroke-width: 1.5;
+}
+.pd-d-flow {
+  fill: none;
+  stroke: var(--color-kolu-top);
+  stroke-width: 1.5;
+}
+.pd-d-arrow {
+  fill: var(--color-kolu-top);
+}
+.pd-d-store {
+  fill: none;
+  stroke: var(--color-kolu-bottom);
+  stroke-width: 1.4;
+}
+.pd-d-store-box {
+  fill: color-mix(
+    in srgb,
+    var(--color-kolu-bottom) 8%,
+    var(--color-void-raised)
+  );
+  stroke: color-mix(
+    in srgb,
+    var(--color-kolu-bottom) 40%,
+    var(--color-rule-strong)
+  );
+  stroke-width: 1.2;
+}
+.pd-d-cap {
+  fill: var(--color-kolu-primary);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+}
+.pd-d-label {
+  fill: var(--color-ink);
+  font-size: 16.5px;
+  font-weight: 650;
+}
+.pd-d-daemon-label {
+  fill: var(--color-kolu-primary-hover);
+  font-size: 22px;
+  font-weight: 700;
+}
+.pd-d-sub,
+.pd-d-tlabel {
+  fill: var(--color-ink-dim);
+  font-size: 11px;
+}
+.pd-d-sub2 {
+  fill: var(--color-ink-muted);
+  font-size: 10px;
+}
+.pd-d-store-text {
+  fill: var(--color-kolu-bottom);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* ── kaval "how it fits" diagram ────────────────────────────────────── */
+.kv-d-logo {
+  filter: drop-shadow(
+    0 5px 10px color-mix(in srgb, var(--color-void-sunk) 70%, transparent)
+  );
+}
+.kv-d-box {
+  fill: var(--color-void-raised);
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.5;
+}
+.kv-d-daemon {
+  fill: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 12%,
+    var(--color-void-raised)
+  );
+  stroke: var(--color-kolu-primary);
+  stroke-width: 1.5;
+}
+.kv-d-pty {
+  fill: var(--color-void-sunk);
+  stroke: color-mix(
+    in srgb,
+    var(--color-kolu-bottom) 34%,
+    var(--color-rule-strong)
+  );
+  stroke-width: 1.25;
+}
+.kv-d-flow {
+  fill: none;
+  stroke: var(--color-kolu-top);
+  stroke-width: 1.5;
+}
+.kv-d-arrow {
+  fill: var(--color-kolu-top);
+}
+.kv-d-socket {
+  fill: none;
+  stroke: var(--color-ink-muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 4;
+}
+.kv-d-cap {
+  fill: var(--color-kolu-primary);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+}
+.kv-d-label {
+  fill: var(--color-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+.kv-d-daemon-label {
+  fill: var(--color-kolu-primary-hover);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+.kv-d-sub {
+  fill: var(--color-ink-dim);
+  font-size: 11px;
+}
+.kv-d-pty-text {
+  fill: var(--color-ink-dim);
+  font-size: 12.5px;
+}
+.kv-d-socket-label {
+  fill: var(--color-ink-muted);
+  font-size: 10.5px;
+  letter-spacing: 1px;
+}
+.kv-d-sub2 {
+  fill: var(--color-ink-muted);
+  font-size: 10px;
+}
+
+/* ── architecture stack + survival diagrams ─────────────────────────── */
+.ax-d-logo {
+  filter: drop-shadow(
+    0 5px 10px color-mix(in srgb, var(--color-void-sunk) 70%, transparent)
+  );
+}
+.ax-d-box {
+  fill: var(--color-void-raised);
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.5;
+}
+.ax-d-daemon {
+  fill: color-mix(
+    in srgb,
+    var(--color-kolu-primary) 12%,
+    var(--color-void-raised)
+  );
+  stroke: var(--color-kolu-primary);
+  stroke-width: 1.5;
+}
+.ax-d-pty {
+  fill: var(--color-void-sunk);
+  stroke: color-mix(
+    in srgb,
+    var(--color-kolu-bottom) 34%,
+    var(--color-rule-strong)
+  );
+  stroke-width: 1.25;
+}
+.ax-d-flow {
+  fill: none;
+  stroke: var(--color-kolu-top);
+  stroke-width: 1.5;
+}
+.ax-d-stream {
+  fill: none;
+  stroke: var(--color-kolu-bottom);
+  stroke-width: 2;
+}
+.ax-d-arrow {
+  fill: var(--color-kolu-top);
+}
+.ax-d-bracket {
+  fill: none;
+  stroke: var(--color-rule-strong);
+  stroke-width: 1.25;
+}
+.ax-d-socket {
+  fill: none;
+  stroke: var(--color-ink-muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 4;
+}
+.ax-d-cap {
+  fill: var(--color-kolu-primary);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+}
+.ax-d-tlabel {
+  fill: var(--color-ink-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+}
+.ax-d-label {
+  fill: var(--color-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+.ax-d-label2 {
+  fill: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+.ax-d-daemon-label {
+  fill: var(--color-kolu-primary-hover);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+.ax-d-daemon-label2 {
+  fill: var(--color-kolu-primary-hover);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+.ax-d-sub {
+  fill: var(--color-ink-dim);
+  font-size: 11px;
+}
+.ax-d-sub2 {
+  fill: var(--color-ink-muted);
+  font-size: 10px;
+}
+.ax-d-pty-text {
+  fill: var(--color-ink-dim);
+  font-size: 11px;
+}
+.ax-d-tick {
+  fill: var(--color-kolu-bottom);
+  font-size: 13px;
+  text-anchor: middle;
+}
+
+/* ── tmux / zellij / kolu comparison table ──────────────────────────── */
+/* Kept as a hand-authored table (not a Markdown one) because each outcome
+   cell is colour- AND glyph-coded by result — a semantic layer a plain
+   Markdown table can't carry. */
+.ax-cmp {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  min-width: 40rem;
+}
+.ax-cmp th,
+.ax-cmp td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid var(--color-rule);
+  line-height: 1.5;
+}
+.ax-cmp thead th {
+  border-top: none;
+  border-bottom: 1px solid var(--color-rule-strong);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+.ax-cmp thead th:last-child {
+  color: var(--color-kolu-primary);
+}
+.ax-cmp td:first-child {
+  white-space: normal;
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.ax-cmp td:last-child {
+  color: var(--color-ink);
+}
+/* Semantic cell coding — by OUTCOME, uniform across columns. Each class carries
+   a shape glyph as well as a tint, so meaning survives without colour.
+   ✓ win · ~ partial/conditional · ✕ none/no · – not applicable. */
+.ax-cmp td.c-yes {
+  background: color-mix(in srgb, var(--color-live-lime) 9%, transparent);
+}
+.ax-cmp td.c-mid {
+  background: color-mix(in srgb, var(--color-kolu-top) 10%, transparent);
+}
+.ax-cmp td.c-no {
+  background: color-mix(in srgb, var(--color-live-alert) 9%, transparent);
+}
+.ax-cmp td.c-na {
+  background: color-mix(in srgb, var(--color-ink-muted) 8%, transparent);
+}
+.ax-cmp td.c-yes::before {
+  content: "✓  ";
+  color: var(--color-live-lime);
+  font-weight: 700;
+}
+.ax-cmp td.c-mid::before {
+  content: "~  ";
+  color: var(--color-kolu-top);
+  font-weight: 700;
+}
+.ax-cmp td.c-no::before {
+  content: "✕  ";
+  color: var(--color-live-alert);
+  font-weight: 700;
+}
+.ax-cmp td.c-na::before {
+  content: "–  ";
+  color: var(--color-ink-muted);
+  font-weight: 700;
+}
+
+/* Identity path block on the architecture page — the durable-vs-address pair.
+   A small sunk terminal panel; comments muted, paths in ink. */
+.doc-term {
+  margin: 1.1rem 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.7rem;
+  background: var(--color-void-sunk);
+  padding: 0.95rem 1.1rem;
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-size: 0.85rem;
+  line-height: 1.9;
+  overflow-x: auto;
+}
+.doc-term .cmd {
+  display: block;
+  white-space: pre;
+  color: var(--color-ink);
+}
+.doc-term .note {
+  display: block;
+  white-space: pre;
+  color: var(--color-ink-muted);
+}

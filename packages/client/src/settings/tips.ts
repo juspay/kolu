@@ -39,6 +39,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
   },
   {
+    id: "amb-host-map",
+    text: "Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each chip showing its connection and how many agents await you",
+  },
+  {
     id: "amb-workspace-switcher-shortcut",
     text: `${formatKeybind(ACTIONS.openWorkspaceSwitcher.keybind)} opens the workspace switcher with search focused`,
   },
@@ -72,6 +76,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-inspector-attach",
     text: "The Inspector tab's Attach section copies `kaval-tui attach`, `snapshot`, and `send` commands for the main terminal and each split, plus a kaval-tui/padi-tui reference — drive (and even prompt) any pane from any shell",
+  },
+  {
+    id: "amb-inspector-compose",
+    text: "The Inspector tab's Compose box lets you draft a multiline prompt and send it into the active terminal (⌘/Ctrl+Enter) — it lands in the agent's input box for you to review and submit, and each terminal keeps its own draft across reloads",
   },
   {
     id: "amb-canvas-zoom",

@@ -18,6 +18,7 @@ import {
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
+import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
 
 const MetadataInspector: Component<{
@@ -28,6 +29,9 @@ const MetadataInspector: Component<{
 }> = (props) => {
   // Reactive elapsed-since formatter for the agent's "Running for" row; reads
   // the shared 60s tick so it advances on its own while the panel is open.
+  // `startedAt` is already reprojected to the browser clock at the metadata ingestion
+  // boundary (`useTerminalMetadata.reprojectClock`), so a plain local-clock duration +
+  // instant are correct here — the boundary owns reprojection (warming ⇒ startedAt 0).
   const runningFor = useDuration();
   return (
     <Show
@@ -44,6 +48,20 @@ const MetadataInspector: Component<{
           class="overflow-y-auto overflow-x-hidden h-full"
           data-testid="inspector-cwd"
         >
+          {/* Compose — draft a prompt and send it to the active terminal.
+           *  Gated on the ACTIVE arm (a sleeping tile released its PTY, so
+           *  `sendInput` would quiet-drop) exactly like the Attach section
+           *  below. `keyed` on the terminal id so a tile switch REMOUNTS the
+           *  section — its per-terminal persisted draft then rebinds to the new
+           *  terminal's localStorage key instead of the previous tile's. */}
+          <Show when={activeArm(meta()) && props.terminalId} keyed>
+            {(id) => (
+              <Section title="Compose">
+                <ComposeSection terminalId={id} />
+              </Section>
+            )}
+          </Show>
+
           {/* Directory */}
           <Section title="Directory">
             <div class="text-[11px] text-fg font-mono break-all leading-relaxed">

@@ -1,25 +1,39 @@
-/** KavalInfoDialog - compact identity panel for the Kaval rail chip. */
+/** KavalInfoDialog - compact identity panel for the Kaval rail chip.
+ *
+ *  See `PadiInfoDialog.tsx`'s header for the shared HOST-SCOPING CLASSIFICATION TABLE
+ *  (every per-host field either re-keys on `activeHost` or is host-independent with a
+ *  reason). This dialog's own fields are ALL host-scoped: `props.status` rides
+ *  `localDaemonStatus()` (`padiMap.useEntry(activeHost).collections.daemonStatus`),
+ *  `daemonChannelLive()` reads `padiMap.entry(activeHost())` directly, and
+ *  `boundHostKavals()`/`localScanKavals()` ride `useHostInventory`/`useDaemonInventory`
+ *  per that same table. */
 
 import type { DaemonStatus } from "@kolu/padi/surface";
 import { isCleanRef } from "@kolu/surface-app";
-import type { Component } from "solid-js";
-import { For, Show } from "solid-js";
-import { match, P } from "ts-pattern";
 import type { RunningKaval } from "kolu-common/surface";
+import type { Component } from "solid-js";
+import { createMemo, Show } from "solid-js";
+import { match, P } from "ts-pattern";
 import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "../ui/Commit";
 import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
 import { formatMBCompact } from "../ui/memory";
-import { daemonScanBoundHost, runningKavals } from "../ui/useDaemonInventory";
+import RunningDaemonsSection from "../ui/RunningDaemonsSection";
+import { daemonScanBoundHost, localScanKavals } from "../ui/useDaemonInventory";
+import {
+  boundHostInventoryLive,
+  boundHostKavals,
+} from "../ui/useHostInventory";
 import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
+import { type KavalPresence, toKavalPresence } from "./daemonPresentation";
 import { expectedKaval } from "./KavalUpdateBadge";
 import { kavalStale } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
-  daemonTransportLive,
+  daemonChannelLive,
   formatUptime,
   kavalDot,
 } from "./useDaemonStatus";
@@ -43,14 +57,14 @@ const RunningKavalRow: Component<{ kaval: RunningKaval }> = (props) => (
       <span class="min-w-0 flex-1 truncate text-[11px] font-medium text-fg">
         {props.kaval.label}
       </span>
-      <Show when={props.kaval.active}>
+      <Show when={props.kaval.held.active}>
         <span class="shrink-0 rounded-full border border-accent/40 bg-accent/10 px-1.5 text-[9px] font-medium leading-4 text-accent">
           in use by kolu
         </span>
       </Show>
       {/* A legacy `kaval-<port>/` that is NOT the held one — a genuine un-adopted
           pre-W2.2 stray. The leak signal. */}
-      <Show when={!props.kaval.active && props.kaval.kind === "port"}>
+      <Show when={!props.kaval.held.active && props.kaval.kind === "port"}>
         <span class="shrink-0 rounded-full border border-warning/40 bg-warning/10 px-1.5 text-[9px] font-medium leading-4 text-warning">
           legacy · not owned by padi
         </span>
@@ -60,7 +74,7 @@ const RunningKavalRow: Component<{ kaval: RunningKaval }> = (props) => (
         upgrade (PTYs kept). A known, converging state, NOT a leak: it's kolu's live
         kaval, just at its old socket until it next recycles. Neutral tone (not the
         warning the stray gets). */}
-    <Show when={props.kaval.active && props.kaval.atLegacyAddress}>
+    <Show when={props.kaval.held.active && props.kaval.held.atLegacyAddress}>
       <p class="mt-1 text-[10px] leading-4 text-fg-3">
         pre-padi address · converges on next kaval restart or reboot
       </p>
@@ -94,19 +108,35 @@ const KavalInfoDialog: Component<{
   status: DaemonStatus | undefined;
 }> = (props) => {
   const clockNow = getClockNow();
+  // The client's own honest presence sum (P4 — retires the "unknown"/"—" escape hatch):
+  // `identity` is MANDATORY on the `connected` arm, so a render can never show a
+  // synthesized dash beside a confirmed-connected kaval. Floored on `daemonChannelLive`
+  // exactly like the dot/label below — a dead/half-open channel folds to `warming`, never
+  // a stale `connected` claim over a frozen identity. See `daemonPresentation.ts`'s
+  // `toKavalPresence` + its `@ts-expect-error` pin in `daemonPresentation.test.ts`.
+  const presence = createMemo<KavalPresence>(() =>
+    toKavalPresence(props.status, daemonChannelLive()),
+  );
+  const connected = ():
+    | Extract<KavalPresence, { kind: "connected" }>
+    | undefined => {
+    const p = presence();
+    return p.kind === "connected" ? p : undefined;
+  };
   const pending = (): boolean =>
     kavalStale(
       expectedKaval()?.staleKey,
       props.status?.identity?.staleKey,
       props.status?.state,
-      daemonTransportLive(),
+      daemonChannelLive(),
     );
-  // kolu's active kaval is still at the pre-padi legacy address (adopted on upgrade) —
-  // so the Restart-kaval button is the MANUAL way to converge it onto the padi address
-  // now (a reboot converges it automatically). The hint appears only while there's
-  // something to converge.
+  // The bound host's active kaval is still at the pre-padi legacy address (adopted on
+  // upgrade) — so the Restart-kaval button (which recycles the BOUND host's kaval via
+  // padiSurface) is the MANUAL way to converge it onto the padi address now (a reboot
+  // converges it automatically). The hint appears only while there's something to
+  // converge.
   const convergePending = (): boolean =>
-    runningKavals().some((k) => k.active && k.atLegacyAddress);
+    boundHostKavals().some((k) => k.held.active && k.held.atLegacyAddress);
 
   return (
     <InfoDialogShell
@@ -142,10 +172,10 @@ const KavalInfoDialog: Component<{
           {(s) => (
             <div class="flex min-w-0 items-center gap-2">
               <span
-                class={`inline-block h-2 w-2 rounded-full ${kavalDot(s().state, daemonTransportLive())}`}
+                class={`inline-block h-2 w-2 rounded-full ${kavalDot(s().state, daemonChannelLive())}`}
               />
               <Show
-                when={daemonTransportLive()}
+                when={daemonChannelLive()}
                 fallback={
                   <span class="text-xs font-medium text-fg-3">unknown</span>
                 }
@@ -154,7 +184,7 @@ const KavalInfoDialog: Component<{
                   {DAEMON_STATE_PRESENTATION[s().state].label}
                 </span>
               </Show>
-              <Show when={daemonTransportLive() && s().startedAt}>
+              <Show when={daemonChannelLive() && s().startedAt}>
                 {(t) => (
                   <span class="truncate text-[11px] tabular-nums text-fg-3">
                     up {formatUptime(clockNow() - t())}
@@ -168,7 +198,12 @@ const KavalInfoDialog: Component<{
 
       <div class="space-y-1">
         <DetailRow label="build commit">
-          <Commit sha={props.status?.identity?.navigableCommit} />
+          {/* Routed through `connected()` (P4): a confirmed-connected kaval's build
+              commit is present BY CONSTRUCTION (no `??`/ternary escape hatch); a
+              non-connected/not-yet-identified/channel-dead kaval passes `undefined`,
+              which `<Commit>` renders as an honest "—" — never a synthesized dash
+              beside a claimed-connected state. */}
+          <Commit sha={connected()?.identity.navigableCommit} />
         </DetailRow>
         <DetailRow label="socket">
           {/* Local bind → the bound kaval's unix socket. Remote bind → the kaval lives on
@@ -246,50 +281,19 @@ const KavalInfoDialog: Component<{
         </Show>
       </div>
 
-      {/* Every running kaval on this host, active one badged, legacy/orphaned ones
-          flagged — so a LEAKED post-upgrade kaval (once only surfaced by a `kaval-tui:
-          more than one kaval daemon is running` CLI error) is diagnosable at a glance.
-          Honesty (#1034): an honest empty line when none is discovered, never a fake. */}
-      <div
-        class="space-y-2"
-        classList={{
-          // Bound remotely: this is a scan of THIS machine's daemons, NOT the bound
-          // host's — fence it off in a bordered, muted panel so two hosts' truths can't
-          // read as one (the kaval identity above rides padiSurface = the REMOTE host).
-          "rounded-lg border border-edge bg-surface-2/50 p-2.5":
-            daemonScanBoundHost() !== null,
-        }}
-      >
-        <h3 class="text-xs font-medium text-fg">
-          <Show when={daemonScanBoundHost()} fallback="Running kaval daemons">
-            Local daemons — this machine, not the bound host
-          </Show>
-        </h3>
-        <Show when={daemonScanBoundHost()}>
-          {(host) => (
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              kolu-server is bound to padi on{" "}
-              <span class="text-fg-2">{host()}</span> over ssh — the kaval
-              identity above is that host's. These are daemons discovered on
-              THIS machine (a leak diagnostic), not the bound host's.
-            </p>
-          )}
-        </Show>
-        <Show
-          when={runningKavals().length > 0}
-          fallback={
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              No running kaval daemons discovered.
-            </p>
-          }
-        >
-          <ul class="space-y-1.5">
-            <For each={runningKavals()}>
-              {(kaval) => <RunningKavalRow kaval={kaval} />}
-            </For>
-          </ul>
-        </Show>
-      </div>
+      {/* The BOUND host's running kavals — active one badged, legacy/orphaned ones
+          flagged (a LEAKED post-upgrade kaval is diagnosable at a glance) — plus, under a
+          remote binding, a fenced scan of THIS machine. The section owns the heading,
+          live-gate, and fences; the kaval row is passed as `renderRow`. */}
+      <RunningDaemonsSection
+        noun="kaval"
+        testidPrefix="kaval"
+        boundHost={daemonScanBoundHost()}
+        live={boundHostInventoryLive()}
+        boundHostRows={boundHostKavals()}
+        localScanRows={localScanKavals()}
+        renderRow={(kaval) => <RunningKavalRow kaval={kaval} />}
+      />
 
       <div class="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
         <div class="min-w-0">

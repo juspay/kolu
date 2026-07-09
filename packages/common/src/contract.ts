@@ -18,16 +18,17 @@
 import { composeSurfaceContracts } from "@kolu/surface/define";
 import { oc } from "@orpc/contract";
 import { z } from "zod";
+import { HostKeySchema } from "./hostKey.ts";
 import { surfaces } from "./surface";
 
 // ── Raw oRPC procedure I/O schemas ────────────────────────────────────
 
-export const ServerIdentitySchema = z.object({
+export const PwaIdentitySchema = z.object({
   hostname: z.string(),
   name: z.string(),
   themeColor: z.string(),
 });
-export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
+export type PwaIdentity = z.infer<typeof PwaIdentitySchema>;
 
 // The `processId` (restart axis) and `commit` (build-identity / skew axis) that
 // used to ride this probe now live on the surface, owned by @kolu/surface-app:
@@ -38,7 +39,7 @@ export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
 // per-host BRANDING the shell needs synchronously at boot (document title,
 // watermark, PWA theme).
 export const ServerInfoSchema = z.object({
-  identity: ServerIdentitySchema,
+  identity: PwaIdentitySchema,
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
@@ -76,5 +77,31 @@ export const contract = oc.router({
      *  running or degraded daemon) or the DegradedCanvas (a dead one). No input:
      *  one local host today, host-count-agnostic shapes deferred to R-2. */
     restart: oc.output(z.void()),
+  },
+  // Runtime membership of the keyed padi host map — the selector strip's add/remove
+  // actions. Root RPCs (not surface members): they mutate the POOL, not one host's
+  // surface. The host is re-validated as a `HostKey` at the wire (P5). These exist on
+  // the shared contract (not a kolu-server-local splice like `padi`) because the CLIENT
+  // strip calls them.
+  hosts: {
+    /** Add a padi host to the warm pool at runtime. Resolves once the pool has seeded
+     *  the binding; the entry then warms through the map's `entries` collection
+     *  (connecting → connected). Re-adding an existing
+     *  member rejects loudly (`host already exists`) — never a silent no-op. */
+    add: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
+    /** Remove a guest host — its map subs end typed, its session is destroyed, and it
+     *  drops from `entries`. Removing the unremovable default (LOCAL_HOST / the first
+     *  seed) is rejected loudly: the canvas must always keep a host to fall back to. */
+    remove: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
+    /** Force a held host to RE-DIAL now — the host-down card's [Reconnect] verb. A
+     *  STANDING refuse (cross-supervisor / contract-skew / unconverged) holds degraded
+     *  WITHOUT auto-reconnecting by design (a persistent skew must not spin), so once
+     *  the user CLEARS the cause (kills the other kolu, sets KOLU_REMOTE_PADI_STATE_DIR,
+     *  upgrades), NOTHING re-dials on its own — this re-dials via the session's
+     *  `recheck()` (force-cycle the held connection through the reconnect loop). A
+     *  TRANSIENT disconnect already auto-retries, so this is a harmless no-op there;
+     *  it is NOT the inert-retry we forbade — it genuinely re-dials the held arm. An
+     *  unknown host is a typed reject. */
+    reconnect: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
   },
 });

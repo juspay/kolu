@@ -18,6 +18,7 @@ import {
   acquirePidGate,
   type DaemonExit,
   daemonMain,
+  type GateAcquisition,
   type Logger,
 } from "@kolu/surface-daemon";
 
@@ -25,9 +26,12 @@ import {
  *  at process start. The control-core `hello` echoes it so the binder measures
  *  honest uptime instead of resetting the age on every reconnect. */
 const PADI_STARTED_AT = Date.now();
+
+import { buildCommit } from "@kolu/surface/identity";
 import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
 import { implement, type Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
+import { initAutosaveGate } from "./autosaveGate.ts";
 import { currentPadiBuildId, currentPadiCommitHash } from "./buildId.ts";
 import {
   setPadiActivityFeedStore,
@@ -35,6 +39,7 @@ import {
   setPadiSessionStore,
 } from "./confStores.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
+import { startPadiHostInventorySampler } from "./hostInventory.ts";
 import { importLegacyConfigOnce } from "./importLegacy.ts";
 import {
   ensureKoluRoot,
@@ -44,15 +49,15 @@ import {
 import { configureDaemonLog, log as padiLog } from "./log.ts";
 import { startPadiMemorySampler } from "./memorySampler.ts";
 import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
-import { publisher } from "./publisher.ts";
 import {
   getLocalSocketPath,
   publishDaemonStatus,
   setPadiServeSocketPath,
 } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint, setSpawnServerVersion } from "./ptyHost/index.ts";
+import { publisher } from "./publisher.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
-import { initSessionAutoSave, setSavedSessionFromSnapshot } from "./session.ts";
+import { saveSession, setSavedSessionFromSnapshot } from "./session.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
@@ -61,7 +66,12 @@ import {
   writeStateRootManifest,
 } from "./stateRoot.ts";
 import { openPadiStateStores } from "./stateStore.ts";
-import { padiDaemonContract, padiDaemonSurfaces } from "./surface.ts";
+import {
+  PADI_SURFACE_VERSION,
+  padiDaemonContract,
+  padiDaemonSurfaces,
+} from "./surface.ts";
+import { hasParkedTerminals } from "./terminal-registry.ts";
 import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
 import {
   adoptSurvivingSession,
@@ -76,8 +86,12 @@ export interface PadiDaemonOptions {
    *  {@link resolvePadiStateRoot}) to `KOLU_PADI_STATE_DIR` else the binary's
    *  spelled default. dev/e2e pass an explicit path. */
   stateRoot?: string;
-  /** Override the socket path (`--socket`); the gate sits beside it. Rarely set
-   *  — the digest-keyed default is the whole point of the rendezvous. */
+  /** Override the socket path (`--socket`); the gate sits beside it. kolu-server's
+   *  binder ALWAYS sets this — the exact path it already computed with
+   *  `padiSocketPath` for its own wait side — so padi's bind can never diverge from
+   *  what the binder dials by independently re-reading `$XDG_RUNTIME_DIR` at spawn
+   *  time (the single-source fix; see `resolvePadiLaunch`). Only a standalone padi
+   *  (no binder) leaves this unset and falls back to the digest-keyed default. */
   socketOverride?: string;
   /** The env whitelist for `--allow-nix-shell-with-env-whitelist`, forwarded so
    *  PTY spawns compose the same nix-devshell env kolu-server did. */
@@ -100,10 +114,207 @@ export interface PadiDaemonOptions {
   onReady?: (info: { socketPath: string; pid: number }) => void;
 }
 
+// ── Typed boot pipeline ───────────────────────────────────────────────────────
+// Each phase takes the PRIOR phase's token, so a PHASE invoked before its predecessor
+// is a COMPILE error, not a silent violation. The two ordering invariants once held by
+// prose — "claim the gate FIRST" (W2.2's B1 blocker) and "the stores are injected
+// before anything reads them" — are now the {@link HeldGate} / {@link StoresReady}
+// types threaded through the chain; the boot below reads as `gate → stores → identity
+// → serve → endpoint`, its PHASE ordering checked by the compiler. The setter sequence
+// WITHIN a phase (e.g. the exit-wipe hook after `ensureKoluRoot` in
+// `configureDaemonIdentity`) is a short, co-located, documented convention — not a
+// compiler-checked edge; the win is that those setters are grouped into one phase
+// instead of scattered across the boot the way they used to be.
+
+/** Padi's HELD single-instance gate — the `acquired` arm of `acquirePidGate`,
+ *  narrowed past the `held` / `dir-not-private` exits. Threaded into every boot phase
+ *  that must run UNDER the gate, so a phase reachable before the claim would not
+ *  type-check (the loser of a state-root race can't clobber the winner's disk). */
+type HeldGate = Extract<GateAcquisition, { kind: "acquired" }>;
+
+/** Padi's state-root stores are OPEN, legacy-imported, and INJECTED — the precondition
+ *  for anything that reads a padi cell (serve, reconcile). Carries the gate forward so
+ *  the whole pipeline is value-threaded to the spine at the end. */
+interface StoresReady {
+  readonly phase: "stores";
+  readonly gate: HeldGate;
+}
+
+/** The per-process identity (pid, serve socket, spawn version, nix-shell env,
+ *  koluRoot, the exit-wipe hook, the autosave gate) is configured — the precondition
+ *  for spawning a terminal or serving. */
+interface IdentityReady {
+  readonly phase: "identity";
+  readonly gate: HeldGate;
+}
+
+/** padiSurface + the frozen control core are served and the late-bound ctx is wired
+ *  (every domain writer can now publish deltas) — the precondition for booting the
+ *  kaval endpoint, whose reconcile publishes onto that ctx. Carries the served
+ *  router. */
+interface SurfacesServed {
+  readonly phase: "served";
+  readonly gate: HeldGate;
+  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC served router — the same `Router<any, any>` the served fragment narrows to (see `serveDaemonSurfaces`).
+  readonly router: Router<any, any>;
+}
+
+/** The local kaval endpoint has booted (adopt-or-spawn) and the saved session is
+ *  reconciled — the precondition for the samplers + manifests that read the held
+ *  kaval's socket. The served router is NOT re-carried here — this phase neither
+ *  produces nor consumes it; the caller reads it straight off the `served` value. */
+interface EndpointBooted {
+  readonly phase: "endpoint";
+  readonly gate: HeldGate;
+}
+
+/** Open padi's state-root stores UNDER the held gate: open the `Conf`, run the
+ *  one-shot legacy import BEFORE injecting (so imported values are in place before any
+ *  reader), then inject the three cells' backing stores. The `gate: HeldGate` param is
+ *  the compile-time proof the gate was claimed first — a padi that lost the race exits
+ *  before this is reachable. */
+function openStateStores(
+  gate: HeldGate,
+  stateRoot: string,
+  log: Logger,
+): StoresReady {
+  const stores = openPadiStateStores(stateRoot);
+  // Import BEFORE the injections below — the imported values must be in place before
+  // anything reads a cell. (#1658's backup, inlined per the scope note.)
+  importLegacyConfigOnce(stores, log);
+  setPadiSessionStore(stores.session);
+  setPadiActivityFeedStore(stores.activityFeed);
+  setPadiLastPairedDaemonStore(stores.lastPairedDaemon);
+  return { phase: "stores", gate };
+}
+
+/** Configure padi's per-process identity + wire the autosave gate. Requires the stores
+ *  token (its `koluRoot` + autosave observe the injected state), so it cannot run
+ *  before injection. */
+function configureDaemonIdentity(
+  stores: StoresReady,
+  opts: PadiDaemonOptions,
+  socketPath: string,
+): IdentityReady {
+  // padi's OWN pid (a standalone daemon owns its disk) — koluRoot + PTY spawns need it.
+  setDaemonProcessId(String(process.pid));
+  // Record padi's OWN serving socket so every terminal it spawns carries it as
+  // `PADI_SOCKET` (the $KAVAL_SOCKET twin) — set well before `ensureLocalEndpoint` can
+  // spawn a terminal.
+  setPadiServeSocketPath(socketPath);
+  // `||` not `??`: `currentPadiCommitHash()` is "" off-nix and the setter refuses an
+  // empty value — fall through to "dev".
+  setSpawnServerVersion(opts.spawnVersion || currentPadiCommitHash() || "dev");
+  configureNixShellEnv(opts.nixShellWhitelist);
+  ensureKoluRoot();
+  // Register the scratch-root wipe on `exit` — only AFTER `ensureKoluRoot` created the
+  // dir and `setDaemonProcessId` so `koluRoot()` resolves. A hard kill bypasses `exit`
+  // (the XDG logout-wipe is the backstop).
+  process.on("exit", shutdownCleanup);
+  // Wire the AutosaveGate to the live terminal set + the restore-pending query (read
+  // LIVE at fire — the registry is its source of truth) + the persist effect. The gate
+  // owns WHEN to save; the writers only pulse `notifyDirty`.
+  initAutosaveGate({
+    snapshot: snapshotSession,
+    isRestorePending: hasParkedTerminals,
+    persist: saveSession,
+  });
+  return { phase: "identity", gate: stores.gate };
+}
+
+/** Serve padiSurface + the frozen control core on ONE socket and wire the late-bound
+ *  ctx. Requires the identity token (spawns/serving observe it), and takes the
+ *  already-built `onDrain` so a control-core drain persists + exits. */
+function serveDaemonSurfaces(
+  identity: IdentityReady,
+  params: { stateRoot: string; onDrain: () => void; log: Logger },
+): SurfacesServed {
+  const { stateRoot, onDrain, log } = params;
+  const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
+  const { router: surfaceFragment, ctx } = implementSurfaces(
+    padiDaemonSurfaces,
+    {
+      channel: <T>(name: string) => publisherChannel<T>(publisher, name),
+      onStreamReadError: (err, info) =>
+        log.error({ err, stream: info.stream }, "padi stream read error"),
+      // DECLARE padi's build identity on the `padi` sibling's reserved
+      // `system.identity` — the member kolu-server's `session.identity()` reads for
+      // the daemon-inventory readout (contract version · uptime · build). Same values
+      // padi's control-core `hello` already echoes (the convergence axis reads THAT,
+      // unchanged); this is the READOUT axis via the framework member. The commit is
+      // the null-free `BuildCommit` sum (`""` off-nix → `dev`). padi always declares,
+      // so its served identity is always `identified`, never `anonymous`. (S4 —
+      // declared in the `SurfacesServed` phase, where the surfaces are implemented.)
+      identity: {
+        padi: {
+          contractVersion: PADI_SURFACE_VERSION,
+          buildId: currentPadiBuildId(),
+          commit: buildCommit(currentPadiCommitHash()),
+        },
+      },
+    },
+    {
+      padi: buildPadiSurfaceDeps({
+        endpoint: localEndpoint,
+        log: padiLog,
+        // The SAME `startedAt`/`commit` handed to the control-core `hello` below —
+        // reused, never re-derived, so the padiSurface `identity` cell and `hello`
+        // can't drift.
+        startedAt: PADI_STARTED_AT,
+        commit: currentPadiCommitHash(),
+      }),
+      control: buildControlCoreDeps({
+        stateRoot,
+        startedAt: PADI_STARTED_AT,
+        // padi's navigable git commit (`PADI_COMMIT_HASH`), echoed by `hello` so the
+        // binder surfaces the RUNNING padi's build. Empty "" off-nix → honest "—".
+        commit: currentPadiCommitHash(),
+        // padi's staleKey (`PADI_BUILD_ID`) — the binder's build-convergence key: a
+        // same-contract build mismatch drains this padi once at binder boot (#1670).
+        buildId: currentPadiBuildId(),
+        onDrain,
+      }),
+    },
+  );
+  // Wire the late-bound ctx so every padi domain writer publishes deltas.
+  setPadiSurfaceCtx(ctx.padi);
+  // Wrap the fragment in a top-level contract router so the socket's handler can route
+  // it (the bare fragment answers "Not Found"; the same wrap kaval's inProcessPtyHost
+  // does).
+  const servedRouter = implement(padiDaemonContract).router(
+    // biome-ignore lint/suspicious/noExplicitAny: the fragment's procedure-context type doesn't line up with implement().router()'s contract-derived param, though the runtime shape is exactly what serving wants (mirrors kaval's inProcessPtyHost wrap).
+    surfaceFragment as any,
+    // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC served router — the same `Router<any, any>` cast kaval's inProcessPtyHost narrows to (the contract-derived context doesn't line up, runtime shape is correct).
+  ) as Router<any, any>;
+  return { phase: "served", gate: identity.gate, router: servedRouter };
+}
+
+/** Boot padi's OWN kaval (adopt-or-spawn under `kaval-<digest>/`), reconcile its live
+ *  PTYs against the saved session, and start the live inventory reconciler. Requires
+ *  the served surfaces — the reconcile publishes onto the wired ctx. */
+async function bootLocalEndpoint(
+  served: SurfacesServed,
+  params: { kavalSocket: string; legacyKavalSocket?: string },
+): Promise<EndpointBooted> {
+  await ensureLocalEndpoint({
+    kavalSocket: params.kavalSocket,
+    // The W2.2 upgrade bridge: adopt a surviving pre-W2.2 port-keyed kaval (if the
+    // binder hinted its port socket and this padi has no digest kaval yet) rather than
+    // leaking it. Standalone padi (no binder) passes nothing → no legacy adopt.
+    legacyKavalSocket: params.legacyKavalSocket,
+    onStatus: publishDaemonStatus,
+    onAdopted: adoptSurvivingSession,
+    onNotAdopted: parkSavedSession,
+    onBootSettled: startInventoryReconciler,
+  });
+  return { phase: "endpoint", gate: served.gate };
+}
+
 /** Run the padi daemon to completion: own its state-root, adopt-or-spawn its
  *  kaval, reconcile the saved session, serve `padiSurface` + the control core over
  *  padi's digest-keyed socket, and stay up until drained / signalled. Resolves the
- *  spine's {@link DaemonExit} for the bin to map to an exit code. */
+ *  spine's {@link DaemonExit} for the bin to map to an exit code. The boot is a typed
+ *  pipeline (see the phase functions above); this reads as its call graph. */
 export async function runPadiDaemon(
   opts: PadiDaemonOptions,
 ): Promise<DaemonExit> {
@@ -141,50 +352,15 @@ export async function runPadiDaemon(
     return { kind: "serve-failed", detail: "dir-not-private" };
   }
 
-  // ── padi's own state-root store (the W2.2 move off kolu-server's conf) ──
-  // The three cells padi owns — session, activityFeed, lastPairedDaemon — now
-  // read/write padi's OWN `Conf` under the state-root. Injected BEFORE anything
-  // serves or reconciles (a read before this crashes loudly), exactly as
-  // kolu-server injected its conf stores in-process before the cutover.
-  const stores = openPadiStateStores(stateRoot);
-  // The one-shot import: on the first boot with a legacy `$KOLU_STATE_DIR` set
-  // (kolu-server forwards it), carry session/activityFeed/lastPairedDaemon across
-  // from the old shared config, ONCE — taking a backup first, crashing loudly on a
-  // bad file. Runs BEFORE the stores are injected so the imported values are in
-  // place before anything reads them. (#1658's backup, inlined per the scope note.)
-  importLegacyConfigOnce(stores, log);
-  setPadiSessionStore(stores.session);
-  setPadiActivityFeedStore(stores.activityFeed);
-  setPadiLastPairedDaemonStore(stores.lastPairedDaemon);
+  // Gate → stores → identity: each phase takes the prior's token, so none can run
+  // before the gate is claimed above (a lost gate-race returns before reaching here).
+  const stores = openStateStores(gate, stateRoot, log);
+  const identity = configureDaemonIdentity(stores, opts, socketPath);
 
-  // The per-process identity padi's koluRoot + PTY spawns need — padi's OWN pid
-  // (a standalone daemon owns its disk) and the version stamped on spawned PTYs.
-  setDaemonProcessId(String(process.pid));
-  // Record padi's OWN serving socket so every terminal it spawns carries it as
-  // `PADI_SOCKET` (the $KAVAL_SOCKET twin) — a `padi-tui` inside a kolu terminal
-  // then reaches the padi that owns it flag-free. Set before anything can spawn a
-  // terminal (well before `ensureLocalEndpoint`).
-  setPadiServeSocketPath(socketPath);
-  // `||` not `??`: currentPadiCommitHash() is "" off-nix (no baked env), and the
-  // spawn-version setter refuses an empty value — fall through to "dev".
-  setSpawnServerVersion(opts.spawnVersion || currentPadiCommitHash() || "dev");
-  configureNixShellEnv(opts.nixShellWhitelist);
-  ensureKoluRoot();
-  // padi OWNS its per-process scratch root now (the W2.2 move off kolu-server):
-  // the shell rc files, per-terminal scratch, and upload/init files live under
-  // `${runtimeRoot}/kolu-<padi-pid>`. Register the wipe on `exit` — the same hook
-  // kolu-server used before the cutover — so a normal padi drain/restart (which
-  // ends the process) removes the root instead of leaking it. Registered only
-  // AFTER `ensureKoluRoot` created the dir (a lost gate-race returns above, never
-  // reaching here), and after `setDaemonProcessId` so `koluRoot()` resolves. A
-  // hard kill / power loss bypasses `exit` (the XDG logout-wipe is the backstop),
-  // exactly as before.
-  process.on("exit", shutdownCleanup);
-  initSessionAutoSave(snapshotSession);
-
-  // ── The drain trigger ── control-core `drain` persists + exits; the caller
-  // observes the socket close. Fold it into an abort of the daemon lifetime,
-  // composed with any external stop signal.
+  // ── The drain trigger ── control-core `drain` persists + exits; the caller observes
+  // the socket close. Built HERE (not in a phase) so `onDrain` closes over
+  // `drainController` — which the spine's `daemonMain` also aborts on — and can be
+  // handed to the serve phase; composed with any external stop signal.
   const drainController = new AbortController();
   if (opts.signal) {
     if (opts.signal.aborted) drainController.abort();
@@ -213,87 +389,46 @@ export async function runPadiDaemon(
     drainController.abort();
   };
 
-  // ── Serve padiSurface + the frozen control core on ONE socket ──
-  const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
-  const { router: surfaceFragment, ctx } = implementSurfaces(
-    padiDaemonSurfaces,
-    {
-      channel: <T>(name: string) => publisherChannel<T>(publisher, name),
-      onStreamReadError: (err, info) =>
-        log.error({ err, stream: info.stream }, "padi stream read error"),
-    },
-    {
-      padi: buildPadiSurfaceDeps({ endpoint: localEndpoint, log: padiLog }),
-      control: buildControlCoreDeps({
-        stateRoot,
-        startedAt: PADI_STARTED_AT,
-        // padi's navigable git commit (`PADI_COMMIT_HASH`), echoed by `hello` so the
-        // binder surfaces the RUNNING padi's build. Empty "" off-nix → honest "—".
-        commit: currentPadiCommitHash(),
-        // padi's staleKey (`PADI_BUILD_ID`) — the binder's build-convergence key: a
-        // same-contract build mismatch drains this padi once at binder boot (#1670).
-        // Empty "" off-nix (the binder never build-drains a "" survivor of a "" binder).
-        buildId: currentPadiBuildId(),
-        onDrain,
-      }),
-    },
-  );
-  // Wire the late-bound ctx so every padi domain writer publishes deltas.
-  setPadiSurfaceCtx(ctx.padi);
-  // Wrap the `implementSurfaces` FRAGMENT in a top-level contract router so the
-  // socket's StandardRPCHandler can route it — the bare fragment answers "Not
-  // Found" over the wire (the same wrap kaval's `createInProcessPtyHost` does).
-  const servedRouter = implement(padiDaemonContract).router(
-    // biome-ignore lint/suspicious/noExplicitAny: the fragment's procedure-context type doesn't line up with implement().router()'s contract-derived param, though the runtime shape is exactly what serving wants (mirrors kaval's inProcessPtyHost wrap).
-    surfaceFragment as any,
-    // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC served router — the same `Router<any, any>` cast kaval's inProcessPtyHost narrows to (the contract-derived context doesn't line up, runtime shape is correct).
-  ) as Router<any, any>;
-
-  // ── Boot orchestration — padi adopts-or-spawns its OWN kaval under
-  // `kaval-<digest>/`, reconciles its live PTYs against the saved session, and
-  // starts the live inventory reconciler. (The SAME orchestration kolu-server ran
-  // in-process until W2.2; it now runs in padi's process, keyed by state-root.)
-  await ensureLocalEndpoint({
+  // Serve → boot the endpoint: the reconcile publishes onto the ctx the serve phase
+  // wires, so `bootLocalEndpoint` takes the served token.
+  const served = serveDaemonSurfaces(identity, { stateRoot, onDrain, log });
+  const endpoint = await bootLocalEndpoint(served, {
     kavalSocket,
-    // The W2.2 upgrade bridge: adopt a surviving pre-W2.2 port-keyed kaval (if the
-    // binder hinted its port socket and this padi has no digest kaval yet) rather
-    // than leaking it. Standalone padi (no binder) passes nothing → no legacy adopt.
     legacyKavalSocket: opts.legacyKavalSocket,
-    onStatus: publishDaemonStatus,
-    onAdopted: adoptSurvivingSession,
-    onNotAdopted: parkSavedSession,
-    onBootSettled: startInventoryReconciler,
   });
 
-  // Feed the chrome bar's memory rail: sample padi's OWN RSS + poll its kaval's on
-  // a fixed cadence and publish the pair on `padiSurface.processMemory` (kolu-server
-  // folds it into the rail's cell). Started after `ensureLocalEndpoint` so the first
-  // kaval poll can reach a connected daemon; a not-yet-connected kaval reads `absent`.
+  // Samplers + manifests run AFTER the endpoint boot (the `endpoint` token proves it):
+  // they read the held kaval's socket / a connected daemon.
+  // Feed the chrome bar's memory rail: sample padi's OWN RSS + poll its kaval's on a
+  // fixed cadence; a not-yet-connected kaval reads `absent`.
   startPadiMemorySampler();
-
-  // ── Manifests (digest → state-root) so a flag-less kaval-tui can label what it
-  // discovers. padi knows the state-root the opaque digest stands for; write it
-  // into both padi's and its kaval's runtime dirs.
+  // Manifests (digest → state-root) so a flag-less kaval-tui can label what it
+  // discovers — written into both padi's and its kaval's runtime dirs.
   writeStateRootManifest(dirname(socketPath), stateRoot);
   // Beside the kaval this padi ACTUALLY holds — `getLocalSocketPath()` is the digest
-  // socket normally, but the adopted LEGACY port socket after an upgrade adoption. So
-  // discovery labels the real daemon "kolu @ <state-root>" (not the bare "port N"),
-  // and no empty digest dir is minted when the port kaval was adopted instead.
+  // socket normally, but the adopted LEGACY port socket after an upgrade adoption, so
+  // discovery labels the real daemon and no empty digest dir is minted.
   writeStateRootManifest(
     dirname(getLocalSocketPath() ?? kavalSocket),
     stateRoot,
   );
+  // Feed the Kaval + Padi dialogs' "Running daemons" list — started after the
+  // manifests so the very first tick labels the discovered kaval by state-root. The
+  // serving padi reports ITSELF by construction (see `withSelfPadi`).
+  startPadiHostInventorySampler({ padiSocket: socketPath, stateRoot });
 
   return daemonMain({
     gatePath,
     socketPath,
-    router: servedRouter,
+    // The router is the serve phase's output — read it straight off `served` rather
+    // than re-threading it through the endpoint token that neither owns nor touches it.
+    router: served.router,
     lifetime: { kind: "forever" },
     log,
     signal: drainController.signal,
     onReady: opts.onReady,
-    // The gate we already claimed at the top — the spine serves under it and
-    // releases it on teardown, rather than acquiring it here (too late).
-    gate,
+    // The gate claimed at the top, threaded through the pipeline — the spine serves
+    // under it and releases it on teardown, rather than acquiring it here (too late).
+    gate: endpoint.gate,
   });
 }

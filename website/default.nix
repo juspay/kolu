@@ -10,8 +10,8 @@
 # `import ./website { inherit pkgs; }` with no synthesis of its own.
 { pkgs ? import ../nix/nixpkgs.nix { }
 , src ? # Self-contained website source for the Nix sandbox. The working tree keeps
-  # public/{favicon,kaval-logo}.svg as symlinks into packages/ (one SVG each
-  # on disk, no duplicated bytes) — but those dangle once copied into the
+  # public/{favicon,kaval-logo,padi-logo}.svg as symlinks into packages/ (one SVG
+  # each on disk, no duplicated bytes) — but those dangle once copied into the
   # store, so resolve them to real bytes here. Astro/Vite then sees a
   # complete tree. Add a line per new out-of-tree public/ asset.
   pkgs.runCommand "kolu-website-src" { } ''
@@ -31,12 +31,16 @@
     cp ${../packages/client/favicon.svg} $out/public/favicon.svg
     rm -f $out/public/kaval-logo.svg
     cp ${../packages/kaval/logo.svg} $out/public/kaval-logo.svg
+    rm -f $out/public/padi-logo.svg
+    cp ${../packages/padi/logo.svg} $out/public/padi-logo.svg
+    cp ${../packages/server/package.json} $out/kolu-server-package.json
   ''
 }:
 let
-  # Single source for the website version — its own package.json (no literal to
-  # drift). Threaded into fetchPnpmDeps and the typecheck derivation below.
-  version = (pkgs.lib.importJSON ./package.json).version;
+  # Website displays Kolu's app version, whose single source of truth is
+  # packages/server/package.json (same as the root derivation). Thread this
+  # through Nix so the sandbox never needs to reach outside `src`.
+  version = (pkgs.lib.importJSON ../packages/server/package.json).version;
 
   # fetchPnpmDeps hash is platform-independent. Regenerate when pnpm-lock.yaml
   # changes — `just ci::pnpm-hash-fresh` checks this alongside the root's
@@ -66,13 +70,33 @@ let
         libc: ["glibc", "musl"]
       }' package.json | sponge package.json
     '';
-    hash = "sha256-fgxHsxFZX54+piAfe/Qi0B4rYj7YtJbekFKOgNOpbeA=";
+    hash = "sha256-8lcRg4LcWAWwWaJ3xKQ3b92bYYwFD+XRgVyslzvTazc=";
     fetcherVersion = 3;
+  };
+
+  # The docs' <Snippet> component (src/components/docs/Snippet.astro) embeds real,
+  # workspace-typechecked example sources — packages/surface/example/{snippets,
+  # fleet-top} — by reading the files at build time as `../packages/…` relative to
+  # the website root, exactly as the working tree has them (website/ and packages/
+  # are siblings under the repo root). This hermetic sandbox's build root is the
+  # website src ALONE, so those files are absent and `astro build` fails loudly on
+  # the first <Snippet>. Vendor a clean copy (no node_modules/dist) and place it
+  # as the website root's sibling in the build tree (preBuild below), so the same
+  # relative read resolves — the store copy keeps CI faithful to the working tree.
+  exampleSnippetSrc = pkgs.lib.cleanSourceWith {
+    name = "surface-example-snippet-src";
+    src = ../packages/surface/example;
+    filter = path: _type:
+      let s = toString path; in
+      !(pkgs.lib.hasInfix "/node_modules/" s)
+      && !(pkgs.lib.hasSuffix "/node_modules" s)
+      && !(pkgs.lib.hasInfix "/dist/" s)
+      && !(pkgs.lib.hasSuffix "/dist" s);
   };
 
   default = pkgs.stdenv.mkDerivation {
     pname = "kolu-website";
-    version = "0.1.0";
+    inherit version;
     inherit src pnpmDeps;
 
     nativeBuildInputs = [
@@ -91,6 +115,15 @@ let
       runHook postBuild
     '';
 
+    # Place the vendored example sources as the website root's sibling so
+    # <Snippet>'s `../packages/…` reads resolve in the sandbox (see
+    # exampleSnippetSrc). Runs before `pnpm build`.
+    preBuild = ''
+      mkdir -p ../packages/surface
+      cp -r ${exampleSnippetSrc} ../packages/surface/example
+      chmod -R u+w ../packages
+    '';
+
     installPhase = ''
       runHook preInstall
       cp -r dist $out
@@ -103,10 +136,10 @@ let
     '';
   };
 
-  # The type gate for website/ (juspay/kolu#1049): `astro check`. `pnpm build`
-  # (astro build) transpiles without typechecking, exactly like the main app,
-  # so a type error in the site would otherwise deploy green. The root flake
-  # exposes this as checks.${system}.website-typecheck.
+  # The type gate for website/ (juspay/kolu#1049): `astro sync && tsc --noEmit`.
+  # `pnpm build` (astro build) transpiles TS without typechecking, exactly like
+  # the main app, so a type error in the site's TS/TSX would otherwise deploy
+  # green. The root flake exposes this as checks.${system}.website-typecheck.
   typecheck = import ../nix/pnpm-typecheck.nix {
     inherit pkgs src pnpmDeps version;
     pname = "kolu-website-typecheck";

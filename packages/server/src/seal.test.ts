@@ -12,7 +12,7 @@
  * `git.*` namespace is reintroduced on the contract.
  *
  * Modeled on `@kolu/surface-daemon-supervisor`'s `deps.closure.test.ts` (the
- * import-graph walk via `ts.preProcessFile`), extended with the file-list
+ * parser-backed import-graph walk), extended with the file-list
  * allowlist (a), the root-namespace assertion (c), and the two REVERSE arms that
  * prove the dependency ARROW POINTS OUT of `@kolu/padi` (the terminal-domain
  * AUTHORITY): (d) no `packages/padi/src` file references the `koluSurface`
@@ -24,8 +24,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "@babel/parser";
 import { contract } from "kolu-common/contract";
-import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { buildAppRouter } from "./router.ts";
 
@@ -54,19 +54,45 @@ const WEB_SHELL_FILES = [
   // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives
   // beside the shell, not in @kolu/padi.
   "padiBinding",
+  // padi's CONVERGENCE declaration into the shared daemon-convergence kit (the
+  // contract-skew policy, the frozen-control-core probe, the drain plumbing) —
+  // carved out of `padiBinding` in W4 ledger L6 as its own volatility. Web-shell
+  // code (it declares padi's policy + adapts its hello; the kit owns the mechanism),
+  // so it lives beside the binder, not in @kolu/padi.
+  "padiConvergence",
   // The W3.1 REMOTE padi binder — the ssh twin of `padiBinding`: it fronts a padi on
   // another host over `getHostSession`/`padi --stdio` and re-serves its surface through
   // the SAME `reServeSurface` seam. Web-shell code (it runs no terminal domain — it
   // re-serves a remote padi's), so it lives beside the shell, not in @kolu/padi.
   "remotePadiBinding",
-  // The pure `HostSessionState.connection` → koluSurface `padiLink` mapping — the web
+  // The stale-reserve-on-flap eviction: prunes `index.ts`'s per-host `reServeSurface`
+  // mirror cache to the pool's live membership (wired to `pool.subscribe`), so a guest
+  // remove→re-add of the same key builds a FRESH mirror over the new session rather than
+  // reusing the dead one pinned to the destroyed session (#1708). Web-shell glue (a cache
+  // prune keyed by pool membership), not terminal domain.
+  "reServeEviction",
+  // The padi SESSION shape both arms return (post-S9): a base `Session` from
+  // `makeSession` + the daemon-supervision members by spread — no `BoundPadi`, no
+  // wrapper class. Web-shell glue (the arms' shared session type + spread helper).
+  "padiSession",
+  // The pure `SessionState.connection` → koluSurface `padiLink` mapping — the web
   // shell's own honest view of its binding to padi (#1034), driven off the binding
   // session. Shell code (a projection of the binder's state onto kolu-server's OWN
   // surface), not terminal domain.
   "padiLink",
   "pwaIdentity",
+  // The web shell's catch-all `app.onError` logger — turns an uncaught route/
+  // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview
+  // stream that faults past the route's own 503 `try`) into a LOGGED 500. Pure HTTP
+  // shell code, runs no terminal domain.
+  "routeErrors",
   "router",
   "state",
+  // The P0 local-supervisor ownership gate — the web shell's own "only one
+  // kolu-server supervises this padi state root" fence (a `supervisor.pid` claim
+  // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
+  // ownership; runs no terminal domain), so it lives beside the binder.
+  "supervisorClaim",
   "surface",
   "tls",
 ].sort();
@@ -101,7 +127,12 @@ function serverSrcModules(): string[] {
   // as a `sub/mod` key that isn't in the flat WEB_SHELL_FILES set.
   return readdirSync(SRC, { recursive: true })
     .map((f) => String(f).split(sep).join("/"))
-    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+    .filter(
+      (f) =>
+        f.endsWith(".ts") &&
+        !f.endsWith(".test.ts") &&
+        !f.endsWith(".test-d.ts"),
+    )
     .map((f) => f.replace(/\.ts$/, ""))
     .sort();
 }
@@ -184,70 +215,115 @@ function declaredDeps(pkgJsonPath: string): string[] {
   ];
 }
 
+type AstNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+const isAstNode = (value: unknown): value is AstNode =>
+  value !== null &&
+  typeof value === "object" &&
+  "type" in value &&
+  typeof (value as { type?: unknown }).type === "string";
+
+function parseTsFile(file: string): AstNode {
+  return parse(readFileSync(file, "utf8"), {
+    sourceFilename: file,
+    sourceType: "module",
+    createImportExpressions: true,
+    plugins: file.endsWith(".tsx") ? ["typescript", "jsx"] : ["typescript"],
+  }) as unknown as AstNode;
+}
+
+function visitAst(node: AstNode, visit: (node: AstNode) => void): void {
+  visit(node);
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const item of value) if (isAstNode(item)) visitAst(item, visit);
+    } else if (isAstNode(value)) {
+      visitAst(value, visit);
+    }
+  }
+}
+
+const stringLiteralValue = (node: unknown): string | null =>
+  isAstNode(node) &&
+  (node.type === "StringLiteral" || node.type === "DirectiveLiteral") &&
+  typeof node.value === "string"
+    ? node.value
+    : null;
+
+const identifierName = (node: unknown): string | null =>
+  isAstNode(node) && node.type === "Identifier" && typeof node.name === "string"
+    ? node.name
+    : stringLiteralValue(node);
+
+const nodeList = (value: unknown): AstNode[] =>
+  Array.isArray(value) ? value.filter(isAstNode) : [];
+
 /** The two ways a module could BIND the `koluSurface` surface value: a named
  *  import of it, or a `typeof koluSurface` type-query. Parsed off the AST, so a
  *  comment or string that merely MENTIONS "koluSurface" is NOT a hit (the arrow
  *  ban is about a real dependency, not the word). */
 function koluSurfaceBindings(file: string): string[] {
-  const src = ts.createSourceFile(
-    file,
-    readFileSync(file, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
-  );
   const hits: string[] = [];
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isImportDeclaration(node) &&
-      node.importClause?.namedBindings &&
-      ts.isNamedImports(node.importClause.namedBindings)
-    ) {
-      for (const el of node.importClause.namedBindings.elements) {
-        if ((el.propertyName ?? el.name).text === "koluSurface") {
-          hits.push(`import { koluSurface } (as ${el.name.text})`);
+  visitAst(parseTsFile(file), (node) => {
+    if (node.type === "ImportDeclaration") {
+      for (const specifier of nodeList(node.specifiers)) {
+        if (
+          specifier.type === "ImportSpecifier" &&
+          identifierName(specifier.imported) === "koluSurface"
+        ) {
+          hits.push(
+            `import { koluSurface } (as ${identifierName(specifier.local) ?? "?"})`,
+          );
         }
       }
     }
     if (
-      ts.isTypeQueryNode(node) &&
-      ts.isIdentifier(node.exprName) &&
-      node.exprName.text === "koluSurface"
+      node.type === "TSTypeQuery" &&
+      identifierName(node.exprName) === "koluSurface"
     ) {
       hits.push("typeof koluSurface");
     }
     // Namespace access: `import * as ns from "…"; ns.koluSurface` — reaching the
     // surface value through a namespace member (value position).
     if (
-      ts.isPropertyAccessExpression(node) &&
-      node.name.text === "koluSurface"
+      (node.type === "MemberExpression" ||
+        node.type === "OptionalMemberExpression") &&
+      identifierName(node.property) === "koluSurface"
     ) {
       hits.push("ns.koluSurface (namespace member)");
     }
     // Qualified type: `typeof ns.koluSurface` / `ns.koluSurface[…]` in type position.
-    if (ts.isQualifiedName(node) && node.right.text === "koluSurface") {
+    if (
+      node.type === "TSQualifiedName" &&
+      identifierName(node.right) === "koluSurface"
+    ) {
       hits.push("ns.koluSurface (qualified type)");
     }
     // Re-export FROM another module — a padi barrel forwarding the surface value:
     //   `export { koluSurface } from "…"`   (named re-export)
     //   `export * from "kolu-common/surface"` (star re-export of the module that
     //                                          owns koluSurface)
-    if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
-      const spec = ts.isStringLiteral(node.moduleSpecifier)
-        ? node.moduleSpecifier.text
-        : "";
-      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
-        for (const el of node.exportClause.elements) {
-          if ((el.propertyName ?? el.name).text === "koluSurface") {
-            hits.push(`export { koluSurface } from "${spec}"`);
-          }
+    if (node.type === "ExportNamedDeclaration") {
+      const spec = stringLiteralValue(node.source) ?? "";
+      for (const el of nodeList(node.specifiers)) {
+        if (
+          el.type === "ExportSpecifier" &&
+          identifierName(el.local) === "koluSurface"
+        ) {
+          hits.push(`export { koluSurface } from "${spec}"`);
         }
-      } else if (!node.exportClause && /^kolu-common\/surface$/.test(spec)) {
-        hits.push(`export * from "${spec}"`);
       }
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(src);
+    if (
+      node.type === "ExportAllDeclaration" &&
+      stringLiteralValue(node.source) === "kolu-common/surface"
+    ) {
+      hits.push('export * from "kolu-common/surface"');
+    }
+  });
   return hits;
 }
 
@@ -267,8 +343,26 @@ const ALLOWED_PADI = [
 ];
 
 function importsOf(file: string): string[] {
-  const pre = ts.preProcessFile(readFileSync(file, "utf8"), true, true);
-  return pre.importedFiles.map((f) => f.fileName);
+  const specs = new Set<string>();
+  visitAst(parseTsFile(file), (node) => {
+    if (
+      node.type === "ImportDeclaration" ||
+      node.type === "ExportNamedDeclaration" ||
+      node.type === "ExportAllDeclaration"
+    ) {
+      const spec = stringLiteralValue(node.source);
+      if (spec) specs.add(spec);
+    }
+    if (node.type === "ImportExpression") {
+      const spec = stringLiteralValue(node.source);
+      if (spec) specs.add(spec);
+    }
+    if (node.type === "TSImportType") {
+      const spec = stringLiteralValue(node.argument);
+      if (spec) specs.add(spec);
+    }
+  });
+  return [...specs];
 }
 
 function resolveRelative(from: string, spec: string): string {
@@ -342,7 +436,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       Object.keys(contract)
         .filter((k) => k !== "surface")
         .sort(),
-    ).toEqual(["daemon", "server"]);
+    ).toEqual(["daemon", "hosts", "server"]);
 
     // `appRouter` is assembled in `index.ts`'s async boot now (the padi sibling is
     // an `await`ed re-serve), so build it here with stub deps to assert the same
@@ -350,6 +444,9 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     const r = buildAppRouter({
       surfaceRouter: { surface: {} },
       drainBoundPadi: async () => {},
+      addHost: async () => {},
+      removeHost: async () => {},
+      reconnectHost: () => {},
     }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();

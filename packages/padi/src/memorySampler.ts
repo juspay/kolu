@@ -20,8 +20,9 @@
 import { log } from "./log.ts";
 import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { readDaemonStatus } from "./ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID, ptyHostClient } from "./ptyHost/index.ts";
+import { ptyHostClient } from "./ptyHost/index.ts";
 import type { ProcessRss } from "./vocab.ts";
+import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
 
 /** Cadence of padi's process-memory readout — the SAME 5s the retired kolu-server
  *  sampler used. Coarser than the client's 1s heap tick: memory is slow-moving, so
@@ -35,7 +36,9 @@ export const MEMORY_SAMPLE_INTERVAL_MS = 5_000;
  *  threw (surfaced — logged ERROR — and reported distinctly, so a failed RPC never
  *  renders identically to "no daemon"). */
 async function pollKavalRss(): Promise<ProcessRss> {
-  if (readDaemonStatus(LOCAL_HOST_ID)?.state !== "connected") {
+  if (
+    readDaemonStatus(encodeHostLocation(LOCAL_LOCATION))?.state !== "connected"
+  ) {
     return { status: "absent" };
   }
   try {

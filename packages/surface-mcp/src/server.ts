@@ -17,7 +17,10 @@
  *   - `toInputSchema` (inside `resolveExpose`) → each tool's JSON Schema.
  */
 
-import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import {
+  firstFrameOfCollectionItem,
+  firstFrameOrThrow,
+} from "@kolu/surface/first-frame";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -356,20 +359,31 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   }));
 
   // ── resources/read ─────────────────────────────────────────────────────
-  server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+  // Thread the MCP request's abort signal all the way to the client calls so a
+  // one-shot read is bounded by request lifetime — cancelling the read tears
+  // down the underlying held-open subscription instead of leaking it.
+  server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
     const { uri } = req.params;
-    const snapshot = await withClient((client) =>
-      readSnapshot(client, uri, byUri, keySchemaByCollection),
+    const result = await withClient((client) =>
+      readSnapshot(client, uri, byUri, keySchemaByCollection, extra.signal),
     );
-    if (snapshot === undefined) {
-      throw new Error(`surface-mcp: unknown resource "${uri}"`);
+    if (isMiss(result)) {
+      // A not-yet-present collection key is a well-formed but empty resource, NOT
+      // an unknown URI — distinct messages so an agent can tell "this address is
+      // wrong" from "this value hasn't arrived yet" (it may appear once its
+      // producer reports in; watch it via `resources/subscribe`).
+      throw new Error(
+        result.miss === "not-present"
+          ? `surface-mcp: resource "${uri}" has no value yet — its collection key is not present`
+          : `surface-mcp: unknown resource "${uri}"`,
+      );
     }
     return {
       contents: [
         {
           uri,
-          mimeType: snapshot.mimeType,
-          text: JSON.stringify(snapshot.value, null, 2),
+          mimeType: result.mimeType,
+          text: JSON.stringify(result.value, null, 2),
         },
       ],
     };
@@ -549,44 +563,101 @@ interface Snapshot {
   mimeType: string;
 }
 
+/** A one-shot read that produced no snapshot, and WHY — so the handler tells a
+ *  genuinely unaddressable URI (`unresolved`) apart from a well-formed
+ *  collection-item URI whose key is simply not present yet (`not-present`, the
+ *  #1681 held-open case). Collapsing both to a bare `undefined` + one "unknown
+ *  resource" message hid that distinction (invalid-states-unrepresentable). */
+type ReadMiss = { miss: "unresolved" | "not-present" };
+function isMiss(r: Snapshot | ReadMiss): r is ReadMiss {
+  return "miss" in r;
+}
+
 /** Read a one-shot snapshot for a resource URI: pull the first frame of the
  *  primitive's streaming source and return immediately.
  *
  *  The empty-open POLICY depends on the kind's snapshot guarantee:
  *
- *    - **cell / collection / collection-item / stream** are SNAPSHOT-FIRST
+ *    - **cell / collection / stream** are SNAPSHOT-FIRST
  *      (`@kolu/surface/server` opens a cell/collection with a current-value frame,
  *      and `StreamHandlerDeps` REQUIRES "first yield is a fresh full snapshot"), so
  *      an empty open is a dead/dropped bridge link, NOT an empty value — it
  *      `firstFrameOrThrow`s, never collapses to `null` (the green-dot lie in MCP
  *      form; caught-error-must-not-collapse-to-empty).
+ *    - **collection-item** is snapshot-first ONLY when the key currently EXISTS.
+ *      A collection's membership is dynamic (a key can be born later), and the
+ *      collection `get` now HOLDS OPEN for an absent key instead of throwing (it
+ *      yields nothing until the first upsert — the fix for the gray-chip #1681).
+ *      That held-open semantic is correct for a LIVE subscription but would make a
+ *      one-shot read block forever on a not-yet-born key, so the read resolves
+ *      membership from the collection's `keys` snapshot FIRST: an absent key is an
+ *      honest not-found (`undefined`), not an indefinite hang; a present key reads
+ *      its `get` first frame (which arrives immediately, since present).
  *    - **event** is the ONE kind with no snapshot by contract (`EventHandlerDeps`
  *      explicitly carries no snapshot obligation — it may yield zero frames, and a
  *      late subscriber misses past occurrences — which is what distinguishes Event
  *      from Stream). Awaiting its first frame would block `resources/read` forever or
  *      until the next occurrence, so an event reads as an immediate explicit `null`
  *      — its live value is the `notifications/resources/updated` stream, delivered
- *      via `resources/subscribe`, not a readable snapshot. */
+ *      via `resources/subscribe`, not a readable snapshot.
+ *
+ *  `signal` (the MCP request's abort signal) bounds every client call to the
+ *  request's lifetime so a cancelled read tears down the underlying subscription. */
 async function readSnapshot<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,
   keySchemaByCollection: Map<string, ZodType>,
-): Promise<Snapshot | undefined> {
+  signal: AbortSignal | undefined,
+): Promise<Snapshot | ReadMiss> {
   const call = resolveCall(client, uri, byUri, keySchemaByCollection);
-  if (call === undefined) return undefined;
-  if (call.kind === "event") return { value: null, mimeType: call.mimeType };
-  const source = await call.proc(call.input);
-  // cell / collection / collection-item / STREAM are ALL snapshot-first by the
-  // surface contract: `@kolu/surface/server` opens a cell/collection with a
-  // current-value frame, and `StreamHandlerDeps` REQUIRES "first yield is a fresh
-  // full snapshot" — only `Event` carries no snapshot obligation (handled above as
-  // an immediate `null`). So an empty open for any of these is NOT an empty value —
-  // it is a dead/dropped bridge link, and collapsing it to JSON `null` would hand an
-  // MCP agent `surface://<kind>/<x> => null` as if it were real (the green-dot lie in
-  // MCP form, the snapshot-then-delta class). Fail loudly per
-  // caught-error-must-not-collapse-to-empty: a nullish source (the proc returned
-  // nothing) and an empty stream (no snapshot frame) both throw.
+  if (call === undefined) return { miss: "unresolved" };
+  switch (call.kind) {
+    case "event":
+      return { value: null, mimeType: call.mimeType };
+    // A collection-item read must not lean on the held-open `get` to signal
+    // absence — an absent key yields nothing forever — so it gets a BOUNDED read
+    // that races the `get` first frame against a live `keys`-absence watch.
+    case "collection-item":
+      return readCollectionItemSnapshot(
+        client,
+        uri,
+        call,
+        keySchemaByCollection,
+        signal,
+      );
+    case "cell":
+    case "collection":
+    case "stream":
+      return readFirstFrameSnapshot(call, uri, signal);
+    default: {
+      // Exhaustiveness guard: a new `ResolvedCall` kind must add its own case
+      // rather than silently falling through to the snapshot-first reader.
+      const unreachable: never = call.kind;
+      throw new Error(`surface-mcp: unhandled resource kind "${unreachable}"`);
+    }
+  }
+}
+
+/** Open a snapshot-first source (cell / collection / stream / a PRESENT
+ *  collection-item) and return its first frame.
+ *
+ *  cell / collection / collection-item / STREAM are ALL snapshot-first by the
+ *  surface contract: `@kolu/surface/server` opens a cell/collection with a
+ *  current-value frame, and `StreamHandlerDeps` REQUIRES "first yield is a fresh
+ *  full snapshot" — only `Event` carries no snapshot obligation (handled by the
+ *  caller as an immediate `null`). So an empty open for any of these is NOT an
+ *  empty value — it is a dead/dropped bridge link, and collapsing it to JSON
+ *  `null` would hand an MCP agent `surface://<kind>/<x> => null` as if it were
+ *  real (the green-dot lie in MCP form, the snapshot-then-delta class). Fail
+ *  loudly per caught-error-must-not-collapse-to-empty: a nullish source (the proc
+ *  returned nothing) and an empty stream (no snapshot frame) both throw. */
+async function readFirstFrameSnapshot(
+  call: ResolvedCall,
+  uri: string,
+  signal: AbortSignal | undefined,
+): Promise<Snapshot> {
+  const source = await call.proc(call.input, { signal });
   if (source === undefined || source === null) {
     throw new Error(
       `surface-mcp: ${uri} (${call.kind}) resolved no streaming source — the ` +
@@ -601,6 +672,81 @@ async function readSnapshot<Client extends SurfaceClientCallable>(
       `empty open means the bridge link dropped, not that the value is null.`,
   );
   return { value, mimeType: call.mimeType };
+}
+
+/** Hard upper bound on a one-shot collection-item read of a **keys-LESS**
+ *  collection — one with no `keys` verb, so there is no membership signal to
+ *  resolve an absent key against. The read is bounded by this deadline so an
+ *  absent key on such a collection is a prompt, explicit not-present (logged),
+ *  never the indefinite hang the held-open `get` would otherwise cause. A
+ *  keys-bearing collection is bounded by its `keys`-absence watch and never
+ *  reaches this. */
+const KEYSLESS_ITEM_READ_DEADLINE_MS = 5_000;
+
+/** One-shot read of a collection-item URI. The item `get` HOLDS OPEN for a
+ *  not-yet-born key (the #1681 fix), so a one-shot read can't await it blindly —
+ *  it delegates to the framework's `firstFrameOfCollectionItem`, which races the
+ *  item `get` against a live `keys`-absence watch (or, for a keys-less collection,
+ *  a hard deadline) so a present key reads its snapshot and an absent/deleted key
+ *  resolves not-found instead of hanging. This wrapper decodes the URI→key, maps
+ *  the framework's typed `CollectionItemFrame` onto the MCP `Snapshot | ReadMiss`,
+ *  and LOGS the keys-less `"deadline"` absence (an uncertain not-present) so it is
+ *  never a silent degrade. */
+async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
+  client: Client,
+  uri: string,
+  call: ResolvedCall,
+  keySchemaByCollection: Map<string, ZodType>,
+  signal: AbortSignal | undefined,
+): Promise<Snapshot | ReadMiss> {
+  const item = parseCollectionItem(uri);
+  if (item === null) {
+    // Unreachable by construction: `readCollectionItemSnapshot` is called only for
+    // a `call.kind === "collection-item"`, which `resolveCall` sets ONLY after
+    // `parseCollectionItem(uri)` succeeded on this same URI. Fail LOUD if that
+    // invariant is ever broken — never a silent fall-through.
+    throw new Error(
+      `surface-mcp: ${uri} routed as a collection item but does not parse as one`,
+    );
+  }
+  // `null` (not `undefined`) when the collection exposes no `keys` verb — the
+  // framework then bounds the read with the deadline instead of a membership watch.
+  const keysProc = client.surface[item.key]?.keys ?? null;
+  const keySchema = keySchemaByCollection.get(item.key);
+  const key = keySchema !== undefined ? decodeKey(keySchema, item.id) : item.id;
+
+  const frame = await firstFrameOfCollectionItem<unknown>(
+    (sig) =>
+      call.proc(call.input, { signal: sig }) as Promise<
+        AsyncIterable<unknown> | null | undefined
+      >,
+    keysProc === null
+      ? null
+      : (sig) =>
+          keysProc(undefined, { signal: sig }) as Promise<
+            AsyncIterable<unknown>
+          >,
+    key,
+    `surface-mcp: ${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
+      `collection item opens with a current-value snapshot, so an empty open means ` +
+      `the bridge link dropped, not that the value is null.`,
+    `surface-mcp: ${uri} (collection-item) resolved no streaming source — the ` +
+      `surface contract guarantees a snapshot-first open for a present item, so ` +
+      `this is a link/protocol failure, not an empty value.`,
+    KEYSLESS_ITEM_READ_DEADLINE_MS,
+    signal,
+  );
+  if (!frame.present && frame.reason === "deadline") {
+    // A keys-less collection gave no membership signal, so the read fell to its
+    // deadline: this not-present is UNCERTAIN (the item may exist but never opened
+    // a snapshot in time). Surface it loudly rather than degrading silently.
+    console.error(
+      `surface-mcp: ${uri} — collection "${item.key}" exposes no \`keys\` verb, so an absent item can't be confirmed; the read hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline and reports not-present`,
+    );
+  }
+  return frame.present
+    ? { value: frame.value, mimeType: call.mimeType }
+    : { miss: "not-present" };
 }
 
 /** Undo the `enforceObject` wrapping before handing args to a procedure/tool's

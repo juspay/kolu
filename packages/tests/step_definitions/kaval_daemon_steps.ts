@@ -120,6 +120,39 @@ When("I open the kaval rail dialog", async function (this: KoluWorld) {
   });
 });
 
+// W3.2 — under a LOCAL binding the "Running daemons" list shows exactly ONE group (the
+// bound host, which IS this machine): the bound-host kaval list, with the live daemon
+// badged "in use by kolu", and NO separate "this machine, not the bound host" group (a
+// second group would show two lists for one truth). The remote-binding split (two labeled
+// groups) rides the ssh lane — `remotePadiSsh.test.ts` proves the member answers over the
+// hop; the local dialog is the no-duplication half.
+Then(
+  "the running-daemons list shows one group with the live kaval, no duplicate local group",
+  async function (this: KoluWorld) {
+    const boundHost = this.page.locator(
+      '[data-testid="kaval-bound-host-daemons"]',
+    );
+    await boundHost.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // Local mode → the plain "Running kaval daemons" heading (no "Kaval daemons on <host>").
+    await boundHost
+      .getByRole("heading", { name: "Running kaval daemons" })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The live local kaval is badged the active one.
+    await boundHost
+      .getByText("in use by kolu")
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // No second, duplicate local-scan group under a local binding.
+    assert.strictEqual(
+      await this.page
+        .locator('[data-testid="kaval-local-scan-daemons"]')
+        .count(),
+      0,
+      "a local binding must show ONE daemon group, not a duplicate 'this machine' group",
+    );
+  },
+);
+
 // The same session-preserving Restart the degraded canvas fires, reached from the
 // rail dialog for a live daemon: click the button, then confirm through the
 // inline destructive-action guard.

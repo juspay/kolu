@@ -75,8 +75,9 @@ let
       ./pnpm-lock.yaml
       ./tsconfig.base.json
       ./packages/surface
+      ./packages/surface-map
       ./packages/surface-mcp
-      ./packages/surface-nix-host
+      ./packages/surface-remote
       ./packages/surface-app
       ./packages/surface-daemon
       ./packages/surface-daemon-supervisor
@@ -124,7 +125,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-TsumUZ90MEw4UZEa2jDh0nNCQJFyoKGLAQ3HBoVYiPg=";
+    hash = "sha256-j9cEYWjOK6xBQK9MPFarnU0vNcgcoZupIBcc+nZiOWE=";
     fetcherVersion = 3;
   };
 
@@ -660,6 +661,12 @@ let
   miniCi = import ./packages/surface/example/mini-ci/default.nix {
     inherit pkgs src pnpmDeps;
   };
+  # fleet-top-agent — the remote agent the multi-host tutorials ship over ssh.
+  # Exposed so the tutorials' `nix eval --raw .#fleet-top-agent.drvPath` works as
+  # written (FLEET_TOP_AGENT_DRV has no fallback; the reader needs a real drv).
+  fleetTop = import ./packages/surface/example/fleet-top/default.nix {
+    inherit pkgs src pnpmDeps;
+  };
 
   # odu — the CI runner that grew out of the mini-ci example (Atlas:
   # mini-ci-vs-justci) and graduated to github.com/juspay/odu. kolu consumes
@@ -697,4 +704,4 @@ let
 in
 {
   inherit default koluBin kaval kaval-tui padi padi-tui mock-agent koluEnv pnpmDeps typecheck;
-} // remoteProcessMonitor // miniCi // docsiteExample // oduPackages
+} // remoteProcessMonitor // miniCi // fleetTop // docsiteExample // oduPackages

@@ -19,22 +19,43 @@
  *     supervisor may supersede an older daemon.
  *   - `buildId` is NEVER ordered — a content hash of the daemon's source closure. Store
  *     hashes DON'T order; there is no "newer build". The ONLY question is match vs
- *     mismatch ({@link buildIdMatches}). This module exports NO build-id ordering, and
+ *     mismatch ({@link buildsMatch}). This module exports NO build ordering, and
  *     `convergenceIdentity.test.ts` pins that a consumer cannot spell one — so a
  *     build-mismatch policy can only ever be "same or different", never "newer/older".
  */
 
 import { isContractVersionCompatible } from "@kolu/surface/define";
 
-/** A running/expected daemon's convergence identity — the two axes the decision keys on.
- *  `buildId` is the daemon's staleKey (its `<PREFIX>_BUILD_ID`); `""` means off-nix /
- *  a survivor predating the field (an honest "unknown" the decision table handles as a
- *  row, never a fabricated match). */
+/** A daemon's build knowledge — its source-closure staleKey when nix-built, or a
+ *  typed off-nix absence. NULL-FREE: "off-nix / a survivor predating the field" is a
+ *  named `kind`, never the `""` sentinel the null-free identity design removes.
+ *  MATCH-ONLY (store hashes don't order); two `off-nix` daemons are never proven the
+ *  same, so the decision table handles off-nix as a row, never a fabricated match. */
+export type DaemonBuild =
+  | { readonly kind: "known"; readonly id: string }
+  | { readonly kind: "off-nix" };
+
+/** A running/expected daemon's convergence identity — the two axes the decision keys
+ *  on. Read off the version-agnostic control-core `hello` (reachable at ANY skew),
+ *  NOT the surface's `system.identity` (which needs a compatible handshake) — the two
+ *  are DISTINCT wires by design (convergence must judge a skewed daemon). */
 export interface ConvergenceIdentity {
   /** The `major.minor` wire-contract version — ORDERED. */
   contractVersion: string;
-  /** The source-closure staleKey — MATCH-ONLY, never ordered. `""` = unknown. */
-  buildId: string;
+  /** The source-closure build knowledge — MATCH-ONLY, never ordered. */
+  build: DaemonBuild;
+}
+
+/** Build a {@link DaemonBuild} from a raw baked id string (a daemon's
+ *  `<PREFIX>_BUILD_ID`): a non-empty id is `known`, `""` (off-nix) is the typed
+ *  `off-nix` absence. The one place a baked `""` becomes the null-free representation. */
+export function daemonBuild(bakedId: string): DaemonBuild {
+  return bakedId === "" ? { kind: "off-nix" } : { kind: "known", id: bakedId };
+}
+
+/** A human label for a {@link DaemonBuild} in a log line. */
+export function buildLabel(b: DaemonBuild): string {
+  return b.kind === "known" ? b.id : "(off-nix)";
 }
 
 /** Parse a `major.minor` version into its two numbers, FAIL-FAST: an unparseable version
@@ -79,15 +100,15 @@ export function contractIsNewer(mine: string, running: string): boolean {
 }
 
 /**
- * Do two build ids MATCH — the only comparison the build axis permits (Pin 2).
+ * Do two builds MATCH — the only comparison the build axis permits (Pin 2).
  *
- * A match requires both non-empty AND equal. An empty id (`""`) is an honest "unknown"
- * (off-nix, or a survivor predating the field), never a match: two "unknown"s are not
- * proven-the-same, so the decision table treats an empty id as its caller-specific
- * "can't judge" / "absent == mismatch" row — this predicate itself never invents a match
- * from missing identity. There is deliberately NO `buildIdIsNewer` / `buildIdCompare`:
- * store hashes don't order.
+ * A match requires BOTH `known` AND equal ids. An `off-nix` build is an honest
+ * "unknown" (off-nix, or a survivor predating the field), never a match: two unknowns
+ * are not proven-the-same, so the decision table treats `off-nix` as its caller-specific
+ * "can't judge" / "absent == mismatch" row — this predicate never invents a match from a
+ * missing build. There is deliberately NO `buildIsNewer` / `buildCompare`: store hashes
+ * don't order.
  */
-export function buildIdMatches(a: string, b: string): boolean {
-  return a !== "" && b !== "" && a === b;
+export function buildsMatch(a: DaemonBuild, b: DaemonBuild): boolean {
+  return a.kind === "known" && b.kind === "known" && a.id === b.id;
 }

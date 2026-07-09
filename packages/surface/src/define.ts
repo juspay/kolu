@@ -30,6 +30,12 @@
 
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
+import {
+  IDENTITY_NAMESPACE,
+  IDENTITY_VERB,
+  identityContractEntry,
+  type ReservedIdentityContract,
+} from "./identity";
 import type { Cell, Collection, Event, Stream } from "./index";
 import { cell, collection, event, stream } from "./index";
 import {
@@ -129,7 +135,7 @@ export interface CellSpec<T = unknown, P = T> {
    *  `@kolu/surface` (core only INVOKES the predicate — it never names a state
    *  literal or any domain vocabulary), while the predicate itself (`v.state ===
    *  "connected"`) is declared on the cell where its schema lives (e.g.
-   *  `surface-nix-host`'s `connectionCell`) — the same mechanism/vocabulary split
+   *  `surface-remote`'s `connectionCell`) — the same mechanism/vocabulary split
    *  as `resolveCellVerbs`. Keep it PURE and CHEAP (it runs on every cell frame
    *  and every `health()` read), and ensure the cell's `default` does NOT satisfy
    *  it (gate-closed cold start), so a freshly-composed surface reads `connecting`
@@ -261,7 +267,11 @@ function cellContractEntries<T, P>(
 /** The wire schema for a collection's batched `deltas` stream — a single home
  *  both the runtime contract (`collectionContractEntries`) and the type oracle
  *  (`buildCollection`) build from, so the two derivations can't drift. */
-function collectionDeltasSchema<K, T>(
+/** The `deltas` wire schema (`snapshot | delta`) for a collection. Exported as the ONE
+ *  authority so a keyed-map's folded entry collection (`@kolu/surface-map`) decodes the exact
+ *  same shape rather than a drift-prone copy — a wire contract with two authorities silently
+ *  cross-decodes if the format ever changes. */
+export function collectionDeltasSchema<K, T>(
   keySchema: ZodType<K>,
   schema: ZodType<T>,
 ) {
@@ -330,11 +340,15 @@ function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
 type EmptyObj = NonNullable<unknown>;
 
 /** Wire shape for `defineSurface(spec).contract`: every entry lives
- *  under one `surface` namespace. The reserved `system.live` liveness proc
- *  (`./liveness`) is intersected in so it's present on every surface contract —
- *  the type counterpart to the runtime `claim` in `defineSurface`. */
+ *  under one `surface` namespace. The reserved `system.live` liveness proc and the
+ *  reserved `system.identity` proc (`./liveness`, `./identity`) are intersected in
+ *  so both are present on every surface contract — the type counterpart to the two
+ *  runtime `claim`s in `defineSurface`. They share the `system` namespace, so the
+ *  intersection folds to `system: { live, identity }`. */
 export type SurfaceContractFor<S extends SurfaceSpec> = {
-  surface: SurfaceInnerContract<S> & ReservedLivenessContract;
+  surface: SurfaceInnerContract<S> &
+    ReservedLivenessContract &
+    ReservedIdentityContract;
 };
 
 type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
@@ -376,7 +390,7 @@ type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
  *  {@link resolveCellVerbs}: `spec.verbs` when present, else the patch/no-patch
  *  default. TS can't reuse the runtime value, so this mirrors it; keep the two
  *  in step. Honoring `verbs` here is load-bearing, not cosmetic:
- *  a read-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-nix-host`'s
+ *  a read-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-remote`'s
  *  connection-health cell) must NOT type a `.set` the runtime contract router
  *  doesn't carry — otherwise a downstream consumer (kolu, drishti) sees a typed
  *  `surface.<cell>.set` that throws at runtime, an API-facing falsehood in the
@@ -835,6 +849,11 @@ export function defineSurface<const S extends SurfaceSpec>(
   // any app-owned `system` namespace and rejects only a duplicate `live` verb, so
   // it can't silently clobber an app procedure.
   claim(LIVENESS_NAMESPACE, { [LIVENESS_VERB]: livenessContractEntry() });
+  // Reserve the framework identity verb on EVERY surface (see ./identity), the
+  // identity twin of `live`: contract-only, auto-answered by `implementSurface`
+  // from the server's baked build info. Shares the `system` namespace with `live`
+  // (claim merges the namespace, rejecting only a duplicate `identity` verb).
+  claim(IDENTITY_NAMESPACE, { [IDENTITY_VERB]: identityContractEntry() });
 
   // Descriptor handles for the manual escape hatch.
   const descriptors = {

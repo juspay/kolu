@@ -51,11 +51,20 @@ export function mountArtifactSdk(app: Hono, opts: MountOptions): void {
     const body = await res.text();
     const { hash } = await getSdkBundle();
     const decorated = decorateHtml(body, `${opts.sdkScriptPath}?v=${hash}`);
-    // Preserve all original headers (Content-Type, X-Content-Type-Options,
-    // Cache-Control) — body length changed but Hono doesn't set
-    // Content-Length on string responses, so no header drift.
-    const headers = new Headers(res.headers);
-    headers.delete("content-length");
-    c.res = new Response(decorated, { status: 200, headers });
+    // Splicing the SDK <script> changes the body, so the two validators of
+    // the ORIGINAL bytes must not ride along: serve-dir's strong `ETag`
+    // (and any Content-Length) would describe a representation we no longer
+    // send. A strong validator must change when the bytes change; the honest
+    // move is to emit none for the decorated body rather than a stale one.
+    //
+    // Delete from `res.headers` (the OLD response) — NOT just the new copy:
+    // Hono's `c.res` setter re-`set()`s every prior header (except
+    // content-type) onto the replacement, so a header stripped only from the
+    // new copy comes right back. Stripping the source is the one that sticks.
+    res.headers.delete("etag");
+    res.headers.delete("content-length");
+    // `res.headers` (etag/content-length now stripped) IS the HeadersInit — the
+    // `Response` constructor copies it, so no separate clone is needed.
+    c.res = new Response(decorated, { status: 200, headers: res.headers });
   });
 }

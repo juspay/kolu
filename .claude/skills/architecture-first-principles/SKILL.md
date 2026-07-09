@@ -1,162 +1,167 @@
 ---
 name: architecture-first-principles
-description: >-
-  Evaluate an architecture or design against FOUNDATIONAL computer-science principles of state,
-  change, and time — the "state-and-time lens" that hickey (simplicity) and lowy (boundaries) do
-  not own. Five grounded principles — values-not-places, pure-core/effects-at-the-edge,
-  one-authority-on-its-own-clock, illegal-states-unrepresentable, guarantees-at-the-knowing-endpoint —
-  with the immutable fold over a log (reducer / Elm / Redux / CQRS) named as their canonical
-  composite. Use when designing or reviewing how state is produced, stored, ordered, and typed; when
-  asking "is the state model right?"; or as a lens within /perfection-review. Project-agnostic.
+description: Evaluate an architecture against foundational principles of state, change, and time — five grounded principles PLUS a fixed set of named, executable review checks (C1–C7) run as a Workflow fan-out over a diff: ecosystem duplicates, consumer ergonomics, graduation sweep, one-hop depends-on, fresh-eyes, state-and-time, project conventions. Theory and execution in one skill; per-repo specifics live in .agency/architecture-first-principles.md. Use when designing/reviewing state models, from /be-review (runs FIRST on framework/structure diffs), or on any architecture/electricity review ask.
+argument-hint: "[--base <branch>] [--scope <paths>]"
 ---
 
-# Architecture from first principles — the state-and-time lens
+# Architecture from first principles — the lens, and its executable checks
 
-A lens for the **dynamic, temporal** axis of an architecture: how state is *produced*, where
-*change* happens, who owns *time* and *authority*, and which states can even be *expressed*. It is
-the complement to `hickey` ("is the **structure** simple?") and `lowy` ("are the **boundaries**
-right?"): this one asks **"is the *state model* right?"** The axes are orthogonal — tests can pass,
-code can be uncomplected and well-decomposed, and the system can *still* clobber a shared mutable
-cell, import a foreign clock, or let an illegal state ship. Those are this lens's defects.
+Two halves, one skill: **the five principles** (the state-and-time lens — what
+`hickey`'s simplicity and `lowy`'s boundaries don't own), and **the checks**
+(C1–C7) — named, verbatim hunter prompts that RUN the principles and their
+sibling lenses over a diff. The checks exist because prose advice does not
+survive contact: in one real week, five architecture smells shipped past a
+four-lens review and were each caught by the human — every miss a question
+nobody asked. The questions are now executable.
 
 ## The five principles
 
-Each: the principle · its canonical source · **the diagnostic question** · the positive
-("make-it-unspellable") form.
+Each: the principle · **the diagnostic question** · the make-it-unspellable fix.
+(Sources, compressed: Backus '78; Hickey "Value of Values"; Moseley & Marks "Out
+of the Tar Pit"; Bernhardt "Functional Core, Imperative Shell"; Lamport '78;
+Shapiro et al. CRDTs '11; Minsky "make illegal states unrepresentable"; King
+"Parse, Don't Validate"; Saltzer/Reed/Clark "End-to-End Arguments" '84.)
 
-**P1 — Values, not places.** State is a succession of immutable *values*; an *identity* is the
-series of values it takes over *time*. Change is a new value, never an in-place edit of a shared
-cell that one party writes and another reads back as truth.
-- *Source:* Hickey, "The Value of Values" (2012) & "Are We There Yet?" (2009 — the identity/state/time model); Backus, Turing lecture (1978 — the von-Neumann mutable-store bottleneck); Okasaki, *Purely Functional Data Structures* (1998 — structural sharing makes immutability cheap).
-- *Ask:* Is there a place written by one party and read back as truth by another? Is "the current state" a mutable cell, or a value derived from history?
-- *Fix:* remove the shared mutable place; make change produce a new value.
+- **P1 — Values, not places.** State is a succession of immutable values; change
+  is a new value, never an in-place edit of a shared cell one party writes and
+  another reads back as truth. *Ask:* is "the current state" a mutable place, or
+  a value derived from history? *Fix:* delete the shared mutable place.
+- **P2 — Pure core, effects at the edge.** Logic is a function of its inputs;
+  I/O, clock, randomness, network live at the boundary, passed in as values.
+  *Ask:* can the core run with no I/O, no `now()`, no globals? *Fix:* move the
+  effect to the edge; pass it in.
+- **P3 — One authority, ordered, on its own clock.** Every fact has one writer;
+  concurrent merges must survive reorder + duplication (idempotent, commutative,
+  associative); a consumer stamps time with its OWN clock. *Ask:* who is the
+  sole writer? whose clock? does any correctness claim assume two clocks agree?
+  *Fix:* one writer, the consumer's clock, or a lawful merge.
+- **P4 — Illegal states unrepresentable.** Shape the data so a wrong value
+  cannot be constructed; parse once at the boundary; errors are values, not
+  nullable holes. *Ask:* can a contradictory value exist at all? is `null`
+  doing two jobs? *Fix:* discriminated union; the bad state becomes a type
+  error.
+- **P5 — Guarantees at the knowing endpoint.** A guarantee belongs where enough
+  is known to make it complete; lower layers may optimize but cannot guarantee.
+  *Ask:* can this layer actually see enough to promise this? *Fix:* relocate
+  the guarantee; keep the lower check as a removable optimization.
 
-**P2 — Pure core, effects at the edge.** The logic is a referentially-transparent function of its
-inputs; I/O, the clock, randomness, the network, and dependency injection live at the **boundary**.
-Effects are *described* in the core and *interpreted* at the edge.
-- *Source:* Backus (1978 — equational reasoning); Moseley & Marks, "Out of the Tar Pit" (2006 — "state is the enemy"; essential vs accidental complexity); Bernhardt, "Boundaries / Functional Core, Imperative Shell" (2012); Seemann, "Functional architecture is Ports & Adapters" (2016) & "Dependency Rejection" (2017 — a pure core needs no DI; push impurity out, don't inject it in).
-- *Ask:* Can the core run with no I/O, no clock, no network, no DI — purely from its arguments? A function that reads `now()` or a global is in the wrong layer.
-- *Fix:* pass effects in as values (`now: () => number`, `readFile: (p) => Promise<…>`); concentrate I/O in a thin shell that wires inputs and applies outputs.
+**The canonical composite** (P1+P2+P3+P4, not a sixth principle): a pure fold
+`(state, event) → state` over an ordered immutable log — the log is the truth,
+the fold is pure, the state is a value, the types forbid bad transitions, the
+consumer stamps its own clock. (Reducer / Elm / Redux / CQRS lineage.)
+Techniques this subsumes, so the set stays minimal: functional-core, FRP, free
+monads/effects (P2); optics (P1); errors-as-values (P4); CRDTs/CALM/logical
+clocks (P3); event-sourcing (the composite).
 
-**P3 — One authority, ordered, on its own clock.** Every fact has exactly one writer (a single
-source of truth). Where concurrency forbids that, converge only through operations that are
-**idempotent, commutative, and associative**, so retries and reordering cannot corrupt. Order is
-explicit and causal — derived from the data, never from comparing two machines' wall-clocks; a
-consumer stamps time with *its own* clock and never imports a remote producer's.
-- *Source:* Lamport, "Time, Clocks, and the Ordering of Events in a Distributed System" (1978 — logical/causal order without synchronized clocks); Shapiro, Preguiça, Baquero & Zawirski, "Conflict-free Replicated Data Types" (2011 — the commutative/associative/idempotent merge); Hellerstein & Alvaro, "Keeping CALM" (monotone logic needs no coordination). The **monoid** (associative op + identity) as the algebra of safe aggregation is standard algebra / FP folklore — *not* a single canonical architecture paper [flagged].
-- *Ask:* Who is the sole writer of this fact? If many, do the merges survive reorder + duplication? Whose clock stamps it — and does any correctness claim assume two clocks agree? *(Probe: set the producer's clock a year ahead — does the consumer's ordering change? If yes, it imported a foreign clock.)*
-- *Fix:* one writer; the consumer's clock; or a lawful (CRDT / monotone) merge.
+**Relationship to the other lenses:** `hickey` = static separation ("is it
+braided?"), `lowy` = static boundaries ("does it encapsulate change?"), this =
+dynamic state & time. Orthogonal; run all; one defect often shows on several
+axes — that is triangulation, not redundancy.
 
-**P4 — Illegal states unrepresentable.** The type is the proof: shape the data so a wrong value
-*cannot be constructed*; **parse** untrusted input *once* at the boundary into a type that cannot
-express the bad state (don't re-validate the same thing everywhere); represent failure as a *value*
-(`Result`/`Either`), not a nullable hole or out-of-band control flow.
-- *Source:* Minsky, "make illegal states unrepresentable" (Jane Street — a **practitioner maxim**, not a paper [flagged]); King, "Parse, Don't Validate" (2019 — influential blog [flagged]); Wlaschin, *Domain Modeling Made Functional* (2018) & "Railway-Oriented Programming" (2014 — errors as values); Hoare, "Null References: the Billion-Dollar Mistake" (2009). Deepest lineage: **Curry–Howard** (types as propositions, programs as proofs) — Wadler, "Propositions as Types".
-- *Ask:* Can a wrong value be constructed at all? Is validation a one-time parse into a stronger type, or the same check scattered across call sites? Are errors return values or hidden control flow?
-- *Fix:* split the type (discriminated union / refined type) so the bad state is *uninhabitable* — the "unspellable > absent" bar reached by construction.
+## The checks — how a review actually runs
 
-**P5 — Guarantees at the knowing endpoint.** A correctness/reliability guarantee belongs at the
-endpoint with enough knowledge to make it *complete*. Lower / intermediate layers may *optimize*
-but cannot *guarantee*; a check placed where it can't see enough is an optimization at best and a
-false assurance at worst.
-- *Source:* Saltzer, Reed & Clark, "End-to-End Arguments in System Design" (1984, ACM TOCS).
-- *Ask:* Is this guarantee at the layer that can make it authoritative, or one that can only partially enforce it? Which endpoint actually owns this claim?
-- *Fix:* move the guarantee to the authoritative endpoint; let lower layers stay a (removable) optimization, not the sole proof.
+### Project overlay
 
-## The canonical composite — the immutable fold over a log
+Read **`.agency/architecture-first-principles.md`** if it exists (the
+`code-police` `.agency/` pattern). It parameterizes: C1's ecosystem hints, C3's
+layer ladder, C7's conventions coverage map, plus any project-added checks.
+Only C1/C3/C7 take overlay parameters; the rest are fully generic. Missing
+overlay → run generic and SAY so.
 
-The highest-leverage *instance* of P1–P4 together, and the most common violation — so name it when
-you see it:
+### Mechanics (identical every run)
 
-> A pure fold `(state, event) → state` over an ordered, immutable log, where the **log is the
-> source of truth (P3)**, the **fold is pure (P2)**, the **state is a value (P1)**, the
-> **events/state are typed so bad transitions can't be expressed (P4)**, and the **consumer stamps
-> its own clock (P3)**.
+1. Resolve the diff (`git diff origin/<base>...HEAD`) in a clean checkout.
+2. ONE Workflow: each check is a parallel `agent()` hunter, flat schema
+   `{ findings: [{ title, file, line, class, severity(real|minor), detail, fix }] }`.
+   Substitute `$ROOT`/`$BASE`/`$NEW_FILES` + overlay parameters into the prompts
+   verbatim — never paraphrase them.
+3. **Verify pass:** every `real` finding gets an adversarial refuter
+   (`CONFIRMED|WEAKENED|REFUTED`, evidence-required). REFUTED drops; WEAKENED
+   keeps only what survived.
+4. Report confirmed findings ranked with per-finding fixes; disposition each
+   (fix now or record where) — "acceptable for scope" is not a disposition.
 
-It is **not a sixth principle** — it is P1+P2+P3+P4 composed; stating it as an axiom would violate
-*foundational, not corollary*. This skill **teaches the five and recognizes the composite.** Its
-lineage, so you can name what you see:
-- the fold = a **catamorphism** — Meijer, Fokkinga & Paterson, "Functional Programming with Bananas, Lenses, Envelopes and Barbed Wire" (1991);
-- "derive state from the log" — Kreps, "The Log" (2013);
-- the reducer `(state, action) → state` — **Redux** (Abramov, from Flux) and **The Elm Architecture**'s `update` (Czaplicki);
-- the architectural form (write-log + materialized read-models) — **CQRS / event sourcing** (Greg Young; Martin Fowler).
+**Scope rule — one hop down (non-negotiable):** for every new module, list its
+non-framework imports and run the checks on those files too; most real misses
+live one hop below the diff.
 
-## Techniques this subsumes (so the set stays minimal)
+### C1 · ecosystem-duplicate — "does something already ship this?"
 
-Each maps to a principle and earns no slot of its own — list them to prove minimality:
-functional-core/imperative-shell & dependency rejection → **P2** · FRP (behaviors/events over time;
-Elliott & Hudak, "Functional Reactive Animation", 1997) → **P1+P2** · free monads / tagless-final /
-algebraic effects → **P2** techniques (separate description from interpretation) · optics / lenses →
-**P1** technique (immutable update) · railway-oriented / errors-as-values → **P4** · CRDTs / CALM /
-logical clocks → **P3** · CQRS / event-sourcing → the composite.
+> HUNT hand-rolled ecosystem duplicates in $ROOT (diff vs $BASE, plus one hop:
+> the non-framework imports of $NEW_FILES). For EVERY mechanism the diff adds or
+> stands on: does the project's dependency set, its ecosystem's standard
+> libraries (overlay hints), the language/runtime built-ins, or an existing
+> in-repo framework export already ship it? Check the manifest AND the lockfile
+> — a transitive dep already present costs zero to adopt. Name the exact library
+> API, cite the hand-roll file:line, judge adopt-vs-keep honestly. ONLY real
+> duplicates — no "could theoretically use X".
 
-## How to use it
+### C2 · consumer-ergonomics — "read every new export from the consumer's chair"
 
-A **lens, not a checklist** — five diagnostic questions held as a *covering set* (no fixed order;
-together they cover the space of state/data-flow defects). Two modes:
+> For EVERY new exported symbol, grep its real call sites and read them as the
+> CONSUMER. Hunt: (a) double-derefs / awkward call shapes (nested accessors as
+> API); (b) options required or documented but NEVER READ (dead knobs); (c)
+> exports with zero production callers; (d) paired obligations the API could
+> fuse; (e) policy callbacks that cannot reach the mechanism they need (forcing
+> forward-reference hacks); (f) near-constant boilerplate at every call site;
+> (g) names that lie at the call site. Evidence: the call-site code, quoted.
 
-- **Designing:** ask all five *before* committing a state/data-flow decision; prefer the composite
-  (a fold over a log) and justify any departure.
-- **Reviewing:** run it like `hickey`/`lowy` — a forked, read-only pass (e.g. an `Explore` agent),
-  whole-module scope, that **fact-checks its own output** (invoke `fact-check`) and emits findings
-  under a *no-defer* disposition: each is *fix now* or *no-op* — "acceptable for scope" is not a
-  pass. Treat each principle as a **proof obligation**: either cite the structural mechanism that
-  enforces it, or construct the concrete defect that is still expressible.
+### C3 · graduation-sweep — the boundary question, BOTH directions
 
-It owns **state, data-flow, and time**, and **delegates**: "is this boundary in the right place?" →
-`/lowy`; "are these concerns braided / fragmented?" → `/hickey`; "is the code idiomatic?" →
-`/elegance`. One defect often shows on several axes at once — e.g. "the producer mutates the
-consumer's store" is a **P1 + P5** violation *and* a `hickey` complect of derivation with storage.
-That is triangulation, not redundancy; run all the lenses to cover the whole space.
+> Containment: did volatility leak INTO a module where it doesn't belong?
+> Graduation: does the diff CREATE app-local machinery HIDING a hard volatility
+> (transport, connection lifetime, reconnection, multiplicity racing intent,
+> persistence, context loss) that wants its own receptacle — NAMED, with the
+> volatility and the home, EVEN AT POPULATION ONE (a recorded opportunity,
+> never a blocker; prove-then-extract gates the act, not the naming)? Judge
+> LAYER PLACEMENT against the overlay's ladder — lowest honest layer. State
+> DEFENSIBLE placements explicitly; no moves for tidiness.
 
-## How `/perfection-review` invokes it
+### C4 · depends-on — "audit what the new code stands on"
 
-perfection-review's bar is *"the defect can no longer be expressed,"* and it frames each finding as
-*the invariant it violates*. This skill is its **catalog of foundational invariants**:
-- name **which principle's invariant** a residual defect violates (e.g. "a remote `lastActivityAt`
-  reorders the fleet" = **P3**: foreign clock + multi-writer);
-- the **"unspellable" target** for the fix is that principle's positive form — **P4** → make it a
-  type error; **P3** → one writer / the consumer's clock / a lawful merge; **P1** → delete the
-  mutable place; **P2** → move the effect to the edge; **P5** → relocate the guarantee.
+> Trace every non-framework import of $NEW_FILES into the PRE-EXISTING code it
+> leans on; audit THOSE files for: detached lifetimes with discarded disposers;
+> module-global mutable state / caches whose lifetime mismatches the new
+> consumer; hand-rolled duplicates (C1's bar); sentinel/null-overload hacks;
+> fail-fast throws whose reachability the diff CHANGED (a boot throw now
+> triggered by persisted state); proxies/singletons with surprising semantics
+> as a foundation. Report: the pre-existing hack + the NEW call site leaning on
+> it.
 
-Wiring: *perfection-review hunts the relocating defect → this lens names the invariant and supplies
-the structural make-it-unspellable fix → perfection-review verifies the defect can no longer be
-expressed.*
+### C5 · fresh-eyes-consumer — "read only the public surface, know nothing"
 
-## Relationship to the other lenses
+> You know NOTHING of this change's implementation or history. Read ONLY the
+> public surface: touched packages' READMEs, exported symbols/types, any design
+> doc the PR cites. As a competent newcomer: (a) every export you cannot
+> explain from the README alone (undocumented or stale docs); (b) every name or
+> call shape that confuses you; (c) every doc claim the exports contradict.
+> Your confusions ARE the findings — no deference.
 
-| lens | axis | core question |
-|---|---|---|
-| `hickey` | static — separation | are independent concerns braided / fragmented? |
-| `lowy` | static — boundaries | do boundaries encapsulate an axis of change? (Parnas 1972) |
-| `elegance` | local — idiom | is the code idiomatic and minimal? |
-| **this** | **dynamic — state & time** | values-over-time, derived purely, single-writer on its own clock, illegal states unrepresentable, guarantees at the knowing endpoint? |
+### C6 · state-and-time — the five principles, executed
 
-Orthogonal axes — a system can be perfectly decomposed (`lowy`) and uncomplected (`hickey`) yet
-still clobber a mutable cell or import a foreign clock, and vice versa. This lens **cross-references**
-but **subsumes none**: P3's single-writer is the *concurrent* face of Parnas information-hiding
-(`lowy` owns the decomposition); P1's "a mutable place complects value + time + identity" is the
-positive of one `hickey` row (this skill develops the *state model*; `hickey` treats it as one
-complecting pattern). Run all; this one owns state and time.
+> Run P1–P5's diagnostic questions (above) over the diff's state-bearing code:
+> mutable place read back as truth? core reaching for now()/globals? sole
+> writer per fact + whose clock + do merges survive reorder? constructible
+> contradictions / two-job nulls? guarantees at a layer that can't see enough?
+> SPECIAL CASE that hides from per-field audits — the FLAT FACTS-PRODUCT: any
+> product of primitive fields feeding a decision function (a resolver, a
+> renderer) where some field's VALIDITY has a precondition on another field
+> ("this health claim is only groundable when that state is connected") left
+> as arm-order/convention. Each field reads honest alone; the lie lives in the
+> joint distribution. Demand the precondition be encoded as DISCRIMINATION
+> (the dependent fact exists only on the arm that grounds it). Cite the
+> violated principle per finding.
 
-## References (grounded; practitioner / folklore sources flagged)
+### C7 · project-conventions — walk the overlay's coverage map
 
-Backus (1978) · Hickey, "The Value of Values" (2012), "Are We There Yet?" (2009), "Simple Made
-Easy" (2011) · Okasaki, *Purely Functional Data Structures* (1998) · Moseley & Marks, "Out of the
-Tar Pit" (2006) · Bernhardt, "Boundaries / Functional Core, Imperative Shell" (2012) · Seemann,
-"Functional architecture is Ports & Adapters" (2016), "Dependency Rejection" (2017) · Parnas, "On
-the Criteria To Be Used in Decomposing Systems into Modules" (1972 — the root under `lowy` and under
-P3's single-writer information-hiding) · Lamport, "Time, Clocks…" (1978) · Shapiro et al., "CRDTs"
-(2011) · Hellerstein & Alvaro, "Keeping CALM" · Saltzer, Reed & Clark, "End-to-End Arguments"
-(1984) · Meijer, Fokkinga & Paterson, "Bananas, Lenses, Envelopes and Barbed Wire" (1991) · Kreps,
-"The Log" (2013) · The Elm Architecture (Czaplicki) / Redux (Abramov) / Flux · CQRS & Event Sourcing
-(Greg Young; Fowler) · Elliott & Hudak, "Functional Reactive Animation" (1997) · Wadler,
-"Propositions as Types" · Wlaschin, *Domain Modeling Made Functional* (2018), "Railway-Oriented
-Programming" (2014) · Hoare, "Null References: the Billion-Dollar Mistake" (2009).
+> For each coverage-map row marked judgment-enforced, check the diff against
+> that convention explicitly; report violations with file:line. Overlay absent
+> → skip and say so.
 
-**Flagged (honest grounding — do not present as peer-reviewed):** *monoids as "the algebra of safe
-combination"* — standard abstract algebra / FP folklore, no single canonical architecture paper.
-*"Make illegal states unrepresentable" (Minsky)* and *"Parse, Don't Validate" (King, 2019)* —
-influential **practitioner maxims** (talk / blog), canonical by adoption. *Curry–Howard* — cited as
-the lineage under P4 (via Wadler), not a single architecture source. Hickey, Bernhardt, Seemann,
-Wlaschin, Elm, and Redux are **practitioner canon**, not academic papers — cite them as such.
+## Adding a check (the self-improve contract)
+
+A human catches a smell the checks missed → a GENERAL lesson lands here as a new
+named check or sharpened prompt line (and upstreams); a PROJECT lesson lands in
+the repo's `.agency/architecture-first-principles.md`. Never as advisory prose
+in another skill. A check earns its slot with: the seed miss, the question, the
+evidence bar.

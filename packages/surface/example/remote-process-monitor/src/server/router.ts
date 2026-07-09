@@ -32,11 +32,11 @@ import {
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   type AgentClient,
-  type HostSession,
   makeClientCursor,
   pipeSessionStateToCell,
+  type Session,
   seedConnectionCell,
-} from "@kolu/surface-nix-host";
+} from "@kolu/surface-remote";
 import { implement } from "@orpc/server";
 import {
   type CoreId,
@@ -53,7 +53,7 @@ import {
 type ProcessMonitorAgent = AgentClient<typeof surface.contract>;
 
 export interface BuildRouterOptions {
-  session: HostSession<typeof surface.contract>;
+  session: Session<AgentClient<typeof surface.contract>>;
 }
 
 /** Build the parent's oRPC router. The session's connection state
@@ -141,18 +141,19 @@ export function buildRouter(opts: BuildRouterOptions) {
       // `procedures.process.kill` forwarder — but those stubs are bound to ONE
       // spawn's client, and `stdio` links don't recover mid-stream (the bridge
       // re-mirrors per respawn). A kill can be invoked any time, including across a
-      // respawn, so it forwards through `session.acquire()` (always the *current*
-      // live client) rather than a per-spawn mirror stub. R8's long-lived
-      // `HostSession` client is durable across reconnects, so it can hand its
-      // forwarders straight off the mirror.
+      // respawn, so it forwards through `session.currentClient()` — always the
+      // *current* live client (the pump already pins the session), never a
+      // per-spawn mirror stub. A kill during a link gap fails loudly.
       process: {
         kill: async ({ input }) => {
-          const client = await session.acquire();
-          try {
-            return await client.surface.process.kill(input);
-          } finally {
-            session.release();
+          const clientPromise = session.currentClient();
+          if (clientPromise === null) {
+            throw new Error("no live agent link — cannot forward kill");
           }
+          const client = (await clientPromise) as AgentClient<
+            typeof surface.contract
+          >;
+          return client.surface.process.kill(input);
         },
       },
     },
@@ -167,7 +168,7 @@ export function buildRouter(opts: BuildRouterOptions) {
   // passes `connection: { set }` and the pump calls this for you (the default-on
   // path pulam-web uses). This example runs its own `bridgeAgentToParent` pump,
   // so it wires the same mapping by hand here.
-  pipeSessionStateToCell<typeof surface.contract>(session, (info) =>
+  pipeSessionStateToCell(session, (info) =>
     fragment.ctx.cells.connection.set(info),
   );
 
@@ -228,7 +229,7 @@ function log(line: string): void {
  *  (`makeClientCursor`) and the per-client re-mirror stay the demo's job, because
  *  stdio links don't recover mid-stream. */
 async function bridgeAgentToParent(
-  session: HostSession<typeof surface.contract>,
+  session: Session<AgentClient<typeof surface.contract>>,
   fragment: FragmentCtx,
   browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {
@@ -245,11 +246,14 @@ async function bridgeAgentToParent(
   // so this loop can't re-introduce the busy-spin by mis-threading it (the
   // client proxy is thenable, so comparing *it* spins once the link fails
   // fast; the cursor compares the stable clientPromise for us).
-  const cursor = makeClientCursor<typeof surface.contract>(session);
+  const cursor = makeClientCursor(session);
   while (!session.isDestroyed()) {
     let client: ProcessMonitorAgent;
     try {
-      client = await cursor.next();
+      // The cursor yields the loose `SurfaceClientLike` receptacle (S3 dropped the
+      // dead contract generic at the role boundary); this bridge knows the concrete
+      // agent contract, so it re-narrows here — the runtime value IS the typed client.
+      client = (await cursor.next()) as ProcessMonitorAgent;
     } catch (err) {
       log(`bridge: waiting for next client failed: ${(err as Error).message}`);
       break;

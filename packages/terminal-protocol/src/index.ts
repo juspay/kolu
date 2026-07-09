@@ -29,6 +29,7 @@
 export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
+  wrapBracketedPaste,
 } from "./bracketedPaste.ts";
 export {
   ANSWERED_DEVICE_QUERIES,

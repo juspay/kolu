@@ -3,7 +3,7 @@
  *  Before W1 the "Import session" command routed the picked blob through
  *  `session.handleRestoreSession`, which carried a re-entry guard and a
  *  `toast.loading → success/error` round-trip. The W1 recomposition (App.tsx)
- *  replaced that with a fire-and-forget `padiRpc(padi).surface.session.import`
+ *  replaced that with a fire-and-forget `padiRpcOf(activeHost()).surface.session.import`
  *  call: its rejection was unhandled (no error toast) and nothing stopped a
  *  second invoke while one was in flight — a double-invoke duplicates the
  *  restored terminals.

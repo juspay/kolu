@@ -23,6 +23,7 @@ import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
+import { cancelPendingAutosave } from "./autosaveGate.ts";
 import {
   requirePadiActivityFeedStore,
   requirePadiSessionStore,
@@ -36,15 +37,17 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
-import { cancelPendingAutosave } from "./session.ts";
 import {
   forfeitSession,
   importSession,
   restoreSession,
 } from "./sessionRestore.ts";
 import {
+  DEFAULT_PADI_HOST_INVENTORY,
   DEFAULT_PADI_PROCESS_MEMORY,
   DEFAULT_PADI_VERSION,
+  PADI_SURFACE_VERSION,
+  type PadiIdentity,
   type PadiStatus,
   type PadiTerminal,
   type padiSurface,
@@ -107,8 +110,17 @@ function fileGoneAsNotFound(e: unknown, filePath: string): unknown {
 export function buildPadiSurfaceDeps(deps: {
   endpoint: TerminalEndpoint;
   log: Logger;
+  /** padi's boot time (ms epoch) — the SAME `PADI_STARTED_AT` constant
+   *  `daemonMain.ts` also hands the control-core `hello` (`buildControlCoreDeps`),
+   *  reused here (never re-derived via a fresh `Date.now()`) so the `identity` cell
+   *  and `hello` can't drift. */
+  startedAt: number;
+  /** padi's navigable git commit (`currentPadiCommitHash()`) — the SAME value
+   *  `daemonMain.ts` hands `hello`. `""` off-nix; mapped to a DECLARED `null` below
+   *  (never re-derived). */
+  commit: string;
 }): Omit<PadiDeps, "channel"> {
-  const { endpoint, log } = deps;
+  const { endpoint, log, startedAt, commit } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
 
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
@@ -121,16 +133,38 @@ export function buildPadiSurfaceDeps(deps: {
   const status: PadiStatus = {
     expectedKaval: identity.staleKey ? identity : undefined,
   };
+  // padi's OWN identity (distinct from the kaval `identity` above) — the per-host
+  // `identity` cell twin of the control-core `hello`. `commit` is a DECLARED value:
+  // `""` off-nix maps to `null` ("padi declares: no commit"), never left as an
+  // empty string a render site would have to re-interpret. Built once, here, from
+  // the SAME `startedAt`/`commit` this function's caller already reads for `hello`
+  // — a build/boot constant, so no write-trigger (like `status` above).
+  const padiIdentity: PadiIdentity = {
+    commit: commit || null,
+    surfaceVersion: PADI_SURFACE_VERSION,
+    startedAt,
+  };
 
   return {
     cells: {
       // Read-only version handshake — same shape as terminalWorkspace's version
       // cell.
       version: { store: inMemoryStore(DEFAULT_PADI_VERSION) },
+      // Read-only per-host identity — padi's own build commit/surfaceVersion/boot
+      // time, the `hello` twin every `padiMap` entry can read directly (see
+      // `PadiIdentitySchema`'s doc comment in `surface.ts`).
+      identity: { store: inMemoryStore(padiIdentity) },
       // Read-only build-currency axis — the expected-kaval identity, a build
       // constant seeded once at boot (the client's `kavalUpdatePending` nudge
       // reads it against the connected daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
+      // The running kaval + padi daemons on THIS padi's host — the "Running daemons"
+      // leak diagnostic. In-memory (a live diagnostic has no on-disk slot); the
+      // periodic host-inventory sampler (`hostInventory.ts`, wired into daemon boot)
+      // is the sole writer via `padiSurfaceCtx.cells.hostInventory.set`; a fresh
+      // subscription reads the latest via `get`. No `equals` dedup: the coarse 10s
+      // cadence + small payload is cheap.
+      hostInventory: { store: inMemoryStore(DEFAULT_PADI_HOST_INVENTORY) },
       // Live process-memory readout (padi's OWN RSS + its kaval's). In-memory —
       // a live metric has no on-disk slot. The periodic sampler
       // (`memorySampler.ts`, wired into daemon boot) is the sole writer via

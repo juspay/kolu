@@ -68,3 +68,10 @@ Lead with **credit** for what's closed — don't move goalposts on done work —
 patch and the defect just relocates — give the property, and if you must show an example,
 give a few from different angles and call it one costume of many. Separate "the product is
 fine" from "the claim isn't yet true". Post to the PR only when asked (`--post`).
+
+Alongside the defects, RUN the `architecture-first-principles` skill's checks (C1–C7) as part of
+the fan-out — ecosystem duplicates, consumer ergonomics, the graduation sweep (the
+electricity angle, even at population one), the one-hop depends-on audit, fresh-eyes, state-and-time, and
+project conventions. The checks are executable prompts, not advice: include
+them as hunters in this review's own Workflow rather than paraphrasing them. Their
+confirmed findings report as non-blocking structural opportunities beside the defects.

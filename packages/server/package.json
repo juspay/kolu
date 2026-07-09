@@ -16,12 +16,12 @@
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/heap-diag": "workspace:*",
     "@kolu/padi": "workspace:*",
-    "kaval": "workspace:*",
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
+    "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
-    "@kolu/surface-nix-host": "workspace:*",
+    "@kolu/surface-remote": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
     "@kolu/terminal-workspace": "workspace:*",
     "@orpc/client": "^1.13.13",
@@ -35,6 +35,7 @@
     "conf": "^15.1.0",
     "hono": "^4.12.25",
     "hono-pino": "^0.10.3",
+    "kaval": "workspace:*",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-common": "workspace:*",
@@ -52,10 +53,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.2",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.8.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }
 }

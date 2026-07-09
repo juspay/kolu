@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   agentIdentityChanged,
-  fold,
   type FoldCtx,
+  fold,
   foldSnapshot,
   restoreTargetOf,
 } from "./fold.ts";
 import {
   type AgentInfo,
-  type TerminalEvent,
-  type TerminalState,
   seedMemory,
   seedSnapshot,
+  type TerminalEvent,
+  type TerminalState,
 } from "./schema.ts";
 
 const gitInfo = (branch: string) => ({
@@ -120,7 +120,7 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
       snapshot(1000),
     );
     expect(next.snapshot.agent?.sessionId).toBe("A");
-    expect(next.memory.lastActivityAt).toBe(0); // untouched
+    expect(next.memory.lastActivityAt).toBe(null); // untouched — seed()'s honest never-active
   });
 
   it("does NOT bump on a same-identity state tick (firehose) — keeps prior recency", () => {

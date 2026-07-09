@@ -40,10 +40,13 @@ export {
   readBakedIdentity,
 } from "./buildIdentity.ts";
 export {
-  buildIdMatches,
-  type ConvergenceIdentity,
+  buildLabel,
+  buildsMatch,
   contractIsCompatible,
   contractIsNewer,
+  type ConvergenceIdentity,
+  type DaemonBuild,
+  daemonBuild,
 } from "./convergenceIdentity.ts";
 export {
   type DaemonExit,

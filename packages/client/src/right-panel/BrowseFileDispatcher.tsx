@@ -28,7 +28,6 @@
  *  HTML/SVG follows (phase 4) with zero changes here beyond the renderer
  *  list. */
 
-import { padiRpc } from "@kolu/padi/surface";
 import { resolveLinkHref } from "@kolu/solid-browser";
 import {
   type FileData,
@@ -42,6 +41,7 @@ import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import { resolveWikilink } from "@kolu/solid-markdown";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import { ORPCError } from "@orpc/client";
+import { encodeHostKey } from "kolu-common/hostKey";
 import {
   buildTerminalFileUrl,
   isBinaryPreviewable,
@@ -65,7 +65,7 @@ import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { padi } from "../wire";
+import { activeHost, activePadiRpc, padiMap } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { createPolledQuery } from "./createPolledQuery";
@@ -122,7 +122,7 @@ export type BrowseFileDispatcherProps = {
  *  `fs.readFile` is TEXT-ONLY (`{ content, truncated }`) — deliberately not the
  *  union `koluSurface.fsReadFile` returned — so the dispatcher decides binary vs
  *  text itself, exactly as the old server backing did. A binary-previewable file
- *  reads its mtime (`fs.statFileMtimeMs`) and builds the `/api/terminals/:id/file`
+ *  reads its mtime (`fs.statFileMtimeMs`) and builds the `/api/terminals/:host/:id/file`
  *  URL with the `?v=<mtime>` cache-key (the same route + shape the server built,
  *  still served until W1.R5) so a save bumps the URL and the img/iframe reloads;
  *  a text file reads its content. Either way the `subscribeFileChange` pulse
@@ -138,22 +138,25 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       repoPath: props.repoPath,
       filePath: props.filePath,
     }),
-    client: padi,
-    pulseName: "Code tab: file content pulse",
-    pulseProc: padiRpc(padi).surface.subscribeFileChange.get,
+    live: () => padiMap.live(),
+    pulseProc: () => activePadiRpc.surface.subscribeFileChange.get,
+    pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: async (i, signal): Promise<BrowseFileContent> => {
       if (isBinaryPreviewable(i.filePath)) {
-        const mtimeMs = await padiRpc(padi).surface.fs.statFileMtimeMs(
+        const mtimeMs = await activePadiRpc.surface.fs.statFileMtimeMs(
           { repoPath: i.repoPath, filePath: i.filePath },
           { signal },
         );
         return {
           kind: "binary",
-          url: `${buildTerminalFileUrl(i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
+          // Key the file URL by the ACTIVE host's CANONICAL string so the route reads
+          // the bytes from the same padi the mtime above came from — a remote host's
+          // preview must not resolve against the local default.
+          url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
         };
       }
-      const { content, truncated } = await padiRpc(padi).surface.fs.readFile(
+      const { content, truncated } = await activePadiRpc.surface.fs.readFile(
         { repoPath: i.repoPath, filePath: i.filePath },
         { signal },
       );
@@ -446,7 +449,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             <MarkdownRenderer
               markdown={file.source?.content ?? ""}
               resolveImageSrc={(src) =>
-                resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
+                resolveMarkdownImageSrc(
+                  encodeHostKey(activeHost()),
+                  props.terminalId,
+                  props.filePath,
+                  src,
+                )
               }
               onNavigateRelative={onNavigateRelative}
               onNavigateWikilink={onNavigateWikilink}

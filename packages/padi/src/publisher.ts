@@ -3,9 +3,10 @@
  *  One `MemoryPublisher` instance with a single named channel on top:
  *
  *    - `terminalsDirtyChannel` — singleton control-flow signal that
- *      drives the session auto-save debounce loop. Distinct from the
- *      `terminalList` cell's content channel: this is the *trigger*,
- *      not the saved content.
+ *      drives the session autosave gate AND the live-activity tap
+ *      reconciliation (`liveActivity.ts`) — a two-consumer broadcast.
+ *      Distinct from the `terminalList` cell's content channel: this is
+ *      the *trigger*, not the saved content.
  *
  *  The per-terminal VT-tap channels (cwd / title / command-run / git) that
  *  used to live here are now per-terminal in-memory channels created by the
@@ -25,6 +26,7 @@
 
 import { publisherChannel } from "@kolu/surface/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
+import { log } from "./log.ts";
 
 // `MemoryPublisher` constrains its generic to `Record<string, object>`,
 // which excludes the primitive payloads we publish (data strings, exit
@@ -37,11 +39,28 @@ export const publisher = new MemoryPublisher<Record<string, any>>();
  *  diagnostics (see diagnostics.ts) — climbs if subscribers aren't draining. */
 export const publisherSize = (): number => publisher.size;
 
-/** Singleton broadcast: terminal state mutated. Drives session
- *  auto-save's debounced write loop; the persisted content lives on
- *  the surface's framework-owned `session:changed` channel, written
- *  via `surfaceCtx.cells.session.set(...)` from `./session.ts`. */
+/** Singleton broadcast: terminal state mutated. Drives the session autosave
+ *  gate AND the live-activity tap reconciliation (`liveActivity.ts`) — the
+ *  consumer-agnostic pulse both subscribe to. The persisted content lives on
+ *  the surface's framework-owned `session:changed` channel, written via
+ *  `surfaceCtx.cells.session.set(...)` from `./session.ts`. */
 export const terminalsDirtyChannel = publisherChannel<Record<string, never>>(
   publisher,
   "terminals:dirty",
 );
+
+/** Emit the shared `terminals:dirty` pulse — the SINGLE writer-facing arm every
+ *  terminal/metadata writer calls when a restore-relevant change lands. Arms the
+ *  autosave gate (via its subscription) and reconciles the activity taps
+ *  (`liveActivity.ts`), the pulse's other consumer. Lives HERE, beside the channel
+ *  it wraps, so producers depend on the neutral channel registry rather than on
+ *  either consumer. Guarded at the boundary: a throwing subscriber must not propagate
+ *  back into the producer's emit loop (which would freeze a sensor); logged, not
+ *  fatal — the next restore-relevant change re-arms. */
+export function notifyDirty(): void {
+  try {
+    terminalsDirtyChannel.publish({});
+  } catch (err) {
+    log.error({ err }, "terminals:dirty publish threw");
+  }
+}

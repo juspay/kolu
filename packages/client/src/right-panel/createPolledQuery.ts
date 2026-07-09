@@ -33,11 +33,12 @@
  * so `q()`, `q.pending()`, `q.error()` all read verbatim downstream.
  */
 
-import type { PadiSurfaceSpec } from "@kolu/padi/surface";
-import type {
-  StreamingProcedure,
-  Subscription,
-  SurfaceClient,
+import { unenrolledStreamCall } from "@kolu/surface/client";
+import {
+  type StreamingProcedure,
+  type Subscription,
+  wireSubscriptionError,
+  writeWrappedValue,
 } from "@kolu/surface/solid";
 import {
   type Accessor,
@@ -46,18 +47,28 @@ import {
   on,
   onCleanup,
 } from "solid-js";
-import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
+import { createStore } from "solid-js/store";
 
 export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   /** The query input; `null` = idle (no pulse subscription, no query). */
   input: Accessor<Input | null>;
-  /** The padi surface client (`padi` from `wire.ts`) — its `.rawStream` drives
-   *  the pulse subscription and enrols it into padi's `health()`. */
-  client: SurfaceClient<PadiSurfaceSpec>;
-  /** Health-registry label for the pulse subscription. */
-  pulseName: string;
-  /** The raw pulse streaming procedure — `padiRpc(padi).surface.<pulse>.get`. */
-  pulseProc: StreamingProcedure<PulseInput, Pulse>;
+  /** The active host's transport liveness (`() => padiMap.live()`) — gates the
+   *  reconnect-window error swallow (a blip while the socket re-subscribes). Replaces
+   *  the old whole-client `health().live` (the map has no single per-host client). */
+  live: Accessor<boolean>;
+  /** The pulse streaming procedure as a FACTORY re-derived at each (re)subscribe —
+   *  `() => padiRpcOf(activeHost()).surface.<pulse>.get`. A factory, not a pre-bound proc, so
+   *  the live-refresh watcher follows the ACTIVE host: the effect re-runs on a host switch
+   *  (via `pulseHost` below) and re-reads `activeHost()`, rebinding the pulse to the new host.
+   *  A pre-bound proc pins the pulse to the MOUNT-TIME host forever (the boot-host-capture
+   *  hazard — CodeTab mounts once), so a switched-to host's repo silently stops live-updating. */
+  pulseProc: () => StreamingProcedure<PulseInput, Pulse>;
+  /** The reactive host the pulse follows (`activeHost`). Folded into the effect's
+   *  re-subscribe trigger so a BARE host switch (the same `input`/repoPath present on two
+   *  hosts) still tears down the old host's pulse and opens the new host's — the common case
+   *  (a switch changes the active terminal → `input`) is covered by `input` alone; this closes
+   *  the identical-repoPath edge. */
+  pulseHost?: Accessor<unknown>;
   /** Derive the pulse key from the query input. Kept separate so the pulse
    *  subscribes to only the change signal it needs (a repo, or a repo+file). */
   pulseInput: (input: Input) => PulseInput;
@@ -75,32 +86,14 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   swallowError?: (err: Error) => boolean;
 }
 
-/** Reconcile-or-assign into the wrapped `{ v }` store — objects/arrays through
- *  `reconcile` for fine-grained reactivity + stable references (the treePaths
- *  memo relies on this), primitives by direct assignment. Mirrors the
- *  framework's private `writeWrappedValue`. */
-function writeValue<T>(
-  setStore: SetStoreFunction<{ v: T | undefined }>,
-  next: T,
-): void {
-  if (next !== null && typeof next === "object") {
-    setStore(
-      "v",
-      reconcile(next as Record<string, unknown>) as unknown as T | undefined,
-    );
-  } else {
-    setStore("v", next);
-  }
-}
-
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
 ): Subscription<Result> {
   const {
     input,
-    client,
-    pulseName,
+    live,
     pulseProc,
+    pulseHost,
     pulseInput,
     query,
     onError,
@@ -112,6 +105,14 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   });
   const [pending, setPending] = createSignal(true);
   const [error, setError] = createSignal<Error | undefined>();
+  // Mirrors `createSubscription`'s typed-end fact: latches true once the PULSE
+  // stream (the thing that would ever tell this query to requery again) ends
+  // normally — never on abort (an input change / teardown). Without it, this
+  // hand-rolled `Subscription` silently dropped the field a real one always
+  // populates, and a consumer that checks `.complete?.()` (same as any other
+  // stream-backed subscription) would see "not complete" forever even after the
+  // pulse genuinely stopped.
+  const [complete, setComplete] = createSignal(false);
 
   /** The ONE error sink for BOTH channels — the requery AND the pulse stream.
    *  Routing the pulse (watcher-install) failure here, not to a separate
@@ -127,7 +128,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     // Reconnect-window blip: `rawStream`'s STREAM_RETRY re-subscribes and the
     // pulse re-fires `{seq:0}`, so a genuine persistent failure re-surfaces on
     // the next LIVE read — swallow here to keep a spurious flash off reconnect.
-    if (!client.health().live) return;
+    if (!live()) return;
     // Caller-classified benign transient (e.g. the viewed file was deleted).
     if (swallowError?.(err)) return;
     setError(err);
@@ -143,7 +144,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       try {
         const result = await query(i, ctl.signal);
         if (ctl.signal.aborted) return;
-        writeValue<Result>(setStore, result);
+        writeWrappedValue<Result>(setStore, result);
         if (pending()) setPending(false);
         if (error()) setError(undefined);
       } catch (err) {
@@ -155,62 +156,68 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   onCleanup(() => controller?.abort());
 
   createEffect(
-    on(input, (i) => {
-      // Reset for the new input: blank + pending until the fresh read lands, and
-      // abort any in-flight read from the prior input. `rawStream`'s own
-      // onCleanup (registered on this effect's run) tears down the previous
-      // pulse subscription before this re-run.
-      controller?.abort();
-      controller = null;
-      setStore("v", undefined);
-      setError(undefined);
-      setPending(true);
-      if (i === null) return;
-      // `rawStream` runs inside this effect's reactive owner (required) and
-      // auto-disposes on the next input change; `onItem` fires per pulse frame,
-      // each one a requery of the padi procedure.
-      const pulseSource = client.rawStream(
-        pulseName,
-        pulseProc,
-        pulseInput(i),
-        {
-          onItem: () => runQuery(i),
-        },
-      );
-      // A pulse (watcher-install) failure routes into the SAME error/pending
-      // signals the requery does (via `surfaceError`) — NOT a bespoke
-      // `onError`-only path — so a persistent watcher failure surfaces a real
-      // error state, not just a transient toast over stale data. Scoped to this
-      // run so it re-arms per input.
-      createEffect(
-        on(
-          () => pulseSource.error(),
-          (err) => {
-            if (err) surfaceError(err);
-          },
-        ),
-      );
-    }),
+    on(
+      // Track BOTH the query input and the active host, so the pulse re-subscribes on a
+      // host switch even when the input (repoPath) is unchanged across the two hosts.
+      () => ({ i: input(), host: pulseHost?.() }),
+      ({ i }) => {
+        // Reset for the new input: blank + pending until the fresh read lands, and
+        // abort any in-flight read from the prior input. `rawStream`'s own
+        // onCleanup (registered on this effect's run) tears down the previous
+        // pulse subscription before this re-run.
+        controller?.abort();
+        controller = null;
+        setStore("v", undefined);
+        setError(undefined);
+        setPending(true);
+        setComplete(false);
+        if (i === null) return;
+        // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
+        // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
+        // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
+        // snapshot frame, so `runQuery` fires per frame INCLUDING each post-reconnect
+        // snapshot — the value stream's reconnect-refresh, preserved. It aborts on the next
+        // input change (this effect's `onCleanup`). A pulse failure routes into the SAME
+        // error/pending signals the requery does (via `surfaceError`), so a persistent
+        // watcher failure (inotify ENOSPC) surfaces a real error state, not just a toast.
+        // It is UNENROLLED (not the old whole-client `rawStream`) because the map has no
+        // single per-host client to fold health into — and kolu ignores that fold anyway.
+        const pulseCtl = new AbortController();
+        onCleanup(() => pulseCtl.abort());
+        void (async () => {
+          try {
+            for await (const _frame of await unenrolledStreamCall(
+              pulseProc(),
+              pulseInput(i),
+              { signal: pulseCtl.signal },
+            )) {
+              runQuery(i);
+            }
+            // Normal completion — the pulse iterable ended on its own (a typed end,
+            // e.g. the host/entry left membership), not an abort: an aborted loop
+            // never falls through the `for await` to here with `aborted` still
+            // false. Mirrors `createSubscription`'s own typed-end handling.
+            if (!pulseCtl.signal.aborted) setComplete(true);
+          } catch (err) {
+            if (!pulseCtl.signal.aborted) surfaceError(err);
+          }
+        })();
+      },
+    ),
   );
 
   const sub = Object.assign(() => store.v, {
     error,
     pending,
+    complete,
   }) as Subscription<Result>;
 
-  // Drive `onError` off the self-clearing `error()` EDGE (as `createSubscription`
-  // does), so a transient blip fires once per rising transition and clears with
-  // the signal — the two error channels can't disagree.
-  if (onError) {
-    createEffect(
-      on(
-        () => sub.error(),
-        (err) => {
-          if (err) onError(err);
-        },
-      ),
-    );
-  }
+  // Drive `onError` off the self-clearing `error()` EDGE via the shared
+  // `@kolu/surface/solid` helper (the exact wiring `createSubscription` itself
+  // uses internally) — not a hand-rolled copy — so a transient blip fires once
+  // per rising transition and clears with the signal, and this file can't drift
+  // from the framework's one edge-wiring implementation.
+  if (onError) wireSubscriptionError(sub, onError);
 
   return sub;
 }

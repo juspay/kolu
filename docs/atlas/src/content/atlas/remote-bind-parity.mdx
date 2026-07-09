@@ -1,0 +1,55 @@
+---
+title: Remote bind — what's left before it fully works
+description: The definitive list of everything standing between today and "kolu fully works over a remote bind" — found by W3.4's full-suite run, held here as a working ledger so each item can be attacked separately.
+parents: [bug, padi]
+maturity: seedling
+updated: 2026-07-05
+---
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import map from "../../diagrams/remote-bind-parity-map.svg?raw";
+
+**What this note is.** W3.4 built the CI machinery to run kolu's FULL e2e suite (494 scenarios) against a genuinely remote padi — and the first clean run told the truth: **444 pass, 9 are one known bug, and ~30 more fail for reasons nobody had ever seen**, because every earlier run died on infrastructure (the zombie leak, the missing git identity) before reaching a clean full pass. Those ~30 are **pre-existing** — no recent merge caused them. This note holds the whole tail in one place so each item can be worked separately; when everything here is closed, "kolu fully works over a remote bind" is simply true, and the W3.4 gate (#1689) turns on with a green that means something. (Plan of record: [padi](padi.html); the future features this gates: [remote-terminals-future](remote-terminals-future.html).)<Footnote>Run data: merged head `4481401` — 494 scenarios, 444 passed, 9 skipped (all branch-mode, `REMOTE-SKIP-1701` markers, the parity counter validates them), 41 failed; the pre-merge run failed 39+9-overlapping, so the delta is flaky variance, not the merge. Spread: 21 features — code-tab 12, canvas 9, kaval-daemon 5, activity-alerts 4, worktree / sleeping-terminals / mobile-soft-keyboard / file-ref-link 3 each, long tail. Box B's padi stayed healthy throughout (no crashes, no convergence errors, zombies flat).</Footnote>
+
+<Svg svg={map} wide caption="The first honest full-suite run over the bind, triaged. Each failure class has a different destination — the one forbidden move is a blanket skip or a blanket timeout-widen, either of which would bury real bugs." />
+
+**The standing rule for every item here (learned three times this week):** first decide **slow vs broken vs meaningless-remotely** by reproducing in isolation — never widen a timeout to make a red go away (the branch-mode "timeout" was a real product bug; a widen would have buried it), and never skip without a named reason and a tracked issue.
+
+## R1 — branch-mode Code tab: a base ref that exists reads as missing *(the known one — #1701)*
+
+Open a branch-mode diff over the bind and the tree never hydrates: `getStatus` returns `BASE_BRANCH_NOT_FOUND` for `origin/master` even though the ref **provably exists** on the remote box (verified against the live failing repo — all three ref lookups resolve). Suspected mechanism (labeled hypothesis in the issue): the status subscription fires early, correctly errors before the clone lands the ref, and the git-refs watcher never re-fires it over the bind — the third member of the **watcher-over-remote genus** (see R5). 9 scenarios carry counted `REMOTE-SKIP-1701` markers; they un-skip the day #1701's fix lands. **Destination: its own repro-first PR.**
+
+## R2 — the timeout cluster: VERDICT — one load-interaction, zero hidden bugs *(facts 2026-07-05)*
+
+Every suspected scenario was run ALONE over the bind: **code-tab 12/12 pass, canvas 9/9 pass** — none slow, none broken. They fail only under full-suite load. The feared second bug wave does not exist. The 20 "zombies" seen after a full run were **sshd-session children, not padi's** — the #1692 pin holds; padi is clean. What remains is ONE dig: find the load source — box A harness accumulation (a long-lived kolu-server + per-scenario chromium across 494 scenarios) vs box B subscription/stream backlog — which needs a resource-sampled full run, not isolation. **Destination: one instrumented full run; then either a harness fix or a backlog fix. No widening — the scenarios are innocent.**
+
+## R3 — scenarios that are meaningless on a remote bind: the local-daemon-lifecycle class
+
+Per-scenario facts are in *(2026-07-05)*, and they split three ways: **(a) rewritable for remote TODAY** — `:58` (restart-live) and `:94` (recycle-with-split): every observable has a working remote equivalent (`recycleKaval` procedure · `daemonStatus` collection · `hostInventory`'s gatePid, all proven over a real hop in `remotePadiSsh.test.ts`); `:94`'s only local coupling is a vestigial pid-capture it never asserts. **(b) blocked on a missing fault-injection primitive** — `:10` (kill-to-degraded) and `:32` (restart-degraded) SIGKILL the local kaval by pid to *induce* the degraded state; no padiSurface member kills-and-leaves-dead the bound kaval (`recycleKaval` always respawns) — the *observation* side already works remotely, only the inducer is missing. Product decision: add a test-only remote kill-fault primitive, or skip these two with that reason. **(c) needs a remote-binding variant** — `:20` asserts the LOCAL-binding UI contract (one group, local-scan count 0); over a remote bind the dialog intentionally shows two labeled groups, so a remote variant of the scenario is expressible today. **Destination: rewrite (a) now · decide (b)'s primitive · write (c)'s variant.**
+
+## R4 — terminal-creation races: VERDICT — folded into R2's load bin *(facts 2026-07-05)*
+
+Reproduced 5× over the bind and 5× locally, in isolation: **25/25 remote pass, 25/25 local pass**. Not a remote race, not even flaky in isolation — it appears only under full-suite load, same as R2. **Destination: R2's load dig covers it; not L10.**
+
+## R5 — the watcher-over-remote genus *(the meta-finding — worth more than any single fix)*
+
+Three separate incidents this week share one shape — *a watcher that works locally misbehaves once the daemon is remote or long-lived*: **#1680** (codex WAL `fs.watch` dies on darwin, agent state freezes), **#1691 → fixed by #1692** (the parcel watchman-probe leaked a zombie per subscribe), and now **#1701** (the git-refs watcher not re-firing status). Three is a pattern: our file/ref watchers were all written under a locality assumption the remote bind breaks. This entry is the audit: enumerate every watcher in the padi stack (agent-state sensors · git refs · repo pulses · session files), and for each, answer *what happens when its event is late, lost, or on another machine* — before the fourth incident finds us. **The audit is DONE *(2026-07-05)* — every watcher enumerated, and the headline finding is stark: exactly ONE watcher in the entire stack has a steady-state reconcile poll (the one #1680's fix added); everything else recovers only if another fs event happens to arrive.** Three primitives only (`fs.watch` for most; `@parcel/watcher` for the working tree alone; no chokidar/polling anywhere). The no-backstop list, ranked by remote/long-lived exposure:
+
+1. **Git ref-landings that bypass the reflog** — a raw `update-ref`, a direct `refs/heads/*` write, or a **packed-refs rewrite** is watched by NO git watcher (HEAD/reflog/index/working-tree all miss it), so `getStatus`/`getDiff` never re-fire. **This structurally corroborates #1701's mechanism**: over the bind, a clone writes `refs/remotes/origin/master` + packed-refs directly (no reflog append) → the reflog watcher never fires → the early `BASE_BRANCH_NOT_FOUND` is never corrected. Hypothesis now mechanism-confirmed.
+2. `subscribeGitInfo`'s head-mode watches only HEAD+config — a commit-on-branch over the bind never refreshes the GitInfo/PR pill; no periodic re-resolve.
+3. The codex/opencode WAL watchers handle inode replacement but have **no timer poll** — #1680's darwin shape can recur on the remote side; the reconcile-poll pattern was never propagated here.
+4. The claude transcript watcher: steady thinking/tool_use states have no self-firing recheck (the 1s poll reads the screen, not the transcript).
+5. The claude subagents/fork watcher: install-kick only — a missed fork artifact keeps an idle main mislabeled.
+6. Working-tree/HEAD/index: install-time reconcile tick, no steady poll — lower risk only because their axes overlap.
+
+**Destination: propagate #1680's reconcile-poll pattern to the ranked list (1 and 3 first — 1 likely IS #1701's fix), as its own repro-first PR series.**
+
+## Done — when this note is empty
+
+- Every R2 scenario is binned with numbers or filed as a bug; every filed bug is fixed and its skips removed.
+- Every R3 scenario has its remote story recorded (remote counterpart written, or permanent reasoned skip).
+- R4 resolved to bug-or-flake; #1680 and #1701 closed; the R5 audit done.
+- Then: **#1689's node runs the full suite over the bind with only permanent, reasoned skips — two consecutive greens, gating every PR.** That green is the definition of "kolu fully works over a remote bind."
+
+*(Status: W3.4 / #1689 is deliberately parked (srid, 2026-07-05) — the node's machinery is done and proven (pair-lease, build-identity guard, mock-agent-in-terminal, parity counter); it waits for this note's tail so its gate is honest from day one. Work items here are dispatched separately, like the cleanup ledger's.)*

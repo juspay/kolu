@@ -1,4 +1,5 @@
 import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
+import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
@@ -19,6 +20,9 @@ const bag = vi.hoisted(() => {
     // mock reads through these so the memo tracks them as reactive sources.
     keys: (() => [] as TerminalId[]) as () => TerminalId[],
     metaOf: (() => undefined) as (id: TerminalId) => TestMeta | undefined,
+    // The active host's measured clock offset for `entry().clock.toLocal` — default 0
+    // (identity), so the ordering tests are unaffected; the reprojection test drives it.
+    clockOffset: (() => 0) as () => number | null,
   };
 });
 
@@ -35,8 +39,24 @@ vi.mock("../wire", () => {
           : undefined,
     }),
   };
+  // The map shape: `padiMap.useEntry(activeHost)` returns the active host's Entry,
+  // whose `.collections.terminals` is the same controllable double.
   return {
-    padi: { collections: { terminals } },
+    padiMap: {
+      useEntry: () => ({ collections: { terminals } }),
+      // `entry(host).clock.toLocal` — `ms − offset`, reading the controllable offset.
+      // Default 0 (identity) leaves the ordering tests untouched; the reprojection test
+      // drives a real skew (and null, the warming host) through `bag.clockOffset`.
+      entry: () => ({
+        clock: {
+          toLocal: (ms: number) => {
+            const off = bag.clockOffset();
+            return off === null ? null : ms - off;
+          },
+        },
+      }),
+    },
+    activeHost: () => LOCAL_HOST,
   };
 });
 vi.mock("solid-sonner", () => ({
@@ -210,5 +230,78 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
 
       dispose();
     });
+  });
+});
+
+describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)", () => {
+  // The two padi-host-stamped epochs — top-level `lastActivityAt` and the active arm's
+  // `agent.startedAt` — cross to the browser clock ONCE, here at `getMetadata`, via the
+  // ACTIVE host's measured offset (`ms − offset`). Every downstream consumer then reads a
+  // LOCAL epoch (single translation; nothing re-applies `toLocal`). A skewed host stays
+  // sane; a warming host (null offset) collapses each epoch to its ABSENT form, never raw.
+  const START = 1_700_000_000_000;
+  const agentMeta = {
+    cwd: "/p",
+    lastActivityAt: START,
+    agent: { kind: "claude_code", state: "thinking", startedAt: START },
+  } as unknown as TestMeta;
+
+  function readReprojected(
+    offset: number | null,
+    meta: TestMeta = agentMeta,
+  ): TerminalMetadata | undefined {
+    return createRoot((dispose) => {
+      bag.keys = () => tids("a");
+      bag.metaOf = () => meta;
+      bag.clockOffset = () => offset;
+      const { getMetadata } = useTerminalMetadata({
+        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+      });
+      const out = getMetadata(tids("a")[0] as TerminalId);
+      dispose();
+      return out;
+    });
+  }
+
+  it("reprojects a +90s-skewed host's epochs onto the browser clock (sane, single translation)", () => {
+    const out = readReprojected(90_000);
+    // A host 90s AHEAD: its epoch lands 90s EARLIER in local time — a positive, sane
+    // "just now", not the +90s-in-the-future garbage a raw cross-clock read would render.
+    expect(out?.lastActivityAt).toBe(START - 90_000);
+    expect((out as { agent?: { startedAt: number } })?.agent?.startedAt).toBe(
+      START - 90_000,
+    );
+  });
+
+  it("collapses a warming host (null offset) to the ABSENT form, never a raw remote epoch", () => {
+    const out = readReprojected(null);
+    expect(out?.lastActivityAt).toBeUndefined();
+    expect((out as { agent?: { startedAt: number } })?.agent?.startedAt).toBe(
+      0,
+    );
+  });
+
+  it("reprojects the sleeping arm's sleptAt too (the 'asleep 3d' + dock-recency epoch)", () => {
+    const sleeping = { cwd: "/p", sleptAt: START } as unknown as TestMeta;
+    expect(
+      (readReprojected(90_000, sleeping) as { sleptAt?: number })?.sleptAt,
+    ).toBe(START - 90_000);
+    // Warming host ⇒ 0, which `formatTimeAgo` renders as "" (no "asleep X ago").
+    expect(
+      (readReprojected(null, sleeping) as { sleptAt?: number })?.sleptAt,
+    ).toBe(0);
+  });
+
+  it("PRESERVES the lastActivityAt:0 sentinel (never-had-agent) — a real offset must NOT forge -offset", () => {
+    // 0 is the in-band "no activity yet" sentinel, NOT an epoch. On a +90s host a naive
+    // reproject would render toLocal(0) = -90_000 — a garbage epoch isStale/formatTimeAgo read
+    // as canonical (a fresh remote shell "55y ago", dropped from the dock as parked). The guard
+    // leaves 0 as 0; a real, non-zero epoch on the same host still translates.
+    const noAgent = { cwd: "/p", lastActivityAt: 0 } as unknown as TestMeta;
+    expect(readReprojected(90_000, noAgent)?.lastActivityAt).toBe(0);
+    const active = { cwd: "/p", lastActivityAt: START } as unknown as TestMeta;
+    expect(readReprojected(90_000, active)?.lastActivityAt).toBe(
+      START - 90_000,
+    );
   });
 });

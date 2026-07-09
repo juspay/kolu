@@ -13,16 +13,19 @@
  * and canvas reflect progress without this hook tracking it.
  */
 
-import { type DaemonStatus, padiRpc } from "@kolu/padi/surface";
+import type { DaemonStatus } from "@kolu/padi/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { padi } from "../wire";
-import { daemonTransportLive, liveWarming } from "./useDaemonStatus";
+import { activePadiRpc } from "../wire";
+import { daemonChannelLive, liveWarming } from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
 // window immediately (before the surface state flips) so a double-click can't
 // fire a second recycle (the server coalesces too). Module-private: the shared
 // `restartInFlight` predicate below is the one every affordance reads.
+// HOST-SCOPING: host-INDEPENDENT by design — a sub-second local click echo; the
+// durable "is this host's daemon restarting" fact rides `liveWarming` off the
+// host-scoped `daemonStatus`, which re-keys correctly on `activeHost`.
 const [restarting, setRestarting] = createSignal(false);
 
 /** The one "a restart is underway, disable the button" predicate, read by every
@@ -34,7 +37,7 @@ const [restarting, setRestarting] = createSignal(false);
  *  DegradedCanvas disable on this, so the two buttons can't disagree on what
  *  counts as in flight.
  *
- *  The `liveWarming(status?.state, daemonTransportLive())` arm is exactly
+ *  The `liveWarming(status?.state, daemonChannelLive())` arm is exactly
  *  `daemonWarming()`'s body (both project from the shared `liveWarming`, so both
  *  inherit the SAME transport-liveness floor: over a dead/half-open link the
  *  warming claim reads false, and the button can't stick disabled beside the grey
@@ -46,7 +49,7 @@ const [restarting, setRestarting] = createSignal(false);
  *  (App.tsx, useTerminalCrud, commands) are the ones without their own click
  *  signal to fold in. */
 export function restartInFlight(status: DaemonStatus | undefined): boolean {
-  return restarting() || liveWarming(status?.state, daemonTransportLive());
+  return restarting() || liveWarming(status?.state, daemonChannelLive());
 }
 
 /** Restart the local kaval daemon, preserving the session. Safe to call from
@@ -56,7 +59,7 @@ export async function restartDaemon(): Promise<void> {
   setRestarting(true);
   const id = toast.loading("Restarting kaval…");
   try {
-    await padiRpc(padi).surface.lifecycle.recycleKaval();
+    await activePadiRpc.surface.lifecycle.recycleKaval();
     toast.success("kaval restarted — your session is offered for restore", {
       id,
     });

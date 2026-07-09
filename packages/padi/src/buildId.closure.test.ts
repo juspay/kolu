@@ -26,7 +26,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as ts from "typescript";
+import { parse } from "@babel/parser";
 import { describe, expect, it } from "vitest";
 
 const SRC = dirname(fileURLToPath(import.meta.url)); // packages/padi/src
@@ -110,9 +110,62 @@ const ALLOWED_EXTERNAL = [
 const isAllowed = (spec: string): boolean =>
   ALLOWED_EXTERNAL.some((p) => spec === p || spec.startsWith(p));
 
+type AstNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+const isAstNode = (value: unknown): value is AstNode =>
+  value !== null &&
+  typeof value === "object" &&
+  "type" in value &&
+  typeof (value as { type?: unknown }).type === "string";
+
+function visitAst(node: AstNode, visit: (node: AstNode) => void): void {
+  visit(node);
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const item of value) if (isAstNode(item)) visitAst(item, visit);
+    } else if (isAstNode(value)) {
+      visitAst(value, visit);
+    }
+  }
+}
+
+const stringLiteralValue = (node: unknown): string | null =>
+  isAstNode(node) &&
+  (node.type === "StringLiteral" || node.type === "DirectiveLiteral") &&
+  typeof node.value === "string"
+    ? node.value
+    : null;
+
 function importsOf(file: string): string[] {
-  const pre = ts.preProcessFile(readFileSync(file, "utf8"), true, true);
-  return pre.importedFiles.map((f) => f.fileName);
+  const ast = parse(readFileSync(file, "utf8"), {
+    sourceFilename: file,
+    sourceType: "module",
+    createImportExpressions: true,
+    plugins: file.endsWith(".tsx") ? ["typescript", "jsx"] : ["typescript"],
+  }) as unknown as AstNode;
+  const specs = new Set<string>();
+  visitAst(ast, (node) => {
+    if (
+      node.type === "ImportDeclaration" ||
+      node.type === "ExportNamedDeclaration" ||
+      node.type === "ExportAllDeclaration"
+    ) {
+      const spec = stringLiteralValue(node.source);
+      if (spec) specs.add(spec);
+    }
+    if (node.type === "ImportExpression") {
+      const spec = stringLiteralValue(node.source);
+      if (spec) specs.add(spec);
+    }
+    if (node.type === "TSImportType") {
+      const spec = stringLiteralValue(node.argument);
+      if (spec) specs.add(spec);
+    }
+  });
+  return [...specs];
 }
 
 /** Resolve a base path to the `.ts`/`.tsx` file it names, or null for a

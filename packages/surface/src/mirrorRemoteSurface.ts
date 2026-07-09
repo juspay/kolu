@@ -564,7 +564,7 @@ async function* guardUpstream<T>(
 }
 
 /** Generic per-key `Collection<K,V>` bridge — the private engine behind a
- *  `collections` sink (formerly the public `@kolu/surface-nix-host`
+ *  `collections` sink (formerly the public `@kolu/surface-remote`
  *  `mirrorRemoteCollection`).
  *
  *  Subscribes to the collection's `keys` stream and, for each present key, opens

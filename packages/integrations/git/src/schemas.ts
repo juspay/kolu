@@ -97,10 +97,14 @@ export type GitBaseRef = z.infer<typeof GitBaseRefSchema>;
  *  upstream (null when none is configured), and how far HEAD is ahead/behind
  *  that upstream. A working-tree concept (HEAD vs its upstream), so `getStatus`
  *  returns it only in `local` mode and `null` in `branch` mode (where the
- *  comparison is HEAD-vs-merge-base, not HEAD-vs-upstream). `name` is null on a
- *  detached HEAD; `ahead`/`behind` are 0 when there is no upstream to track. */
+ *  comparison is HEAD-vs-merge-base, not HEAD-vs-upstream). `name` is never
+ *  null — git's own `## <name>` porcelain header always names something, even
+ *  the literal `"HEAD"` on a detached checkout — so only `upstream` is
+ *  independently nullable; a detached HEAD can never carry an upstream
+ *  (tracking config lives on a named branch, which a detached HEAD doesn't
+ *  have), and `ahead`/`behind` are 0 whenever there is no upstream to track. */
 export const GitBranchStatusSchema = z.object({
-  name: z.string().nullable(),
+  name: z.string(),
   upstream: z.string().nullable(),
   ahead: z.number().int().nonnegative(),
   behind: z.number().int().nonnegative(),
@@ -223,7 +227,7 @@ export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
 export const FsReadFileInputSchema = z.object({
   /** Terminal that owns the URL handle for `kind: "binary"` outputs.
    *  Text reads ignore this — the field is on the input because the URL
-   *  shape (`/api/terminals/<id>/file/...`) is constructed server-side
+   *  shape (`/api/terminals/<host>/<id>/file/...`) is constructed server-side
    *  from this id, so the client doesn't have to know the route layout. */
   terminalId: z.string().uuid(),
   /** Absolute path to the repo root. */

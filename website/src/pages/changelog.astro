@@ -54,7 +54,7 @@ const releases = await Promise.all(
 );
 ---
 
-<BaseLayout title="Changelog" description="What's new in kolu, newest first.">
+<BaseLayout title="Changelog" description="What's new in kolu, newest first." searchSection="Changelog">
   <section class="changelog">
     <header class="changelog-head">
       <h1>Changelog</h1>
@@ -202,7 +202,7 @@ const releases = await Promise.all(
   }
 
   .release-link:hover span {
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
 
   .release-stamp time,
@@ -257,7 +257,7 @@ const releases = await Promise.all(
   .changelog :global(.prose-changelog h3) {
     margin: 1.5rem 0 0.5rem;
     gap: 0.5rem;
-    color: var(--color-amber-bright);
+    color: var(--color-kolu-primary-hover);
     font-size: 0.64rem;
     font-weight: 650;
     letter-spacing: 0.14em;
@@ -383,11 +383,11 @@ const releases = await Promise.all(
 
   .cl-filter-clear:hover {
     color: var(--color-ink);
-    border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
+    border-color: color-mix(in srgb, var(--color-kolu-primary) 55%, transparent);
   }
 
   .cl-filter-clear #cl-filter-tag {
-    color: var(--color-amber);
+    color: var(--color-kolu-primary);
   }
 
   @media (max-width: 740px) {

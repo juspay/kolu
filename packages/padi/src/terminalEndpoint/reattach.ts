@@ -42,11 +42,12 @@ import {
   recordPairedDaemon,
 } from "../pairedDaemon.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
+import { ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
 import { clearSavedSession, getSavedSession, saveSession } from "../session.ts";
 import { getTerminal } from "../terminal-registry.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
+import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
   adoptLocalOrphan,
   adoptLocalTerminal,
@@ -130,7 +131,9 @@ export async function adoptSurvivingSession(): Promise<void> {
   // saved session with no restore card ever shown — the zest incident. Compare the
   // connected daemon's per-process `startedAt` against the pairing we persisted last
   // boot; `recordCurrentPairing` (onBootSettled) records THIS daemon for next time.
-  const currentStartedAt = readDaemonStatus(LOCAL_HOST_ID)?.startedAt;
+  const currentStartedAt = readDaemonStatus(
+    encodeHostLocation(LOCAL_LOCATION),
+  )?.startedAt;
   if (
     isReplacedDaemon({
       currentStartedAt,
@@ -236,7 +239,7 @@ export async function adoptSurvivingSession(): Promise<void> {
   recordPairedDaemon(currentStartedAt);
 
   if (adoptedCount > 0) {
-    setAdoptedCount(LOCAL_HOST_ID, adoptedCount);
+    setAdoptedCount(encodeHostLocation(LOCAL_LOCATION), adoptedCount);
     log.info(
       { adopted: adopt.length, orphansAdopted },
       "adopted surviving terminals after restart",
@@ -252,7 +255,7 @@ export async function adoptSurvivingSession(): Promise<void> {
   // build-skew VM gate) can read "running X, would spawn Y" in the journal. The
   // nudge PREDICATE (the connected-gate + empty-guard comparison) lives in the
   // client's `kavalStale`; this is observability, not a second source of truth.
-  const status = readDaemonStatus(LOCAL_HOST_ID);
+  const status = readDaemonStatus(encodeHostLocation(LOCAL_LOCATION));
   const running = status?.identity?.staleKey ?? "";
   const expected = expectedKavalIdentity().staleKey;
   // By the time adoption runs the endpoint has already reported `connected` WITH

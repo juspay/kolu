@@ -28,6 +28,13 @@
  * without a migration ladder.
  */
 
+// The host-daemon inventory shapes live in @kolu/padi's OWN surface vocabulary — padi
+// owns the daemon domain (a kaval gate pid is a padi-domain fact, not terminal
+// awareness). kolu-common's `daemonInventory` cell composes them here via the established
+// `kolu-common → @kolu/padi` direction (the same edge `surfacesWithPadi`/`contract` use);
+// the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
+// `kolu-common/surface` importers are unchanged.
+import { HostDaemonInventorySchema } from "@kolu/padi/surface";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import {
   type BuildInfo,
@@ -42,6 +49,10 @@ import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
 
+// The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
+// home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
+// them here — the schema home moved to the daemon-domain package, the consumers didn't.
+export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
 export type {
   AgentPaintClass,
   AlertClass,
@@ -69,8 +80,8 @@ export type {
   CodexInfo,
   Foreground,
   OpenCodeInfo,
-  PrResult,
   ProcessRss,
+  PrResult,
   PrUnavailableSource,
   RestoreTarget,
   TerminalId,
@@ -285,6 +296,12 @@ export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
 export const PadiLinkSchema = z.enum(["connecting", "connected", "degraded"]);
 export type PadiLink = z.infer<typeof PadiLinkSchema>;
 
+/** The multi-host feature gate — whether the keyed-map selector strip renders. The
+ *  server is the sole writer (from `KOLU_PADI_HOST` seeding more than the local
+ *  default); the client reads it and NEVER reads env. */
+export const HostMapGateSchema = z.object({ enabled: z.boolean() });
+export type HostMapGate = z.infer<typeof HostMapGateSchema>;
+
 /** Live boot-time readout for the identity rail's uptime — kolu-server's OWN boot
  *  time and the bound padi's. Server-authored (kolu-server stamps its own boot at
  *  module init and reads padi's honest `startedAt` off the bound session's control-core
@@ -292,133 +309,115 @@ export type PadiLink = z.infer<typeof PadiLinkSchema>;
  *  here — it already rides `daemonStatus.startedAt` (the Kaval dialog's uptime source),
  *  so this cell carries only the two processes that lacked one.
  *
- *  Honesty (#1034): `server` is `0` until the first server yield — a sentinel the
- *  rail gates out on truthiness, so the pre-yield state shows nothing, never a bogus
- *  multi-decade uptime climbing off `now − 0`. `padi` is `null` whenever padi is
+ *  Honesty (#1034): `server` is `null` until the first server yield — an epoch of `0`
+ *  is a real (if absurd) timestamp, not a safe in-band "unknown" sentinel, so the
+ *  pre-yield state is the same honest `null` its `padi` sibling already uses, never a
+ *  bogus multi-decade uptime climbing off `now − 0`. `padi` is `null` whenever padi is
  *  unbound (the (re)connecting / dropped binding) — an honest "unknown", never a fake
  *  `0`, and it re-reads a FRESH boot time when a respawned padi (a new process) binds. */
 export const ProcessStartedAtSchema = z.object({
-  server: z.number(),
+  server: z.number().nullable(),
   padi: z.number().nullable(),
 });
 export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
 
-/** One running kaval PTY daemon the host-daemon inventory enumerated — a diagnostic
- *  row the Kaval dialog lists so a LEAKED pre-upgrade kaval is visible AT A GLANCE.
- *  (srid hit this dogfooding W2.2: after an upgrade a leaked pre-W2.2 kaval was
- *  invisible in the UI — only a `kaval-tui: more than one kaval daemon is running`
- *  CLI error surfaced it.) Server-authored, read-only enumeration: scan the runtime
- *  dir, read each gate pid, and best-effort probe status — it NEVER kills/reaps/
- *  touches a daemon.
- *
- *  Honesty (#1034): every field the probe couldn't read is an honest `null` (rendered
- *  "—"), never a fabricated zero/version. */
-export const RunningKavalSchema = z.object({
-  /** The rendezvous socket path — the pasteable `--socket` value. */
-  socket: z.string(),
-  /** Discovery's human label ("standalone kaval" | "kolu @ <state-root>" |
-   *  "kolu-server on port <port>"), decided at discovery's matching branch. */
-  label: z.string(),
-  /** The structural kind: `stateRoot` (a padi's kaval — carries a state-root
-   *  manifest, incl. an ADOPTED legacy-address kaval), `port` (an UN-adopted legacy
-   *  `kaval-<port>/` with NO manifest — a genuine stray/leak), `standalone`, or
-   *  `unknown`. */
-  kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
-  /** True iff this is the ACTIVE kaval sitting at the pre-padi legacy `kaval-<port>/`
-   *  address — padi ADOPTED a live pre-W2.2 kaval on upgrade (keeping its PTYs) rather
-   *  than leaking it. A KNOWN, converging state (not a leak): it is kolu's live kaval,
-   *  just still at its old socket until the next kaval restart/reboot spawns it under
-   *  the digest address. Only ever true together with `active`. */
-  atLegacyAddress: z.boolean(),
-  /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
-  gatePid: z.number().int().nullable(),
-  /** Live terminal count from a best-effort `terminal.list` probe, or null when the
-   *  probe failed / the daemon didn't answer (never a fake 0). */
-  terminalCount: z.number().int().nullable(),
-  /** The kaval's build commit (`navigableCommit`) from a best-effort `system.version`
-   *  probe, or null when unreadable. */
-  buildCommit: z.string().nullable(),
-  /** The pty-host contract version from the probe, or null when unreadable. */
-  contractVersion: z.string().nullable(),
-  /** True iff this is the kaval kolu's bound padi ACTIVELY owns ("in use by kolu"). */
-  active: z.boolean(),
-});
-export type RunningKaval = z.infer<typeof RunningKavalSchema>;
-
-/** One running padi daemon the host-daemon inventory enumerated — the Padi dialog's
- *  diagnostic row (a second padi at a different state-root is a leak, visible here).
- *  Same read-only enumeration + honesty contract as {@link RunningKavalSchema}. */
-export const RunningPadiSchema = z.object({
-  /** padi's rendezvous socket path. */
-  socket: z.string(),
-  /** padi's state-root (from the digest→root manifest), or null if unreadable. */
-  stateRoot: z.string().nullable(),
-  /** The gate-holder pid (`padi.pid`), or null if unreadable. */
-  gatePid: z.number().int().nullable(),
-  /** The `padiSurface` version the RUNNING padi serves — the bound padi's honest
-   *  `hello.surfaceVersion` for the active one; null for a padi kolu-server is not
-   *  bound to (not probed) or before the first sample. */
-  surfaceVersion: z.string().nullable(),
-  /** The RUNNING padi's navigable git commit — the bound padi's honest `hello.commit`
-   *  for the active one (mirroring {@link RunningKavalSchema}'s `buildCommit`, whose
-   *  commit rides kaval's `system.version`); null for a padi kolu-server is not bound
-   *  to (not probed), a survivor padi predating the hello field, or before the first
-   *  sample. */
-  buildCommit: z.string().nullable(),
-  /** True iff this is the padi kolu-server is bound to ("in use by kolu"). */
-  active: z.boolean(),
-});
-export type RunningPadi = z.infer<typeof RunningPadiSchema>;
-
-/** The host-daemon inventory — every running kaval + padi on this host, each marked
- *  whether kolu's bound padi actively owns it. Server-authored diagnostic cell (the
- *  Kaval/Padi dialogs render it); read-only on the client. Presentation/diagnostic
- *  data, so it rides koluSurface like the memory/uptime readouts — NOT a padiSurface
- *  member (no `PADI_SURFACE_VERSION` bump). */
 /** A STANDING, user-visible convergence anomaly the (remote) binder entered — the dialog
  *  shows it so nothing is "magically swallowed" into server logs. `null`/absent = the
  *  healthy converged case (no banner). Rides {@link DaemonInventorySchema.boundPadi}
  *  because that is the ONE binder→dialog channel orthogonal to the liveness gate: an
  *  `adopted-stale` keeps the connection `connected` (canvas alive) yet must still say WHY,
- *  which the connection cell (gated to `state === "connected"`) structurally cannot. */
-export const PadiConvergenceSchema = z.object({
-  /** `adopted-stale`: a build-mismatched survivor we could not drain-replace within the
-   *  M1 budget (a contested host respawning the old build) — we RIDE it, canvas works.
-   *  `skew-refused`: an incompatible padiSurface contract (binder older) we won't adopt.
-   *  `unconverged`: a newer-contract drain that never provably took (canvas dead).
-   *  `link-failed`: the ssh link gave up (host unreachable / provisioning failed). */
-  state: z.enum([
-    "adopted-stale",
-    "skew-refused",
-    "unconverged",
-    "link-failed",
-  ]),
-  /** The bound padi's ACTUAL build (`hello.buildId`) for the build-mismatch state, else null. */
-  runningBuild: z.string().nullable(),
-  /** The build kolu-server EXPECTED (its baked `PADI_BUILD_ID`), else null. */
-  expectedBuild: z.string().nullable(),
-  /** A human-readable reason for the dialog banner. */
-  detail: z.string(),
-});
+ *  which the connection cell (gated to `state === "connected"`) structurally cannot.
+ *
+ *  A DISCRIMINATED UNION, not a flat struct with nullable build fields: only
+ *  `adopted-stale` is ABOUT a specific running-vs-expected build mismatch (the producer,
+ *  `remotePadiBinding.ts`'s `adoptStale`, is the one arm that ever has both builds in
+ *  hand); `skew-refused` / `unconverged` / `link-failed` are reasons that never carry a
+ *  build pair. A flat struct let `{ state: "link-failed", runningBuild: "…" }` typecheck
+ *  even though no producer ever means that — the union makes it UNREPRESENTABLE instead.
+ *  Every non-`adopted-stale` variant still DECLARES `runningBuild`/`expectedBuild` as the
+ *  literal `null` (rather than omitting the keys) so a consumer that reads
+ *  `conv.runningBuild` unconditionally (the dialog banner shows the build pair only under
+ *  `<Show when={state === "adopted-stale"}>`, but the accessor itself isn't narrowed by
+ *  that boolean) keeps seeing the same `string | null` it always has — the illegal
+ *  PAIRING is what's excluded, not the field's presence. */
+export const PadiConvergenceSchema = z.discriminatedUnion("state", [
+  z.object({
+    /** A build-mismatched survivor we could not drain-replace within the M1 budget (a
+     *  contested host respawning the old build) — we RIDE it, canvas works. */
+    state: z.literal("adopted-stale"),
+    /** The bound padi's ACTUAL build (`hello.buildId`) — always known for this state. */
+    runningBuild: z.string(),
+    /** The build kolu-server EXPECTED (its baked `PADI_BUILD_ID`) — always known too. */
+    expectedBuild: z.string(),
+    /** A human-readable reason for the dialog banner. */
+    detail: z.string(),
+  }),
+  z.object({
+    /** An incompatible padiSurface contract (binder older) we won't adopt. */
+    state: z.literal("skew-refused"),
+    /** No build pair for this reason — literal `null`, not omitted (see class doc). */
+    runningBuild: z.null(),
+    expectedBuild: z.null(),
+    detail: z.string(),
+  }),
+  z.object({
+    /** A newer-contract drain that never provably took (canvas dead). */
+    state: z.literal("unconverged"),
+    runningBuild: z.null(),
+    expectedBuild: z.null(),
+    detail: z.string(),
+  }),
+  z.object({
+    /** The ssh link gave up (host unreachable / provisioning failed). */
+    state: z.literal("link-failed"),
+    runningBuild: z.null(),
+    expectedBuild: z.null(),
+    detail: z.string(),
+  }),
+]);
 export type PadiConvergence = z.infer<typeof PadiConvergenceSchema>;
 
+/** Where kolu-server's padi is bound — and, when that is NOT the machine kolu-server
+ *  itself runs on, its own-machine scan. The discriminant makes the coupling a TYPE, not
+ *  prose: `local` carries no scan (kolu is bound to the local padi, whose `hostInventory`
+ *  member already describes this machine — a second copy would show two lists for one
+ *  truth), and `remote` ALWAYS carries both the `host` and the `localScan`. The illegal
+ *  pairings — a local binding with a scan, or a remote binding missing its host/scan — are
+ *  UNREPRESENTABLE, so a future writer cannot drift them apart. The BOUND host's own
+ *  daemons never ride this cell either way: they ride padiSurface's `hostInventory` member
+ *  (works local and remote). `local` is the honest pre-first-sample default. */
+export const DaemonBindingSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local") }),
+  z.object({
+    kind: z.literal("remote"),
+    /** The ssh host the padi is bound to (`KOLU_PADI_HOST`) — drives the dialog's
+     *  machine labels ("daemons on <host>" + "this machine, not the bound host"). */
+    host: z.string(),
+    /** kolu-server's scan of the machine it ITSELF runs on — NOT the bound host, so a
+     *  leaked daemon on the box you're actually using stays visible. The same @kolu/padi
+     *  scanner the member uses, marking NONE active (kolu is bound elsewhere). */
+    localScan: HostDaemonInventorySchema,
+  }),
+]);
+export type DaemonBinding = z.infer<typeof DaemonBindingSchema>;
+
 export const DaemonInventorySchema = z.object({
-  kavals: z.array(RunningKavalSchema),
-  padis: z.array(RunningPadiSchema),
-  /** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
-   *  LOCAL binding. When set, this inventory is a scan of THIS machine's daemons — NOT
-   *  the bound host's — so the dialog labels it "local daemons — this machine, not the
-   *  bound host" and visually separates it from the bound-kaval identity (which rides
-   *  padiSurface and reflects the REMOTE host). Without this the two hosts' truths mix
-   *  unlabeled (W3.1: a remote bind must never present this-machine daemons as the
-   *  bound host's). */
-  boundHost: z.string().nullable(),
+  /** The binding + (remote-only) own-machine scan — see {@link DaemonBindingSchema}. */
+  binding: DaemonBindingSchema,
   /** The BOUND padi's honest identity off its control-core `hello` — `surfaceVersion` +
    *  `buildCommit` — for BOTH arms (local socket OR remote ssh). The Padi dialog's
    *  version chip + build-commit row read THIS, not the local-scan `active` row: under a
    *  remote binding no locally-discovered padi is kolu's active one, so that row is null
    *  and the identity must instead ride the bound session's readouts (which work over
-   *  ssh). `null` before the first sample / while padi is unbound with nothing to report. */
+   *  ssh). `null` before the first sample / while padi is unbound with nothing to report.
+   *
+   *  There is EXACTLY ONE way to say "nothing to report": the top-level `null` above —
+   *  never the inner object with all three of `surfaceVersion`/`buildCommit`/`convergence`
+   *  also null. Without the `.refine` below, both shapes typecheck and mean the same
+   *  thing, so a future writer could drift between them for no reason; the publisher
+   *  (`server/src/daemonInventory.ts`) already special-cases "all three null → publish
+   *  `null` itself" for exactly this reason — the refine makes that the ONLY legal
+   *  encoding rather than a convention a future call site could quietly break. */
   boundPadi: z
     .object({
       surfaceVersion: z.string().nullable(),
@@ -430,17 +429,25 @@ export const DaemonInventorySchema = z.object({
        *  (a refused/failed bind has a reason but no adopted identity). */
       convergence: PadiConvergenceSchema.nullable(),
     })
+    .refine(
+      (v) =>
+        v.surfaceVersion !== null ||
+        v.buildCommit !== null ||
+        v.convergence !== null,
+      {
+        message:
+          "boundPadi: nothing to report is the top-level null, not an inner object with every field null",
+      },
+    )
     .nullable(),
 });
 export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
 
-/** The honest pre-sample "unknown" — empty lists, so a fresh subscription renders no
- *  fabricated daemons until the first server enumeration lands. `boundHost` null until
- *  the first enumeration reports the binding. */
+/** The honest pre-sample default — `local` binding (no own-machine scan to show yet),
+ *  `boundPadi` null. The sampler's T+0 tick replaces it with the real binding at once; a
+ *  fresh subscription renders no fabricated daemons until then. */
 export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
-  kavals: [],
-  padis: [],
-  boundHost: null,
+  binding: { kind: "local" },
   boundPadi: null,
 };
 
@@ -566,11 +573,12 @@ export const koluSurface = defineSurface({
      *  {@link ProcessStartedAtSchema}). Server-authored — kolu-server drives it off
      *  the bound padi session's connection state, the SAME `onState` that drives
      *  `padiLink` (`server/src/index.ts` via `koluSurfaceCtx.cells.processStartedAt.set`);
-     *  clients read-only. The `{ server: 0, padi: null }` default is the honest pre-yield
-     *  "unknown" (the rail gates a `0`/`null` out rather than rendering a bogus uptime). */
+     *  clients read-only. The `{ server: null, padi: null }` default is the honest
+     *  pre-yield "unknown" for BOTH legs — no `0` sentinel (the rail gates a `null` out
+     *  rather than rendering a bogus uptime off a fabricated boot time). */
     processStartedAt: {
       schema: ProcessStartedAtSchema,
-      default: { server: 0, padi: null } satisfies z.infer<
+      default: { server: null, padi: null } satisfies z.infer<
         typeof ProcessStartedAtSchema
       >,
       verbs: ["get"],
@@ -587,6 +595,18 @@ export const koluSurface = defineSurface({
     daemonInventory: {
       schema: DaemonInventorySchema,
       default: DEFAULT_DAEMON_INVENTORY,
+      verbs: ["get"],
+    },
+
+    /** The multi-host gate — is the keyed-map selector strip (chips + add/remove) to
+     *  render? Server-authored: `enabled: true` when `KOLU_PADI_HOST` seeds more than the
+     *  local default (`server/src/index.ts` via `koluSurfaceCtx.cells.hostMapGate.set`,
+     *  from `isMultiHost()`); clients read-only. The client NEVER reads env — this cell is
+     *  the SOLE cue. `enabled: false` (env-unset) → zero multi-host UI, single host
+     *  pixel-identical. */
+    hostMapGate: {
+      schema: HostMapGateSchema,
+      default: { enabled: false } satisfies z.infer<typeof HostMapGateSchema>,
       verbs: ["get"],
     },
   },

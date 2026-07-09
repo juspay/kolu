@@ -22,7 +22,7 @@ install:
     cd {{ repo_root }} && {{ nix_shell }} pnpm install
 
 # Boot parent (:7720) + Vite (:5175). Resolves the agent's `.drv` for
-# the *target host's* architecture via `@kolu/surface-nix-host`'s
+# the *target host's* architecture via `@kolu/surface-remote`'s
 # `resolveSystem` (see `src/probe-arch.ts` — one library helper covers
 # both the local and ssh paths), then exports `KOLU_AGENT_DRV` so the
 # parent's HostSession can ship the derivation to the host and realise

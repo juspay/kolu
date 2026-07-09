@@ -46,6 +46,8 @@ The trigger — "review this boundary", "should we split X", "look at module Y",
 
 **Push back when the evidence contradicts the trigger.** If the prompt narrows the question to one boundary but the surrounding code shows the volatility doesn't track that boundary at all, the redirected finding is the headline, not a footnote. *"Issue #N described a UI extraction; the volatility actually splits the data model into two kinds"* is a valid first finding, not an out-of-scope tangent.
 
+**The graduation sweep (both directions).** Reviewing a diff for boundaries means asking the boundary question in *both* directions: not only "did volatility leak *into* a module where it doesn't belong?" (containment) but also "does this diff *create* app-local machinery that *hides* a hard volatility — transport, connection lifetime, reconnection, multiplicity racing user intent — and therefore wants its own receptacle/package?" (graduation). For each such mechanism, name the volatility it encapsulates and the home it wants, even at a population of one consumer (§6's single-consumer rule already admits this). Report these as recorded opportunities, never blockers: a prove-then-extract discipline governs *when* to extract; the review's job is that candidates are named and land in a ledger instead of staying invisible.
+
 ## The Evaluation
 
 For every module boundary, service split, or new abstraction in the code under review:

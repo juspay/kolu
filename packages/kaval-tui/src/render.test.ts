@@ -127,16 +127,17 @@ describe("formatListJson", () => {
 });
 
 describe("formatSend — the human trailer", () => {
-  it("shows byte count, short id, and the marks that applied", () => {
+  it("shows byte count, short id, and the pasted mark for a text send", () => {
+    // A text send carries NO keys (text + --key is a hard error), so the pasted
+    // mark stands alone — the two marks never co-occur.
     expect(
       formatSend({
         id: "a1b2c3d4-1111-2222-3333-444455556666",
         bytes: 14,
         paste: true,
-        keys: ["Enter"],
-        submit: null,
+        keys: [],
       }),
-    ).toBe("sent 14 bytes to a1b2c3d4 · pasted · keys: Enter");
+    ).toBe("sent 14 bytes to a1b2c3d4 · pasted");
   });
 
   it("lists multiple keys in order", () => {
@@ -146,7 +147,6 @@ describe("formatSend — the human trailer", () => {
         bytes: 2,
         paste: false,
         keys: ["Escape", "C-c"],
-        submit: null,
       }),
     ).toBe("sent 2 bytes to a1b2c3d4 · keys: Escape, C-c");
   });
@@ -158,21 +158,8 @@ describe("formatSend — the human trailer", () => {
         bytes: 1,
         paste: false,
         keys: [],
-        submit: null,
       }),
     ).toBe("sent 1 byte to a1b2c3d4");
-  });
-
-  it("shows the submit grace under --submit (and no keys, since they can't co-occur)", () => {
-    expect(
-      formatSend({
-        id: "a1b2c3d4-1111-2222-3333-444455556666",
-        bytes: 15,
-        paste: true,
-        keys: [],
-        submit: { graceMs: 250 },
-      }),
-    ).toBe("sent 15 bytes to a1b2c3d4 · pasted · submitted (grace 250ms)");
   });
 });
 
