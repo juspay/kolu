@@ -11,11 +11,14 @@
  *   - a host BINDING still coming up (`daemonState` UNDEFINED) — narrate off the
  *     connection cell's `phase`.
  *
- *  The WARM path stays calm by construction: the session opens at `probing` (the arch
- *  probe + the "is it already here?" check), which renders a bare "Connecting to
- *  <host>…" — no tail, no elapsed — so a warm host that short-circuits from `probing`
- *  straight to `connected` never flashes a build UI. Only a genuine COLD copy flips to
- *  `copying`/`building` (tail + elapsed). Failure is deliberately NOT handled here:
+ *  The overlay renders the live `log` tail + the elapsed timer off the frame's own DATA — a
+ *  non-empty `log`, a `sinceMs` ≥ 1s — NOT a per-phase flag. So the `probing` window (the arch
+ *  probe + the "is it already here?" check) narrates its real log ("<host>: checking for a
+ *  cached agent…" → "…already provisioned — skipped copy") the instant it arrives, instead of
+ *  a SILENT wait. The warm path still reads calm: a warm host short-circuits FAST, so `sinceMs`
+ *  stays under the 1s elapsed threshold (no "0s" flash) and its tail is reassuring real output,
+ *  not a scary build. A genuine COLD `copying`/`building` shows the same tail + a climbing
+ *  elapsed as it runs. Failure is deliberately NOT handled here:
  *  `disconnected`/`failed` are owned by the Skew-UX host-down card (a `host-failed`
  *  CanvasMode), so this overlay renders only the up-but-not-yet-connected phases and
  *  never a second failure surface. */
@@ -35,12 +38,8 @@ import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import { activeHost, connectionInfo } from "../wire";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
+import { showsElapsed, tailOf } from "./connectCanvasView";
 import { DAEMON_STATE_PRESENTATION } from "./daemonPresentation";
-
-/** How many trailing `log` lines the live tail shows — a tail, not the whole Nix
- *  firehose (the reassurance is "named phase + real output + elapsed", not a scroll of
- *  every line). */
-const TAIL_LINES = 6;
 
 export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   const info = () => connectionInfo();
@@ -81,12 +80,16 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     null,
   );
   createEffect(() => {
+    // Re-anchor on each fresh frame — in the connect-overlay path (`copy` present) with a real
+    // frame (a `sinceMs` to extend). No flag gate: a `probing` frame ticks too. The GAP (no
+    // frame) and the kaval-restart path (`copy` null) carry no `sinceMs`, so no timer — data
+    // absence, not policy. The clock is read UNTRACKED so the effect fires on frames, not ticks.
     const c = copy();
-    // Read the cell so the effect re-anchors on each fresh `sinceMs`; the clock is read
-    // UNTRACKED so the effect fires on frames, not every tick.
-    const ms = info()?.sinceMs ?? 0;
+    const frame = info();
     setAnchor(
-      c?.showProgress ? { ms, at: untrack(() => getClockNow()()) } : null,
+      c !== null && frame !== undefined
+        ? { ms: frame.sinceMs, at: untrack(() => getClockNow()()) }
+        : null,
     );
   });
   const elapsedMs = createMemo(() => {
@@ -94,7 +97,7 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     return a === null ? null : a.ms + (getClockNow()() - a.at);
   });
 
-  const tail = createMemo(() => (info()?.log ?? []).slice(-TAIL_LINES));
+  const tail = createMemo(() => tailOf(info()?.log ?? []));
 
   return (
     <Show
@@ -120,7 +123,10 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
         >
           <div class="flex items-baseline gap-2">
             <span class="text-fg-2">{c().title}</span>
-            <Show when={elapsedMs() !== null}>
+            {/* Elapsed renders off the frame's own `sinceMs`, once it reaches ≥1s — so a
+                dragging connect reads as abnormal, while the brief `connecting` handshake
+                never flashes a "0s" (the same 1s guard drishti's `withElapsed` uses). */}
+            <Show when={showsElapsed(elapsedMs())}>
               <span
                 data-testid="connect-elapsed"
                 class="text-fg-4 tabular-nums text-xs"
@@ -129,7 +135,10 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
               </span>
             </Show>
           </div>
-          <Show when={c().showProgress && tail().length > 0}>
+          {/* The live log tail renders whenever the frame carries log lines — the `probing`
+              window's "checking for a cached agent…" narrates the instant it arrives, no
+              silent wait. Data presence, not a per-phase flag. */}
+          <Show when={tail().length > 0}>
             <div
               data-testid="connect-tail"
               class="w-full max-w-2xl overflow-hidden rounded border border-bd-1/50 bg-bg-2/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-fg-4"

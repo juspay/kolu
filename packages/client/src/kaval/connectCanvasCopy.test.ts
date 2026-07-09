@@ -7,32 +7,31 @@ import { describe, expect, it } from "vitest";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
 
 describe("connectCanvasCopy", () => {
-  it("probing is the calm OPENING — 'Connecting to <host>…', NO progress (nothing is being shipped yet)", () => {
-    const c = connectCanvasCopy("probing", "zest");
-    expect(c.title).toContain("Connecting to zest");
-    // The warm-path guarantee: probing shows no tail + no elapsed, so a warm host that
-    // short-circuits from probing never flashes a build UI.
-    expect(c.showProgress).toBe(false);
+  // The table is PURE titles — no per-phase show/hide knob; the tail + elapsed render off the
+  // frame's own data (pinned in `connectCanvasView.test.ts`), so a `probing` frame's log is
+  // never hidden by a flag.
+  it("probing is the calm OPENING title — 'Connecting to <host>…'", () => {
+    expect(connectCanvasCopy("probing", "zest").title).toContain(
+      "Connecting to zest",
+    );
   });
 
-  it("copying names the provision and shows progress (tail + elapsed)", () => {
+  it("copying names the provision", () => {
     const c = connectCanvasCopy("copying", "zest");
     expect(c.title).toContain("Provisioning kolu onto zest");
     expect(c.title).toContain("first connect ships the recipe");
-    expect(c.showProgress).toBe(true);
   });
 
-  it("building names the compile and shows progress — 'this can take a few minutes'", () => {
+  it("building names the compile — 'this can take a few minutes'", () => {
     const c = connectCanvasCopy("building", "zest");
     expect(c.title).toContain("Building on zest");
     expect(c.title).toContain("few minutes");
-    expect(c.showProgress).toBe(true);
   });
 
-  it("connecting is a brief handshake with NO progress tail (nothing minutes-long to tail)", () => {
-    const c = connectCanvasCopy("connecting", "zest");
-    expect(c.title).toContain("Connecting to zest");
-    expect(c.showProgress).toBe(false);
+  it("connecting is the brief handshake title", () => {
+    expect(connectCanvasCopy("connecting", "zest").title).toContain(
+      "Connecting to zest",
+    );
   });
 
   it("the GAP (undefined phase) is byte-identical to probing — kills the connect-copy flicker", () => {
@@ -44,7 +43,6 @@ describe("connectCanvasCopy", () => {
     const gap = connectCanvasCopy(undefined, "zest");
     expect(gap).toEqual(connectCanvasCopy("probing", "zest"));
     expect(gap.title).toContain("Connecting to zest");
-    expect(gap.showProgress).toBe(false);
   });
 
   it("interpolates the real host name into every phase", () => {

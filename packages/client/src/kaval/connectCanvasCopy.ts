@@ -17,45 +17,39 @@
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 
 export interface ConnectCopy {
-  /** The headline line. */
+  /** The headline line. PURE title — there is NO per-phase show/hide knob: ConnectCanvas
+   *  renders the live `log` tail + elapsed timer from the frame's own DATA (a non-empty log,
+   *  a ≥1s duration), never from a phase flag. So the `probing` window narrates its real
+   *  "checking for a cached agent…" log the instant it arrives, instead of a silent wait. */
   title: string;
-  /** Whether to show the live `log` tail + elapsed timer — TRUE for the provisioning
-   *  phases (long-but-progressing must never read as hung), FALSE for the brief
-   *  `connecting` handshake (no minutes-long output to tail). */
-  showProgress: boolean;
 }
 
-/** Map a narratable phase — or the pre-frame/gap `undefined` — + host to its overlay copy.
+/** Map a narratable phase — or the pre-frame/gap `undefined` — + host to its overlay TITLE.
  *  The ONE copy authority for every not-yet-connected canvas render. Total over
  *  {@link ConnectPhase} PLUS `undefined`: the gap is where no connect phase is known yet — the
  *  connection-cell subscription is still pending, C' floored a stale cell, or a
  *  `connected`/down phase narrowed out at the facts boundary. The gap returns the SAME
- *  "Connecting to <host>…" copy as `probing`/`connecting`, so a routing flap between the
+ *  "Connecting to <host>…" title as `probing`/`connecting`, so a routing flap between the
  *  boot-gate `connecting` mode and the `warming` overlay produces IDENTICAL pixels — the
  *  flicker srid saw dies WITHOUT hiding the state machine (a real `copying`/`building` still
- *  narrates its distinct copy + tail). */
+ *  gets its distinct title, and its tail/elapsed render off the frame's data). */
 export function connectCanvasCopy(
   phase: ConnectPhase | undefined,
   host: string,
 ): ConnectCopy {
   switch (phase) {
-    // The gap + the two calm phases collapse to ONE copy: the arch probe / post-provision
-    // handshake / "nothing known yet" — nothing is being shipped, so no tail + no elapsed
-    // timer that would read as a stalled build.
+    // The gap + the two calm phases collapse to ONE title: the arch probe / post-provision
+    // handshake / "nothing known yet".
     case undefined:
     case "probing":
     case "connecting":
-      return { title: `Connecting to ${host}…`, showProgress: false };
+      return { title: `Connecting to ${host}…` };
     case "copying":
       return {
         title: `Provisioning kolu onto ${host}… (first connect ships the recipe)`,
-        showProgress: true,
       };
     case "building":
-      return {
-        title: `Building on ${host}… this can take a few minutes`,
-        showProgress: true,
-      };
+      return { title: `Building on ${host}… this can take a few minutes` };
   }
 }
 
