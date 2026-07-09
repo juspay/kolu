@@ -854,6 +854,23 @@ Then(
         `PDF preview must use the native browser viewer, not a sandboxed iframe; sandbox=${JSON.stringify(sandbox)}`,
       );
     }
+
+    const src = await pdf.getAttribute("src");
+    if (src === null) throw new Error("PDF preview iframe has no src");
+    const url = new URL(src, this.page.url());
+    if (!url.pathname.includes("/file/doc.pdf")) {
+      throw new Error(`PDF preview src did not point at doc.pdf: ${url.href}`);
+    }
+    const response = await this.page.request.get(url.href);
+    const contentType = response.headers()["content-type"] ?? "";
+    if (
+      response.status() !== 200 ||
+      !contentType.toLowerCase().includes("application/pdf")
+    ) {
+      throw new Error(
+        `PDF preview route returned ${response.status()} ${JSON.stringify(contentType)} for ${url.href}`,
+      );
+    }
   },
 );
 
