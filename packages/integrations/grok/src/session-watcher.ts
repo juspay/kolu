@@ -59,11 +59,32 @@ export function createGrokWatcher(
   }
 
   function watchPath(p: string): void {
-    // Watch the parent (session) dir, never the file inode: Grok rewrites
-    // summary.json via temp+rename, which destroys an `fs.watch` pointed at
-    // the file itself (the same volatility active-sessions-watcher documents).
-    // A dir watch survives the rename AND re-arms when a not-yet-flushed file
-    // first appears, so one code path covers both. Never mkdir.
+    // Watch the FILE inode directly — do NOT watch the parent dir instead.
+    // events.jsonl is append-only and is the primary state signal; a file
+    // watch catches its in-place writes on both platforms, but a *directory*
+    // watch does NOT on macOS: Node's fs.watch uses kqueue there, and a dir
+    // watch only fires on entry add/remove/rename, never on content appends to
+    // a file inside it (inotify on Linux does report those, which is why a
+    // dir-watch bug here passes linux CI yet freezes the tile on macOS). The
+    // trade-off — a direct watch on summary.json dies after Grok's temp+rename
+    // rewrite — is benign: deriveGrokInfo re-reads summary.json fresh on every
+    // events.jsonl tick, so model/title stay current without a live summary
+    // watch. Never mkdir.
+    try {
+      const w = fs.watch(p, () => schedule());
+      watchers.push(w);
+      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log?.error({ err, path: p }, "grok: failed to watch session file");
+        return;
+      }
+    }
+    // File not present yet — watch the parent dir (if it exists) and re-arm
+    // when the basename appears (Grok made the session dir but hasn't flushed
+    // the file). Once the file lands, its first event reschedules and the tile
+    // lights up; this is only the appears-later bootstrap, not the steady
+    // state. Never mkdir.
     const dir = path.dirname(p);
     const base = path.basename(p);
     try {
@@ -77,15 +98,11 @@ export function createGrokWatcher(
         }
       });
       watchers.push(w);
-    } catch (err) {
-      // ENOENT = session dir not created yet (derive handles absent files as
-      // thinking; the active_sessions re-resolve recreates the watcher once
-      // the dir exists). Anything else is a real fault — surface it.
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        log?.error({ err, path: dir }, "grok: failed to watch session dir");
-      } else {
-        log?.debug({ path: p }, "grok: session dir not present yet");
-      }
+    } catch (err2) {
+      log?.debug(
+        { err: err2, path: p },
+        "grok: session path not watchable yet",
+      );
     }
   }
 
