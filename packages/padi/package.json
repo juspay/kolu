@@ -43,6 +43,7 @@
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-git": "workspace:*",
+    "kolu-github": "workspace:*",
     "kolu-opencode": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-transcript-core": "workspace:*",

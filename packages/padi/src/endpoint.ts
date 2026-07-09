@@ -45,7 +45,7 @@
 import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
-} from "@kolu/terminal-workspace/endpoint";
+} from "./terminalWorkspace/endpoint.ts";
 import type { TerminalId } from "@kolu/terminal-workspace/schema";
 import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
 
@@ -112,9 +112,8 @@ export interface TerminalHandle {
 }
 
 // `TerminalEndpointFs` / `TerminalEndpointGit` — the fs/git half of the endpoint
-// — now live in `@kolu/terminal-workspace/endpoint`, beside the one impl both
-// kolu (in-process) and pulam (remote) drive (R6). The composite below imports
-// them; a future remote endpoint implements them from the same home.
+// — live in `./terminalWorkspace/endpoint.ts` (folded into padi by L7, beside the
+// one impl padi drives). The composite below imports them as types.
 
 /** Per-terminal world — the three surfaces (PTY · fs · git) bound to an
  *  endpoint. Local today; P3 binds the same shape to a remote kaval. */

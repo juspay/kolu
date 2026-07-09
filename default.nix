@@ -266,9 +266,10 @@ let
       (padiPkgRoot ./packages/terminal-protocol)
       (padiPkgRoot ./packages/surface-daemon)
       (padiPkgRoot ./packages/surface-daemon-supervisor)
-      # terminal-workspace — the sensors + fold + fs/git endpoint padi's closure
-      # reaches (its dead `surface` / `serveFsGit` / `socket` were buried with
-      # pulam at W2.3, so the whole src hashes clean now).
+      # terminal-workspace — the browser-safe TerminalSnapshot vocabulary +
+      # agentProjection padi's closure reaches (L7 folded the node-only sensors +
+      # fold + fs/git endpoint INTO padi/src/terminalWorkspace, so what remains
+      # here is the shared leaf; the whole src still hashes into padi's key).
       (padiPkgRoot ./packages/terminal-workspace)
       # The domain leaves padi's closure reaches: serving, the agent/forge/git
       # integrations, transcripts, and the shared utilities. (`@kolu/surface` and

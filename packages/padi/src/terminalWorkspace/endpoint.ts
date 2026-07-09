@@ -1,17 +1,18 @@
 /**
- * `@kolu/terminal-workspace/endpoint` — the host-side fs/git wrapper, lifted out
- * of kolu-server's `localEndpoint` (R6) so it has ONE home both kolu-server
- * (in-process) and padi (the per-host terminal daemon) drive. A thin layer over
+ * `terminalWorkspace/endpoint` (padi-internal) — the host-side fs/git wrapper,
+ * lifted out of kolu-server's `localEndpoint` (R6) and folded into padi (L7) once
+ * padi became its sole consumer. A thin layer over
  * `kolu-git`: it unwraps each
  * `GitResult` into a value or a thrown `ORPCError` (fail-fast — a git error
  * surfaces, never collapses to an empty result), and adapts the watcher
  * callbacks. The terminal-endpoint ORCHESTRATION around it (spawn · adopt · the
- * registry) stays kolu-server's; only this leaf wrapper moved.
+ * registry) is padi's; only this leaf wrapper is the fs/git face.
  *
- * This is the NODE face of the package (it shells out to git via kolu-git's
- * root), kept strictly separate from the browser-safe `./surface`. The two
- * interfaces below describe the impl, so they live with it; kolu-common's
- * composite `TerminalEndpoint` imports them as types.
+ * This is the NODE face (it shells out to git via kolu-git's root), kept
+ * strictly separate from the browser-safe terminal vocabulary
+ * (`@kolu/terminal-workspace/schema`). The two interfaces below describe the
+ * impl, so they live with it; padi's composite `TerminalEndpoint` imports them
+ * as types.
  */
 
 import { ORPCError } from "@orpc/server";

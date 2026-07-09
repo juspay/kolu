@@ -25,25 +25,29 @@
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
   type CommandRunSample,
+  type SensorSignals,
+  startSensors,
+} from "../terminalWorkspace/sensors.ts";
+import {
   type FoldCtx,
   fold,
   restoreTargetEqual,
   restoreTargetOf,
   seedRecencyBaseline,
   stepRecencyBaseline,
-  type SensorSignals,
-  seedSnapshot,
-  startSensors,
-  type TerminalEvent,
-  type TerminalState,
-} from "@kolu/terminal-workspace";
-import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
+} from "../terminalWorkspace/fold.ts";
+import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
 import type {
   AgentIdentity,
   TerminalId,
   TerminalSnapshot,
+  TerminalEvent,
+  TerminalState,
 } from "@kolu/terminal-workspace/schema";
-import { TerminalIdSchema } from "@kolu/terminal-workspace/schema";
+import {
+  seedSnapshot,
+  TerminalIdSchema,
+} from "@kolu/terminal-workspace/schema";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { ZodType } from "zod";

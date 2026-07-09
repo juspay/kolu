@@ -705,6 +705,9 @@ importers:
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
+      kolu-github:
+        specifier: workspace:*
+        version: link:../integrations/github
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -1777,21 +1780,12 @@ importers:
 
   packages/terminal-workspace:
     dependencies:
-      '@kolu/surface':
-        specifier: workspace:*
-        version: link:../surface
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
-      kaval:
-        specifier: workspace:*
-        version: link:../kaval
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -1807,9 +1801,6 @@ importers:
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
-      pino:
-        specifier: ^10.3.1
-        version: 10.3.1
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
