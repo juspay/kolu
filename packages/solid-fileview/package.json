@@ -12,6 +12,7 @@
     "./renderers/image": "./src/renderers/image.tsx",
     "./renderers/iframe": "./src/renderers/iframe.tsx",
     "./renderers/markdown": "./src/renderers/markdown.tsx",
+    "./renderers/pdf": "./src/renderers/pdf.tsx",
     "./renderers/video": "./src/renderers/video.tsx"
   },
   "scripts": {

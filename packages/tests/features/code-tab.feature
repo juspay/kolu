@@ -830,9 +830,8 @@ Feature: Code tab (review + browse)
   # `kolu-common/preview`) render from the per-terminal file route instead of
   # Pierre's syntax-highlighted `FileView`. The wire kind
   # (`FsReadFileOutput.kind`) only says "binary"; the client then dispatches by
-  # extension — raster images (`isRasterImage`) to a plain `<img>`, videos
-  # (`isVideo`) to a `<video controls>` element, and documents to a sandboxed
-  # `<iframe>`.
+  # extension (`binaryPreviewFamily`) to a plain `<img>`, a `<video controls>`
+  # element, the native browser PDF viewer, or the HTML/SVG sandboxed `<iframe>`.
 
   Scenario: HTML file renders in an iframe instead of as code
     When I run "rm -rf /tmp/kolu-iframe-html && git init /tmp/kolu-iframe-html && cd /tmp/kolu-iframe-html"
@@ -851,6 +850,16 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "logo.svg" in the file browser
     Then the file preview iframe should be visible
+
+  Scenario: PDF file renders in the native PDF viewer, not the sandboxed iframe
+    When I run "rm -rf /tmp/kolu-pdf-doc && git init /tmp/kolu-pdf-doc && cd /tmp/kolu-pdf-doc"
+    And I run "printf 'JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCAyMDAgMjAwXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA0OCA+PgpzdHJlYW0KQlQKL0YxIDE4IFRmCjIwIDEwMCBUZAooS29sdSBQREYgcHJldmlldykgVGoKRVQKZW5kc3RyZWFtCmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMSAvQmFzZUZvbnQgL0hlbHZldGljYSA+PgplbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDExNSAwMDAwMCBuIAowMDAwMDAwMjQxIDAwMDAwIG4gCjAwMDAwMDAzMzggMDAwMDAgbiAKdHJhaWxlcgo8PCAvUm9vdCAxIDAgUiAvU2l6ZSA2ID4+CnN0YXJ0eHJlZgo0MDgKJSVFT0YK' | base64 -d > doc.pdf"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "doc.pdf" in the file browser
+    Then the file preview PDF should be visible
+    And the file preview iframe should not be visible
 
   Scenario: PNG image renders as an <img> preview, not an iframe
     When I run "rm -rf /tmp/kolu-img-png && git init /tmp/kolu-img-png && cd /tmp/kolu-img-png"
@@ -1557,7 +1566,7 @@ Feature: Code tab (review + browse)
     And I run "printf 'second version\n' > letters.txt"
     Then the file content should contain "second version"
 
-  # Live-update for the iframe-previewed kinds (.html/.svg/.pdf): editing the
+  # Live-update for the iframe-previewed kinds (.html/.svg): editing the
   # previewed file must refresh the iframe with no manual reload. Unlike the
   # text path above (new content arrives on the `fsReadFile` stream and re-feeds
   # Pierre), the binary path carries only a `url`. The refresh hinges on the
