@@ -28,7 +28,7 @@ import type {
   PadiEntryStatus,
   SkewVersionPair,
 } from "kolu-common/surfacesWithPadi";
-import type { Component } from "solid-js";
+import type { Component, Setter } from "solid-js";
 import { createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { toast } from "solid-sonner";
@@ -160,19 +160,32 @@ const KavalMark: Component<{ host: HostKey }> = (props) => {
   );
 };
 
+/** The ONE open/switch seam for a daemon mark: opens the info panel for this
+ *  host, switching the canvas to it first when it isn't already active (a
+ *  no-op-close toggle only when it already is). Both sub-chips share this so the
+ *  switch-first rule — opening an inactive host's panel makes the dialog's
+ *  active-host-scoped detail rows describe that host — lives in exactly one
+ *  documented place, not duplicated verbatim per mark. */
+function useDaemonMarkOpen(host: HostKey): {
+  open: () => boolean;
+  setOpen: Setter<boolean>;
+  openForHost: () => void;
+} {
+  const [open, setOpen] = createSignal(false);
+  const openForHost = (): void => {
+    const alreadyActive = sameHost(activeHost(), host);
+    if (!alreadyActive) setActiveHost(host);
+    setOpen((v) => (alreadyActive ? !v : true));
+  };
+  return { open, setOpen, openForHost };
+}
+
 /** The Padi sub-chip for one host — icon + that host's entry-state dot.
  *  Click switches to that host, then opens the complete info panel. */
 const PadiSubChip: Component<{ host: HostKey }> = (props) => {
-  const [open, setOpen] = createSignal(false);
+  const { open, setOpen, openForHost } = useDaemonMarkOpen(props.host);
   let triggerEl!: HTMLButtonElement;
   const padi = useHostPadi(props.host);
-  /** True when this chip is the canvas's active host. */
-  const isCanvasHost = () => sameHost(activeHost(), props.host);
-  const openForHost = (): void => {
-    const alreadyActive = isCanvasHost();
-    if (!alreadyActive) setActiveHost(props.host);
-    setOpen((v) => (alreadyActive ? !v : true));
-  };
   // Per-host identity (version for the tip).
   const identity = padiMap.entry(props.host).cells.identity.use({
     onError: (err: Error) => toast.error(`Padi identity error: ${err.message}`),
@@ -250,16 +263,10 @@ const PadiSubChip: Component<{ host: HostKey }> = (props) => {
 /** The Kaval sub-chip for one host — icon + that host's daemon-state dot.
  *  Click switches to that host, then opens the complete info panel. */
 const KavalSubChip: Component<{ host: HostKey }> = (props) => {
-  const [open, setOpen] = createSignal(false);
+  const { open, setOpen, openForHost } = useDaemonMarkOpen(props.host);
   let triggerEl!: HTMLButtonElement;
   const clockNow = getClockNow();
   const kaval = useHostKaval(props.host);
-  const isCanvasHost = () => sameHost(activeHost(), props.host);
-  const openForHost = (): void => {
-    const alreadyActive = isCanvasHost();
-    if (!alreadyActive) setActiveHost(props.host);
-    setOpen((v) => (alreadyActive ? !v : true));
-  };
   const processMemory = padiMap.entry(props.host).cells.processMemory.use({
     onError: (err: Error) =>
       toast.error(`Padi/kaval memory error: ${err.message}`),
