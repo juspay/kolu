@@ -153,9 +153,15 @@ const PadiMark: Component<{ padi: ReturnType<typeof useHostPadi> }> = (
  *  placements shape as {@link PadiMark}; taking the reader as a prop is what
  *  keeps a single interactive mark from opening TWO `daemonStatus` subscriptions
  *  for the same host (the sub-chip already holds one). */
-const KavalMark: Component<{ kaval: ReturnType<typeof useHostKaval> }> = (
-  props,
-) => (
+const KavalMark: Component<{
+  kaval: ReturnType<typeof useHostKaval>;
+  /** A newer kaval build is available for this host (see {@link kavalStale}).
+   *  Surfaces the update at a glance — an amber corner pip in the OPPOSITE
+   *  corner from the state dot — so a build-behind kaval doesn't look identical
+   *  to a current one in the chrome (the fuller "newer build …" text still
+   *  rides the tooltip + dialog). Static switcher marks don't pass it. */
+  stale?: boolean;
+}> = (props) => (
   <IdentityMark logoSrc={KAVAL_LOGO_URL}>
     <StatusDot
       data-daemon-state={
@@ -165,6 +171,13 @@ const KavalMark: Component<{ kaval: ReturnType<typeof useHostKaval> }> = (
       }
       class={kavalDot(props.kaval.daemon()?.state, props.kaval.live())}
     />
+    <Show when={props.stale}>
+      <span
+        data-testid="kaval-update-pip"
+        class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-surface-2 bg-amber-500"
+        aria-hidden="true"
+      />
+    </Show>
   </IdentityMark>
 );
 
@@ -330,18 +343,21 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
       .with(P.nullish, () => "memory unavailable")
       .exhaustive();
   };
-  const kavalUpdateText = (): string | undefined => {
+  // The at-a-glance staleness fact for THIS host's kaval — drives both the
+  // amber update pip on the mark (glanceable, no hover) and the tooltip text.
+  const kavalIsStale = (): boolean => {
     const expected = padiStatus.value()?.expectedKaval;
     const status = kaval.daemon();
-    if (
-      !kavalStale(
-        expected?.staleKey,
-        status?.identity?.staleKey,
-        status?.state,
-        kaval.live(),
-      )
-    )
-      return undefined;
+    return kavalStale(
+      expected?.staleKey,
+      status?.identity?.staleKey,
+      status?.state,
+      kaval.live(),
+    );
+  };
+  const kavalUpdateText = (): string | undefined => {
+    if (!kavalIsStale()) return undefined;
+    const expected = padiStatus.value()?.expectedKaval;
     return expected?.navigableCommit
       ? `newer build ${expected.navigableCommit.slice(0, 7)} available`
       : "newer build available";
@@ -371,7 +387,7 @@ const KavalSubChip: Component<{ host: HostKey }> = (props) => {
           aria-label={kavalTip()}
           aria-expanded={open()}
         >
-          <KavalMark kaval={kaval} />
+          <KavalMark kaval={kaval} stale={kavalIsStale()} />
         </button>
       </Tip>
       <Show when={open()}>
