@@ -13,7 +13,7 @@
  *  some point.
  *
  *  The active threshold flows from `activityWindowThresholdMs()` in
- *  `activityWindow.ts` — a per-device persisted choice exposed through
+ *  `activityWindowFilter.ts` — a per-host persisted choice exposed through
  *  one signal so every consumer (dock buckets, minimap fade, badge gate)
  *  agrees on what "stale" means. */
 
@@ -21,11 +21,8 @@ import { type Accessor, createSignal } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { getClockNow } from "../time/clock";
 import { compactDelta } from "../time/duration";
-import {
-  activityWindowThresholdMs,
-  type IdleBucketKey,
-  idleBucketFor,
-} from "./activityWindow";
+import { type IdleBucketKey, idleBucketFor } from "./activityWindow";
+import { activityWindowThresholdMs } from "./activityWindowFilter";
 
 const TICK_MS = 60_000;
 

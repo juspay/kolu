@@ -4,8 +4,8 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
-import { type Accessor, createSignal } from "solid-js";
-import type { Camera } from "../../useViewState";
+import type { Accessor } from "solid-js";
+import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
 import {
@@ -25,11 +25,30 @@ import {
   zoomToCenter as zoomToCenterPure,
 } from "./transforms";
 
-// ── Singleton state ──
-
-const [panX, setPanX] = createSignal(0);
-const [panY, setPanY] = createSignal(0);
-const [zoom, setZoom] = createSignal(1);
+// ── Per-host camera state (read/written on the ACTIVE host's owner) ──
+//
+// The live pan/zoom is no longer three module-scope signals shared by every host
+// (the camera bug's birthplace — bridged to per-host storage by the deleted
+// `useCanvasCameraSwap` swap effect, a race a defer-guard could never close). It
+// lives in the ACTIVE host's `scopedByEntry` owner (`hostScope/createCamera`), so
+// switching hosts shows that host's RETAINED pose by construction — there is no
+// restore step to race the incoming tile's mount, so "pans to empty" cannot arise.
+// The per-canvas GESTURE / animation / container machinery below stays module
+// scope (one active canvas at a time) and reads/writes whichever host is active
+// through these accessors. During the removal race `cam()` is `undefined`: reads
+// floor (0 / 1), writes no-op — `wire.ts` re-points `activeHost` a tick later.
+const cam = () => activeScope()?.camera;
+const panX = (): number => cam()?.panX() ?? 0;
+const panY = (): number => cam()?.panY() ?? 0;
+const zoom = (): number => cam()?.zoom() ?? 1;
+// A pose write marks the host's camera `positioned` inside the setter itself
+// (`hostScope/createCamera`) — the switch-in center decision (TerminalCanvas)
+// reads that to pick "seed on the active tile" (a never-positioned host) vs.
+// "keep the retained pose, re-center only if stale". `cam()` is `undefined` only
+// during the removal race, so the optional-chain no-ops.
+const setPanX = (v: number): void => cam()?.setPanX(v);
+const setPanY = (v: number): void => cam()?.setPanY(v);
+const setZoom = (v: number): void => cam()?.setZoom(v);
 
 /** Container ref, set on mount. */
 let containerEl: HTMLDivElement | null = null;
@@ -102,11 +121,18 @@ function discardPendingGesture() {
   pending = { ...EMPTY };
 }
 
-/** Begin an authoritative absolute mutation: a programmatic write is the new
- *  truth, so it must kill BOTH competing input sources — the in-flight tween
- *  and the queued gesture delta. Every programmatic setter plugs into this one
- *  seam so it cannot forget half the arbitration. */
-function beginAuthoritativeMutation() {
+/** Abort every transient input competing with an authoritative write on the
+ *  ACTIVE host — the in-flight pan tween AND the queued gesture delta. Two callers
+ *  share this one seam so neither can forget half the arbitration:
+ *    - the active-host SWITCH (`useCanvasCenterOnSwitch`) calls it up front so a
+ *      frame-late callback can't land the OUTGOING host's motion in the INCOMING
+ *      host's per-host camera — both the animation callback and `flushGesture`
+ *      write pan/zoom through `activeScope()` (module-scope machinery, one active
+ *      canvas), which re-keys to the new host on switch;
+ *    - an authoritative ABSOLUTE write (`setPan` / `startAnimatedPan` /
+ *      zoom-to-center) is the new truth, so it must kill both competing input
+ *      sources rather than let a frame-late fling delta stack on top of it. */
+function abortTransientInput() {
   cancelPanAnimation();
   discardPendingGesture();
 }
@@ -136,15 +162,12 @@ export interface CanvasViewport {
   /** Set pan offset directly (canvas-space coordinates). Instant — for
    *  per-frame gesture updates that must not animate. */
   setPan: (x: number, y: number) => void;
-  /** Read the live camera pose (pan + zoom) — the per-host switch seam snapshots
-   *  the OUTGOING host's pose with this before restoring the incoming host's. */
-  snapshotCamera: () => Camera;
-  /** Restore a saved camera pose (pan + zoom) atomically. An authoritative
-   *  absolute write — like `setPan`, it goes through `beginAuthoritativeMutation`
-   *  so it kills any in-flight tween AND discards the queued gesture delta,
-   *  leaving the #1308 rAF write-coalescing intact (this is a COARSE per-switch
-   *  restore, not a per-event hook). */
-  restoreCamera: (camera: Camera) => void;
+  /** Abort transient input aimed at the active host — the in-flight pan
+   *  animation and any queued gesture flush. Called on an active-host switch so a
+   *  frame-late callback cannot write the OUTGOING host's motion into the INCOMING
+   *  host's per-host camera (the module-scope machinery writes through
+   *  `activeScope()`, which re-keys to the new host on switch). */
+  abortTransientInput: () => void;
   /** Current viewport dimensions in pixels (0×0 before mount). */
   viewportSize: () => { width: number; height: number };
   /** Canvas-space point at the viewport center — the forward projection of
@@ -239,7 +262,7 @@ function targetForPoint(
 }
 
 function startAnimatedPan(target: { panX: number; panY: number }) {
-  beginAuthoritativeMutation();
+  abortTransientInput();
   currentAnim = animatePan(
     { x: panX(), y: panY() },
     { x: target.panX, y: target.panY },
@@ -261,20 +284,9 @@ function panTo(x: number, y: number) {
 }
 
 function setPan(x: number, y: number) {
-  beginAuthoritativeMutation();
+  abortTransientInput();
   setPanX(x);
   setPanY(y);
-}
-
-function snapshotCamera(): Camera {
-  return { panX: panX(), panY: panY(), zoom: zoom() };
-}
-
-function restoreCamera(camera: Camera) {
-  beginAuthoritativeMutation();
-  setPanX(camera.panX);
-  setPanY(camera.panY);
-  setZoom(camera.zoom);
 }
 
 // Not reactive on container resize — reads DOM directly. Pan/zoom signals
@@ -297,7 +309,7 @@ function viewportCenter() {
 
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
   if (!containerEl) return;
-  beginAuthoritativeMutation();
+  abortTransientInput();
   const result = zoomToCenterPure(
     panX(),
     panY(),
@@ -320,8 +332,7 @@ const viewport: CanvasViewport = {
   centerOnTile,
   panTo,
   setPan,
-  snapshotCamera,
-  restoreCamera,
+  abortTransientInput,
   viewportSize,
   viewportCenter,
   snapToGrid: snapToGridPure,

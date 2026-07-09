@@ -49,7 +49,7 @@ import {
   findFreeTilePosition,
 } from "./tilePlacement";
 import { planTilePlacements } from "./tilePlacementPlan";
-import { useCanvasCameraSwap } from "./useCanvasCameraSwap";
+import { useCanvasCenterOnSwitch } from "./useCanvasCenterOnSwitch";
 import { useCanvasFocus } from "./useCanvasFocus";
 import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileAura } from "./useTileAura";
@@ -150,15 +150,16 @@ const TerminalCanvas: Component<{
     return result;
   });
 
-  // Per-host canvas camera + center-on-active on host switch (the "pans to empty"
-  // fix). The active tile's layout is `undefined` until the incoming host's tile
-  // re-mounts and is measured, so the swap's center decision waits on it (the
-  // mount race). See useCanvasCameraSwap / cameraSwap for the (A)+(B) rationale.
+  // Per-host camera center-on-active on host switch. The decision (seed a
+  // never-positioned host on its active tile, re-center a host whose tile drifted
+  // out of its retained view) lives in `useCanvasCenterOnSwitch`, mounted here
+  // like the sibling hooks above; its one canvas-derived input is the active
+  // tile's resolved layout over the pending-layout overrides.
   const activeTileLayout = (): TileLayout | undefined => {
     const id = tileStore.activeId();
     return id ? layoutOf(id) : undefined;
   };
-  useCanvasCameraSwap(activeTileLayout);
+  useCanvasCenterOnSwitch(activeTileLayout);
 
   // Auto-assign a default layout for tiles with no saved position. A new
   // tile opens at the viewport-center cascade and NOTHING ELSE MOVES —

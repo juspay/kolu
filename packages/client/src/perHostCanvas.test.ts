@@ -9,19 +9,35 @@
  *    - `useTileStore.ts` the selection half (a verbatim re-export of the same
  *      `useViewState` signals).
  *
- *  The shape-B fix landed: `useViewState` holds a per-host `HostView` record keyed
- *  by the canonical host string; switching `activeHost` SWAPS which record the
- *  accessors read/write, so a host's focus + MRU survive a switch-away IN MEMORY.
- *  `useSessionRestore`'s latches are per-host, so a host's FIRST visit seeds from
- *  its server SavedSession (adopting its active tile immediately — zero dock click)
- *  while a switch-BACK keeps the in-memory record (in-memory wins; savedSession
- *  seeds only the first visit).
+ *  W7 flipped the fix from enumeration to OWNERSHIP: the per-host selection state
+ *  now lives in the per-host `scopedByEntry` owner (`hostScope/*`), and the hooks
+ *  (`useViewState`, `useSessionRestore`) are WINDOWS onto the active host's scope.
+ *  Switching `activeHost` re-keys which owner the windows read, so a host's focus +
+ *  MRU survive a switch-away IN THAT OWNER; `useSessionRestore`'s latch is per-host,
+ *  so a host's FIRST visit seeds from its server SavedSession (adopting its active
+ *  tile immediately — zero dock click) while a switch-BACK keeps the in-memory
+ *  record (in-memory wins; savedSession seeds only the first visit).
  *
- *  Fixture: ONE `useViewState()` instance feeds ONE `useSessionRestore()` mount —
- *  the exact composition `useTerminalStore`'s `createSharedRoot` builds once at
- *  `App.tsx:83`. A host switch is simulated exactly as `wire.ts` performs one:
- *  `activeHost` flips AND the list/metadata/saved-session accessors re-key to that
- *  host's id space together (they all ride `padiMap.useEntry(activeHost)`). */
+ *  Fixture (adapted for W7; the three `it(...)` blocks are BYTE-IDENTICAL): it
+ *  stands up a REAL `scopedByEntry` over a MOCK `padiMap` — a synchronous,
+ *  signal-backed `entries` membership + the real HostKey codec — so the windows
+ *  read the real owner machinery, not a parallel model. `loadHost(host, ids,
+ *  activeId)` is ADD-AS-MEMBER (+ first activation): it adds the host to `entries`
+ *  AND re-keys the list/metadata/saved-session accessors to that host's id space
+ *  together, exactly as `padiMap.entries` + `padiMap.useEntry(activeHost)` re-keying
+ *  produce on a real host switch. The driven signals are module-level and stable
+ *  (the app-lifetime owner tracks `activeHost` + membership once); `beforeEach`
+ *  EMPTIES membership first, disposing the prior test's owners (lazy-again-after-
+ *  re-add), for full per-test isolation.
+ *
+ *  (Pre-W7, this fixture wired ONE `useViewState()` self-contained per-host store
+ *  driven by a mocked `activeHost`, with NO `padiMap` in its `vi.mock("./wire")`.
+ *  It pinned the WIRING alongside the behavior, so it could not survive the
+ *  wiring's deletion — run against the W7 facade it fails at import with
+ *  `No "padiMap" export is defined on the "./wire" mock` (hostScopes.ts's
+ *  `scopedByEntry(padiMap, …)`). The three assertion blocks are unchanged; only
+ *  the fixture is refactored to the real owner. See the commit message for the
+ *  fixture old→new map + that red-run record.) */
 
 import type {
   SavedSession,
@@ -31,62 +47,76 @@ import type {
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { batch, createRoot, createSignal } from "solid-js";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rpcSpy = vi.hoisted(() => ({
   setActive: vi.fn(async () => {}),
 }));
 
-// Hoisted mutable slots the mock reads through — reassigned to REAL
-// `createSignal` accessors inside `mountTwoHostFixture` so the hydration
-// effect stays properly reactive (same trick `useTerminalMetadata.test.ts`
-// uses: the mock factory closes over the BAG, not a snapshot of its
-// contents, so a later reassignment is visible on the next read).
+// Hoisted mutable slots the mock reads THROUGH — assigned to the module-level
+// driven signals below (created with the code-under-test's own solid instance).
+// The mock factory closes over the BAG, not a snapshot, so it always reads the
+// live signal.
 const bag = vi.hoisted(() => ({
   savedSession: (() => null) as () => SavedSession | null,
-  savedSessionPending: (() => false) as () => boolean,
   activeHost: (() => ({ kind: "local" })) as () => HostKey,
 }));
 
-vi.mock("./wire", () => ({
-  activePadiRpc: {
-    surface: {
-      chrome: { setActive: rpcSpy.setActive },
-      session: {
-        restore: vi.fn(async () => {}),
-        forfeit: vi.fn(async () => {}),
-        import: vi.fn(async () => {}),
-      },
-      lifecycle: {
-        create: vi.fn(async () => {}),
-        restoreSleeping: vi.fn(async () => {}),
-        sendInput: vi.fn(async () => {}),
+// The `./wire` mock stands up the MOCK `padiMap` the real `scopedByEntry` owner
+// reads — a synchronous, signal-backed `entries` membership + the real HostKey
+// codec, from the shared `mockHostMap` testlib. `loadHost` drives membership via
+// its `addHost`; `beforeEach` empties it via `resetHosts`.
+vi.mock("./wire", async () => {
+  const { mockPadiMap, mockPadiRpcOf } = await import(
+    "./hostScope/mockHostMap.testlib"
+  );
+  return {
+    padiMap: mockPadiMap,
+    // `createViewState`'s `writeActive` reports the active tile here.
+    padiRpcOf: mockPadiRpcOf(rpcSpy.setActive),
+    activePadiRpc: {
+      surface: {
+        chrome: { setActive: rpcSpy.setActive },
+        session: {
+          restore: vi.fn(async () => {}),
+          forfeit: vi.fn(async () => {}),
+          import: vi.fn(async () => {}),
+        },
+        lifecycle: {
+          create: vi.fn(async () => {}),
+          restoreSleeping: vi.fn(async () => {}),
+          sendInput: vi.fn(async () => {}),
+        },
       },
     },
-  },
-  savedSessionSub: { pending: () => bag.savedSessionPending() },
-  savedSession: () => bag.savedSession(),
-  // The per-tab active host — flips on a switch; drives the per-host keying in
-  // BOTH `useViewState` (the HostView record) and `useSessionRestore` (the latch).
-  activeHost: () => bag.activeHost(),
-}));
+    savedSessionSub: { pending: () => false },
+    savedSession: () => bag.savedSession(),
+    // The per-tab active host — flips on a switch; drives the per-host keying in
+    // the `scopedByEntry` owner that BOTH `useViewState` (view) and
+    // `useSessionRestore` (the latch) read.
+    activeHost: () => bag.activeHost(),
+  };
+});
 
-// `useViewState`'s `canvasMaximized` pref — stub to a plain in-memory
-// signal-shaped pair so the test doesn't need a real `localStorage`.
-vi.mock("./persistedPref", () => ({
-  boolPref: () => {
-    let v = false;
+// `createHostPrefs`'s per-host prefs (`showSleeping` via `boolPref`, `activityWindow`
+// via `persistedPref`) — stub both to a plain in-memory signal-shaped pair honoring
+// the passed `fallback`, so the test needs no real `localStorage`. The three blocks
+// below exercise only `activeId`/`mruOrder`, so these prefs' values are never asserted.
+vi.mock("./persistedPref", () => {
+  const stub = <T>(fallback: T) => {
+    let v = fallback;
     return [
       () => v,
-      (next: boolean | ((prev: boolean) => boolean)) => {
-        v =
-          typeof next === "function"
-            ? (next as (p: boolean) => boolean)(v)
-            : next;
+      (next: T | ((prev: T) => T)) => {
+        v = typeof next === "function" ? (next as (p: T) => T)(v) : next;
       },
     ];
-  },
-}));
+  };
+  return {
+    boolPref: (opts: { fallback: boolean }) => stub(opts.fallback),
+    persistedPref: <T>(opts: { fallback: T }) => stub(opts.fallback),
+  };
+});
 
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {
@@ -110,6 +140,7 @@ vi.mock("./terminal/useSubPanel", () => ({
   }),
 }));
 
+import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
 import { useSessionRestore } from "./terminal/useSessionRestore";
 import type { TerminalStore } from "./terminal/useTerminalStore";
 import { useViewState } from "./useViewState";
@@ -121,6 +152,33 @@ const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
  *  maps to distinct record keys ("local" vs "remote:B"). */
 const HOST_A: HostKey = { kind: "local" };
 const HOST_B: HostKey = { kind: "remote", target: "B" };
+
+// The driven state — module-level STABLE signals (the code's own solid instance),
+// wired into `bag`. The app-lifetime `scopedByEntry` owner tracks `activeHost`
+// ONCE, so `activeHost` must be one stable signal for the whole suite; a per-test
+// reassignment would strand the owner's memo on a disposed signal. (Membership is
+// the shared `mockHostMap` signal, driven by `addHost`/`resetHosts`.)
+const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
+const [driveList, setDriveList] = createSignal<TerminalInfo[] | undefined>(
+  undefined,
+);
+const [driveMeta, setDriveMeta] = createSignal<
+  Record<string, TerminalMetadata>
+>({});
+const [driveSaved, setDriveSaved] = createSignal<SavedSession | null>(null);
+bag.activeHost = driveHost;
+bag.savedSession = driveSaved;
+
+beforeEach(() => {
+  // Empty membership FIRST — a member leaving `entries` disposes its owner, so
+  // this drops every per-host owner the prior test built (lazy-again-after-re-add:
+  // the next `loadHost` re-adds each host as a FRESH owner). Then reset the rest.
+  resetHosts();
+  setDriveHost(HOST_A);
+  setDriveList(undefined);
+  setDriveMeta({});
+  setDriveSaved(null);
+});
 
 const savedTerminal = (id: string): SavedSession["terminals"][number] => ({
   id,
@@ -135,31 +193,22 @@ const savedTerminal = (id: string): SavedSession["terminals"][number] => ({
 const activeMeta = (): TerminalMetadata =>
   ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
 
-/** Wires ONE `useViewState()` instance (the app-lifetime singleton the real app
+/** Wires ONE `useViewState()` window (the app-lifetime singleton the real app
  *  builds inside `useTerminalStore`'s `createSharedRoot`, App.tsx:83) into ONE
  *  `useSessionRestore()` mount (ditto) — minus the metadata/webgl machinery this
- *  bug doesn't touch. `loadHost(host, ids, activeId)` performs a real switch:
- *  flip `activeHost` AND re-key the list/metadata/saved-session accessors to that
- *  host's id space together, exactly as `padiMap.useEntry(activeHost)` re-keying
- *  produces on a real host switch. */
+ *  bug doesn't touch — over the REAL `scopedByEntry` owner (the mock `padiMap`).
+ *  `loadHost(host, ids, activeId)` performs a real switch: ADD the host to
+ *  `entries` (add-as-member), flip `activeHost` (first activation), AND re-key the
+ *  list/metadata/saved-session accessors to that host's id space together, exactly
+ *  as `padiMap.entries` + `padiMap.useEntry(activeHost)` re-keying produce on a
+ *  real host switch. */
 function mountTwoHostFixture() {
-  const [list, setList] = createSignal<TerminalInfo[] | undefined>(undefined);
-  const [meta, setMeta] = createSignal<Record<string, TerminalMetadata>>({});
-  const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
-    null,
-  );
-  const [host, setHost] = createSignal<HostKey>(HOST_A);
-
-  bag.savedSession = savedSession;
-  bag.savedSessionPending = () => false;
-  bag.activeHost = host;
-
-  const listSub = Object.assign(() => list(), { pending: () => false });
+  const listSub = Object.assign(() => driveList(), { pending: () => false });
   const terminalIds = () =>
-    (list() ?? [])
+    (driveList() ?? [])
       .map((t) => t.id)
-      .filter((id) => !meta()[id]?.parentId) as TerminalId[];
-  const getMetadata = (id: TerminalId) => meta()[id];
+      .filter((id) => !driveMeta()[id]?.parentId) as TerminalId[];
+  const getMetadata = (id: TerminalId) => driveMeta()[id];
 
   const view = useViewState();
   const store = {
@@ -180,18 +229,21 @@ function mountTwoHostFixture() {
     activeTerminalId: string,
   ) {
     const [a, b] = ids;
-    // Re-key host + list/metadata/saved-session together (one batch = one atomic
-    // switch). This mirrors the real app, where flipping `activeHost` re-keys the
-    // host-scoped readouts through `padiMap.useEntry` in lockstep — the hydration
-    // effect never observes host B paired with host A's stale list (in the real
-    // app the readouts go PENDING on switch, gating that intermediate out; here the
-    // batch collapses it). Without this, the effect would seed B's record from A's
-    // still-current terminals before B's own arrive.
+    // Re-key membership + host + list/metadata/saved-session together (one batch =
+    // one atomic switch). ADD-AS-MEMBER: the target joins `entries` (the owner's
+    // disposal authority) as it becomes active — mirroring the real app, where a
+    // host is in the pool before you switch to it. Flipping `activeHost` re-keys
+    // the host-scoped readouts through the `scopedByEntry` owner in lockstep — the
+    // hydration effect never observes host B paired with host A's stale list (in
+    // the real app the readouts go PENDING on switch, gating that intermediate out;
+    // here the batch collapses it). Without this, the effect would seed B's record
+    // from A's still-current terminals before B's own arrive.
     batch(() => {
-      setHost(target);
-      setMeta({ [a]: activeMeta(), [b]: activeMeta() });
-      setList([{ id: a }, { id: b }] as TerminalInfo[]);
-      setSavedSession({
+      addHost(target);
+      setDriveHost(target);
+      setDriveMeta({ [a]: activeMeta(), [b]: activeMeta() });
+      setDriveList([{ id: a }, { id: b }] as TerminalInfo[]);
+      setDriveSaved({
         terminals: [savedTerminal(a), savedTerminal(b)],
         activeTerminalId,
         savedAt: 1,
