@@ -12,7 +12,7 @@ description: >-
   (quit-to-shell wakes to a bare shell), which collapses agentSession into the frozen agent.
   Lie-when-dead is handled by the active/sleeping discriminant, not by dropping fields. This note
   pins the types, the API, and the flows.
-parents: [remote-terminals-finale]
+parents: [remote-terminals]
 status: implemented
 maturity: budding
 updated: 2026-07-01
@@ -28,7 +28,7 @@ import before from "../../diagrams/awareness-before.svg?raw";
 import foldflow from "../../diagrams/awareness-foldflow.svg?raw";
 import homes from "../../diagrams/awareness-homes.svg?raw";
 
-**The de-entanglement that makes R9 mostly evaporate.** Every hard thing in [the finale](remote-terminals-finale.html) — the two assemblers, the createPulam boundary, the fold-clobber — traces to **one** complect: the sensor engine *derives* awareness by *mutating a host record it also reads back as memory*. Split **observing** from **remembering** and it dissolves. This note pins the **types, the API, and the flows** so the boundary can be evaluated before any code; every claim cites the code it restructures.
+**The de-entanglement that makes R9 mostly evaporate.** Every hard thing in [the finale plan](remote-terminals.html#finale) — the two assemblers, the createPulam boundary, the fold-clobber — traces to **one** complect: the sensor engine *derives* awareness by *mutating a host record it also reads back as memory*. Split **observing** from **remembering** and it dissolves. This note pins the **types, the API, and the flows** so the boundary can be evaluated before any code; every claim cites the code it restructures.
 
 **Landed** (S1 + S2 → R9.0): <PrLink pr={1626} />, then hardened by a 4-reviewer architecture-first-principles + perfection-review gauntlet. As shipped, the restore target is a **fold-produced discriminated value** on the authored record — `RestoreTarget = none | { exact, command, agent } | { legacyMostRecent, command }` (`restoreTargetOf`, consumed by `resumeFormFor`) — rather than a bare optional identity, so an absent field can never be misread as "resume most-recent". Quit-to-shell → `none` → **bare shell by construction** for new records (the strict #1492 behavior); migrated pre-1.29 records keep their old most-recent resume as a *named* `legacyMostRecent`. **Deferred** (tracked, not shipped): the **active drain-at-sleep** — `beginSleep` freezes the last fold-written target and does **not** drain a final settle, so a launch-then-sleep *inside* the agent settle window freezes a stale `none` and wakes to a **false bare shell** (narrow, self-corrects on re-launch). The recency frame phase is now **value-based** (compare the re-resolved identity to the saved target), not the original wall-clock window. **Follow-up fix** (<PrLink pr={1726} />): making recency *identity-only* froze it for a stable session — a terminal running one week-old session forever never changed identity, so its "last activity" stopped moving even while it produced output. Recency now bumps on a same-identity **output** tick too, throttled to `RECENCY_THROTTLE_MS` (60s) so the ~1s agent-detail firehose can't recreate the per-tick write noise #1626 removed; the identity bump stays and the two compose. The `recencyBaseline` (seeded to the survivor's identity) is kept — it's what keeps the adopt re-observation from counting as new activity, and, being identity- not count-based, it holds across the survivor's *multi-emit* settle burst and never swallows a later genuinely-new agent launch. The throttle clock is floored at the sensor run's start (`FoldCtx.runStartedAt`), so that settle burst — clustered at run start — coalesces against it instead of false-bumping the (possibly week-old) saved recency.
 
@@ -287,9 +287,9 @@ export const PT = [
   { d: 0, g: "✓", c: "ship", l: "S2 · kolu's fold — last-write-wins + 2 kolu-only fields · kolu's clock · memory→authored", m: "shipped #1626", h: "#s2" },
   { d: 0, g: "✕", c: "prog", l: "R9·lib · DISSOLVES — nothing to assemble; producer + fold are pure leaves", m: "subsumed by S1+S2", h: "#how-r9-collapses" },
   { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored+snapshots", m: "shipped #1626 (foundation assessed transport-agnostic)", h: "#how-r9-collapses" },
-  { d: 0, g: "○", c: "prog", l: "PR-3 · awareness host-ready — framer + terminalEvents wire (prep · local no-op)", m: "needs S2 · ∥ PR-1 PR-2", h: "#r93-the-remote-build" },
-  { d: 0, g: "○", c: "prog", l: "F-REMOTE · the complete remote tile — folds the remote terminalEvents through the SAME fold (+ PTY · fs/git · restore · …)", m: "needs PR-1 PR-2 PR-3 · R7", h: "remote-terminals-finale.html#fremote" },
-  { d: 0, g: "○", c: "last", l: "PR-1 · PR-2 · R10 (lifecycle · fs/git · host-picker UX)", m: "→ finale", h: "remote-terminals-finale.html#prep" },
+  { d: 0, g: "✕", c: "prog", l: "PR-3 · awareness host-ready — framer + terminalEvents wire — never built", m: "superseded by padi", h: "#r93-the-remote-build" },
+  { d: 0, g: "✕", c: "prog", l: "F-REMOTE · the complete remote tile — never proceeded", m: "superseded by padi", h: "remote-terminals.html#finale" },
+  { d: 0, g: "✕", c: "last", l: "PR-1 · PR-2 · R10 (lifecycle · fs/git · host-picker UX) — never proceeded", m: "superseded by padi", h: "remote-terminals.html#finale" },
 ];
 
 <PhaseTree title="S1 · S2 → R9 collapses" phases={PT} />
@@ -299,7 +299,7 @@ export const PT = [
 | **R9·lib** | share a daemon-shaped assembly (createPulam) | **dissolved** — producer + fold are pure leaves; each host's loop is ~8 lines |
 | **R9.0** | kolu cuts over its sink/loop; clobber risk | **✓ shipped** (<PrLink pr={1626} />) — producer in-process, folds onto authored+snapshots; clobber-free by type |
 | **remote awareness** | unbuilt; "the remote-only fold" | re-sequenced (`debates/r92-r93/`): the producer-side prep is **PR-3** (framer + the `terminalEvents` wire, a local no-op), and **F-REMOTE** subscribes the remote stream → the **same** fold. No `reconcileRemoteSnapshot`. Work-list below. |
-| the rest | — | **PR-1** (lifecycle) · **PR-2** (fs/git) prep in parallel; **F-REMOTE** lights the complete tile; **R10** the host-picker UX — see [the finale](remote-terminals-finale.html#prep) |
+| the rest | — | **PR-1/PR-2/F-REMOTE/R10 never proceeded** — the finale plan was [superseded by padi](remote-terminals.html#finale) |
 
 <Svg svg={homes} caption="Local (R9.0, in-process) vs remote (F-REMOTE) — the SAME memoryless producer and the SAME fold, two transports. LOCAL: kolu runs the producer in-process; its observations feed kolu's fold directly. REMOTE: the producer runs in the pulam daemon and serves an ordered TerminalSnapshot event stream over ssh; kolu subscribes and folds with ITS clock. Either way kolu seeds current from its durable record, so the snapshot frame is the reconcile — there is no separate reconcileRemoteSnapshot. The two memory fields land on kolu.authored; the snapshots collection is TerminalSnapshot everywhere. Reader-join (authored ⋈ snapshots) unchanged." />
 
@@ -358,10 +358,10 @@ So the prep **moves** the durable-baseline identity check out of the local emit 
 phase/seq; kolu's arm carries the baseline; `fold` stays verbatim. Pin the adopt case with a differential test.
 </Callout>
 
-**Order:** **PR-3** (this awareness producer-prep) lands in parallel with PR-1 (lifecycle) and PR-2
-(fs/git) — all three pure local no-ops — then **F-REMOTE** subscribes the remote `terminalEvents` on the
-pulam mirror it already holds for fs/git and folds it through the same fold, lighting remote awareness as
-part of the one complete-everything tile. See [the finale](remote-terminals-finale.html#prep).
+**Order (as planned — never proceeded):** **PR-3** was to land in parallel with PR-1 (lifecycle) and PR-2
+(fs/git) — all three pure local no-ops — then **F-REMOTE** would subscribe the remote `terminalEvents` and
+fold it through the same fold. The whole sequence was superseded by padi, where the producer and the fold
+are co-resident and no fold ever crosses a wire. See [the finale record](remote-terminals.html#finale).
 
 ## Decided — the forks closed
 
