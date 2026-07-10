@@ -186,7 +186,7 @@ export const TERMINAL_FILE_ROUTE_FILE_SEGMENT = "file";
  *  active host) — it rides as a leading path segment so the HTTP route resolves
  *  the bytes against the RIGHT host, and an in-iframe relative link keeps it in
  *  the path prefix. The client appends `?v=<tag>` (from
- *  `fs.statFileContentTag`, in `BrowseFileDispatcher`) for the iframe surface —
+ *  `fs.filePreviewTag`, in `BrowseFileDispatcher`) for the iframe surface —
  *  a CONTENT hash, not the mtime, so an identical-content rewrite (a `git
  *  checkout` across branches) doesn't reload the preview; the rendered-Markdown
  *  image path uses the bare URL to point at the actual repo file it references. */

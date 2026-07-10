@@ -147,7 +147,7 @@ const MAX_TAG_HASH_BYTES = 32 * 1024 * 1024;
  *  per on-disk *change* (the `subscribeFileChange` pulse is debounced and fires
  *  only on real repo events, never on a timer), and only for the bounded set of
  *  binary-previewable kinds. Same path-traversal guard as `readFile`. */
-export async function statFileContentTag(
+export async function filePreviewTag(
   repoPath: string,
   filePath: string,
   log?: Logger,
@@ -193,6 +193,6 @@ export async function statFileContentTag(
     return ok(hash.digest("hex"));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    return err({ code: "GIT_FAILED", message: `Failed to stat file: ${msg}` });
+    return err({ code: "GIT_FAILED", message: `Failed to hash file: ${msg}` });
   }
 }

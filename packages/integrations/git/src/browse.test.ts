@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAll, readFile, statFileContentTag } from "./browse.ts";
+import { listAll, readFile, filePreviewTag } from "./browse.ts";
 
 describe("listAll", () => {
   let tmpDir: string;
@@ -107,7 +107,7 @@ describe("readFile", () => {
   });
 });
 
-describe("statFileContentTag — preview cache-buster", () => {
+describe("filePreviewTag — preview cache-buster", () => {
   let tmpDir: string;
 
   beforeAll(() => {
@@ -121,9 +121,9 @@ describe("statFileContentTag — preview cache-buster", () => {
   it("changes the tag when the file's bytes change", async () => {
     const p = path.join(tmpDir, "page.html");
     fs.writeFileSync(p, "<h1>before</h1>\n");
-    const before = await statFileContentTag(tmpDir, "page.html");
+    const before = await filePreviewTag(tmpDir, "page.html");
     fs.writeFileSync(p, "<h1>after</h1>\n");
-    const after = await statFileContentTag(tmpDir, "page.html");
+    const after = await filePreviewTag(tmpDir, "page.html");
     expect(before.ok && after.ok).toBe(true);
     if (!before.ok || !after.ok) return;
     expect(after.value).not.toBe(before.value);
@@ -148,7 +148,7 @@ describe("statFileContentTag — preview cache-buster", () => {
       new Date("2020-01-01T00:00:00Z"),
       new Date("2020-01-01T00:00:00Z"),
     );
-    const first = await statFileContentTag(tmpDir, "stable.html");
+    const first = await filePreviewTag(tmpDir, "stable.html");
 
     // Identical bytes, later mtime — exactly what a same-content checkout does.
     fs.writeFileSync(p, bytes);
@@ -160,7 +160,7 @@ describe("statFileContentTag — preview cache-buster", () => {
     const reread = await readFile(tmpDir, "stable.html");
     expect(reread.ok).toBe(true);
     if (reread.ok) expect(reread.value.content).toBe(bytes);
-    const second = await statFileContentTag(tmpDir, "stable.html");
+    const second = await filePreviewTag(tmpDir, "stable.html");
 
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
@@ -176,7 +176,7 @@ describe("statFileContentTag — preview cache-buster", () => {
       const secret = path.join(outside, "secret.txt");
       fs.writeFileSync(secret, "TOP SECRET\n");
       fs.symlinkSync(secret, path.join(tmpDir, "leak.txt"));
-      const result = await statFileContentTag(tmpDir, "leak.txt");
+      const result = await filePreviewTag(tmpDir, "leak.txt");
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe("PATH_ESCAPES_ROOT");
     } finally {

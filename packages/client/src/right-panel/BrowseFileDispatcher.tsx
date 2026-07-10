@@ -124,7 +124,7 @@ export type BrowseFileDispatcherProps = {
  *  `fs.readFile` is TEXT-ONLY (`{ content, truncated }`) — deliberately not the
  *  union `koluSurface.fsReadFile` returned — so the dispatcher decides binary vs
  *  text itself, exactly as the old server backing did. A binary-previewable file
- *  reads a CONTENT hash (`fs.statFileContentTag`) and builds the
+ *  reads a CONTENT hash (`fs.filePreviewTag`) and builds the
  *  `/api/terminals/:host/:id/file` URL with a `?v=<tag>` cache-key (the
  *  same route + shape the server built, still served until W1.R5) so a real
  *  content change bumps the URL and the img/iframe reloads — while an
@@ -149,7 +149,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: async (i, signal): Promise<BrowseFileContent> => {
       if (isBinaryPreviewable(i.filePath)) {
-        const contentTag = await activePadiRpc.surface.fs.statFileContentTag(
+        const previewTag = await activePadiRpc.surface.fs.filePreviewTag(
           { repoPath: i.repoPath, filePath: i.filePath },
           { signal },
         );
@@ -163,7 +163,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           // string so the route reads the bytes from the same padi the tag above
           // came from — a remote host's preview must not resolve against the
           // local default.
-          url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${contentTag}`,
+          url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${previewTag}`,
         };
       }
       const { content, truncated } = await activePadiRpc.surface.fs.readFile(
@@ -174,7 +174,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     },
     onError: (err) => toast.error(`File content stream: ${err.message}`),
     // Delete-while-viewing parity: a file removed under the open Code tab makes
-    // `fs.readFile`/`statFileContentTag` return a typed `NOT_FOUND` (servePadi maps
+    // `fs.readFile`/`filePreviewTag` return a typed `NOT_FOUND` (servePadi maps
     // the ENOENT). Swallow it — keep the last content until the selection changes
     // — exactly as the old koluSurface value stream did (it just stopped
     // yielding); a raw ~150ms ENOENT error panel was a W1 regression.

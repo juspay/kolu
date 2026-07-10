@@ -80,7 +80,7 @@ const fakeEndpoint = {
   fs: {
     listAll: async () => [],
     readFile: async () => ({ content: "", truncated: false }),
-    statFileContentTag: async () => "tag",
+    filePreviewTag: async () => "tag",
     subscribeRepoChange: () => () => {},
     subscribeFileChange: () => () => {},
   },
