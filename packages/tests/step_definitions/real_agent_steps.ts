@@ -325,12 +325,19 @@ When(
 When(
   "I exit the real {word} agent",
   async function (this: KoluWorld, _word: string) {
-    // Double Ctrl-C ends the CLI's session; the process leaves the foreground and
-    // its session watcher retires, so kolu's indicator clears.
+    // Bring the CLI to an idle prompt, THEN exit. Claude Code needs Ctrl-C twice
+    // FROM IDLE (the first paints "Press Ctrl-C again to exit", the second
+    // quits); a Ctrl-C during a live turn only interrupts it. So: Escape to end
+    // any in-flight turn, settle to idle, then a burst of Ctrl-C. Once the
+    // process leaves the foreground its session watcher retires and the
+    // indicator clears.
     await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
-    await this.page.keyboard.press("Control+c");
-    await new Promise((r) => setTimeout(r, 300));
-    await this.page.keyboard.press("Control+c");
+    await this.page.keyboard.press("Escape");
+    await new Promise((r) => setTimeout(r, 2000));
+    for (let i = 0; i < 3; i++) {
+      await this.page.keyboard.press("Control+c");
+      await new Promise((r) => setTimeout(r, 400));
+    }
   },
 );
 

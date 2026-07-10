@@ -152,10 +152,5 @@ Feature: Claude Code status detection
     When the terminal renders a Claude permission prompt
     Then the tile chrome should show an agent indicator with state "awaiting_user"
     And there should be no page errors
-
-  Scenario: Claude Code indicator disappears when session ends
-    When a Claude Code session is mocked with state "thinking"
-    Then the tile chrome should show an agent indicator with state "thinking"
-    When the Claude Code session ends
-    Then the tile chrome should not show an agent indicator
-    And there should be no page errors
+    # (Session-end detection is now exercised against the REAL claude CLI —
+    # "A real claude session ending clears the indicator" in claude-cli-real.feature.)
