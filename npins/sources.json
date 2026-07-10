@@ -1,5 +1,18 @@
 {
   "pins": {
+    "codex-cli-nix": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "sadjow",
+        "repo": "codex-cli-nix"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "77438a11367ee33190afe5c6cdf22634eced8e77",
+      "url": "https://github.com/sadjow/codex-cli-nix/archive/77438a11367ee33190afe5c6cdf22634eced8e77.tar.gz",
+      "hash": "sha256-abnrDpUkNg+/xm859m+9BOfjGDPmnAztQvBaR3596Ps="
+    },
     "iTerm2-Color-Schemes": {
       "type": "Git",
       "repository": {
