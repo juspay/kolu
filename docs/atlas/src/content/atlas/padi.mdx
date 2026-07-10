@@ -171,7 +171,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 **As of 2026-07-09, in order:**
 
 1. **W5 — cross-host attention** is the next feature phase: everything it needs is shipped — the warm pool and per-host entries (W4), and now W6 (<PrLink pr={1730} /> + its drishti pair [srid/drishti#92](https://github.com/srid/drishti/pull/92), both merged 2026-07-09) — and the need is user-visible (the 2026-07-08 field note below).
-2. **The cleanup ledger runs in parallel** — batched into right-sized PRs, not one-per-entry; the batch plan lives in [the ledger note](padi-cleanup.html).
+2. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
 3. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed.
 
 **The law of every PR in this plan (srid, promoted note-wide 2026-07-04): a PR is self-sufficient and end-to-end — it ships NOTHING that isn't consumed within it.** No framework halves awaiting their consumer, no pools nobody switches, no contracts nobody serves: a capability with zero consumers is a *commit stage inside* the PR that consumes it, never a PR of its own (W2.2's "a daemon with zero consumers is a commit stage" ruling; the #1651 complete-but-unconsumed adapter is the canonical tell). The one sanctioned exception is a framework PR whose consumer-proof is a paired second consumer landing with it (the W2.1/drishti precedent).
@@ -274,9 +274,9 @@ What stays app-side, deliberately: the domain folds and value shapes (two folds 
 
 W2 and W3 ship at pace (a deliberate call); the ledger pays the pace's debts — refactors, decomplecting, framework-level electricity upstreaming, deletions. Nothing user-visible ships here; that is the point. **The full ledger — each entry a self-sufficient, lens-framed brief an implementing agent can execute under coordinator guidance — lives in [padi — the consolidation ledger](padi-cleanup.html)**, appraised and appended as each W phase lands (a shipped phase's "deferred / acceptable-for-scope" review items land there explicitly; an entry that never ripens is deleted with a reason). The index, for orientation:
 
-- **Shipped:** L3 the convergence kit (<PrLink pr={1674} />) · L5 (in W2.2) · L6 `padiBinding` split (<PrLink pr={1698} />) · L7 `terminal-workspace` re-cut (<PrLink pr={1734} />) · L14 memory via the mirror (<PrLink pr={1699} />) · L15+L16 write-seam/boot invariants (<PrLink pr={1703} />) · L23 remote arm on the kit (<PrLink pr={1700} />)
-- **Ready — batched into right-sized PRs** (the batch plan lives in the ledger note): the framework batch (L28 · L1 · L20·21, one drishti pair) · the hygiene batch (L8 · L13) · the padi/client batch (L17 · L18 · L24) · L26 (null/sentinel sweep + lint, its own PR) · L27 (server re-cut, its own pure-motion PR) · L11 (post-switch wire sweep, now unblocked) · L10 flaky debt · L12 (srid mints)
-- **Gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence
+- **Shipped:** L3 the convergence kit (<PrLink pr={1674} />) · L5 (in W2.2) · L6 `padiBinding` split (<PrLink pr={1698} />) · L7 `terminal-workspace` re-cut (<PrLink pr={1734} />) · L14 memory via the mirror (<PrLink pr={1699} />) · L15+L16 write-seam/boot invariants (<PrLink pr={1703} />) · L23 remote arm on the kit (<PrLink pr={1700} />) · L26 the `no-overloaded-null` guardrail (<PrLink pr={1744} />)
+- **The campaigns** (few substantial refactors — the plan lives in the ledger note): ① complete the primitives — W5 phase-1, absorbing L28 rung 2 · L1 · L20·21 under its one drishti pairing; ② the padi/server re-cut — L27 (opening pure-motion commit) · L17 · L24, with L13 riding; ③ the client wire/state sweep — L11 · L18. L8 (the doc sweep) rides every campaign — hygiene never ships standalone.
+- **Parked / gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence · L12 (srid mints) · L10 (tracker-driven)
 
 <a id="w34"></a>
 
