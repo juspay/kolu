@@ -18,10 +18,16 @@ import {
 export type PadiTuiClient = PadiSurfaceClient;
 
 /** The transport-blind handle every `cmd*` is written against — the scoped client
- *  plus a `dispose` that drops the socket. */
+ *  plus a `dispose` that drops the socket. `localCwd` carries the one fact `create`
+ *  needs from the transport choice: the cwd to open terminals in when this daemon
+ *  shares our filesystem (a local dial, `process.cwd()`), or `undefined` when it
+ *  does not (a remote host — the local path need not exist there). Every verb stays
+ *  transport-blind; the receptacle carries the co-location bit rather than a
+ *  parallel handle re-deriving it. */
 export interface Connection {
   client: PadiTuiClient;
   dispose: () => void;
+  localCwd: string | undefined;
 }
 
 /**
@@ -39,5 +45,7 @@ export async function connectPadiTui(socketPath: string): Promise<Connection> {
   // resolves at `/surface/padi/<member>` — the same scope the re-serve mirrors.
   // The `"padi"` key + cast live in the dial kit (`scopePadiSurface`), not here.
   const client = scopePadiSurface(conn.client);
-  return { client, dispose: conn.dispose };
+  // A local dial is inherently co-located: `process.cwd()` is a real path on the
+  // machine this padi runs on, so `create` opens terminals there by default.
+  return { client, dispose: conn.dispose, localCwd: process.cwd() };
 }

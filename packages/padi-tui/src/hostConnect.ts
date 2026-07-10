@@ -71,6 +71,12 @@ export async function connectPadiTuiViaHost(host: string): Promise<Connection> {
   });
   // Scope the COMBINED dialed client down to the padi sibling so `.surface.<member>`
   // resolves at /surface/padi/<member> — the same scope the local dial and the
-  // re-serve use, so every verb is transport-blind over it.
-  return { client: scopePadiSurface(dial.client), dispose: dial.dispose };
+  // re-serve use, so every verb is transport-blind over it. `localCwd: undefined`:
+  // a remote padi runs elsewhere, so our local cwd need not exist there — `create`
+  // omits cwd and lets padi default to the host's home.
+  return {
+    client: scopePadiSurface(dial.client),
+    dispose: dial.dispose,
+    localCwd: undefined,
+  };
 }

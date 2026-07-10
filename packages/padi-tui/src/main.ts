@@ -252,10 +252,36 @@ function connectHost(host: string): Promise<Connection> {
   );
 }
 
-/** Which daemon a command dialed. Carried into `create` so a REMOTE create composes
- *  against the HOST's facts, not local ones: a local `process.cwd()` need not exist
- *  on the remote machine, and a `--worktree` must be cut from a HOST repo path. */
-type Endpoint = { kind: "host"; host: string } | { kind: "local" };
+/** The one daemon a command targets: a REMOTE padi over ssh (`--host`) or a LOCAL
+ *  one at a resolved socket path. Each arm carries exactly what its connect needs,
+ *  so the payload is live and `main` switches on it once — there is no parallel
+ *  `conn`/`endpoint` pair to keep in agreement. Stays local to `main`; the
+ *  co-location fact `create` needs rides on `Connection.localCwd` instead. */
+type Endpoint =
+  | { kind: "host"; host: string }
+  | { kind: "local"; socketPath: string };
+
+/** Resolve the flags to the ONE daemon target, owning all three-way
+ *  mutual-exclusion in one place: `--host` reaches a remote padi over ssh and is
+ *  mutually exclusive with the local `--socket` / `--state-root`; absent it, the
+ *  local socket policy (`--socket` vs `--state-root`) stays `resolveSocketPath`'s
+ *  own concern. So the whole "name exactly one target" policy reads top-to-bottom
+ *  here instead of fragmenting across `main` and the socket resolver. */
+function resolveEndpoint(flags: {
+  host: string | undefined;
+  socket: string | undefined;
+  stateRoot: string | undefined;
+}): Endpoint {
+  if (flags.host !== undefined) {
+    if (flags.socket !== undefined || flags.stateRoot !== undefined) {
+      fail(
+        "--host is mutually exclusive with --socket / --state-root: --host reaches a REMOTE padi over ssh, --socket / --state-root name a LOCAL one. Pass just one.",
+      );
+    }
+    return { kind: "host", host: flags.host };
+  }
+  return { kind: "local", socketPath: resolveSocketPath(flags) };
+}
 
 /** Resolve a user-typed id-or-prefix to a full terminal id against the live
  *  terminals, failing loudly on no-match or ambiguity — so `<id>` accepts the
@@ -455,7 +481,6 @@ async function cmdWait(
 
 async function cmdCreate(
   conn: Connection,
-  endpoint: Endpoint,
   flags: {
     parent: string | undefined;
     worktree: string | undefined;
@@ -470,31 +495,33 @@ async function cmdCreate(
     parentId = await resolveArg(conn.client, flags.parent);
   }
 
-  // WHERE the new terminal opens depends on the endpoint. A LOCAL padi runs on THIS
-  // machine, so `process.cwd()` is a real path there; a REMOTE one (`--host`) runs
-  // elsewhere, so the local cwd need not exist on the host — omit it and let padi
-  // default to the remote user's HOME (endpoint.ts: cwd resolves to home when
-  // undefined). `--worktree` overrides cwd with the host-side worktree path inside
-  // runCreate either way, but its repo is a HOST path over ssh: a remote --worktree
-  // can't default to the local cwd (a repo on the wrong machine), so it requires an
-  // explicit --repo.
+  // WHERE the new terminal opens depends on whether this daemon shares our
+  // filesystem — the one co-location fact `conn.localCwd` carries. A LOCAL padi runs
+  // on THIS machine, so `conn.localCwd` is `process.cwd()`, a real path there; a
+  // REMOTE one (`--host`) runs elsewhere, so `conn.localCwd` is undefined — the local
+  // cwd need not exist on the host, and padi defaults to the remote user's HOME
+  // (endpoint.ts: cwd resolves to home when undefined). `--worktree` overrides cwd
+  // with the host-side worktree path inside runCreate either way, but its repo is a
+  // HOST path over ssh: a remote --worktree can't default to the local cwd (a repo on
+  // the wrong machine), so it requires an explicit --repo.
   let worktree: { repoPath: string; name: string } | undefined;
   if (flags.worktree !== undefined) {
-    if (endpoint.kind === "host" && flags.repo === undefined) {
+    const repoPath = flags.repo ?? conn.localCwd;
+    if (repoPath === undefined) {
       fail(
         "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.",
       );
     }
-    worktree = { repoPath: flags.repo ?? process.cwd(), name: flags.worktree };
+    worktree = { repoPath, name: flags.worktree };
   }
 
   const result = await runCreate(conn.client, {
     parentId,
     worktree,
     // A plain LOCAL create opens where you are (the tmux convention); a REMOTE one
-    // omits cwd so padi defaults to the host's home. --worktree overrides this with
-    // the worktree path inside runCreate.
-    cwd: endpoint.kind === "host" ? undefined : process.cwd(),
+    // has `conn.localCwd` undefined so padi defaults to the host's home. --worktree
+    // overrides this with the worktree path inside runCreate.
+    cwd: conn.localCwd,
     argv: command,
   });
 
@@ -550,31 +577,15 @@ async function main(): Promise<void> {
     waitTargets = parsed.targets;
   }
 
-  // Pick the transport: --host reaches a remote padi over ssh; otherwise dial a
-  // local socket. --host names an ssh target, --socket/--state-root a local daemon,
-  // so passing --host with either is a usage error rather than a precedence puzzle.
-  if (
-    argv.flags.host !== undefined &&
-    (argv.flags.socket !== undefined || argv.flags.stateRoot !== undefined)
-  ) {
-    fail(
-      "--host is mutually exclusive with --socket / --state-root: --host reaches a REMOTE padi over ssh, --socket / --state-root name a LOCAL one. Pass just one.",
-    );
-  }
-
-  let endpoint: Endpoint;
-  let conn: Connection;
-  if (argv.flags.host !== undefined) {
-    endpoint = { kind: "host", host: argv.flags.host };
-    conn = await connectHost(argv.flags.host);
-  } else {
-    endpoint = { kind: "local" };
-    const socketPath = resolveSocketPath({
-      socket: argv.flags.socket,
-      stateRoot: argv.flags.stateRoot,
-    });
-    conn = await connectLocal(socketPath);
-  }
+  // Pick the transport once: `resolveEndpoint` owns the whole "name exactly one
+  // daemon target" policy (--host vs --socket / --state-root) and returns the ONE
+  // target, each arm carrying exactly what its connect needs. --host reaches a remote
+  // padi over ssh; otherwise dial the resolved local socket.
+  const endpoint = resolveEndpoint(argv.flags);
+  const conn: Connection =
+    endpoint.kind === "host"
+      ? await connectHost(endpoint.host)
+      : await connectLocal(endpoint.socketPath);
 
   // Narrow on `argv.command` so cleye's per-command flag/positional union collapses
   // to the one shape (only `wait` carries `--until`/`--timeout`, only `create` the
@@ -596,7 +607,6 @@ async function main(): Promise<void> {
     try {
       await cmdCreate(
         conn,
-        endpoint,
         {
           parent: argv.flags.parent,
           worktree: argv.flags.worktree,
