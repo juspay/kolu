@@ -1,8 +1,11 @@
 @codex-mock
-Feature: Codex status detection
-  When Codex is running in a terminal, the canvas tile chrome shows its
-  current state (thinking, tool use, waiting) and the running context-token
-  count.
+Feature: Codex status detection (fixture regression guards)
+  Codex's LIVE-STATE detection (thinking → waiting) is now exercised
+  end-to-end against a REAL codex CLI on ollama — see codex-real.feature.
+  What stays here are the crafted-fixture REGRESSION GUARDS: a real model
+  turn can't reproduce them deterministically (an on-demand tool-use part,
+  exact context-token arithmetic, or an npm-shimmed interpreter), so they
+  keep synthesizing the exact on-disk rows the bug reproduced with.
 
   Requires KOLU_CODEX_DIR to point at a test-controlled directory and
   PATH to include a `codex` binary stub (a renamed `sleep` copy) so the
@@ -12,19 +15,9 @@ Feature: Codex status detection
   Background:
     Given the terminal is ready
 
-  Scenario: Tile chrome shows Codex thinking state
-    When a Codex session is mocked with state "thinking"
-    Then the tile chrome should show a Codex indicator with state "thinking"
-    And there should be no page errors
-
   Scenario: Tile chrome shows Codex tool-use state
     When a Codex session is mocked with state "tool_use"
     Then the tile chrome should show a Codex indicator with state "tool_use"
-    And there should be no page errors
-
-  Scenario: Tile chrome shows Codex waiting state
-    When a Codex session is mocked with state "waiting"
-    Then the tile chrome should show a Codex indicator with state "waiting"
     And there should be no page errors
 
   Scenario: Context tokens reflect input_tokens from the rollout

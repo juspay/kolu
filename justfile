@@ -334,7 +334,10 @@ test: install
     # very "two recipes shelling out to pnpm install race and corrupt each
     # other's node_modules" hazard ci/mod.just documents. CI invokes this recipe
     # with `just --no-deps test` so even the `install` dep can't race the unit lane.
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} pnpm test
+    # `with-ollama.sh` wraps the run in a private health-gated ollama — the
+    # e2e suite's unconditional agent backend (codex-on-ollama). cwd is
+    # packages/tests, so the script is `./with-ollama.sh`.
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} bash ./with-ollama.sh pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.
@@ -358,8 +361,10 @@ test-quick *args: install
     chmod +x "$wrapper"
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
+    # `with-ollama.sh` wraps the run in a private health-gated ollama — the
+    # e2e suite's unconditional agent backend (codex-on-ollama).
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
-        {{ nix_shell_e2e }} node --import tsx \
+        {{ nix_shell_e2e }} bash ./with-ollama.sh node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 

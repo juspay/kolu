@@ -68,11 +68,12 @@ const mkSubDir = (name: string) => {
 const claudeSessionsDir = mkSubDir("claude-sessions");
 const claudeProjectsDir = mkSubDir("claude-projects");
 
-/** Per-worker temp roots for the Codex and OpenCode mock harnesses —
- *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
- *  `state.cwd`, so the fixture DB rows carry a cwd that the scenario
- *  also `cd`s into so `findSessionByDirectory` returns the mock row. */
-const codexDir = mkSubDir("codex");
+/** Per-worker temp root for the OpenCode mock harness — see
+ *  `opencode_steps.ts`. The provider keys off `state.cwd`, so the fixture DB
+ *  rows carry a cwd that the scenario also `cd`s into so
+ *  `findSessionByDirectory` returns the mock row. (Codex has no separate mock
+ *  dir any more: real AND mock codex both use `<fixtureHome>/.codex`, the real
+ *  default path — see the codex config-seeding block below.) */
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
 
@@ -134,6 +135,14 @@ const AGENT_DIR_VARS = [
   "KOLU_GROK_DIR",
 ] as const;
 const grokDir = RECORDING ? undefined : mkSubDir("grok");
+// Codex's dir is the throwaway home's REAL default `<fixtureHome>/.codex` — NOT
+// a separate mock dir. Real codex (the live-state scenarios) writes its session
+// DB there by default, and the surviving @codex-mock regression scenarios write
+// their fixtures to the SAME path (the provider reads it via KOLU_CODEX_DIR);
+// each cleans up after itself, so they never collide. This is srid's
+// unconditional shape: codex-on-ollama is the default, no mock branch for codex
+// STATE. RECORDING keeps the real home and unsets everything.
+const codexDir = fixtureHome ? path.join(fixtureHome, ".codex") : undefined;
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
   string | undefined
@@ -156,7 +165,69 @@ for (const name of AGENT_DIR_VARS) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
-process.env.KOLU_OPENCODE_DB = opencodeDbPath;
+if (!RECORDING) process.env.KOLU_OPENCODE_DB = opencodeDbPath;
+
+// Unconditional codex-on-ollama (srid's ruling): seed the throwaway home's codex
+// config so the real `codex` the live-state scenarios launch talks to the
+// locally-served ollama model instead of a cloud provider. The e2e recipe
+// ALWAYS starts ollama and exports the endpoint — the "main suite requires
+// ollama unconditionally" contract — so fail LOUD if it's absent rather than
+// silently degrade to a no-codex run. Skipped only under RECORDING (real cloud
+// codex/claude for the marketing screencasts).
+if (!RECORDING && fixtureHome) {
+  const baseUrl = process.env.KOLU_E2E_OLLAMA_BASE_URL;
+  const model = process.env.KOLU_E2E_OLLAMA_MODEL;
+  if (!baseUrl || !model) {
+    throw new Error(
+      "e2e requires ollama: KOLU_E2E_OLLAMA_BASE_URL / KOLU_E2E_OLLAMA_MODEL are unset. Run the suite via `just test` / `just test-quick` (they start ollama and export both), not cucumber directly.",
+    );
+  }
+  const codexHome = path.join(fixtureHome, ".codex");
+  fs.mkdirSync(codexHome, { recursive: true });
+  // `local-ollama`, not `ollama`: codex 0.130 reserves the built-in `ollama`
+  // provider id and refuses to override it. `wire_api = "responses"` because
+  // codex dropped chat-completions support; ollama serves the Responses API.
+  // No `env_key` — ollama needs no auth, so nothing has to cross the PTY env
+  // whitelist (HOME + PATH already do). `approval_policy`/`sandbox_mode` keep
+  // the turn autonomous (no confirm prompt to hang the headless run).
+  fs.writeFileSync(
+    path.join(codexHome, "config.toml"),
+    [
+      `model = "${model}"`,
+      `model_provider = "local-ollama"`,
+      `approval_policy = "never"`,
+      `sandbox_mode = "workspace-write"`,
+      `model_reasoning_effort = "none"`,
+      ``,
+      `[model_providers.local-ollama]`,
+      `name = "Local Ollama (kolu e2e)"`,
+      `base_url = "${baseUrl}"`,
+      `wire_api = "responses"`,
+      ``,
+      // Pre-trust the throwaway home (the terminal's cwd) so codex boots
+      // straight to its prompt instead of blocking on the interactive
+      // "Do you trust this directory?" gate — the disposable home IS trusted,
+      // it's ours. Without this the headless run wedges at the gate.
+      `[projects."${fixtureHome}"]`,
+      `trust_level = "trusted"`,
+      ``,
+    ].join("\n"),
+  );
+  // Surface the throwaway home to step defs (they run in the cucumber process,
+  // whose own HOME is the developer's) so the session-file assertion can look
+  // under the real default `<fixtureHome>/.codex`.
+  process.env.KOLU_E2E_FIXTURE_HOME = fixtureHome;
+  // Resolve codex's ABSOLUTE path and surface it, exactly as the mock harness
+  // does for its fake bins (KOLU_FAKE_CODEX_BIN): the hosted PTY re-sources the
+  // shell rc, which resets PATH to the system default and drops the nix-store
+  // `codex` the e2e shell put on OUR PATH — so a bare `codex` is
+  // "command not found" in the terminal. The step types this absolute path
+  // instead (the nix wrapper is self-contained, so it runs fine off-PATH). If
+  // codex isn't resolvable here the lane can't run — fail loud.
+  process.env.KOLU_E2E_CODEX_BIN = execSync("command -v codex", {
+    encoding: "utf8",
+  }).trim();
+}
 
 /** Fake agent binaries the codex/opencode mock scenarios invoke by
  *  absolute path to bypass PATH resolution — the user's shell rc (e.g.
@@ -802,6 +873,8 @@ async function startServerChild(koluServer: string): Promise<void> {
           // HOME inherited (real) under X11CAP so the real claude/codex resolve
           // their sessions + login from the real home. See `serverModeEnv`.
           ...serverModeEnv,
+          // OpenCode stays a mock provider (real opencode's schema has drifted
+          // from kolu's reader) — pin its DB to the mock harness path.
           KOLU_OPENCODE_DB: opencodeDbPath,
           // W3.1 — the ssh leg: when KOLU_E2E_PADI_HOST is set, the server binds a
           // REMOTE padi over ssh (the whole canvas becomes that host) instead of

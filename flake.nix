@@ -100,10 +100,28 @@
         let default = import ./shell.nix { inherit pkgs; };
         in {
           inherit default;
-          # Extended shell with Playwright browsers for e2e testing.
+          # Extended shell with Playwright browsers for e2e testing, plus the
+          # binaries the real-agent-against-ollama lane needs on PATH: `ollama`
+          # (the locally-served model backend `just test-ollama` starts and
+          # health-gates) and `codex` (the real agent CLI that lane drives —
+          # see packages/tests/features/codex-ollama.feature). Both ride ONLY
+          # this e2e shell, so the ~0.3s-warm default `nix develop` is untouched.
+          # No process-compose / services-flake: the flake keeps its zero-input
+          # rule, and ollama joins the existing imperative harness graph as one
+          # more health-gated node (started by the recipe, seen by hooks.ts),
+          # not a parallel orchestration contraption.
+          #
           # Usage: nix develop .#e2e
           e2e = default.overrideAttrs (prev: {
             name = "kolu-shell-e2e";
+            buildInputs = (prev.buildInputs or [ ]) ++ [
+              pkgs.ollama
+              # Pinned codex 0.130.0 on EVERY platform (the lane runs on both
+              # linux and darwin): nixpkgs' 0.114.0 predates the threads columns
+              # kolu's codex provider requires, so its detection stays disabled.
+              # See nix/packages/codex-pinned.nix.
+              (import ./nix/packages/codex-pinned.nix { inherit pkgs; })
+            ];
             env = (prev.env or { }) // {
               PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
             };
