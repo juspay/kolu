@@ -136,31 +136,33 @@ const FORBIDDEN_TERMINAL_MODULES = [
   "sessionRestore",
 ];
 
-function serverSrcModules(): string[] {
-  // Walk RECURSIVELY: a terminal-domain module smuggled back into a NEW
-  // subdirectory (e.g. a resurrected `terminalEndpoint/` or `ptyHost/`) must
-  // fail this allowlist too, not just a top-level file. `recursive` yields
-  // subdir-prefixed relative paths (`sub/mod.ts`), so any nested module lands
-  // as a `sub/mod` key that isn't in the flat WEB_SHELL_FILES set.
+/** Every `.ts` under `packages/server/src`, as forward-slash relative paths.
+ *  Walk RECURSIVELY: a terminal-domain module smuggled back into a NEW
+ *  subdirectory (e.g. a resurrected `terminalEndpoint/` or `ptyHost/`) must be
+ *  seen too, not just a top-level file. `recursive` yields subdir-prefixed
+ *  relative paths (`sub/mod.ts`), normalized here to `sub/mod.ts`. The two
+ *  callers below split this one walk into complementary sets. */
+function serverSrcTsFiles(): string[] {
   return readdirSync(SRC, { recursive: true })
     .map((f) => String(f).split(sep).join("/"))
-    .filter(
-      (f) =>
-        f.endsWith(".ts") &&
-        !f.endsWith(".test.ts") &&
-        !f.endsWith(".test-d.ts"),
-    )
+    .filter((f) => f.endsWith(".ts"));
+}
+
+function serverSrcModules(): string[] {
+  // The non-test modules, as bare `sub/mod` keys — any nested module that isn't
+  // in the flat WEB_SHELL_FILES set fails the allowlist.
+  return serverSrcTsFiles()
+    .filter((f) => !f.endsWith(".test.ts") && !f.endsWith(".test-d.ts"))
     .map((f) => f.replace(/\.ts$/, ""))
     .sort();
 }
 
 /** Every `.ts` test file under `packages/server/src` (recursive — the padi arm's
- *  tests live in `padi/` now). Arm (f) walks these so a TEST file's `@kolu/padi`
- *  imports are checked too, closing the flank the production-only forward walk
- *  (arm b) leaves open. */
+ *  tests live in `padi/` now), as absolute paths. Arm (f) walks these so a TEST
+ *  file's `@kolu/padi` imports are checked too, closing the flank the
+ *  production-only forward walk (arm b) leaves open. */
 function serverTestFiles(): string[] {
-  return readdirSync(SRC, { recursive: true })
-    .map((f) => String(f).split(sep).join("/"))
+  return serverSrcTsFiles()
     .filter((f) => f.endsWith(".test.ts") || f.endsWith(".test-d.ts"))
     .map((f) => resolve(SRC, f));
 }
