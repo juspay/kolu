@@ -218,14 +218,14 @@ describe("runAttach — over a real unix socket", () => {
     );
   });
 
-  it("the spawned PTY's child sees KOLU_TERMINAL_ID = its own id", {
+  it("the spawned PTY's child sees KAVAL_TERMINAL_ID = its own id", {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-termid-"));
     const id = "44444444-5555-6666-7777-888888888888";
     // Echo the env var the child ACTUALLY received — end-to-end proof that
-    // KOLU_TERMINAL_ID rides composer → wire → real PTY → shell, not merely that
-    // the composer stamped it. The `$KOLU_TERMINAL_ID` is expanded by the spawned
+    // KAVAL_TERMINAL_ID rides composer → wire → real PTY → shell, not merely that
+    // the composer stamped it. The `$KAVAL_TERMINAL_ID` is expanded by the spawned
     // `sh`, so a match means the child's environment carried it. `env: process.env`
     // may itself carry an OUTER id (this test can run inside a kolu terminal) — a
     // match on THIS id also proves the stamp overwrote the inherited one.
@@ -238,14 +238,14 @@ describe("runAttach — over a real unix socket", () => {
         command: [
           "sh",
           "-c",
-          'printf "TERMID=[%s]\\n" "$KOLU_TERMINAL_ID"; sleep 100',
+          'printf "TERMID=[%s]\\n" "$KAVAL_TERMINAL_ID"; sleep 100',
         ],
       }),
     );
     let screen = "";
     await until(
       () => screen.includes(`TERMID=[${id}]`),
-      "KOLU_TERMINAL_ID echoed by the child",
+      "KAVAL_TERMINAL_ID echoed by the child",
       async () => {
         screen = (await conn.client.surface.terminal.getScreenText({ id }))
           .text;

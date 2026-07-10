@@ -134,7 +134,7 @@ export function buildRemoteCreateInput(opts: {
  *  `command`, else the resolved `shell` falling back to `DEFAULT_SPAWN_SHELL`)
  *  and assemble the `{ argv, cwd, env, initFiles: [] }` wire shape.
  *
- *  Stamps `KOLU_TERMINAL_ID` (this terminal's own id) so a process inside can
+ *  Stamps `KAVAL_TERMINAL_ID` (this terminal's own id) so a process inside can
  *  name itself — the self-knowledge twin of the `KAVAL_SOCKET` stamp, matching
  *  kolu-server's rich composer. Set last so it overwrites any value inherited
  *  from the caller's env (this CLI running inside an outer kolu terminal): the
@@ -155,7 +155,7 @@ function composeCreateInput(opts: {
     id: opts.id,
     argv,
     cwd: opts.cwd,
-    env: { ...opts.env, KOLU_TERMINAL_ID: opts.id },
+    env: { ...opts.env, KAVAL_TERMINAL_ID: opts.id },
     initFiles: [],
   };
 }

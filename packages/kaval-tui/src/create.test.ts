@@ -32,7 +32,7 @@ describe("buildCreateInput", () => {
         SHELL: "/bin/zsh",
         FOO: "bar",
         KAVAL_SOCKET: SOCK,
-        KOLU_TERMINAL_ID: "abc",
+        KAVAL_TERMINAL_ID: "abc",
       },
       initFiles: [],
     });
@@ -82,12 +82,12 @@ describe("buildCreateInput", () => {
       SHELL: "/bin/sh",
       KEEP: "1",
       KAVAL_SOCKET: SOCK,
-      KOLU_TERMINAL_ID: "x",
+      KAVAL_TERMINAL_ID: "x",
     });
     expect("GONE" in input.env).toBe(false);
   });
 
-  it("stamps KOLU_TERMINAL_ID with the terminal's own id, overwriting an inherited one", () => {
+  it("stamps KAVAL_TERMINAL_ID with the terminal's own id, overwriting an inherited one", () => {
     // A process inside the terminal reads its OWN id from the env (the
     // self-knowledge twin of KAVAL_SOCKET). If this CLI runs inside an outer
     // kolu terminal its env already carries the OUTER id, so the stamp must win —
@@ -95,11 +95,11 @@ describe("buildCreateInput", () => {
     const input = buildCreateInput({
       id: "fresh",
       cwd: "/",
-      env: { KOLU_TERMINAL_ID: "OUTER" },
+      env: { KAVAL_TERMINAL_ID: "OUTER" },
       kavalSocket: SOCK,
     });
-    expect(input.env.KOLU_TERMINAL_ID).toBe("fresh");
-    expect(input.env.KOLU_TERMINAL_ID).toBe(input.id);
+    expect(input.env.KAVAL_TERMINAL_ID).toBe("fresh");
+    expect(input.env.KAVAL_TERMINAL_ID).toBe(input.id);
   });
 
   it("stamps KAVAL_SOCKET, overwriting any value inherited from the env", () => {
@@ -167,7 +167,7 @@ describe("buildRemoteCreateInput", () => {
       PATH: "/run/current-system/sw/bin:/usr/bin:/bin",
       TERM: "xterm-256color",
       LANG: "en_US.UTF-8",
-      KOLU_TERMINAL_ID: "r1",
+      KAVAL_TERMINAL_ID: "r1",
     });
   });
 

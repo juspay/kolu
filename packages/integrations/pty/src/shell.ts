@@ -176,7 +176,7 @@ export function cleanEnv(): Record<string, string> {
  *
  * Per-PTY identity vars (anything that depends on terminalId) don't belong
  * here. A shell-specific one rides `SpawnInit.env` from `prepareShellInit`
- * (e.g. zsh's ZDOTDIR); a shell-agnostic one (like `KOLU_TERMINAL_ID`) is
+ * (e.g. zsh's ZDOTDIR); a shell-agnostic one (like `KAVAL_TERMINAL_ID`) is
  * stamped directly in the spawn caller's locator cluster next to
  * `KAVAL_SOCKET`, so it reaches even a shell we don't wrap.
  */

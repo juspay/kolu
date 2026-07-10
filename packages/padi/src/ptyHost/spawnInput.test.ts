@@ -61,7 +61,7 @@ describe("composeSpawnInput env layering", () => {
     savedShell = process.env.SHELL;
     savedColorterm = process.env.COLORTERM;
     savedKavalSocket = process.env.KAVAL_SOCKET;
-    savedTerminalId = process.env.KOLU_TERMINAL_ID;
+    savedTerminalId = process.env.KAVAL_TERMINAL_ID;
   });
 
   afterEach(() => {
@@ -72,8 +72,8 @@ describe("composeSpawnInput env layering", () => {
     // would corrupt the env for the rest of the worker.
     restore("KAVAL_SOCKET", savedKavalSocket);
     // Same reason as KAVAL_SOCKET: this worker may itself run inside a kolu
-    // terminal, so it legitimately carries KOLU_TERMINAL_ID — restore, not delete.
-    restore("KOLU_TERMINAL_ID", savedTerminalId);
+    // terminal, so it legitimately carries KAVAL_TERMINAL_ID — restore, not delete.
+    restore("KAVAL_TERMINAL_ID", savedTerminalId);
   });
 
   it("koluIdentityEnv overrides a same-named cleanEnv (parent) key", () => {
@@ -157,24 +157,25 @@ describe("composeSpawnInput env layering", () => {
     expect(input.env.PADI_SOCKET).toBeUndefined();
   });
 
-  it("stamps KOLU_TERMINAL_ID with the terminal's own id", () => {
+  it("stamps KAVAL_TERMINAL_ID with the terminal's own id", () => {
     // A process inside the terminal reads its OWN id from the env — the
     // self-knowledge twin of KAVAL_SOCKET (which names the daemon). Stamped from
     // args.id, the same value that names the wire `id` and the rcfile.
     const input = composeSpawnInput({ id: "T-self-id" }, info(), KAVAL_SOCK);
-    expect(input.env.KOLU_TERMINAL_ID).toBe("T-self-id");
-    expect(input.env.KOLU_TERMINAL_ID).toBe(input.id);
+    expect(input.env.KAVAL_TERMINAL_ID).toBe("T-self-id");
+    expect(input.env.KAVAL_TERMINAL_ID).toBe(input.id);
   });
 
-  it("re-stamps KOLU_TERMINAL_ID over an inherited (outer) one — nested terminals get a fresh id", () => {
+  it("re-stamps KAVAL_TERMINAL_ID over an inherited (outer) one — nested terminals get a fresh id", () => {
     // A nested kolu (this server spawned inside a kolu terminal) inherits the
-    // OUTER terminal's KOLU_TERMINAL_ID in process.env. cleanEnv strips all
-    // KOLU_* (so the outer id can't leak through), then the composer stamps THIS
-    // terminal's id — each terminal ends up with its own, never the parent's.
-    // afterEach restores KOLU_TERMINAL_ID to its saved value, so no local cleanup.
-    process.env.KOLU_TERMINAL_ID = "T-OUTER";
+    // OUTER terminal's KAVAL_TERMINAL_ID in process.env. cleanEnv passes it
+    // through (KAVAL_* isn't stripped wholesale), so the composer's direct stamp
+    // must overwrite it — each terminal ends up with its own, never the parent's
+    // (the same non-clobber property the KAVAL_SOCKET test pins).
+    // afterEach restores KAVAL_TERMINAL_ID to its saved value, so no local cleanup.
+    process.env.KAVAL_TERMINAL_ID = "T-OUTER";
     const input = composeSpawnInput({ id: "T-inner" }, info(), KAVAL_SOCK);
-    expect(input.env.KOLU_TERMINAL_ID).toBe("T-inner");
+    expect(input.env.KAVAL_TERMINAL_ID).toBe("T-inner");
   });
 
   it("resolves a real shell when the local env omits SHELL", () => {

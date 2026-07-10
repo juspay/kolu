@@ -369,11 +369,10 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
  *   1. `cleanEnv()`        — parent env passthrough (Nix devshell filter).
  *   2. `koluIdentityEnv()` — kolu's identity vars (stomp parent).
  *   3. `plan.env`          — per-PTY overrides (e.g. ZDOTDIR for zsh).
- *   4. `KOLU_TERMINAL_ID`  — this terminal's own id, so a process inside can name
- *      itself (the self-knowledge twin of `KAVAL_SOCKET`). Stamped after cleanEnv's
- *      `KOLU_*` strip so it survives, and — because that strip also drops an
- *      inherited `KOLU_*` — a nested kolu terminal re-stamps its own id rather than
- *      leaking the outer one.
+ *   4. `KAVAL_TERMINAL_ID` — this terminal's own id, so a process inside can name
+ *      itself (the self-knowledge twin of `KAVAL_SOCKET`). Like `KAVAL_SOCKET`, the
+ *      direct assignment overwrites any inherited value, so a nested terminal
+ *      re-owns its own id rather than leaking the outer one.
  *   5. `KAVAL_SOCKET`      — daemon locator (the `$TMUX` convention): the socket
  *      THIS kaval serves on, passed in as data (`kavalSocket`). It shares no key
  *      with the layers above, so its position is immaterial; it's assigned last
@@ -409,15 +408,15 @@ export function composeSpawnInput(
   Object.assign(env, plan.env);
   // This terminal's own id, so a process INSIDE it can name itself without being
   // told — the self-knowledge twin of KAVAL_SOCKET (which names the daemon):
-  // `kaval-tui snapshot "$KOLU_TERMINAL_ID" --socket "$KAVAL_SOCKET"` reads its
-  // own screen. Stamped AFTER cleanEnv's `KOLU_*` strip, so it survives; and
-  // because cleanEnv strips inherited `KOLU_*`, a nested kolu terminal drops the
-  // OUTER id and re-stamps its own here — each terminal gets a fresh, correct id
-  // (the same re-own-nested property KAVAL_SOCKET has, via the strip instead of
-  // an explicit overwrite). Shell-agnostic on purpose (not in prepareShellInit's
+  // `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"` reads its
+  // own screen. Assigned directly (not via cleanEnv/koluIdentityEnv), so — exactly
+  // like KAVAL_SOCKET below — a stray inherited value (this terminal spawned inside
+  // an OUTER kaval terminal, whose id rode through cleanEnv since KAVAL_* isn't
+  // stripped wholesale) is overwritten here: each terminal re-owns its own id,
+  // never the parent's. Shell-agnostic on purpose (not in prepareShellInit's
   // plan.env, which is empty for a shell we don't wrap): the id is a fact about
   // the terminal, not the shell.
-  env.KOLU_TERMINAL_ID = args.id;
+  env.KAVAL_TERMINAL_ID = args.id;
   env.KAVAL_SOCKET = kavalSocket;
   // The $KAVAL_SOCKET twin for padi: a `padi-tui` INSIDE this terminal reaches the
   // padi that OWNS it (the daemon that spawned it) with no --socket/--state-root —
