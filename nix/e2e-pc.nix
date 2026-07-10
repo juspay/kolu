@@ -29,6 +29,10 @@ let
   sources = import ../npins;
   pcLib = import (sources.process-compose-flake + "/nix/lib.nix") { inherit pkgs; };
   host = "127.0.0.1";
+  # The NODE-distributed codex for the one npm-shim scenario (foreground basename
+  # `node`, not `codex` → detection must fall back to the OSC 633;E command-hint).
+  # Referenced by absolute path (not on PATH — its bin is also named `codex`).
+  codexNode = import ./packages/codex-node.nix { inherit pkgs; };
 in
 (pcLib.evalModules {
   name = "kolu-e2e-ollama";
@@ -86,6 +90,7 @@ in
         environment = {
           KOLU_E2E_OLLAMA_BASE_URL = "http://${host}:${toString port}/v1";
           KOLU_E2E_OLLAMA_MODEL = model;
+          KOLU_E2E_CODEX_NODE_BIN = "${codexNode}/bin/codex";
         };
       };
     })

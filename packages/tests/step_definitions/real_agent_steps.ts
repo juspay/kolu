@@ -78,6 +78,21 @@ const AGENTS: Record<
     // was lost (no chat-completion request, no session state). Give it 12s.
     settleMs: 12_000,
   },
+  // The NODE-distributed codex (npm runtime) — same agent (kind "codex"), but
+  // launched from KOLU_E2E_CODEX_NODE_BIN so its foreground basename is `node`,
+  // NOT `codex`. Detection then MUST come from the OSC 633;E command-hint
+  // (readForegroundBasename can't match), which is the whole point of the
+  // npm-shim scenario. Reads the same seeded ~/.codex config as native codex.
+  CodexNpm: {
+    kind: "codex",
+    binEnv: "KOLU_E2E_CODEX_NODE_BIN",
+    marker: "OpenAI Codex",
+    sessionDir: ".codex",
+    sessionGlobs: [
+      [/^state_\d+\.sqlite$/, "."],
+      [/rollout-.*\.jsonl$/, "sessions"],
+    ],
+  },
   Grok: {
     kind: "grok",
     binEnv: "KOLU_E2E_GROK_BIN",
@@ -156,6 +171,7 @@ function cleanupAgentSessions(word: string) {
 }
 
 After({ tags: "@codex-real" }, () => cleanupAgentSessions("Codex"));
+After({ tags: "@codex-npm-real" }, () => cleanupAgentSessions("CodexNpm"));
 After({ tags: "@claude-real" }, () => cleanupAgentSessions("Claude"));
 After({ tags: "@opencode-real" }, () => cleanupAgentSessions("Opencode"));
 After({ tags: "@grok-real" }, () => cleanupAgentSessions("Grok"));
