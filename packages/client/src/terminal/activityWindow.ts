@@ -73,13 +73,13 @@ export function windowOption(w: ActivityWindow): WindowOption {
   return WINDOWS[w];
 }
 
-/** Default activity window. `24h` because the immediate user pain is "I
- *  closed the laptop overnight; this morning my waiting agents look like
- *  plain shells" — a 24h horizon keeps yesterday's queue compressed into
- *  parked rows where each row still carries its agent identity (the
- *  parked-row AgentIndicator), without a wall of full reply cards
- *  drowning out fresh waiters. */
-export const DEFAULT_ACTIVITY_WINDOW: ActivityWindow = "24h";
+/** Default activity window. `all` (no filter) so a fresh surface shows
+ *  every terminal — nothing silently hidden until the user deliberately
+ *  narrows the window. Time-based decay is opt-in: pick `4h / 12h / 24h /
+ *  48h` to compress the older queue into parked rows (each still carrying
+ *  its agent identity via the parked-row AgentIndicator). The choice
+ *  persists per host, so a narrowed window survives reload. */
+export const DEFAULT_ACTIVITY_WINDOW: ActivityWindow = "all";
 
 /** Pre-built `{value, label}` list for the activity-window picker menus —
  *  shared by the dock chip and the minimap chip so the option set is

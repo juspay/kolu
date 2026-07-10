@@ -257,13 +257,13 @@ Feature: Canvas workspace
     And the active canvas tile should be centered in the viewport
     And there should be no page errors
 
-  Scenario: Minimap window menu defaults to "24h"
-    # Default activity window is now `24h` — see DEFAULT_ACTIVITY_WINDOW
-    # in activityWindow.ts. The choice lives on a shared per-device
-    # signal that the dock header reads from the same source, so the
-    # default applies to both surfaces uniformly.
+  Scenario: Minimap window menu defaults to "All"
+    # Default activity window is `all` (no filter) — see
+    # DEFAULT_ACTIVITY_WINDOW in activityWindow.ts. The choice lives on a
+    # shared per-device signal that the dock header reads from the same
+    # source, so the default applies to both surfaces uniformly.
     Then the minimap window trigger should be visible
-    And the minimap window should be "24h"
+    And the minimap window should be "all"
     And there should be no page errors
 
   Scenario: Picking a minimap window option persists across reload

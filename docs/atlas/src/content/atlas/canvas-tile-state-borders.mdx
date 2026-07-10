@@ -185,7 +185,7 @@ active -> tile`}
 
 <Callout kind="accent" title="Two refinements the priority order forces">
 **1 · "Waiting" splits and *decays.*** The crossover is your **activity window**
-(`4h / 12h / 24h / All`, default `24h` — <Cite file="packages/client/src/terminal/activityWindow.ts" />): a waiter sinks below the working hum once it ages past it; `All` disables decay.
+(`4h / 12h / 24h / All`, default `All` — <Cite file="packages/client/src/terminal/activityWindow.ts" />): a waiter sinks below the working hum once it ages past it; `All` (the default) disables decay, and narrowing the window is opt-in.
 
 **2 · Motion = "needs you," not "busy."** Alert and fresh-waiting outrank working,
 so *motion* — the strongest cue — is reserved for them; working is a **steady**
@@ -506,8 +506,8 @@ as it stays quieter than fresh-waiting.
 
 - **Continuous vs banded** — a smooth `--aura-intensity`, or reuse the existing
   age bands (`idleBucketFor`, <Cite file="packages/client/src/terminal/activityWindow.ts" />) for discrete steps, zero new math.
-- **Which window** — reuse the persisted `activityWindow` (default `24h`; `All` =
-  no decay). *Open: is a filter knob the right decay clock?*
+- **Which window** — reuse the persisted `activityWindow` (default `All`;
+  narrowing to `24h`/etc. enables decay). *Open: is a filter knob the right decay clock?*
 - **Where stale lands** — a dim violet ember (keeps the "it wanted you" memory),
   or demote to parked (quieter, matches the dock).
 
