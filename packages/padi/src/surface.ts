@@ -122,12 +122,32 @@ export * from "./vocab.ts";
  *  diagnostic, which rides the re-served surface so it works identically local and
  *  remote); 1.3 ADDS the `identity` cell (padi's own build commit / surfaceVersion /
  *  boot time, the per-host twin of the control-core `hello` — see
- *  {@link PadiIdentitySchema}). Additive growth (a new optional field / stream /
- *  procedure / cell) is a minor bump; a shape-breaking change a major. A remote dial
- *  gates an incompatible padi via `isContractVersionCompatible`. Distinct from
- *  {@link CONTROL_CORE_VERSION}, which is frozen forever so a contract-revving
- *  deploy can still reach the daemon's control core. */
-export const PADI_SURFACE_VERSION = "1.3";
+ *  {@link PadiIdentitySchema}).
+ *
+ *  2.0 (BREAKING · major) ADDS the `collapsed` field to the per-terminal right-panel
+ *  record (`RightPanelPerTerminalStateSchema`, which rides BOTH the `terminals`
+ *  metadata collection AND the `chrome.setRightPanel` command input) — the panel's
+ *  collapsed posture moved off the global preference to follow the terminal (#959).
+ *  Unlike the additive minors above, this is a MAJOR bump for the same reason
+ *  `PTY_HOST_CONTRACT_VERSION` 5.0 is: the breaking direction is old-client/new-padi
+ *  — the ONE direction `isContractVersionCompatible` actually WAVES THROUGH (an old
+ *  client accepts a newer-minor padi, reported minor >= its own). `chrome.setRightPanel`
+ *  is a whole-record REPLACE (`m.rightPanel = state` in `terminals.ts`), so an OLDER
+ *  client that omits `collapsed` on a tab/file write has the shared schema's
+ *  `.default(false)` fill it in, then the replace CLOBBERS a persisted `collapsed:true`
+ *  set by a newer client on that same terminal — silent state loss a minor bump would
+ *  not catch. (The new-client/old-padi direction — old padi can't persist the field —
+ *  a minor bump WOULD have gated, but that is not the unsafe direction here.) A major
+ *  bump makes `isContractVersionCompatible` reject the skew in BOTH directions (major
+ *  mismatch), so each side forces an honest "upgrade the other side" recycle rather
+ *  than a silently-clobbered record. Additive growth (a new optional field / stream /
+ *  procedure / cell that does NOT ride a shared whole-record client write) stays a
+ *  minor bump; a shape-breaking change — or a persisted-record field addition on a
+ *  client-written whole-record command, as here — is a major. A remote dial gates an
+ *  incompatible padi via `isContractVersionCompatible`. Distinct from
+ *  {@link CONTROL_CORE_VERSION}, which is frozen forever so a contract-revving deploy
+ *  can still reach the daemon's control core. */
+export const PADI_SURFACE_VERSION = "2.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });

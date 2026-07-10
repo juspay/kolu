@@ -4,8 +4,12 @@ import {
   backfillTerminalState,
   LOCAL_LOCATION,
 } from "@kolu/padi/surface";
+import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { migratePreferences_1_30_0 } from "./state.ts";
+import {
+  migratePreferences_1_30_0,
+  migratePreferences_1_32_0,
+} from "./state.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
 // reads it at module load.
@@ -49,6 +53,48 @@ describe("migratePreferences_1_30_0", () => {
   it("leaves a record with no shuffleTheme untouched (fresh ≥1.30 install)", () => {
     const fresh = { newTerminalTheme: "inherit", shuffleBehavior: "dark" };
     expect(migratePreferences_1_30_0(fresh)).toEqual(fresh);
+  });
+});
+
+describe("migratePreferences_1_32_0", () => {
+  it("carries rightPanel.collapsed forward into newTerminalCollapsed, strips the stale key, keeps geometry", () => {
+    const migrated = migratePreferences_1_32_0({
+      newTerminalTheme: "inherit",
+      rightPanel: { collapsed: true, size: 0.4, codeTabTreeSize: 0.5 },
+    });
+    // The old GLOBAL collapse preference is carried forward into the new
+    // top-level seed — `true` here, NOT reset to the default `false`. This is
+    // the falsifiable carry-forward: a user who kept the panel collapsed keeps
+    // it as their new-terminal default across the upgrade.
+    expect(migrated.newTerminalCollapsed).toBe(true);
+    expect(DEFAULT_PREFERENCES.newTerminalCollapsed).toBe(false); // guards the above from a default flip
+    // …the stale per-record collapsed is gone…
+    expect(migrated.rightPanel).toEqual({ size: 0.4, codeTabTreeSize: 0.5 });
+    expect(migrated.rightPanel).not.toHaveProperty("collapsed");
+    // …and unrelated preferences carry through verbatim.
+    expect(migrated.newTerminalTheme).toBe("inherit");
+  });
+
+  it("preserves an unrelated preference the caller set (spread-defaults never clobber it)", () => {
+    const migrated = migratePreferences_1_32_0({
+      colorScheme: "light",
+      rightPanel: { collapsed: false, size: 0.25, codeTabTreeSize: 0.35 },
+    });
+    expect(migrated.colorScheme).toBe("light");
+    expect(migrated.rightPanel).toEqual({ size: 0.25, codeTabTreeSize: 0.35 });
+  });
+
+  it("a record with no rightPanel key backfills the default geometry + top-level seed", () => {
+    // No `rightPanel` on the input → the spread-defaults shape backfills the
+    // default geometry (never a `collapsed` field, which no longer lives there)
+    // and seeds the new top-level default; the caller's field wins.
+    const migrated = migratePreferences_1_32_0({ newTerminalTheme: "shuffle" });
+    expect(migrated.rightPanel).toEqual(DEFAULT_PREFERENCES.rightPanel);
+    expect(migrated.rightPanel).not.toHaveProperty("collapsed");
+    expect(migrated.newTerminalCollapsed).toBe(
+      DEFAULT_PREFERENCES.newTerminalCollapsed,
+    );
+    expect(migrated.newTerminalTheme).toBe("shuffle");
   });
 });
 

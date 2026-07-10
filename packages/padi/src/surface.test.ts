@@ -24,21 +24,33 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 1.3, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 2.0, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1 ADDED `lifecycle.recycleKaval` (the "Restart kaval" button); 1.2 ADDS the
     // `hostInventory` cell (the "Running daemons" leak diagnostic); 1.3 ADDS the
-    // `identity` cell (padi's own build commit/surfaceVersion/boot time, per host)
-    // — all additive minors over 1.0.
-    expect(PADI_SURFACE_VERSION).toBe("1.3");
+    // `identity` cell (padi's own build commit/surfaceVersion/boot time, per host) —
+    // all additive minors over 1.0. 2.0 (BREAKING) ADDS the per-terminal right-panel
+    // `collapsed` field (the panel follows the terminal, #959): a MAJOR bump because
+    // its unsafe skew direction is old-client/new-padi — an older client's whole-record
+    // `chrome.setRightPanel` write OMITS `collapsed`, the shared schema defaults it
+    // false, and the record REPLACE clobbers a newer client's persisted `collapsed:true`.
+    // That is the direction `isContractVersionCompatible` waves through, so a minor bump
+    // would not catch it (mirrors `PTY_HOST_CONTRACT_VERSION` 5.0's reasoning).
+    expect(PADI_SURFACE_VERSION).toBe("2.0");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
     );
-    // A newer additive minor (a future 1.x) still serves a 1.0 consumer; a
+    // A newer additive minor (a future 2.x) still serves a 2.0 consumer; a
     // major bump is mutually incompatible in both directions.
-    expect(isContractVersionCompatible("1.3", "1.0")).toBe(true);
-    expect(isContractVersionCompatible("2.0", "1.0")).toBe(false);
-    expect(isContractVersionCompatible("1.0", "2.0")).toBe(false);
+    expect(isContractVersionCompatible("2.1", "2.0")).toBe(true);
+    expect(isContractVersionCompatible("3.0", "2.0")).toBe(false);
+    expect(isContractVersionCompatible("2.0", "3.0")).toBe(false);
+    // The 2.0 major gate closes BOTH skew directions against any 1.x peer: a new
+    // client (needs 2.0) REFUSES an older 1.x padi that can't persist `collapsed`,
+    // AND an older 1.x client REFUSES this 2.0 padi rather than clobbering the field
+    // with an omitting whole-record write.
+    expect(isContractVersionCompatible("1.4", "2.0")).toBe(false);
+    expect(isContractVersionCompatible("2.0", "1.4")).toBe(false);
   });
 
   it("pins the EXACT member list — every member from the surface section", () => {

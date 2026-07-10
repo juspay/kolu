@@ -19,9 +19,11 @@
  *   UI state that parameterizes a VIEW OF per-host content is per-host; state that
  *   parameterizes the VIEWER (eyes, hardware, density taste) is per-tab.
  * Per-host facts (canvas-maximized posture, the dock's activity-window + ☾ filters,
- * the right-panel collapsed bit, camera, focus/MRU) go in the `scopedByEntry` owner
- * (`hostScope/*`). Per-tab facts (panel size / codeTabTreeSize density, dock rail-vs-
- * cards, font size — the viewer's screen taste) stay app-level, persisted per browser.
+ * camera, focus/MRU) go in the `scopedByEntry` owner (`hostScope/*`). Per-tab facts
+ * (panel size / codeTabTreeSize density, dock rail-vs-cards, font size — the viewer's
+ * screen taste) stay app-level, persisted per browser. Finer than either: the
+ * right-panel collapsed bit + active tab travel with the TERMINAL
+ * (`TerminalMetadata.rightPanel`), so the panel follows the terminal (#959).
  *
  * Scope: `canvas/**` (the canvas subtree) + `useViewState.ts` (the view-state facade
  * that co-owns the camera type + host-independent posture). Column-0 `const` is this

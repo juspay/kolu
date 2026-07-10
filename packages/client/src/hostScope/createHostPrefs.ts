@@ -13,8 +13,9 @@
  *    - `activityWindow` / `showSleeping` — the two dock filters. Persisted PER
  *      HOST (`kolu-activityWindow:<host>` / `kolu-showSleeping:<host>`) so a
  *      sticky filter survives reload without two hosts colliding on one global key.
- *      (The right-panel collapsed bit is NOT here — it's a global VIEWER-layout
- *      preference that must survive reload; a per-host in-memory bit broke that.) */
+ *      (The right-panel collapsed bit is NOT here — it's finer-grained still: it
+ *      travels with the TERMINAL via `TerminalMetadata.rightPanel`, so the panel
+ *      follows the terminal, #959.) */
 
 import type { HostKey } from "kolu-common/hostKey";
 import type { Accessor, Setter } from "solid-js";

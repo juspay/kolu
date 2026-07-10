@@ -4,6 +4,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
+import { toast } from "solid-sonner";
 import { activePadiRpc } from "../wire";
 
 interface SubPanelState {
@@ -48,7 +49,18 @@ function reportToServer(parentId: TerminalId) {
       collapsed: s.collapsed,
       panelSize: s.panelSize,
     })
-    .catch(() => {});
+    .catch((err: Error) =>
+      // Mirror `useRightPanel.reportToServer`: a rejected `setSubPanel` means
+      // the optimistic sub-panel state (collapsed / size) is NOT persisted and
+      // silently reverts on the next session restore. The health pip reports
+      // only TRANSPORT health, so an application-level rejection on an
+      // otherwise-live padi would go unseen — surface it per the terminal-
+      // mutation rule (toast with the server message). One STABLE id dedups the
+      // failure so a downed padi collapses onto a single toast, not one per drag.
+      toast.error(`Failed to save sub-panel state: ${err.message}`, {
+        id: "sub-panel-report-failed",
+      }),
+    );
 }
 
 export function useSubPanel() {
