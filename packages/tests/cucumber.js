@@ -52,6 +52,12 @@ export const ui = {
   formatOptions: { snippetInterface: "async-await" },
   ...(parallel > 1 && { parallel }),
   ...(retry > 0 && { retry }),
+  // Retries must NEVER mask a real-agent (@real-agent) scenario: a green-on-retry
+  // is the flake hiding, and these scenarios must be deterministic on the first
+  // attempt (srid's ruling). `retryTagFilter` scopes the CI retry budget to
+  // everything EXCEPT @real-agent, so the ported live-state scenarios always run
+  // retry-free while the residual non-agent darwin-load flakes keep their net.
+  ...(retry > 0 && { retryTagFilter: "not @real-agent" }),
 };
 
 export default {};

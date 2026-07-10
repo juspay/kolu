@@ -200,6 +200,32 @@ describe("deriveSessionState", () => {
   });
 });
 
+// SANCTIONED COVERAGE EXEMPTION (srid, token OLLAMA-E2E-R3W7).
+//
+// This pure-function suite is the ONLY automated coverage of opencode's
+// tool-part → tool_use / awaiting_user derivation. Every other agent's
+// live-state detection is exercised end-to-end against a real CLI + real
+// ollama model (codex-real / claude-real / opencode-real .feature), with no
+// mocks or fixtures — the project bar. opencode's tool_use path is the one
+// exception, and here is why the e2e port is impossible *today*:
+//
+//   No CI-runnable ollama model emits an opencode tool call. Measured across
+//   five configs on the CPU CI box (retry-free):
+//     - qwen2.5:0.5b        → replies text, zero tool calls
+//     - qwen2.5-coder:1.5b  → replies text (44s), zero tool calls (the coder
+//                             variant ships a chat template without tools)
+//     - llama3.2:3b         → main turn 66s → HTTP 500, never tool-called
+//     - qwen2.5:3b          → main turn 76s → HTTP 500 (even with
+//                             OLLAMA_MAX_LOADED_MODELS=1 + a 150s window)
+//   Small models don't tool-call; 3b models time out before the agentic turn
+//   completes. So opencode-real.feature asserts the thinking→waiting arc (like
+//   codex/claude) and this suite covers the tool-part derivation directly,
+//   feeding hand-made synthetic `part` rows — a pure SQL/derivation test, not
+//   an agent mock or a PTY fixture.
+//
+// RESUMPTION TRIGGER: when a CI runner can serve a tool-capable model (GPU, or
+// a fast-enough box for a 3b/7b turn), port this into opencode-real.feature as
+// a real tool_use assertion and retire the exemption.
 describe("runningToolsBucket", () => {
   it("returns null when no parts are running", () => {
     const db = withParts([]);

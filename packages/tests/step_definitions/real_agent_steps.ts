@@ -14,7 +14,13 @@
 import { strict as assert } from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
-import { After, Then, When } from "@cucumber/cucumber";
+import {
+  After,
+  type ITestCaseHookParameter,
+  Status,
+  Then,
+  When,
+} from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import type { KoluWorld } from "../support/world.ts";
@@ -31,6 +37,11 @@ const AGENTS: Record<
     marker: string;
     sessionDir: string;
     sessionGlobs: [RegExp, string][];
+    /** Extra settle (ms) after the ready marker before typing — the TUI accepts
+     *  keys only once its input is live. Slow-booting agents (opencode resolves
+     *  its provider/model) need more, else the prompt is typed into a not-ready
+     *  TUI and lost (no model turn, no session state). Defaults to 3000. */
+    settleMs?: number;
   }
 > = {
   Codex: {
@@ -54,6 +65,18 @@ const AGENTS: Record<
       [/^\d+\.json$/, "sessions"],
       [/\.jsonl$/, "projects"],
     ],
+  },
+  Opencode: {
+    kind: "opencode",
+    binEnv: "KOLU_E2E_OPENCODE_BIN",
+    marker: "opencode",
+    // opencode writes a channel-suffixed SQLite DB (opencode-stable.db) here.
+    sessionDir: path.join(".local", "share", "opencode"),
+    sessionGlobs: [[/^opencode.*\.db$/, "."]],
+    // opencode's TUI paints "opencode" early but isn't input-ready until it has
+    // resolved its provider/model — CI evidence showed the prompt typed at 3s
+    // was lost (no chat-completion request, no session state). Give it 12s.
+    settleMs: 12_000,
   },
 };
 
@@ -118,6 +141,83 @@ function cleanupAgentSessions(word: string) {
 
 After({ tags: "@codex-real" }, () => cleanupAgentSessions("Codex"));
 After({ tags: "@claude-real" }, () => cleanupAgentSessions("Claude"));
+After({ tags: "@opencode-real" }, () => cleanupAgentSessions("Opencode"));
+
+// Evidence via the LANE (no local runs): on a real-agent failure, dump the padi
+// provider log tail + a listing of the throwaway home's agent data dirs into
+// the CI log, so a flake is diagnosable from CI alone. Registered LAST so it
+// runs FIRST (cucumber runs After hooks in reverse) — before the cleanup hooks
+// above wipe the dirs.
+After(
+  { tags: "@real-agent" },
+  async function (this: KoluWorld, scenario: ITestCaseHookParameter) {
+    if (scenario.result?.status !== Status.FAILED) return;
+    const out: string[] = ["\n===REAL-AGENT-FAILURE-EVIDENCE==="];
+    const padiDir = process.env.KOLU_E2E_PADI_STATE_DIR;
+    if (padiDir) {
+      for (const f of ["padi.stderr.log", "padi.log"]) {
+        try {
+          const tail = fs
+            .readFileSync(path.join(padiDir, f), "utf8")
+            .split("\n")
+            .slice(-80)
+            .join("\n");
+          out.push(`--- ${f} (tail) ---\n${tail}`);
+        } catch {
+          // absent — the daemon may not have written this file
+        }
+      }
+    }
+    const home = process.env.KOLU_E2E_FIXTURE_HOME;
+    if (home) {
+      for (const d of [
+        path.join(".local", "share", "opencode"),
+        ".codex",
+        ".claude",
+      ]) {
+        const dir = path.join(home, d);
+        try {
+          const entries = fs.readdirSync(dir, { recursive: true }).map(String);
+          out.push(`--- ls ~/${d} ---\n${entries.join("\n") || "(empty)"}`);
+        } catch {
+          out.push(`--- ls ~/${d} --- (missing)`);
+        }
+      }
+      // Dump opencode's stored message/part JSON: the definitive record of
+      // whether the model actually emitted a tool call (a `tool` part with a
+      // `bash` name) or replied text directly — the difference between "model
+      // never called the tool" and "kolu missed a transient tool_use window".
+      const storage = path.join(home, ".local", "share", "opencode", "storage");
+      try {
+        for (const rel of fs.readdirSync(storage, { recursive: true })) {
+          const p = path.join(storage, String(rel));
+          if (!p.endsWith(".json")) continue;
+          try {
+            const body = fs.readFileSync(p, "utf8");
+            out.push(`--- storage/${rel} ---\n${body.slice(0, 4000)}`);
+          } catch {
+            // directory entry or unreadable — skip
+          }
+        }
+      } catch {
+        out.push("--- opencode storage --- (missing)");
+      }
+    }
+    // The FINAL rendered TUI at failure time (the page is still live in the After
+    // hook) — shows the whole conversation, including any tool-execution block.
+    try {
+      const { readBufferText } = await import("../support/buffer.ts");
+      out.push(
+        `--- terminal buffer (final, at failure) ---\n${await readBufferText(this.page)}`,
+      );
+    } catch {
+      // page gone / unreadable
+    }
+    out.push("===END-EVIDENCE===");
+    // eslint-disable-next-line no-console
+    console.log(out.join("\n"));
+  },
+);
 
 When(
   "I launch the real {word} agent with prompt {string}",
@@ -143,14 +243,21 @@ When(
         `${word} readiness marker "${a.marker}" not found in 30s. Rendered terminal buffer:\n---\n${buffer}\n---\n(underlying: ${String(err)})`,
       );
     }
-    // The Rust/Ink TUIs only accept keystrokes a beat AFTER the header paints; a
-    // short settle dropped the prompt. 3s is the validated margin. Type with a
-    // small per-key delay (a too-fast burst is dropped), then a discrete Enter.
-    await new Promise((r) => setTimeout(r, 3000));
+    // The TUIs accept keystrokes only a beat AFTER the header paints; a short
+    // settle dropped the prompt. Type with a small per-key delay (a too-fast
+    // burst is dropped), then a discrete Enter.
+    await new Promise((r) => setTimeout(r, a.settleMs ?? 3000));
     await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
     await this.page.keyboard.type(prompt, { delay: 25 });
     await new Promise((r) => setTimeout(r, 500));
     await this.page.keyboard.press("Enter");
+    // Return IMMEDIATELY — the working-state assertion must start polling now,
+    // while the turn is in flight. A fast box (Apple Silicon) runs the tiny
+    // model in well under a second, so any post-submit delay here would let the
+    // whole thinking→waiting arc elapse before the assertion even begins (it
+    // did: a 6s capture wait raced all three agents to "waiting" on darwin).
+    // Failure evidence comes from the After hook's live-page buffer read, not a
+    // mid-flight snapshot.
   },
 );
 

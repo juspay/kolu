@@ -59,15 +59,6 @@ const mkSubDir = (name: string) => {
   return dir;
 };
 
-/** Per-worker temp root for the OpenCode mock harness — see
- *  `opencode_steps.ts`. The provider keys off `state.cwd`, so the fixture DB
- *  rows carry a cwd that the scenario also `cd`s into so
- *  `findSessionByDirectory` returns the mock row. (Codex has no separate mock
- *  dir any more: real AND mock codex both use `<fixtureHome>/.codex`, the real
- *  default path — see the codex config-seeding block below.) */
-const opencodeDbDir = mkSubDir("opencode");
-const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
-
 /** The everyday-e2e vs recording (KOLU_X11CAP) divergence for the server's
  *  environment, decided ONCE here so no `if (KOLU_X11CAP)` has to be re-derived
  *  downstream (before this, the agent dirs branched here and HOME branched at
@@ -166,7 +157,6 @@ for (const name of AGENT_DIR_VARS) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
-if (!RECORDING) process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 
 // Unconditional codex-on-ollama (srid's ruling): seed the throwaway home's codex
 // config so the real `codex` the live-state scenarios launch talks to the
@@ -267,6 +257,41 @@ if (!RECORDING && fixtureHome) {
   process.env.KOLU_E2E_CLAUDE_BIN = execSync("command -v claude", {
     encoding: "utf8",
   }).trim();
+
+  // OpenCode: seed the throwaway home's global config so the real `opencode`
+  // talks to ollama via an OpenAI-compatible provider (its only ollama path;
+  // `baseUrl` already ends in /v1). `model` makes it the default so a launched
+  // session uses it without a picker. opencode writes its session to
+  // ~/.local/share/opencode/opencode-stable.db, which kolu's provider now
+  // resolves (the config.ts enumeration fix) — no KOLU_OPENCODE_DB override.
+  const opencodeCfgDir = path.join(fixtureHome, ".config", "opencode");
+  fs.mkdirSync(opencodeCfgDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(opencodeCfgDir, "opencode.json"),
+    JSON.stringify(
+      {
+        $schema: "https://opencode.ai/config.json",
+        model: `ollama/${model}`,
+        // Auto-allow tools so nothing wedges on an interactive permission prompt
+        // if the model does reach for one. (opencode `permission` schema:
+        // config.mdx.)
+        permission: { bash: "allow", edit: "allow", webfetch: "allow" },
+        provider: {
+          ollama: {
+            npm: "@ai-sdk/openai-compatible",
+            name: "Ollama (kolu e2e)",
+            options: { baseURL: baseUrl },
+            models: { [model]: { name: model } },
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  process.env.KOLU_E2E_OPENCODE_BIN = execSync("command -v opencode", {
+    encoding: "utf8",
+  }).trim();
 }
 
 /** Fake agent binaries the codex/opencode mock scenarios invoke by
@@ -321,6 +346,10 @@ const koluStateDir = mkSubDir("state");
  *  socket/gate paths the reapers below compute — is this worker's alone. Nested
  *  under `testBaseDir` so it's wiped with the rest of the run. */
 const padiStateDir = mkSubDir("padi-state");
+// Surface padi's per-worker state dir (which holds padi.log / padi.stderr.log,
+// where the agent-detection providers log) so the @real-agent failure hook can
+// dump the provider log tail into the CI lane as evidence — no local run.
+process.env.KOLU_E2E_PADI_STATE_DIR = padiStateDir;
 
 /** Per-worker `XDG_RUNTIME_DIR` so each worker's padi (and the kaval padi spawns)
  *  land at ISOLATED sockets + gates. Both are anchored under this dir but keyed by
@@ -921,9 +950,6 @@ async function startServerChild(koluServer: string): Promise<void> {
           // HOME inherited (real) under X11CAP so the real claude/codex resolve
           // their sessions + login from the real home. See `serverModeEnv`.
           ...serverModeEnv,
-          // OpenCode stays a mock provider (real opencode's schema has drifted
-          // from kolu's reader) — pin its DB to the mock harness path.
-          KOLU_OPENCODE_DB: opencodeDbPath,
           // W3.1 — the ssh leg: when KOLU_E2E_PADI_HOST is set, the server binds a
           // REMOTE padi over ssh (the whole canvas becomes that host) instead of
           // spawning a local one, so the SAME suite runs unchanged against a remote

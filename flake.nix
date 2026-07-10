@@ -129,6 +129,10 @@
               # Real Claude Code (unfree; scoped-allowUnfree import) for the
               # claude live-state e2e — talks to ollama's /v1/messages.
               (import ./nix/packages/claude-code.nix { inherit pkgs; })
+              # Real opencode for the opencode live-state e2e — talks to ollama
+              # via an OpenAI-compatible provider (opencode.json). kolu's
+              # provider reads its opencode-stable.db (see the config.ts fix).
+              pkgs.opencode
             ];
             env = (prev.env or { }) // {
               PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;

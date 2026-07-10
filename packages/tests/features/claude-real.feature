@@ -1,4 +1,4 @@
-@claude-real
+@claude-real @real-agent
 Feature: Claude Code live-state detection against a real ollama model
   Claude Code's live agent-state pipeline (working → done), driven end-to-end by
   a REAL `claude` CLI pointed at a locally-served ollama model through a

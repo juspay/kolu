@@ -1,4 +1,4 @@
-@codex-real
+@codex-real @real-agent
 Feature: Codex live-state detection against a real ollama model
   Codex's live agent-state pipeline (working → done), driven end-to-end by a
   REAL `codex` CLI pointed at a locally-served ollama model through a throwaway
