@@ -369,7 +369,11 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
  *   1. `cleanEnv()`        — parent env passthrough (Nix devshell filter).
  *   2. `koluIdentityEnv()` — kolu's identity vars (stomp parent).
  *   3. `plan.env`          — per-PTY overrides (e.g. ZDOTDIR for zsh).
- *   4. `KAVAL_SOCKET`      — daemon locator (the `$TMUX` convention): the socket
+ *   4. `KAVAL_TERMINAL_ID` — this terminal's own id, so a process inside can name
+ *      itself (the self-knowledge twin of `KAVAL_SOCKET`). Like `KAVAL_SOCKET`, the
+ *      direct assignment overwrites any inherited value, so a nested terminal
+ *      re-owns its own id rather than leaking the outer one.
+ *   5. `KAVAL_SOCKET`      — daemon locator (the `$TMUX` convention): the socket
  *      THIS kaval serves on, passed in as data (`kavalSocket`). It shares no key
  *      with the layers above, so its position is immaterial; it's assigned last
  *      only to read as the outermost fact. Lets a process INSIDE the spawned
@@ -402,6 +406,13 @@ export function composeSpawnInput(
     rcDir: info.rcDir,
   });
   Object.assign(env, plan.env);
+  // (rationale in docblock item 4). Two facts not captured there: it's assigned
+  // directly, not via prepareShellInit's plan.env, so it reaches even a shell we
+  // don't wrap — the id is a fact about the terminal, not the shell; and the direct
+  // overwrite is load-bearing because KAVAL_* rides through cleanEnv unstripped
+  // (unlike KOLU_*), so an inherited outer id must be stomped here, same as
+  // KAVAL_SOCKET. Pairs as `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"`.
+  env.KAVAL_TERMINAL_ID = args.id;
   env.KAVAL_SOCKET = kavalSocket;
   // The $KAVAL_SOCKET twin for padi: a `padi-tui` INSIDE this terminal reaches the
   // padi that OWNS it (the daemon that spawned it) with no --socket/--state-root —

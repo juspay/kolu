@@ -9,7 +9,7 @@
  * wire is fully specified (the host derives nothing from its own env), so the
  * client composes the whole input itself — here, from kaval-tui's own
  * `process.env`/`cwd`, the same
- * minimal shape the contract tests carry. kolu-server's rich client composes far more
+ * minimal shape the contract tests carry. padi's rich client composes far more
  * (`composeSpawnInput`: env layering, identity vars, shell-init); kaval-tui
  * deliberately does not — a plain `$SHELL` is the point.
  */
@@ -48,7 +48,7 @@ export function buildCreateInput(opts: {
   command?: readonly string[];
   /** The socket this daemon was dialed on, stamped as `KAVAL_SOCKET` so a process
    *  inside the spawned terminal can reach the daemon that owns it — the same
-   *  `$TMUX` convention kolu-server follows. Overwrites any inherited value from
+   *  `$TMUX` convention padi follows. Overwrites any inherited value from
    *  `opts.env`: the child is owned by THIS daemon, not an outer one. */
   kavalSocket: string;
 }): PtyHostSpawnInput {
@@ -132,7 +132,14 @@ export function buildRemoteCreateInput(opts: {
 
 /** The shared tail both composers funnel through: pick `argv` (the given
  *  `command`, else the resolved `shell` falling back to `DEFAULT_SPAWN_SHELL`)
- *  and assemble the `{ argv, cwd, env, initFiles: [] }` wire shape. */
+ *  and assemble the `{ argv, cwd, env, initFiles: [] }` wire shape.
+ *
+ *  Stamps `KAVAL_TERMINAL_ID` (this terminal's own id) so a process inside can
+ *  name itself — the self-knowledge twin of the `KAVAL_SOCKET` stamp, matching
+ *  padi's rich composer (`composeSpawnInput`). Set last so it overwrites any value inherited
+ *  from the caller's env (this CLI running inside an outer kolu terminal): the
+ *  child is its own terminal, not the outer one. Applies to both the local and
+ *  remote (`--host`) composers — the id is the terminal's, wherever it runs. */
 function composeCreateInput(opts: {
   id: string;
   cwd: string;
@@ -148,12 +155,12 @@ function composeCreateInput(opts: {
     id: opts.id,
     argv,
     cwd: opts.cwd,
-    env: opts.env,
+    env: { ...opts.env, KAVAL_TERMINAL_ID: opts.id },
     initFiles: [],
   };
 }
 
-/** Mint a fresh PTY id client-side — kolu-server mints its terminal id the same
+/** Mint a fresh PTY id client-side — padi mints its terminal id the same
  *  way (`crypto.randomUUID()`), so the pty-host's PTY id is the caller's id and
  *  the returned `id` echoes what we sent. */
 export function newPtyId(): string {
