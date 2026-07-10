@@ -142,6 +142,24 @@ label it back to the kolu it belongs to). One running → it's picked
 automatically. More than one → kaval-tui lists them and asks you to choose with
 `--socket <path>`.
 
+### An agent inside a terminal locates itself — two env vars
+
+A terminal kaval spawns carries two env vars so an agent running **inside** it can
+find its own daemon and its own tile with no flags to pass (the `$TMUX`
+convention, one for the socket and one for the id):
+
+| Var | Names | An agent uses it to |
+| --- | --- | --- |
+| `$KAVAL_SOCKET` | the socket of the kaval that owns **this** terminal | skip discovery and point straight at its own daemon: `kaval-tui list --socket "$KAVAL_SOCKET"` — the unambiguous answer when several daemons are up |
+| `$KAVAL_TERMINAL_ID` | the id of **this** terminal | act on itself without being told which tile it is: `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"` reads its own screen |
+
+A kolu spawned **inside** a kolu terminal re-stamps its own id and socket over the
+inherited ones, so both always name *this* terminal, never the outer. A terminal
+that predates the feature (adopted across an upgrade without a respawn) may lack
+them — fall back to `kaval-tui list`. A raw `kaval-tui create --host` terminal (see
+below) gets `$KAVAL_TERMINAL_ID` but **not** `$KAVAL_SOCKET`: the id is
+path-invariant, while a local socket path means nothing on the remote box.
+
 ## Reach a remote `kaval` — over ssh
 
 `--host <ssh>` drives a kaval on **another machine**, with nothing to install
