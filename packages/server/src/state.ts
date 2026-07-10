@@ -60,24 +60,40 @@ export function migratePreferences_1_30_0(
 
 /** 1.32.0 — the new-terminal collapsed DEFAULT moved off `rightPanel.collapsed`
  *  (a write-dead seed jammed next to live geometry) to a top-level
- *  `newTerminalCollapsed` preference beside `newTerminalTheme`. Seed the new
- *  top-level field from `DEFAULT_PREFERENCES` (the spread-defaults shape the
- *  1.6.0/1.7.0 rightPanel steps use) and strip the stale `rightPanel.collapsed`
- *  key so the blob matches the schema exactly. The record's live geometry
- *  (`size`/`codeTabTreeSize`) and every unrelated preference are preserved
- *  verbatim; a record with no `rightPanel` at all just gains the top-level
- *  default and is otherwise untouched.
+ *  `newTerminalCollapsed` preference beside `newTerminalTheme`. CARRY the old
+ *  global `rightPanel.collapsed` value forward into the new top-level field —
+ *  the field renamed home, the intent did not, so a user who kept the panel
+ *  collapsed keeps that as their new-terminal seed rather than silently
+ *  resetting to open on upgrade (this mirrors `migratePreferences_1_30_0`,
+ *  which likewise derives its new field from the old value). Then strip the
+ *  stale `rightPanel.collapsed` key so the blob matches the schema exactly. The
+ *  record's live geometry (`size`/`codeTabTreeSize`) and every unrelated
+ *  preference are preserved verbatim; a record with no `rightPanel` at all just
+ *  gains the top-level default and is otherwise untouched.
  *
  *  Exported so `state.test.ts` can exercise the conversion directly without
  *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
 export function migratePreferences_1_32_0(
   current: Record<string, unknown>,
 ): Record<string, unknown> {
-  const rp = current.rightPanel as Record<string, unknown> | undefined;
-  const { collapsed: _collapsed, ...restRp } = rp ?? {};
+  // Shape-guard before trusting `rightPanel` as a record: a corrupt blob could
+  // carry a non-object there, and the destructure below would otherwise treat a
+  // string/number as one.
+  const rp =
+    typeof current.rightPanel === "object" && current.rightPanel !== null
+      ? (current.rightPanel as Record<string, unknown>)
+      : undefined;
+  const { collapsed: prevCollapsed, ...restRp } = rp ?? {};
   return {
     ...DEFAULT_PREFERENCES,
     ...current,
+    // The carry-forward, placed after the spreads so it wins over the default
+    // `newTerminalCollapsed`. Falls back to the default only when the old value
+    // was absent or not a boolean.
+    newTerminalCollapsed:
+      typeof prevCollapsed === "boolean"
+        ? prevCollapsed
+        : DEFAULT_PREFERENCES.newTerminalCollapsed,
     ...(rp !== undefined && { rightPanel: restRp }),
   };
 }

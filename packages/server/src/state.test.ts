@@ -57,15 +57,17 @@ describe("migratePreferences_1_30_0", () => {
 });
 
 describe("migratePreferences_1_32_0", () => {
-  it("adds top-level newTerminalCollapsed, strips rightPanel.collapsed, keeps geometry", () => {
+  it("carries rightPanel.collapsed forward into newTerminalCollapsed, strips the stale key, keeps geometry", () => {
     const migrated = migratePreferences_1_32_0({
       newTerminalTheme: "inherit",
       rightPanel: { collapsed: true, size: 0.4, codeTabTreeSize: 0.5 },
     });
-    // The new top-level seed lands (from DEFAULT_PREFERENCES)…
-    expect(migrated.newTerminalCollapsed).toBe(
-      DEFAULT_PREFERENCES.newTerminalCollapsed,
-    );
+    // The old GLOBAL collapse preference is carried forward into the new
+    // top-level seed — `true` here, NOT reset to the default `false`. This is
+    // the falsifiable carry-forward: a user who kept the panel collapsed keeps
+    // it as their new-terminal default across the upgrade.
+    expect(migrated.newTerminalCollapsed).toBe(true);
+    expect(DEFAULT_PREFERENCES.newTerminalCollapsed).toBe(false); // guards the above from a default flip
     // …the stale per-record collapsed is gone…
     expect(migrated.rightPanel).toEqual({ size: 0.4, codeTabTreeSize: 0.5 });
     expect(migrated.rightPanel).not.toHaveProperty("collapsed");
