@@ -18,12 +18,12 @@
   <rect x="30" y="152" width="920" height="118" rx="9" fill="#141925" stroke="#3d4a63" stroke-width="1.5"/>
   <rect x="46" y="166" width="280" height="42" rx="6" fill="#1a2130" stroke="#5b8def"/>
   <text x="186" y="184" fill="#9db4e8" font-size="11" text-anchor="middle">sources into the graph</text>
-  <text x="186" y="199" fill="#8b95a7" font-size="9.5" text-anchor="middle">signalFromCallback · signalFromPoll · reactiveFamily</text>
+  <text x="186" y="199" fill="#8b95a7" font-size="9.5" text-anchor="middle">source (push | poll) · reactiveFamily (phase 3)</text>
   <rect x="342" y="166" width="280" height="42" rx="6" fill="#1a2130" stroke="#5b8def"/>
   <text x="482" y="184" fill="#9db4e8" font-size="11" text-anchor="middle">the graph: computed + $ (typed sibling reads)</text>
   <text x="482" y="199" fill="#8b95a7" font-size="9.5" text-anchor="middle">derived reads derived as computed — glitch-free diamonds</text>
   <rect x="638" y="166" width="296" height="42" rx="6" fill="#1a2130" stroke="#5b8def"/>
-  <text x="786" y="184" fill="#9db4e8" font-size="11" text-anchor="middle">exits: derived.cell / .scan / .collection / .registry</text>
+  <text x="786" y="184" fill="#9db4e8" font-size="11" text-anchor="middle">exits: derived.cell · derived.collection (· registry, ph. 3)</text>
   <text x="786" y="199" fill="#8b95a7" font-size="9.5" text-anchor="middle">each effect a leaf → applyAndPublish, untouched</text>
   <text x="490" y="228" fill="#e6eaf2" font-size="10.5" text-anchor="middle">the laws live here: equals at the member (once) · batch owned by the bridge · seeds from truth · one error wrapper (statefulness line)</text>
   <text x="490" y="245" fill="#8b95a7" font-size="10.5" text-anchor="middle">one-writer structural: a derived member has NO ctx entry and no write verbs — the second writer is unrepresentable</text>

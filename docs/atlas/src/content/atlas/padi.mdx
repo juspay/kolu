@@ -184,7 +184,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
 
-**The ratified architecture (2026-07-10).**<Footnote>Two grounded reviews: a 12-agent /architecture-first-principles + /perfection-review fan-out (3 ground readers over kolu, drishti, and the framework seams · 3 independent designs · 6 adversarial refuters — the level layer survived every adversary; browser-side frame-diff edge detection was refuted four ways: unordered streams, default-materialization double-fire after restarts, per-window dedup memory, and clear→re-raise misses inside a link flap), then an independent /hickey pass that cut the surface-map braid (attention has nothing to do with maps) and found the hydration lie, re-judged with the fact that drishti's adoption is committed and lands paired.</Footnote> Attention is **level state** ("what needs you now"), written once per host at the endpoint that can know it, carried as an ordinary per-entry cell — an event member is the wrong carrier (fired while the browser is closed or the link is flapping it is simply *gone*; a cell replays current truth on every (re)connect). **kolu mints no wire member**: the cell already exists on master — `cells.urgency` (`packages/padi/src/surface.ts`; `PadiUrgencySchema = { awaitingIds: TerminalId[] }`, padi's registry fold the sole writer, read-only on the client, no recency and no count field — the count is derived as `awaitingIds.length` at every read site, as the host strip's chips already do), the deliberately tiny per-host projection W7's K1 ruling keeps hot while full wire subscriptions stay active-host-only. **drishti's `alerts` cell is W5's one new wire member** (its server holds the metrics history — threshold + hysteresis live there — and no member carries those facts today). It lands as **two PRs**: **phase 1**, W5's framework slice, is **phase 0 of the [reactive bridge](surface-reactive-bridge.html)** — `reactor.ts` exporting `derived.cell`/`.scan` + `signalFromCallback`, riding existing seams (zero runtime surgery), drishti alerts the first consumer, paired PR — plus `updated()` change pairs and mirrors-never-fabricate, which ship regardless; **phase 2** is W5 itself on top. The full bridge phases and the campaign-1 hand-roll deletions are **separate, sequenced after** — [the bridge note](surface-reactive-bridge.html) holds them. Four framework packages gain a piece — `@kolu/surface` (the completed Dynamic + bridge phase 0), `@kolu/surface-remote` (a mirror never fabricates a value), `@kolu/surface-map` (the eager watcher), `@kolu/surface-app` (delivery) — taught end-to-end in [the attention primer](surface-attention-101.html):
+**The ratified architecture (2026-07-10).**<Footnote>Two grounded reviews: a 12-agent /architecture-first-principles + /perfection-review fan-out (3 ground readers over kolu, drishti, and the framework seams · 3 independent designs · 6 adversarial refuters — the level layer survived every adversary; browser-side frame-diff edge detection was refuted four ways: unordered streams, default-materialization double-fire after restarts, per-window dedup memory, and clear→re-raise misses inside a link flap), then an independent /hickey pass that cut the surface-map braid (attention has nothing to do with maps) and found the hydration lie, re-judged with the fact that drishti's adoption is committed and lands paired.</Footnote> Attention is **level state** ("what needs you now"), written once per host at the endpoint that can know it, carried as an ordinary per-entry cell — an event member is the wrong carrier (fired while the browser is closed or the link is flapping it is simply *gone*; a cell replays current truth on every (re)connect). **kolu mints no wire member**: the cell already exists on master — `cells.urgency` (`packages/padi/src/surface.ts`; `PadiUrgencySchema = { awaitingIds: TerminalId[] }`, padi's registry fold the sole writer, read-only on the client, no recency and no count field — the count is derived as `awaitingIds.length` at every read site, as the host strip's chips already do), the deliberately tiny per-host projection W7's K1 ruling keeps hot while full wire subscriptions stay active-host-only. **drishti's `alerts` cell is W5's one new wire member** (its server holds the metrics history — threshold + hysteresis live there — and no member carries those facts today). It lands as **two PRs**: **phase 1**, W5's framework slice, is **phase 0 of the [reactive bridge](surface-reactive-bridge.html)** — `reactor.ts` exporting `derived.cell` + `scan` + `source`, riding existing seams (zero runtime surgery), drishti alerts the first consumer, paired PR — plus `updated()` change pairs and mirrors-never-fabricate, which ship regardless; **phase 2** is W5 itself on top. The full bridge phases and the campaign-1 hand-roll deletions are **separate, sequenced after** — [the bridge note](surface-reactive-bridge.html) holds them. Four framework packages gain a piece — `@kolu/surface` (the completed Dynamic + bridge phase 0), `@kolu/surface-remote` (a mirror never fabricates a value), `@kolu/surface-map` (the eager watcher), `@kolu/surface-app` (delivery) — taught end-to-end in [the attention primer](surface-attention-101.html):
 
 ```ts
 // ── PHASE 1 · the surface refactor PR ───────────────────────────────────────
@@ -204,11 +204,11 @@ interface Subscription<T> extends Accessor<T | undefined> {
 // "undefined until the first frame" is true end-to-end; the declared default
 // belongs to the one writer, never to mirrors.
 
-// @kolu/surface — bridge phase 0: reactor.ts exports derived.cell /
-// derived.cell.scan + signalFromCallback (the engine hidden behind it,
-// lint-banned elsewhere); a derived member is wire-read-only by
-// construction (no ctx entry, no write verbs); rides the existing cell
-// connect seam. Full phases + laws: surface-reactive-bridge.html.
+// @kolu/surface — bridge phase 0: reactor.ts exports derived.cell +
+// scan + source (the engine hidden behind it, lint-banned elsewhere);
+// a derived member is wire-read-only by construction (no ctx entry,
+// no write verbs); rides the existing cell connect seam. Full phases
+// + laws: surface-reactive-bridge.html.
 
 // ── PHASE 2 · W5 — attention on top ─────────────────────────────────────────
 
@@ -249,12 +249,10 @@ drishti (the paired consumer — the one new wire member):
 
 ```ts
 // server — the one writer, declared (bridge phase 0's first consumer):
-const metrics = signalFromCallback<MetricsFrame>((emit) => installMetricsTap(emit));
-cells.alerts = derived.cell.scan({
-  over: metrics,
-  initial: () => noAlerts,   // no store — the alert level must not survive restarts
-  step: (prev, frame) => applyHysteresis(prev, frame),  // return prev ref ⇒ no publish
-});
+const metrics = source<MetricsFrame>((emit) => installMetricsTap(emit));
+cells.alerts = derived.cell(scan(metrics, noAlerts, applyHysteresis));
+// no store — the alert level must not survive restarts;
+// step returning the prev reference ⇒ no publish
 
 // client:
 const att = watchByEntry(hostMap, e => e.cells.alerts, v => v.items.map(i => i.id),

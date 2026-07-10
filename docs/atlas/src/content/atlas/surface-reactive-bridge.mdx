@@ -35,88 +35,32 @@ createEffect(() => title.set(badge() > 0 ? `(${badge()})` : ""));
 
 ## The API, symbol by symbol
 
-Every new symbol, hello-world sized — one job each. The tag names the migration phase that ships it.
+**Seven orthogonal symbols — reflex's cut**: three graph, two wire, two glue. One card each, hello-world sized; the tag names the migration phase that ships it.
 
-**`derived.cell`** *(phase 0)* — a cell computed from siblings; recomputes when they change, publishes through its own `equals` gate.
+*Graph:*
 
-```ts
-cells: {
-  name:     { schema: z.string(), default: "world" },
-  greeting: derived.cell(($) => `hello, ${$.name()}!`),
-}
-```
-
-**`derived.cell.scan`** *(phase 0)* — a cell folded through carried state; passing `store:` makes the state survive restarts — omitting it is a visible choice.
+**`source(...)`** *(phase 0)* — external input into the graph: one constructor, two argument shapes (an install callback for push; `{read, install}` for poll).
 
 ```ts
-const clicks = signalFromCallback<void>((emit) => button.onPress(emit));
-cells: {
-  count: derived.cell.scan({ over: clicks, initial: () => 0, step: (n) => n + 1 }),
-}
-```
-
-**`signalFromCallback`** *(phase 0)* — adapts any subscribe-style callback into a graph signal.
-
-```ts
-const online = signalFromCallback<boolean>(
-  (emit) => net.onChange(emit),  // install once; the returned fn uninstalls
-  true,                          // initial, until the source speaks
-);
-```
-
-**`signalFromPoll`** *(phase 2)* — a signal fed by re-reading a source on a tick; no dedup of its own — the target member's `equals` decides.
-
-```ts
-const temperature = signalFromPoll({
-  read: () => sensor.readCelsius(),          // T+0 seed; a failing FIRST read crashes boot
+const online = source<boolean>((emit) => net.onChange(emit), true);  // push
+const temperature = source({
+  read: () => sensor.readCelsius(),          // poll: T+0 seed; a failing FIRST read crashes boot
   install: (tick) => everySeconds(5, tick),  // the caller owns the cadence
 });
 ```
 
-**`derived.collection`** *(phase 2)* — a collection computed as a whole map; the bridge diffs each output against the last by the collection's `equals` and publishes only the changed keys.
+**`scan(source, initial, step)`** *(phase 0)* — an accumulation: a free-standing graph node, not a member variant. Scan takes a *source* because each emission is an occurrence that steps the fold exactly once; `$` reads are levels — current values with no per-emission meaning. Durability rides a visible options argument.
 
 ```ts
-collections: {
-  bigFiles: derived.collection(($) =>
-    filterValues($.files(), (f) => f.bytes > 1e6)),
-}
+const clicks = source<void>((emit) => button.onPress(emit));
+const count = scan(clicks, 0, (n) => n + 1);
+// durable: scan(clicks, (stored) => stored ?? 0, step, { store: conf })
 ```
 
-**`derived.collection.fromPoll`** *(phase 2 — pending Q3: may become labeled sugar over `signalFromPoll` + `derived.collection`)* — poll a keyed source; changed keys upsert, vanished keys evict.
+**`computed(fn)`** *(phase 1)* — a derived value; also the private intermediate node several members share without it becoming a wire member.
 
 ```ts
-collections: {
-  processes: derived.collection.fromPoll({
-    read: readProcessTable,   // Promise<ReadonlyMap<pid, Process>>
-    install: everySecond,
-  }),
-}
-```
-
-**`reactiveFamily`** *(phase 3)* — a keyed set of sources under one signal: membership diff, per-key last frame, per-key disposal and error isolation.
-
-```ts
-const rooms = reactiveFamily<RoomId, RoomState>({
-  members: roomIds,                         // a signal of the current key set
-  attach: (id, set) => watchRoom(id, set),  // per-key source; disposed on exit
-});
-// rooms.value: ReadonlyMap<RoomId, RoomState> — the last frame per live key
-```
-
-**`signalMap`** *(phase 4)* — a producer-side keyed store that is also a graph source: the app's registry, trackable.
-
-```ts
-const registry = signalMap<TerminalId, Terminal>();
-registry.set(id, term);   // writers mutate it like a Map…
-collections: {
-  terminals: derived.collection(() => mapValues(registry, compose)),  // …readers track it
-}
-```
-
-**`computed`** *(phase 1)* — a private intermediate node: shared work several members read, without itself becoming a wire member.
-
-```ts
-const frames = signalFromCallback<Stats>((emit) => statsTap(emit));
+const frames = source<Stats>((emit) => statsTap(emit));
 const smoothed = computed(() => ema(frames.value));  // never on the wire
 cells: {
   cpu: derived.cell(() => smoothed.value.cpu),
@@ -124,16 +68,30 @@ cells: {
 }
 ```
 
-**`ctx.batch`** *(phase 1)* — group several writes into one graph frame, so derivations recompute once.
+*Wire:*
+
+**`derived.cell(nodeOrFn)`** *(phase 0)* — publish any graph node, or a `$`-reading compute, as a cell; it publishes through the member's own `equals` gate.
 
 ```ts
-ctx.batch(() => {
-  registry.set(id, next);
-  registry.delete(oldId);
-});  // one frame → one recompute per derivation
+cells: {
+  name:     { schema: z.string(), default: "world" },
+  greeting: derived.cell(($) => `hello, ${$.name()}!`),  // a compute fn
+  count:    derived.cell(count),                         // any graph node (the scan above)
+}
 ```
 
-**`$`, the read face** *(phase 1)* — the typed sibling reader handed to every compute; reading is depending, and a derived sibling is read as its computed, never its mirror.
+**`derived.collection(nodeOrFn)`** *(phase 2)* — publish a keyed node as a collection; the bridge diffs each output against the last by the collection's `equals` and publishes only the changed keys.
+
+```ts
+collections: {
+  bigFiles:  derived.collection(($) => filterValues($.files(), (f) => f.bytes > 1e6)),
+  processes: derived.collection(source({ read: readProcessTable, install: everySecond })),
+}
+```
+
+*Glue:*
+
+**`$`** *(phase 1)* — the typed sibling reader handed to every compute; reading is depending, and a derived sibling is read as its computed, never its mirror.
 
 ```ts
 cells: {
@@ -144,14 +102,16 @@ cells: {
 }
 ```
 
-**`Subscription.updated`** *(client — ships with W5's phase 1 regardless)* — the change-iff-fired edge on any cell subscription; fires exactly when the producer's `equals` said "changed".
+**`batch`** *(phase 1)* — group several writes into one graph frame, so derivations recompute once.
 
 ```ts
-const alerts = client.cells.alerts.use();
-alerts.sub.updated(({ prev, next }) => {
-  if (next.level > prev.level) playRaiseSound();
-});
+batch(() => {
+  registry.set(id, next);
+  registry.delete(oldId);
+});  // one frame → one recompute per derivation
 ```
+
+Not carded: the keyed machinery — `reactiveFamily` *(phase 3)* and `signalMap` *(phase 4)* — arrives with its phases, introduced there. Client-side, the one new symbol stays `Subscription.updated` (the change-iff-fired edge; see the worked alerts example).
 
 ## The worked examples
 
@@ -168,25 +128,22 @@ cells: {
 },
 ```
 
-`recomputeUrgency`'s body survives with its parameter becoming the map. Deleted: `publishUrgency`, its rider, the `dropSnapshot` refold, the prose invariant — a registry writer can no longer forget urgency because the edge is tracked, not conventional. If the firehose fold ever measures hot, `ctx.batch()` around commitSnapshot's burst is the one-line lever.
+`recomputeUrgency`'s body survives with its parameter becoming the map. Deleted: `publishUrgency`, its rider, the `dropSnapshot` refold, the prose invariant — a registry writer can no longer forget urgency because the edge is tracked, not conventional. If the firehose fold ever measures hot, `batch()` around commitSnapshot's burst is the one-line lever.
 
 ### 2. drishti alerts — hysteresis scan, durability chosen in the signature
 
 ```ts
 // drishti server
-const metrics = signalFromCallback<MetricsFrame>((emit) => installMetricsTap(emit));
+const metrics = source<MetricsFrame>((emit) => installMetricsTap(emit));
 
 cells: {
-  alerts: derived.cell.scan({
-    over: metrics,
-    initial: () => noAlerts,                 // durability CHOICE: no store — alerts
-                                             // deliberately do NOT survive restart
-    step: (prev, frame) => applyHysteresis(prev, frame),  // return prev ref ⇒ no publish
-  }),
+  // durability CHOICE: no store — alerts deliberately do NOT survive restart;
+  // step returning the prev reference ⇒ no publish
+  alerts: derived.cell(scan(metrics, noAlerts, applyHysteresis)),
 },
 ```
 
-The durable variant is the same constructor with the choice explicit: `store: alertsConf, initial: (stored) => stored ?? noAlerts`. Wire-read-only by construction (no ctx entry; verbs exclude `set`/`patch`/`test__set`). A `step` throw hits the stateful policy in the one wrapper: log loudly, dispose, hold last published, flip the member's stopped-latch into health. Client side:
+The durable variant is the same scan with the choice explicit: `scan(metrics, (stored) => stored ?? noAlerts, applyHysteresis, { store: alertsConf })`. Wire-read-only by construction (no ctx entry; verbs exclude `set`/`patch`/`test__set`). A `step` throw hits the stateful policy in the one wrapper: log loudly, dispose, hold last published, flip the member's stopped-latch into health. Client side:
 
 ```ts
 const alerts = client.cells.alerts.use();
@@ -199,7 +156,7 @@ wireSubscriptionUpdated(alerts.sub, () => playRaiseSound());  // fires iff spec-
 
 ```ts
 cells: {
-  processMemory: derived.cell.fromPoll({
+  processMemory: derived.cell(source({
     read: samplePadiMemory,   // pure async read RETURNING {padi, kaval} — the honest
                               // three-way inside pollKavalRss survives verbatim
     install: (tick) => {
@@ -207,7 +164,7 @@ cells: {
       iv.unref();
       return () => clearInterval(iv);
     },
-  }),
+  })),
 },
 ```
 
@@ -219,7 +176,7 @@ The bridge owns: the T+0 seed read whose **first failure propagates** (never a f
 
 ```ts
 const hosts = reactiveFamily<string, SessionState<string>>({
-  members: signalFromCallback((emit) => pool.subscribe(() => emit(pool.hosts())), pool.hosts()),
+  members: source((emit) => pool.subscribe(() => emit(pool.hosts())), pool.hosts()),
   attach: (enc, set) => pool.getSession(enc)!.onState(set),  // snapshot-then-delta seeds sync
   onEvict: (enc) => links.delete(enc),                        // linkFor memo eviction rides exit
 });
@@ -255,9 +212,9 @@ A real diamond — terminals → urgency → overview and terminals → overview
 | law | engine posture | the bridge's enforcement |
 |---|---|---|
 | glitch-freedom | HOLDS (version-checked lazy pull) | in-process: "derived reads derived as computed, never as mirror" — chains are pure computed graphs, wire effects are leaves. Across the wire: per member only; no cross-channel frame — stated as law, not patched. |
-| transactional frames | HOLDS-WITH-DISCIPLINE (batch is opt-in) | "the bridge owns the batch": apps never hold a raw setter; every graph entry point (emit, poll tick, mirror pokes, family frames) wraps `batch()` itself; `ctx.batch()` is the one exported knob for multi-member bursts. |
+| transactional frames | HOLDS-WITH-DISCIPLINE (batch is opt-in) | "the bridge owns the batch": apps never hold a raw setter; every graph entry point (emit, poll tick, mirror pokes, family frames) wraps `batch()` itself; `batch()` is the one exported knob for multi-member bursts. |
 | change-iff-fired | HOLDS-WITH-DISCIPLINE (`!==` only) | "equals lives at the member, once": mirrors poked post-spec-equals, so graph edges inherit each member's declared equality; suppressed writes never poke; `applyAndPublish`'s gate stays the final wire dedup. The `force` re-serve write stays wire-only — a rebound-but-equal value implies equal derived state. |
-| hold's old-value law | MISSING | "prev is scan's, not the graph's": the only sanctioned previous value is `derived.cell.scan`'s carried state. No app effects exist, so nobody observes mid-propagation old values. |
+| hold's old-value law | MISSING | "prev is scan's, not the graph's": the only sanctioned previous value is `scan`'s carried state. No app effects exist, so nobody observes mid-propagation old values. |
 | mirrors-never-fabricate | — | seeds are truth by construction: authored mirrors seed from `store.get()`/`readAll()` at walk; derived cells seed by eagerly pulling their computed (throw = boot crash); poll seeds are a genuine T+0 read, first failure propagates; scan seeds `initial(stored?)`. Forwarded cells poke only on confirmed upstream frames. |
 | one-writer | — | structural, not checked: a derived member gets no ctx entry (the in-process second writer is unrepresentable) and the boot pass crashes on declared write verbs — contract, handlers, and client binding literally have no `.set`. |
 | fail-fast | VIOLATED by the engine (batch flush surfaces only the first effect error) | "no effect body escapes its wrapper": raw `effect` unexported + lint-banned; every bridge effect catches at its own boundary. One doctrine, one home: sync-at-wiring throw = boot crash; stateless compute throw = log-skip-continue holding last published; stateful step throw = log-STOP (dispose) holding last published. Mandatory: synchronous propagation runs derivations inside the writer's stack — the wrapper keeps a fold from crashing `commitSnapshot`. |
@@ -271,21 +228,21 @@ A real diamond — terminals → urgency → overview and terminals → overview
 A name survives only where its promise cannot be expressed by composition:
 
 - **`deriveCell` → survives as `derived.cell(compute)`** — the sanctioned graph exit; pins stateless, skip-continue, wire-read-only, recompute-at-boot.
-- **`scanCell` → survives as `derived.cell.scan({over, initial, step, store?})`** — pins the stop-hold doctrine and the durability question at the declaration site; the only home of prev-value access.
+- **`scanCell` → survives as the free-standing `scan(source, initial, step)`,** published via `derived.cell(scan(...))` — pins the stop-hold doctrine and the durability question at the declaration site; the only home of prev-value access.
 - **`foldCollection` → dissolves.** `derived.cell(($) => fold($.terminals()))` is the whole feature; its private second coalescer never gets built.
 - **`scanStream` → survives, outside the graph.** Signals conflate frames; a stream must see every one. Keeps snapshot-then-delta + `scanMsgSchema`.
-- **`pollCollection` → survives as `derived.collection.fromPoll({read, install})`** — pins "membership changes become wire frames" (keysBus + deltas), which a bare computed does not promise.
+- **`pollCollection` → survives as composition:** `derived.collection(source({read, install}))` — the collection wire form pins "membership changes become wire frames" (keysBus + deltas), which a bare computed does not promise; no fused name.
 - **`registryFromFamily` → transformed, split along the source/exit axis:** `reactiveFamily` (graph source) + `derived.registry` (pull-face exit); the family can also feed a `derived.collection` if that face ever earns a consumer.
 - **`combineCells` → dissolves entirely** — multiple `$` reads; likewise the whole queued tail (deriveCollection, scanCollection, mergeSources, filters/gates) dissolves into `computed` composition, including private intermediate nodes the combinator taxonomy structurally could not express.
-- The adapters rename, promises intact: `observableSource` → `signalFromCallback`, `pollSource` → `signalFromPoll`. The keyed reconciler becomes *the collection wire adapter* (diff by `CollectionSpec.equals` → wrapped publishers) — wire semantics, living in the adapter. Event names (`gateEvent`, `deriveEvent`+SKIP) are **not minted** — no consumer exists; `derived.event` gets minted if one materializes.
+- The adapters collapse to **one `source(...)`** with two argument shapes (push install; poll `{read, install}`), promises intact (T+0 seed, first-read-propagates, no private dedup). The keyed reconciler becomes *the collection wire adapter* (diff by `CollectionSpec.equals` → wrapped publishers) — wire semantics, living in the adapter. Event names (`gateEvent`, `deriveEvent`+SKIP) are **not minted** — no consumer exists; `derived.event` gets minted if one materializes.
 
-Net public vocabulary: 3 sources + `computed` + `signalMap` + one `derived.*` exit namespace + `ctx.batch` — versus the algebra's 7–8 names with 6 queued.
+Net public vocabulary: **seven orthogonal symbols** — `source` · `scan` · `computed` (graph), `derived.cell` · `derived.collection` (wire), `$` · `batch` (glue) — plus the phase-3/4 keyed machinery (`reactiveFamily`, `signalMap`); versus the algebra's 7–8 names with 6 queued.
 
 ## Migration — phase 0 IS the W5 slice
 
-- **Phase 0 — ships first, and it is [W5's framework slice](padi.html#w5).** `reactor.ts` exporting only `signalFromCallback` + `derived.cell`/`.scan` with the error wrapper and the stopped-latch→health flip; boot narrowing (derived member: no ctx entry, no write verbs); the engine's deep import lint-banned. Zero runtime surgery — derived cells ride the existing cell connect seam (`server.ts:1120`, `:1490-1494`). First consumer: drishti alerts (worked example 2), paired drishti PR per `.claude/rules/surface.md`. If a leaner W5 slice has already shipped as a plain connect block, it migrates mechanically — the connect block is literally what `derived.cell.scan` lowers to.
-- **Phase 1 — the `$` read face + first sibling derivation.** Post-equals mirror pokes on both cell write paths, version-pokes on the wrapped collection publishers; `ctx.batch`; export `computed`. Consumer: padi urgency (worked example 1) — deletes `publishUrgency`, both riders, and the prose invariant.
-- **Phase 2 — `derived.collection` + the collection connect seam,** the keyed-reconciler diff, `signalFromPoll`, the `.fromPoll` forms. Consumers: padi memorySampler + hostInventory + kolu-server processMemory; drishti's three keyed poll-reconciles (`main.ts:262-330`) — the most-repeated hand-roll in both trees dies here.
+- **Phase 0 — ships first, and it is [W5's framework slice](padi.html#w5).** `reactor.ts` exporting `derived.cell` + `scan` + `source` with the error wrapper and the stopped-latch→health flip; boot narrowing (derived member: no ctx entry, no write verbs); the engine's deep import lint-banned. Zero runtime surgery — derived cells ride the existing cell connect seam (`server.ts:1120`, `:1490-1494`). First consumer: drishti alerts (worked example 2), paired drishti PR per `.claude/rules/surface.md`. If a leaner W5 slice has already shipped as a plain connect block, it migrates mechanically — the connect block is literally what `derived.cell(scan(...))` lowers to.
+- **Phase 1 — the `$` read face + first sibling derivation.** Post-equals mirror pokes on both cell write paths, version-pokes on the wrapped collection publishers; `batch`; export `computed`. Consumer: padi urgency (worked example 1) — deletes `publishUrgency`, both riders, and the prose invariant.
+- **Phase 2 — `derived.collection` + the collection connect seam,** the keyed-reconciler diff, and `source`'s poll argument shape. Consumers: padi memorySampler + hostInventory + kolu-server processMemory; drishti's three keyed poll-reconciles (`main.ts:262-330`) — the most-repeated hand-roll in both trees dies here.
 - **Phase 3 — `reactiveFamily` + `derived.registry`.** The serveHostMap reshape (worked example 4); drishti deletes its clone.
 - **Phase 4 — the padi registry as `signalMap` (open question 9).** With it, all five `metadata.ts` publish seams collapse into `terminals: derived.collection(...)` and convention-published members end in padi; without it, only downstream derivations ride the graph. Padi's call, taken with phases 1–3 as evidence — its own adjudicated step.
 
@@ -308,7 +265,7 @@ The campaign-1 hand-roll deletions land across these phases (urgency riders P1; 
 
 1. **The engine — decided.** `@preact/signals-core` now; `@solidjs/signals` the named swap target once Solid 2.0 and its ecosystem stabilize — the probed comparison, the eliminations, and the two-way-door demonstration live in [the engine note](surface-reactor-engine.html).
 2. **The mirror-poke seam — decided, the structural fix.** The mirror rides a bridge-owned store wrapper both write paths must pass through, so a missed poke is unwritable by construction — make-illegal-states-unrepresentable beats a convention held by pinning tests.
-3. **The `.fromPoll` fused constructors:** keep as named forms, or downgrade to labeled sugar over `signalFromPoll` + `derived.cell`/`.collection` so the vocabulary stays minimal? *(srid answers after reading [the API section](#the-api-symbol-by-symbol), which marks `.fromPoll` as pending this.)*
+3. **The fused constructors — decided, minimal vocabulary.** The `.fromPoll` forms and the two source names die; poll input is `source({read, install})` composed with `derived.cell`/`derived.collection` — seven orthogonal symbols, nothing fused.
 4. **A permanently-broken derivation looks healthy.** A derived value recomputes whenever its inputs change. If one recompute throws, we log it and keep showing the last good value — the next successful recompute heals it. But if the compute starts failing *every* time (say the code hits a case it can't handle), the member keeps showing an ever-older value while its health still reads healthy — a green light on stale data. The question: after N failures in a row, should the member's health flip to unhealthy so dashboards and humans can see it's wedged? Cost: one counter. Alternative: accept that a permanently-broken derivation looks fine while lying.
 5. **Two named ergonomics patches:** the live-map identity question (what `$.someCollection()` returns across frames) and the missing server-side effect story (an app that wants to *react* without minting a member) — each a bounded patch to design, not a rethink.
 6. **scan durability migration:** `initial(stored)` is caller-owned; a versioned-migration seam waits for a second durable consumer.
@@ -319,7 +276,7 @@ The campaign-1 hand-roll deletions land across these phases (urgency riders P1; 
 
 ## Appendix — the reflex→surface mapping, exhaustively
 
-The primitive correspondences the bridge stands on — every reflex combinator family, its verdict, and its surface analog. The verdicts read in the vocabulary of the study that fed the bridge; "the fate of the seven names" above maps them (`deriveCell`/`scanCell` → `derived.cell`/`.scan`; `foldCollection`/`combineCells` → `computed` composition; `pollCollection` → `derived.collection.fromPoll`; `registryFromFamily` → `reactiveFamily` + `derived.registry`; `scanStream` survives off-graph). Legend: **EXISTS** (file:line, verified in-tree) · **ADD-SHIP** (demand named) · **ADD-DEFER** (trigger named) · **N/A** (argued). File cites are kolu `packages/surface/src/…` unless another package is named.
+The primitive correspondences the bridge stands on — every reflex combinator family, its verdict, and its surface analog. The verdicts read in the vocabulary of the study that fed the bridge; "the fate of the seven names" above maps them (`deriveCell` → `derived.cell`; `scanCell` → `scan` published via `derived.cell`; `foldCollection`/`combineCells` → `computed` composition; `pollCollection` → `derived.collection(source(...))`; `registryFromFamily` → `reactiveFamily` + `derived.registry`; `scanStream` survives off-graph). Legend: **EXISTS** (file:line, verified in-tree) · **ADD-SHIP** (demand named) · **ADD-DEFER** (trigger named) · **N/A** (argued). File cites are kolu `packages/surface/src/…` unless another package is named.
 
 | reflex combinator / family | verdict | surface analog |
 |---|---|---|
@@ -342,9 +299,9 @@ The primitive correspondences the bridge stands on — every reflex combinator f
 | `mergeIncrementalG` / `…WithMoveG` | ADD-DEFER | keyed sources joining/leaving under a membership reconcile, as a collection member — under the bridge, `reactiveFamily` feeding a `derived.collection` if that face ever earns a consumer. |
 | `behaviorCoercion` etc. | N/A | TS structural typing makes coercions free. |
 | `sample` (MonadSample) | EXISTS | synchronous `store.get()` / ctx `cells.<k>.get()` (`server.ts:1469-1474`); app-level use: `activity.ts:73-101`. |
-| `hold` / `holdDyn` | ADD-SHIP | `signalFromCallback` + `derived.cell`: hold a push source's last frame in a cell. |
+| `hold` / `holdDyn` | ADD-SHIP | `source` (push shape) + `derived.cell`: hold a push source's last frame in a cell. |
 | `holdIncremental` | EXISTS | the collection store + wrapped upsert/remove publish path (`server.ts:1585-1600`). |
-| *poll → keyed snapshot reconcile* | **ADD-SHIP** | `derived.collection.fromPoll` — no single reflex name. The most-repeated hand-roll in both trees. |
+| *poll → keyed snapshot reconcile* | **ADD-SHIP** | `derived.collection(source({read, install}))` — no single reflex name. The most-repeated hand-roll in both trees. |
 | `buildDynamic` | EXISTS-in-ADD | derived cells seed from computed truth at wiring (eager pull at walk), never a fabricated default. |
 | `headE` / `now` / `slowHeadE` | N/A | no wire demand; a raw `source` generator expresses one-shot/first-occurrence trivially. |
 | **§1 pure map/filter** | | |
@@ -371,12 +328,12 @@ The primitive correspondences the bridge stands on — every reflex combinator f
 | `filterEventKey` / `factorEvent` | N/A | the key travels as data and the client re-subscribes; stop-permanently semantics have no demand. |
 | `fanInt` / `EventSelectorInt` | N/A | perf specialization of fan. |
 | **§5 hold-class (stateful)** | | |
-| `hold`/`holdDyn` | ADD-SHIP | `signalFromCallback` (+ `derived.cell`) and `signalFromPoll` (no isEqual — dedup at the target cell's spec `equals`). |
-| `Accumulator` (`accum*`), `foldDyn`/`foldDynMaybe*` | ADD-SHIP | `derived.cell.scan` — `(state, frame) => state` fold into a cell; `accumMaybe`'s "Nothing = no update" = return the previous state reference. Demand: drishti's committed alerts scan (paired-PR campaign); the padi activityFeed adoption is conditional (the activityFeed open question). |
+| `hold`/`holdDyn` | ADD-SHIP | `source` — push and poll shapes (+ `derived.cell`); no isEqual of its own — dedup at the target cell's spec `equals`. |
+| `Accumulator` (`accum*`), `foldDyn`/`foldDynMaybe*` | ADD-SHIP | `scan` published via `derived.cell` — `(state, frame) => state` fold; `accumMaybe`'s "Nothing = no update" = return the previous state reference. Demand: drishti's committed alerts scan (paired-PR campaign); the padi activityFeed adoption is conditional (the activityFeed open question). |
 | `mapAccumDyn`/`mapAccumB` (state + output, snapshot-worthy) | ADD-SHIP | `scanStream` — carried state + per-frame delta, wire face `snapshot(state)`-then-deltas via `subscribeBeforeSnapshot` (`server.ts:350-363`). |
 | `mapAccum_` family / `numberOccurrences*` / `zipListWithEvent` | N/A → raw `source` | the state-*discarded* variants output an Event with no snapshot obligation — the honest analog is a raw `source` generator closing over carried state (`project.ts:172-179`). |
 | `accumIncremental` (fold to a PATCH) | ADD-DEFER | fold emitting collection patches instead of full refolds. Trigger: a full refold measured too hot over large N (urgency today is a deliberate, cheap full refold, `urgency.ts:23-38`). |
-| `scanDyn`/`scanDynMaybe`/`mapDynM` | ADD-SHIP | `derived.cell.scan` with a cell upstream. |
+| `scanDyn`/`scanDynMaybe`/`mapDynM` | ADD-SHIP | `scan` with a cell upstream. |
 | `count`/`toggle` | N/A named | one-line scan instances. |
 | `tailE`/`headTailE`/`takeWhileE`/…/`improvingMaybe` | N/A | prefix/suffix machines; a raw `source` generator; no in-repo demand. |
 | **§6 switching (higher-order)** | | |

@@ -59,7 +59,7 @@ The fix is subtraction: **a mirrored cell serves no frame until the authority's 
 
 ### A derived member is declared, not hand-wired (the reactive bridge, phase 0)
 
-The third piece generalizes the first two: a **derived** member — a cell whose value is a projection of some other live thing — becomes a *declaration* over a backend **signal graph**, instead of a `.set()` a human remembers to wire. The graph's engine lives behind one module, `reactor.ts` in `@kolu/surface` (its deep import lint-banned everywhere else; the engine is **decided** — `@preact/signals-core` now, `@solidjs/signals` the named swap target, per [the engine note](surface-reactor-engine.html)), and reactor.ts exports only the sanctioned shapes: `derived.cell(compute)`, `derived.cell.scan({over, initial, step, store?})`, and `signalFromCallback` for push sources. Three guarantees ride every declaration: **one writer, structural** (a derived member has no ctx entry and no wire write verbs — a second writer is unrepresentable); **dedup at the member's spec `equals`, once** — the same gate that makes `updated()`'s law true; **the framework's reconnect story** — on the wire a derived cell is an ordinary cell, so consumers can't tell it was derived.
+The third piece generalizes the first two: a **derived** member — a cell whose value is a projection of some other live thing — becomes a *declaration* over a backend **signal graph**, instead of a `.set()` a human remembers to wire. The graph's engine lives behind one module, `reactor.ts` in `@kolu/surface` (its deep import lint-banned everywhere else; the engine is **decided** — `@preact/signals-core` now, `@solidjs/signals` the named swap target, per [the engine note](surface-reactor-engine.html)), and reactor.ts exports only the sanctioned shapes: `derived.cell(nodeOrFn)`, the free-standing `scan(source, initial, step)`, and `source(...)` for external input (push or poll). Three guarantees ride every declaration: **one writer, structural** (a derived member has no ctx entry and no wire write verbs — a second writer is unrepresentable); **dedup at the member's spec `equals`, once** — the same gate that makes `updated()`'s law true; **the framework's reconnect story** — on the wire a derived cell is an ordinary cell, so consumers can't tell it was derived.
 
 W5 ships exactly **phase 0** of this — the constructors above, riding existing seams, with drishti's alerts as the first consumer. The full design — the model, the laws, the worked examples, the later phases — is [the reactive bridge](surface-reactive-bridge.html).
 
@@ -67,7 +67,7 @@ W5 ships exactly **phase 0** of this — the constructors above, riding existing
 
 **Attention is level state**: *what needs you now* — a plain value, in an ordinary per-entry cell, written by the **one endpoint per host that can actually know it**. For kolu that endpoint already exists, and so does the cell: **W5 mints no kolu wire member**. The per-terminal fact lives in padi's composed `terminals` collection (`PadiTerminalSchema`, discriminated on `state` — the active arm carries the agent state, and "awaiting the user" is a metadata fact), and its cross-host projection is **`cells.urgency`** (`packages/padi/src/surface.ts`): `PadiUrgencySchema = { awaitingIds: TerminalId[] }`, padi's registry fold the sole writer, read-only on the client. The contract is deliberately spare — ids and **no recency** (nothing cross-host ever compares two hosts' clocks), and **no count field** (a count that could disagree with `awaitingIds` would be a second source of truth for one fact, so every read site derives it as `awaitingIds.length` — the host strip's chips already do exactly this). For drishti the endpoint is the server, because the server holds the metrics history — threshold plus hysteresis need history, so they live there, never in the browser — and *its* cell does not exist yet: **`alerts` is the one new wire member in W5** (drishti's surface today carries system/process/cpu/net metric cells and no threshold fact in any member).
 
-In W5, kolu's urgency is **consume-only**: its production is unchanged (the re-production as a declared `derived.cell(($) => recomputeUrgency($.terminals()))` is bridge phase 1, sequenced after W5). drishti's alerts is born as a declared **`derived.cell.scan`**, because hysteresis is *carried state*: "crossed 80 to raise, fell below 70 to clear" is undecidable from the current sample alone — the in/out level plus the recent window rides the scan. A scan can seed its state from a persistent store when survival is wanted; the alerts scan deliberately passes none — a fresh process re-derives its level from fresh samples, and the declaration makes that choice visible.
+In W5, kolu's urgency is **consume-only**: its production is unchanged (the re-production as a declared `derived.cell(($) => recomputeUrgency($.terminals()))` is bridge phase 1, sequenced after W5). drishti's alerts is born as a declared **scan published as a cell** (`derived.cell(scan(...))`), because hysteresis is *carried state*: "crossed 80 to raise, fell below 70 to clear" is undecidable from the current sample alone — the in/out level plus the recent window rides the scan. A scan can seed its state from a persistent store when survival is wanted; the alerts scan deliberately passes none — a fresh process re-derives its level from fresh samples, and the declaration makes that choice visible.
 
 Why does the tiny `urgency` member exist at all, when the `terminals` collection already holds the truth? Because of [W7's K1 ruling](padi.html#w7): wire subscriptions stay **active-host-only** — a background host keeps no full metadata subscription. `urgency` is the deliberately tiny projection kept hot per host, so hearing from every host costs a list of ids, not a fleet of `terminals` mirrors.
 
@@ -128,12 +128,10 @@ drishti (the paired consumer — **the one new wire member**, since no member ca
 
 ```ts
 // server — the one writer, declared (bridge phase 0's first consumer):
-const metrics = signalFromCallback<MetricsFrame>((emit) => installMetricsTap(emit));
-cells.alerts = derived.cell.scan({
-  over: metrics,
-  initial: () => noAlerts,   // no store — the alert level must not survive restarts
-  step: (prev, frame) => applyHysteresis(prev, frame),  // return prev ref ⇒ no publish
-});
+const metrics = source<MetricsFrame>((emit) => installMetricsTap(emit));
+cells.alerts = derived.cell(scan(metrics, noAlerts, applyHysteresis));
+// no store — the alert level must not survive restarts;
+// step returning the prev reference ⇒ no publish
 // a held level publishes nothing (alerts' spec equals), so updated()
 // fires only on a genuine raise/clear
 
