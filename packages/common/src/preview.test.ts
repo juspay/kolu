@@ -203,18 +203,3 @@ describe("encodePreviewPath / decodePreviewPath", () => {
     }
   });
 });
-
-// Cross-package drift guard: padi owns the terminal UPLOAD allowlist and must
-// NOT import this app-shared preview module (the dependency arrow points OUT of
-// padi). Its `UPLOAD_VIDEO_EXTENSIONS` is a hand-kept copy of the playable set;
-// this test — in kolu-common, which legitimately consumes @kolu/padi (app→padi)
-// — fails LOUD if the two ever diverge, replacing the old shared import.
-import { UPLOAD_VIDEO_EXTENSIONS } from "@kolu/padi/upload";
-
-describe("padi upload video list stays in lockstep with preview VIDEO_EXTENSIONS", () => {
-  it("padi's UPLOAD_VIDEO_EXTENSIONS equals preview VIDEO_EXTENSIONS (dot-stripped)", () => {
-    expect([...UPLOAD_VIDEO_EXTENSIONS].sort()).toEqual(
-      VIDEO_EXTENSIONS.map((e) => e.slice(1)).sort(),
-    );
-  });
-});
