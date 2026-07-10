@@ -6,7 +6,7 @@
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile as fsReadFile } from "node:fs/promises";
+import { open as fsOpen, readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
 import { err, type GitResult, ok } from "./errors.ts";
@@ -128,6 +128,12 @@ export async function readFile(
   }
 }
 
+/** Cap on the bytes fed to the preview-tag hash (32 MiB). Below it the whole
+ *  file is hashed; above it only the size + this many leading bytes, so a
+ *  multi-GB previewable video never lands whole in the serving padi's heap —
+ *  honoring serve-dir's never-buffer invariant on the identity path too. */
+const MAX_TAG_HASH_BYTES = 32 * 1024 * 1024;
+
 /** A cache-buster TAG for the iframe preview URL (the `?v=<tag>` on the binary
  *  route). The contract: the tag changes **iff the file's bytes change**, so an
  *  edit reloads the preview but an identical-content rewrite does NOT. The
@@ -149,8 +155,42 @@ export async function statFileContentTag(
   const resolved = await resolveExistingUnder(repoPath, filePath, log);
   if (!resolved.ok) return resolved as GitResult<string>;
   try {
-    const bytes = await fsReadFile(resolved.value.abs);
-    return ok(createHash("sha1").update(bytes).digest("hex"));
+    const { size } = await fsStat(resolved.value.abs);
+    const hash = createHash("sha1");
+    if (size <= MAX_TAG_HASH_BYTES) {
+      // Small enough to hash whole — the honest byte identity, stable across an
+      // identical-content rewrite. Covers every realistic scrollable/raster
+      // preview (html/svg/pdf/image), where the scroll-preservation fix lives.
+      hash.update(await fsReadFile(resolved.value.abs));
+    } else {
+      // Too big to slurp (a previewable multi-GB video): hash the size plus only
+      // the first MAX_TAG_HASH_BYTES, streamed into a fixed buffer so the body
+      // never lands whole in the (possibly remote) padi heap on a
+      // `subscribeFileChange` pulse. Stays stable across an identical-content
+      // rewrite (same size + same prefix); the only miss is a same-size
+      // mid/tail-only video edit — a harmless missed reload for a kind that
+      // doesn't scroll anyway.
+      hash.update(String(size));
+      const fh = await fsOpen(resolved.value.abs, "r");
+      try {
+        const buf = Buffer.allocUnsafe(MAX_TAG_HASH_BYTES);
+        let off = 0;
+        while (off < MAX_TAG_HASH_BYTES) {
+          const { bytesRead } = await fh.read(
+            buf,
+            off,
+            MAX_TAG_HASH_BYTES - off,
+            off,
+          );
+          if (bytesRead === 0) break;
+          off += bytesRead;
+        }
+        hash.update(buf.subarray(0, off));
+      } finally {
+        await fh.close();
+      }
+    }
+    return ok(hash.digest("hex"));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return err({ code: "GIT_FAILED", message: `Failed to stat file: ${msg}` });
