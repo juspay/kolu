@@ -201,6 +201,14 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+/** The one `--worktree over --host needs --repo` usage-error message. Named once
+ *  because it is enforced at TWO sites — the pre-dial fast-path in `main` (fail
+ *  before Nix-provisioning a cold host) and the transport-blind invariant in
+ *  `cmdCreate` (`repoPath === undefined` iff host + no --repo) — so the two can't
+ *  drift. Both guards stay; only the string is shared. */
+const WORKTREE_OVER_HOST_NEEDS_REPO =
+  "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.";
+
 /** The socket to dial. The selection policy (`--socket` wins; else `--state-root`;
  *  else $PADI_SOCKET; else discover) plus the candidate labels live in the shared
  *  `resolveRunningPadiSocket` (the dial kit), so here padi-tui only renders the
@@ -508,9 +516,7 @@ async function cmdCreate(
   if (flags.worktree !== undefined) {
     const repoPath = flags.repo ?? conn.localCwd;
     if (repoPath === undefined) {
-      fail(
-        "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.",
-      );
+      fail(WORKTREE_OVER_HOST_NEEDS_REPO);
     }
     worktree = { repoPath, name: flags.worktree };
   }
@@ -595,9 +601,7 @@ async function main(): Promise<void> {
     argv.flags.worktree !== undefined &&
     argv.flags.repo === undefined
   ) {
-    fail(
-      "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.",
-    );
+    fail(WORKTREE_OVER_HOST_NEEDS_REPO);
   }
 
   const conn: Connection =
