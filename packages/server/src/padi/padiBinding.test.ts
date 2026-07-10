@@ -733,9 +733,10 @@ describe("resolvePadiLaunch — the from-source entrypoint (KOLU_PADI_BIN unset)
       const importIdx = args.indexOf("--import");
       expect(importIdx).toBeGreaterThanOrEqual(0);
       const binTs = args[importIdx + 2];
-      expect(binTs).toBeDefined();
-      expect(binTs?.endsWith("packages/padi/src/bin.ts")).toBe(true);
-      expect(existsSync(binTs as string)).toBe(true);
+      if (binTs === undefined)
+        throw new Error("expected --import to be followed by a bin.ts path");
+      expect(binTs.endsWith("packages/padi/src/bin.ts")).toBe(true);
+      expect(existsSync(binTs)).toBe(true);
     } finally {
       if (prev === undefined) delete process.env.KOLU_PADI_BIN;
       else process.env.KOLU_PADI_BIN = prev;
