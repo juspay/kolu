@@ -420,7 +420,7 @@ A nullable, sentinel, or optional whose **absent value carries more than one mea
 Guidance: prefer a `{ kind: … }` discriminated union — one arm per state, each carrying exactly the data that state has, dispatched with `ts-pattern` (`prefer-ts-pattern`). `SurfaceIdentity` (`packages/surface/src/identity.ts`) is the canonical exemplar. It began as `identity(): T | null` (null = no link) **and** `baked: T | null` (null = no build) **and** `commit: string` (`""` conflating a dev tree with a real commit) — two nulls and a `""` sentinel, three overlapping questions — and became:
 
 ```ts
-// Before — three nulls, a reader guessing which question each answers:
+// Before — two nulls and a "" sentinel, a reader guessing which question each answers:
 type SurfaceIdentity = { identity: T | null; baked: BakedIdentity | null };
 //   identity null → no live link?  errored?
 //   baked null    → no build?      disconnected so unknown?
