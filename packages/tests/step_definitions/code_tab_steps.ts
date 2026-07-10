@@ -5,8 +5,30 @@ import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
   type KoluWorld,
+  MOD_KEY,
   POLL_TIMEOUT,
 } from "../support/world.ts";
+
+/** Ensure the right panel is expanded for the ACTIVE terminal before touching
+ *  the Code tab. Panel collapse is PER-TERMINAL now (#1753): a freshly-created
+ *  or switched-to terminal starts collapsed under the e2e fixture (which seeds
+ *  new terminals collapsed via `newTerminalCollapsed`), so its Code tab is
+ *  hidden until opened. Idempotent — a no-op when the panel is already open (so
+ *  it never masks a scenario that deliberately left it collapsed); when
+ *  collapsed it presses the toggle and waits for the Code-tab button to paint.
+ *  `data-collapsed` is the RightPanel's canonical "not visible" marker. */
+async function ensurePanelOpen(world: KoluWorld): Promise<void> {
+  const collapsed =
+    (await world.page
+      .locator('[data-testid="right-panel"][data-collapsed]')
+      .count()) > 0;
+  if (!collapsed) return;
+  await world.page.keyboard.press(`${MOD_KEY}+Alt+b`);
+  await world.page
+    .locator('[data-testid="right-panel-tab-code"]')
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await world.waitForFrame();
+}
 
 // ── Pierre tree selectors ──
 //
@@ -76,6 +98,7 @@ async function waitForChangedFile(world: KoluWorld, path: string) {
 // ── Actions ──
 
 When("I click the Code tab", async function (this: KoluWorld) {
+  await ensurePanelOpen(this);
   const tab = this.page.locator('[data-testid="right-panel-tab-code"]');
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await tab.click();
@@ -329,6 +352,9 @@ Then("the Inspector tab should be active", async function (this: KoluWorld) {
 Then(
   "the Code tab should indicate no git repository",
   async function (this: KoluWorld) {
+    // The panel may be collapsed on a just-created/switched-to terminal
+    // (per-terminal collapse, #1753) — reveal it before reading its content.
+    await ensurePanelOpen(this);
     const msg = this.page.locator('[data-testid="diff-no-repo"]');
     await msg.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
@@ -1535,6 +1561,7 @@ async function activateCodeTabMode(
   world: KoluWorld,
   mode: CodeTabMode,
 ): Promise<void> {
+  await ensurePanelOpen(world);
   const tab = world.page.locator('[data-testid="right-panel-tab-code"]');
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await tab.click();
