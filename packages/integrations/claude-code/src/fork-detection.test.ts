@@ -6,7 +6,20 @@
  *  `outstandingBackgroundTasks`. These cover the filesystem-based detection that
  *  replaces it: enumerate `subagents/agent-<id>.meta.json` tagged
  *  `agentType:"fork"`, drop the finished (`completed`) and the orphaned (stale
- *  transcript mtime), and keep the live ones. */
+ *  transcript mtime), and keep the live ones.
+ *
+ *  E2E EXEMPTION (srid's stage-5 (b) ruling, token OLLAMA-E2E-R3W7). This
+ *  filesystem derivation is the ONLY automated coverage of the fork →
+ *  running_background promotion, and it stays a pure-function unit test rather
+ *  than an e2e against a real `claude`. The (b) attempt was run and FAILED with
+ *  decisive evidence: real claude v2.1.76 `/fork` enters the fork
+ *  INTERACTIVELY ("Forked conversation … You are now in the fork."), foreground
+ *  — there is no BACKGROUND sub-agent, so no running_background state exists to
+ *  observe (the sensor correctly stays `waiting`). The mock scenario's premise
+ *  (a `/fork` spawns a background sub-agent) no longer matches the CLI, so an
+ *  e2e can't reproduce it; the on-disk derivation — which still fires when a
+ *  background fork DOES exist — is exercised here. RESUMPTION: if a future
+ *  claude reintroduces background forks, add a real e2e to claude-cli-real. */
 
 import fs from "node:fs";
 import os from "node:os";

@@ -159,6 +159,7 @@ After({ tags: "@codex-real" }, () => cleanupAgentSessions("Codex"));
 After({ tags: "@claude-real" }, () => cleanupAgentSessions("Claude"));
 After({ tags: "@opencode-real" }, () => cleanupAgentSessions("Opencode"));
 After({ tags: "@grok-real" }, () => cleanupAgentSessions("Grok"));
+After({ tags: "@claude-cli-real" }, () => cleanupAgentSessions("Claude"));
 
 // Evidence via the LANE (no local runs): on a real-agent failure, dump the padi
 // provider log tail + a listing of the throwaway home's agent data dirs into
@@ -276,6 +277,51 @@ When(
     // did: a 6s capture wait raced all three agents to "waiting" on darwin).
     // Failure evidence comes from the After hook's live-page buffer read, not a
     // mid-flight snapshot.
+  },
+);
+
+// --- CLI-feature / user-action interactions (stage-5 "(b)" real attempts) ---
+// These drive a CLI feature or a user action whose resulting state is STABLE
+// (persists until the next action) — unlike a transient mid-turn state — so a
+// real turn on a dumb model can still exercise kolu's detection of it.
+
+When(
+  "I interrupt the running {word} turn with Escape",
+  async function (this: KoluWorld, _word: string) {
+    // The user pressing Esc during a turn — claude writes an interrupt marker to
+    // the transcript, which deriveState reads as waiting.
+    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    await this.page.keyboard.press("Escape");
+  },
+);
+
+When(
+  "I run the {word} slash command {string}",
+  async function (this: KoluWorld, _word: string, command: string) {
+    // Type a slash command (e.g. /compact, /fork <prompt>) and submit it.
+    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    await this.page.keyboard.type(command, { delay: 25 });
+    await new Promise((r) => setTimeout(r, 500));
+    await this.page.keyboard.press("Enter");
+  },
+);
+
+When(
+  "I exit and resume the real {word} agent",
+  async function (this: KoluWorld, word: string) {
+    // Exit the CLI (double Ctrl-C) and relaunch it with --continue, which resumes
+    // the most recent session for the cwd — the previous-session-JSONL path.
+    const a = agent(word);
+    const bin = process.env[a.binEnv];
+    assert.ok(bin, `${a.binEnv} unset — hooks.ts should resolve the CLI path.`);
+    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    await this.page.keyboard.press("Control+c");
+    await new Promise((r) => setTimeout(r, 300));
+    await this.page.keyboard.press("Control+c");
+    await new Promise((r) => setTimeout(r, 1500));
+    await this.terminalRun(`${bin} --continue`);
+    await waitForBufferContains(this.page, a.marker, { timeout: 30_000 });
+    await new Promise((r) => setTimeout(r, a.settleMs ?? 3000));
   },
 );
 
