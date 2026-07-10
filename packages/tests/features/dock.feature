@@ -126,16 +126,16 @@ Feature: Dock
     Then the dock section should carry a repo-colour spine
     And the dock section header should be sticky
 
-  Scenario: Dock activity-window selector defaults to 24h and shares with the minimap
-    # The dock header carries a compact `24h ▾` chip mirroring the
+  Scenario: Dock activity-window selector defaults to All and shares with the minimap
+    # The dock header carries a compact `All ▾` chip mirroring the
     # minimap's existing window picker. Both surfaces consume the same
     # `kolu-activity-window` localStorage signal, so picking a window in
     # one surface updates the other — one user truth, one persisted
-    # choice. Default `24h` (from `DEFAULT_ACTIVITY_WINDOW` in
+    # choice. Default `all` (from `DEFAULT_ACTIVITY_WINDOW` in
     # `activityWindow.ts`).
     Then the dock window trigger should be visible
-    And the dock window should be "24h"
-    And the minimap window should be "24h"
+    And the dock window should be "all"
+    And the minimap window should be "all"
     When I click the dock window trigger
     And I pick the dock window option "12h"
     Then the dock window should be "12h"

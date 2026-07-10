@@ -132,12 +132,12 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
     });
   });
 
-  it("activityWindow: set on A → B sees 24h (default) → back to A restores 4h, and A's per-host key is written", async () => {
+  it("activityWindow: set on A → B sees all (default) → back to A restores 4h, and A's per-host key is written", async () => {
     await createRoot(async (dispose) => {
       try {
         switchTo(HOST_A);
         await flush();
-        expect(activityWindow()).toBe("24h");
+        expect(activityWindow()).toBe("all");
         setActivityWindow("4h");
         expect(activityWindow()).toBe("4h");
         await flush();
@@ -146,7 +146,7 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
 
         switchTo(HOST_B);
         await flush();
-        expect(activityWindow()).toBe("24h");
+        expect(activityWindow()).toBe("all");
 
         switchTo(HOST_A);
         await flush();
