@@ -1,0 +1,367 @@
+---
+title: Host switching — UI prototypes
+description: The host tab bar is a solid browser-tab metaphor, but it reads as a toolbar bolted above the canvas, switching is mouse-only, and it never leaves the tab-row box. This note renders the bar as it is, then pushes on two axes the first cut missed — visual craft (frosted glass, per-host hue, a seam that dissolves into the canvas, motion) and paradigm (the host as a coloured room; a zoom-out host map that rides kolu's canvas camera) — each as a faithful mockup grounded in the seams the code already exposes.
+parents: [pty-daemon-chrome-bar, feature]
+status: implemented
+maturity: budding
+updated: 2026-07-09
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import D2 from "../../components/D2.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+
+Kolu renders each host as a browser-style tab — click to switch, `+` to add over
+ssh, `✕` to drop. <Cite file="packages/client/src/host/HostSelectorStrip.tsx" /> It's
+a *good* start: the metaphor needs no manual, health is legible before you switch,
+and the strip degrades to an overflow menu as it narrows. But it's stuck on two
+axes. It **looks** like a toolbar bolted above the canvas — hard borders, flat
+fills, an opaque band with a seam. And it never leaves the **tab-row box**: every
+idea is still "a row of tabs." This note fixes the first cut on both — craft, then
+paradigm.
+
+export const HS = () => (
+  <style>{`
+  .hs-win{max-width:44rem;margin:1.4rem 0;border:1px solid #e6e2d6;border-radius:14px;overflow:hidden;box-shadow:0 6px 22px rgba(40,20,60,.12);font-family:ui-sans-serif,system-ui}
+  .hs-title{display:flex;align-items:center;gap:.5rem;padding:.5rem .8rem;background:linear-gradient(90deg,#a21caf,#9333ea);color:#fff}
+  .hs-title .tl{width:11px;height:11px;border-radius:50%;display:inline-block}
+  .hs-title b{margin-left:.5rem;font:600 .74rem/1 ui-sans-serif,system-ui;letter-spacing:.01em;opacity:.96}
+  /* the canvas the bar sits on — a real grid, so "fit with the canvas" is visible */
+  .cv{background:#faf8fd;background-image:linear-gradient(#ece7f3 1px,transparent 1px),linear-gradient(90deg,#ece7f3 1px,transparent 1px);background-size:26px 26px}
+  /* ── baseline bar ── */
+  .hs-bar{display:flex;align-items:flex-end;gap:.45rem;padding:.5rem .6rem 0;background:#f6f1f8;border-bottom:1px solid #e4d8ea;min-height:44px}
+  .hs-logo{display:flex;flex-direction:column;gap:2px;padding-bottom:8px;flex:none}
+  .hs-logo i{display:block;height:3px;border-radius:2px}
+  .hs-tab{display:inline-flex;align-items:center;gap:.4rem;height:30px;padding:0 .35rem 0 .55rem;margin-bottom:-1px;border:1px solid #ddd4e2;border-bottom-color:transparent;border-radius:7px 7px 0 0;background:#ece5f0;color:#5f5866;font:500 .74rem/1 ui-sans-serif,system-ui;white-space:nowrap}
+  .hs-tab.active{border-color:rgba(162,28,175,.5);background:rgba(162,28,175,.10);color:#1a1c20}
+  .hs-dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .hs-ok{background:#16a34a}.hs-warn{background:#ca8a04}.hs-bad{background:#dc2626}.hs-idle{background:#9aa0aa}
+  .hs-dm{width:20px;height:20px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font:700 9px/1 ui-monospace,monospace}
+  .hs-padi{background:#e3f4e9;color:#1b7a3a;border:1px solid #bce3c8}
+  .hs-kaval{background:#1f2430;color:#7dd3a8}
+  .hs-badge{min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:rgba(202,138,4,.92);color:#231a00;font:700 10px/16px ui-monospace,monospace;text-align:center;flex:none}
+  .hs-x{width:18px;height:22px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;color:#a99fb0;font-size:11px}
+  .hs-add{width:26px;height:26px;margin-bottom:2px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;color:#9a8fa4;font-size:16px;flex:none}
+  /* ── polished bar: frosted glass, hue accent, seam dissolves into canvas ── */
+  .gbar{position:relative;display:flex;align-items:flex-end;gap:.5rem;padding:.55rem .7rem 0;min-height:46px;background:rgba(252,250,254,.66);backdrop-filter:blur(12px) saturate(1.3);-webkit-backdrop-filter:blur(12px) saturate(1.3);box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 1px 0 rgba(120,80,150,.08)}
+  .gtab{position:relative;display:inline-flex;align-items:center;gap:.45rem;height:32px;padding:0 .4rem 0 .62rem;border-radius:10px 10px 0 0;color:#6a6274;font:600 .76rem/1 ui-sans-serif,system-ui;white-space:nowrap;transition:background .18s,color .18s,box-shadow .18s}
+  .gtab:not(.on):hover{background:rgba(255,255,255,.5);color:#3a3442}
+  .gtab.on{color:#241f2c;background:#fbf9fe;box-shadow:0 -1px 0 var(--hue) inset,0 -8px 14px -10px var(--hue),0 -.5px 0 rgba(0,0,0,.04)}
+  /* the active tab's belly: a slab of the same surface that bleeds 8px into the canvas so there's no seam */
+  .belly{position:absolute;left:0;right:0;bottom:-8px;height:9px;background:#fbf9fe}
+  .huedot{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--hue) 22%,transparent)}
+  .gdm{width:19px;height:19px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font:700 9px/1 ui-monospace,monospace;opacity:.9}
+  .gx{width:17px;height:20px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;color:#b3a9bd;font-size:11px}
+  .gadd{width:28px;height:28px;margin-bottom:3px;display:inline-flex;align-items:center;justify-content:center;border-radius:9px;color:#9a8fa4;font-size:16px;background:rgba(255,255,255,.4);flex:none}
+  /* ── room paradigm ── */
+  .room{position:relative;height:180px;overflow:hidden}
+  .room .halo{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% -20%,color-mix(in srgb,var(--hue) 26%,transparent),transparent 60%);pointer-events:none}
+  .room .edge{position:absolute;inset:0;box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--hue) 30%,transparent),inset 0 0 40px color-mix(in srgb,var(--hue) 12%,transparent);pointer-events:none}
+  .presence{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:inline-flex;align-items:center;gap:.5rem;padding:.34rem .7rem;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 4px 14px rgba(50,20,70,.14),inset 0 0 0 1px rgba(255,255,255,.6);font:600 .76rem/1 ui-sans-serif,system-ui;color:#2a2533}
+  .bloom{position:absolute;top:52px;left:50%;transform:translateX(-50%);width:200px;padding:.35rem;border-radius:12px;background:rgba(255,255,255,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 16px 34px rgba(50,20,70,.2),inset 0 0 0 1px rgba(255,255,255,.6)}
+  .rchip{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:8px;font:600 .76rem/1 ui-sans-serif,system-ui;color:#3a3442}
+  .rchip.on{background:color-mix(in srgb,var(--hue) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--hue) 34%,transparent)}
+  .rbar{width:3px;height:16px;border-radius:2px;background:var(--hue);flex:none}
+  /* ── host-map paradigm ── */
+  .mc{position:relative;padding:1.1rem;display:flex;gap:.85rem;justify-content:center;align-items:stretch}
+  .mcard{position:relative;width:150px;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 4px 14px rgba(40,20,60,.12);transition:transform .18s,box-shadow .18s}
+  .mcard.on{transform:translateY(-6px) scale(1.03);box-shadow:0 12px 26px rgba(40,20,60,.2),0 0 0 2px var(--hue)}
+  .mcard.await{box-shadow:0 6px 18px rgba(202,138,4,.28),0 0 0 2px rgba(202,138,4,.65)}
+  .mhead{display:flex;align-items:center;gap:.4rem;padding:.4rem .55rem;font:700 .68rem/1 ui-sans-serif,system-ui;color:#2c2735;border-bottom:1px solid #eee7f2;background:color-mix(in srgb,var(--hue) 7%,#fff)}
+  .mbody{height:78px;padding:.5rem .55rem;font:500 8.5px/1.5 ui-monospace,monospace;color:#8a8296;background:#fcfbfe}
+  .fl{height:5px;border-radius:2px;background:#e7e1ef;margin-bottom:4px}
+  .mtile{position:absolute;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(120,80,150,.25)}
+  /* ── shared bits ── */
+  .hs-kbd{display:inline-flex;align-items:center;height:17px;padding:0 5px;border:1px solid #d6ccdf;border-bottom-width:2px;border-radius:5px;background:#fbf8fd;color:#6b6472;font:600 10px/1 ui-monospace,monospace}
+  .hs-cap{padding:.75rem .95rem .9rem;background:#fff;font:500 .74rem/1.55 ui-sans-serif,system-ui;color:#5b6470;border-top:1px solid #eee}
+  .hs-cap b{color:#262a2e}.hs-cap .ok{color:#16a34a}.hs-cap .am{color:#b8860b}.hs-cap code{font-size:.9em;background:#f2eef6;padding:.05rem .3rem;border-radius:4px}
+  .hs-pal{max-width:26rem;margin:0 auto;background:rgba(255,255,255,.9);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:12px;box-shadow:0 18px 40px rgba(60,20,80,.2),inset 0 0 0 1px rgba(255,255,255,.6);overflow:hidden}
+  .hs-search{display:flex;align-items:center;gap:.5rem;padding:.6rem .75rem;border-bottom:1px solid #eee6f0;color:#8a8296;font:500 .8rem/1 ui-sans-serif,system-ui}
+  .hs-search .cur{color:#1a1c20}
+  .hs-sec{padding:.35rem .8rem .2rem;font:700 .58rem/1 ui-sans-serif,system-ui;letter-spacing:.08em;text-transform:uppercase;color:#a79bb2}
+  .hs-row{display:flex;align-items:center;gap:.55rem;padding:.42rem .7rem;margin:.1rem .35rem;border-radius:8px}
+  .hs-row.sel{background:rgba(162,28,175,.10);box-shadow:inset 0 0 0 1px rgba(162,28,175,.28)}
+  .hs-row .nm{font:600 .8rem/1.2 ui-sans-serif,system-ui;color:#26222c}
+  .hs-row .sub{font:500 .66rem/1.2 ui-sans-serif,system-ui;color:#948aa0}
+  .hs-row .grow{flex:1;min-width:0}
+  .hs-drop{max-width:22rem;margin:.2rem 0;background:#fff;border:1px solid #ddd4e2;border-radius:9px;box-shadow:0 10px 26px rgba(60,20,80,.14);overflow:hidden}
+  .hs-in{display:flex;align-items:center;gap:.4rem;padding:.5rem .65rem;border-bottom:1px solid #eee6f0;font:500 .78rem/1 ui-monospace,monospace;color:#26222c}
+  .hs-in .ghost{color:#b4a9c0}
+  .hs-opt{display:flex;align-items:center;gap:.55rem;padding:.4rem .7rem;font:500 .76rem/1 ui-monospace,monospace;color:#4a4453}
+  .hs-opt.sel{background:rgba(162,28,175,.08)}
+  .hs-opt .tag{margin-left:auto;font:600 .58rem/1 ui-sans-serif,system-ui;letter-spacing:.04em;text-transform:uppercase;color:#a79bb2;background:#f2eef6;padding:.15rem .4rem;border-radius:4px}
+  @media (prefers-reduced-motion:reduce){.hs-win *{transition:none!important;animation:none!important}}
+  `}</style>
+);
+
+export const Logo = () => (
+  <span class="hs-logo" aria-hidden="true">
+    <i style="width:12px;background:#a21caf" />
+    <i style="width:16px;background:#7c3aed" />
+    <i style="width:20px;background:#16a34a" />
+  </span>
+);
+
+export const Padi = () => <span class="hs-dm hs-padi" title="Padi">P</span>;
+export const Kaval = () => <span class="hs-dm hs-kaval" title="Kaval">&gt;_</span>;
+
+<HS />
+
+## The bar today
+
+Three hosts as tabs. Each carries a connection dot, the name, a fixed-width
+**Padi · Kaval** slot (so a sick remote shows red *before* you switch), an optional
+amber **awaiting** count, and — for guests — a remove `✕`. A click writes
+`activeHost` and the canvas re-keys; no reload.<Footnote>The switch is a synchronous
+signal write — `setActiveHost(props.host)` in <Cite file="packages/client/src/host/HostSelectorStrip.tsx" />; `useEntry(activeHost)` re-keys the per-host canvas. Nothing reflows because every tab reserves the same daemon-slot width whether active or not.</Footnote>
+
+<div class="hs-win">
+  <div class="hs-title">
+    <span class="tl" style="background:#ff5f56" /><span class="tl" style="background:#ffbd2e" /><span class="tl" style="background:#27c93f" />
+    <b>Kolu [pureintent] — Kolu [srid@zest]</b>
+  </div>
+  <div class="hs-bar">
+    <Logo />
+    <span class="hs-tab"><span class="hs-dot hs-ok" />local<Padi /><Kaval /></span>
+    <span class="hs-tab active"><span class="hs-dot hs-ok" />srid@zest<Padi /><Kaval /><span class="hs-x">✕</span></span>
+    <span class="hs-tab"><span class="hs-dot hs-ok" />sincereintent<span class="hs-badge">2</span><Padi /><Kaval /><span class="hs-x">✕</span></span>
+    <span class="hs-add">+</span>
+  </div>
+  <div class="cv" style="height:34px" />
+  <div class="hs-cap">
+    Faithful to the shipped strip. Health reads well — the <b class="ok">green</b> dots and the amber <b class="am">2</b> say <code>sincereintent</code> has agents waiting. But look at the seam: a hard <b>opaque band</b> with a 1px border sits <i>on top of</i> the canvas grid, not part of it.
+  </div>
+</div>
+
+Three problems the first cut left standing:
+
+- **It reads as a toolbar, not part of the workspace.** Opaque fill, hard border, a
+  visible seam against the canvas. Nothing about it says "this *is* the canvas's
+  frame."
+- **It never leaves the tab-row box.** Every host is a rectangle in a row; add enough
+  and it overflows into a `⋯` menu. The row is the ceiling.
+- **Switching is mouse-only, and the keyboard tier is taken.** `⌘1–9` is positional
+  *terminal* switch, `Ctrl+Tab` cycles terminals, `⌘T`/`⌘N` make one — hosts get
+  nothing.<Footnote>Confirmed in <Cite file="packages/client/src/input/actions.ts" />: the `switchTo1…9` block binds `{ key: String(i), mod: true }` to dock-row terminal switch, and `Ctrl+Tab` (`shiftOptional`) cycles terminals. The palette (<Cite file="packages/client/src/commands.tsx" />) registers no host action. So a host keyboard path can't borrow the number row — that tier belongs to terminals.</Footnote>
+
+## Make the box beautiful
+
+Before changing the paradigm, fix the *craft* — same tab metaphor, but it stops
+looking bolted-on. Four moves: **frost the band** so the canvas grid shows through
+(it becomes a lens over the workspace, not a lid); give each host its **own hue** —
+a coloured focus ring on the dot and, on the active tab, a soft hue underglow — so a
+host feels like a *place*, not a label; **dissolve the seam** by letting the active
+tab's belly bleed into the canvas (the connected-tab metaphor done right — no border
+line between "active host" and "its canvas"); and **cross-fade on switch** (150 ms
+hue + belly slide) so hopping hosts feels like moving, not repainting.
+
+<div class="hs-win">
+  <div class="cv">
+    <div class="gbar">
+      <Logo />
+      <span class="gtab" style="--hue:#64748b"><span class="huedot" style="background:#64748b" />local</span>
+      <span class="gtab on" style="--hue:#7c3aed"><span class="belly" /><span class="huedot" style="background:#7c3aed" />srid@zest<span class="gdm hs-padi">P</span><span class="gdm hs-kaval">&gt;_</span><span class="gx">✕</span></span>
+      <span class="gtab" style="--hue:#0d9488"><span class="huedot" style="background:#0d9488" />sincereintent<span class="hs-badge">2</span></span>
+      <span class="gadd">+</span>
+    </div>
+    <div style="height:56px" />
+  </div>
+  <div class="hs-cap">
+    Same tabs, real craft. The band is <b>frosted glass</b> — the grid reads straight through it. Each host owns a <b>hue</b> (<span style="color:#64748b">slate</span> · <span style="color:#7c3aed">violet</span> · <span style="color:#0d9488">teal</span>); the active tab glows in its hue and its <b>belly dissolves into the canvas</b> — no seam. A switch cross-fades the hue and slides the belly. Resting tabs are quiet; the active one is rich.
+  </div>
+</div>
+
+<Callout kind="note" title="The hue already existed — we just spent it better">
+The starting point (before this note shipped): kolu derived a per-hostname theme
+colour and tinted the whole window chrome with it — a faint whole-bar wash read off
+<code>themeColor()</code> in <Cite file="packages/client/src/ChromeBar.tsx" />. The
+shipped design promotes that colour to a *per-host* identity — one hue per tab, the
+active hue underglowing the belly — and makes the header itself **neutral** (the
+colour lives on the tabs, not a same-hue band that swallowed them). The seed→palette
+function now lives in <Cite file="packages/common/src/hostHue.ts" /> as the single
+source of truth shared by the server's PWA <code>theme-color</code> and the client's
+tab/canvas hue; each chip just carries a <code>--hue</code> custom property.
+<code>color-mix</code> and <code>backdrop-filter</code> are the whole toolkit.
+</Callout>
+
+## Out of the box · the host as a room
+
+Now leave the row. A host isn't a document you tab between — it's a **place** you're
+*inside*. So drop the tab strip and let the active host own the whole window: its hue
+washes the canvas edges in a soft halo, and identity collapses to **one** thing — a
+**presence pill** floating at the top ("you are in `srid@zest`"). Click it (or `⌘K`)
+and it **blooms** into a vertical list of rooms, each in its own hue, that you
+*teleport* between with a full-window hue cross-fade. No row to overflow: ten hosts
+is a scroll, not a `⋯` menu.
+
+<div class="hs-win">
+  <div class="cv room" style="--hue:#7c3aed">
+    <div class="halo" /><div class="edge" />
+    <div class="presence"><span class="huedot" style="background:#7c3aed" />srid@zest<span style="color:#a79bb2">▾</span></div>
+    <div class="bloom">
+      <div class="rchip" style="--hue:#64748b"><span class="rbar" style="background:#64748b" /><span class="huedot" style="background:#64748b" />local</div>
+      <div class="rchip on" style="--hue:#7c3aed"><span class="rbar" /><span class="huedot" style="background:#7c3aed" />srid@zest</div>
+      <div class="rchip" style="--hue:#0d9488"><span class="rbar" style="background:#0d9488" /><span class="huedot" style="background:#0d9488" />sincereintent<span class="hs-badge" style="margin-left:auto">2</span></div>
+    </div>
+  </div>
+  <div class="hs-cap">
+    The active host <b>is the environment</b> — a violet halo bleeds in from the top edge, so you always feel <i>where you are</i> without reading a label. Identity is one <b>presence pill</b>; clicking it blooms the room list. Switching cross-fades the whole halo to the next hue. This is the strongest "fit with the canvas" answer: the host isn't chrome above the canvas, it <i>tints</i> the canvas.
+  </div>
+</div>
+
+The trade: with no persistent row, a sick remote can't shout from the corner of your
+eye — you'd learn it's red only on opening the bloom.<Footnote>Mitigation, and the reason the "room" and the "orb rail" pair: keep a thin vertical rail of host <i>coins</i> (each host's hue, pulsing amber when it's awaiting you) flush against the canvas edge as the room's *resting* state. It's the ambient-attention channel the pill alone lacks — the pill answers "where am I," the rail answers "who needs me," and clicking either opens the same bloom.</Footnote>
+
+## Out of the box · the host map
+
+The second paradigm leans all the way into what kolu already is: an infinite canvas
+with a **camera per host**. So make switching *navigation of one continuous space*.
+`⌘K` (or a pinch/zoom-out past the canvas edge) pulls the camera back to a **host
+map** — every host a live-preview card of its real tiles in miniature, laid out
+spatially, the active one lifted, an awaiting one glowing amber. Pick one and the
+camera **flies in**. Switching stops being "click a tab" and becomes "fly to a
+place."
+
+<div class="hs-win">
+  <div class="cv mc">
+    <div class="mcard" style="--hue:#64748b">
+      <div class="mhead"><span class="huedot" style="background:#64748b" />local</div>
+      <div class="mbody"><div class="fl" style="width:80%" /><div class="fl" style="width:55%" /><div class="fl" style="width:68%" /></div>
+    </div>
+    <div class="mcard on" style="--hue:#7c3aed">
+      <div class="mhead"><span class="huedot" style="background:#7c3aed" />srid@zest</div>
+      <div class="mbody" style="position:relative">
+        <span class="mtile" style="left:8px;top:8px;width:52px;height:30px;background:#f3eefb" />
+        <span class="mtile" style="left:66px;top:8px;width:64px;height:44px;background:#efeaf9" />
+        <span class="mtile" style="left:8px;top:44px;width:52px;height:24px;background:#f5f1fc" />
+      </div>
+    </div>
+    <div class="mcard await" style="--hue:#0d9488">
+      <div class="mhead"><span class="huedot" style="background:#0d9488" />sincereintent<span class="hs-badge" style="margin-left:auto">2</span></div>
+      <div class="mbody"><div class="fl" style="width:70%;background:#f4e6c8" /><div class="fl" style="width:88%" /><div class="fl" style="width:48%;background:#f4e6c8" /></div>
+    </div>
+  </div>
+  <div class="hs-cap">
+    Zoom out and every host is a <b>live thumbnail</b> of its actual canvas — you recognize a machine by <i>what's on it</i>, not a name string. The active card is <b>lifted</b> in its hue; <code>sincereintent</code> <b>glows amber</b> because it's waiting. Click → the camera <b>flies in</b>. Reuses kolu's per-host canvas + camera (<code>cameraSwap</code>, <code>useCanvasViewport</code>) rather than inventing chrome.
+  </div>
+</div>
+
+<Callout kind="note" title="Why this one is deeply kolu-native">
+Kolu already keeps a per-host canvas and a camera it swaps on switch
+(<Cite file="packages/client/src/canvas/cameraSwap.ts" />, <Cite file="packages/client/src/canvas/viewport/useCanvasViewport.ts" />).
+The host map isn't a new surface — it's the *zoomed-out* state of the space that's
+already there. The live thumbnails are the same tile tree the canvas renders, drawn
+small. The cost is a real-preview render at map scale; the payoff is that "switch
+host" and "navigate the canvas" become one gesture, not two mental models.
+</Callout>
+
+## The interaction underneath
+
+Whatever the surface — polished tabs, room bloom, or host map — the *keyboard* story
+is the same, and it isn't a new invention: kolu **already** ships this exact pattern
+for workspaces. `⌘⇧K` opens the workspace switcher, which is literally
+`commandPalette.openGroup("Search workspaces")` <Cite file="packages/client/src/useActionContext.ts" /> —
+a scoped palette group, not a bespoke modal. Host switching mirrors it one-for-one:
+`⌘⇧H` (**H for host**) → `commandPalette.openGroup("Switch host")`, fuzzy-matched and
+**sorted by who's awaiting you**; `Enter` picks. `⌘⇧H` is free and follows the
+`Mod+Shift+<letter>` convention the codebase already names for exactly this.<Footnote><Cite file="packages/client/src/input/actions.ts" /> line 281 calls out "the `Mod+Shift+<letter>` convention used by `openWorkspaceSwitcher`," and a grep confirms no `KeyH` / `⌘⇧H` binding exists in `actions.ts` or `prohibitedKeybinds.ts`. So host switching gets a chord that's free, precedented, and mnemonic — no invented combo, no hedge.</Footnote>
+
+<div class="hs-win">
+  <div class="cv" style="padding:1.1rem">
+    <div class="hs-pal">
+      <div class="hs-search"><span>Switch host</span><span style="margin-left:auto"><span class="hs-kbd">⌘⇧H</span></span><span class="cur">z▏</span></div>
+      <div class="hs-sec">Needs you</div>
+      <div class="hs-row">
+        <span class="huedot" style="background:#0d9488" />
+        <span class="grow"><div class="nm">sincereintent</div><div class="sub">2 agents awaiting · padi ok · kaval ok</div></span>
+        <span class="hs-badge">2</span>
+      </div>
+      <div class="hs-sec">All hosts</div>
+      <div class="hs-row sel">
+        <span class="huedot" style="background:#7c3aed" />
+        <span class="grow"><div class="nm">srid@<b>z</b>est</div><div class="sub">active · padi ok · kaval ok</div></span>
+        <span class="hs-kbd">↵</span>
+      </div>
+      <div class="hs-row">
+        <span class="huedot" style="background:#64748b" />
+        <span class="grow"><div class="nm">local</div><div class="sub">padi ok · kaval ok</div></span>
+      </div>
+    </div>
+  </div>
+  <div class="hs-cap">
+    <code>⌘⇧H</code> → type → <code>↵</code> — the <b>same switcher pattern as <code>⌘⇧K</code> workspaces</b>, just a different group. Awaiting hosts float to a <b>Needs you</b> group; the fuzzy match bolds the hit (<code>z</code> → srid@<b>z</b>est). No per-host number caps — those chords are terminals'. It's <b>additive to the palette</b>, so there's almost no new UI to build.
+  </div>
+</div>
+
+And one smaller fix worth pairing anywhere: the `+` should **autocomplete from
+`~/.ssh/config` and recents** with a live reachability dot, instead of a blank field
+you type into from memory — and the destructive `✕` should leave the resting surface
+for a right-click / overflow action.
+
+<div class="hs-win">
+  <div class="cv" style="padding:1.1rem;display:flex;justify-content:center">
+    <div class="hs-drop">
+      <div class="hs-in"><span style="color:#9333ea">+</span>srid@z<span class="ghost">est</span></div>
+      <div class="hs-opt sel"><span class="hs-dot hs-ok" />srid@zest<span class="tag">recent</span></div>
+      <div class="hs-opt"><span class="hs-dot hs-ok" />srid@pu-box<span class="tag">ssh config</span></div>
+      <div class="hs-opt"><span class="hs-dot hs-idle" />root@fly-edge<span class="tag">ssh config</span></div>
+    </div>
+  </div>
+  <div class="hs-cap">The `+` completes as you type — <code>~/.ssh/config</code> entries and recents, each with a reachability dot (grey = untried). No memorized host string, no blind ssh.</div>
+</div>
+
+## What I'd ship, and where it wires in
+
+The moves stack, they don't compete. **Ship the craft first** (§2) — frosted band,
+per-host hue, seam dissolve, cross-fade — because it's pure CSS on the strip that
+exists and it makes every later paradigm look right. **Then the palette switcher**
+(§5) for the keyboard win. The two paradigms are bigger bets: the **host map** (§4)
+is the one I'd chase, because it's not new chrome — it's the zoomed-out state of a
+canvas kolu already has, so it earns its complexity. The **room** (§3) is the boldest
+visual but the riskiest (it removes the always-visible attention channel; it needs
+the orb rail to be honest). None of it invents host state: the switch stays one
+`activeHost` write, and the host list + urgency counts already stream into the strip.
+
+<D2
+  caption="Every surface — polished tabs, room bloom, host map, palette — is a front-end onto one seam. They all read padiMap.entries (host list) and each entry's urgency cell (awaiting count) — the exact reads HostSelectorStrip makes today — and pick with the same setActiveHost. The ⌘⇧H switcher is the ⌘⇧K workspace switcher's exact pattern: commandPalette.openGroup(...). The per-host hue reuses the existing themeColor() derivation; the host map additionally rides the canvas camera kolu already swaps. No new store, no new stream, no invented chord."
+  code={`direction: down
+tabs: "Polished tabs (§2)"
+room: "Room bloom (§3)"
+map: "Host map (§4) — rides canvas camera"
+pal: "⌘⇧H switcher (§5) — mirrors ⌘⇧K workspace"
+grp: "commandPalette.openGroup('Switch host')"
+entries: "padiMap.entries — host list"
+urg: "entry.cells.urgency — awaiting count"
+hue: "themeColor() — per-host hue"
+set: "setActiveHost(host)"
+cam: "cameraSwap / useCanvasViewport"
+canvas: "useEntry(activeHost) re-keys the canvas"
+tabs -> hue
+room -> hue
+map -> cam
+pal -> grp
+grp -> entries: "reads"
+grp -> urg: "sorts by"
+tabs -> set
+room -> set
+map -> set
+grp -> set
+set -> canvas
+`}
+/>
+
+<Callout kind="accent" title="Status — the craft pass shipped">
+The **craft pass (§2)** shipped in <PrLink pr={1743} />: per-host identity hue on
+the tabs *and* a faint wash across the canvas floor, a neutral borderless header,
+the seam dissolve, the daemon glyphs quieting at rest, a dots grid, and a house
+glyph disambiguating the local host. The **`⌘⇧H` switcher (§5)** shipped as
+proposed — a fuzzy "Switch host" palette group mirroring `⌘⇧K`, reached by the
+chord or a search icon in the host bar. That PR also **ungated** remote hosts (the
+"+" is always present, alpha-warned at point of use). The two paradigms — **the
+room** (§3) and **the host map** (§4) — remain open directions, as does the
+switcher's awaiting-you sort. The hue derivation landed as the shared
+<Cite file="packages/common/src/hostHue.ts" /> the PWA
+theme-color also draws from.
+</Callout>

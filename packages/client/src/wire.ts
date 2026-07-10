@@ -336,6 +336,10 @@ const hostScoped = createRoot(() => {
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
+  // The pool membership, exposed as a plain accessor so the host-switcher
+  // palette group can list hosts off the SAME `members` authority this block
+  // holds — no second `entries` subscription in the command layer.
+  const hostKeys = (): HostKey[] => [...members.keys()];
   return {
     activityFeed,
     session,
@@ -343,6 +347,7 @@ const hostScoped = createRoot(() => {
     terminalKeys,
     preferences,
     requestActivateOnJoin: setPendingJoin,
+    hostKeys,
     rpc: active.rpc,
   };
 });
@@ -352,6 +357,11 @@ const hostScoped = createRoot(() => {
  *  Feeds the pending signal the ONE reconcile effect consumes (`hostReconcileTarget`'s
  *  join-activation arm), so there is no second `setActiveHost` writer to reason about. */
 export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
+
+/** The current pool membership as a plain accessor — reads the `members`
+ *  authority `hostScoped` already holds, so the host-switcher palette group can
+ *  list hosts without opening a second `entries` subscription. */
+export const hostKeys = hostScoped.hostKeys;
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive

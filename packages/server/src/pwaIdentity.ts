@@ -1,20 +1,5 @@
-import { createHash } from "node:crypto";
 import type { PwaIdentity } from "kolu-common/contract";
-
-const THEME_COLORS = [
-  "#0f766e",
-  "#1d4ed8",
-  "#7c3aed",
-  "#be185d",
-  "#b45309",
-  "#15803d",
-  "#be123c",
-  "#047857",
-  "#4338ca",
-  "#a21caf",
-  "#0369a1",
-  "#9a3412",
-] as const;
+import { hostHueFor } from "kolu-common/hostHue";
 
 /** The app's display name — the string the browser tab title, the About dialog, and
  *  the installed PWA all read: `Kolu [<host>]`, always this kolu-server's own hostname.
@@ -36,16 +21,12 @@ export function pwaIdentityForHostname(hostname: string): PwaIdentity {
   return {
     hostname,
     name: appName(hostname),
-    themeColor: themeColorForHostname(hostname),
+    // The window/chrome theme tint and the client's host tabs share ONE palette +
+    // hash (kolu-common/hostHue), but seed it DIFFERENTLY on purpose: here we seed
+    // the raw hostname (so each machine's installed PWA window stays distinct),
+    // while the client keys `encodeHostKey` (local host → the literal `local`). So
+    // the colour is stable per surface — NOT guaranteed identical across the PWA
+    // chrome and the client's tab for the same host. See kolu-common/hostHue.
+    themeColor: hostHueFor(hostname),
   };
-}
-
-function themeColorForHostname(hostname: string): string {
-  const seed = hostname.toLowerCase();
-  return THEME_COLORS[paletteIndex(seed)] ?? THEME_COLORS[0];
-}
-
-function paletteIndex(hostname: string): number {
-  const digest = createHash("sha256").update(hostname).digest();
-  return digest.readUInt32BE(0) % THEME_COLORS.length;
 }

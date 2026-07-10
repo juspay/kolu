@@ -38,6 +38,9 @@ export interface ActionContext {
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   openNewTerminalMenu: () => void;
   openWorkspaceSwitcher: () => void;
+  /** Open the host-switcher palette group (`⌘⇧H`) — a fuzzy picker over the
+   *  pool, mirroring `openWorkspaceSwitcher`. */
+  openHostSwitcher: () => void;
   /** Flip the command palette (`Cmd+K`). A stable verb, not the raw signal
    *  setter — the palette controller owns the open-state. */
   togglePalette: () => void;
@@ -203,6 +206,15 @@ const _ACTIONS = {
     label: "Workspace switcher",
     keybind: { key: "K", code: "KeyK", mod: true, shift: true },
     handler: (ctx) => ctx.openWorkspaceSwitcher(),
+  },
+  openHostSwitcher: {
+    label: "Switch host",
+    // `⌘⇧H` (Ctrl+Shift+H elsewhere) — opens the host-switcher palette group,
+    // mirroring `⌘⇧K`'s workspace switcher and following the `Mod+Shift+<letter>`
+    // convention it names. `H` = host; free of the terminal chords, and (unlike a
+    // bare `mod`+letter) it never collapses to a terminal-colliding chord off-mac.
+    keybind: { key: "H", code: "KeyH", mod: true, shift: true },
+    handler: (ctx) => ctx.openHostSwitcher(),
   },
   shortcutsHelp: {
     label: "Shortcuts help",
