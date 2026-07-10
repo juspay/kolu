@@ -46,7 +46,11 @@ export interface TerminalEndpointFs {
     repoPath: string,
     filePath: string,
   ): Promise<{ content: string; truncated: boolean }>;
-  filePreviewTag(repoPath: string, filePath: string): Promise<string>;
+  filePreviewTag(
+    repoPath: string,
+    filePath: string,
+    signal?: AbortSignal,
+  ): Promise<string>;
   subscribeRepoChange(repoPath: string, onChange: () => void): () => void;
   subscribeFileChange(
     repoPath: string,
@@ -129,8 +133,8 @@ export function createTerminalWorkspaceEndpoint(
     async readFile(repoPath, filePath) {
       return unwrapGit(await readFile(repoPath, filePath, log));
     },
-    async filePreviewTag(repoPath, filePath) {
-      return unwrapGit(await filePreviewTag(repoPath, filePath, log));
+    async filePreviewTag(repoPath, filePath, signal) {
+      return unwrapGit(await filePreviewTag(repoPath, filePath, log, signal));
     },
     subscribeRepoChange(repoPath, onChange) {
       return subscribeRepoChange(repoPath, onChange, log);

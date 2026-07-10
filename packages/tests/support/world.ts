@@ -109,6 +109,11 @@ export class KoluWorld extends World {
   savedCodeTabPreviewHeight?: number;
   savedActiveTerminalId?: string;
   savedScrollTop?: number;
+  /** Scroll position captured INSIDE the sandboxed HTML preview iframe by
+   *  `When I scroll the file preview iframe to the bottom`, held across an
+   *  identical-content rewrite to prove the content-hash `?v=<tag>` never
+   *  re-points the frame (the scroll-jump regression). */
+  savedPreviewIframeScrollTop?: number;
   savedVisibleText?: string;
   /** The last draft typed into the Inspector's Compose box, so a follow-up
    *  step can assert it reached the terminal. */

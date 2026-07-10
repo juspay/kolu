@@ -1568,8 +1568,9 @@ Feature: Code tab (review + browse)
 
   # Live-update for the iframe-previewed kinds (.html/.svg): editing the
   # previewed file must refresh the iframe with no manual reload. Unlike the
-  # text path above (new content arrives on the `fsReadFile` stream and re-feeds
-  # Pierre), the binary path carries only a `url`. The refresh hinges on the
+  # text path above (the `subscribeFileChange` pulse requeries `fs.readFile` and
+  # re-feeds the fresh content to Pierre), the binary path carries only a `url`.
+  # The refresh hinges on the
   # `subscribeFileChange` pulse re-querying `fs.filePreviewTag` (a CONTENT hash
   # of the file's bytes) and the client rebuilding the URL with the fresh
   # `?v=<tag>`: a real content change moves the tag, so the new URL flips the
@@ -1590,6 +1591,32 @@ Feature: Code tab (review + browse)
     When I click the terminal canvas
     And I run "printf '<!doctype html><h1>preview version two</h1>\n' > page.html"
     Then the file preview iframe should refresh to "preview version two" after editing "/tmp/kolu-live-html/page.html"
+
+  # The scroll-jump regression this branch fixes, proven in the browser. An
+  # identical-content rewrite (same bytes, new mtime — the `git checkout` across
+  # branches under a remote PR loop) must NOT reload the preview or reset its
+  # scroll. We scroll a tall HTML preview to the bottom, then fire the file-change
+  # watch with identical-mtime touches and assert the frame-local scroll HOLDS —
+  # under the old mtime-keyed `?v=` each touch would re-point the iframe `src` and
+  # slam the scroll to the top. The trailing real edit must still refresh the
+  # frame: that is the liveness guard proving the watch fires and DOES reload on a
+  # genuine change, so the hold-steady assertion is not a vacuous pass on a dead
+  # watch. Frame-local scroll is read through `frameLocator` — Playwright reaches
+  # the opaque-origin sandbox the same way the content-read step does.
+  Scenario: An identical-content rewrite preserves the HTML preview scroll position
+    When I run "rm -rf /tmp/kolu-scroll-html && git init /tmp/kolu-scroll-html && cd /tmp/kolu-scroll-html"
+    And I run "printf '<!doctype html><body><p>scroll anchor one</p><div style=height:5000px></div></body>\n' > tall.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "tall.html" in the file browser
+    Then the file preview iframe should be visible
+    And the file preview iframe should contain "scroll anchor one"
+    When I scroll the file preview iframe to the bottom
+    Then the file preview iframe holds its scroll position through identical rewrites of "/tmp/kolu-scroll-html/tall.html"
+    When I click the terminal canvas
+    And I run "printf '<!doctype html><body><p>scroll anchor two</p><div style=height:5000px></div></body>\n' > tall.html"
+    Then the file preview iframe should refresh to "scroll anchor two" after editing "/tmp/kolu-scroll-html/tall.html"
 
   # In-iframe navigation must move the tree selection. The preview iframe is
   # sandboxed at an opaque origin (`allow-scripts`, no `allow-same-origin`), so

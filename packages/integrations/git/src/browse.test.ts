@@ -185,6 +185,21 @@ describe("filePreviewTag — preview cache-buster", () => {
     expect(second.value).toBe(first.value);
   });
 
+  it("aborts a superseded hash via the request signal instead of running to completion", async () => {
+    // A superseded preview query (input changed, or a fresh file-change pulse
+    // re-fired) aborts its request `signal`; the whole-file hash — costly on a
+    // multi-GB video — must stop promptly, not run to completion. A pre-aborted
+    // signal propagates the cancellation rather than collapsing to a GIT_FAILED
+    // err the endpoint would re-throw opaquely.
+    const p = path.join(tmpDir, "abortable.bin");
+    fs.writeFileSync(p, Buffer.alloc(4 * 1024 * 1024, 0x7));
+    const ac = new AbortController();
+    ac.abort();
+    await expect(
+      filePreviewTag(tmpDir, "abortable.bin", undefined, ac.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("rejects a symlink that escapes the repo root", async () => {
     const outside = fs.mkdtempSync(
       path.join(os.tmpdir(), "kolu-contenttag-outside-"),

@@ -753,6 +753,82 @@ Then(
   },
 );
 
+// Scroll the sandboxed preview iframe's OWN document to the bottom and capture
+// the landed scrollTop for the hold-steady regression below. `frameLocator`
+// reaches into the opaque-origin frame (same boundary the read step uses), so
+// `body.evaluate` runs in the iframe context and drives its `scrollingElement`.
+// We poll because the content needs a beat to lay out tall enough to scroll;
+// a captured scrollTop of 0 means the fixture wasn't scrollable — a setup bug,
+// surfaced here rather than as a silent pass downstream.
+When(
+  "I scroll the file preview iframe to the bottom",
+  async function (this: KoluWorld) {
+    const body = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .locator("body");
+    const top = await pollFor({
+      observe: () =>
+        body
+          .evaluate(() => {
+            const se = document.scrollingElement ?? document.documentElement;
+            se.scrollTop = se.scrollHeight;
+            return se.scrollTop;
+          })
+          .catch(() => 0),
+      isDone: (t) => t > 0,
+      onTimeout: (last) =>
+        new Error(
+          `preview iframe never scrolled (scrollTop stayed ${last}); is the fixture tall enough?`,
+        ),
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
+    this.savedPreviewIframeScrollTop = top;
+  },
+);
+
+// The scroll-jump regression, end-to-end: a `git checkout`-style rewrite bumps
+// mtime WITHOUT changing bytes, which under the old mtime-keyed `?v=` re-pointed
+// the iframe `src` and slammed a mid-scrolled preview to the top. Here we hold
+// the frame at its captured scroll position while firing the file-change watch
+// repeatedly via identical-mtime touches (`nudgeFiles` re-touches mtime — that
+// IS the same-bytes-new-mtime rewrite). Each touch re-queries
+// `fs.filePreviewTag`, whose CONTENT hash is unchanged, so the URL holds and the
+// frame is never re-pointed: scrollTop must not reset. Were the tag still keyed
+// on mtime, the first touch would reload and drop scrollTop to 0, failing here.
+// The scenario's following real-edit refresh step is the liveness guard — it
+// proves the watch DOES fire and DOES reload on a genuine change, so this
+// hold-steady window is not a vacuous pass on a dead watch.
+Then(
+  "the file preview iframe holds its scroll position through identical rewrites of {string}",
+  async function (this: KoluWorld, absFile: string) {
+    const anchor = this.savedPreviewIframeScrollTop;
+    if (anchor === undefined || anchor <= 0)
+      throw new Error(
+        "no captured preview scroll position to hold — scroll the iframe first",
+      );
+    const body = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .locator("body");
+    const deadline = Date.now() + 8_000;
+    while (Date.now() < deadline) {
+      nudgeFiles([absFile]);
+      const top = await body
+        .evaluate(() => {
+          const se = document.scrollingElement ?? document.documentElement;
+          return se.scrollTop;
+        })
+        .catch(() => null);
+      // A transient null (a read racing a swap) is ignored; a real drop toward
+      // the top means the `src` was re-pointed — the exact regression.
+      if (top !== null && top < anchor - 2)
+        throw new Error(
+          `preview iframe scroll reset from ${anchor} to ${top} after an identical-content rewrite — the URL was re-pointed`,
+        );
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  },
+);
+
 // Click an `<a>` link *inside* the sandboxed preview iframe. Same origin
 // boundary as the read step above — Playwright's `frameLocator` resolves the
 // frame through the browser frame tree regardless of the opaque-origin

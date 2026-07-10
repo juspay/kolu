@@ -451,11 +451,16 @@ export function buildPadiSurfaceDeps(deps: {
             throw fileGoneAsNotFound(e, input.filePath);
           }
         },
-        filePreviewTag: async ({ input }) => {
+        filePreviewTag: async ({ input, signal }) => {
           try {
+            // Thread the request `signal` so a superseded preview query (input
+            // changed, or a fresh file-change pulse re-fired) aborts the whole-
+            // file hash mid-read instead of running to completion — the cost is
+            // real on a multi-GB video where the read runs for seconds.
             return await endpoint.fs.filePreviewTag(
               input.repoPath,
               input.filePath,
+              signal,
             );
           } catch (e) {
             throw fileGoneAsNotFound(e, input.filePath);

@@ -157,24 +157,37 @@ export async function readFile(
  *  The bytes are read once per on-disk *change* (the `subscribeFileChange` pulse
  *  is debounced and fires only on real repo events, never on a timer), and only
  *  for the bounded set of binary-previewable kinds. Same path-traversal guard as
- *  `readFile`. */
+ *  `readFile`.
+ *
+ *  Cancellable: the caller (a superseded `createPolledQuery`) aborts the request
+ *  `signal` when its input changes or a fresh pulse re-fires. We check it before
+ *  opening and between chunks so a hash whose result is already stale — most
+ *  costly on a multi-GB video where a full read runs for seconds — stops promptly
+ *  instead of burning disk and CPU while overlapping the next scan. On abort we
+ *  re-throw the abort (not a `GIT_FAILED` err) so the surface framework sees a
+ *  cancellation, and the catch does not misclassify it as an I/O fault to log. */
 export async function filePreviewTag(
   repoPath: string,
   filePath: string,
   log?: Logger,
+  signal?: AbortSignal,
 ): Promise<GitResult<string>> {
   const resolved = await resolveExistingUnder(repoPath, filePath, log);
   if (!resolved.ok) return resolved as GitResult<string>;
   const abs = resolved.value.abs;
   try {
+    signal?.throwIfAborted();
     const hash = createHash("sha1");
     // One open handle for the whole read: size-and-bytes-from-one-inode (no
     // TOCTOU on an atomic replace) and a bounded, streamed hash (never a
     // whole-file slurp, whatever the size). `autoClose: false` so the `finally`
-    // owns the handle's close deterministically.
+    // owns the handle's close deterministically — including when an abort throws
+    // out of the loop mid-read (the iterator's `return()` destroys the stream,
+    // then `finally` closes the fd we still own).
     const fh = await fsOpen(abs, "r");
     try {
       for await (const chunk of fh.createReadStream({ autoClose: false })) {
+        signal?.throwIfAborted();
         hash.update(chunk as Buffer);
       }
     } finally {
@@ -182,6 +195,10 @@ export async function filePreviewTag(
     }
     return ok(hash.digest("hex"));
   } catch (e: unknown) {
+    // A superseded query aborted mid-hash: propagate the cancellation untouched
+    // — it is neither a missing file nor an I/O fault, so it must not log or
+    // collapse to a `GIT_FAILED` err the endpoint would then re-throw opaquely.
+    if (signal?.aborted) throw e;
     const msg = e instanceof Error ? e.message : String(e);
     // A file deleted while the Code tab is viewing it (ENOENT) is EXPECTED — the
     // delete-while-viewing race servePadi maps to a typed NOT_FOUND — so it logs
