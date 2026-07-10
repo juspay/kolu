@@ -473,7 +473,10 @@ const Terminal: Component<{
             theme: props.theme,
             fontSize: fontSize(),
             scrollback: DEFAULT_SCROLLBACK,
-            cursorBlink: true,
+            // A blinking xterm cursor schedules periodic repaints even when the
+            // terminal is idle. Keep the block cursor visible but static so a
+            // focused, quiet terminal does not burn compositor time.
+            cursorBlink: false,
             // Keep a solid block cursor even when xterm thinks we're unfocused.
             // The default 'outline' is a hollow box that is effectively invisible
             // at phone DPI, and xterm's WebGL renderer flips to the inactive style

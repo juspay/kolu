@@ -1,6 +1,6 @@
 /** AI agent state indicator — logo + state label + compact context-token
- *  count + a live running-for duration. Logo animates when active. Renders the
- *  appropriate icon per agent kind (Claude Code, OpenCode). */
+ *  count + a live running-for duration. Renders the appropriate icon per agent
+ *  kind (Claude Code, OpenCode). */
 
 import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
@@ -17,17 +17,14 @@ const BUSY_COLOR = "text-busy";
  *  share the same visual treatment per state. When agents diverge in states,
  *  this becomes a per-kind dispatch (the `agentIcons`/`agentNames` tables
  *  already handle the per-kind axis). */
-const stateConfig: Record<
-  AgentInfo["state"],
-  { color: string; animation: string }
-> = {
-  thinking: { color: BUSY_COLOR, animation: "animate-pulse" },
-  tool_use: { color: BUSY_COLOR, animation: "animate-spin" },
-  waiting: { color: "text-alert", animation: "animate-pulse" },
-  awaiting_user: { color: "text-alert", animation: "animate-pulse" },
+const stateConfig: Record<AgentInfo["state"], { color: string }> = {
+  thinking: { color: BUSY_COLOR },
+  tool_use: { color: BUSY_COLOR },
+  waiting: { color: "text-alert" },
+  awaiting_user: { color: "text-alert" },
   // Busy, not awaiting: the agent is working in a background task, so use
   // the busy treatment rather than the alert color reserved for needs-user.
-  running_background: { color: BUSY_COLOR, animation: "animate-spin" },
+  running_background: { color: BUSY_COLOR },
 };
 
 /** "47392" → "47K", "1183456" → "1.2M". Single call site; no helper module
@@ -67,7 +64,7 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
       data-agent-state={props.agent.state}
       title={`${name()}: ${label()}`}
     >
-      <span class={`shrink-0 ${cfg().animation}`}>
+      <span class="shrink-0">
         <Dynamic component={Icon()} class="w-3 h-3" />
       </span>
       <span class="hidden sm:inline">{label()}</span>
