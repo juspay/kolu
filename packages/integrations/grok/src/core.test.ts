@@ -69,6 +69,20 @@ describe("encodeCwd", () => {
   });
 });
 
+// SANCTIONED COVERAGE EXEMPTION (srid, token OLLAMA-E2E-R3W7) — same shape as
+// opencode's runningToolsBucket exemption. This pure-function suite is the ONLY
+// automated coverage of grok's tool_use / awaiting_user phase derivation. The
+// grok-real.feature e2e drives the genuine `grok` CLI against ollama and asserts
+// the thinking→waiting arc (like codex/claude/opencode), but NOT tool_use /
+// awaiting_user: reaching those needs the model to emit a real tool call (or an
+// ask-user tool), and no CI-runnable ollama model does so deterministically —
+// small models reply text without calling tools, and a 3b model's agentic turn
+// times out (HTTP 500) on the CPU box before completing (5-config evidence, see
+// the opencode exemption). So the phase→state fold is exercised here directly,
+// fed hand-made synthetic events — no agent mock, no PTY fixture.
+//
+// RESUMPTION TRIGGER: when a CI runner can serve a tool-capable model, add real
+// tool_use / awaiting_user assertions to grok-real.feature and retire this.
 describe("foldEventsState", () => {
   it("maps permission_prompt → awaiting_user", () => {
     expect(

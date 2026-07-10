@@ -78,11 +78,27 @@ const AGENTS: Record<
     // was lost (no chat-completion request, no session state). Give it 12s.
     settleMs: 12_000,
   },
+  Grok: {
+    kind: "grok",
+    binEnv: "KOLU_E2E_GROK_BIN",
+    // Status-bar string the ready Grok Build TUI always paints.
+    marker: "Grok Build",
+    sessionDir: ".grok",
+    // active_sessions.json (the live session map) directly under ~/.grok, plus
+    // an events.jsonl phase stream under sessions/<encodeCwd>/<uuid>/.
+    sessionGlobs: [
+      [/^active_sessions\.json$/, "."],
+      [/^events\.jsonl$/, "sessions"],
+    ],
+  },
 };
 
 function agent(word: string) {
   const a = AGENTS[word];
-  assert.ok(a, `unknown real agent "${word}" (expected Codex or Claude)`);
+  assert.ok(
+    a,
+    `unknown real agent "${word}" (expected Codex, Claude, Opencode, or Grok)`,
+  );
   return a;
 }
 
@@ -142,6 +158,7 @@ function cleanupAgentSessions(word: string) {
 After({ tags: "@codex-real" }, () => cleanupAgentSessions("Codex"));
 After({ tags: "@claude-real" }, () => cleanupAgentSessions("Claude"));
 After({ tags: "@opencode-real" }, () => cleanupAgentSessions("Opencode"));
+After({ tags: "@grok-real" }, () => cleanupAgentSessions("Grok"));
 
 // Evidence via the LANE (no local runs): on a real-agent failure, dump the padi
 // provider log tail + a listing of the throwaway home's agent data dirs into
@@ -174,6 +191,7 @@ After(
         path.join(".local", "share", "opencode"),
         ".codex",
         ".claude",
+        ".grok",
       ]) {
         const dir = path.join(home, d);
         try {

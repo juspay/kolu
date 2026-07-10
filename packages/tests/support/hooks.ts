@@ -116,7 +116,13 @@ const AGENT_DIR_VARS = [
   "KOLU_CODEX_DIR",
   "KOLU_GROK_DIR",
 ] as const;
-const grokDir = RECORDING ? undefined : mkSubDir("grok");
+// Grok, like codex/claude, uses the throwaway home's REAL default `~/.grok` —
+// NOT a mock subdir. Real grok (the live-state scenario) writes its
+// active_sessions.json + sessions/<cwd>/<uuid>/events.jsonl there, and kolu's
+// grok provider reads that same path via KOLU_GROK_DIR. srid's unconditional
+// shape: grok-on-ollama is the default, no mock branch for grok state.
+const grokDir =
+  !RECORDING && fixtureHome ? path.join(fixtureHome, ".grok") : undefined;
 // Codex's dir is the throwaway home's REAL default `<fixtureHome>/.codex` — NOT
 // a separate mock dir. Real codex (the live-state scenarios) writes its session
 // DB there by default, and the surviving @codex-mock regression scenarios write
@@ -290,6 +296,36 @@ if (!RECORDING && fixtureHome) {
     ),
   );
   process.env.KOLU_E2E_OPENCODE_BIN = execSync("command -v opencode", {
+    encoding: "utf8",
+  }).trim();
+
+  // Grok: seed the throwaway home's ~/.grok/config.toml so the genuine xAI Grok
+  // Build CLI talks to ollama via a CUSTOM model whose `base_url` is the local
+  // /v1 endpoint and `api_backend = "chat_completions"` (its OpenAI-compatible
+  // path). `env_key = "XAI_API_KEY"` + a dummy XAI_API_KEY makes grok boot
+  // "Logged in with API key" — NO xAI login / welcome gate — straight to the
+  // prompt (verified: `grok models` lists the custom model as default). grok
+  // writes its session state under ~/.grok (active_sessions.json + events.jsonl),
+  // which kolu's grok provider reads via KOLU_GROK_DIR (= <home>/.grok above).
+  const grokHome = path.join(fixtureHome, ".grok");
+  fs.mkdirSync(grokHome, { recursive: true });
+  process.env.XAI_API_KEY = "kolu-e2e-ollama";
+  fs.writeFileSync(
+    path.join(grokHome, "config.toml"),
+    [
+      `[model."local-ollama"]`,
+      `model = "${model}"`,
+      `base_url = "${baseUrl}"`,
+      `name = "Local Ollama (kolu e2e)"`,
+      `env_key = "XAI_API_KEY"`,
+      `api_backend = "chat_completions"`,
+      ``,
+      `[models]`,
+      `default = "local-ollama"`,
+      ``,
+    ].join("\n"),
+  );
+  process.env.KOLU_E2E_GROK_BIN = execSync("command -v grok", {
     encoding: "utf8",
   }).trim();
 }
@@ -886,11 +922,14 @@ async function startServerChild(koluServer: string): Promise<void> {
   // process env to find ollama's /v1/messages (claude does NOT honor
   // settings.json's `env` for that). hooks.ts sets them on process.env; the
   // server child inherits them, and this whitelist lets them cross into the
-  // terminal. Harmless everywhere else (only claude reads them).
+  // terminal. Harmless everywhere else (only claude reads them). XAI_API_KEY is
+  // the same story for the real `grok`: its config.toml names it as the custom
+  // model's `env_key`, so the (dummy) value must cross into the PTY.
   const envWhitelist = [
     NIX_ENV_WHITELIST,
     "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
     "ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN,ANTHROPIC_MODEL,ANTHROPIC_SMALL_FAST_MODEL,CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "XAI_API_KEY",
   ].join(",");
   // Append-mode per-worker server log: a server that dies mid-run otherwise
   // leaves NO trace in the suite log; the file preserves the crash stack /

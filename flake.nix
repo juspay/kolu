@@ -133,6 +133,10 @@
               # via an OpenAI-compatible provider (opencode.json). kolu's
               # provider reads its opencode-stable.db (see the config.ts fix).
               pkgs.opencode
+              # The genuine xAI Grok Build CLI (unfree; scoped-allowUnfree
+              # native binary) for the grok live-state e2e — a custom model in
+              # ~/.grok/config.toml points it at ollama. See nix/packages/grok.nix.
+              (import ./nix/packages/grok.nix { inherit pkgs; })
             ];
             env = (prev.env or { }) // {
               PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
