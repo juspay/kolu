@@ -129,10 +129,16 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
 **Usually no flag.** padi keys its socket by a digest of its state-root, so
 inside a kolu terminal `$PADI_SOCKET` makes `padi-tui` flag-less — an agent
 driving its siblings never guesses a path. Elsewhere it autodiscovers the running
-padi; `--socket <path>` or `--state-root <dir>` point it elsewhere. Remote padi
-over ssh is a later phase in [Architecture](/architecture#next--your-other-machines);
-today padi-tui is local. For remote PTY control that already works, use
-[`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh).
+padi; `--socket <path>` or `--state-root <dir>` point it at a different local
+daemon, and `--host <ssh>` reaches a padi on **another machine** — the twin of
+[`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh): it provisions the
+daemon with Nix, runs `padi --stdio` over ssh, and runs every verb unchanged
+against the remote (`padi-tui status --host nix@prod`). Read verbs are safe and
+`create` lands a real terminal on the host (which survives the link); a tui is a
+dial, so it never drains or converges the remote padi. `--host` is mutually
+exclusive with `--socket` / `--state-root`. Pointing kolu's **browser** at a
+remote padi is the separate, later phase in
+[Architecture](/architecture#next--your-other-machines).
 
 `wait <id> --until awaiting,waiting` blocks until a terminal's agent finishes its
 turn — a done-signal read from real padi state, not guessed from terminal

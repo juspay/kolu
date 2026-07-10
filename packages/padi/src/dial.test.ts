@@ -30,13 +30,15 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
+import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { assertPadiSurfaceCompatible } from "./dial.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
 } from "./stateRoot.ts";
-import type { PadiDaemonContract } from "./surface.ts";
+import { PADI_SURFACE_VERSION, type PadiDaemonContract } from "./surface.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const PADI_BIN = join(SRC, "bin.ts");
@@ -491,4 +493,51 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
 
     await reapStdioFront(front2);
   }, 60000);
+});
+
+/**
+ * The dial kit's ONE compatibility judgement — pure, no process. Both transports
+ * run it: `connectPadi` after the local-socket handshake, and `padi-tui --host`'s
+ * ssh probe after the remote control-core `hello`. Testing it here pins the shared
+ * gate so the two transports can't drift.
+ */
+describe("assertPadiSurfaceCompatible", () => {
+  const parts = PADI_SURFACE_VERSION.split(".").map(Number);
+  const major = parts[0] ?? 0;
+  const minor = parts[1] ?? 0;
+
+  it("passes an exactly-matching padiSurface version", () => {
+    expect(() =>
+      assertPadiSurfaceCompatible(PADI_SURFACE_VERSION),
+    ).not.toThrow();
+  });
+
+  it("passes a newer MINOR (a padi ahead this client can still speak)", () => {
+    expect(() =>
+      assertPadiSurfaceCompatible(`${major}.${minor + 1}`),
+    ).not.toThrow();
+  });
+
+  it("REFUSES a newer MAJOR with a loud DaemonContractSkewError", () => {
+    expect(() => assertPadiSurfaceCompatible(`${major + 1}.0`)).toThrow(
+      DaemonContractSkewError,
+    );
+    expect(() => assertPadiSurfaceCompatible(`${major + 1}.0`)).toThrow(
+      /contract skew/,
+    );
+  });
+
+  it("REFUSES an older MINOR (a padi too old for this client)", () => {
+    // Guarded: this build's minor is > 0, so an older minor is expressible.
+    expect(minor).toBeGreaterThan(0);
+    expect(() => assertPadiSurfaceCompatible(`${major}.${minor - 1}`)).toThrow(
+      DaemonContractSkewError,
+    );
+  });
+
+  it("REFUSES an unparseable version string", () => {
+    expect(() => assertPadiSurfaceCompatible("not-a-version")).toThrow(
+      DaemonContractSkewError,
+    );
+  });
 });
