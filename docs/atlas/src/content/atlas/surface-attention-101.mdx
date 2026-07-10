@@ -13,7 +13,7 @@ import pieces from "../../diagrams/surface-attention-101-pieces.svg?raw";
 
 This is the third primer in the series. [The hosting side](surface-hosting-101.html) taught how **one** surface crosses a machine; [the client half](surface-map-101.html) taught **many** keyed surfaces over one socket. This note teaches the layer [padi W5](padi.html#w5) adds on top: turning a per-host fact ("these terminals need you", "this host's CPU is in trouble") into **attention you can trust** — a chip count, an app badge, an OS notification — without anyone hand-diffing frames. It is design, not yet shipped code: read it to judge the design, or to implement it. The work lands in **two phases**: first a surface refactor that completes the framework's primitives (its own PR, with paired kolu, drishti, and odu adoption PRs — the primitives are modified freely), then W5 itself riding them.
 
-<Svg svg={pieces} wide caption="Two phases. Phase 1 completes the primitives: the cell reader gains updated() (change pairs, fired iff the value changes) and mirrors stop fabricating first frames. Phase 2 builds attention on those: one writer per host publishes a level-state cell (kolu's urgency exists on master; drishti's alerts is W5's one new member); watchByEntry raises new item ids by set-diffing updated pairs; notify delivers at the origin's one service worker; each app keeps its own aggregation and click semantics." />
+<Svg svg={pieces} wide caption="Two phases. Phase 1 completes the primitives: the cell reader gains updated() (change pairs, fired iff the value changes), mirrors stop fabricating first frames, and derived members become declarations (the derivation algebra). Phase 2 builds attention on those: one writer per host publishes a level-state cell (kolu's urgency exists on master; drishti's alerts is W5's one new member); watchByEntry raises new item ids by set-diffing updated pairs; notify delivers at the origin's one service worker; each app keeps its own aggregation and click semantics." />
 
 ## Surface's primitives are FRP, under other names
 
@@ -30,7 +30,7 @@ The first three rows are the documented contracts ([why four primitives, not one
 
 ## Phase 1 — the primitives, completed
 
-Phase 1 is a surface refactor PR of its own, landing with paired kolu, drishti, and odu adoption PRs. Two pieces.
+Phase 1 is a surface refactor PR of its own, landing with paired kolu, drishti, and odu adoption PRs. Three pieces.
 
 ### The cell reader gains `updated` (@kolu/surface)
 
@@ -57,9 +57,27 @@ Run the failure it causes. kolu-server restarts. A still-open page reconnects an
 
 The fix is subtraction: **a mirrored cell serves no frame until the authority's first real one.** The cell reader already models "no frame yet" — the accessor is `T | undefined` until the first frame — so the fix makes that `undefined` **true end-to-end**: undefined means *the authority hasn't spoken*, never *here's a guess*. The declared default belongs to the **one writer** (the serving endpoint materializes it when it has nothing better); mirrors relay truth or stay silent. With both pieces in place the change event cannot be triggered by fabrication — there is nothing to compare against until truth arrives, and the first truth is a value, not a change.
 
+### A derived member is declared, not hand-wired (the derivation algebra)
+
+The third piece generalizes the first two: a **derived** member — a cell whose value is a projection of some other live thing — becomes a *declaration* the framework runs, instead of a `.set()` a human remembers to wire. Today padi's urgency cell is produced by hand: `recomputeUrgency()` is called from inside the publish seam of every write path that might change it, and a prose comment guards the invariant that no seam forgets. The declaration replaces all of it:
+
+```ts
+// padi's deps — the fold IS the wiring; every terminals write arms it:
+cells.urgency = foldCollection({
+  from: "terminals",
+  fold: (entries) => ({ awaitingIds: liveAwaitingIds(entries) }),
+});  // seeds from fold(readAll()) — current truth, never a default
+```
+
+Three guarantees ride every such declaration. **One writer, enforced at boot**: `implementSurface` rejects a derived member whose wire verbs include any mutation (`set`, `patch`, `upsert`, `delete`, even `test__set`) — a derivation is the fact's one writer, and tests reset it by writing its *source*. **Producer-side dedup, in one place**: the fold's output publishes through the member's own spec `equals` gate — the same gate that makes `updated()`'s law true — never through a second, invisible predicate inside the deriver. **The framework's reconnect story**: a derived cell is an ordinary cell on the wire (store snapshot, then changes), so consumers can't tell it was derived.
+
+The algebra has more shapes than this fold — the workhorse for keyed pollers is **`pollCollection`** (poll an external source, diff against the served snapshot through the collection's declared `equals`, upsert changed keys, evict vanished ones — the single most-repeated hand-roll in kolu's and drishti's trees, three production instances in one drishti function alone), and `scanCell` carries state for folds that need memory. The full catalog — the reflex→surface mapping, every shipping signature with wire semantics, what each deletes, and what is deliberately absent — is [the derivation algebra reference](surface-derivation-algebra.html).
+
 ## Phase 2 — attention, riding the completed primitives
 
 **Attention is level state**: *what needs you now* — a plain value, in an ordinary per-entry cell, written by the **one endpoint per host that can actually know it**. For kolu that endpoint already exists, and so does the cell: **W5 mints no kolu wire member**. The per-terminal fact lives in padi's composed `terminals` collection (`PadiTerminalSchema`, discriminated on `state` — the active arm carries the agent state, and "awaiting the user" is a metadata fact), and its cross-host projection is **`cells.urgency`** (`packages/padi/src/surface.ts`): `PadiUrgencySchema = { awaitingIds: TerminalId[] }`, padi's registry fold the sole writer, read-only on the client. The contract is deliberately spare — ids and **no recency** (nothing cross-host ever compares two hosts' clocks), and **no count field** (a count that could disagree with `awaitingIds` would be a second source of truth for one fact, so every read site derives it as `awaitingIds.length` — the host strip's chips already do exactly this). For drishti the endpoint is the server, because the server holds the metrics history — threshold plus hysteresis need history, so they live there, never in the browser — and *its* cell does not exist yet: **`alerts` is the one new wire member in W5** (drishti's surface today carries system/process/cpu/net metric cells and no threshold fact in any member).
+
+Phase 1 changes how each is **produced**, not what the wire carries. kolu's urgency becomes the declared `foldCollection` above — the hand-wired recompute at every write seam is deleted; the cell, its `equals`, and its consumers are unchanged. drishti's alerts is born as a declared **`scanCell`**, because hysteresis is *carried state*: "crossed 80 to raise, fell below 70 to clear" is undecidable from the current sample alone — the in/out level plus the recent window rides the scan. `scanCell` can seed its state from a persistent store when survival is wanted; the alerts scan deliberately passes none — a fresh process re-derives its level from fresh samples, and the declaration makes that choice visible.
 
 Why does the tiny `urgency` member exist at all, when the `terminals` collection already holds the truth? Because of [W7's K1 ruling](padi.html#w7): wire subscriptions stay **active-host-only** — a background host keeps no full metadata subscription. `urgency` is the deliberately tiny projection kept hot per host, so hearing from every host costs a list of ids, not a fleet of `terminals` mirrors.
 
@@ -101,9 +119,12 @@ The **tag** carries the multi-window discipline: two open windows must not both 
 kolu (padi W5 — the phase this design serves; **nothing minted**, the member exists on master):
 
 ```ts
-// padi — no new member, no .set: cells.urgency already exists
-// (packages/padi/src/surface.ts — PadiUrgencySchema { awaitingIds: TerminalId[] },
-//  padi's registry fold the sole writer; read-only on the client)
+// padi — no new member (cells.urgency exists: packages/padi/src/surface.ts);
+// phase 1 re-produces it as a declaration, hand-wiring deleted:
+cells.urgency = foldCollection({
+  from: "terminals",
+  fold: (entries) => ({ awaitingIds: liveAwaitingIds(entries) }),
+});  // equals: urgencyEqual stays on the spec — the one dedup point
 
 // client — chips, badge, notification:
 const att = watchByEntry(padiMap, e => e.cells.urgency, v => v.awaitingIds,
@@ -118,8 +139,12 @@ notify.onClick(({ host, id }) => { switchHost(host); focusTerminal(id); });
 drishti (the paired consumer — **the one new wire member**, since no member carries its threshold facts today):
 
 ```ts
-// server — the one writer, owns the 30-minute ring: threshold + hysteresis
-if (crossed(cpuPct, 80)) alerts.publish({ items: [{ id: "cpu", label: `CPU ${cpuPct}%` }] });
+// server — the one writer, declared: hysteresis is carried state (no store —
+// the alert level must not survive restarts; a fresh process re-derives it)
+cells.alerts = scanCell(observableSource(systemTicks), hysteresisStep,
+  { level: {}, window: [] });
+// hysteresisStep raises at 80, clears below 70; a held level publishes
+// nothing (alerts' spec equals), so updated() fires only on raise/clear
 
 // client:
 const att = watchByEntry(hostMap, e => e.cells.alerts, v => v.items.map(i => i.id),
@@ -129,7 +154,7 @@ const att = watchByEntry(hostMap, e => e.cells.alerts, v => v.items.map(i => i.i
 notify.onClick(({ host }) => expandHost(host));
 ```
 
-Read the two against each other and the boundary shows itself: the **wire member's provenance** differs (kolu consumes an existing projection; drishti mints W5's one new member), the **writer** differs (a registry fold vs a metrics threshold — two folds that merely *rhyme*, deliberately not unified), the **value shape** differs (bare ids vs labeled items), the **aggregation** differs (a sum vs a count), the **click** differs (switch+focus vs expand). What's identical is everything in between — the honest frames, the change pairs, the watcher, the tag-keyed delivery — which is exactly the slice the framework takes.
+Read the two against each other and the boundary shows itself: the **wire member's provenance** differs (kolu consumes an existing projection; drishti mints W5's one new member), the **writer** differs (a stateless collection fold vs a stateful hysteresis scan — two declarations that merely *rhyme*, deliberately not unified), the **value shape** differs (bare ids vs labeled items), the **aggregation** differs (a sum vs a count), the **click** differs (switch+focus vs expand). What's identical is everything in between — the honest frames, the change pairs, the watcher, the tag-keyed delivery — which is exactly the slice the framework takes.
 
 ## What stays app-side, and why
 

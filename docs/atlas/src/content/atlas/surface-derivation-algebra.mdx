@@ -1,0 +1,463 @@
+---
+title: The surface derivation algebra
+description: "The reference for phase 1's derivation layer: the exhaustive reflex→surface mapping, the shipping combinators (observableSource · pollSource · scanCell · foldCollection · scanStream · registryFromFamily · pollCollection + CollectionSpec.equals) with their wire semantics, the five constraints every deriver obeys, the error doctrine's statefulness line, what each shipping item subsumes (file:line), the deferred set with named triggers, the N/A arguments (switching, cross-channel combines), and the open questions."
+parents: [reference, padi]
+status: proposed
+maturity: seedling
+updated: 2026-07-10
+---
+
+import Footnote from "../../components/Footnote.astro";
+
+This is the **reference** for the derivation algebra that ships in W5's phase-1 surface refactor — the layer that makes a *derived* member a **declaration** instead of a hand-wired publish. The teaching companion is [the attention primer](surface-attention-101.html); this note is for precision: the full reflex→surface mapping, the shipping signatures with wire semantics, and the arguments for everything deliberately absent. Ground trees for every `file:line` cite: kolu `origin/master`, drishti master.
+
+Two words the whole note leans on. A **tick** is one producer microtask flush — the surface analog of a reflex frame (precedent: `createTickCoalescer`, `packages/surface/src/server.ts:281-312`). **Each deriving combinator owns its own flush** — it never presumes a sibling coalescer exists. And **the wire has no shared frame**: each member travels its own channel with its own latency, which is the single fact behind most of the N/A verdicts below.
+
+## The five constraints
+
+Every combinator in the algebra obeys these; they are the design, not guidelines.
+
+1. **One writer.** Every deriver is a same-process projection; a derived member is wire-**read-only**, enforced by a boot check (below).
+2. **Dedup lives solely at the target member's spec gate** — cell spec `equals` (`server.ts:198-207`, `1469-1474`) or collection spec `equals` (phase 1). No deriver carries a second, invisible gate; `pollSource` and `pollCollection` deliberately have none of their own.
+3. **Snapshot-then-delta.** Every derived member's reconnect story is the framework's own: cell store replay; `subscribeBeforeSnapshot` for scan streams (`server.ts:350-363`); the collection deltas snapshot.
+4. **Mirrors never fabricate.** Folds seed from actual current truth; only push-source holds use the declared default, which belongs to the one writer ([the primer's phase 1](surface-attention-101.html)).
+5. **Fail-fast, with the statefulness line** — the error doctrine, next section.
+
+## The error doctrine — the statefulness line
+
+Where a deriver fails determines what honesty permits:
+
+- A **sync in-tick fold** (`foldCollection`) that throws escapes the flush and **crashes the process** — a producer-context defect, the repo's fail-fast rule applied literally.
+- An **async stateless pump** (`deriveCell`, `observableSource`+`deriveCell`, `registryFromFamily`'s `resolve`, `pollCollection`'s per-tick read) logs a per-frame failure via `onError` (default stderr — never invisible) and **keeps consuming, holding the last published value**: each frame is independent, so the next frame self-heals. This is framework law, in one place, for what previously needed a per-site catch.
+- An **async stateful pump** (`scanCell`, `scanStream`) whose `step` throws routes to `onError` and **stops, holding last state**: carried state missed a frame, so every subsequent fold would derive from corrupted state — continuing would fabricate.
+
+Neither path swallows or collapses to a default. `deriveCell` (`packages/surface/src/project.ts:236-280`) accordingly distinguishes its two failure surfaces: **pump death** (upstream rejects, or the iterable throws/ends) → `onError`, loop ends holding last value — a dead iterator cannot be consumed further; **per-frame failure** (the map or the cell set throws) → `onError`, frame skipped, loop continues. Whether a *stopped* stateful pump should escalate beyond stderr — e.g. flip the member's liveness gate so the freeze shows on `health()` — is open question 7.
+
+## The shipping subset (phase 1)
+
+### The boot checks (ship with `foldCollection`)
+
+**(a) One writer.** `implementSurface` rejects, at wiring time, any derived member (`foldCollection` / `scanCell` / `deriveCell` / `pollCollection` / `registryFromFamily` target) whose resolved verbs (`resolveCellVerbs` `define.ts:206` / `resolveCollectionVerbs` `define.ts:223`) include a mutation verb: `set`, `patch`, `upsert`, `delete`, **or `test__set`** (`define.ts:54`, contract entry `define.ts:260-261` — a wire mutation like any other). A derivation is the fact's one writer; tests reset a derived member by writing its **source**. Cells that are *not* derivation targets are exempt: padi's `session` cell (`surface.ts:595-599`, verbs `["get","test__set"]`) keeps its named imperative writers and its `test__set` — it is an ordinary cell, argued out of the algebra below ("not subsumed").
+
+**(b) No declared cycles.** The `from`-declared sibling-reference graph (`foldCollection` / `combineCells` / `gateEvent` / `scanCollection`) is walked at wiring; a cycle is a boot error. Free-form upstream functions (`scanCell` over an arbitrary iterable) are invisible to this walk; for those the documented semantics are **equals-gated fixpoint termination** — every hop publishes through its target's equals gate, so a value-converging loop quiesces, and a non-converging loop is a declared-graph bug (livelock), not a framework hazard. The rule's reach is open question 10.
+
+### `observableSource` / `pollSource` — the source-kind adapters
+
+```ts
+/** Adapt a callback/push observable into the ONE upstream shape every
+ *  deriver accepts (UpstreamSource, project.ts:109-112). `install` runs
+ *  once per subscription; uninstall on abort. NO snapshot synthesized — a
+ *  push-only source's first frame arrives when the source speaks; until
+ *  then a derived cell holds its `initial` (the one writer's declared
+ *  default). */
+export function observableSource<F>(
+  install: (emit: (frame: F) => void) => () => void,
+): (opts: { signal?: AbortSignal }) => Promise<AsyncIterable<F>>;
+
+/** Poll-on-event upstream for CELL-shaped derivations — the cell twin of
+ *  the stream {read, install} deps (server.ts:1171-1199), REUSING
+ *  pollOnEvent's scheduling (server.ts:540-561). First frame = read() (a
+ *  genuine snapshot); then re-read per event tick. NO isEqual — dedup is
+ *  the target cell's spec `equals`, the algebra's one gate (pollOnEvent's
+ *  stream-side isEqual exists only because streams HAVE no spec gate).
+ *  `onReadError` default = stderr; initial-read errors always propagate
+ *  (no snapshot yet ⇒ nothing honest to serve); later read failures follow
+ *  the stateless-pump rule: log, skip, keep polling. */
+export function pollSource<F>(opts: {
+  read: () => Promise<F>;
+  install: (onEvent: () => void) => () => void;
+  onReadError?: (err: unknown) => void;
+}): (opts: { signal?: AbortSignal }) => Promise<AsyncIterable<F>>;
+```
+
+### `scanCell` — stateful fold into a cell
+
+```ts
+/** Fold an upstream's frames through carried state into a cell. Rides the
+ *  cell `connect` seam (server.ts:1120, fired at 1493-1494); every step
+ *  result flows through equals/onWrite/store.set/bus.publish — dedup is
+ *  the target cell's spec equals, nothing else. accumMaybe semantics:
+ *  return the previous state reference to publish nothing.
+ *
+ *  DURABILITY: the pump seeds carried state from `opts.store` when given.
+ *  The store is a constructor argument, not a widened runtime seam: the
+ *  deriver constructs and returns the deps INCLUDING the store (a
+ *  construction-time fact), and CellStore.get() is synchronous
+ *  (server.ts:77-80), so the seed happens at wiring with no window in
+ *  which the pump folds over a default and a late read clobbers it.
+ *  servePadi passes its Conf-backed activityFeed store
+ *  (servePadi.ts:213-218) here; a restart resumes the MRU instead of
+ *  clobbering it on first fold. A scan whose state must NOT survive
+ *  restarts passes no store — the choice is visible in the declaration.
+ *
+ *  Error policy (statefulness line): a throwing `step` → onError (default
+ *  stderr) + pump STOPS holding last state; pump death → same. Abort-shaped
+ *  rejections swallowed (isAbortReason, server.ts:1060).
+ *
+ *  Demand: drishti's alerts hysteresis scan is a committed simultaneous
+ *  consumer — both W5 phases ship as one campaign under the paired-PR rule
+ *  (.claude/rules/surface.md) — and scanStream + deriveCell are
+ *  implemented on this one loop (one teardown/abort/error home).
+ *  deriveCell(u, map, i) ≡ scanCell(u, (_s, f) => map(f), i) — with the
+ *  stateless specialization keeping the continue-on-frame-error policy. */
+export function scanCell<F, S>(
+  upstream: (opts: { signal?: AbortSignal }) => Promise<AsyncIterable<F>>,
+  step: (state: S, frame: F) => S,
+  initial: S | ((stored: S | undefined) => S), // stored = opts.store?.get()
+  opts?: { store?: CellStore<S>; onError?: (err: unknown) => void },
+): DerivedCellDeps<S> & { dispose: () => void };
+```
+
+### `foldCollection` — collection→cell fold (the headline)
+
+```ts
+/** Declare a cell as a STATELESS fold of a sibling collection in the SAME
+ *  implementSurface deps. Wire semantics:
+ *  - SEED: fold(readAll()) at wiring — current truth, never a default.
+ *  - TRIGGER: foldCollection OWNS ITS OWN microtask flush (same shape as
+ *    createTickCoalescer, server.ts:281-312), armed by the collection's
+ *    WRAPPED upsert/remove (server.ts:1585-1600). It does NOT share the
+ *    deltas coalescer: that coalescer exists only when the collection opts
+ *    into `deltas` (server.ts:1526-1542, collectionHasDeltas
+ *    define.ts:229-235), and the headline consumer's terminals collection
+ *    declares verbs ["keys","get"] (padi surface.ts:606) — no deltas, no
+ *    coalescer. Every write seam — including removals — arms the fold
+ *    structurally; "no seam decides" stops being prose.
+ *  - PUBLISH: through the cell's equals/onWrite/store.set/bus.publish
+ *    path; dedup at the cell's spec equals (urgencyEqual stays).
+ *  - RECONNECT: an ordinary cell — store snapshot then deltas.
+ *  - FAIL-FAST: a throwing fold escapes the flush and crashes the process.
+ *  - ONE WRITER: the boot check rejects mutation verbs incl. test__set.
+ *  `from` is boot-checked; unknown sibling key throws at wiring. */
+export function foldCollection<K, T, V>(opts: {
+  from: string; // sibling collection key in the same spec
+  fold: (entries: ReadonlyMap<K, T>) => V;
+}): DerivedCellDeps<V>;
+```
+
+### `scanStream` + `scanMsgSchema` — stateful scan with a snapshot-then-delta face
+
+```ts
+export type ScanMsg<S, D> =
+  | { kind: "snapshot"; state: S }
+  | { kind: "delta"; delta: D };
+/** One wire authority for the scan frame — the stream twin of
+ *  collectionDeltasSchema (define.ts:274-287). */
+export function scanMsgSchema<S, D>(
+  state: ZodType<S>, delta: ZodType<D>,
+): ZodType<ScanMsg<S, D>>;
+/** ONE process-lifetime pump owns the state: step(state, frame) →
+ *  {state, delta}; each delta publishes on an internal channel. EACH wire
+ *  subscriber gets subscribeBeforeSnapshot(bus, signal, () => [{kind:
+ *  "snapshot", state}]) (server.ts:350-363) — subscribe-BEFORE-snapshot
+ *  closes the lost-update window a hand-rolled snapshot-first pump has
+ *  (a delta born in the gap is lost until reconnect). Fail-fast: step
+ *  throw → onError + pump stops holding state (stateful rule);
+ *  subscribers see silence, never fabricated frames. Dedup: none by
+ *  design (a time series appends). Consumers: drishti's metric-history
+ *  ring, including the W5 alerts campaign's ring. */
+export function scanStream<F, S, D>(opts: {
+  upstream: (o: { signal?: AbortSignal }) => Promise<AsyncIterable<F>>;
+  step: (state: S, frame: F) => { state: S; delta: D };
+  initial: S;
+  onError?: (err: unknown) => void;
+}): StreamHandlerDeps<void, ScanMsg<S, D>> & { dispose: () => void };
+```
+
+### The collection `connect` seam + `registryFromFamily` — keyed families
+
+```ts
+/** CollectionImplDeps gains the cell-symmetric republish seam (cell
+ *  precedent: server.ts:1120, fired at 1493-1494): the runtime hands the
+ *  WRAPPED publishers (server.ts:1585-1600) once after wiring. Ships in
+ *  phase 1 because pollCollection requires it at deps-construction time;
+ *  collectionFromFamily (deferred) rides it when triggered. */
+connect?: (coll: { upsert: (key: K, value: T) => void; remove: (key: K) => void }) => void;
+
+/** The keyed-family core — hold each key's last frame, reconcile
+ *  attaches/detaches on membership change, project purely, per-member
+ *  error isolation — shipped behind the face its ONE live consumer feeds:
+ *  a pull-shaped MapRegistry (members/has/subscribe/resolve) consumed by
+ *  serveSurfaceMap (serveHostMap.ts:238+ builds MapRegistry directly,
+ *  resolve → entry + link). The links cache (serveHostMap.ts:147) is IN
+ *  the contract: a resolve-time lazy memo per member, evicted on exit.
+ *  Semantics: the framework HOLDS each key's last frame (the latestState
+ *  Map, serveHostMap.ts:145); RECONCILES subs on each membership emit;
+ *  an entry with NO frame yet resolves project(key, undefined) — the
+ *  projection owns the honest "not yet" arm (projectState's undefined →
+ *  connecting, serveHostMap.ts:52-77); a throwing project/onChange routes
+ *  to onError (default stderr) and keeps the last resolved value — one
+ *  member's failure never freezes siblings, never invisibly. */
+export function registryFromFamily<K, F, Entry, Link>(opts: {
+  members: {
+    list: () => readonly K[];
+    has: (k: K) => boolean;
+    subscribe: (onChange: () => void) => () => void; // fires after list/has reflect the change
+  };
+  attach: (key: K, emit: (frame: F) => void) => () => void;
+  resolve: (key: K, last: F | undefined) => Entry;   // pure projection
+  linkFor?: (key: K) => Link;                        // resolve-time memo; evicted on exit
+  onError?: (key: K, err: unknown) => void;
+}): MapRegistry<K, Entry, Link> & { dispose: () => void };
+```
+
+### `pollCollection` + `CollectionSpec.equals` — the poll→keyed-map reconcile
+
+```ts
+/** Poll a keyed external source, diff against the served snapshot, upsert
+ *  changed keys, evict vanished ones — through the wrapped publishers (the
+ *  collection connect seam), so per-key subscribers, keysBus membership
+ *  dedup (broadcastKeys, server.ts:1584) and, where the `deltas` verb is
+ *  declared, the tick coalescer all fire from ONE declaration.
+ *
+ *  Wire semantics per tick:
+ *  - read() → next: ReadonlyMap<K,T>.
+ *  - For each [k, v] in next: publish upsert(k, v) — the per-key gate is
+ *    the TARGET COLLECTION's spec `equals`; pollCollection carries NO
+ *    equality predicate of its own (the diff's equality IS the member's
+ *    declared equals, one visible gate). With no equals declared the gate
+ *    defaults to Object.is per key — freshly-allocated equal values
+ *    republish, which is the honest default (drishti's networkInterfaces
+ *    deliberately upserts unconditionally) and the incentive to declare
+ *    equals (drishti's processes declares its MUTABLE_PROCESS_FIELDS-based
+ *    predicate as the spec equals in the paired PR).
+ *  - For each served key not in next: remove(k). remove-then-upsert-equal
+ *    within one tick still publishes (membership changed; last-op-wins
+ *    pending map, server.ts:284-311).
+ *  - Deltas verb declared ⇒ one coalesced {upserts,removes} frame per
+ *    tick, subscribe-before-snapshot on the framework path.
+ *  - First tick runs immediately (populate within one scan); read failure
+ *    after the first successful tick follows the stateless-pump rule (log
+ *    via onReadError, skip tick, keep polling); a failing FIRST read
+ *    propagates (nothing honest to serve).
+ *
+ *  Demand: the most-repeated hand-roll in both trees — three production
+ *  instances in one drishti function (agent main.ts:262-330) and four
+ *  documentation instances (fleet-top ×3, remote-process-monitor) that
+ *  teach users to hand-roll exactly this. */
+export function pollCollection<K, T>(opts: {
+  read: () => Promise<ReadonlyMap<K, T>>;
+  install: (onTick: () => void) => () => void; // cadence owner: interval, event, or both
+  onReadError?: (err: unknown) => void;
+}): CollectionFamilyDeps<K, T> & { dispose: () => void };
+
+// CollectionSpec.equals — ships with pollCollection (live demand:
+// drishti's processChanged, agent main.ts:90-106):
+interface CollectionSpec<K, T> { equals?: (a: T, b: T) => boolean }
+// Gates the wrapped upsert's per-key publish AND coalescer enqueue
+// (server.ts:1585-1600), mirroring the cell gate (server.ts:198-207).
+// remove-then-upsert-equal within one tick still publishes (membership
+// changed; the last-op-wins pending map already models this).
+```
+
+## What each shipping item subsumes
+
+Each shipping addition deletes a named hand-roll (kolu paths repo-relative to kolu master; drishti paths to drishti master):
+
+1. **`foldCollection` ← padi urgency** (the headline). `packages/padi/src/urgency.ts:23-38` (`recomputeUrgency`) becomes the `fold`; the wiring dies. `packages/padi/src/terminalEndpoint/metadata.ts:110-112` (`publishUrgency`) + its call inside `publishComposedTerminal` (`:104`): deleted — the recompute rides `foldCollection`'s own flush armed by the wrapped upsert/remove. `metadata.ts:129-132` (the removal-path refold): deleted — removes arm the same flush. The prose invariant at `metadata.ts:28-35` retires — it becomes structure. `servePadi.ts:180`'s seed becomes `fold(readAll())`; `equals: urgencyEqual` (`servePadi.ts:179-182`, `urgency.ts:44-50`) **stays on the spec** — the one dedup point.
+2. **`observableSource` + `pollSource` + `deriveCell` ← the callback-source hand-wires.** `packages/server/src/index.ts:842-853` (padiSession.onState → padiLink + processStartedAt) becomes two derived cells over one `observableSource((emit) => padiSession.onState(emit))`; `mapConnectionToPadiLink` (`padiLink.ts:37-49`) survives as the map. **`packages/surface-remote/src/connectionPipe.ts:36-64`** (`pipeSessionStateToCell` + `projectConnection`, live via `hostFanout.ts:191`) becomes `deriveCell(observableSource(...), projectConnection, DEFAULT_CONNECTION)`; `projectConnection` survives as the map and `seedConnectionCell` stays (a seeded store is legitimate deps); its catch-and-keep-consuming (`connectionPipe.ts:53-63`) is not deleted but **promoted** — it is `deriveCell`'s per-frame policy, one law where three spellings lived. `pollSource` sites, four: `index.ts:881` (daemonInventory sampler), `index.ts:797-810` (the kolu-server processMemory sampler — precisely the `{read, install}` shape), `packages/padi/src/hostInventory.ts:331`, `packages/padi/src/memorySampler.ts:61`. None grows a local isEqual — dedup at each target cell's spec equals.
+3. **`scanCell` ← drishti's alerts scan (committed) + conditionally padi's activityFeed.** Primary: the W5 alerts hysteresis scan — same campaign, paired-PR rule, so the consumer exists at ship time by construction. Conditional: padi `activity.ts:73-101` — only if `trackRecentRepo`/`trackRecentAgent` become emitter publishes (open question 5); what `scanCell` buys there is one-writer *structure* (the functions are synchronous — there is no race to fix). Independent of that timing: the read-path back-write (`activity.ts:50-57` — a getter that filters and writes back) is a second writer by another name, fixed regardless. Durability is real: the Conf-backed store (`servePadi.ts:213-218`) passes as `opts.store`; a restart resumes the MRU.
+4. **`scanStream` + `scanMsgSchema` ← drishti's metric history.** `router.ts:241-245` (`recordSample`) becomes the step; `pushSample` (`common/history.ts:94-103`) survives as pure logic. `router.ts:108-117` (hand historyRing + historyBus): owned by the pump. `router.ts:198-208` (hand snapshot-then-delta, snapshot-**before**-subscribe): deleted — `subscribeBeforeSnapshot` closes the lost-update window. `router.ts:279-289` (the pump sink fusing `system.set` + `recordSample` at the write site): the fusion dies — the scan subscribes the system cell's own publish path.
+5. **`registryFromFamily` ← serveHostMap's session family.** `serveHostMap.ts:145` (latestState cache): framework-held. `:150` (fused fire) + `:161-185` (attach: cache-then-fire, the per-member catch): the attach/onError contract. `:193-206` (membership reconcile): framework reconcile. `:147` (the links cache) with its lazy memo and detach-time eviction: in the contract as `linkFor`. `projectState` (`:52-77`) survives as the one `resolve` projection (the `undefined → connecting` arm intact), with `causeFor` enrichment (`:109-113`) composed inside it. drishti's `packages/app/src/server/hostMapRegistry.ts` (a hand-adapted clone; clockOffset hardcoded 0): deleted — drishti declares `registryFromFamily` and imports the shared projection, collapsing the two-authorities drift (the projection takes `last: F | undefined`, clock handling composed in the resolve fn).
+6. **The collection `connect` seam** ships with `pollCollection` (its unconditional demand). Whether padi's registry exposes one `onChange` that collapses the five `publishComposedTerminal` write seams (`metadata.ts:142-171`, `182-213`, `221-229`, `245-248`, `120-122`) through `composePadiTerminal` (`metadata.ts:73-81` survives as the map) is open question 6; if declined, that convention stays and only its urgency rider (item 1) is deleted.
+7. **`pollCollection` + `CollectionSpec.equals` ← the poll→keyed-map reconciles.** drishti agent `main.ts:262-330`: the tick's three hand reconciles (processes with hand-dedup + hand delta bus; cpuCores with evict; networkInterfaces with evict) become three `pollCollection` declarations sharing one read cadence. `main.ts:90-106` (`MUTABLE_PROCESS_FIELDS` + `processChanged`): becomes the processes collection's spec `equals` — the hand-held per-key dedup moves to the algebra's one gate. `main.ts:211-221` (the processesSnapshot stream: yield snapshot, then subscribe the hand delta bus — a snapshot-before-subscribe window) + `main.ts:295` (fused delta publish): deleted — the collection already declares the `deltas` verb (`common/surface.ts:249`); the framework coalescer serves the same wire shape with subscribe-before-snapshot. Paired-PR consequence: drishti's agent-written collections currently expose wire `upsert`/`delete` (`common/surface.ts:249, 258`); as `pollCollection` targets, the boot check rejects those verbs — the paired PR narrows them to `["keys","get","deltas"]`, making the one-writer fact wire-true for drishti too. kolu's doc-tree examples rewrite on the same combinator: fleet-top parts 1–3 (`src/server/top.ts:91-102`, `src/daemon/top.ts:93-96`, `src/agent/top.ts:93-96`) and remote-process-monitor (`src/agent/main.ts:167-187`).
+
+**Not subsumed, deliberately:**
+
+- **padi session autosave** (`packages/padi/src/session.ts:19-65`, driven by the AutosaveGate off `terminals:dirty`): argued **out** of the algebra. It resembles the fold shape, but the `session` cell has **multiple legitimate writers** — restore's clear, restart's capture, the autosave fold, and the wire `test__set` (`surface.ts:595-599`) — because "what the saved session is" is genuinely decided by more than one actor. A fold declaration would be a lie the boot check turns into a boot failure; `session` is not a derivation target, so the one-writer check does not apply and its `test__set` stays legal.
+- **`remotePadiBinding.ts:721-740`** (base.onState mutating module-local convergence/clockOffset state): a scan-shaped hold, but its outputs feed the pull-shaped `PadiSession` accessor facade (`convergence()`, `clockOffset()` closures), not a surface member. The algebra's combinators target surface members; this becomes `scanCell` demand if convergence is ever served as a member.
+- **padi daemonStatus chain** (`daemonStatus.ts:76` upsert): already the wrapped-path collection publish — framework-shaped today.
+- **kaval's PTY-attach protocol** (`packages/kaval/src/inProcessPtyHost.ts:138, 232`): a snapshot-then-delta discipline on kaval's own attach API — not a surface member; out of scope.
+- **surface-map's client-side** `floorOnLiveness`/`foldState`/`scopedByEntry` (`client.ts:93-125, 530-543`; `scoped.ts:81-210`): correct client-policy homes (Solid memo dedup, no wire involvement); `makeEntryClock` (`client.ts:132-140`) is a pure lens.
+
+## Deferred — cataloged, trigger named
+
+```ts
+// collectionFromFamily — the collection-member face of the keyed-family
+// core (population-zero as a collection member today: serveHostMap feeds a
+// MapRegistry, not a collection member). Trigger: surface-map's serving
+// seam reworked to consume a collection member (or any first keyed
+// push-family served as one). Shares registryFromFamily's
+// hold/reconcile/project core; adds the wrapped upsert/remove publish leg
+// via the collection connect seam.
+export function collectionFromFamily<K, F, T>(opts: {
+  members: (emit: (keys: readonly K[]) => void) => () => void;
+  attach: (key: K, emit: (frame: F) => void) => () => void;
+  project: (key: K, last: F | undefined) => T;
+  onError?: (key: K, err: unknown) => void;
+}): CollectionFamilyDeps<K, T> & { dispose: () => void };
+
+// deriveCollection — the missing Incremental fmap (cross-surface,
+// patch-preserving). Trigger: first projectSurface exposing a collection
+// member (MCP mirror / narrowed peer view).
+export function deriveCollection<K, F, T>(
+  upstream: (o: { signal?: AbortSignal }) => Promise<AsyncIterable<CollectionDeltasMsg<K, F>>>,
+  mapValue: (key: K, value: F) => T, // KEY-PRESERVING; key remap = move/collision semantics, out of scope
+  opts?: { onError?: (err: unknown) => void },
+): CollectionFamilyDeps<K, T> & { dispose: () => void };
+// Wire semantics: an upstream delta of n keys maps to a downstream delta of
+// ≤n keys — never a refold. An upstream snapshot (reconnect) is DIFFED
+// against currently-served entries; the equality used is the TARGET
+// member's declared CollectionSpec.equals — a HARD dependency. Absent a
+// declared equals the diff falls back to Object.is per key, which re-emits
+// every freshly-decoded entry on reconnect — i.e. patch-preservation
+// across reconnects is only as good as the declared equals, stated rather
+// than hidden. No invisible deep-equal is ever embedded.
+
+// combineCells — same-process zip (reflex zipDynWith / pull / attach).
+// Trigger: first derived member reading two sibling sources.
+export function combineCells<A, B, V>(opts: {
+  from: [string, string]; // sibling cell keys, boot-checked (incl. the cycle rule)
+  combine: (a: A, b: B) => V;
+}): DerivedCellDeps<V>;
+// Seed = combine(storeA.get(), storeB.get()) at wiring. Recompute coalesced
+// per microtask tick on ITS OWN flush (coalescer shape, server.ts:281-312):
+// two same-tick source writes publish ONE combined frame. SAME-PROCESS
+// ONLY; cross-surface zip deliberately absent (no transactional frame on
+// the wire) — client-side pairing is the honest tick.
+
+// Event filtering — fmapMaybe/ffilter for events ONLY.
+// Trigger: first projection narrowing an event feed.
+export const SKIP: unique symbol;
+export function deriveEvent<I, F, T>(
+  upstream: UpstreamSource<I, F>,
+  map: (frame: F) => T | typeof SKIP,
+): EventHandlerDeps<I, T>;
+// Legal: events carry no snapshot obligation (project.ts:172-179).
+// Streams: NOT offered — dropping the first frame breaks snapshot-then-
+// delta reconnect (define.ts:58-63); hold-last-passing-value is scanCell.
+
+// gateEvent — reflex `gate`. Trigger: with SKIP, first sibling-gated feed.
+export function gateEvent<I, F, C>(opts: {
+  upstream: UpstreamSource<I, F>;
+  from: string; // sibling cell key (cycle-rule participant)
+  when: (current: C) => boolean; // reads the post-write store at frame time
+}): EventHandlerDeps<I, F>;
+
+// scanCollection — stateful/incremental fold over collection changes
+// (reflex accumIncremental). Trigger: a foldCollection measured too hot at
+// full refold over large N (urgency today is a deliberate, cheap full
+// refold, urgency.ts:23-38).
+export function scanCollection<K, T, S>(opts: {
+  from: string;
+  step: (state: S, change: CollectionDelta<K, T>) => S;
+  initial: (entries: ReadonlyMap<K, T>) => S; // seed from truth
+}): DerivedCellDeps<S>;
+
+// mergeSources — interleave N upstreams into one event member (reflex
+// merge/leftmost/mergeWith, collapsed — no cross-channel simultaneity).
+// Trigger: first N-source event member.
+export function mergeSources<I, F>(
+  ...sources: UpstreamSource<I, F>[]
+): UpstreamSource<I, F>;
+```
+
+## Not applicable — the arguments
+
+**Switching (`switch`, `switchHold*`, `coincidence`, Dynamic-`join`) — N/A on the wire.** (1) A switching occurrence must carry an Event *as its value*; a wire frame is Zod-schema'd data (`define.ts:245-265`) and a live channel is process-bound state. (2) The only serializable stand-in is a channel *handle* — a capability crossing the serialization boundary: dead epochs after reconnect, an undefinable snapshot obligation, a second writer on "which stream is current". (3) The promptly trichotomy is a same-frame timing distinction, and per-member channels have no shared frame. What **survives is first-order**: the switching *index* travels as data — a collection key (a per-key `get` held open on an absent key is `switchHold never`'s idle state, `server.ts:382-417`) — and the *client* re-subscribes on index change; client-side `scopedByEntry` (`scoped.ts:81-210`) is the switching machinery. The unkeyed Dynamic `join` collapses to the same encoding: the outer value is data (an index), the client re-subscribes.
+
+**Cross-channel combines (Event `Align`/`Zip`/`Apply` instances, `difference`, wire-level `zipDyn`, `attach`-over-the-wire) — N/A.** All are defined by *same-frame simultaneity*, and per-member wire channels share no frame: intersection is meaningless, every union collapses to plain interleave (`mergeSources`, deferred), and "the Behavior's value at the occurrence" is undefined when the two frames ride independent channels with independent latencies. Server-side, same-process, the combine is legal and is `combineCells` (deferred); client-side, the pairing lives in the UI's reactive batch (a Solid memo). The same no-shared-frame fact settles the `tagPromptlyDyn` family: surface folds always see the post-write value (`store.set` precedes `bus.publish`, `server.ts:198-207`), so derivation semantics are uniformly "promptly" — and there is no same-frame old-value/new-value distinction left to spell.
+
+**The monad, the graph, the sugar.** `PushM`/`PullM`: the server process *is* the monad — handlers are arbitrary TS that read stores synchronously and hold state; reifying it adds nothing. The `*Cheap` variants: a Haskell pull-graph performance contract with no analog (a surface bus is already multicast). `Query`/`crop`/`SelectedCount`: per-member subscription + AbortSignal *is* a query declaration; subscriber counts are SelectedCount; abort is the decrement-to-zero prune — a genuine analog becomes worth building at range/viewport partial subscription over a large collection. `maybeDyn`/`eitherDyn`/`factorDyn`/`demux`: client-side discriminated rendering (a memo on the discriminant; Solid `<Show>`/`<Switch>` are the inner factoring).
+
+## The mapping, exhaustively
+
+Legend: **EXISTS** (file:line, verified in-tree) · **ADD-SHIP** (ships phase 1, demand named) · **ADD-DEFER** (cataloged above, trigger named) · **N/A** (argued). File cites are kolu `packages/surface/src/…` unless another package is named.
+
+| reflex combinator / family | verdict | surface analog |
+|---|---|---|
+| **§0 primitives** | | |
+| `Behavior` | EXISTS | stream member (`define.ts:152-155`): derived, read-only, sampled at will. Server-side, any sibling cell's current value is also a Behavior: `deps.store.get()` read synchronously (`server.ts:198-207`). |
+| `Event` | EXISTS | event member (`define.ts:157-160`): occurrence, no snapshot obligation (`project.ts:172-179`). |
+| `Dynamic` | EXISTS + phase 1 | cell (`define.ts:89-144`) is the value half; the change half is phase 1's `updated()` on the client Subscription, change-iff-fired enforced at the producer by spec `equals` (`server.ts:198-207`). |
+| `Incremental` | EXISTS | collection with the opt-in `deltas` verb (`define.ts:64-87`): snapshot = PatchTarget, coalesced `upserts`/`removes` = the patch; one wire authority `collectionDeltasSchema` (`define.ts:274-287`). |
+| `currentIncremental` | EXISTS | the collection's snapshot half: server `readAll()` / client per-key `get` + `keys` — the current PatchTarget without the patch stream. |
+| `updatedIncremental` | EXISTS | the `deltas` verb's delta frames alone — the patch stream without the snapshot (a client that skips frame 1). |
+| `incrementalToDynamic` | EXISTS | snapshot + client-side fold of deltas into a whole-map view — what the `deltas` verb's client consumer does (surface-map's folded entry collection decodes the same one authority). |
+| `PushM` / `PullM` | N/A | the server process is the monad — handlers are arbitrary TS reading stores synchronously. |
+| `never` | EXISTS | an event member nobody publishes. |
+| `constant` | EXISTS | a cell default with no writer; `inMemoryCell(initial)` (`project.ts:242`). |
+| `push` / `pushAlways` / `pushCheap` | EXISTS / ADD-DEFER | always-firing map = `deriveEvent` (`project.ts:180-187`); the Maybe-filtering half is the deferred `SKIP` return. Cheap variants N/A (graph-caching contract; a surface bus is already multicast). |
+| `pull` | ADD-DEFER server / EXISTS client | server-side multi-cell recompute = `combineCells` (deferred); client-side, a Solid memo over `useCell` subscriptions already is `pull`. |
+| `switch`, `coincidence` | N/A | see the switching argument above. |
+| `current` / `updated` | EXISTS / phase 1 | the client accessor half exists today; `updated()` change pairs are phase 1. |
+| `unsafeBuildDynamic` / `unsafeBuildIncremental` | EXISTS | the raw `source` escape hatch (StreamImplDeps raw branch, `server.ts:1171-1199`): the author vouches for snapshot-then-delta — reflex's "caller owns the law" posture. |
+| `mergeIncrementalG` / `…WithMoveG` | ADD-DEFER | `collectionFromFamily` — keyed sources joining/leaving under a membership reconcile, as a collection member. The live keyed-family consumer feeds a pull-shaped MapRegistry instead — that face ships as `registryFromFamily`. Trigger for the collection face: surface-map's serving seam consuming a collection member. |
+| `behaviorCoercion` etc. | N/A | TS structural typing makes coercions free. |
+| `sample` (MonadSample) | EXISTS | synchronous `store.get()` / ctx `cells.<k>.get()` (`server.ts:1469-1474`); app-level use: `activity.ts:73-101`. |
+| `hold` / `holdDyn` | ADD-SHIP | `observableSource` + `deriveCell`: hold a push source's last frame in a cell (subsumes item 2). |
+| `holdIncremental` | EXISTS | the collection store + wrapped upsert/remove publish path (`server.ts:1585-1600`). |
+| *poll → keyed snapshot reconcile* | **ADD-SHIP** | `pollCollection` — the Incremental twin of `pollSource`; no single reflex name. The most-repeated hand-roll in both trees (subsumes item 7). |
+| `buildDynamic` | EXISTS-in-ADD | derived cells seed from computed truth at wiring (`foldCollection` seeds with `fold(readAll())`), never a fabricated default. |
+| `headE` / `now` / `slowHeadE` | N/A | no wire demand; a raw `source` generator expresses one-shot/first-occurrence trivially. |
+| **§1 pure map/filter** | | |
+| `fmap` (Event/Dynamic/Behavior) | EXISTS | `deriveEvent` (`project.ts:180-187`), `deriveCell` (`project.ts:236-280`, error policy per the statefulness line), `deriveStream` (`project.ts:163-170`). |
+| `fmapMaybe` / `ffilter` / `filterLeft` / `filterRight` | ADD-DEFER | `SKIP`-returning map on `deriveEvent` ONLY. Illegal on streams: dropping the first frame breaks snapshot-then-delta reconnect (`define.ts:58-63`); a "filtered stream" is a cell/scan holding the last passing value (`scanCell`). |
+| `ffor`/`ffor2`/`ffor3` | N/A | argument-order sugar. |
+| `splitE` / `Unzip` | composition | two derived members off one upstream; the source bus multicasts. |
+| Event `Alt`/`Apply`/`Bind`/`Semigroup`/`Align`/`Zip` | N/A | defined by same-frame simultaneity — see the cross-channel argument. |
+| cheap variants (`fmapCheap`…) | N/A | Haskell pull-graph perf contract; no analog. |
+| `traceEvent` / `traceDyn` | EXISTS | the `onWrite` fire-and-forget seam on cells (`server.ts` ~1110) or a logging map. |
+| **§2 sampling (Behavior×Event)** | | |
+| `tag`/`attach`/`attachWith`/`<@>`/`<@` | ADD-DEFER server / N/A wire / EXISTS client | same-process: a derivation's compute may read sibling stores synchronously at its publish tick — generalized as `combineCells` (deferred). Cross-surface over the wire: N/A (no shared frame). Client-side pairing: the UI's reactive batch. |
+| `gate` | ADD-DEFER | `gateEvent`: drop upstream frames while a sibling cell's current value fails a predicate; same-process only. |
+| `tagPromptlyDyn` family vs `tag (current d)` | N/A distinction | folds always see the post-write value (`store.set` precedes `bus.publish`, `server.ts:198-207`) — uniformly "promptly"; per-member channels share no frame, so no same-frame old/new distinction exists to spell. Cycle safety is the boot cycle rule + equals-gated fixpoint termination (boot checks above). |
+| **§3 fan-in** | | |
+| `merge`/`mergeWith`/`leftmost`/`mergeList` | ADD-DEFER | `mergeSources` — interleave N upstreams into one event member. No cross-channel simultaneity ⇒ the three conflict policies are vacuously one combinator. |
+| `mergeMap` / `mergeInt` / `mergeIntIncremental` | EXISTS | the deltas coalescer: N same-tick keyed mutations publish ONE `upserts`/`removes` frame (`createTickCoalescer`, `server.ts:281-312`); tick = microtask. |
+| `alignEventWithMaybe` / `difference` | N/A | simultaneity-defined. |
+| `mergeIncremental` / `mergeMapIncremental(WithMove)` | ADD-DEFER | the collection-member face of the keyed-family core (`collectionFromFamily`). |
+| `unsafeMapIncremental` | ADD-DEFER | `deriveCollection` — patch-preserving per-key map; hard dependency on `CollectionSpec.equals` (phase 1) for its reconnect diff. |
+| **§4 fan-out** | | |
+| `fan` / `fanMap` / `EventSelector` / `selectG` | EXISTS | collection per-key `get` over `perKeyBus` (`server.ts:382-417`): key in, per-key stream out; absent key = held-open subscription. |
+| `fanEither` / `fanThese` | composition (deferred) | two `SKIP`-filtered derived events off one upstream — needs the filter ADD. |
+| `filterEventKey` / `factorEvent` | N/A | the key travels as data and the client re-subscribes; stop-permanently semantics have no demand. |
+| `fanInt` / `EventSelectorInt` | N/A | perf specialization of fan. |
+| **§5 hold-class (stateful)** | | |
+| `hold`/`holdDyn` | ADD-SHIP | `observableSource` (+ `deriveCell`) and `pollSource` (the cell twin of the stream `read`/`install` shape; no isEqual — dedup at the target cell's spec `equals`). |
+| `Accumulator` (`accum*`), `foldDyn`/`foldDynMaybe*` | ADD-SHIP | `scanCell` — `(state, frame) => state` fold into a cell; `accumMaybe`'s "Nothing = no update" = return the previous state reference. Demand: drishti's committed alerts scan (paired-PR campaign) + `deriveCell`/`scanStream` implemented on its loop; the padi activityFeed adoption is conditional (open question 5). |
+| `mapAccumDyn`/`mapAccumB` (state + output, snapshot-worthy) | ADD-SHIP | `scanStream` — carried state + per-frame delta, wire face `snapshot(state)`-then-deltas via `subscribeBeforeSnapshot` (`server.ts:350-363`). |
+| `mapAccum_` family / `numberOccurrences*` / `zipListWithEvent` | N/A → raw `source` | the state-*discarded* variants output an Event with no snapshot obligation — neither `scanStream` (imposes a snapshot face) nor `scanCell` (produces a cell) fits; the honest analog is a raw `source` generator closing over carried state (`project.ts:172-179`). No named combinator until demand names one. |
+| `accumIncremental` (fold to a PATCH) | ADD-DEFER | `scanCollection` — fold emitting collection patches instead of full refolds. Trigger: a `foldCollection` measured too hot at full refold (urgency today is a deliberate, cheap full refold, `urgency.ts:23-38`). |
+| `scanDyn`/`scanDynMaybe`/`mapDynM` | ADD-SHIP | `scanCell` with a cell upstream (its `get` iterable, or `observableSource` on its bus). |
+| `count`/`toggle` | N/A named | one-line `scanCell` instances. |
+| `tailE`/`headTailE`/`takeWhileE`/…/`improvingMaybe` | N/A | prefix/suffix machines; a raw `source` generator; no in-repo demand. |
+| **§6 switching (higher-order)** | | |
+| `switch`/`switchHold*`/`switcher`/`switchDyn`/`switchPromptlyDyn`/`coincidence`/`coincidencePatch*` | N/A on the wire | the switching argument above; the index travels as data, the client re-subscribes; `scopedByEntry` (`scoped.ts:81-210`) is the client-side switching machinery. |
+| `join` (Dynamic-is-a-Monad, unkeyed) | N/A wire | a cell-of-cell is unspellable as wire data (the inner cell would travel as a channel capability); the outer value is data, the client re-subscribes. Keyed `joinDynThroughMap` is the collection row (§8). |
+| `maybeDyn`/`eitherDyn`/`factorDyn` | N/A wire | client-side discriminated rendering: a memo on the discriminant; Solid `<Show>`/`<Switch>`. |
+| **§7 uniqueness** | | |
+| `holdUniqDyn` / `holdUniqDynBy` | EXISTS | producer-side spec `equals` (`define.ts:124`), enforced on both write paths (`server.ts:198-207`, `1469-1474`). THIS is where equals lives: at the ONE writer's publish gate, never inside a deriver, never at a mirror. |
+| `UniqDynamic` + ptr-equality | N/A | explicit, reviewable predicate on the spec; JS has no WHNF/ptr semantics to exploit. |
+| `alreadyUniqDynamic` | EXISTS | the per-write `force` equals bypass (`server.ts:1238`) for re-serve rebind epochs. |
+| stream uniqueness | EXISTS (poll shape) | `pollOnEvent`'s `isEqual` yield gate (`server.ts:540-561`, gate at `:557`) — streams have no spec-equals gate, so the source owns it; cells do, which is why `pollSource` carries none. |
+| collection VALUE uniqueness | **ADD-SHIP** | `CollectionSpec.equals` gating per-key publish + coalescer enqueue (`server.ts:1585-1600`), mirroring the cell gate. Live demand: drishti's `processChanged` (agent `main.ts:90-106`) is this predicate, hand-held at the write site today. Ships with `pollCollection`, whose diff is defined in terms of it. |
+| `demux` | N/A wire | selection is client state; `demuxed(k)` = a client memo. |
+| **§8 combining / distribution** | | |
+| `zipDyn` / `zipDynWith` | ADD-DEFER server / N/A cross-surface / EXISTS client | server-side `combineCells`, recompute coalesced per microtask tick on its OWN flush. Cross-surface wire zip deliberately absent: independent channels can present (new a, old b); no transactional frame restores glitch-freedom. |
+| `distributeMapOverDynPure` / `joinDynThroughMap` / `distributeList*` | EXISTS | the collection IS the distributed map: `deltas` = a coherent whole-map view per tick; `keys`+`get` = the per-key view. |
+| `splitDynPure` | composition | two derived cells off one upstream. |
+| `constDyn` / `unsafeDynamic` | EXISTS | cell default with no writer / the raw-source escape hatch. |
+| HList machinery / `collectDynPure` | N/A | TS structural records; n-ary `combineCells`, deferred with it. |
+| Num/IsString/Semigroup instances | N/A | sugar over fmap/zip. |
+| **§10 Adjustable + collection UIs** | | |
+| `Adjustable`/`runWithReplace`/`traverse*WithAdjust(WithMove)` | EXISTS client / **ADD-SHIP server** | client: `scopedByEntry` (`scoped.ts:81-210`). Server: the keyed-family core ships as `registryFromFamily` (the MapRegistry face its one live consumer feeds); `collectionFromFamily` deferred. |
+| `listHoldWithKey`/`listWithKey`/…/`simpleList` | same | `scopedByEntry` / `watchByEntry` (client); `registryFromFamily` → `collectionFromFamily` (server). |
+| `networkView`/`networkHold`/`untilReady` | N/A | whole-graph replacement is a process/UI concern: Solid `<Show>`/Suspense client-side; server-side, the re-serve rebind epoch (force republish, `server.ts:1238`). |
+| **§11 Query** | | |
+| `Query`/`crop`/`QueryMorphism`/`SelectedCount`/`MonadQuery`/`queryDyn` | N/A as API | per-member subscription + AbortSignal IS a query declaration; subscriber counts are SelectedCount; abort is the decrement-to-zero prune. Crop *policy* is app-level (W7 K1). A genuine analog becomes worth building at range/viewport partial subscription over a large collection. |
+| deprecated inventory | N/A | aliases of covered combinators. |
+
+## Open questions
+
+1. **Typed sibling references.** `foldCollection`/`combineCells`/`gateEvent`/`scanCollection` name siblings by string key, boot-checked (existence + verbs + cycles). Compile-time `from` means threading `keyof` through the deps builder — the second type materialization `projectSurface` avoids for TS union-budget reasons (`project.ts:288-290, 62-72`). Is boot-time throw enough, or is a keyof-only generic affordable?
+2. **The tick — refold suppression.** `foldCollection` owns its flush. With `CollectionSpec.equals` in phase 1, should a flush in which *every* same-tick upsert was equals-suppressed skip the refold entirely, or is one spec-equals-gated cell publish per armed tick cheap enough? Measure on the ~150ms composed-terminals firehose before adding the skip.
+3. **`scanCell` durability — migration.** The signature is fixed (store param; seed from `store.get()`); the remaining question is version skew: a persisted `S` whose shape changed across a deploy. Does the `initial(stored)` function form (caller-owned migration/validation, fail-fast on unparseable) suffice, or do persisted scans need a declared versioned-migration seam?
+4. **The `registryFromFamily` wrapper's home.** The combinator deletes serveHostMap's cache/fire/reconcile and drishti's clone; `causeFor` enrichment (`serveHostMap.ts:109-113`), the #1716 belt (`:259-265`), and `offsetOf` injection (`:40-44, 85-95`) compose into `resolve`. Does the composed wrapper stay in surface-remote (shared with drishti), or does drishti import only the projection? Either kills the clone; the package boundary needs an electricity-test ruling.
+5. **The activityFeed restructure.** `scanCell` subsumes padi's activityFeed only if `trackRecentRepo`/`trackRecentAgent` become emitter publishes — is that churn worth it now, or does it wait, with only the read-path back-write (`activity.ts:50-57`, a mutating read) fixed immediately?
+6. **The metadata write-seam collapse.** The connect seam ships with `pollCollection` regardless. Does padi's registry expose the one `onChange` that collapses the five `publishComposedTerminal` seams, or does that path keep its convention with only the urgency rider deleted?
+7. **Fail-fast — visibility of a stopped stateful pump.** The doctrine line is ruled (sync in-tick = crash; async stateless = log-skip-continue; async stateful = log-stop-hold). Remaining: should a *stopped* stateful pump escalate beyond stderr — e.g. flip the liveness gate (`define.ts:143`) so the freeze is visible on `health()` — given the history with frozen-but-live-looking members (#1034)?
+8. **Cross-surface zip.** Hard-rule it client-side forever (no transactional frame on the wire), or leave the deferred `combineCells` open to a cross-surface variant with documented eventual consistency if demand ever names one?
+9. **`scanMsgSchema` vs `collectionDeltasSchema`.** Unify `ScanMsg` with `CollectionDeltasMsg` (a keyed scan is a collection; an unkeyed one isn't) or keep distinct authorities? Unifying lets `scanStream` consumers reuse the collection client fold; it also blurs "collection = keyed, patchable" (`define.ts:75-87`) for a member with no keys.
+10. **The cycle rule's reach.** The boot cycle check covers only `from`-declared edges; `scanCell` over an arbitrary upstream iterable is invisible to it. Is "equals-gated fixpoint termination + a documented livelock-is-a-bug rule" enough for the free-form subset, or should scanCell-over-a-sibling-cell get a declarative `from` spelling so its edge joins the checked graph?
+11. **`pollCollection` cadence composition.** `install` owns the cadence (interval, event, or both — drishti wants interval + immediate first tick; kolu's samplers want event-triggered resample). Is one install seam enough, or do interval-and-event-fused cadences deserve a tiny shared helper so each caller doesn't re-spell "setInterval + onState + fire now"?

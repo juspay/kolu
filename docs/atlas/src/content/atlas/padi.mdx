@@ -184,7 +184,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
 
-**The ratified architecture (2026-07-10).**<Footnote>Two grounded reviews: a 12-agent /architecture-first-principles + /perfection-review fan-out (3 ground readers over kolu, drishti, and the framework seams · 3 independent designs · 6 adversarial refuters — the level layer survived every adversary; browser-side frame-diff edge detection was refuted four ways: unordered streams, default-materialization double-fire after restarts, per-window dedup memory, and clear→re-raise misses inside a link flap), then an independent /hickey pass that cut the surface-map braid (attention has nothing to do with maps) and found the hydration lie, re-judged with the fact that drishti's adoption is committed and lands paired.</Footnote> Attention is **level state** ("what needs you now"), written once per host at the endpoint that can know it, carried as an ordinary per-entry cell — an event member is the wrong carrier (fired while the browser is closed or the link is flapping it is simply *gone*; a cell replays current truth on every (re)connect). **kolu mints no wire member**: the cell already exists on master — `cells.urgency` (`packages/padi/src/surface.ts`; `PadiUrgencySchema = { awaitingIds: TerminalId[] }`, padi's registry fold the sole writer, read-only on the client, no recency and no count field — the count is derived as `awaitingIds.length` at every read site, as the host strip's chips already do), the deliberately tiny per-host projection W7's K1 ruling keeps hot while full wire subscriptions stay active-host-only. **drishti's `alerts` cell is W5's one new wire member** (its server holds the metrics history — threshold + hysteresis live there — and no member carries those facts today). It lands as **two PRs**: **phase 1**, a surface refactor of its own (paired kolu + drishti + odu adoption PRs — the primitives are modified freely), completes the framework's primitives; **phase 2** is W5 itself on top. Four framework packages each gain a piece — `@kolu/surface` (the cell reader completes the Dynamic), `@kolu/surface-remote` (a mirror never fabricates a value), `@kolu/surface-map` (the eager watcher), `@kolu/surface-app` (delivery) — taught end-to-end in [the attention primer](surface-attention-101.html):
+**The ratified architecture (2026-07-10).**<Footnote>Two grounded reviews: a 12-agent /architecture-first-principles + /perfection-review fan-out (3 ground readers over kolu, drishti, and the framework seams · 3 independent designs · 6 adversarial refuters — the level layer survived every adversary; browser-side frame-diff edge detection was refuted four ways: unordered streams, default-materialization double-fire after restarts, per-window dedup memory, and clear→re-raise misses inside a link flap), then an independent /hickey pass that cut the surface-map braid (attention has nothing to do with maps) and found the hydration lie, re-judged with the fact that drishti's adoption is committed and lands paired.</Footnote> Attention is **level state** ("what needs you now"), written once per host at the endpoint that can know it, carried as an ordinary per-entry cell — an event member is the wrong carrier (fired while the browser is closed or the link is flapping it is simply *gone*; a cell replays current truth on every (re)connect). **kolu mints no wire member**: the cell already exists on master — `cells.urgency` (`packages/padi/src/surface.ts`; `PadiUrgencySchema = { awaitingIds: TerminalId[] }`, padi's registry fold the sole writer, read-only on the client, no recency and no count field — the count is derived as `awaitingIds.length` at every read site, as the host strip's chips already do), the deliberately tiny per-host projection W7's K1 ruling keeps hot while full wire subscriptions stay active-host-only. **drishti's `alerts` cell is W5's one new wire member** (its server holds the metrics history — threshold + hysteresis live there — and no member carries those facts today). It lands as **two PRs**: **phase 1**, a surface refactor of its own (paired kolu + drishti + odu adoption PRs — the primitives are modified freely), completes the framework's primitives in three pieces — `updated()` change pairs, mirrors-never-fabricate, and the **derivation algebra** (derived members declared, not hand-wired; full catalog: [the algebra reference](surface-derivation-algebra.html)); **phase 2** is W5 itself on top. Four framework packages gain a piece — `@kolu/surface` (the completed Dynamic + the algebra), `@kolu/surface-remote` (a mirror never fabricates a value), `@kolu/surface-map` (the eager watcher), `@kolu/surface-app` (delivery) — taught end-to-end in [the attention primer](surface-attention-101.html):
 
 ```ts
 // ── PHASE 1 · the surface refactor PR ───────────────────────────────────────
@@ -203,6 +203,12 @@ interface Subscription<T> extends Accessor<T | undefined> {
 // serves NO frame until the authority's first real one, so the reader's
 // "undefined until the first frame" is true end-to-end; the declared default
 // belongs to the one writer, never to mirrors.
+
+// @kolu/surface — the derivation algebra: a derived member is DECLARED
+// (foldCollection · scanCell · pollCollection · …), one writer boot-enforced
+// (mutation verbs incl. test__set rejected), dedup solely at the member's
+// spec equals, the framework's own reconnect story. Full catalog + wire
+// semantics: surface-derivation-algebra.html.
 
 // ── PHASE 2 · W5 — attention on top ─────────────────────────────────────────
 
@@ -224,9 +230,12 @@ notify.onClick(({ host, itemId }) => { /* the app routes */ });
 kolu (phase 2 — this phase; nothing minted, the member exists on master):
 
 ```ts
-// padi — no new member, no .set: cells.urgency already exists
-// (packages/padi/src/surface.ts — PadiUrgencySchema { awaitingIds: TerminalId[] },
-//  padi's registry fold the sole writer; read-only on the client)
+// padi — no new member (cells.urgency exists: packages/padi/src/surface.ts);
+// phase 1 re-produces it as a declaration, the hand-wiring deleted:
+cells.urgency = foldCollection({
+  from: "terminals",
+  fold: (entries) => ({ awaitingIds: liveAwaitingIds(entries) }),
+});  // cell, equals (urgencyEqual), and consumers unchanged on the wire
 
 // client — chips, badge, notification:
 const att = watchByEntry(padiMap, e => e.cells.urgency, v => v.awaitingIds,
@@ -241,8 +250,10 @@ notify.onClick(({ host, id }) => { switchHost(host); focusTerminal(id); });
 drishti (the paired consumer — the one new wire member):
 
 ```ts
-// server — the one writer, owns the 30-minute ring: threshold + hysteresis
-if (crossed(cpuPct, 80)) alerts.publish({ items: [{ id: "cpu", label: `CPU ${cpuPct}%` }] });
+// server — the one writer, declared: hysteresis is carried state (no store —
+// the alert level must not survive restarts; a fresh process re-derives it)
+cells.alerts = scanCell(observableSource(systemTicks), hysteresisStep,
+  { level: {}, window: [] });
 
 // client:
 const att = watchByEntry(hostMap, e => e.cells.alerts, v => v.items.map(i => i.id),
