@@ -22,7 +22,7 @@
  * Every padi + its detached kaval is reaped (SIGKILL via the gate files).
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -711,6 +711,35 @@ describe("resolvePadiLaunch — the legacy-kaval-socket adopt-hint (binder hints
       undefined,
     );
     expect(args).not.toContain("--legacy-kaval-socket");
+  });
+});
+
+describe("resolvePadiLaunch — the from-source entrypoint (KOLU_PADI_BIN unset) resolves to a REAL file", () => {
+  const stateRoot = "/state/root";
+
+  it("points at packages/padi/src/bin.ts, an existing file — not a phantom under packages/server/ (L27 move must not skew the ../.. hop)", () => {
+    const prev = process.env.KOLU_PADI_BIN;
+    delete process.env.KOLU_PADI_BIN;
+    try {
+      const { binPath, args } = resolvePadiLaunch(
+        stateRoot,
+        padiSocketPath(stateRoot),
+        undefined,
+        undefined,
+        undefined,
+      );
+      // from-source arm: process.execPath --import <tsx> <bin.ts> ...baseArgs
+      expect(binPath).toBe(process.execPath);
+      const importIdx = args.indexOf("--import");
+      expect(importIdx).toBeGreaterThanOrEqual(0);
+      const binTs = args[importIdx + 2];
+      expect(binTs).toBeDefined();
+      expect(binTs?.endsWith("packages/padi/src/bin.ts")).toBe(true);
+      expect(existsSync(binTs as string)).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.KOLU_PADI_BIN;
+      else process.env.KOLU_PADI_BIN = prev;
+    }
   });
 });
 

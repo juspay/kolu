@@ -207,7 +207,7 @@ export function resolvePadiLaunch(
   const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
   // packages/server/src/padi/padiBinding.ts → packages/padi/src/bin.ts
   const binTs = fileURLToPath(
-    new URL("../../padi/src/bin.ts", import.meta.url),
+    new URL("../../../padi/src/bin.ts", import.meta.url),
   );
   return {
     binPath: process.execPath,
