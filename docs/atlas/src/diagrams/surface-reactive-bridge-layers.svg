@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 430" font-family="system-ui, sans-serif">
+  <rect width="980" height="430" fill="#0f1117"/>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b95a7"/>
+    </marker>
+  </defs>
+
+  <!-- layer 1: engine -->
+  <text x="30" y="30" fill="#8b95a7" font-size="13" font-weight="600">LAYER 1 — PRODUCER ENGINE (the open slot)</text>
+  <rect x="30" y="42" width="920" height="66" rx="9" fill="#1a2130" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="490" y="66" fill="#e6eaf2" font-size="12" text-anchor="middle">a signals engine — hidden behind reactor.ts, the ONLY module allowed to import it (lint-banned elsewhere)</text>
+  <text x="490" y="84" fill="#8b95a7" font-size="10.5" text-anchor="middle">engine NOT yet picked (open question 1): @preact/signals-core is the working default · @vue/reactivity · alien-signals · TC39 polyfill …</text>
+  <text x="490" y="100" fill="#8b95a7" font-size="10.5" text-anchor="middle">reactor.ts exports computed + bridge constructors — never raw signal, never raw effect</text>
+
+  <!-- layer 2: bridge -->
+  <text x="30" y="140" fill="#8b95a7" font-size="13" font-weight="600">LAYER 2 — THE BRIDGE (per-member wire adapters; every wire law stays where it lives)</text>
+  <rect x="30" y="152" width="920" height="118" rx="9" fill="#141925" stroke="#3d4a63" stroke-width="1.5"/>
+  <rect x="46" y="166" width="280" height="42" rx="6" fill="#1a2130" stroke="#5b8def"/>
+  <text x="186" y="184" fill="#9db4e8" font-size="11" text-anchor="middle">sources into the graph</text>
+  <text x="186" y="199" fill="#8b95a7" font-size="9.5" text-anchor="middle">signalFromCallback · signalFromPoll · reactiveFamily</text>
+  <rect x="342" y="166" width="280" height="42" rx="6" fill="#1a2130" stroke="#5b8def"/>
+  <text x="482" y="184" fill="#9db4e8" font-size="11" text-anchor="middle">the graph: computed + $ (typed sibling reads)</text>
+  <text x="482" y="199" fill="#8b95a7" font-size="9.5" text-anchor="middle">derived reads derived as computed — glitch-free diamonds</text>
+  <rect x="638" y="166" width="296" height="42" rx="6" fill="#1a2130" stroke="#5b8def"/>
+  <text x="786" y="184" fill="#9db4e8" font-size="11" text-anchor="middle">exits: derived.cell / .scan / .collection / .registry</text>
+  <text x="786" y="199" fill="#8b95a7" font-size="9.5" text-anchor="middle">each effect a leaf → applyAndPublish, untouched</text>
+  <text x="490" y="228" fill="#e6eaf2" font-size="10.5" text-anchor="middle">the laws live here: equals at the member (once) · batch owned by the bridge · seeds from truth · one error wrapper (statefulness line)</text>
+  <text x="490" y="245" fill="#8b95a7" font-size="10.5" text-anchor="middle">one-writer structural: a derived member has NO ctx entry and no write verbs — the second writer is unrepresentable</text>
+  <text x="490" y="262" fill="#e8b44c" font-size="10.5" text-anchor="middle">streams and events do NOT ride the graph — a signal is state, not a log (a named, permanent boundary)</text>
+
+  <!-- wire -->
+  <line x1="30" y1="296" x2="950" y2="296" stroke="#e05252" stroke-width="1.2" stroke-dasharray="7 5"/>
+  <text x="490" y="290" fill="#e05252" font-size="10.5" text-anchor="middle">THE WIRE — snapshots and replays; per-member frames, no cross-channel atomicity (seamless API, not seamless semantics)</text>
+
+  <!-- layer 3: client -->
+  <text x="30" y="326" fill="#8b95a7" font-size="13" font-weight="600">LAYER 3 — SOLID CLIENT (mechanically unchanged)</text>
+  <rect x="30" y="338" width="920" height="60" rx="9" fill="#1a2130" stroke="#2dd4a7" stroke-width="1.5"/>
+  <text x="490" y="362" fill="#e6eaf2" font-size="12" text-anchor="middle">useCell / useCollection / surface-map / scopedByEntry — createMemo is the client's computed</text>
+  <text x="490" y="380" fill="#8b95a7" font-size="10.5" text-anchor="middle">Subscription.updated becomes a true change-iff-fired edge (producer spec-equals guaranteed on every derived member)</text>
+
+  <line x1="490" y1="108" x2="490" y2="150" stroke="#8b95a7" stroke-width="1.3" marker-end="url(#arr)"/>
+  <line x1="490" y1="270" x2="490" y2="292" stroke="#8b95a7" stroke-width="1.3" marker-end="url(#arr)"/>
+  <line x1="490" y1="300" x2="490" y2="336" stroke="#8b95a7" stroke-width="1.3" marker-end="url(#arr)"/>
+
+  <text x="490" y="420" fill="#5b6678" font-size="10.5" text-anchor="middle">the author's one model: state is a signal · derived is a computed · the wire is a signal boundary that snapshots and replays</text>
+</svg>
