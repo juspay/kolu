@@ -74,7 +74,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.31.0";
+const SCHEMA_VERSION = "1.32.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -490,6 +490,24 @@ export const store = new Conf<PersistedState>({
     // `preferences` now. BACKUP-FIRST (see `stripLegacyStateKeys_1_31_0`).
     "1.31.0": (store: Conf<PersistedState>) =>
       stripLegacyStateKeys_1_31_0(store),
+    // The new-terminal collapsed DEFAULT moved off `rightPanel.collapsed` (a
+    // write-dead seed jammed next to live geometry) to a top-level
+    // `newTerminalCollapsed` preference beside `newTerminalTheme`. Seed the new
+    // top-level field from DEFAULT_PREFERENCES and strip the stale
+    // `rightPanel.collapsed` key so the blob matches the schema exactly — same
+    // spread-defaults shape as the 1.6.0/1.7.0 rightPanel steps.
+    "1.32.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown> | undefined;
+      const { collapsed: _collapsed, ...restRp } = rp ?? {};
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...current,
+        ...(rp !== undefined && {
+          rightPanel: restRp as typeof current.rightPanel,
+        }),
+      } as Preferences);
+    },
   },
 });
 

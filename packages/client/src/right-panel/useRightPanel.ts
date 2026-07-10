@@ -2,12 +2,14 @@
  *
  *  Three storage layers because the right panel has three volatilities:
  *
- *  - **Workspace chrome** (size, codeTabTreeSize, and the NEW-TERMINAL collapsed
- *    default) lives on `preferences.rightPanel` — global to the user, set once and
- *    forgotten. `size`/`codeTabTreeSize` drive the desktop Resizable's width + the
- *    Code-tab tree/content split (viewer density taste, tuned once, left put).
- *    `collapsed` here is ONLY the default a brand-new terminal's panel opens at —
- *    a copy-on-create seed; the LIVE collapsed state follows the terminal (below).
+ *  - **Workspace chrome** (size, codeTabTreeSize) lives on
+ *    `preferences.rightPanel` — global to the user, set once and forgotten.
+ *    `size`/`codeTabTreeSize` drive the desktop Resizable's width + the Code-tab
+ *    tree/content split (viewer density taste, tuned once, left put), each with a
+ *    real writer (`setPanelSize`/`setCodeTabTreeSize`). The NEW-TERMINAL collapsed
+ *    default is a separate top-level `preferences.newTerminalCollapsed` seed (not
+ *    on this record) — a copy-on-create default; the LIVE collapsed state follows
+ *    the terminal (below).
  *  - **Touch-layout drawer open state** (phone + compact) is session-local, NOT
  *    persisted. Dismissing the bottom-drawer host on a handheld is an ephemeral
  *    gesture; persisting it into account prefs would mean the next desktop
@@ -17,12 +19,14 @@
  *    selected file) lives in an in-memory store keyed by terminal id; mutations
  *    push to the server via padi's `chrome.setRightPanel`, which writes
  *    `TerminalMetadata.rightPanel` for session restore. Pattern mirrors
- *    `useSubPanel.ts` exactly. `collapsed` joined this layer so the panel
- *    *follows the terminal* (#959) — a PR-review terminal keeps its panel open
- *    while a build-log terminal keeps its closed, instead of one global bit
- *    forcing both. A fresh terminal seeds `collapsed` from the new-terminal
- *    default above, then owns it. Persisted per-terminal via session restore, so
- *    it survives a reload the same way the active tab does.
+ *    `useSubPanel.ts` for `activeTab`/`codeMode`/`selectedFileByMode`.
+ *    `collapsed` joined this layer so the panel *follows the terminal* (#959) —
+ *    a PR-review terminal keeps its panel open while a build-log terminal keeps
+ *    its closed, instead of one global bit forcing both. Unlike `useSubPanel`
+ *    (which seeds from a plain static default), a fresh terminal seeds
+ *    `collapsed` by reading through the `newTerminalCollapsed` preference above,
+ *    then owns it. Persisted per-terminal via session restore, so it survives a
+ *    reload the same way the active tab does.
  *
  *  Callers read/write for the *active* terminal — the API is parameterless,
  *  resolving the current terminal id from `useTerminalStore` internally. */
@@ -162,15 +166,16 @@ function browserFor(id: TerminalId): Browser<BrowserLocation> {
 }
 
 /** The state a terminal with no record yet reads/seeds as. Every field is the
- *  static `DEFAULT_RIGHT_PANEL_PER_TERMINAL` EXCEPT `collapsed`, which inherits
- *  the user's NEW-TERMINAL default from `preferences.rightPanel.collapsed` — a
- *  copy-on-create seed (like `newTerminalTheme`), after which the terminal owns
- *  its own `collapsed`. Computed fresh each call so it tracks the live
- *  preference until the terminal first writes a record. */
+ *  static `DEFAULT_RIGHT_PANEL_PER_TERMINAL` EXCEPT `collapsed`, which reads
+ *  through the user's NEW-TERMINAL default from `preferences.newTerminalCollapsed`
+ *  — a top-level copy-on-create seed (same seed shape as `newTerminalTheme`,
+ *  though that one has a settings writer and this does not yet), after which the
+ *  terminal owns its own `collapsed`. Computed fresh each call so it tracks the
+ *  live preference until the terminal first writes a record. */
 function freshPerTerminalState(): RightPanelPerTerminalState {
   return {
     ...DEFAULT_RIGHT_PANEL_PER_TERMINAL,
-    collapsed: preferences().rightPanel.collapsed,
+    collapsed: preferences().newTerminalCollapsed,
   };
 }
 
@@ -213,7 +218,7 @@ export function useRightPanel() {
    *  alongside its active tab and selected file (all on the same
    *  `TerminalMetadata.rightPanel` record). Reads the ACTIVE terminal's value; a
    *  terminal with no record yet (fresh, or none active) reads the new-terminal
-   *  default from `preferences.rightPanel.collapsed` via `freshPerTerminalState`.
+   *  default from `preferences.newTerminalCollapsed` via `freshPerTerminalState`.
    *  It survives reload via session restore, exactly like the active tab. Only the
    *  take-up-space *geometry* (`size`/`codeTabTreeSize` below) stays global. */
   const collapsed = (): boolean => activeState().collapsed;

@@ -9,7 +9,8 @@ const h = vi.hoisted(() => ({
   updatePreferences: vi.fn(),
   setRightPanel: vi.fn(() => Promise.resolve()),
   prefs: {
-    rightPanel: { collapsed: false, size: 0.25, codeTabTreeSize: 0.35 },
+    newTerminalCollapsed: false,
+    rightPanel: { size: 0.25, codeTabTreeSize: 0.35 },
   },
   // Mutable so a test can flip the "active terminal" the way the workspace
   // switcher does at runtime — `recordNavigation`/`canNavigateBack` resolve
@@ -41,7 +42,8 @@ beforeEach(() => {
   h.setRightPanel.mockClear();
   h.activeId = null;
   h.prefs = {
-    rightPanel: { collapsed: false, size: 0.25, codeTabTreeSize: 0.35 },
+    newTerminalCollapsed: false,
+    rightPanel: { size: 0.25, codeTabTreeSize: 0.35 },
   };
 });
 
@@ -130,7 +132,8 @@ describe("useRightPanel — collapsed is per-terminal (the panel follows the ter
   it("a fresh terminal inherits the new-terminal default, then owns its own state", () => {
     // Pin the new-terminal default to collapsed.
     h.prefs = {
-      rightPanel: { collapsed: true, size: 0.25, codeTabTreeSize: 0.35 },
+      newTerminalCollapsed: true,
+      rightPanel: { size: 0.25, codeTabTreeSize: 0.35 },
     };
     const a = "collapse-seed-A" as TerminalId;
     h.activeId = a;

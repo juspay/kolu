@@ -1032,26 +1032,28 @@ Before(async function (this: KoluWorld, scenario) {
         // tip banners popping in mid-shot. Normal e2e runs keep them on.
         startupTips: !X11CAP,
         newTerminalTheme: "inherit",
+        // The NEW-TERMINAL `collapsed` default — a top-level seed beside
+        // `newTerminalTheme`. The LIVE collapsed state is per-terminal now (it
+        // follows the terminal, #959) — but every new terminal SEEDS its
+        // `collapsed` from this default, so pinning it `true` still gives the
+        // whole suite a deterministic collapsed starting point (every terminal a
+        // scenario spawns starts closed) for the many toggle-and-assert
+        // scenarios. The shipped runtime default is open
+        // (DEFAULT_PREFERENCES.newTerminalCollapsed = false). Recordings
+        // (X11CAP) want the right panel visible by default (it's the new app
+        // default, and the Code tab is part of what we show); normal tests keep
+        // it collapsed (right-panel.feature asserts that). `activeTab`/`codeMode`
+        // are per-terminal too (DEFAULT_RIGHT_PANEL_PER_TERMINAL) and flow from
+        // there, asserted by right-panel.feature / code-tab.feature.
+        newTerminalCollapsed: !X11CAP,
         shuffleBehavior: "auto",
         scrollLock: true,
         activityAlerts: true,
         colorScheme: "dark",
         terminalRenderer: "auto",
-        // `rightPanel` preferences hold the panel width, the Code-tab tree
-        // split, and the NEW-TERMINAL `collapsed` default. The LIVE collapsed
-        // state is per-terminal now (it follows the terminal, #959) — but every
-        // new terminal SEEDS its `collapsed` from this default, so pinning
-        // `collapsed: true` still gives the whole suite a deterministic collapsed
-        // starting point (every terminal a scenario spawns starts closed) for the
-        // many toggle-and-assert scenarios. The shipped runtime default is open
-        // (DEFAULT_PREFERENCES.rightPanel.collapsed = false). `activeTab`/`codeMode`
-        // are per-terminal too (DEFAULT_RIGHT_PANEL_PER_TERMINAL) and flow from
-        // there, asserted by right-panel.feature / code-tab.feature.
+        // `rightPanel` preferences hold the panel width and the Code-tab tree
+        // split — live-written geometry only.
         rightPanel: {
-          // Recordings (X11CAP) want the right panel visible by default (it's
-          // the new app default, and the Code tab is part of what we show);
-          // normal tests keep it collapsed (right-panel.feature asserts that).
-          collapsed: !X11CAP,
           size: 0.25,
           codeTabTreeSize: 0.35,
         },

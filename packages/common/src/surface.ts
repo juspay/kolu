@@ -135,20 +135,16 @@ export const ShuffleBehaviorSchema = z.enum([
   "auto",
 ]);
 
-/** Right-panel preferences — workspace-level layout chrome: the panel's
- *  width, the Code-tab tree/content split, and the NEW-TERMINAL collapsed
- *  default. Width and split are viewer density taste — tuned once and left put.
- *  `collapsed` here is NOT the live per-panel state (that follows the terminal,
- *  #959, on `RightPanelPerTerminalStateSchema`): it is only the *default* a
- *  brand-new terminal's panel starts at, which the terminal then owns and
- *  overrides — the same copy-on-create shape `newTerminalTheme` has. Everything
+/** Right-panel preferences — workspace-level layout chrome: the panel's width
+ *  and the Code-tab tree/content split. Both are viewer density taste — tuned
+ *  once and left put, with real writers (`setPanelSize`/`setCodeTabTreeSize`).
+ *  The LIVE per-panel `collapsed` state follows the terminal (#959) on
+ *  `RightPanelPerTerminalStateSchema`; the new-terminal collapsed DEFAULT is the
+ *  top-level `newTerminalCollapsed` preference (beside `newTerminalTheme`), NOT
+ *  a field here — so this record carries only live-written geometry. Everything
  *  else *about* what each terminal is doing (active tab, code sub-mode, selected
  *  file) lives on the per-terminal record, not here. */
 export const RightPanelPrefsSchema = z.object({
-  /** Whether a NEW terminal opens with its right panel collapsed. Seeds the
-   *  per-terminal `collapsed` at creation; the terminal owns its own state
-   *  thereafter (toggling a panel writes the terminal's record, never this). */
-  collapsed: z.boolean(),
   size: z.number(),
   /** Vertical split fraction (0–1) inside the Code tab: tree pane occupies
    *  this share, content pane gets the rest. Persisted so layout survives
@@ -162,6 +158,15 @@ export const PreferencesSchema = z.object({
   /** How a new terminal gets its theme (inherit the active one, or shuffle a
    *  distinct tint) — see {@link NewTerminalThemeSchema}. */
   newTerminalTheme: NewTerminalThemeSchema,
+  /** Whether a NEW terminal opens with its right panel collapsed. A
+   *  copy-on-create seed: it lives here (a top-level new-terminal default,
+   *  same seed shape as `newTerminalTheme`) rather than on `rightPanel`, whose
+   *  fields are all live-written geometry. `freshPerTerminalState` reads it
+   *  through when seeding a terminal's per-terminal record; the terminal owns
+   *  its own `collapsed` thereafter (a toggle writes the terminal's record,
+   *  never this). Read-through, not baked-at-create — and there is no settings
+   *  UI to write it yet, so in production it stays the default. */
+  newTerminalCollapsed: z.boolean(),
   /** Which themes any shuffle draws from — a `shuffle` new terminal and the
    *  ⌘⇧J action alike — see {@link ShuffleBehaviorSchema}. */
   shuffleBehavior: ShuffleBehaviorSchema,
@@ -225,13 +230,13 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   seenTips: [],
   startupTips: true,
   newTerminalTheme: "shuffle",
+  newTerminalCollapsed: false,
   shuffleBehavior: "auto",
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
   terminalRenderer: "auto",
   rightPanel: {
-    collapsed: false,
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
