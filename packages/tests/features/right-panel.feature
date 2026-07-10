@@ -1,9 +1,11 @@
 Feature: Right panel (Code + Inspector)
   Collapsible right panel with a Code browser and a metadata Inspector
-  tab, toggled via keyboard shortcut or header icon. The shipped product
-  default is open-on-Code for new users (DEFAULT_PREFERENCES.rightPanel
-  .collapsed = false); the e2e fixture instead pins it collapsed per
-  scenario (hooks.ts) for deterministic toggle assertions, so these
+  tab, toggled via keyboard shortcut or header icon. The panel's collapsed
+  posture is PER-TERMINAL now — it follows the terminal (#959) — seeded on a
+  new terminal from the new-terminal default (DEFAULT_PREFERENCES
+  .newTerminalCollapsed = false, i.e. open-on-Code for new users); the e2e
+  fixture instead pins that seed collapsed (hooks.ts) so every terminal a
+  scenario spawns starts closed, for deterministic toggle assertions, so these
   scenarios drive visibility explicitly rather than relying on the
   open-by-default state.
 
@@ -204,4 +206,21 @@ Feature: Right panel (Code + Inspector)
     # Switch forward to terminal 2 — Code again
     When I press the switch to terminal 2 shortcut
     Then the Code tab should be active
+    And there should be no page errors
+
+  Scenario: Collapsed state is per-terminal (the panel follows the terminal)
+    # Terminal 1 (from Background) starts collapsed (the new-terminal default the
+    # fixture pins). Open its panel, then create terminal 2.
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    # Terminal 2 seeds the new-terminal default (collapsed), so its panel starts
+    # hidden — independent of terminal 1's open panel.
+    When I create a terminal
+    Then the right panel should not be visible
+    # Switch back to terminal 1 — its panel is still open (it remembers its own).
+    When I press the switch to terminal 1 shortcut
+    Then the right panel should be visible
+    # Forward to terminal 2 — still collapsed.
+    When I press the switch to terminal 2 shortcut
+    Then the right panel should not be visible
     And there should be no page errors

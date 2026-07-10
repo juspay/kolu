@@ -34,22 +34,35 @@ export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
 /** Which tab is currently displayed in the right panel. */
 export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
 
-/** Per-terminal right-panel state — which tab is open, which sub-mode
- *  the Code tab is in, and which file the user last selected in each
- *  mode. The three fields move together because they are *about* the
- *  terminal's task (reviewing branch X, browsing repo, inspecting agent
- *  output) — switching terminals should restore them as a unit.
+/** Per-terminal right-panel state — whether the panel is showing, which
+ *  tab is open, which sub-mode the Code tab is in, and which file the user
+ *  last selected in each mode. The fields move together because they are
+ *  *about* the terminal's task (reviewing branch X, browsing repo, inspecting
+ *  agent output) — switching terminals should restore them as a unit, so the
+ *  panel *follows the terminal* (#959). `collapsed` joined this record when
+ *  the last still-global posture bit moved per-terminal: a PR-review terminal
+ *  keeps its panel open while a build-log terminal keeps its closed, instead
+ *  of one global bit forcing both. (The panel WIDTH and the Code-tab tree/
+ *  content split stay on `preferences.rightPanel` — those are viewer density
+ *  taste, tuned once and left put, not per-terminal task state.)
  *
  *  `selectedFileByMode` is per-mode so flipping between local↔branch↔browse
  *  within a single terminal keeps each mode's last-viewed file, mirroring
  *  the prior `(repo, mode)`-keyed localStorage slot behaviour.
  *
- *  Storage is flat (`activeTab` + `codeMode` as parallel fields) so Solid's
- *  shallow-merge `setStore` is correct. Consumption should go through the
- *  `rightPanelView()` DU projection — pattern-matching on `activeTab` /
- *  `codeMode` separately leaks the storage shape across the DU seam and
- *  defeats the "codeMode survives Inspector toggle" invariant. */
+ *  Storage is flat (`collapsed` + `activeTab` + `codeMode` as parallel
+ *  fields) so Solid's shallow-merge `setStore` is correct. Consumption of the
+ *  tab should go through the `rightPanelView()` DU projection — pattern-matching
+ *  on `activeTab` / `codeMode` separately leaks the storage shape across the DU
+ *  seam and defeats the "codeMode survives Inspector toggle" invariant.
+ *
+ *  `collapsed` carries a schema `.default(false)` so a `rightPanel` record
+ *  persisted before this field existed (only `activeTab`/`codeMode`) parses
+ *  back as open — the shipped runtime default — with no migration. */
 export const RightPanelPerTerminalStateSchema = z.object({
+  /** Whether the panel is collapsed (hidden) for THIS terminal. Moved off the
+   *  global preference so each terminal remembers whether its panel was open. */
+  collapsed: z.boolean().default(false),
   activeTab: RightPanelTabKindSchema,
   codeMode: CodeTabViewSchema,
   /** Repo-relative file paths keyed by Code-tab sub-mode. Absence of a
@@ -107,6 +120,7 @@ export const CODE_TAB_VIEW_ORDER = ["browse", "local", "branch"] as const;
 export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
   typeof RightPanelPerTerminalStateSchema
 > = {
+  collapsed: false,
   activeTab: "code",
   codeMode: "browse",
 };
