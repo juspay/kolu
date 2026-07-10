@@ -83,9 +83,12 @@ import {
   ExportTranscriptHtmlOutputSchema,
 } from "./transcriptSchema.ts";
 import {
+  CanvasLayoutSchema,
+  RightPanelPerTerminalStateSchema,
+} from "./chromeVocab.ts";
+import {
   ActiveTerminalSchema,
   ActivityFeedSchema,
-  CanvasLayoutSchema,
   DaemonStatusSchema,
   DEFAULT_PADI_PROCESS_MEMORY,
   InitialTerminalMetadataSchema,
@@ -94,7 +97,6 @@ import {
   ParkedDiscriminantSchema,
   PersistedSnapshotSchema,
   PtyHostIdentitySchema,
-  RightPanelPerTerminalStateSchema,
   SavedSessionSchema,
   SavedSleepingTerminalSchema,
   SleepingTerminalSchema,
@@ -104,7 +106,10 @@ import {
 
 // The terminal VOCABULARY (schemas · records · pure helpers) now lives HERE, in
 // `@kolu/padi` — the terminal-domain authority. Re-exported from this browser-safe
-// entry so consumers reach the schemas as `@kolu/padi/surface`.
+// entry so consumers reach the schemas as `@kolu/padi/surface`. The UI-chrome half
+// (`./chromeVocab.ts`, split out in L17) rides the same entry, so the export set is
+// unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
+export * from "./chromeVocab.ts";
 export * from "./vocab.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
