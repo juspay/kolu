@@ -71,6 +71,7 @@ describe("completedBackgroundTaskIds", () => {
 });
 
 describe("outstandingForkRuns / nextStaleDeadline", () => {
+  let homeDir: string;
   let tmpDir: string;
   let outstandingForkRuns: typeof import("./index.ts").outstandingForkRuns;
   let nextStaleDeadline: typeof import("./index.ts").nextStaleDeadline;
@@ -81,8 +82,10 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
   const session = { pid: 1, sessionId, cwd };
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-test-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-test-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     outstandingForkRuns = mod.outstandingForkRuns;
@@ -92,8 +95,7 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
   });
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   const subagentsDir = () => subagentsDirFor(session);
@@ -252,9 +254,10 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
  *
  *  Uses real `fs.watch` + real timers (the watcher's actual machinery), so each
  *  assertion polls for the expected published state rather than reading a single
- *  synchronous snapshot. `KOLU_CLAUDE_PROJECTS_DIR` is set, which both redirects
- *  the on-disk lookups into the tmp tree AND disables the SDK summary fetch. */
+ *  synchronous snapshot. `$HOME` points at a temp dir (no override knob), so
+ *  PROJECTS_DIR resolves the on-disk lookups into the tmp tree. */
 describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
+  let homeDir: string;
   let tmpDir: string;
   let createSessionWatcher: typeof import("./index.ts").createSessionWatcher;
   let subagentsDirFor: typeof import("./index.ts").subagentsDirFor;
@@ -271,8 +274,10 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   };
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-watcher-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-watcher-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     createSessionWatcher = mod.createSessionWatcher;
@@ -281,8 +286,7 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   });
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   const projectDir = () => path.join(tmpDir, encodeProjectPath(cwd));

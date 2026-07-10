@@ -38,22 +38,13 @@ import type {
 
 // --- Configuration ---
 
-/** Configurable via env for testing. */
-export const SESSIONS_DIR =
-  process.env.KOLU_CLAUDE_SESSIONS_DIR ??
-  path.join(os.homedir(), ".claude", "sessions");
-export const PROJECTS_DIR =
-  process.env.KOLU_CLAUDE_PROJECTS_DIR ??
-  path.join(os.homedir(), ".claude", "projects");
-
-/** True when the e2e harness has redirected the projects/sessions dirs at
- *  test fixtures. The Claude Agent SDK has no equivalent override and would
- *  silently scan the user's real ~/.claude/projects, adding fs.watch and
- *  inotify pressure that has been observed to race with the mock harness
- *  on Linux. Skip summary fetching entirely under test. */
-export const SUMMARY_FETCH_ENABLED =
-  process.env.KOLU_CLAUDE_PROJECTS_DIR === undefined &&
-  process.env.KOLU_CLAUDE_SESSIONS_DIR === undefined;
+/** Claude's per-user state dirs, resolved purely from `$HOME` (`os.homedir()`)
+ *  — no override knob. The e2e drives the real `claude` inside a throwaway
+ *  `$HOME`; the unit tests isolate by pointing `$HOME` at a temp dir before the
+ *  (module-resetting) dynamic import. An override path is a banned second source
+ *  of truth for what `$HOME` already determines. */
+export const SESSIONS_DIR = path.join(os.homedir(), ".claude", "sessions");
+export const PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
 
 /** Tail window for `tailJsonlLines` — must exceed the largest single JSONL
  *  entry so that at least one complete line is present after dropping the
@@ -1565,7 +1556,6 @@ export async function fetchSessionSummary(
   sessionId: string,
   cwd: string,
 ): Promise<string | null> {
-  if (!SUMMARY_FETCH_ENABLED) return null;
   const info = await getSessionInfo(sessionId, { dir: cwd });
   return info?.summary ?? null;
 }

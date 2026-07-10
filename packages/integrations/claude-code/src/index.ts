@@ -41,7 +41,6 @@ export {
   readSessionFile,
   SESSIONS_DIR,
   type SessionFile,
-  SUMMARY_FETCH_ENABLED,
   subagentsDirFor,
   subscribeSessionsDir,
   TAIL_BYTES,

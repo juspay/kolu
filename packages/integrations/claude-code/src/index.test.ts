@@ -760,6 +760,7 @@ describe("outstandingBackgroundTasks", () => {
 });
 
 describe("liveOutstandingTasks", () => {
+  let homeDir: string;
   let tmpDir: string;
   let live: typeof import("./index.ts").liveOutstandingTasks;
   let liveWorkflowRuns: typeof import("./index.ts").liveWorkflowRuns;
@@ -770,8 +771,12 @@ describe("liveOutstandingTasks", () => {
   const session = { pid: 1, sessionId, cwd };
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-live-test-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    // Isolate via $HOME (no override knob): PROJECTS_DIR resolves to
+    // os.homedir()/.claude/projects, re-captured by the resetModules import.
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-live-test-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     live = mod.liveOutstandingTasks;
@@ -791,8 +796,7 @@ describe("liveOutstandingTasks", () => {
   ) => nextStaleDeadline(liveWorkflowRuns(s, tasks), now);
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   const wfDir = () =>
@@ -1104,20 +1108,22 @@ describe("firstTranscriptTimestampMs", () => {
 });
 
 describe("findTranscriptPath", () => {
+  let homeDir: string;
   let tmpDir: string;
   let findTranscriptPathFn: typeof import("./index.ts").findTranscriptPath;
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-find-test-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-find-test-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     findTranscriptPathFn = mod.findTranscriptPath;
   });
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   it("returns exact match by session ID", () => {
@@ -1277,6 +1283,7 @@ describe("deriveTaskProgress", () => {
 });
 
 describe("deriveWorkflowProgress", () => {
+  let homeDir: string;
   let tmpDir: string;
   let deriveWorkflowProgressFn: typeof import("./index.ts").deriveWorkflowProgress;
   const cwd = "/home/user/project";
@@ -1294,16 +1301,17 @@ describe("deriveWorkflowProgress", () => {
   }
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-wf-test-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-wf-test-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     deriveWorkflowProgressFn = mod.deriveWorkflowProgress;
   });
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   const session = () => ({ pid: 1, sessionId, cwd });

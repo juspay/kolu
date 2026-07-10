@@ -74,17 +74,14 @@ const mkSubDir = (name: string) => {
  *  `testBaseDir` (AfterAll wipes it); the fake home is `fixtureHome`, wiped
  *  separately in AfterAll (it lives outside `testBaseDir` — see below).
  *
- *  Recording is the exact opposite: it launches the REAL claude/codex to
- *  capture footage, so the agent dirs must be ABSENT (the server then resolves
- *  them off the real `~/.claude` / `~/.codex` via `os.homedir()`) and HOME must
- *  stay inherited (real) so those agents find their login. Absent agent-dir
- *  keys are BOTH deleted from `process.env` (so a developer export can't shadow
- *  the real dir) and left out of the child env below.
- *
- *  `AGENT_DIR_VARS` names the exact agent-dir set the loop mutates onto
- *  `process.env` for step defs that read it directly — add a new agent dir
- *  there. HOME is child-env ONLY: never mutated onto the harness's own
- *  `process.env`, whose real value the recording path still needs. */
+ *  There are NO KOLU_*_DIR override knobs (stage-6 doctrine): the server child
+ *  runs with HOME = `fixtureHome`, so every provider's `os.homedir()`-based
+ *  state dir (~/.codex, ~/.claude, ~/.grok, ~/.local/share/opencode) resolves
+ *  under the throwaway home — the REAL default paths the real CLIs write to.
+ *  Recording is the opposite: HOME stays inherited (real) so the real
+ *  claude/codex find their login. HOME is child-env ONLY (via `serverModeEnv`
+ *  spread into the spawn) — never mutated onto the harness's own `process.env`,
+ *  whose real value the recording path still needs. */
 const RECORDING = !!process.env.KOLU_X11CAP;
 
 /** e2e's throwaway $HOME must NOT sit under any `/tmp` path. A new PTY opens in
@@ -110,59 +107,14 @@ const fixtureHome = RECORDING
   ? undefined
   : fs.mkdtempSync(path.join(fixtureHomeRoot, ".kolu-e2e-home-"));
 
-const AGENT_DIR_VARS = [
-  "KOLU_CLAUDE_SESSIONS_DIR",
-  "KOLU_CLAUDE_PROJECTS_DIR",
-  "KOLU_CODEX_DIR",
-  "KOLU_GROK_DIR",
-] as const;
-// Grok, like codex/claude, uses the throwaway home's REAL default `~/.grok` —
-// NOT a mock subdir. Real grok (the live-state scenario) writes its
-// active_sessions.json + sessions/<cwd>/<uuid>/events.jsonl there, and kolu's
-// grok provider reads that same path via KOLU_GROK_DIR. srid's unconditional
-// shape: grok-on-ollama is the default, no mock branch for grok state.
-const grokDir =
-  !RECORDING && fixtureHome ? path.join(fixtureHome, ".grok") : undefined;
-// Codex's dir is the throwaway home's REAL default `<fixtureHome>/.codex` — NOT
-// a separate mock dir. Real codex (the live-state scenarios) writes its session
-// DB there by default, and the surviving @codex-mock regression scenarios write
-// their fixtures to the SAME path (the provider reads it via KOLU_CODEX_DIR);
-// each cleans up after itself, so they never collide. This is srid's
-// unconditional shape: codex-on-ollama is the default, no mock branch for codex
-// STATE. RECORDING keeps the real home and unsets everything.
-const codexDir = fixtureHome ? path.join(fixtureHome, ".codex") : undefined;
-// Claude, like codex, uses the throwaway home's REAL default `~/.claude/*`:
-// real claude (the live-state scenarios) writes there, and the surviving mock
-// scenarios point their KOLU_CLAUDE_*_DIR overrides at the SAME paths, so one
-// unconditional shape covers both. RECORDING keeps the real home.
-const claudeSessionsDir = fixtureHome
-  ? path.join(fixtureHome, ".claude", "sessions")
-  : undefined;
-const claudeProjectsDir = fixtureHome
-  ? path.join(fixtureHome, ".claude", "projects")
-  : undefined;
-const serverModeEnv: Record<
-  (typeof AGENT_DIR_VARS)[number],
-  string | undefined
-> & { HOME?: string } = RECORDING
-  ? {
-      KOLU_CLAUDE_SESSIONS_DIR: undefined,
-      KOLU_CLAUDE_PROJECTS_DIR: undefined,
-      KOLU_CODEX_DIR: undefined,
-      KOLU_GROK_DIR: undefined,
-    }
-  : {
-      KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
-      KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
-      KOLU_CODEX_DIR: codexDir,
-      KOLU_GROK_DIR: grokDir,
-      HOME: fixtureHome,
-    };
-for (const name of AGENT_DIR_VARS) {
-  const value = serverModeEnv[name];
-  if (value === undefined) delete process.env[name];
-  else process.env[name] = value;
-}
+// The kolu server (and its agent providers) run with HOME pointed at the
+// throwaway home, so every provider's `os.homedir()`-based state dir
+// (~/.codex, ~/.claude, ~/.grok, ~/.local/share/opencode) resolves there — the
+// REAL default paths the real CLIs write to. NO KOLU_*_DIR override knobs: an
+// override is a banned second source of truth for what HOME already determines
+// (stage-6 doctrine). RECORDING keeps the developer's real HOME (real cloud
+// agents for the marketing screencasts).
+const serverModeEnv: { HOME?: string } = RECORDING ? {} : { HOME: fixtureHome };
 
 // Unconditional codex-on-ollama (srid's ruling): seed the throwaway home's codex
 // config so the real `codex` the live-state scenarios launch talks to the
@@ -306,7 +258,7 @@ if (!RECORDING && fixtureHome) {
   // "Logged in with API key" — NO xAI login / welcome gate — straight to the
   // prompt (verified: `grok models` lists the custom model as default). grok
   // writes its session state under ~/.grok (active_sessions.json + events.jsonl),
-  // which kolu's grok provider reads via KOLU_GROK_DIR (= <home>/.grok above).
+  // which kolu's grok provider reads at the same $HOME-based default path.
   const grokHome = path.join(fixtureHome, ".grok");
   fs.mkdirSync(grokHome, { recursive: true });
   process.env.XAI_API_KEY = "kolu-e2e-ollama";

@@ -51,13 +51,13 @@ export function findOpencodeDbPath(dir: string = OPENCODE_DIR): string | null {
   return bestFile === null ? null : path.join(dir, bestFile);
 }
 
-/** Path to OpenCode's SQLite database. Env override wins (tests/e2e); then the
- *  enumeration; finally `opencode-stable.db` — the current release's default,
- *  so the WAL watcher arms on the right file even before opencode first runs. */
+/** Path to OpenCode's SQLite database. The channel-suffixed enumeration first
+ *  (opencode-stable.db / -local.db / …); finally `opencode-stable.db` — the
+ *  current release's default, so the WAL watcher arms on the right file even
+ *  before opencode first runs. No env override knob: OPENCODE_DIR is `$HOME`-
+ *  based, which the e2e's throwaway `$HOME` already redirects. */
 export const OPENCODE_DB_PATH =
-  process.env.KOLU_OPENCODE_DB ??
-  findOpencodeDbPath() ??
-  path.join(OPENCODE_DIR, "opencode-stable.db");
+  findOpencodeDbPath() ?? path.join(OPENCODE_DIR, "opencode-stable.db");
 
 /** Path to the SQLite WAL file — fs.watch this to detect writes. */
 export const OPENCODE_DB_WAL_PATH = `${OPENCODE_DB_PATH}-wal`;
