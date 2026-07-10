@@ -448,7 +448,7 @@ function readMemory(): number | null {
 // consumer renders null as "—", so a real read failure is invisible
 ```
 
-Fix — a sum that keeps the two apart (mirrors the shipped `ProcessMemory` three-arm union):
+Fix — a sum that keeps the two apart (mirrors the shipped `ProcessRss` value·absent·error split):
 
 ```ts
 type MemoryReading =
@@ -468,7 +468,7 @@ if (entry === undefined) return; // "not found" is the only thing undefined can 
 _Allowed_ — the boundary that keeps this from becoming a blanket anti-null crusade:
 
 - **A single honest "absent"** with one interpretation: `find()` → `undefined`; an optional config field simply present-or-not; a `T | undefined` signal for "not loaded yet" with exactly one reading. A single-meaning absence is fine — the target is a `null` (or sentinel, or optional) doing **two jobs**.
-- **Two *causes* that fold to one *effect*** at every read site: `contextTokens: number | null` whose comment names "no telemetry" *and* "no assistant turn yet" but where every consumer renders the absence identically ("—") is a survivor, not a hit — **both are honest absences** (no telemetry yet, no turn yet), *neither is a fault*, so nothing *should* disambiguate. This is the exact boundary against criterion (a)(i): that producer-collapse signal fires only when one of the collapsed causes is a *caught error or fault the domain should surface*, never when two honest "no datum yet" causes both fold to the same "—". Two honest absences = survivor; honest-absence-plus-swallowed-error = hit.
+- **Two *causes* that fold to one *effect*** at every read site: `contextTokens: number | null` whose comment names "no telemetry" *and* "no assistant turn yet" but where every consumer renders the absence identically ("—") is a survivor, not a hit — **both are honest absences** (no telemetry yet, no turn yet), *neither is a fault*, so nothing *should* disambiguate. This is the exact boundary against criterion (a)(i): that producer-collapse signal fires only when one of the collapsed causes is a *caught error or fault the domain should surface*, never when two honest "no datum yet" causes both fold to the same "—".
 - **A nullable discriminated to a `{ kind }` sum at its sole read site** (e.g. `boundHost: string | null` folded to `DaemonBinding` one line into its only consumer): already single-meaning at the seam; pushing the sum up when it only relocates an env-derived null check removes no illegal state.
 - **A genuine two-state encoding where both values are named and needed**: `token: string | null` where `null` = "between tokens" and `""` = "an empty token in progress" (round-tripping `shellJoin`) — two states, two meanings, correctly distinct.
 
