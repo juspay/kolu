@@ -582,6 +582,24 @@ async function main(): Promise<void> {
   // target, each arm carrying exactly what its connect needs. --host reaches a remote
   // padi over ssh; otherwise dial the resolved local socket.
   const endpoint = resolveEndpoint(argv.flags);
+
+  // A remote `--worktree` without `--repo` is a pure USAGE error — the worktree is
+  // cut on the remote host, so it can't default to the local cwd. Reject it BEFORE
+  // dialing (the same fail-fast the `wait` flags get above), so a cold or
+  // unreachable host doesn't make the user wait on provisioning only to learn the
+  // command was malformed. `cmdCreate` keeps the transport-blind guard on
+  // `conn.localCwd` as the defensive invariant.
+  if (
+    argv.command === "create" &&
+    endpoint.kind === "host" &&
+    argv.flags.worktree !== undefined &&
+    argv.flags.repo === undefined
+  ) {
+    fail(
+      "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.",
+    );
+  }
+
   const conn: Connection =
     endpoint.kind === "host"
       ? await connectHost(endpoint.host)

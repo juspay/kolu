@@ -36,8 +36,9 @@ export interface Connection {
  * the typed COMPATIBILITY gate for us, so a padi too new for this build (or a
  * padi-tui too old) fails LOUD here — a `DaemonContractSkewError` the CLI turns
  * into an honest "upgrade" line — rather than deep inside oRPC with an opaque
- * schema error. (No `--host` yet: a remote padi is W3; today padi-tui is
- * local-only, dialing the host's own padi.)
+ * schema error. This is the LOCAL socket dial only; the remote `--host` dial
+ * lives in `hostConnect.ts` (`connectPadiTuiViaHost`), which reaches a padi on
+ * another machine over ssh.
  */
 export async function connectPadiTui(socketPath: string): Promise<Connection> {
   const conn = await connectPadi(socketPath);

@@ -137,8 +137,8 @@ against the remote (`padi-tui status --host nix@prod`). Read verbs are safe and
 `create` lands a real terminal on the host (which survives the link); a tui is a
 dial, so it never drains or converges the remote padi. `--host` is mutually
 exclusive with `--socket` / `--state-root`. Pointing kolu's **browser** at a
-remote padi is the separate, later phase in
-[Architecture](/architecture#next--your-other-machines).
+remote padi is a separate path that already ships — see [Remote
+Hosts](/remote-hosts) for adding a machine to the canvas.
 
 `wait <id> --until awaiting,waiting` blocks until a terminal's agent finishes its
 turn — a done-signal read from real padi state, not guessed from terminal
