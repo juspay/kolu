@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { open as fsOpen, readFile as fsReadFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
-import { err, type GitResult, ok } from "./errors.ts";
+import { err, type GitResult, isFileGoneError, ok } from "./errors.ts";
 import { resolveExistingUnder } from "./safe-path.ts";
 
 const execFileAsync = promisify(execFile);
@@ -191,24 +191,30 @@ export async function filePreviewTag(
         hash.update(chunk as Buffer);
       }
     } finally {
-      await fh.close();
+      // Close failures are not actionable once the read is done, and must never
+      // MASK a real error propagating out of the try (JS discards the original
+      // throw when a `finally` throws) — swallow close's own error so the
+      // caught error below is the true root cause.
+      await fh.close().catch(() => {});
     }
     return ok(hash.digest("hex"));
   } catch (e: unknown) {
     // A superseded query aborted mid-hash: propagate the cancellation untouched
     // — it is neither a missing file nor an I/O fault, so it must not log or
     // collapse to a `GIT_FAILED` err the endpoint would then re-throw opaquely.
-    if (signal?.aborted) throw e;
+    // Key off the ERROR's identity (the `AbortError` `throwIfAborted` raises),
+    // not `signal.aborted`: a genuine I/O fault that happens to land after the
+    // signal aborted for an unrelated reason must still be logged as a fault,
+    // not silently misread as the cancellation.
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
     const msg = e instanceof Error ? e.message : String(e);
     // A file deleted while the Code tab is viewing it (ENOENT) is EXPECTED — the
     // delete-while-viewing race servePadi maps to a typed NOT_FOUND — so it logs
     // at debug, not error. Any other failure is a genuine, unexpected preview
     // I/O fault and MUST surface at error level for operators (errors-must-log-
-    // at-error).
-    const isGone =
-      (e as { code?: string } | null)?.code === "ENOENT" ||
-      /ENOENT|no such file/i.test(msg);
-    if (isGone) {
+    // at-error). The gone-file test is the SAME predicate servePadi's
+    // `fileGoneAsNotFound` maps on — one source of truth, so they can't drift.
+    if (isFileGoneError(e)) {
       log?.debug({ err: msg, repoPath, filePath }, "preview-tag file gone");
     } else {
       log?.error({ err: msg, repoPath, filePath }, "preview-tag hash failed");
