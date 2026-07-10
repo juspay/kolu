@@ -23,6 +23,15 @@ describe("createSessionRestore — HydrationPhase transitions", () => {
     expect(latch.phase).toBe("seeded");
   });
 
+  it("markSeeded from a fresh (pending) latch is a no-op — the pending→seeded skip is unspellable", () => {
+    const latch = createSessionRestore();
+    // seeded is reachable ONLY through decided; markSeeded before markDecided
+    // must not skip the empty-vs-restore decision. The `if (phase === "decided")`
+    // guard makes it a no-op, pinning the transition table total-and-legal-only.
+    latch.markSeeded();
+    expect(latch.phase).toBe("pending");
+  });
+
   it("markDecided is idempotent — it can NEVER regress a seeded host", () => {
     const latch = createSessionRestore();
     latch.markDecided();

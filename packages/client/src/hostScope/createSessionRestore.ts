@@ -41,9 +41,10 @@ export interface HostRestoreLatch {
   /** `pending → decided`: the empty-vs-restore decision has run. Idempotent — a
    *  no-op once past `pending`, so it can never regress a `seeded` host. */
   markDecided(): void;
-  /** `→ seeded`: the client view-state seed (active tile + MRU + panels) ran.
-   *  Only ever called after `markDecided` (the effect gates on it), so "seeded
-   *  implies decided" holds by construction. */
+  /** `decided → seeded`: the client view-state seed (active tile + MRU + panels)
+   *  ran. Guarded to advance ONLY from `decided`, so "seeded implies decided"
+   *  holds by construction — the pending→seeded skip is unspellable through the
+   *  API, not merely avoided by the effect's call ordering. */
   markSeeded(): void;
   /** `seeded → decided`: re-arm the view seed for an IN-SESSION restore (the
    *  `recycleKaval` recycle→restore, no page reload) — the restored terminals
@@ -63,10 +64,10 @@ export function createSessionRestore(): HostRestoreLatch {
       if (phase === "pending") phase = "decided";
     },
     markSeeded() {
-      phase = "seeded";
+      if (phase === "decided") phase = "seeded";
     },
     reseedForRestore() {
-      phase = "decided";
+      if (phase === "seeded") phase = "decided";
     },
   };
 }
