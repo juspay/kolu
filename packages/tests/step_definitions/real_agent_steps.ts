@@ -300,6 +300,28 @@ Then(
   },
 );
 
+// Detection-only assert (state-agnostic): the indicator carries the agent's
+// kind, i.e. kolu recognized the real CLI as that agent — regardless of which
+// live state it's in. Used by claude-real (srid's ruling B-prime), whose
+// transient state is unobservable-by-construction / provider-flaky on a fast
+// ollama turn (see claude-real.feature + juspay/kolu#1754); the state machine
+// itself is unit-tested.
+Then(
+  "the tile chrome should show a {word} indicator within {int} seconds",
+  async function (this: KoluWorld, word: string, seconds: number) {
+    const { kind } = agent(word);
+    await pollFor({
+      observe: () => readIndicator(this),
+      isDone: (o) => o.kind === kind,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected ${word} indicator (kind=${kind}) to appear within ${ms}ms, got kind="${last?.kind ?? null}" state="${last?.state ?? null}"`,
+        ),
+      timeoutMs: seconds * 1000,
+    });
+  },
+);
+
 Then(
   "the dock should reflect the {word} agent in the {string} bucket within {int} seconds",
   async function (

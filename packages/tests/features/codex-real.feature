@@ -19,10 +19,15 @@ Feature: Codex live-state detection against a real ollama model
     Given the terminal is ready
 
   Scenario: A real codex turn flips the sensor working then done
-    # Determinism: a tiny warmed model + a one-word-answer prompt + the existing
-    # poll-until-state waits. The turn is ~10-30s of CPU inference, so "done"
-    # gets a generous budget while the working window stays observable.
-    When I launch the real Codex agent with prompt "Say the single word DONE and then stop."
+    # Determinism: a tiny warmed model + an enumerated-list prompt that lasts a
+    # few seconds of CPU inference, so codex's session watcher attaches DURING
+    # the turn (thinking observable) and the task_complete write then fires a WAL
+    # change → waiting. A one-word answer is sub-second on a fast box (Apple
+    # Silicon: ~0.8s): the watcher can attach at the exact turn-end and miss the
+    # completion, wedging on "thinking" — the fast-box race this longer turn
+    # closes. The count is not asserted (only the state arc), so model drift is
+    # harmless.
+    When I launch the real Codex agent with prompt "Count from 1 to 40, one number per line. Then reply with only the word DONE."
     # Working: codex is mid-turn (task_started, no task_complete yet).
     Then the tile chrome should show a Codex indicator with state "thinking" within 60 seconds
     And the dock should reflect the Codex agent in the "working" bucket within 60 seconds
