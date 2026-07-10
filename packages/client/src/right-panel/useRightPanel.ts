@@ -46,6 +46,7 @@ import {
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
+import { toast } from "solid-sonner";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { isDesktop } from "../useMobile";
@@ -196,7 +197,18 @@ function reportToServer(id: TerminalId): void {
       selectedFileByMode: s.selectedFileByMode,
     })
     .catch((err: Error) =>
-      console.error("useRightPanel: setRightPanel RPC failed", err),
+      // A rejected `setRightPanel` means the optimistic per-terminal state
+      // (collapsed / active tab / code mode / selected file) is NOT persisted —
+      // it silently reverts on the next session restore. The connection-health
+      // pip only reports TRANSPORT health, so an application-level rejection
+      // (validation / authorization) on an otherwise-live padi would go
+      // unseen; surface it per the repo's terminal-mutation rule (toast with
+      // the server message). One STABLE toast id dedups the failure so a downed
+      // padi — where every tab/file/collapse write fails — collapses onto a
+      // single toast instead of one per interaction.
+      toast.error(`Failed to save panel state: ${err.message}`, {
+        id: "right-panel-report-failed",
+      }),
     );
 }
 

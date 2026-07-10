@@ -281,7 +281,7 @@ describe("padi the process — dial acceptance", () => {
     const hello = await conn.client.surface.control.core.hello();
     // padi echoes its own identity — the resolved state-root it anchored to.
     expect(hello.stateRoot).toBe(resolve(stateRoot));
-    expect(hello.surfaceVersion).toBe("1.4");
+    expect(hello.surfaceVersion).toBe("2.0");
     expect(hello.controlCoreVersion).toBe("1.0");
     // …and its boot time, stamped once at daemon init (honest uptime source).
     expect(hello.startedAt).toBeGreaterThan(0);
@@ -369,13 +369,13 @@ describe("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    // A binder NEWER than this padi (it requires padiSurface 2.0; padi serves 1.2)
+    // A binder NEWER than this padi (it requires padiSurface 3.0; padi serves 2.0)
     // reads the running version from the FROZEN control-core `hello` — the call
     // that must work at a mismatch — and finds it INCOMPATIBLE, so it REFUSES to
     // bind the versioned surface.
     const hello = await conn.client.surface.control.core.hello();
-    expect(hello.surfaceVersion).toBe("1.4");
-    expect(isContractVersionCompatible(hello.surfaceVersion, "2.0")).toBe(
+    expect(hello.surfaceVersion).toBe("2.0");
+    expect(isContractVersionCompatible(hello.surfaceVersion, "3.0")).toBe(
       false,
     );
 
@@ -416,7 +416,7 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
 
     const hello = await client.surface.control.core.hello();
     expect(hello.stateRoot).toBe(resolve(stateRoot));
-    expect(hello.surfaceVersion).toBe("1.4");
+    expect(hello.surfaceVersion).toBe("2.0");
     expect(hello.controlCoreVersion).toBe("1.0");
     expect(hello.startedAt).toBeGreaterThan(0);
 
@@ -527,13 +527,17 @@ describe("assertPadiSurfaceCompatible", () => {
     );
   });
 
-  it("REFUSES an older MINOR (a padi too old for this client)", () => {
-    // Guarded: this build's minor is > 0, so an older minor is expressible.
-    expect(minor).toBeGreaterThan(0);
-    expect(() => assertPadiSurfaceCompatible(`${major}.${minor - 1}`)).toThrow(
-      DaemonContractSkewError,
-    );
-  });
+  // Only expressible when this build's minor is > 0; at minor 0 (a fresh major,
+  // e.g. 2.0) an OLDER padi is necessarily an older MAJOR — the case above already
+  // proves that skew is refused — so there's no in-major older minor to construct.
+  it.skipIf(minor === 0)(
+    "REFUSES an older MINOR (a padi too old for this client)",
+    () => {
+      expect(() =>
+        assertPadiSurfaceCompatible(`${major}.${minor - 1}`),
+      ).toThrow(DaemonContractSkewError);
+    },
+  );
 
   it("REFUSES an unparseable version string", () => {
     expect(() => assertPadiSurfaceCompatible("not-a-version")).toThrow(

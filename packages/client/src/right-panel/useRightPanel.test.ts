@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   updatePreferences: vi.fn(),
   setRightPanel: vi.fn(() => Promise.resolve()),
+  toastError: vi.fn(),
   prefs: {
     newTerminalCollapsed: false,
     rightPanel: { size: 0.25, codeTabTreeSize: 0.35 },
@@ -26,6 +27,10 @@ vi.mock("../wire", () => ({
   preferences: () => h.prefs,
 }));
 
+// A rejected `setRightPanel` (an application-level RPC failure on an otherwise
+// live padi) must surface, not silently revert on reload — see `reportToServer`.
+vi.mock("solid-sonner", () => ({ toast: { error: h.toastError } }));
+
 vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({ activeId: () => h.activeId }),
 }));
@@ -40,6 +45,7 @@ import { useRightPanel } from "./useRightPanel";
 beforeEach(() => {
   h.updatePreferences.mockClear();
   h.setRightPanel.mockClear();
+  h.toastError.mockClear();
   h.activeId = null;
   h.prefs = {
     newTerminalCollapsed: false,
@@ -127,6 +133,19 @@ describe("useRightPanel — collapsed is per-terminal (the panel follows the ter
     rp.collapsePanel();
     expect(h.setRightPanel).not.toHaveBeenCalled();
     expect(rp.collapsed()).toBe(false); // floors to the open default
+  });
+
+  it("surfaces a rejected setRightPanel via toast (dedup id), not a silent DevTools log", async () => {
+    h.activeId = "collapse-fail" as TerminalId;
+    h.setRightPanel.mockRejectedValueOnce(new Error("padi rejected"));
+    const rp = useRightPanel();
+    rp.togglePanel(); // optimistic state flips, report rejects
+    // The `.catch` runs on the rejected-promise microtask; flush it.
+    await Promise.resolve();
+    expect(h.toastError).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("padi rejected"),
+      { id: "right-panel-report-failed" },
+    );
   });
 
   it("a fresh terminal inherits the new-terminal default, then owns its own state", () => {
