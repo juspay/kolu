@@ -18,9 +18,9 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../wire", () => ({
-  // `reportToServer` now writes via `padiRpc(padi).surface.chrome.setRightPanel`.
-  // `padiRpc(c)` returns `c.rpc`, so the mock exposes the scoped rpc under `.rpc`.
-  padi: { rpc: { surface: { chrome: { setRightPanel: h.setRightPanel } } } },
+  // `reportToServer` writes via `activePadiRpc.surface.chrome.setRightPanel`
+  // (the active host's padi client) — the per-terminal collapsed/tab report path.
+  activePadiRpc: { surface: { chrome: { setRightPanel: h.setRightPanel } } },
   updatePreferences: h.updatePreferences,
   preferences: () => h.prefs,
 }));
@@ -80,6 +80,71 @@ describe("useRightPanel — size writes drop Corvu's idempotent re-emits (#1041)
   it("setCodeTabTreeSize ignores out-of-bounds values", () => {
     useRightPanel().setCodeTabTreeSize(0.95);
     expect(h.updatePreferences).not.toHaveBeenCalled();
+  });
+});
+
+// `collapsed` moved off the global `preferences.rightPanel` onto the per-terminal
+// `TerminalMetadata.rightPanel` record (#959 completed): each terminal remembers
+// whether its panel was showing, restored on session restore like the active tab.
+// A toggle reports via `chrome.setRightPanel` (server-persisted), NEVER
+// `updatePreferences`. The module-level `perTerminal` store persists across
+// `useRightPanel()` calls, so each test uses distinct terminal ids.
+describe("useRightPanel — collapsed is per-terminal (the panel follows the terminal)", () => {
+  it("a toggle reports the active terminal's collapsed via setRightPanel, not preferences", () => {
+    const a = "collapse-A" as TerminalId;
+    h.activeId = a;
+    const rp = useRightPanel();
+    expect(rp.collapsed()).toBe(false); // a fresh terminal defaults open
+    rp.togglePanel();
+    expect(rp.collapsed()).toBe(true);
+    expect(h.updatePreferences).not.toHaveBeenCalled();
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: a, collapsed: true }),
+    );
+  });
+
+  it("each terminal remembers its own collapsed across an active-terminal switch", () => {
+    const a = "collapse-switch-A" as TerminalId;
+    const b = "collapse-switch-B" as TerminalId;
+    const rp = useRightPanel();
+    // Collapse A, leave B at its default (open).
+    h.activeId = a;
+    rp.collapsePanel();
+    expect(rp.collapsed()).toBe(true);
+    // Switch to B — it reads its OWN default (open), not A's collapse.
+    h.activeId = b;
+    expect(rp.collapsed()).toBe(false);
+    // Back to A — A's collapse is restored.
+    h.activeId = a;
+    expect(rp.collapsed()).toBe(true);
+  });
+
+  it("a collapse is a no-op with no active terminal (empty workspace)", () => {
+    h.activeId = null;
+    const rp = useRightPanel();
+    rp.collapsePanel();
+    expect(h.setRightPanel).not.toHaveBeenCalled();
+    expect(rp.collapsed()).toBe(false); // floors to the open default
+  });
+
+  it("a fresh terminal inherits the new-terminal default, then owns its own state", () => {
+    // Pin the new-terminal default to collapsed.
+    h.prefs = {
+      rightPanel: { collapsed: true, size: 0.25, codeTabTreeSize: 0.35 },
+    };
+    const a = "collapse-seed-A" as TerminalId;
+    h.activeId = a;
+    const rp = useRightPanel();
+    // No per-terminal record yet → reads the new-terminal default (collapsed).
+    expect(rp.collapsed()).toBe(true);
+    // Expanding writes the terminal's OWN record; the global preference is
+    // never touched (a toggle is per-terminal, not a preference change).
+    rp.expandPanel();
+    expect(rp.collapsed()).toBe(false);
+    expect(h.updatePreferences).not.toHaveBeenCalled();
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: a, collapsed: false }),
+    );
   });
 });
 

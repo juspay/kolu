@@ -1037,16 +1037,16 @@ Before(async function (this: KoluWorld, scenario) {
         activityAlerts: true,
         colorScheme: "dark",
         terminalRenderer: "auto",
-        // `rightPanel` preferences hold only workspace-level chrome
-        // (collapsed/size/codeTabTreeSize) — `activeTab`/`codeMode` are
-        // per-terminal state (DEFAULT_RIGHT_PANEL_PER_TERMINAL), not
-        // preferences, so they don't belong here. We deliberately pin
-        // `collapsed: true` for the suite so the many toggle-and-assert
-        // scenarios get a deterministic collapsed starting point; the
-        // shipped runtime default is open (DEFAULT_PREFERENCES.rightPanel
-        // .collapsed = false). The per-terminal Code/browse defaults are
-        // NOT overridden here, so they flow from DEFAULT_RIGHT_PANEL_PER_-
-        // TERMINAL and are asserted by right-panel.feature / code-tab.feature.
+        // `rightPanel` preferences hold the panel width, the Code-tab tree
+        // split, and the NEW-TERMINAL `collapsed` default. The LIVE collapsed
+        // state is per-terminal now (it follows the terminal, #959) — but every
+        // new terminal SEEDS its `collapsed` from this default, so pinning
+        // `collapsed: true` still gives the whole suite a deterministic collapsed
+        // starting point (every terminal a scenario spawns starts closed) for the
+        // many toggle-and-assert scenarios. The shipped runtime default is open
+        // (DEFAULT_PREFERENCES.rightPanel.collapsed = false). `activeTab`/`codeMode`
+        // are per-terminal too (DEFAULT_RIGHT_PANEL_PER_TERMINAL) and flow from
+        // there, asserted by right-panel.feature / code-tab.feature.
         rightPanel: {
           // Recordings (X11CAP) want the right panel visible by default (it's
           // the new app default, and the Code tab is part of what we show);

@@ -3,7 +3,7 @@
  *  posture (`canvasMaximized`) in `hostScope/createViewState`, and the two dock
  *  filters (`activityWindow`, `showSleeping`) in the sibling `hostScope/createHostPrefs`
  *  (the sticky prefs a close-all must NOT clear). (The right-panel collapsed bit is
- *  NOT per-host — it's a global viewer-layout pref that must survive reload.)
+ *  neither — it's per-TERMINAL, on `TerminalMetadata.rightPanel`, so the panel follows the terminal, #959.)
  *  Each follows the maximized pattern: SET on host A → switch to
  *  host B sees the DEFAULT → switch BACK to A sees A's value RESTORED (the owner is
  *  RETAINED across a switch-away, disposed only on membership exit). All three are

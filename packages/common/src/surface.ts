@@ -135,13 +135,19 @@ export const ShuffleBehaviorSchema = z.enum([
   "auto",
 ]);
 
-/** Right-panel preferences — workspace-level layout chrome. The fields
- *  *about* what each terminal is doing (active tab, code sub-mode,
- *  selected file) live on `RightPanelPerTerminalStateSchema` against the
- *  terminal record, not here. Splitting follows the volatility seam: panel
- *  width and tree-pane split are tuned once and stay put; active tab and
- *  code-mode flip per terminal task. */
+/** Right-panel preferences — workspace-level layout chrome: the panel's
+ *  width, the Code-tab tree/content split, and the NEW-TERMINAL collapsed
+ *  default. Width and split are viewer density taste — tuned once and left put.
+ *  `collapsed` here is NOT the live per-panel state (that follows the terminal,
+ *  #959, on `RightPanelPerTerminalStateSchema`): it is only the *default* a
+ *  brand-new terminal's panel starts at, which the terminal then owns and
+ *  overrides — the same copy-on-create shape `newTerminalTheme` has. Everything
+ *  else *about* what each terminal is doing (active tab, code sub-mode, selected
+ *  file) lives on the per-terminal record, not here. */
 export const RightPanelPrefsSchema = z.object({
+  /** Whether a NEW terminal opens with its right panel collapsed. Seeds the
+   *  per-terminal `collapsed` at creation; the terminal owns its own state
+   *  thereafter (toggling a panel writes the terminal's record, never this). */
   collapsed: z.boolean(),
   size: z.number(),
   /** Vertical split fraction (0–1) inside the Code tab: tree pane occupies

@@ -174,9 +174,11 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
   /** Sub-panel collapsed/size state — client-reported, used for session restore. */
   subPanel: SubPanelStateSchema.optional(),
   /** Right-panel per-terminal state — client-reported. Holds the fields
-   *  that are *about* the terminal's task (active tab, code sub-mode,
-   *  per-mode file selection). The remaining right-panel fields (collapsed,
-   *  size, codeTabTreeSize) stay on preferences as workspace-level chrome. */
+   *  that are *about* the terminal's task: whether the panel is showing
+   *  (`collapsed`), the active tab, the code sub-mode, and the per-mode file
+   *  selection — so the panel follows the terminal (#959). Only the panel
+   *  width + Code-tab tree split stay on `preferences.rightPanel` (viewer
+   *  density taste, not per-terminal task state). */
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
   /** User-set freeform annotation — multiline markdown. The first line
    *  doubles as a glanceable tag (rendered as a chip next to the repo

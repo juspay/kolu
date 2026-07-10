@@ -205,3 +205,20 @@ Feature: Right panel (Code + Inspector)
     When I press the switch to terminal 2 shortcut
     Then the Code tab should be active
     And there should be no page errors
+
+  Scenario: Collapsed state is per-terminal (the panel follows the terminal)
+    # Terminal 1 (from Background) starts collapsed (the new-terminal default the
+    # fixture pins). Open its panel, then create terminal 2.
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    # Terminal 2 seeds the new-terminal default (collapsed), so its panel starts
+    # hidden — independent of terminal 1's open panel.
+    When I create a terminal
+    Then the right panel should not be visible
+    # Switch back to terminal 1 — its panel is still open (it remembers its own).
+    When I press the switch to terminal 1 shortcut
+    Then the right panel should be visible
+    # Forward to terminal 2 — still collapsed.
+    When I press the switch to terminal 2 shortcut
+    Then the right panel should not be visible
+    And there should be no page errors
