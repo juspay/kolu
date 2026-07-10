@@ -126,6 +126,35 @@ export type PadiDial = {
   hello: PadiHello;
 };
 
+// ── The compatibility gate ────────────────────────────────────────────────────
+
+/**
+ * Gate a padi's RUNNING `padiSurface` version against THIS build's
+ * {@link PADI_SURFACE_VERSION}, throwing {@link DaemonContractSkewError} on an
+ * incompatible skew (different major, or an older minor than this client needs).
+ *
+ * The dial kit's ONE compatibility judgement, shared across BOTH transports so
+ * they can never drift apart: {@link connectPadi} runs it after the local-socket
+ * control-core handshake, and `padi-tui --host`'s ssh probe runs it after the
+ * remote control-core `hello`. Either way a padi too new for this build — or a
+ * client too old — fails LOUD with the SAME honest "upgrade" line, rather than a
+ * parallel hand-rolled check that reads the same fields but risks diverging.
+ * GATE only: reading `hello` to judge compatibility never touches the daemon's
+ * lifecycle — a running padi is drained/converged only by the supervisor that
+ * owns it (#1313), never by a dial.
+ */
+export function assertPadiSurfaceCompatible(
+  runningSurfaceVersion: string,
+): void {
+  if (
+    !isContractVersionCompatible(runningSurfaceVersion, PADI_SURFACE_VERSION)
+  ) {
+    throw new DaemonContractSkewError(
+      `padi contract skew: padi serves padiSurface ${runningSurfaceVersion}, client needs ${PADI_SURFACE_VERSION}`,
+    );
+  }
+}
+
 // ── The dial + control-core handshake ─────────────────────────────────────────
 
 /** Dial padi at `socketPath` and read the FROZEN control core's `hello` — the
@@ -173,13 +202,14 @@ export async function dialPadiHello(socketPath: string): Promise<PadiDial> {
 export async function connectPadi(socketPath: string): Promise<PadiConnection> {
   const { socket, client, hello } = await dialPadiHello(socketPath);
 
-  if (
-    !isContractVersionCompatible(hello.surfaceVersion, PADI_SURFACE_VERSION)
-  ) {
+  try {
+    // The dial kit's one compatibility judgement (shared with `padi-tui --host`'s
+    // ssh probe). This connect OWNS the socket, so tear it down before surfacing a
+    // skew — the remote probe's teardown is `dialAgentOnce`'s, so it just rethrows.
+    assertPadiSurfaceCompatible(hello.surfaceVersion);
+  } catch (err) {
     socket.destroy();
-    throw new DaemonContractSkewError(
-      `padi contract skew: padi serves padiSurface ${hello.surfaceVersion}, client needs ${PADI_SURFACE_VERSION}`,
-    );
+    throw err;
   }
 
   let closed = false;

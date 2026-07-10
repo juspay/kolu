@@ -800,6 +800,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      '@kolu/surface-remote':
+        specifier: workspace:*
+        version: link:../surface-remote
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
