@@ -251,7 +251,7 @@ existing ranking + ageing, no parallel scheme:</p>
 </tbody>
 </table>
 <aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Two refinements the priority order forces</p><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>1 · “Waiting” splits and <em>decays.</em></strong> The crossover is your <strong>activity window</strong>
-(<code>4h / 12h / 24h / All</code>, default <code>24h</code> — <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/activityWindow.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/activityWindow.ts</a>): a waiter sinks below the working hum once it ages past it; <code>All</code> disables decay.</p><p><strong>2 · Motion = “needs you,” not “busy.”</strong> Alert and fresh-waiting outrank working,
+(<code>4h / 12h / 24h / All</code>, default <code>All</code> — <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/activityWindow.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/activityWindow.ts</a>): a waiter sinks below the working hum once it ages past it; <code>All</code> (the default) disables decay, and narrowing the window is opt-in.</p><p><strong>2 · Motion = “needs you,” not “busy.”</strong> Alert and fresh-waiting outrank working,
 so <em>motion</em> — the strongest cue — is reserved for them; working is a <strong>steady</strong>
 glow. (Flips the first instinct of an animating border for working.)</p></div></aside>
 <h2 id="waiting-cools-as-it-ages">Waiting cools as it ages</h2>
@@ -381,8 +381,8 @@ as it stays quieter than fresh-waiting.</p>
 <ul>
 <li><strong>Continuous vs banded</strong> — a smooth <code>--aura-intensity</code>, or reuse the existing
 age bands (<code>idleBucketFor</code>, <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/activityWindow.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/activityWindow.ts</a>) for discrete steps, zero new math.</li>
-<li><strong>Which window</strong> — reuse the persisted <code>activityWindow</code> (default <code>24h</code>; <code>All</code> =
-no decay). <em>Open: is a filter knob the right decay clock?</em></li>
+<li><strong>Which window</strong> — reuse the persisted <code>activityWindow</code> (default <code>All</code>;
+narrowing to <code>24h</code>/etc. enables decay). <em>Open: is a filter knob the right decay clock?</em></li>
 <li><strong>Where stale lands</strong> — a dim violet ember (keeps the “it wanted you” memory),
 or demote to parked (quieter, matches the dock).</li>
 </ul>

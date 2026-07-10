@@ -10,22 +10,16 @@
  *  `relative shrink-0` in flex flow, spanning the whole viewport, so the
  *  canvas and the right inspector panel flow BELOW it rather than the bar
  *  overlaying either. There is no panel-width right-offset — the header reads
- *  as one continuous top rail across the workspace. The band is a solid chrome
- *  surface tinted by the hostname-derived PWA theme color over the app base
- *  surface, so installed-window chrome and in-app header belong together.
+ *  as one continuous top rail across the workspace. The band is a NEUTRAL chrome
+ *  surface (no host/PWA hue tint) — per-host colour lives on the tabs, so the
+ *  active tab's own hue stands out instead of blending into a same-hue band.
  *  `posture.mode()` no longer changes the bar's positioning; it only picks the
  *  maximize/restore affordance and the `data-maximized` marker.
  *
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import {
-  type Component,
-  createMemo,
-  createSignal,
-  type JSX,
-  Show,
-} from "solid-js";
+import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import HostSelectorStrip from "./host/HostSelectorStrip";
@@ -34,7 +28,6 @@ import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
-import { useServerIdentity } from "./useServerIdentity";
 import SettingsPopover from "./settings/SettingsPopover";
 import {
   DockToggleIcon,
@@ -60,11 +53,6 @@ const ChromeBar: Component<{
 }> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
-  // The hostname-derived PWA theme tint — read straight off the
-  // `useServerIdentity` singleton (same as AboutDialog), not drilled through a
-  // prop: `useServerIdentity` was extracted precisely so the layout shell stops
-  // threading identity fields (see its module doc + no-preference-prop-drilling).
-  const { themeColor } = useServerIdentity();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
@@ -83,36 +71,23 @@ const ChromeBar: Component<{
   // drift out of sync with the posture.
   const maximizeLabel = createMemo(() => posturedActionLabel(posture.mode()));
 
-  // The header is a DOCKED full-width top bar in both postures now (tiled +
-  // maximized), so it spans the whole width — including over the right
-  // inspector panel, which sits BELOW it — exactly like maximized mode. No
-  // panel-width right-offset to maintain anymore; the only inline style is the
-  // hostname-derived PWA theme tint.
-  const chromeStyle = (): JSX.CSSProperties =>
-    themeColor() ? { "--chrome-theme-color": themeColor() } : {};
-
   return (
     <header
       data-testid="chrome-bar"
       data-maximized={docked() ? "" : undefined}
-      // Explicit marker for the themed-surface CSS (below), set only when a
-      // hostname-derived PWA theme color is present. The `.chrome-bar-surface`
-      // rules key off THIS attribute — not a `[style*="--chrome-theme-color"]`
-      // substring match on the serialized inline style, which was brittle to any
-      // reformat/rename of that custom property.
-      data-themed={themeColor() ? "" : undefined}
       // Solid chrome owns this strip's pointer area. Individual controls still
       // carry their own pointer/focus classes, but empty header space should
       // behave like header, not click through to the canvas behind it.
       //
       // DOCKED full-width in BOTH postures (`relative shrink-0`) so the bar
       // spans the whole viewport and the canvas + right inspector flow BELOW
-      // it — the tabbed header reads as one continuous top rail. No drop
-      // shadow: a shadow under the bar makes the tabs look like they float
-      // ABOVE the content, fighting the connected-tab metaphor. `z-50` keeps
-      // the workspace-switcher dropdown above the maximized tile (z-40).
-      class="chrome-bar-surface relative z-50 flex h-10 shrink-0 items-stretch gap-3 border-b border-edge/80 bg-surface-0 px-3 pt-2 pb-0 select-none pointer-events-auto transition-colors duration-150"
-      style={chromeStyle()}
+      // it — the tabbed header reads as one continuous top rail. The header is
+      // NEUTRAL (no host/PWA hue tint) — colour lives on the tabs — so the
+      // active tab's hue stands out instead of blending into a same-hue band.
+      // No drop shadow: a shadow under the bar makes the tabs look like they
+      // float ABOVE the content, fighting the connected-tab metaphor. `z-50`
+      // keeps the workspace-switcher dropdown above the maximized tile (z-40).
+      class="chrome-bar-surface relative z-50 flex h-10 shrink-0 items-stretch gap-3 bg-surface-0 px-3 pt-2 pb-0 select-none pointer-events-auto transition-colors duration-150"
     >
       {/* Quiet Kolu mark — connection + dialogs; versions live in the dialog. */}
       <div class="flex h-8 shrink-0 items-center pointer-events-auto">

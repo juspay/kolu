@@ -187,12 +187,12 @@ const Dock: Component<{
       class="flex flex-col select-none overflow-hidden bg-surface-1"
       classList={{
         // Tiled: absolute float inside the canvas; positions over
-        // tiles rather than reflowing them. `top-16` keeps a real
-        // gutter below the chrome so the dock reads as a canvas tool,
-        // not an attached header dropdown. Opaque background (see base
-        // class) so canvas tiles don't bleed through the seams between
-        // rows or behind the rounded corners.
-        "absolute z-30 top-16 left-4 rounded-2xl shadow-2xl shadow-black/40":
+        // tiles rather than reflowing them. `top-6` keeps a small
+        // gutter below the (now borderless) chrome so the dock reads as
+        // a canvas tool without floating conspicuously low. Opaque
+        // background (see base class) so canvas tiles don't bleed
+        // through the seams between rows or behind the rounded corners.
+        "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40":
           posture.mode() === "tiled",
         "max-h-[calc(100vh-14rem)]": posture.mode() === "tiled",
         // Maximized: real left-panel flex sibling of the canvas. The

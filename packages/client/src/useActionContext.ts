@@ -56,6 +56,7 @@ export function useActionContext(): ActionContext {
       if (showsWorkspaceSwitcher())
         commandPalette.openGroup("Search workspaces");
     },
+    openHostSwitcher: () => commandPalette.openGroup("Switch host"),
     togglePalette: commandPalette.toggle,
     toggleShortcutsHelp: shortcutsHelp.toggle,
     toggleSearch: terminalSearch.toggleActive,

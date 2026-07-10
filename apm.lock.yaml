@@ -468,7 +468,7 @@ local_deployed_file_hashes:
   .claude/rules/surface-reference.md: sha256:0aa3ed458596b2482dea3c6218241755dae429d70b65f89a4d85f1677e21ecbe
   .claude/rules/surface.md: sha256:ffe9a98799804d4065549143cb9df65b5d2a83fbedf93ee86727d404b2f85e7d
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
-  .claude/rules/website-docs.md: sha256:82bb11ca75845be9bfc5879cb97b6a1c5d554e3b289ce1620a47e2a96fbb1a75
+  .claude/rules/website-docs.md: sha256:f40e3f50cfaf186997105ccfd11405bd3f90e9b80e771f9157907e1538b0167f
   .claude/skills/atlas/SKILL.md: sha256:64909c9058667c6eefa9efcd7249737b7feb401015f110b09b6ea69718f35ef3
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .claude/skills/dev-server/SKILL.md: sha256:f4f9e6479103ceec2c90496c85fca5c5bdd57c79bd59e80852307c6b9d286617

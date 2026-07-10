@@ -1,14 +1,13 @@
 /** HostSelectorStrip — the multi-host selector, the visible face of the keyed padi
  *  host map (W4 "the switch").
  *
- *  ALWAYS renders at least one chip — the active host's — regardless of the
- *  server-authored `hostMapGate` cell. What the gate controls is MULTIPLE-host
- *  chrome: every chip beyond the active one, the trailing "+ add a host"
- *  affordance, and the overflow/dropdown machinery below, render only once
- *  `KOLU_PADI_HOST` seeded more than the local default (`isMultiHost()` at
- *  boot) — see {@link shouldRenderHostChip}. The client never reads env; the
- *  cell is the sole cue, and `undefined` (before the first cell frame) reads
- *  closed, so multi-host chrome never flashes in during warm-up.
+ *  Multi-host is NO LONGER gated on `KOLU_PADI_HOST` — the old server-authored
+ *  `hostMapGate` cell is gone entirely: every pool member gets a chip and the
+ *  trailing "+ add a host" affordance is ALWAYS present. Remote hosts is an
+ *  ALPHA feature, so that warning rides the "+" popover (`AddHostAffordance`)
+ *  rather than an env gate. With no seed the pool is just the local host, so the
+ *  resting strip is one chip + "+". (`KOLU_PADI_HOST` still works as an optional
+ *  launch-time SEED — see `parseKoluPadiHostSeed`.)
  *
  *  Host-first: each host tab carries a FIXED-width dual-daemon slot
  *  (`HostDualDaemonSlot`) filled with THAT host's Padi + Kaval marks (active
@@ -18,9 +17,10 @@
  *  reserved without a second live mount.
  *
  *  Each chip reads, at a glance:
- *    · the host label (LOCAL_HOST shows as "local"), ellipsized to a
- *      narrower max-width below the `lg` breakpoint (a window-resize-driven
- *      stage, never host-switch-driven);
+ *    · the host label (LOCAL_HOST shows a house glyph + "local" — a role, not a
+ *      hostname; remotes show their `user@host`), ellipsized to a narrower
+ *      max-width below the `lg` breakpoint (a window-resize-driven stage, never
+ *      host-switch-driven);
  *    · a connection dot colored from the map's `EntryStatus` FACT — green ONLY for
  *      `connected` (which `connectSurfaceMap` floors on real transport liveness, so a
  *      green-over-a-dead-link dot is unrenderable, the same discipline `<HostStatusPip>`
@@ -57,7 +57,8 @@
  *      active host (still carrying the dual-daemon fill), opening an
  *      anchored host switcher panel.
  *
- *  A trailing "+ add" opens an inline input → `client.hosts.add`. */
+ *  A trailing "+ add" opens the `AddHostAffordance` popover (alpha notice + doc
+ *  link + ssh input) → `client.hosts.add`. */
 
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
@@ -79,14 +80,15 @@ import {
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
+import { HomeIcon, SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
+import { useCommandPalette } from "../useCommandPalette";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
   dotClass,
-  hostGateOpen,
+  hostHue,
   hostLabel,
   sameHost,
-  shouldRenderHostChip,
   statusLabelShort,
   statusTitle,
 } from "./hostChipTone";
@@ -94,13 +96,33 @@ import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import {
   activeHost,
-  app,
   client,
   onHostMembershipError,
   padiMap,
   requestActivateOnJoin,
   setActiveHost,
 } from "../wire";
+
+/** kolu.dev doc the alpha "+ add a host" popover links to. */
+const REMOTE_HOSTS_DOC = "https://kolu.dev/remote-hosts/";
+
+/** A host's on-screen identity: a house glyph (LOCAL only) immediately before
+ *  its role word, glyph first — so the local chip reads as a role ("the machine
+ *  kolu runs on"), not a hostname you might mistake for a machine literally
+ *  named "local" (a remote's `user@host` is unambiguous already, so it gets no
+ *  glyph). The single owner of the glyph+label pairing, so every visual site
+ *  renders it identically and a new render site can't silently split or drop it.
+ *  `labelClass` styles the label `<span>` (truncation/max-width vary per site). */
+const HostIdentityLabel: Component<{ host: HostKey; labelClass?: string }> = (
+  props,
+) => (
+  <>
+    <Show when={props.host.kind === "local"}>
+      <HomeIcon class="h-3 w-3 shrink-0 opacity-70" />
+    </Show>
+    <span class={props.labelClass}>{hostLabel(props.host)}</span>
+  </>
+);
 
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Independent of the
@@ -115,9 +137,10 @@ const atMd = createMediaQuery("(min-width: 48rem)");
 /** The "⋯ +N" overflow trigger's own rendered width + gap — reserved from
  *  the fit budget only once chips don't all fit (see `hostOverflow.ts`). */
 const OVERFLOW_TRIGGER_RESERVE: number = 44;
-/** The "+ add a host" affordance's own rendered width (`w-7`) + gap —
- *  reserved from the fit budget whenever it renders (gate open). */
-const ADD_BUTTON_RESERVE: number = 34;
+/** The "+ add a host" affordance's own rendered width (`w-8` = 32px) plus the
+ *  strip's `gap-1.5` (6px) that separates it from the chip row — always reserved
+ *  from the fit budget now that the "+" is always present. */
+const ADD_BUTTON_RESERVE: number = 38;
 
 // The explicit type annotation on `labelForKey` (rather than inferring off the
 // arrow function) is load-bearing, not decorative: this file's per-chip
@@ -179,33 +202,27 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
       data-active={isActive() ? "" : undefined}
     >
       <div
-        // Every tab carries the SAME 1px border box (folder-tab outline) so
-        // active and inactive share one geometry — content centers line up to
-        // the pixel, no 1px hop on selection.
-        class="relative flex h-8 items-center rounded-t-md border transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
+        // No outline box: active and inactive share the SAME geometry (no
+        // border, no 1px hop on selection), and selection is carried entirely
+        // by colour + a soft glow — `.host-tab-active` paints a hue-tinted
+        // belly + hue underline + a downward glow that bleeds into the canvas
+        // (pulled through the baseline by the wrapper's `-mb-px`), never a
+        // hard ring. `--host-hue` is this host's identity colour (`hostHue`),
+        // read by the active-tab CSS and the dot's hue ring. It's a pure style
+        // value — no layout effect — so the measure twin still measures the
+        // same width. The focus-ring is gated to keyboard, never mouse.
+        class="host-tab relative flex h-8 items-center has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
+        style={{ "--host-hue": hostHue(props.host) }}
         classList={{
-          // Selected tab: a soft `accent` outline + faint accent-tinted fill
-          // (kolu's active-state language, `bg-accent/N`) so selection reads
-          // in BOTH modes — a neutral `surface-0` fill is invisible against
-          // the surface-0-based (theme-tinted) header, which made the dark
-          // tab bar unreadable. Bottom border transparent so — pulled by the
-          // wrapper's `-mb-px` — it merges through the baseline as the OPEN
-          // tab. Soft, not a loud rail; the click focus-ring is gated to
-          // keyboard (`has-[:focus-visible]`), never mouse.
-          "border-accent/55 border-b-transparent bg-accent/12 text-fg shadow-sm":
-            isActive(),
-          // Inactive tabs are CLOSED folder tabs — a visible neutral outline +
-          // a recessed fill that lightens the dark header enough to read as a
-          // tab at rest, brightening on hover. Never invisible text.
-          "border-edge/70 bg-surface-2/40 text-fg-2 hover:border-edge hover:bg-surface-2 hover:text-fg":
-            !isActive(),
+          "host-tab-active": isActive(),
+          "host-tab-idle": !isActive(),
         }}
       >
         <button
           type="button"
           role="tab"
           aria-selected={isActive()}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-md pl-2 pr-2 cursor-pointer transition-colors focus-visible:outline-none"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-xl pl-2.5 pr-2 transition-colors focus-visible:outline-none cursor-pointer"
           classList={{
             "text-fg": isActive(),
             "text-fg-2 hover:text-fg": !isActive(),
@@ -223,15 +240,20 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
         >
           <span
-            class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state())}`}
+            // Status tone (`dotClass`) fills the dot; the `host-hue-ring`
+            // wraps it in this host's identity colour (`--host-hue` from the
+            // tab above) — status and identity on one mark, neither hiding the
+            // other.
+            class={`host-hue-ring inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state())}`}
             aria-hidden="true"
           />
           {/* Ellipsizes to a NARROWER max-width below `lg` (narrow-window stage
            *  2) — a pure CSS breakpoint, so it only ever moves on a window
            *  resize, never a host switch. */}
-          <span class="truncate max-w-[5rem] lg:max-w-[10rem] font-medium">
-            {hostLabel(props.host)}
-          </span>
+          <HostIdentityLabel
+            host={props.host}
+            labelClass="truncate max-w-[5rem] lg:max-w-[10rem] font-medium"
+          />
           {/* Urgency badge — the host's awaiting count, hidden at zero. */}
           <Show when={awaiting() > 0}>
             <span
@@ -244,7 +266,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
         </button>
         <div
           class="flex h-8 items-center transition-colors"
-          classList={{ "rounded-tr-md": isLocal() }}
+          classList={{ "rounded-tr-xl": isLocal() }}
         >
           <HostDualDaemonSlot
             host={props.host}
@@ -257,7 +279,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
         <Show when={!isLocal()}>
           <button
             type="button"
-            class="pointer-events-auto shrink-0 h-8 w-6 inline-flex items-center justify-center rounded-tr-md text-fg-3 hover:text-danger hover:bg-danger/10 opacity-45 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 transition-[opacity,color,background-color]"
+            class="pointer-events-auto shrink-0 h-8 w-6 inline-flex items-center justify-center rounded-tr-xl text-fg-3 hover:text-danger hover:bg-danger/10 opacity-45 max-lg:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 transition-[opacity,color,background-color] cursor-pointer"
             data-testid="host-remove"
             aria-label={`Remove host ${hostLabel(props.host)}`}
             title={`Remove ${hostLabel(props.host)}`}
@@ -314,7 +336,7 @@ const HostSwitcherRow: Component<{
         data-testid={`${props.testIdPrefix}-option-${props.hostKey}`}
         aria-current={isActive() ? "true" : undefined}
         title={`${hostLabel(host)} — ${statusTitle(state())}`}
-        class="pointer-events-auto flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="pointer-events-auto flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         onClick={pickHost}
       >
         <span
@@ -326,7 +348,7 @@ const HostSwitcherRow: Component<{
             class="flex min-w-0 items-center gap-1.5 text-xs font-medium"
             classList={{ "text-fg": isActive(), "text-fg-2": !isActive() }}
           >
-            <span class="truncate">{hostLabel(host)}</span>
+            <HostIdentityLabel host={host} labelClass="truncate" />
             <Show when={isActive()}>
               <span class="shrink-0 rounded-full border border-accent/45 bg-accent/15 px-1.5 text-[9px] font-semibold leading-4 text-accent">
                 active
@@ -354,7 +376,7 @@ const HostSwitcherRow: Component<{
       </button>
       <button
         type="button"
-        class="rounded-lg shadow-[inset_0_0_0_1px_var(--color-edge)]"
+        class="rounded-lg shadow-[inset_0_0_0_1px_var(--color-edge)] cursor-pointer"
         classList={{
           "bg-surface-0/70": isActive(),
           "bg-surface-0/45": !isActive(),
@@ -368,7 +390,7 @@ const HostSwitcherRow: Component<{
       <Show when={!isLocal()} fallback={<span class="h-7 w-6" />}>
         <button
           type="button"
-          class="pointer-events-auto h-7 w-6 inline-flex items-center justify-center rounded-lg text-fg-3 opacity-60 transition-[opacity,color,background-color] hover:bg-danger/10 hover:text-danger group-hover/host-row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          class="pointer-events-auto h-7 w-6 inline-flex items-center justify-center rounded-lg text-fg-3 opacity-60 transition-[opacity,color,background-color] hover:bg-danger/10 hover:text-danger group-hover/host-row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
           data-testid={`${props.testIdPrefix}-remove-${props.hostKey}`}
           aria-label={`Remove host ${hostLabel(host)}`}
           title={`Remove ${hostLabel(host)}`}
@@ -451,7 +473,7 @@ const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
         type="button"
         ref={triggerEl}
         data-testid="host-overflow-trigger"
-        class="pointer-events-auto shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-md bg-transparent text-xs text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        class="pointer-events-auto shrink-0 h-8 px-2 inline-flex items-center gap-1 rounded-md bg-transparent text-xs text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
         aria-label={`${props.hosts.length} more host${props.hosts.length === 1 ? "" : "s"}`}
         title={props.hosts.map(labelForKey).join(", ")}
         onClick={() => setOpen((v) => !v)}
@@ -492,7 +514,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
           aria-selected="true"
           aria-expanded={open()}
           ref={triggerEl}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-md pl-2 pr-2 text-xs text-fg transition-colors focus-visible:outline-none"
+          class="pointer-events-auto flex h-8 items-center gap-1.5 rounded-tl-md pl-2 pr-2 text-xs text-fg transition-colors focus-visible:outline-none cursor-pointer"
           aria-label={`Switch host — currently ${hostLabel(active())}`}
           title={`Switch host — currently ${hostLabel(active())}`}
           onClick={() => setOpen((v) => !v)}
@@ -501,9 +523,10 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
             class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(padiMap.entry(active()).state())}`}
             aria-hidden="true"
           />
-          <span class="truncate max-w-[5rem] font-medium">
-            {hostLabel(active())}
-          </span>
+          <HostIdentityLabel
+            host={active()}
+            labelClass="truncate max-w-[5rem] font-medium"
+          />
           <span aria-hidden="true" class="text-fg-3">
             ▾
           </span>
@@ -525,41 +548,148 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
   );
 };
 
-const HostSelectorStrip: Component = () => {
-  const gate = app.cells.hostMapGate.use({
-    onError: (err: Error) =>
-      toast.error(`Host gate subscription error: ${err.message}`),
-  });
-  const [adding, setAdding] = createSignal(false);
-  const [draft, setDraft] = createSignal("");
-  const members = padiMap.entries.use({ onError: onHostMembershipError });
-  let addInputRef: HTMLInputElement | undefined;
+const addHostChrome = surface({
+  radius: "lg",
+  shadow: "light",
+  portalled: true,
+});
 
-  // Focus the add-host input when it opens. Not the plain `autofocus`
-  // attribute: the input is toggled in by a `<Show>` AFTER this effect runs, so
-  // the ref isn't attached yet on the same tick — the `queueMicrotask` defers
-  // the focus until Solid has mounted it. `isConnected` guards the race where
-  // `adding()` flips back to false (Escape/blur) before the microtask runs, so
-  // we never focus a detached node.
+/** The "+ add a host" affordance — always present now that multi-host is
+ *  ungated. Remote hosts is an ALPHA feature, so clicking "+" opens an anchored
+ *  popover that LEADS with that notice + a kolu.dev link before the ssh-target
+ *  input (the old inline input is gone). Enter commits via `client.hosts.add`;
+ *  the canvas jumps to the new host once it joins membership. */
+const AddHostAffordance: Component = () => {
+  const [open, setOpen] = createSignal(false);
+  const [draft, setDraft] = createSignal("");
+  let triggerEl: HTMLButtonElement | undefined;
+  let inputEl: HTMLInputElement | undefined;
+  const { panelRef, panelStyle } = useAnchoredPopover({
+    triggerRef: () => triggerEl,
+    open,
+    onDismiss: () => setOpen(false),
+    // Left-anchored (opens rightward from the "+"): the "+" sits just after the
+    // chips on the LEFT of the strip, so `bottom-end` (right-align) would push
+    // the panel off-screen left. `bottom-start` + panelMinWidth is the
+    // viewport-clamped variant.
+    anchor: "bottom-start",
+    panelMinWidth: 288,
+  });
+  // Focus the input the frame the popover mounts it (the ref isn't attached on
+  // the tick `open()` flips, so defer past mount; `isConnected` guards a
+  // dismiss that beats the microtask).
   createEffect(() => {
-    if (!adding()) return;
+    if (!open()) return;
     queueMicrotask(() => {
-      if (addInputRef?.isConnected) addInputRef.focus({ preventScroll: true });
+      if (inputEl?.isConnected) inputEl.focus({ preventScroll: true });
     });
   });
+  const submit = (): void => {
+    const raw = draft().trim();
+    if (raw === "") return;
+    // `parseHostInput` is TOTAL (typing "local" just parses to the Local
+    // variant, already a pool member); `hosts.add`'s own rejection is the
+    // honest single error surface.
+    const host = parseHostInput(raw);
+    client.hosts
+      .add({ host })
+      .then(() => {
+        setDraft("");
+        setOpen(false);
+        // Jump to the new host once it JOINS membership — a bare setActiveHost
+        // here races the reconcile and bounces back to local.
+        requestActivateOnJoin(host);
+      })
+      .catch((err: Error) =>
+        toast.error(`Couldn't add ${raw}: ${err.message}`),
+      );
+  };
+  return (
+    <>
+      <button
+        type="button"
+        ref={triggerEl}
+        data-testid="host-add-open"
+        class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+        aria-label="Add a host"
+        title="Add a host (ssh target)"
+        aria-expanded={open()}
+        onClick={() => setOpen((v) => !v)}
+      >
+        +
+      </button>
+      <Show when={open()}>
+        <Portal>
+          <div
+            ref={panelRef}
+            data-testid="host-add-menu"
+            class={`fixed z-50 w-[min(20rem,calc(100vw-1rem))] p-3 ${addHostChrome.class}`}
+            style={{ ...panelStyle(), ...addHostChrome.style }}
+          >
+            <div class="mb-1.5 flex items-center gap-1.5">
+              <span class="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 text-[9px] font-semibold uppercase leading-4 tracking-wide text-amber-600 dark:text-amber-400">
+                Alpha
+              </span>
+              <span class="text-xs font-semibold text-fg">Remote hosts</span>
+            </div>
+            <p class="mb-2.5 text-[11px] leading-4 text-fg-2">
+              Connecting other machines over ssh is an early feature.{" "}
+              <a
+                href={REMOTE_HOSTS_DOC}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-accent hover:underline"
+              >
+                Learn more →
+              </a>
+            </p>
+            <input
+              ref={inputEl}
+              type="text"
+              data-testid="host-add-input"
+              class="pointer-events-auto h-8 w-full rounded-lg border border-edge bg-surface-1 px-2.5 text-xs text-fg placeholder:text-fg-3 transition-colors focus:border-accent/50 focus:bg-surface-2 focus:outline-none"
+              placeholder="ssh host, e.g. srid@zest"
+              value={draft()}
+              onInput={(e) => setDraft(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submit();
+                if (e.key === "Escape") setOpen(false);
+              }}
+            />
+          </div>
+        </Portal>
+      </Show>
+    </>
+  );
+};
 
-  // The gate DECISION (see hostChipTone.ts) — MULTIPLE-host chrome (extra
-  // chips, "+ add", the overflow/dropdown machinery) only once open.
-  const gateOpen = () => hostGateOpen(gate.value());
+/** The host-bar search affordance — a magnifier that opens the `Switch host`
+ *  palette group (the same `⌘⇧H` fuzzy picker), mirroring the Dock's workspace
+ *  search button. Only rendered when the pool holds more than the local host. */
+const HostSearchButton: Component = () => {
+  const commandPalette = useCommandPalette();
+  return (
+    <button
+      type="button"
+      data-testid="host-search"
+      onClick={() => commandPalette.openGroup("Switch host")}
+      class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+      aria-label="Switch host"
+      title="Switch host (⌘⇧H)"
+    >
+      <SearchIcon class="h-4 w-4" />
+    </button>
+  );
+};
 
-  // The pool, filtered through the SAME per-chip predicate the gate has
-  // always used — closed ⇒ only the active host qualifies (so a transient
-  // gate-closed-with-a-stray-guest membership frame can never render one),
-  // open ⇒ every pool member does.
-  const renderableHosts = (): HostKey[] =>
-    [...members.keys()].filter((h) =>
-      shouldRenderHostChip(gateOpen(), sameHost(activeHost(), h)),
-    );
+const HostSelectorStrip: Component = () => {
+  const members = padiMap.entries.use({ onError: onHostMembershipError });
+
+  // Multi-host chrome is NO LONGER gated on `KOLU_PADI_HOST`: every pool member
+  // gets a chip and the "+ add a host" affordance is always present (the alpha
+  // warning rides the "+" popover — see AddHostAffordance). With no seed the
+  // pool is just the local host, so this renders exactly the local chip + "+".
+  const renderableHosts = (): HostKey[] => [...members.keys()];
 
   // ── Overflow fit (narrow-window stage 3) ──────────────────────────────
   // Real DOM measurement: a HIDDEN row (absolutely positioned, `invisible`,
@@ -597,9 +727,9 @@ const HostSelectorStrip: Component = () => {
       return { key, width: chipWidths[key] ?? FIRST_FRAME_CHIP_WIDTH_GUESS };
     }),
   );
-  const chipsBudget = createMemo(
-    () => containerWidth() - (gateOpen() ? ADD_BUTTON_RESERVE : 0),
-  );
+  // The "+ add a host" affordance is always present now, so its width is always
+  // reserved from the chips' fit budget.
+  const chipsBudget = createMemo(() => containerWidth() - ADD_BUTTON_RESERVE);
   // `hostFit()` returns fresh `{visible, overflowed}` arrays of CANONICAL string
   // keys on every recompute (it re-runs whenever `activeHost()` changes, even
   // when the outcome is identical). Rendering directly off those STRINGS
@@ -620,32 +750,6 @@ const HostSelectorStrip: Component = () => {
     ),
   );
 
-  const submitAdd = (): void => {
-    const raw = draft().trim();
-    if (raw === "") return;
-    // `parseHostInput` is TOTAL (a nominal sum has no reserved-name reject left to fail —
-    // typing "local" just parses to the Local variant, which is always ALREADY a pool
-    // member). So there is no client-side pre-validation to fail loud on: `hosts.add`'s own
-    // "host already exists" rejection is the honest, single error surface — for a literal
-    // "local" retype exactly as it would be for re-adding any other existing member.
-    const host = parseHostInput(raw);
-    client.hosts
-      .add({ host })
-      .then(() => {
-        setDraft("");
-        setAdding(false);
-        // Jump the canvas to the host you just added so you see it come up first,
-        // rather than leaving the previously-active host in view. Deferred to the
-        // frame the host JOINS membership — a bare `setActiveHost(host)` here races
-        // the membership reconcile (the host isn't in the pool snapshot the instant
-        // `hosts.add` resolves) and gets bounced straight back to the local host.
-        requestActivateOnJoin(host);
-      })
-      .catch((err: Error) =>
-        toast.error(`Couldn't add ${raw}: ${err.message}`),
-      );
-  };
-
   return (
     <div
       ref={containerRef}
@@ -661,123 +765,74 @@ const HostSelectorStrip: Component = () => {
       // once narrowed. `flex-1` makes this box == the header's true leftover
       // space, independent of content, so the overflow computation has a
       // real budget to fit chips against.
-      class="pointer-events-auto relative flex h-8 flex-1 items-end gap-1.5 min-w-0 border-b border-edge/80"
+      class="host-strip pointer-events-auto relative flex h-8 flex-1 items-end gap-1.5 min-w-0"
       data-testid="host-selector-strip"
     >
+      {/* `md` and up vs `sm..md`: mount ONLY one layout (media signal, not
+       *  CSS-only hide). Both used to stay mounted with `hidden md:flex` /
+       *  `md:hidden`, which double-filled dual-daemon slots on the active
+       *  host. Split is keyed on `md` (768px), not `sm` — ChromeBar never
+       *  mounts below `sm` (phone chrome). */}
       <Show
-        when={gateOpen()}
-        fallback={
-          <div
-            role="tablist"
-            aria-label="Hosts"
-            class="flex items-end gap-1 min-w-0 flex-nowrap"
-          >
-            <For each={renderableHosts()}>
-              {(host) => <HostChip host={host} />}
-            </For>
-          </div>
-        }
+        when={atMd()}
+        fallback={<HostDropdownSwitcher hosts={renderableHosts()} />}
       >
-        {/* `md` and up vs `sm..md`: mount ONLY one layout (media signal, not
-         *  CSS-only hide). Both used to stay mounted with `hidden md:flex` /
-         *  `md:hidden`, which double-filled dual-daemon slots on the active
-         *  host. Split is keyed on `md` (768px), not `sm` — ChromeBar never
-         *  mounts below `sm` (phone chrome). */}
-        <Show
-          when={atMd()}
-          fallback={<HostDropdownSwitcher hosts={renderableHosts()} />}
+        <div
+          role="tablist"
+          aria-label="Hosts"
+          class="flex items-end gap-1.5 min-w-0 flex-nowrap"
+          data-testid="host-chip-row"
         >
-          <div
-            role="tablist"
-            aria-label="Hosts"
-            class="flex items-end gap-1 min-w-0 flex-nowrap"
-            data-testid="host-chip-row"
-          >
-            <For each={hostFit().visible}>
-              {(key) => <HostChip host={decodeHostKey(key)} />}
-            </For>
-            <Show when={hostFit().overflowed.length > 0}>
-              <HostOverflowMenu hosts={hostFit().overflowed} />
-            </Show>
-          </div>
-        </Show>
+          <For each={hostFit().visible}>
+            {(key) => <HostChip host={decodeHostKey(key)} />}
+          </For>
+          <Show when={hostFit().overflowed.length > 0}>
+            <HostOverflowMenu hosts={hostFit().overflowed} />
+          </Show>
+        </div>
       </Show>
 
       {/* Hidden measuring row — off-screen (position absolute, so it never
        *  affects this container's own layout), invisible + inert, mounts
        *  every renderable host's chip a second time purely so its natural
        *  width can be read via the `ResizeObserver` above. NOTE for a future
-       *  e2e author: this means `[data-testid="host-chip"]` can match TWICE
-       *  per host while the gate is open — the real (visible) one and this
-       *  hidden twin. `aria-hidden` + `pointer-events-none` keep it out of
+       *  e2e author: this row is always mounted, so `[data-testid="host-chip"]`
+       *  matches TWICE per host — the real (visible) one and this hidden twin. `aria-hidden` + `pointer-events-none` keep it out of
        *  the accessibility tree and unclickable, and Playwright's
        *  visibility-aware actions (`.click()`) skip it, but a bare
        *  `.count()`/`.all()` would not — scope any such query under
        *  `[data-testid="host-chip-row"]` (or the dropdown switcher) to reach
        *  only the real one. */}
-      <Show when={gateOpen()}>
-        <div
-          aria-hidden="true"
-          class="invisible pointer-events-none absolute left-0 top-0 flex items-center gap-1.5"
-        >
-          <For each={renderableHosts()}>
-            {(host) => {
-              const key = encodeHostKey(host);
-              onCleanup(() => setMeasureRefs(key, undefined));
-              return (
-                <div
-                  ref={(el) => setMeasureRefs(key, el)}
-                  data-host-key={key}
-                  class="shrink-0"
-                >
-                  <HostChip host={host} measure />
-                </div>
-              );
-            }}
-          </For>
-        </div>
+      <div
+        aria-hidden="true"
+        class="invisible pointer-events-none absolute left-0 top-0 flex items-center gap-1.5"
+      >
+        <For each={renderableHosts()}>
+          {(host) => {
+            const key = encodeHostKey(host);
+            onCleanup(() => setMeasureRefs(key, undefined));
+            return (
+              <div
+                ref={(el) => setMeasureRefs(key, el)}
+                data-host-key={key}
+                class="shrink-0"
+              >
+                <HostChip host={host} measure />
+              </div>
+            );
+          }}
+        </For>
+      </div>
+
+      {/* Search/switch host — mirrors the Dock's search button, opens the
+       *  `⌘⇧H` picker. Only meaningful with more than one host in the pool. */}
+      <Show when={renderableHosts().length > 1}>
+        <HostSearchButton />
       </Show>
 
-      {/* Add a host at runtime — an inline input toggled from a "+" affordance.
-       *  Multiple-host chrome, so it shares the extra chips' gate. */}
-      <Show when={gateOpen()}>
-        <Show
-          when={adding()}
-          fallback={
-            <button
-              type="button"
-              class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-              data-testid="host-add-open"
-              aria-label="Add a host"
-              title="Add a host (ssh target)"
-              onClick={() => setAdding(true)}
-            >
-              +
-            </button>
-          }
-        >
-          <input
-            ref={addInputRef}
-            type="text"
-            class="pointer-events-auto shrink-0 h-7 w-40 px-2 rounded-lg border border-accent/60 bg-surface-2 text-xs text-fg placeholder:text-fg-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            data-testid="host-add-input"
-            placeholder="ssh host, e.g. srid@zest"
-            value={draft()}
-            onInput={(e) => setDraft(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submitAdd();
-              if (e.key === "Escape") {
-                setDraft("");
-                setAdding(false);
-              }
-            }}
-            onBlur={() => {
-              // Close on blur without adding — Enter is the only commit path.
-              if (draft().trim() === "") setAdding(false);
-            }}
-          />
-        </Show>
-      </Show>
+      {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate);
+       *  the alpha warning rides its popover. */}
+      <AddHostAffordance />
     </div>
   );
 };
