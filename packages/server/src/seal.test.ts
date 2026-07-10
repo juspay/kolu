@@ -460,18 +460,18 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     ).toEqual([]);
   });
 
-  it("(b) reaches @kolu/padi only through /assembly, /surface, /log — no deep src import", () => {
+  it("(b) reaches @kolu/padi only through /assembly, /dial, /surface, /log — no deep src import", () => {
     const padiSpecs = [...externalsFromEntry()]
       .filter((s) => s.startsWith("@kolu/padi"))
       .sort();
-    // Every @kolu/padi edge is one of the three published entry points; a
+    // Every @kolu/padi edge is one of the ALLOWED_PADI published entry points; a
     // `@kolu/padi/src/...` deep import (or any other subpath) fails here.
     const illegal = padiSpecs.filter((s) => !ALLOWED_PADI.includes(s));
     expect(
       illegal,
       `illegal @kolu/padi import(s) from packages/server: ${illegal.join(
         ", ",
-      )}. kolu-server must reach the terminal domain only via @kolu/padi/{assembly,surface,log}.`,
+      )}. kolu-server must reach the terminal domain only via @kolu/padi/{assembly,dial,surface,log}.`,
     ).toEqual([]);
     // And it genuinely reaches the barrel (not a vacuous pass).
     expect(padiSpecs.length).toBeGreaterThan(0);
