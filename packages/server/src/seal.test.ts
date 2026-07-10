@@ -19,6 +19,13 @@
  * spec/ctx in any form, and (e) padi's whole dependency cone excludes the app
  * (`kolu-common`/`kolu-server`/`kolu-client`). The terminal vocabulary lives in
  * `@kolu/padi` now, so padi imports nothing from the app; the app consumes padi.
+ *
+ * The forward `@kolu/padi` boundary (b) walks only PRODUCTION reachable from
+ * `index.ts`; arm (f) closes the remaining flank (W4 ledger L13) by walking the
+ * SERVER's TEST files too — a test may reach any of padi's PUBLISHED subpaths
+ * (derived from `package.json`'s `exports`, so it can't drift), but never a deep
+ * `@kolu/padi/src/...` that bypasses the barrel. `ALLOWED_PADI` (the tighter
+ * production door) is a documented SUBSET of that published set.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -145,6 +152,17 @@ function serverSrcModules(): string[] {
     )
     .map((f) => f.replace(/\.ts$/, ""))
     .sort();
+}
+
+/** Every `.ts` test file under `packages/server/src` (recursive — the padi arm's
+ *  tests live in `padi/` now). Arm (f) walks these so a TEST file's `@kolu/padi`
+ *  imports are checked too, closing the flank the production-only forward walk
+ *  (arm b) leaves open. */
+function serverTestFiles(): string[] {
+  return readdirSync(SRC, { recursive: true })
+    .map((f) => String(f).split(sep).join("/"))
+    .filter((f) => f.endsWith(".test.ts") || f.endsWith(".test-d.ts"))
+    .map((f) => resolve(SRC, f));
 }
 
 // ── (d/e) The REVERSE seals — the arrow points OUT of @kolu/padi ───────────
@@ -339,18 +357,39 @@ function koluSurfaceBindings(file: string): string[] {
 
 // ── (b) The @kolu/padi import-boundary walk ───────────────────────────────
 
-/** The ONLY `@kolu/padi` specifiers kolu-server may import — its published entry
- *  points. A deep `@kolu/padi/src/...` import (bypassing the barrel) or any other
- *  subpath fails the boundary. `/dial` joined the list in W2.3: `connectPadi` (the
- *  state-root→socket resolve + control-core handshake) was carved out of the
- *  binder into `@kolu/padi/dial` so `padi-tui` and the binder share ONE dial kit
- *  (the kaval precedent — a daemon's package owns its client-side dial kit). */
+/** The `@kolu/padi` specifiers kolu-server's PRODUCTION code (everything reachable
+ *  from `index.ts`) may import — the TIGHT boundary. A DELIBERATE subset of padi's
+ *  published `exports` (arm f asserts the subset relation): production reaches the
+ *  terminal domain through the narrowest surface that works, so e.g.
+ *  `supervisorClaim` routes through `/assembly` rather than importing
+ *  `@kolu/padi/stateRoot` directly (its own header records that choice). Each entry
+ *  earns its place:
+ *   - `/surface` — the terminal VOCABULARY (schemas · records · pure helpers);
+ *   - `/assembly` — the padi binder's assembly surface (socket paths, preview, the
+ *     kaval/padi probe types) — the one production door for state-root-adjacent needs;
+ *   - `/dial` — the shared dial kit (`connectPadi`), so `padi-tui` and the binder
+ *     share ONE state-root→socket resolve + control-core handshake (the kaval precedent);
+ *   - `/log` — padi's pino logger, so a server log line joins padi's stream.
+ *  A deep `@kolu/padi/src/...` import (bypassing the barrel) or any UNLISTED subpath
+ *  fails arm (b). TESTS get a wider door — the full published set — via arm (f). */
 const ALLOWED_PADI = [
   "@kolu/padi/assembly",
   "@kolu/padi/dial",
   "@kolu/padi/surface",
   "@kolu/padi/log",
 ];
+
+/** padi's PUBLISHED subpaths, derived from its `package.json` `exports` (so this
+ *  can't drift from the real contract) as `@kolu/padi/<name>` specifiers. This is
+ *  the deliberate published surface — the set a TEST file may reach (arm f), and
+ *  the superset `ALLOWED_PADI` (the production door) is a documented subset of. */
+function padiPublishedSubpaths(): Set<string> {
+  const exportsMap = JSON.parse(readFileSync(PADI_PKG, "utf8"))
+    .exports as Record<string, unknown>;
+  return new Set(
+    Object.keys(exportsMap).map((k) => k.replace(/^\.\//, "@kolu/padi/")),
+  );
+}
 
 function importsOf(file: string): string[] {
   const specs = new Set<string>();
@@ -436,6 +475,54 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     ).toEqual([]);
     // And it genuinely reaches the barrel (not a vacuous pass).
     expect(padiSpecs.length).toBeGreaterThan(0);
+  });
+
+  it("(f) test files reach @kolu/padi only through PUBLISHED subpaths — no deep src bypass", () => {
+    // The forward arm (b) walks only production reachable from `index.ts`, so a
+    // TEST file's `@kolu/padi` imports were never checked — the one flank the seal
+    // left open (W4 ledger L13). A test legitimately needs MORE of padi than
+    // production does (it drives internals: `padi/padiBinding.test` reaches
+    // `@kolu/padi/stateRoot`, `exportTranscriptHtml.test` reaches
+    // `@kolu/padi/transcript` — both PUBLISHED entry points other packages
+    // (`tests`, `client`) consume too, so narrowing them out of padi's exports
+    // would break real consumers). But a test must still go through the PUBLISHED
+    // contract, never a deep `@kolu/padi/src/...` that bypasses the barrel.
+    const published = padiPublishedSubpaths();
+
+    // ALLOWED_PADI (the production door) is a documented SUBSET of the published
+    // exports — so the two "agree on purpose", and a typo or a removed export in
+    // ALLOWED_PADI is caught here rather than passing vacuously.
+    const notPublished = ALLOWED_PADI.filter((s) => !published.has(s));
+    expect(
+      notPublished,
+      `ALLOWED_PADI names a @kolu/padi subpath that padi/package.json no longer ` +
+        `publishes: ${notPublished.join(", ")}. The production door must be a ` +
+        `subset of the deliberate export set.`,
+    ).toEqual([]);
+
+    // Every @kolu/padi import in a server TEST file is a published subpath.
+    const offenders: string[] = [];
+    let sawPadiImport = false;
+    for (const file of serverTestFiles()) {
+      for (const spec of importsOf(file)) {
+        if (!spec.startsWith("@kolu/padi")) continue;
+        sawPadiImport = true;
+        if (!published.has(spec)) {
+          offenders.push(
+            `${file.replace(SRC, "packages/server/src")}: ${spec}`,
+          );
+        }
+      }
+    }
+    expect(
+      offenders,
+      `a server test imports a @kolu/padi specifier that is not a published ` +
+        `subpath (a deep @kolu/padi/src/... bypass, or an unpublished entry): ` +
+        `${offenders.join(", ")}. Tests reach padi through its published exports, ` +
+        `same as any consumer — never a deep src path.`,
+    ).toEqual([]);
+    // Non-vacuous: the walk actually found a padi import to check.
+    expect(sawPadiImport).toBe(true);
   });
 
   it("(c) the root terminal.* / git.* namespaces are gone — only server + daemon beside surface", () => {
