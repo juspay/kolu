@@ -251,7 +251,7 @@ export const FsReadFileOutputSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("binary"),
     /** Server-constructed URL for the iframe `src`. Includes a
-     *  `?v=<content-hash>` query so the stream re-yield on a real content change
+     *  `?v=<tag>` query so the stream re-yield on a real content change
      *  produces a new URL and the iframe reloads via the same subscription path
      *  — while an identical-content rewrite leaves the URL (and the preview)
      *  stable. */

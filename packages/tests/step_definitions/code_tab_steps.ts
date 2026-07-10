@@ -689,7 +689,7 @@ Then(
 // runs at an opaque origin (`allow-scripts`, no `allow-same-origin`), but
 // Playwright resolves it through the browser frame tree, so `frameLocator`
 // reaches its `<body>` regardless of origin. Polling (not a single read)
-// because a save re-points the iframe `src` at a fresh `?v=<content-hash>` URL:
+// because a save re-points the iframe `src` at a fresh `?v=<tag>` URL:
 // the old frame detaches and the new one navigates, so `textContent` throws
 // transiently mid-swap — a short per-read timeout + `.catch(() => null)`
 // lets the poll ride through the navigation until the new content lands.
@@ -701,7 +701,7 @@ Then(
       .locator("body");
     // Hydration budget: the preview content arrives over a server
     // subscription (selection → fsReadFile, or an *edit* re-firing the live
-    // watch which re-points the iframe `src` at a fresh `?v=<content-hash>`). That
+    // watch which re-points the iframe `src` at a fresh `?v=<tag>`). That
     // fs.watch → SSE → reload round-trip is the slow axis under darwin CI
     // load — the edit-then-refresh regression guard (code-tab.feature:1364)
     // froze on the pre-edit body for >20 s under the post-build storm.

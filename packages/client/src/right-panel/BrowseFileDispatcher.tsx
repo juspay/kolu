@@ -125,7 +125,7 @@ export type BrowseFileDispatcherProps = {
  *  union `koluSurface.fsReadFile` returned — so the dispatcher decides binary vs
  *  text itself, exactly as the old server backing did. A binary-previewable file
  *  reads a CONTENT hash (`fs.statFileContentTag`) and builds the
- *  `/api/terminals/:host/:id/file` URL with a `?v=<content-hash>` cache-key (the
+ *  `/api/terminals/:host/:id/file` URL with a `?v=<tag>` cache-key (the
  *  same route + shape the server built, still served until W1.R5) so a real
  *  content change bumps the URL and the img/iframe reloads — while an
  *  identical-content rewrite (mtime bumped, bytes unchanged) leaves the URL
@@ -484,7 +484,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   ];
 
   // Project each wire variant to a `FileData`. Identity changes when the
-  // content/url changes (e.g. the `?v=<content-hash>` cache-key moves when the
+  // content/url changes (e.g. the `?v=<tag>` cache-key moves when the
   // bytes change), so FileView re-renders through the same subscription path as
   // before.
   const textFile = createMemo<FileWithSource | null>(() => {

@@ -12,7 +12,7 @@
  *      `Response` this returns — it composes for free precisely because `fetch`
  *      returns a real Fetch `Response` and omits `Content-Length` on full 200s
  *      (see the 200 branch);
- *    - any URL contract (e.g. kolu's `?v=<content-hash>` cache key) lives in the
+ *    - any URL contract (e.g. kolu's `?v=<tag>` cache key) lives in the
  *      consumer.
  *
  *  Why this isn't an off-the-shelf static server: the shape needed here is a
