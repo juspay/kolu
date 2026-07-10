@@ -1,9 +1,11 @@
 Feature: Right panel (Code + Inspector)
   Collapsible right panel with a Code browser and a metadata Inspector
-  tab, toggled via keyboard shortcut or header icon. The shipped product
-  default is open-on-Code for new users (DEFAULT_PREFERENCES.rightPanel
-  .collapsed = false); the e2e fixture instead pins it collapsed per
-  scenario (hooks.ts) for deterministic toggle assertions, so these
+  tab, toggled via keyboard shortcut or header icon. The panel's collapsed
+  posture is PER-TERMINAL now — it follows the terminal (#959) — seeded on a
+  new terminal from the new-terminal default (DEFAULT_PREFERENCES
+  .newTerminalCollapsed = false, i.e. open-on-Code for new users); the e2e
+  fixture instead pins that seed collapsed (hooks.ts) so every terminal a
+  scenario spawns starts closed, for deterministic toggle assertions, so these
   scenarios drive visibility explicitly rather than relying on the
   open-by-default state.
 

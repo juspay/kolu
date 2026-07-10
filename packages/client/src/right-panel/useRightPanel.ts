@@ -208,7 +208,7 @@ export function useRightPanel() {
   /** Whether there's anything for the panel to show — at least one terminal
    *  exists. An empty workspace renders the `EmptyState` in place of the
    *  panel host (App.tsx's `showEmpty`), so the desktop chrome must treat the
-   *  panel as absent regardless of the persisted `collapsed` preference —
+   *  panel as absent regardless of the active terminal's `collapsed` state —
    *  otherwise the ChromeBar reserves panel-width it never fills (a "ghost"
    *  gap) and the toggle reads as open with nothing behind it. */
   const hasTerminals = () => tileStore.tileCount() > 0;

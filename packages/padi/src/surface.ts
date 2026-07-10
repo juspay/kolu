@@ -122,12 +122,18 @@ export * from "./vocab.ts";
  *  diagnostic, which rides the re-served surface so it works identically local and
  *  remote); 1.3 ADDS the `identity` cell (padi's own build commit / surfaceVersion /
  *  boot time, the per-host twin of the control-core `hello` — see
- *  {@link PadiIdentitySchema}). Additive growth (a new optional field / stream /
- *  procedure / cell) is a minor bump; a shape-breaking change a major. A remote dial
- *  gates an incompatible padi via `isContractVersionCompatible`. Distinct from
- *  {@link CONTROL_CORE_VERSION}, which is frozen forever so a contract-revving
- *  deploy can still reach the daemon's control core. */
-export const PADI_SURFACE_VERSION = "1.3";
+ *  {@link PadiIdentitySchema}); 1.4 ADDS the `collapsed` field to the per-terminal
+ *  right-panel record (`RightPanelPerTerminalStateSchema`, which rides both the
+ *  `terminals` metadata collection and the `chrome.setRightPanel` input) — the
+ *  panel's collapsed posture moved off the global preference to follow the terminal
+ *  (#959), so a new client must refuse an OLDER padi that can't persist it (the gate
+ *  below fires), while an older client still talks to this padi fine. Additive growth
+ *  (a new optional field / stream / procedure / cell) is a minor bump; a shape-
+ *  breaking change a major. A remote dial gates an incompatible padi via
+ *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION}, which
+ *  is frozen forever so a contract-revving deploy can still reach the daemon's
+ *  control core. */
+export const PADI_SURFACE_VERSION = "1.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });

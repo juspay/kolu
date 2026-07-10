@@ -24,21 +24,27 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 1.3, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 1.4, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1 ADDED `lifecycle.recycleKaval` (the "Restart kaval" button); 1.2 ADDS the
     // `hostInventory` cell (the "Running daemons" leak diagnostic); 1.3 ADDS the
-    // `identity` cell (padi's own build commit/surfaceVersion/boot time, per host)
-    // — all additive minors over 1.0.
-    expect(PADI_SURFACE_VERSION).toBe("1.3");
+    // `identity` cell (padi's own build commit/surfaceVersion/boot time, per host);
+    // 1.4 ADDS the per-terminal right-panel `collapsed` field (the panel follows the
+    // terminal, #959) — all additive minors over 1.0.
+    expect(PADI_SURFACE_VERSION).toBe("1.4");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
     );
     // A newer additive minor (a future 1.x) still serves a 1.0 consumer; a
     // major bump is mutually incompatible in both directions.
-    expect(isContractVersionCompatible("1.3", "1.0")).toBe(true);
+    expect(isContractVersionCompatible("1.4", "1.0")).toBe(true);
     expect(isContractVersionCompatible("2.0", "1.0")).toBe(false);
     expect(isContractVersionCompatible("1.0", "2.0")).toBe(false);
+    // The 1.4-dependent gate: a new client (needs 1.4) REFUSES an older 1.3 padi
+    // that can't persist `collapsed`, but an older 1.3 client still accepts a 1.4
+    // padi (the additive-minor direction).
+    expect(isContractVersionCompatible("1.3", "1.4")).toBe(false);
+    expect(isContractVersionCompatible("1.4", "1.3")).toBe(true);
   });
 
   it("pins the EXACT member list — every member from the surface section", () => {
