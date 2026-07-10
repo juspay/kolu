@@ -1,10 +1,10 @@
 ---
 title: padi — the consolidation ledger
-description: The living scope of padi's cleanup track (unnumbered — runs in parallel with the phases) — every refactor, decomplecting move, electricity upstreaming, and deletion that W2/W3's deliberate pace deferred. Executed as a FEW substantial refactor campaigns (complete the primitives · the padi/server re-cut · the client wire/state sweep), each a deep, coherent refactor of one area that absorbs its L-entries as side effects; hygiene entries ride whichever campaign touches their files; gated entries keep their gates. Each L-entry stays a self-sufficient brief framed through the hickey (complecting) and lowy (volatility/boundary) lenses; an entry that never ripens is deleted with a reason.
+description: The living scope of padi's cleanup track (unnumbered — runs in parallel with the phases) — every refactor, decomplecting move, electricity upstreaming, and deletion that W2/W3's deliberate pace deferred. Executed as a FEW substantial refactor campaigns, each a deep, coherent refactor of one area that absorbs its L-entries as side effects; hygiene entries ride whichever campaign touches their files; gated entries keep their gates. Campaigns 2 (the padi/server re-cut) and 3 (the client wire/state sweep) shipped together as #1747; campaign 1 (complete the primitives — the W5 phase-1 surface refactor) remains. Each L-entry stays a self-sufficient brief framed through the hickey (complecting) and lowy (volatility/boundary) lenses; an entry that never ripens is deleted with a reason.
 parents: [padi]
 status: proposed
 maturity: seedling
-updated: 2026-07-09
+updated: 2026-07-10
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -21,26 +21,24 @@ The track ships as a **few substantial refactor campaigns** (srid, 2026-07-09: f
 **The campaigns** *(every live entry lands in exactly one place: absorbed by a campaign, riding one as hygiene, already shipped, or parked with its gate)*:
 
 1. **Complete the primitives** — *the W5 phase-1 surface refactor (one kolu PR + paired drishti + odu PRs; the campaign IS the drishti coordination)*. The deep move: the cell completed to a Dynamic (`updated()`), mirrors-never-fabricate, and the [derivation algebra](surface-derivation-algebra.html) — whose subsumes list already deletes the hand-rolled folds, pipes, and pollers across kolu and drishti. Absorbed as side effects: **L28 rung 2** (`clockNow` as a framework-reserved member — the same surface/surface-remote seam the campaign rebuilds), **L1** (the poll-on-change client core into `@kolu/surface` — the client dual of the poll shapes the algebra ships), **L20·21** (the re-serve internals dedup — the campaign reworks those internals anyway: the connect seam, the coalescer, the wrapped publishers).
-2. **The padi/server re-cut** — *one kolu PR, no drishti gate*. The deep move: reshape `packages/server/src` around its real volatility — **L27**'s `padi/` (or `hosting/`) subdirectory cut lands as the campaign's *opening pure-motion commit* (rename-detection reviewable on its own) — then the substantive home: **L17** (the chrome vocabulary out of `vocab.ts` + the video-ext table homed in `@kolu/padi`). **L13** rides (the seal's test-file flank — the seal is this campaign's own net, so its flank closes here). *(L24 — `padi-tui --host` — is deliberately NOT here: it is a feature, and features never ride a refactor campaign; it ships as its own PR, below.)*
-3. **The client wire/state sweep** — *one kolu PR, no drishti gate*. The deep move: delete the switch era's interim wire scaffolding wholesale — **L11** (inventory seeded by the W4 diff: `wire.ts`, the `createSharedRoot` family, every "temporarily still global" marker) — and name the client's last hand-rolled state machine, **L18** (`HydrationPhase` for session restore; its files are client-side, which is why it lands here).
+2. **The padi/server re-cut** — *SHIPPED <PrLink pr={1747} /> (with campaign 3, one PR, merged 2026-07-09)*: L27's pure-motion opening commit · L17 · L13 rode — compacted into the shipped record below.
+3. **The client wire/state sweep** — *SHIPPED <PrLink pr={1747} /> (with campaign 2)*: L11 · L18 — compacted into the shipped record below.
 
-**The hygiene rule (explicit):** hygiene entries never ship standalone. **L8** (the deleted-world doc sweep, 33 files) rides *every* campaign — each campaign sweeps the stale pulam/pre-padi references in the files it touches, and whatever residue no campaign reaches lands as one tail commit on the last campaign to ship. **L13** rides campaign 2 (named above). A hygiene-only PR is exactly the tiny-PR shape this plan exists to kill.
+**The hygiene rule (explicit):** hygiene entries never ship standalone. **L8** (the deleted-world doc sweep) rides *every* campaign — each campaign sweeps the stale pulam/pre-padi references in the files it touches; <PrLink pr={1747} /> swept campaign 2/3's files (33 → 31 src files remain, re-verified 2026-07-10), and the residue lands as one tail commit on **campaign 1**, the last to ship. A hygiene-only PR is exactly the tiny-PR shape this plan exists to kill.
 
 **Parked / gated** *(gates unchanged; none of these is campaign-shaped)*: **L2** (upstream padi-tui's wait helper — gated on kolu-tui existing) · **L4** (delete the legacy-kaval migration arm — at a version srid names) · **L9** (sensors out of padi's restart hash — on recorded deploy-pain evidence) · **L22** (framework-wide backpressure — on a measured slow-consumer incident) · **L12** (the fine-grained CI token — srid mints, agent wires) · **L10** (flaky-test debt — a standing tracker-driven pass, dispatched off [the flaky tracker](flaky-test-tracker.html), not a refactor of an area).
 
-**Bird's-eye** — the three campaigns with the entries each absorbs, the gated lane, and the shipped record (click a node to jump to its section).
+**Bird's-eye** — the remaining campaign, the L24 feature PR, the gated lane, and the shipped record (click a node to jump to its section).
 
-<Svg svg={birdseye} wide caption="The ledger at a glance. Top: the three campaigns — complete the primitives (paired drishti + odu; the deep move is the derivation algebra), the padi/server re-cut (opens with L27's pure-motion commit), the client wire/state sweep. L8 rides all three (hygiene never ships standalone). Middle: L24 ships as its own feature PR (a feature never rides a refactor campaign); then the parked/gated lane, each with its gate named. Bottom: shipped." />
+<Svg svg={birdseye} wide caption="The ledger at a glance. Top: the one remaining campaign — complete the primitives (paired drishti + odu; the deep move is the derivation algebra), with L8's hygiene residue riding it. Middle: L24 ships as its own feature PR (a feature never rides a refactor campaign); then the parked/gated lane, each with its gate named. Bottom: shipped — including campaigns 2 and 3, merged together as #1747." />
 
 **Status index** — updated as entries ripen or ship:
 
-- **Campaign 1 (complete the primitives):** L28 rung 2 · L1 · L20·21 — dispatches when the phase-1 surface refactor does
-- **Campaign 2 (the padi/server re-cut):** L27 (opening pure-motion commit) · L17 · L13 rides — ready now
-- **Its own feature PR (ready now):** L24 — `padi-tui --host`: new user-visible CLI behavior can't ride a byte-identical refactor campaign
-- **Campaign 3 (the client wire/state sweep):** L11 · L18 — ready now (W4 shipped <PrLink pr={1714} />)
-- **Rides every campaign:** L8 (residue = one tail commit on the last campaign)
+- **Campaign 1 (complete the primitives):** L28 rung 2 · L1 · L20·21 — dispatches when the phase-1 surface refactor does; L8's residue rides it as the tail commit
+- **Its own feature PR (in flight):** L24 — `padi-tui --host`: new user-visible CLI behavior can't ride a byte-identical refactor campaign (autonomous /be run dispatched 2026-07-09)
 - **Parked / gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence · L12 srid mints · L10 tracker-driven
-- **Shipped:** L26 — the `no-overloaded-null` guardrail + the sweep's verdict (#1744, 2026-07-09); L7 — terminal-workspace re-cut into @kolu/padi + the @kolu/terminal-vocab leaf (#1734, 2026-07-09); L28's rung-1 dedup — drishti's `hostMapRegistry` clone deleted inside W6's pair (srid/drishti#92, merged); L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5 — both halves (ProcessRss in W2.2 `3b3550642`; the video-ext half folded into L17)
+- <a id="l27"></a><a id="l17"></a><a id="l13"></a><a id="l11"></a><a id="l18"></a>**Shipped — campaigns 2 + 3, one PR (#1747, merged 2026-07-09):** L27 — `packages/server/src` re-cut, the padi hosting arm into `padi/` (the opening pure-motion commit) · L17 — chrome vocabulary split out of `vocab.ts` into `chromeVocab.ts` + `UPLOAD_VIDEO_EXTENSIONS` homed in `@kolu/padi` with the drift-guard test deleted (which also completes **L5**'s second half) · L13 — the seal's test-file flank closed (test files walked; `ALLOWED_PADI` and padi's exports reconciled) · L11 — the W4-switch interim wire scaffolding swept (`wire.ts` + the `createSharedRoot` family finalized) · L18 — session restore's boolean latches replaced by one named `HydrationPhase` signal
+- **Shipped — earlier:** L26 — the `no-overloaded-null` guardrail + the sweep's verdict (#1744, 2026-07-09); L7 — terminal-workspace re-cut into @kolu/padi + the @kolu/terminal-vocab leaf (#1734, 2026-07-09); L28's rung-1 dedup — drishti's `hostMapRegistry` clone deleted inside W6's pair (srid/drishti#92, merged); L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5 — both halves (ProcessRss in W2.2 `3b3550642`; the video-ext half via L17 in #1747)
 
 ## The upstreamings — electricity graduating into the framework (lowy)
 
@@ -132,20 +130,6 @@ terminal-workspace was born as "one library, two homes" (kolu + pulam). After W2
 
 **Steps:** (1) map real post-burial imports (an Explore agent, not grep-by-hand); (2) propose the cut to the coordinator with the import evidence; (3) execute as pure motion (rename-detection reviewable), seal green.
 
-<a id="l27"></a>
-
-### L27 — re-cut `packages/server/src` into `padi/` + a thin shell (it's the flat holdout)
-
-*Status: **campaign 2's opening commit** (the padi/server re-cut leads with this pure motion, so the settled shape is cut once and everything after lands in the right homes) · Lens: lowy (a directory that hides a volatility axis) · Gate: none (READMEs don't cross the drishti gate; verify no import path a consumer hardcodes)*
-
-`server/src` is ~20 flat files while the rest of the repo nests by concern (`client/src` has `binding/`·`kaval/`·`right-panel/`·`terminal/`·`ui/`; `padi/src` has `ptyHost/`·`terminalEndpoint/`). The growth is **lopsided**: the padi hosting arm — `padiBinding` · `remotePadiBinding` · `padiConvergence` · `padiSession` · `padiLink` · `daemonInventory` · `hostPool` · `perHostKoluCells` — is the majority of files, changes *together* on every remote/switch phase (W3/W4, and the queued W5/W6 will add more), and changes *independently* of the HTTP shell. That co-variation IS the volatility a subdirectory should encapsulate; the flat list hides "server = the padi hosting layer + a thin http shell + a few leaves."
-
-**Target shape (verify against real structure first):** a **`padi/`** (or `hosting/`) subdir for the arm cluster + pool + convergence + per-host cells; the serving shell (`index` composition root · `router` · `surface` · `iframePreviewRoute` · `routeErrors`) stays at the top. **Hickey guard: cut by genuine concern, never a `misc/`/`util/` bucket** — if `hostname`·`tls`·`state`·`log`·`memorySampler` share no real concern, they stay top-level rather than getting a fake home.
-
-**Where:** `packages/server/src/*`. **Steps:** (1) confirm the cluster against real cross-imports (Explore, not grep); (2) propose the exact grouping to the coordinator; (3) pure motion (rename-detection reviewable), no logic change, seal + full CI green. It is campaign 2's **opening, motion-only commit** — never mixed into the same commit as a logic change (that would fight rename-detection review for zero functional gain).
-
-**Done when:** every terminal-workspace export has a consumer on the correct side of the node/browser line; no export with zero consumers survives; the seal's dependency-cone arm still green.
-
 <a id="l23"></a>
 
 ### L23 — route W3.1's remote arm through the convergence kit *(SHIPPED — #1700, merged 2026-07-05)*
@@ -214,18 +198,6 @@ The already-discriminated sums that would otherwise be these overloads — `Proc
 
 **Done when:** the rail's padi/kaval RSS reads come from the mirror (or one clearly-argued dedicated path, recorded here); one cadence constant; the event-driven flip-to-absent behavior (a W2.2 fix) preserved by its existing test.
 
-<a id="l17"></a>
-
-### L17 — split the chrome vocabulary out of `vocab.ts`
-
-*Status: absorbed by **campaign 2** (the padi/server re-cut) · Lens: lowy (two volatility axes in one 910-line module) · Gate: none*
-
-`packages/padi/src/vocab.ts` mixes PTY-lifecycle shapes (`ActiveTerminalSchema`, `DaemonStatusSchema`) with UI-chrome shapes (`CanvasLayoutSchema`, `SubPanelStateSchema`, `CodeTabViewSchema`) — a canvas feature and a PTY change both churn one file; `viewLabel`/`rightPanelView` are presentation *logic* living in vocabulary. Split a sibling `chromeVocab.ts` (chrome schemas + their presentation helpers), same export surface.
-
-Rides along the same "home a table/schema in its rightful padi package" motion: **the `UPLOAD_VIDEO_EXTENSIONS` table** (folded from L5) is duplicated in `packages/padi/src/upload.ts` and `packages/common/src/preview.ts`, held equal by a drift-guard test because the seal forbids padi→kolu-common. padi is the file-domain authority — home the classification table in `@kolu/padi` (browser-safe entry), `kolu-common/preview.ts` imports it (the sanctioned arrow), and delete the drift test because drift becomes unspellable.
-
-**Done when:** pure motion (rename-detection reviewable); no import cycles; padi contract tests untouched; the video-ext table has one home with importers on both sides and the drift-guard test removed *because the type system now enforces what it checked*.
-
 <a id="l9"></a>
 
 ### L9 — split the sensors out of padi's restart hash — only if it hurts
@@ -242,11 +214,9 @@ Braids and duplications the reviews flagged as acceptable-for-scope — acceptab
 
 <a id="l5"></a>
 
-### L5 — one home for duplicated wire tables — *half shipped*
+### L5 — one home for duplicated wire tables *(SHIPPED — both halves)*
 
-*Status: ProcessRss half SHIPPED (in W2.2 itself, commit `3b3550642` — the lens round homed the union on the terminal-workspace leaf and the drift-check is gone); the pattern's second instance is ready · Lens: hickey (deliberate duplication, drift-checked) · Gate: none*
-
-The audit sweep found the same pattern again — **`UPLOAD_VIDEO_EXTENSIONS`** duplicated across `packages/padi/src/upload.ts` and `packages/common/src/preview.ts`. That second instance is **folded into L17** (it's the same "home a padi table in its rightful package" motion). This entry is now the shipped record of the ProcessRss half.
+*Status: SHIPPED — ProcessRss half in W2.2 itself (commit `3b3550642`); the `UPLOAD_VIDEO_EXTENSIONS` half via L17 inside campaign 2 (<PrLink pr={1747} />, merged 2026-07-09 — one home in `@kolu/padi`, the drift-guard test deleted because the type system now enforces what it checked) · Lens: hickey (deliberate duplication, drift-checked) · Gate: none*
 
 <a id="l15"></a>
 
@@ -271,16 +241,6 @@ The same file carries a second scattered invariant — **"does this write change
 `packages/padi/src/daemonMain.ts` (~106–284) sequences gate → stores → import → identity → koluRoot → autosave → drain hooks → serve → kaval → sampler → manifest, with correctness resting on comments ("Claim the gate FIRST", "Runs BEFORE the stores are injected") — the exact ordering W2.2's B1 blocker was about, fixed then by *reordering prose*. Same shape recurs in `ptyHost/index.ts` (~161–283). Target: each step's precondition is a **type** (e.g. `openStateStores(gate: HeldGate)`), so a reorder is a compile error, not a silent violation.
 
 **Done when:** the boot reads as a typed pipeline; the dial test + daemonMain tests green. **Second instance resolved (2026-07-05): `ensureLocalEndpoint` (ptyHost/index.ts) recorded fine-as-is** — its order is enforced by DATA FLOW (`ep = createEndpoint(); converge({ endpoint: ep })` — you can't reference `ep` before it exists), not by prose "must run before" comments like daemonMain's side-effecting setters, so there is no silent-reorder hazard to type away.
-
-<a id="l18"></a>
-
-### L18 — a named `HydrationPhase` for session restore
-
-*Status: absorbed by **campaign 3** (the client wire/state sweep — its files are client-side) · Lens: hickey (a hand-rolled state machine in two booleans + an out-of-band re-arm) · Gate: none*
-
-`useSessionRestore.ts` (~51–99, ~187–197) runs `decided`/`viewSeeded` closure latches with `handleRestoreSession` resetting one from outside the owning effect — valid combinations never enumerated. Replace with one `HydrationPhase = "pending" | "decided-empty" | "decided-restore" | "seeded"` signal with named transitions (`markSeeded()`, `reseedForRestore()`). The W2.2 split-restore e2e pins behavior.
-
-**Done when:** no boolean pair; transitions named; restore + reload + in-session-recycle e2e green.
 
 <a id="l19"></a>
 
@@ -310,16 +270,6 @@ W2.2's h2 bounded the **re-serve's** per-subscriber channels (HWM 4096, loud ove
 
 **Done when:** a load test demonstrates bounded memory under an unpaced sender at every serve site — or the entry closes with the recorded per-consumer-bound decision.
 
-<a id="l11"></a>
-
-### L11 — sweep the interim client-wire shapes after the binding-scoped rebuild
-
-*Status: absorbed by **campaign 3** (the client wire/state sweep — this inventory is the campaign's spine; W4 shipped <PrLink pr={1714} />, so the gate is clear) · Lens: hickey (transition scaffolding) · Gate: none expected*
-
-W4 (the switch) rebuilds the client's module-level wire singletons (`wire.ts`, `useTerminalStore`, the `createSharedRoot` family) to be per-binding. Transitions of that shape leave scaffolding: compatibility shims, dual paths, "temporarily still global" markers. This entry is the post-landing sweep — inventory every switch-tagged interim in the client, delete each or convert it to the final shape.
-
-**Where:** `packages/client/src/wire.ts` and every `createSharedRoot` consumer (the switch PR's own diff is the inventory's seed). **Done when:** no transition-tagged code survives; the switch e2e stays green.
-
 ## The deletions and hygiene
 
 <a id="l4"></a>
@@ -336,7 +286,7 @@ The W2.2 adopter (a deploy adopts a running pre-W2.2 port-keyed kaval; converges
 
 ### L8 — doc-and-comment sweep for the deleted world
 
-*Status: rides **every campaign** (the hygiene rule — never a standalone PR; each campaign sweeps the files it touches, the residue lands as one tail commit on the last campaign; re-verified 2026-07-09: the `packages/pulam*` packages are fully DELETED from master, yet **33 non-test src files** still reference them in comments/prose) · Lens: hygiene · Gate: none*
+*Status: rides **campaign 1**, the last remaining (the hygiene rule — never a standalone PR; each campaign sweeps the files it touches, the residue lands as one tail commit on the last campaign; <PrLink pr={1747} /> swept campaign 2/3's files — re-verified 2026-07-10: **31 non-test src files** still reference the deleted `packages/pulam*` packages in comments/prose) · Lens: hygiene · Gate: none*
 
 Comments and READMEs across the stack still cite pulam/pulam-web as graduation examples or architectural context — references to packages that **no longer exist in the tree** (spread includes `client/src/wire.ts`, the dock model files, `padi/src/{surface,vocab,endpoint}.ts`, `surface-app`, the TUIs). Pre-padi topology phrasing may also linger (the 2026-07 spot-check of two files found none — treat it as a sweep target, not an asserted defect). Sweep: `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus the package READMEs; update each to the padi-era truth or delete. **Atlas notes are exempt** — they're historical record; this entry is *code-adjacent* prose only (so e.g. `pulam-web-mirror-health.mdx`, flagged during W6 for pre-reshape field names, is explicitly OUT of L8's scope).
 
@@ -351,16 +301,6 @@ Comments and READMEs across the stack still cite pulam/pulam-web as graduation e
 The rotating e2e flakes (file-drop, file-ref-link — the #1534 swallow-emit class, plus friends in the [flaky tracker](flaky-test-tracker.html)) cost every CI round retries and once masked a real regression signal during W2.2's endgame (three consecutive #5 failures had to be manually distinguished from the rotation). W2.2's screen-state reader fix (wrapped-row rejoin) helped one class. This entry is a root-cause pass over the tracker's top offenders — fix or quarantine-with-reason each, not re-tune retries.
 
 **Done when:** a full both-platform e2e run passes without retries twice consecutively, or every remaining tracked flake carries a root-cause note and a quarantine decision.
-
-<a id="l13"></a>
-
-### L13 — close the seal's test-file flank
-
-*Status: rides **campaign 2** (the padi/server re-cut — the seal is that campaign's own net, so its flank closes there) · Lens: hygiene (an asymmetry between the seal's own arms) · Gate: none*
-
-The seal's forward arm skips `*.test.ts` when walking import edges (`seal.test.ts` ~280) while the reverse arm explicitly includes tests — and a test already exploits the gap: `padiBinding.test.ts` imports `@kolu/padi/stateRoot`, a published subpath absent from `ALLOWED_PADI` (3 sanctioned vs 9 exported). Either widen `ALLOWED_PADI` to the deliberate export set and walk tests too, or narrow padi's export map to the sanctioned entries and let module resolution enforce. *(Context: the namespace-import/export-from evasion suspected from W1 is **verified closed** — arm (d) catches all forms via AST and arm (e) bans the underlying imports transitively; this entry is the one flank left.)*
-
-**Done when:** test files are inside the seal's walk; `ALLOWED_PADI` and padi's `exports` map agree on purpose, with each entry's reason one comment away.
 
 <a id="l12"></a>
 
