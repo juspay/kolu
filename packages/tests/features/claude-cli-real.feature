@@ -49,3 +49,13 @@ Feature: Claude Code CLI-feature / user-action states against a real ollama mode
     And I exit and resume the real Claude agent
     Then the tile chrome should show a Claude indicator within 60 seconds
     And there should be no page errors
+
+  Scenario: A real claude session ending clears the indicator
+    # USER ACTION (PORT of the mock "indicator disappears when session ends"):
+    # exit the real CLI and the agent detection clears — the tile no longer
+    # carries kind=claude-code.
+    When I launch the real Claude agent with prompt "Say the single word DONE and then stop."
+    And the tile chrome should show a Claude indicator within 60 seconds
+    When I exit the real Claude agent
+    Then the tile chrome should show no Claude indicator within 60 seconds
+    And there should be no page errors

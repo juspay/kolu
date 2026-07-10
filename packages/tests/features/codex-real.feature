@@ -34,6 +34,11 @@ Feature: Codex live-state detection against a real ollama model
     # Done: the turn completed (task_complete) — the sensor leaves "working".
     Then the tile chrome should show a Codex indicator with state "waiting" within 60 seconds
     And the dock should reflect the Codex agent as done within 60 seconds
+    # Context tokens (behavioral send-observe-delta, srid's ratified shape): the
+    # real turn consumed tokens, so kolu's context-token badge reads non-zero —
+    # increased from the fresh session's nothing. The exact per-turn /
+    # no-double-count-cache arithmetic stays a unit test (codex index.test.ts).
+    And the tile chrome should show a non-zero Codex context-token count within 60 seconds
     # Session files landed at the REAL default path — under the throwaway home.
     And a real Codex session file should exist at the default path
     And there should be no page errors

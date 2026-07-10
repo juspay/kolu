@@ -307,6 +307,35 @@ When(
 );
 
 When(
+  "I exit the real {word} agent",
+  async function (this: KoluWorld, _word: string) {
+    // Double Ctrl-C ends the CLI's session; the process leaves the foreground and
+    // its session watcher retires, so kolu's indicator clears.
+    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    await this.page.keyboard.press("Control+c");
+    await new Promise((r) => setTimeout(r, 300));
+    await this.page.keyboard.press("Control+c");
+  },
+);
+
+Then(
+  "the tile chrome should show no {word} indicator within {int} seconds",
+  async function (this: KoluWorld, word: string, seconds: number) {
+    const { kind } = agent(word);
+    await pollFor({
+      observe: () => readIndicator(this),
+      // Detection cleared: the indicator no longer carries this agent's kind.
+      isDone: (o) => o.kind !== kind,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected the ${word} indicator (kind=${kind}) to clear within ${ms}ms, still kind="${last?.kind ?? null}" state="${last?.state ?? null}"`,
+        ),
+      timeoutMs: seconds * 1000,
+    });
+  },
+);
+
+When(
   "I exit and resume the real {word} agent",
   async function (this: KoluWorld, word: string) {
     // Exit the CLI (double Ctrl-C) and relaunch it with --continue, which resumes
@@ -362,6 +391,36 @@ Then(
       onTimeout: (last, ms) =>
         new Error(
           `Expected ${word} indicator (kind=${kind}) to appear within ${ms}ms, got kind="${last?.kind ?? null}" state="${last?.state ?? null}"`,
+        ),
+      timeoutMs: seconds * 1000,
+    });
+  },
+);
+
+// Behavioral token assertion (srid's ratified send-observe-delta shape): after a
+// real turn, kolu's context-token badge shows a NON-ZERO count — the turn
+// consumed tokens and the sensor reported them. No magic number: a fresh session
+// starts with no usage, so "non-zero" IS "increased". The exact arithmetic
+// (input_tokens is per-turn not cumulative; cached tokens aren't double-counted)
+// stays a unit test — a real turn can't pin an exact figure deterministically.
+Then(
+  "the tile chrome should show a non-zero {word} context-token count within {int} seconds",
+  async function (this: KoluWorld, word: string, seconds: number) {
+    agent(word); // validate the agent word
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile"] [data-testid="agent-context-tokens"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-context-tokens"]',
+          );
+          return el?.textContent?.trim() ?? null;
+        }),
+      // A non-zero digit anywhere → tokens were counted (e.g. "1.2K", "512").
+      // "0" / "0K" / absent → no usage reported yet.
+      isDone: (t) => t != null && /[1-9]/.test(t),
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected a non-zero ${word} context-token count within ${ms}ms, got "${last}"`,
         ),
       timeoutMs: seconds * 1000,
     });
