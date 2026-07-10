@@ -406,16 +406,12 @@ export function composeSpawnInput(
     rcDir: info.rcDir,
   });
   Object.assign(env, plan.env);
-  // This terminal's own id, so a process INSIDE it can name itself without being
-  // told — the self-knowledge twin of KAVAL_SOCKET (which names the daemon):
-  // `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"` reads its
-  // own screen. Assigned directly (not via cleanEnv/koluIdentityEnv), so — exactly
-  // like KAVAL_SOCKET below — a stray inherited value (this terminal spawned inside
-  // an OUTER kaval terminal, whose id rode through cleanEnv since KAVAL_* isn't
-  // stripped wholesale) is overwritten here: each terminal re-owns its own id,
-  // never the parent's. Shell-agnostic on purpose (not in prepareShellInit's
-  // plan.env, which is empty for a shell we don't wrap): the id is a fact about
-  // the terminal, not the shell.
+  // (rationale in docblock item 4). Two facts not captured there: it's assigned
+  // directly, not via prepareShellInit's plan.env, so it reaches even a shell we
+  // don't wrap — the id is a fact about the terminal, not the shell; and the direct
+  // overwrite is load-bearing because KAVAL_* rides through cleanEnv unstripped
+  // (unlike KOLU_*), so an inherited outer id must be stomped here, same as
+  // KAVAL_SOCKET. Pairs as `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"`.
   env.KAVAL_TERMINAL_ID = args.id;
   env.KAVAL_SOCKET = kavalSocket;
   // The $KAVAL_SOCKET twin for padi: a `padi-tui` INSIDE this terminal reaches the
