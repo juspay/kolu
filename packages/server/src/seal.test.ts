@@ -4,8 +4,8 @@
  * By the end of W1.R the terminal domain has fully relocated into `@kolu/padi`:
  * kolu-server is the staying WEB SHELL (HTTP/ws transport, static serving, the
  * surface wiring, the memory sampler, TLS, branding) and reaches the terminal
- * domain ONLY through `@kolu/padi`'s three published entry points
- * (`/assembly`, `/surface`, `/log`). This test makes that boundary a
+ * domain ONLY through `@kolu/padi`'s published entry points that `ALLOWED_PADI`
+ * names (`/assembly`, `/dial`, `/surface`, `/log`). This test makes that boundary a
  * compile-and-CI fact rather than a convention — it fails the moment a
  * terminal-domain module reappears under `packages/server/src`, a deep
  * `@kolu/padi/src/...` import bypasses the barrel, or a root `terminal.*` /
@@ -19,6 +19,13 @@
  * spec/ctx in any form, and (e) padi's whole dependency cone excludes the app
  * (`kolu-common`/`kolu-server`/`kolu-client`). The terminal vocabulary lives in
  * `@kolu/padi` now, so padi imports nothing from the app; the app consumes padi.
+ *
+ * The forward `@kolu/padi` boundary (b) walks only PRODUCTION reachable from
+ * `index.ts`; arm (f) closes the remaining flank (W4 ledger L13) by walking the
+ * SERVER's TEST files too — a test may reach any of padi's PUBLISHED subpaths
+ * (derived from `package.json`'s `exports`, so it can't drift), but never a deep
+ * `@kolu/padi/src/...` that bypasses the barrel. `ALLOWED_PADI` (the tighter
+ * production door) is a documented SUBSET of that published set.
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -37,49 +44,64 @@ const ENTRY = resolve(SRC, "index.ts");
 /** The EXACT set of non-test `.ts` modules that may live under
  *  `packages/server/src` after the seal — the web shell and nothing else. A new
  *  file here is a conscious decision: either it is web-shell code (add it) or it
- *  is terminal-domain code that belongs in `@kolu/padi` (the seal caught it). */
+ *  is terminal-domain code that belongs in `@kolu/padi` (the seal caught it).
+ *
+ *  The **padi hosting arm** — the binder cluster (local + remote), its convergence
+ *  declaration, session shape, link projection, and the pool satellites
+ *  (`reServeEviction`, `supervisorClaim`, `daemonInventory`) — lives under the
+ *  `padi/` subdirectory (W4 ledger L27: the arm co-varies on every remote/switch
+ *  phase, so it earns its own home). It is STILL web-shell code (it re-serves
+ *  padi's surface; it runs no terminal domain), so these modules stay inside the
+ *  seal — just under `padi/`. The serving shell and the true leaves stay top-level. */
 const WEB_SHELL_FILES = [
+  // ── the padi hosting arm (packages/server/src/padi/) ──
   // The read-only host-daemon inventory sampler — the web shell's diagnostic
   // enumeration of every running kaval + padi (reusing kaval/padi discovery), marking
   // kolu's active one. Shell code (it publishes koluSurface's `daemonInventory` cell,
   // runs no terminal domain), not a terminal-domain module.
-  "daemonInventory",
-  "hostname",
-  "iframePreviewRoute",
-  "index",
-  "log",
-  "memorySampler",
+  "padi/daemonInventory",
   // The W2.2 padi BINDER — the web shell's supervisor/client of the padi PROCESS
   // (spawn/adopt + dial + the reconnect-mirror session `reServeSurface` consumes).
   // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives
   // beside the shell, not in @kolu/padi.
-  "padiBinding",
+  "padi/padiBinding",
   // padi's CONVERGENCE declaration into the shared daemon-convergence kit (the
   // contract-skew policy, the frozen-control-core probe, the drain plumbing) —
   // carved out of `padiBinding` in W4 ledger L6 as its own volatility. Web-shell
   // code (it declares padi's policy + adapts its hello; the kit owns the mechanism),
   // so it lives beside the binder, not in @kolu/padi.
-  "padiConvergence",
+  "padi/padiConvergence",
   // The W3.1 REMOTE padi binder — the ssh twin of `padiBinding`: it fronts a padi on
   // another host over `getHostSession`/`padi --stdio` and re-serves its surface through
   // the SAME `reServeSurface` seam. Web-shell code (it runs no terminal domain — it
   // re-serves a remote padi's), so it lives beside the shell, not in @kolu/padi.
-  "remotePadiBinding",
+  "padi/remotePadiBinding",
   // The stale-reserve-on-flap eviction: prunes `index.ts`'s per-host `reServeSurface`
   // mirror cache to the pool's live membership (wired to `pool.subscribe`), so a guest
   // remove→re-add of the same key builds a FRESH mirror over the new session rather than
   // reusing the dead one pinned to the destroyed session (#1708). Web-shell glue (a cache
   // prune keyed by pool membership), not terminal domain.
-  "reServeEviction",
+  "padi/reServeEviction",
   // The padi SESSION shape both arms return (post-S9): a base `Session` from
   // `makeSession` + the daemon-supervision members by spread — no `BoundPadi`, no
   // wrapper class. Web-shell glue (the arms' shared session type + spread helper).
-  "padiSession",
+  "padi/padiSession",
   // The pure `SessionState.phase` → koluSurface `padiLink` mapping — the web
   // shell's own honest view of its binding to padi (#1034), driven off the binding
   // session. Shell code (a projection of the binder's state onto kolu-server's OWN
   // surface), not terminal domain.
-  "padiLink",
+  "padi/padiLink",
+  // The P0 local-supervisor ownership gate — the web shell's own "only one
+  // kolu-server supervises this padi state root" fence (a `supervisor.pid` claim
+  // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
+  // ownership; runs no terminal domain), so it lives beside the binder.
+  "padi/supervisorClaim",
+  // ── the serving shell + true leaves (top-level) ──
+  "hostname",
+  "iframePreviewRoute",
+  "index",
+  "log",
+  "memorySampler",
   "pwaIdentity",
   // The web shell's catch-all `app.onError` logger — turns an uncaught route/
   // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview
@@ -88,11 +110,6 @@ const WEB_SHELL_FILES = [
   "routeErrors",
   "router",
   "state",
-  // The P0 local-supervisor ownership gate — the web shell's own "only one
-  // kolu-server supervises this padi state root" fence (a `supervisor.pid` claim
-  // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
-  // ownership; runs no terminal domain), so it lives beside the binder.
-  "supervisorClaim",
   "surface",
   "tls",
 ].sort();
@@ -119,22 +136,35 @@ const FORBIDDEN_TERMINAL_MODULES = [
   "sessionRestore",
 ];
 
-function serverSrcModules(): string[] {
-  // Walk RECURSIVELY: a terminal-domain module smuggled back into a NEW
-  // subdirectory (e.g. a resurrected `terminalEndpoint/` or `ptyHost/`) must
-  // fail this allowlist too, not just a top-level file. `recursive` yields
-  // subdir-prefixed relative paths (`sub/mod.ts`), so any nested module lands
-  // as a `sub/mod` key that isn't in the flat WEB_SHELL_FILES set.
+/** Every `.ts` under `packages/server/src`, as forward-slash relative paths.
+ *  Walk RECURSIVELY: a terminal-domain module smuggled back into a NEW
+ *  subdirectory (e.g. a resurrected `terminalEndpoint/` or `ptyHost/`) must be
+ *  seen too, not just a top-level file. `recursive` yields subdir-prefixed
+ *  relative paths (`sub/mod.ts`), normalized here to `sub/mod.ts`. The two
+ *  callers below split this one walk into complementary sets. */
+function serverSrcTsFiles(): string[] {
   return readdirSync(SRC, { recursive: true })
     .map((f) => String(f).split(sep).join("/"))
-    .filter(
-      (f) =>
-        f.endsWith(".ts") &&
-        !f.endsWith(".test.ts") &&
-        !f.endsWith(".test-d.ts"),
-    )
+    .filter((f) => f.endsWith(".ts"));
+}
+
+function serverSrcModules(): string[] {
+  // The non-test modules, as bare `sub/mod` keys — any nested module that isn't
+  // in the flat WEB_SHELL_FILES set fails the allowlist.
+  return serverSrcTsFiles()
+    .filter((f) => !f.endsWith(".test.ts") && !f.endsWith(".test-d.ts"))
     .map((f) => f.replace(/\.ts$/, ""))
     .sort();
+}
+
+/** Every `.ts` test file under `packages/server/src` (recursive — the padi arm's
+ *  tests live in `padi/` now), as absolute paths. Arm (f) walks these so a TEST
+ *  file's `@kolu/padi` imports are checked too, closing the flank the
+ *  production-only forward walk (arm b) leaves open. */
+function serverTestFiles(): string[] {
+  return serverSrcTsFiles()
+    .filter((f) => f.endsWith(".test.ts") || f.endsWith(".test-d.ts"))
+    .map((f) => resolve(SRC, f));
 }
 
 // ── (d/e) The REVERSE seals — the arrow points OUT of @kolu/padi ───────────
@@ -329,18 +359,39 @@ function koluSurfaceBindings(file: string): string[] {
 
 // ── (b) The @kolu/padi import-boundary walk ───────────────────────────────
 
-/** The ONLY `@kolu/padi` specifiers kolu-server may import — its published entry
- *  points. A deep `@kolu/padi/src/...` import (bypassing the barrel) or any other
- *  subpath fails the boundary. `/dial` joined the list in W2.3: `connectPadi` (the
- *  state-root→socket resolve + control-core handshake) was carved out of the
- *  binder into `@kolu/padi/dial` so `padi-tui` and the binder share ONE dial kit
- *  (the kaval precedent — a daemon's package owns its client-side dial kit). */
+/** The `@kolu/padi` specifiers kolu-server's PRODUCTION code (everything reachable
+ *  from `index.ts`) may import — the TIGHT boundary. A DELIBERATE subset of padi's
+ *  published `exports` (arm f asserts the subset relation): production reaches the
+ *  terminal domain through the narrowest surface that works, so e.g.
+ *  `supervisorClaim` routes through `/assembly` rather than importing
+ *  `@kolu/padi/stateRoot` directly (its own header records that choice). Each entry
+ *  earns its place:
+ *   - `/surface` — the terminal VOCABULARY (schemas · records · pure helpers);
+ *   - `/assembly` — the padi binder's assembly surface (socket paths, preview, the
+ *     kaval/padi probe types) — the one production door for state-root-adjacent needs;
+ *   - `/dial` — the shared dial kit (`connectPadi`), so `padi-tui` and the binder
+ *     share ONE state-root→socket resolve + control-core handshake (the kaval precedent);
+ *   - `/log` — padi's pino logger, so a server log line joins padi's stream.
+ *  A deep `@kolu/padi/src/...` import (bypassing the barrel) or any UNLISTED subpath
+ *  fails arm (b). TESTS get a wider door — the full published set — via arm (f). */
 const ALLOWED_PADI = [
   "@kolu/padi/assembly",
   "@kolu/padi/dial",
   "@kolu/padi/surface",
   "@kolu/padi/log",
 ];
+
+/** padi's PUBLISHED subpaths, derived from its `package.json` `exports` (so this
+ *  can't drift from the real contract) as `@kolu/padi/<name>` specifiers. This is
+ *  the deliberate published surface — the set a TEST file may reach (arm f), and
+ *  the superset `ALLOWED_PADI` (the production door) is a documented subset of. */
+function padiPublishedSubpaths(): Set<string> {
+  const exportsMap = JSON.parse(readFileSync(PADI_PKG, "utf8"))
+    .exports as Record<string, unknown>;
+  return new Set(
+    Object.keys(exportsMap).map((k) => k.replace(/^\.\//, "@kolu/padi/")),
+  );
+}
 
 function importsOf(file: string): string[] {
   const specs = new Set<string>();
@@ -411,21 +462,69 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     ).toEqual([]);
   });
 
-  it("(b) reaches @kolu/padi only through /assembly, /surface, /log — no deep src import", () => {
+  it("(b) reaches @kolu/padi only through /assembly, /dial, /surface, /log — no deep src import", () => {
     const padiSpecs = [...externalsFromEntry()]
       .filter((s) => s.startsWith("@kolu/padi"))
       .sort();
-    // Every @kolu/padi edge is one of the three published entry points; a
+    // Every @kolu/padi edge is one of the ALLOWED_PADI published entry points; a
     // `@kolu/padi/src/...` deep import (or any other subpath) fails here.
     const illegal = padiSpecs.filter((s) => !ALLOWED_PADI.includes(s));
     expect(
       illegal,
       `illegal @kolu/padi import(s) from packages/server: ${illegal.join(
         ", ",
-      )}. kolu-server must reach the terminal domain only via @kolu/padi/{assembly,surface,log}.`,
+      )}. kolu-server must reach the terminal domain only via @kolu/padi/{assembly,dial,surface,log}.`,
     ).toEqual([]);
     // And it genuinely reaches the barrel (not a vacuous pass).
     expect(padiSpecs.length).toBeGreaterThan(0);
+  });
+
+  it("(f) test files reach @kolu/padi only through PUBLISHED subpaths — no deep src bypass", () => {
+    // The forward arm (b) walks only production reachable from `index.ts`, so a
+    // TEST file's `@kolu/padi` imports were never checked — the one flank the seal
+    // left open (W4 ledger L13). A test legitimately needs MORE of padi than
+    // production does (it drives internals: `padi/padiBinding.test` reaches
+    // `@kolu/padi/stateRoot`, `exportTranscriptHtml.test` reaches
+    // `@kolu/padi/transcript` — both PUBLISHED entry points other packages
+    // (`tests`, `client`) consume too, so narrowing them out of padi's exports
+    // would break real consumers). But a test must still go through the PUBLISHED
+    // contract, never a deep `@kolu/padi/src/...` that bypasses the barrel.
+    const published = padiPublishedSubpaths();
+
+    // ALLOWED_PADI (the production door) is a documented SUBSET of the published
+    // exports — so the two "agree on purpose", and a typo or a removed export in
+    // ALLOWED_PADI is caught here rather than passing vacuously.
+    const notPublished = ALLOWED_PADI.filter((s) => !published.has(s));
+    expect(
+      notPublished,
+      `ALLOWED_PADI names a @kolu/padi subpath that padi/package.json no longer ` +
+        `publishes: ${notPublished.join(", ")}. The production door must be a ` +
+        `subset of the deliberate export set.`,
+    ).toEqual([]);
+
+    // Every @kolu/padi import in a server TEST file is a published subpath.
+    const offenders: string[] = [];
+    let sawPadiImport = false;
+    for (const file of serverTestFiles()) {
+      for (const spec of importsOf(file)) {
+        if (!spec.startsWith("@kolu/padi")) continue;
+        sawPadiImport = true;
+        if (!published.has(spec)) {
+          offenders.push(
+            `${file.replace(SRC, "packages/server/src")}: ${spec}`,
+          );
+        }
+      }
+    }
+    expect(
+      offenders,
+      `a server test imports a @kolu/padi specifier that is not a published ` +
+        `subpath (a deep @kolu/padi/src/... bypass, or an unpublished entry): ` +
+        `${offenders.join(", ")}. Tests reach padi through its published exports, ` +
+        `same as any consumer — never a deep src path.`,
+    ).toEqual([]);
+    // Non-vacuous: the walk actually found a padi import to check.
+    expect(sawPadiImport).toBe(true);
   });
 
   it("(c) the root terminal.* / git.* namespaces are gone — only server + daemon beside surface", () => {

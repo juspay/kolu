@@ -64,7 +64,7 @@ const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 
 // `connectSurfaces` is the receptacle for "multiple sibling surfaces over one
 // reconnecting socket with the half-open watchdog wired in." kolu plugs into it
-// like pulam-web/drishti do, instead of re-assembling `createSurfaceSocket` →
+// like drishti does, instead of re-assembling `createSurfaceSocket` →
 // `createLiveSignal` → `surfaceClients` by hand: it owns the socket + the `pid`
 // echo (which threads the last-observed server `processId` back as a query param on
 // every (re)connect, so a stale tab reconnecting to a RESTARTED server is recognized
@@ -188,10 +188,12 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
     ),
 });
 
-/** The active-host PROCEDURE client, typed as the concrete padi contract client (the
+/** A FIXED-host PROCEDURE client, typed as the concrete padi contract client (the
  *  generic map types `entry(k).rpc` as `unknown`, so the one concrete cast lives HERE).
- *  Kept for the (currently hypothetical) FIXED-host caller — one that must reach a
- *  host other than whichever is active. Every real call site instead wants
+ *  For a caller that must reach a SPECIFIC host rather than whichever is active — the
+ *  real consumer is the per-host scope (`hostScope/createViewState`'s `writeActive`
+ *  reports to `padiRpcOf(host)` for its OWN scope's host, which persists across
+ *  switch-away). Every call site that instead wants "whatever host is active" uses
  *  `activePadiRpc` below, which fuses this with `activeHost()` so it never has to be
  *  spelled out. */
 type PadiRpc = ContractRouterClient<

@@ -35,11 +35,11 @@ import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
 // `resolve.ts` re-imports the already-evaluated `local.ts`, so it stays AFTER it
 // to preserve the metadata→local order the TDZ note above depends on.
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
+import type { RightPanelPerTerminalState } from "./chromeVocab.ts";
 import {
   composeTerminalMetadata,
   type InitialTerminalMetadata,
   LOCAL_LOCATION,
-  type RightPanelPerTerminalState,
   type SavedTerminal,
   SavedTerminalSchema,
   type TerminalInfo,

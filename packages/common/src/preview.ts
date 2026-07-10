@@ -37,6 +37,11 @@
  *  isn't part of the binary partition. It tells the client a text file also
  *  has a rendered form, which is what lights the Source ⇄ Rendered toggle. */
 
+// The one import: padi's `UPLOAD_VIDEO_EXTENSIONS` (a zero-dependency, node-free
+// constants leaf) is the canonical container list `VIDEO_EXTENSIONS` derives from
+// (L17) — the app→padi arrow the seal sanctions. Node-free still holds.
+import { UPLOAD_VIDEO_EXTENSIONS } from "@kolu/padi/upload";
+
 export const SANDBOX_PREVIEWABLE_EXTENSIONS = [
   ".html",
   ".htm",
@@ -57,14 +62,17 @@ export const RASTER_IMAGE_EXTENSIONS = [
 /** Video containers the `<video>` element can play across the browsers Kolu
  *  targets. `.mov` is QuickTime but ships H.264/AAC in practice, which Chrome
  *  and Safari play; non-web codecs (`.mkv`, `.avi`) are deliberately absent —
- *  they'd serve as a binary URL the player can't decode. */
-export const VIDEO_EXTENSIONS = [
-  ".mp4",
-  ".m4v",
-  ".webm",
-  ".mov",
-  ".ogv",
-] as const;
+ *  they'd serve as a binary URL the player can't decode.
+ *
+ *  DERIVED from padi's canonical `UPLOAD_VIDEO_EXTENSIONS` (padi owns the
+ *  upload/file domain; L17 homed the container list there) by prepending the
+ *  leading dot this module's `hasExtension` path checks use — so the *droppable*
+ *  set and the *playable* set ARE one list and cannot drift. This replaces the
+ *  hand-kept copy + the kolu-common drift-guard test that policed it: drift is
+ *  now unspellable, not merely caught. */
+export const VIDEO_EXTENSIONS: readonly string[] = UPLOAD_VIDEO_EXTENSIONS.map(
+  (ext) => `.${ext}`,
+);
 
 export const BINARY_PREVIEWABLE_EXTENSIONS = [
   ...SANDBOX_PREVIEWABLE_EXTENSIONS,

@@ -410,7 +410,7 @@ export const DaemonInventorySchema = z.object({
    *  never the inner object with all three of `surfaceVersion`/`buildCommit`/`convergence`
    *  also null. Without the `.refine` below, both shapes typecheck and mean the same
    *  thing, so a future writer could drift between them for no reason; the publisher
-   *  (`server/src/daemonInventory.ts`) already special-cases "all three null → publish
+   *  (`server/src/padi/daemonInventory.ts`) already special-cases "all three null → publish
    *  `null` itself" for exactly this reason — the refine makes that the ONLY legal
    *  encoding rather than a convention a future call site could quietly break. */
   boundPadi: z
