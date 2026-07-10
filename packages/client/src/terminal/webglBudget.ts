@@ -28,11 +28,11 @@ import type { TerminalId } from "kolu-common/surface";
  *  `preventDefault`s `webglcontextlost` and waits 3000ms for a
  *  `webglcontextrestored` before falling back to the DOM renderer. With up to 12
  *  tiles on WebGL several sit in that blank window at once: the rendering
- *  corruption a full page refresh cleared. 8 doubles the headroom (margin 8)
- *  while still holding a realistic 5–8 terminal working set churn-free — so it
- *  neither reintroduces the #1399 churn-leak nor approaches the eviction ceiling.
- *  Holding fewer live contexts also lowers the steady-state GPU/VRAM baseline. */
-export const WEBGL_CONTEXT_CAP = 8;
+ *  corruption a full page refresh cleared. 8 fixed that corruption, but still
+ *  kept WebGL on most tiles in a 10-terminal canvas. A cap of 6 keeps the common
+ *  5-6 terminal working set churn-free while lowering steady-state GPU/VRAM
+ *  baseline for larger canvases. */
+export const WEBGL_CONTEXT_CAP = 6;
 
 /** The minimal slice of a tile's sub-panel state that determines its WebGL
  *  footprint — pure booleans/ids, no SolidJS store, so the cost model is

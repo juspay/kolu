@@ -19,12 +19,6 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_MIRROR_SCROLLBACK, type PtyHostSystemInfo } from "kaval";
-// The client's VISIBLE xterm scrollback (kolu-common/config `DEFAULT_SCROLLBACK`).
-// Inlined, not imported: padi's dependency cone must not reach into the app
-// (kolu-common) — the seal's fifth arm enforces it. This test asserts padi's
-// spawned MIRROR scrollback is decoupled from (and smaller than) that visible
-// value; the literal below is the app-side number it compares against.
-const CLIENT_VISIBLE_SCROLLBACK = 50_000;
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { composeSpawnInput, setSpawnServerVersion } from "./index.ts";
 
@@ -168,16 +162,17 @@ describe("composeSpawnInput env layering", () => {
   });
 });
 
-describe("composeSpawnInput mirror scrollback (the OOM-fix decouple)", () => {
-  it("sends the small server-mirror scrollback, decoupled from the client's", () => {
+describe("composeSpawnInput mirror scrollback", () => {
+  it("sends kaval's server-mirror scrollback", () => {
     // The server tells kaval how deep a per-terminal headless mirror to keep.
-    // It must send kaval's small `DEFAULT_MIRROR_SCROLLBACK`, NOT the client's
-    // visible `DEFAULT_SCROLLBACK` — the conflated 50K mirror × unbounded live
-    // terminals was the production V8-heap OOM (see kaval-heap-oom.mdx). Red
-    // before the decouple (the input carried DEFAULT_SCROLLBACK).
+    // It must send `DEFAULT_MIRROR_SCROLLBACK` from kaval's API rather than the
+    // browser scrollback constant from kolu-common: the padi -> kaval boundary
+    // owns mirror memory, while the browser owns visible xterm memory.
+    // The conflated 50K mirror × unbounded live terminals was the production
+    // V8-heap OOM (see kaval-heap-oom.mdx). Red before the decouple (the input
+    // carried the browser constant instead of kaval's mirror constant).
     const input = composeSpawnInput({ id: "T-mirror" }, info(), KAVAL_SOCK);
     expect(input.scrollback).toBe(DEFAULT_MIRROR_SCROLLBACK);
-    expect(input.scrollback).toBeLessThan(CLIENT_VISIBLE_SCROLLBACK);
   });
 });
 

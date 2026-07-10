@@ -306,6 +306,151 @@ Artifacts:
 - `.dev-server/fixed-sincere-trace.json`
 - `.dev-server/fixed-sincere-trace-summary.json`
 
+### Browser memory pass: xterm scrollback + WebGL budget
+
+Follow-up symptom:
+
+- The CPU fix made the idle page quiet, but Chrome's tab footprint could still
+  climb toward the user's ~1.1-1.4 GB Task Manager reading in a real session.
+- The next suspect buckets were xterm.js history buffers and WebGL/canvas memory.
+
+Harness:
+
+- URL: `http://127.0.0.1:54623`
+- Launch shape: built `result/bin/kolu`, isolated with
+  `KOLU_STATE_DIR`, `KOLU_PADI_STATE_DIR`, and remote
+  `KOLU_REMOTE_PADI_STATE_DIR`.
+- Hosts connected: local, `kolu-e2e-remote@localhost`, `sincereintent`.
+- Terminal count: 10 local, 5 on `kolu-e2e-remote@localhost`, 5 on
+  `sincereintent`.
+- History load: 1,500 generated output lines sent through real kaval PTYs to
+  every terminal on all three hosts.
+
+Pre-history, selected `sincereintent` with five mounted xterms:
+
+| Scope | RSS | PSS | Private | CPU |
+|---|---:|---:|---:|---:|
+| Whole Chrome tree | 1189.9 MiB | 571.3 MiB | 366.7 MiB | 0.67% |
+| Renderers total | 464.4 MiB | 267.0 MiB | 195.7 MiB | 0.40% |
+| Selected Kolu renderer | 340.0 MiB | 238.0 MiB | 184.7 MiB | 0.40% |
+| Chrome GPU process | 192.9 MiB | 112.7 MiB | 68.2 MiB | 0.13% |
+
+After 1,500 lines on the selected `sincereintent` host:
+
+| Scope | RSS | PSS | Private | CPU |
+|---|---:|---:|---:|---:|
+| Whole Chrome tree | 1204.6 MiB | 578.9 MiB | 367.3 MiB | 1.07% |
+| Renderers total | 467.0 MiB | 266.0 MiB | 191.1 MiB | 0.93% |
+| Selected Kolu renderer | 342.6 MiB | 236.9 MiB | 180.1 MiB | 0.93% |
+| Chrome GPU process | 205.0 MiB | 121.5 MiB | 73.7 MiB | 0.00% |
+
+Heap diff from pre-history to selected `sincereintent`:
+
+| Class | Growth |
+|---|---:|
+| `native:system / JSArrayBufferData` | +17.5 MB / +14,907 |
+| `object:Uint32Array` | +0.9 MB / +14,907 |
+| `object:ArrayBuffer` | +0.8 MB / +14,907 |
+
+After switching to the local host with 10 mounted history-loaded xterms:
+
+| Scope | RSS | PSS | Private | CPU |
+|---|---:|---:|---:|---:|
+| Whole Chrome tree | 1387.0 MiB | 748.0 MiB | 523.3 MiB | 0.67% |
+| Renderers total | 625.1 MiB | 417.6 MiB | 336.2 MiB | 0.47% |
+| Selected Kolu renderer | 500.8 MiB | 388.5 MiB | 325.2 MiB | 0.47% |
+| Chrome GPU process | 229.2 MiB | 139.1 MiB | 84.9 MiB | 0.20% |
+
+Heap diff from pre-history to local 10:
+
+| Class | Growth |
+|---|---:|
+| `native:system / JSArrayBufferData` | +61.7 MB / +45,054 |
+| `object:Uint32Array` | +2.7 MB / +45,027 |
+| `object:ArrayBuffer` | +2.3 MB / +45,068 |
+
+Interpretation:
+
+- Hidden hosts are still not mounted in the DOM; the selected host owns the
+  browser xterm cost.
+- The dominant JS/native live-set bucket is xterm scrollback: `Uint32Array` /
+  `JSArrayBufferData` grows linearly with rendered history and mounted terminal
+  count.
+- The selected local canvas had 10 xterms, 24 canvases, and 8 WebGL renderers.
+  GPU/native process memory rose alongside the xterm buffer growth.
+
+Code change:
+
+- Reduce the browser xterm hot scrollback window from 50,000 to 10,000 lines.
+  This aligns the client hot buffer with kaval's 10,000-line mirror instead of
+  keeping a deeper per-mounted-tile buffer live in Chrome.
+- Reduce `WEBGL_CONTEXT_CAP` from 8 to 6, preserving a realistic 5-6 terminal
+  WebGL working set while lowering steady-state GPU/VRAM pressure for larger
+  canvases.
+
+Post-change validation:
+
+- Reused the old-build tab, selected the local host, and deepened the same
+  10-terminal local canvas from 1,500 lines to 8,500 generated lines per
+  terminal. The old code still held 8 WebGL canvases.
+- Launched the changed Nix build on a fresh random port with the same three-host
+  seed list, created 10 local terminals, and sent the same 7,000-line burst to
+  every local terminal. The changed code held 6 WebGL canvases.
+
+Deep local-10 old build:
+
+| Scope | RSS | PSS | Private | CPU |
+|---|---:|---:|---:|---:|
+| Whole Chrome tree | 1564.9 MiB | 915.7 MiB | 680.4 MiB | 0.53% |
+| Renderers total | 803.6 MiB | 590.6 MiB | 503.8 MiB | 0.33% |
+| Selected Kolu renderer | 679.2 MiB | 561.6 MiB | 492.8 MiB | 0.33% |
+| Chrome GPU process | 246.4 MiB | 150.9 MiB | 91.2 MiB | 0.13% |
+
+Deep local-10 changed build:
+
+| Scope | RSS | PSS | Private | CPU |
+|---|---:|---:|---:|---:|
+| Whole Chrome tree | 1350.8 MiB | 719.9 MiB | 495.0 MiB | 0.60% |
+| Renderers total | 627.2 MiB | 420.7 MiB | 337.1 MiB | 0.47% |
+| Selected Kolu renderer | 505.9 MiB | 392.2 MiB | 326.2 MiB | 0.47% |
+| Chrome GPU process | 229.2 MiB | 137.1 MiB | 80.7 MiB | 0.07% |
+
+Heap class comparison:
+
+| Class | Old deep | Changed deep |
+|---|---:|---:|
+| `native:system / JSArrayBufferData` | 221.1 MiB / 185,769 | 119.8 MiB / 100,396 |
+| `object:Uint32Array` | 10.6 MiB / 185,682 | 5.7 MiB / 100,357 |
+| `object:ArrayBuffer` | 9.2 MiB / 185,823 | 5.0 MiB / 100,414 |
+
+Result:
+
+- Whole-Chrome PSS dropped 915.7 -> 719.9 MiB on the deep 10-terminal local
+  canvas.
+- The selected Kolu renderer's PSS dropped 561.6 -> 392.2 MiB.
+- The dominant xterm native buffer class dropped 221.1 -> 119.8 MiB and
+  ~185K -> ~100K instances.
+- WebGL canvases dropped 8 -> 6 in the same 10-terminal canvas.
+
+Artifacts:
+
+- `.dev-server/memory-3host20-prehistory-procs.json`
+- `.dev-server/heap-3host20-prehistory.heapsnapshot`
+- `.dev-server/memory-history-sincere-procs.json`
+- `.dev-server/heap-history-sincere.heapsnapshot`
+- `.dev-server/diff-heap-prehistory-to-sincere.txt`
+- `.dev-server/memory-history-local10-procs.json`
+- `.dev-server/heap-history-local10.heapsnapshot`
+- `.dev-server/diff-heap-prehistory-to-local10.txt`
+- `.dev-server/memory-old-deep-local10-dom.json`
+- `.dev-server/memory-old-deep-local10-procs.json`
+- `.dev-server/heap-old-deep-local10.heapsnapshot`
+- `.dev-server/diff-heap-prehistory-to-old-deep-local10.txt`
+- `.dev-server/memory-fixed-deep-local10-dom.json`
+- `.dev-server/memory-fixed-deep-local10-procs.json`
+- `.dev-server/heap-fixed-deep-local10.heapsnapshot`
+- `.dev-server/diff-heap-prehistory-to-fixed-deep-local10.txt`
+
 ---
 
 ## Measurement plan

@@ -75,5 +75,5 @@
   <!-- Client -->
   <rect x="182" y="464" width="300" height="48" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
   <text x="332" y="485" text-anchor="middle" font-weight="700" fill="var(--ink,#11203a)">browser xterm</text>
-  <text x="332" y="502" text-anchor="middle" font-size="10.5" fill="var(--struct-sub,#4A5072)">keeps its own 50 K visible scrollback</text>
+  <text x="332" y="502" text-anchor="middle" font-size="10.5" fill="var(--struct-sub,#4A5072)">keeps its own 10 K visible scrollback</text>
 </svg>

@@ -90,7 +90,7 @@ This was **not** a kernel OOM-kill (signal is 6/ABRT, a userspace self-abort —
 
 ## Root cause: live terminals accumulate, each pinning a 50 K-line mirror
 
-**Reproduced and confirmed** by driving `createPtyHost` in isolation on a clean box (`naiveintent`). kaval keeps, *per live PTY*, an `@xterm/headless` screen mirror sized at `DEFAULT_SCROLLBACK = 50_000` lines (<Cite file="packages/common/src/config.ts" label="config.ts" />, passed at <Cite file="packages/server/src/ptyHost/index.ts" label="ptyHost/index.ts" />). The heap is **linear in live-terminal count** and **flat under everything else**:
+**Reproduced and confirmed** by driving `createPtyHost` in isolation on a clean box (`naiveintent`). At the time of the crash, kaval kept, *per live PTY*, an `@xterm/headless` screen mirror sized from the app scrollback constant at `50_000` lines; padi passed that depth into kaval on spawn. The heap is **linear in live-terminal count** and **flat under everything else**:
 
 | Driver | Heap behaviour |
 | --- | --- |
@@ -149,11 +149,11 @@ Three lessons that reshape the fix:
 
 ## The fix — a small hot mirror over an on-disk transcript log
 
-<Callout kind="good" title="Shipped in #1427">
-Fix **(1)** — the small hot mirror — landed: **10 K** lines chosen (decoupled from the client's 50 K), measured **~4×** the OOM ceiling. With it, the **interim safety net** is pure observability: kaval-side diagnostics (the `services.kolu.diagnostics.dir` value now reaches kaval, which logs the heap/`terms` curve + arms a near-limit snapshot) — *no* explicit heap cap, since with the mirror fixed a cap would only give back the headroom the fix bought. Guarded by a red→green decouple test and live-job-at-a-small-mirror tests. <PrLink pr={1427} /> · **Deferred:** the on-disk transcript log (<Issue n={417} />) and lazy backfill (3) — they remove the *linear-in-count* growth and let the mirror shrink further.
+<Callout kind="good" title="Shipped in #1427; browser cap aligned later">
+Fix **(1)** — the small hot mirror — landed: **10 K** lines chosen (initially decoupled from the client's then-50 K buffer), measured **~4×** the OOM ceiling. A later browser-memory pass aligned the client xterm cap to the same **10 K** hot-window policy after measuring Chrome retaining xterm scrollback as live `Uint32Array`/`JSArrayBufferData` buffers across many mounted canvas tiles. With it, the **interim safety net** is pure observability: kaval-side diagnostics (the `services.kolu.diagnostics.dir` value now reaches kaval, which logs the heap/`terms` curve + arms a near-limit snapshot) — *no* explicit heap cap, since with the mirror fixed a cap would only give back the headroom the fix bought. Guarded by a red→green decouple test and live-job-at-a-small-mirror tests. <PrLink pr={1427} /> · **Deferred:** the on-disk transcript log (<Issue n={417} />) and lazy backfill (3) — they remove the *linear-in-count* growth and let the mirror shrink further.
 </Callout>
 
-The 50 K was never for scrolling. <PrLink pr={416} /> bumped it from 10 K **for PDF export** (<PrLink pr={413} />) — so a naive shrink would *regress export*. And the real fix is already designed: <Issue n={417} label="server-side transcript log" />, the on-disk source of truth that #416 explicitly called itself a *bandaid* for. This RCA promotes #417 from a *features* ticket to **the memory fix** — and corrects its non-goal #1 ("the ~4 KB attach snapshot is already optimal"): `attach()` serializes the **whole** buffer with no scrollback limit (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:571" />), so that path *is* the cost, not a constant.
+The 50 K was never for scrolling. <PrLink pr={416} /> bumped it from 10 K **for PDF export** (<PrLink pr={413} />), and the browser later paid the same live-cell memory cost under multi-tile canvas workloads. The real fix is still the designed one: <Issue n={417} label="server-side transcript log" />, the on-disk source of truth that #416 explicitly called itself a *bandaid* for. This RCA promotes #417 from a *features* ticket to **the memory fix** — and corrects its non-goal #1 ("the ~4 KB attach snapshot is already optimal"): `attach()` serializes the **whole** buffer with no scrollback limit (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:571" />), so that path *is* the cost, not a constant.
 
 The plan of record — which is also just what the field does (small hot buffer + deep history off the hot path + lazy backfill):
 
@@ -215,7 +215,7 @@ Size the headless mirror to what the *live* jobs actually need — viewport + a 
 
 | Mirror scrollback | V8 heap / terminal | Terms → OOM (512 MB cap) | → at the 4 GB ceiling |
 | --- | --- | --- | --- |
-| **50 K (today)** | ~16 MB | **32** | ~256 terminals |
+| **50 K (pre-#1427)** | ~16 MB | **32** | ~256 terminals |
 | 10 K | ~3.9 MB | **130** (4.1×) | ~1,050 |
 | 2 K | ~1.0 MB | **≥396 — no OOM** (≥12×) | ~4,000 |
 
@@ -246,7 +246,7 @@ Deployment is the `services.kolu` home-manager module, so the wiring lands there
 
 ## Current state & open questions
 
-**Fixed in <PrLink pr={1427} />.** The recurrence risk that drove this RCA is now **bounded**, not just identified. The change that matters: the server-side mirror shrank from 50 K to a **10 K** `DEFAULT_MIRROR_SCROLLBACK` (decoupled from the client's 50 K, which PDF export + interactive scrollback still need), measured **~4×** the OOM ceiling. Alongside it, an **observability net** — kaval-side `@kolu/heap-diag` that logs the heap/`terms` curve and arms a near-limit snapshot, so the next approach to the ceiling dumps a snapshot instead of a silent abort. *(No explicit heap cap: with the mirror fixed, a cap would only give back the headroom the fix bought — see the note above.)*
+**Fixed in <PrLink pr={1427} />.** The recurrence risk that drove this RCA is now **bounded**, not just identified. The change that matters: the server-side mirror shrank from 50 K to a **10 K** `DEFAULT_MIRROR_SCROLLBACK`, measured **~4×** the OOM ceiling; the browser xterm cap later moved to the same **10 K** hot-window depth to keep Chrome's renderer footprint bounded on canvas-heavy sessions. Alongside it, an **observability net** — kaval-side `@kolu/heap-diag` that logs the heap/`terms` curve and arms a near-limit snapshot, so the next approach to the ceiling dumps a snapshot instead of a silent abort. *(No explicit heap cap: with the mirror fixed, a cap would only give back the headroom the fix bought — see the note above.)*
 
 This **raises** the ceiling ~4×; the *linear-in-count* growth remains **by design** — removing it is the tracked follow-up, not a regression. What remains open:
 

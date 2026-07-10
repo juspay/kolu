@@ -417,9 +417,9 @@ export function composeSpawnInput(
     initFiles: plan.initFiles,
     // The per-terminal headless-mirror depth — kaval owns this number (the
     // mirror lives there), so we send its `DEFAULT_MIRROR_SCROLLBACK`, the SAME
-    // value kaval-tui's spawn path falls back to. Deliberately smaller than the
-    // client's visible scrollback (kolu-common's `DEFAULT_SCROLLBACK`): the
-    // conflated 50K mirror × unbounded live terminals was the OOM. See
+    // value kaval-tui's spawn path falls back to. This stays independent from
+    // the client's visible scrollback even when the two caps match by policy:
+    // the conflated 50K mirror × unbounded live terminals was the OOM. See
     // `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`.
     scrollback: DEFAULT_MIRROR_SCROLLBACK,
   };

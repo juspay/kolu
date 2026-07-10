@@ -41,13 +41,12 @@ const DEFAULT_ROWS = 24;
  *  `composeCreateInput`), AND the value the server's `composeSpawnInput` imports
  *  and sends explicitly — so all three paths provably agree.
  *
- *  Deliberately smaller than the CLIENT's visible scrollback (kolu-common's
- *  `DEFAULT_SCROLLBACK`, a distinct axis the user sees in their own tab): kaval
+ *  Deliberately its own constant rather than the CLIENT's visible scrollback
+ *  (`kolu-common`'s `DEFAULT_SCROLLBACK`, a distinct browser-memory axis): kaval
  *  keeps one mirror per live terminal and live terminals accumulate without
  *  bound, so a large shared depth × unbounded terminals exhausted the heap and
  *  SIGABRT'd the daemon. The mirror only needs enough to feed live readers and
- *  repaint a cold-attaching client; a warm client keeps its own buffer and PDF
- *  export reads the client buffer, so shrinking it regresses neither. See
+ *  repaint a cold-attaching client. See
  *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`. */
 export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
 /** How many exited-PTY exit codes to retain after teardown, so a late

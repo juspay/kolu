@@ -18,12 +18,12 @@ export const DEFAULT_PORT = 7681;
 export const DEFAULT_FONT_SIZE = 14;
 
 /** The CLIENT's visible scrollback, in lines — what the browser xterm retains
- *  and what `exportScrollbackAsPdf.ts` serializes. Sized for multi-hour Claude
- *  sessions so scroll-back and PDF export capture a useful window. This is the
- *  user's own tab (one terminal on screen at a time), so the memory lives in the
- *  browser, not the server.
+ *  and what `exportScrollbackAsPdf.ts` serializes. Keep this bounded: canvas
+ *  mode can mount many xterms at once, and xterm stores scrollback as live cell
+ *  buffers in the Chrome renderer.
  *
  *  A distinct axis from the SERVER-side per-terminal headless-mirror depth,
- *  which is deliberately smaller and lives where the mirror lives — kaval's
- *  `DEFAULT_MIRROR_SCROLLBACK` (see `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`). */
-export const DEFAULT_SCROLLBACK = 50_000;
+ *  which lives where the mirror lives — kaval's `DEFAULT_MIRROR_SCROLLBACK`.
+ *  The two hot windows match today, but remain separate ownership boundaries
+ *  because one is Chrome renderer memory and the other is kaval daemon memory. */
+export const DEFAULT_SCROLLBACK = 10_000;
