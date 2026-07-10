@@ -26,7 +26,7 @@ The track ships as a **few substantial refactor campaigns** (srid, 2026-07-09: f
 
 **The hygiene rule (explicit):** hygiene entries never ship standalone. **L8** (the deleted-world doc sweep) rides *every* campaign — each campaign sweeps the stale pulam/pre-padi references in the files it touches; <PrLink pr={1747} /> swept campaign 2/3's files (33 → 31 src files remain, re-verified 2026-07-10), and the residue lands as one tail commit on **campaign 1**, the last to ship. A hygiene-only PR is exactly the tiny-PR shape this plan exists to kill.
 
-**Parked / gated** *(gates unchanged; none of these is campaign-shaped)*: **L2** (upstream padi-tui's wait helper — gated on kolu-tui existing) · **L4** (delete the legacy-kaval migration arm — at a version srid names) · **L9** (sensors out of padi's restart hash — on recorded deploy-pain evidence) · **L22** (framework-wide backpressure — on a measured slow-consumer incident) · **L12** (the fine-grained CI token — srid mints, agent wires) · **L10** (flaky-test debt — a standing tracker-driven pass, dispatched off [the flaky tracker](flaky-test-tracker.html), not a refactor of an area).
+**Parked / gated** *(gates unchanged; none of these is campaign-shaped)*: **L2** (upstream padi-tui's wait helper — gated on kolu-tui existing) · **L4** (delete the legacy-kaval migration arm — at a version srid names) · **L9** (sensors out of padi's restart hash — on recorded deploy-pain evidence) · **L22** (framework-wide backpressure — on a measured slow-consumer incident) · **L12** (the fine-grained CI token — srid mints, agent wires) · **L10** (flaky-test debt — a standing tracker-driven pass, dispatched off [the flaky tracker](flaky-test-tracker.html), not a refactor of an area) · **L29** (the typing-latency lane — a pre–campaign-1 candidate; srid revisits, not ratified).
 
 **Bird's-eye** — the remaining campaign, the L24 feature PR, the gated lane, and the shipped record (click a node to jump to its section).
 
@@ -36,7 +36,7 @@ The track ships as a **few substantial refactor campaigns** (srid, 2026-07-09: f
 
 - **Campaign 1 (complete the primitives):** L28 rung 2 · L1 · L20·21 — dispatches when the phase-1 surface refactor does; L8's residue rides it as the tail commit
 - **Its own feature PR (in flight):** L24 — `padi-tui --host`: new user-visible CLI behavior can't ride a byte-identical refactor campaign (autonomous /be run dispatched 2026-07-09)
-- **Parked / gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence · L12 srid mints · L10 tracker-driven
+- **Parked / gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence · L12 srid mints · L10 tracker-driven · L29 (the typing-latency lane, a pre–campaign-1 candidate) srid revisits
 - <a id="l27"></a><a id="l17"></a><a id="l13"></a><a id="l11"></a><a id="l18"></a>**Shipped — campaigns 2 + 3, one PR (#1747, merged 2026-07-09):** L27 — `packages/server/src` re-cut, the padi hosting arm into `padi/` (the opening pure-motion commit) · L17 — chrome vocabulary split out of `vocab.ts` into `chromeVocab.ts` + `UPLOAD_VIDEO_EXTENSIONS` homed in `@kolu/padi` with the drift-guard test deleted (which also completes **L5**'s second half) · L13 — the seal's test-file flank closed (test files walked; `ALLOWED_PADI` and padi's exports reconciled) · L11 — the W4-switch interim wire scaffolding swept (`wire.ts` + the `createSharedRoot` family finalized) · L18 — session restore's boolean latches replaced by one named `HydrationPhase` signal
 - **Shipped — earlier:** L26 — the `no-overloaded-null` guardrail + the sweep's verdict (#1744, 2026-07-09); L7 — terminal-workspace re-cut into @kolu/padi + the @kolu/terminal-vocab leaf (#1734, 2026-07-09); L28's rung-1 dedup — drishti's `hostMapRegistry` clone deleted inside W6's pair (srid/drishti#92, merged); L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5 — both halves (ProcessRss in W2.2 `3b3550642`; the video-ext half via L17 in #1747)
 
@@ -301,6 +301,16 @@ Comments and READMEs across the stack still cite pulam/pulam-web as graduation e
 The rotating e2e flakes (file-drop, file-ref-link — the #1534 swallow-emit class, plus friends in the [flaky tracker](flaky-test-tracker.html)) cost every CI round retries and once masked a real regression signal during W2.2's endgame (three consecutive #5 failures had to be manually distinguished from the rotation). W2.2's screen-state reader fix (wrapped-row rejoin) helped one class. This entry is a root-cause pass over the tracker's top offenders — fix or quarantine-with-reason each, not re-tune retries.
 
 **Done when:** a full both-platform e2e run passes without retries twice consecutively, or every remaining tracked flake carries a root-cause note and a quarantine decision.
+
+<a id="l29"></a>
+
+### L29 — a repeatable typing-latency lane (campaign 1's net)
+
+*Status: parked — srid revisits (a pre–campaign-1 candidate; NOT ratified) · Lens: perf/infra · Gate: srid ratifies*
+
+In plain words: campaign 1 rewrites the pipe typing rides. A keystroke travels as the padiSurface **`sendInput` procedure** (`packages/padi/src/surface.ts:670`) and its echo comes back on the **`terminalAttach` per-subscriber byte stream** ("snapshot… as the first frame, then live output, 1:1 through each hop" — `surface.ts:645`), re-served across the padi→kolu-server hop by exactly the publish/subscribe internals the campaign rebuilds (`packages/surface/src/server.ts`; `reServeSurface`). The precedent: W2.2 measured this hop when it was introduced — **+1.3 ms p99 against a +5 ms budget** — off the #1660 baseline (p50 2.14 ms / p99 4.36 ms; the method lives in [the baseline note](padi-latency-baseline.html)). That measurement is a months-old one-off, so as things stand campaign 1 would land against no net.
+
+**The proposal (unratified):** a repeatable `just bench`-style lane reproducing the #1660 method — drive keystroke→echo through the real stack, record p50/p99 against the committed baseline, **fail loudly on a budget breach** — run before and after campaign 1, and available to any future pipe-touching change. **Done when:** the lane exists and is documented; campaign 1's PR carries its before/after numbers; a deliberately seeded delay makes the lane fail.
 
 <a id="l12"></a>
 
