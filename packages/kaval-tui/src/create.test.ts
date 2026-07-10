@@ -28,7 +28,12 @@ describe("buildCreateInput", () => {
       id: "abc",
       argv: ["/bin/zsh"],
       cwd: "/work",
-      env: { SHELL: "/bin/zsh", FOO: "bar", KAVAL_SOCKET: SOCK },
+      env: {
+        SHELL: "/bin/zsh",
+        FOO: "bar",
+        KAVAL_SOCKET: SOCK,
+        KAVAL_TERMINAL_ID: "abc",
+      },
       initFiles: [],
     });
   });
@@ -77,8 +82,24 @@ describe("buildCreateInput", () => {
       SHELL: "/bin/sh",
       KEEP: "1",
       KAVAL_SOCKET: SOCK,
+      KAVAL_TERMINAL_ID: "x",
     });
     expect("GONE" in input.env).toBe(false);
+  });
+
+  it("stamps KAVAL_TERMINAL_ID with the terminal's own id, overwriting an inherited one", () => {
+    // A process inside the terminal reads its OWN id from the env (the
+    // self-knowledge twin of KAVAL_SOCKET). If this CLI runs inside an outer
+    // kolu terminal its env already carries the OUTER id, so the stamp must win —
+    // the spawned terminal is its own, not the outer one.
+    const input = buildCreateInput({
+      id: "fresh",
+      cwd: "/",
+      env: { KAVAL_TERMINAL_ID: "OUTER" },
+      kavalSocket: SOCK,
+    });
+    expect(input.env.KAVAL_TERMINAL_ID).toBe("fresh");
+    expect(input.env.KAVAL_TERMINAL_ID).toBe(input.id);
   });
 
   it("stamps KAVAL_SOCKET, overwriting any value inherited from the env", () => {
@@ -137,13 +158,16 @@ describe("buildRemoteCreateInput", () => {
     // Presentation vars are carried (they describe the attaching terminal).
     expect(input.env.TERM).toBe("xterm-256color");
     expect(input.env.LANG).toBe("en_US.UTF-8");
-    // The whole env is exactly host-derived HOME/SHELL/PATH + the passthrough set.
+    // The whole env is exactly host-derived HOME/SHELL/PATH + the passthrough set,
+    // plus the terminal's own id (stamped for both composers — the id is the
+    // terminal's, wherever it runs).
     expect(input.env).toEqual({
       HOME: "/home/prod",
       SHELL: "/bin/bash",
       PATH: "/run/current-system/sw/bin:/usr/bin:/bin",
       TERM: "xterm-256color",
       LANG: "en_US.UTF-8",
+      KAVAL_TERMINAL_ID: "r1",
     });
   });
 
