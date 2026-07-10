@@ -83,7 +83,9 @@ import { hostHue } from "./host/hostChipTone";
 import {
   activeHost,
   activePadiRpc,
+  hostKeys,
   savedSession as serverSavedSession,
+  setActiveHost,
 } from "./wire";
 
 const App: Component = () => {
@@ -240,6 +242,9 @@ const App: Component = () => {
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
     workspaceEntries,
     recencyOf,
+    hostKeys,
+    activeHost,
+    switchHost: setActiveHost,
   });
 
   /** Canvas tile body — every tile stays mounted (`visible={true}`) so

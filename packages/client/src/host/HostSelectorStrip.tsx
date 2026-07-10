@@ -80,8 +80,9 @@ import {
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
-import { HomeIcon } from "../ui/Icons";
+import { HomeIcon, SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
+import { useCommandPalette } from "../useCommandPalette";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
   dotClass,
@@ -662,6 +663,25 @@ const AddHostAffordance: Component = () => {
   );
 };
 
+/** The host-bar search affordance — a magnifier that opens the `Switch host`
+ *  palette group (the same `⌘⇧H` fuzzy picker), mirroring the Dock's workspace
+ *  search button. Only rendered when the pool holds more than the local host. */
+const HostSearchButton: Component = () => {
+  const commandPalette = useCommandPalette();
+  return (
+    <button
+      type="button"
+      data-testid="host-search"
+      onClick={() => commandPalette.openGroup("Switch host")}
+      class="pointer-events-auto shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-lg text-fg-3 transition-colors hover:bg-surface-1/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+      aria-label="Switch host"
+      title="Switch host (⌘⇧H)"
+    >
+      <SearchIcon class="h-4 w-4" />
+    </button>
+  );
+};
+
 const HostSelectorStrip: Component = () => {
   const members = padiMap.entries.use({ onError: onHostMembershipError });
 
@@ -803,6 +823,12 @@ const HostSelectorStrip: Component = () => {
           }}
         </For>
       </div>
+
+      {/* Search/switch host — mirrors the Dock's search button, opens the
+       *  `⌘⇧H` picker. Only meaningful with more than one host in the pool. */}
+      <Show when={renderableHosts().length > 1}>
+        <HostSearchButton />
+      </Show>
 
       {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate);
        *  the alpha warning rides its popover. */}

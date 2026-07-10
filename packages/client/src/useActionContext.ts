@@ -20,7 +20,6 @@ import { useTerminalSearch } from "./terminal/useTerminalSearch";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { useCommandPalette } from "./useCommandPalette";
 import { useThemeManager } from "./useThemeManager";
-import { cycleActiveHost } from "./wire";
 
 export function useActionContext(): ActionContext {
   const store = useTerminalStore();
@@ -57,10 +56,7 @@ export function useActionContext(): ActionContext {
       if (showsWorkspaceSwitcher())
         commandPalette.openGroup("Search workspaces");
     },
-    // Pure wiring onto the factored host-activation verb — the pool-walk +
-    // canonical compare live beside the `members` authority in `wire.ts`, not
-    // re-rolled here (and no second membership subscription).
-    cycleHost: cycleActiveHost,
+    openHostSwitcher: () => commandPalette.openGroup("Switch host"),
     togglePalette: commandPalette.toggle,
     toggleShortcutsHelp: shortcutsHelp.toggle,
     toggleSearch: terminalSearch.toggleActive,

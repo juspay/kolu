@@ -108,30 +108,6 @@ describe("matchesKeybind (non-mac)", () => {
       true,
     );
   });
-
-  it("matches a combined Ctrl+Cmd chord (mod + ctrl) — BOTH required on mac", () => {
-    const kb: Keybind = { key: "n", code: "KeyN", mod: true, ctrl: true };
-    // mac: needs the physical Ctrl AND Cmd
-    expect(
-      matchesKeybind(
-        makeEvent({ code: "KeyN", ctrlKey: true, metaKey: true }),
-        kb,
-        true,
-      ),
-    ).toBe(true);
-    // mac: Ctrl alone (no Cmd) does NOT match
-    expect(
-      matchesKeybind(makeEvent({ code: "KeyN", ctrlKey: true }), kb, true),
-    ).toBe(false);
-    // mac: Cmd alone (no Ctrl) does NOT match
-    expect(
-      matchesKeybind(makeEvent({ code: "KeyN", metaKey: true }), kb, true),
-    ).toBe(false);
-    // non-mac: `mod` IS Ctrl, so the pair collapses to a plain Ctrl+N
-    expect(
-      matchesKeybind(makeEvent({ code: "KeyN", ctrlKey: true }), kb, false),
-    ).toBe(true);
-  });
 });
 
 describe("formatKeybind (non-mac)", () => {
@@ -140,8 +116,6 @@ describe("formatKeybind (non-mac)", () => {
     { kb: { key: "Tab", ctrl: true }, expected: "Ctrl+Tab" },
     { kb: { key: "]", mod: true, shift: true }, expected: "Ctrl+Shift+]" },
     { kb: { key: "b", mod: true, alt: true }, expected: "Ctrl+Alt+B" },
-    // Ctrl+Cmd collapses to a single "Ctrl" off-mac (mod IS Ctrl there).
-    { kb: { key: "n", mod: true, ctrl: true }, expected: "Ctrl+N" },
     { kb: { key: "t" }, expected: "T" },
     { kb: { key: "k", mod: true }, expected: "Ctrl+K" },
   ] as const)("formatKeybind → $expected", ({ kb, expected }) => {
@@ -159,10 +133,6 @@ describe("platform injection (isMac param overrides the detected platform)", () 
       "⌘⇧]",
     );
     expect(formatKeybind({ key: "Tab", ctrl: true }, true)).toBe("⌃Tab");
-    // Ctrl+Cmd shows both glyphs on mac.
-    expect(formatKeybind({ key: "n", mod: true, ctrl: true }, true)).toBe(
-      "⌃⌘N",
-    );
   });
 
   it("formatKeybind still renders Ctrl when isMac=false", () => {

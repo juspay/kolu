@@ -356,11 +356,12 @@ set -> canvas
 The **craft pass (§2)** shipped in <PrLink pr={1743} />: per-host identity hue on
 the tabs *and* a faint wash across the canvas floor, a neutral borderless header,
 the seam dissolve, the daemon glyphs quieting at rest, a dots grid, and a house
-glyph disambiguating the local host. That PR also **ungated** remote hosts (the
-"+" is always present, alpha-warned at point of use) and added **keyboard
-switching** — though the shipped chord is a direct **`Ctrl+Cmd+N` host-cycle**, not
-the `⌘⇧H` palette switcher this note proposed; the switcher and the two paradigms
-(**the room** §3, **the host map** §4) remain open directions. The hue derivation
-landed as the shared <Cite file="packages/common/src/hostHue.ts" /> the PWA
+glyph disambiguating the local host. The **`⌘⇧H` switcher (§5)** shipped as
+proposed — a fuzzy "Switch host" palette group mirroring `⌘⇧K`, reached by the
+chord or a search icon in the host bar. That PR also **ungated** remote hosts (the
+"+" is always present, alpha-warned at point of use). The two paradigms — **the
+room** (§3) and **the host map** (§4) — remain open directions, as does the
+switcher's awaiting-you sort. The hue derivation landed as the shared
+<Cite file="packages/common/src/hostHue.ts" /> the PWA
 theme-color also draws from.
 </Callout>

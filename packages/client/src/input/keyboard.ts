@@ -59,16 +59,13 @@ export function matchesKeybind(
   } else if (e.altKey) {
     return false;
   }
-  // `ctrl` and `mod` are independent requirements now (not either/or): a chord
-  // can demand the physical Ctrl key AND the platform modifier at once — e.g.
-  // Ctrl+Cmd on macOS (`{ ctrl: true, mod: true }`). On non-mac `mod` IS Ctrl,
-  // so the pair collapses to a plain Ctrl chord.
-  if (kb.ctrl && !e.ctrlKey) return false;
-  if (kb.mod && !isPlatformModifier(e, isMac)) return false;
-  // Reject an unclaimed platform modifier — but only when nothing in the chord
-  // wants it (no mod, no ctrl, no alt).
-  if (!kb.mod && !kb.ctrl && !kb.alt && isPlatformModifier(e, isMac))
-    return false;
+  if (kb.ctrl) {
+    // ctrl: always the physical Ctrl key
+    if (!e.ctrlKey) return false;
+  } else {
+    if (kb.mod && !isPlatformModifier(e, isMac)) return false;
+    if (!kb.mod && !kb.alt && isPlatformModifier(e, isMac)) return false;
+  }
   if (!kb.shiftOptional) {
     if (kb.shift && !e.shiftKey) return false;
     if (!kb.shift && e.shiftKey) return false;
@@ -105,11 +102,7 @@ export function keybindAsEvent(
 export function formatKeybind(kb: Keybind, isMac = detectedIsMac): string {
   const parts: string[] = [];
   if (kb.ctrl) parts.push(isMac ? "⌃" : "Ctrl");
-  // `mod` is Cmd on mac (shown alongside a ⌃ when both are set — Ctrl+Cmd) and
-  // Ctrl elsewhere (so it collapses into the single "Ctrl" already shown when
-  // `ctrl` is also set — don't print it twice).
-  if (kb.mod && isMac) parts.push("⌘");
-  else if (kb.mod && !kb.ctrl) parts.push("Ctrl");
+  else if (kb.mod) parts.push(isMac ? "⌘" : "Ctrl");
   if (kb.alt) parts.push(isMac ? "⌥" : "Alt");
   if (kb.shift) parts.push(isMac ? "⇧" : "Shift");
   const displayKey = kb.key.length === 1 ? kb.key.toUpperCase() : kb.key;
