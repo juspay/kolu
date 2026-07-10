@@ -75,7 +75,7 @@ import {
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
 // spread) — there is no `PadiBindingSession` class.
 import type { PadiSession } from "./padiSession.ts";
-import { buildAppRouter } from "./router.ts";
+import { buildAppRouter } from "../router.ts";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
  *  (the drain path logs at info/warn/error; the test keeps stdout clean). */

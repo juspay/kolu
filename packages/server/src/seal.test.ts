@@ -37,49 +37,64 @@ const ENTRY = resolve(SRC, "index.ts");
 /** The EXACT set of non-test `.ts` modules that may live under
  *  `packages/server/src` after the seal — the web shell and nothing else. A new
  *  file here is a conscious decision: either it is web-shell code (add it) or it
- *  is terminal-domain code that belongs in `@kolu/padi` (the seal caught it). */
+ *  is terminal-domain code that belongs in `@kolu/padi` (the seal caught it).
+ *
+ *  The **padi hosting arm** — the binder cluster (local + remote), its convergence
+ *  declaration, session shape, link projection, and the pool satellites
+ *  (`reServeEviction`, `supervisorClaim`, `daemonInventory`) — lives under the
+ *  `padi/` subdirectory (W4 ledger L27: the arm co-varies on every remote/switch
+ *  phase, so it earns its own home). It is STILL web-shell code (it re-serves
+ *  padi's surface; it runs no terminal domain), so these modules stay inside the
+ *  seal — just under `padi/`. The serving shell and the true leaves stay top-level. */
 const WEB_SHELL_FILES = [
+  // ── the padi hosting arm (packages/server/src/padi/) ──
   // The read-only host-daemon inventory sampler — the web shell's diagnostic
   // enumeration of every running kaval + padi (reusing kaval/padi discovery), marking
   // kolu's active one. Shell code (it publishes koluSurface's `daemonInventory` cell,
   // runs no terminal domain), not a terminal-domain module.
-  "daemonInventory",
-  "hostname",
-  "iframePreviewRoute",
-  "index",
-  "log",
-  "memorySampler",
+  "padi/daemonInventory",
   // The W2.2 padi BINDER — the web shell's supervisor/client of the padi PROCESS
   // (spawn/adopt + dial + the reconnect-mirror session `reServeSurface` consumes).
   // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives
   // beside the shell, not in @kolu/padi.
-  "padiBinding",
+  "padi/padiBinding",
   // padi's CONVERGENCE declaration into the shared daemon-convergence kit (the
   // contract-skew policy, the frozen-control-core probe, the drain plumbing) —
   // carved out of `padiBinding` in W4 ledger L6 as its own volatility. Web-shell
   // code (it declares padi's policy + adapts its hello; the kit owns the mechanism),
   // so it lives beside the binder, not in @kolu/padi.
-  "padiConvergence",
+  "padi/padiConvergence",
   // The W3.1 REMOTE padi binder — the ssh twin of `padiBinding`: it fronts a padi on
   // another host over `getHostSession`/`padi --stdio` and re-serves its surface through
   // the SAME `reServeSurface` seam. Web-shell code (it runs no terminal domain — it
   // re-serves a remote padi's), so it lives beside the shell, not in @kolu/padi.
-  "remotePadiBinding",
+  "padi/remotePadiBinding",
   // The stale-reserve-on-flap eviction: prunes `index.ts`'s per-host `reServeSurface`
   // mirror cache to the pool's live membership (wired to `pool.subscribe`), so a guest
   // remove→re-add of the same key builds a FRESH mirror over the new session rather than
   // reusing the dead one pinned to the destroyed session (#1708). Web-shell glue (a cache
   // prune keyed by pool membership), not terminal domain.
-  "reServeEviction",
+  "padi/reServeEviction",
   // The padi SESSION shape both arms return (post-S9): a base `Session` from
   // `makeSession` + the daemon-supervision members by spread — no `BoundPadi`, no
   // wrapper class. Web-shell glue (the arms' shared session type + spread helper).
-  "padiSession",
+  "padi/padiSession",
   // The pure `SessionState.phase` → koluSurface `padiLink` mapping — the web
   // shell's own honest view of its binding to padi (#1034), driven off the binding
   // session. Shell code (a projection of the binder's state onto kolu-server's OWN
   // surface), not terminal domain.
-  "padiLink",
+  "padi/padiLink",
+  // The P0 local-supervisor ownership gate — the web shell's own "only one
+  // kolu-server supervises this padi state root" fence (a `supervisor.pid` claim
+  // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
+  // ownership; runs no terminal domain), so it lives beside the binder.
+  "padi/supervisorClaim",
+  // ── the serving shell + true leaves (top-level) ──
+  "hostname",
+  "iframePreviewRoute",
+  "index",
+  "log",
+  "memorySampler",
   "pwaIdentity",
   // The web shell's catch-all `app.onError` logger — turns an uncaught route/
   // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview
@@ -88,11 +103,6 @@ const WEB_SHELL_FILES = [
   "routeErrors",
   "router",
   "state",
-  // The P0 local-supervisor ownership gate — the web shell's own "only one
-  // kolu-server supervises this padi state root" fence (a `supervisor.pid` claim
-  // reusing the daemon pid-gate). Shell/supervisor code (it guards the binder's
-  // ownership; runs no terminal domain), so it lives beside the binder.
-  "supervisorClaim",
   "surface",
   "tls",
 ].sort();

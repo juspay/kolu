@@ -59,7 +59,7 @@ import {
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import { type WebSocket, WebSocketServer } from "ws";
-import { startDaemonInventorySampler } from "./daemonInventory.ts";
+import { startDaemonInventorySampler } from "./padi/daemonInventory.ts";
 import {
   serverHostname,
   serverProcessId,
@@ -73,22 +73,25 @@ import {
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
-import { ensurePadiBinding, handlePadiBootFailure } from "./padiBinding.ts";
-import { mapConnectionToPadiLink } from "./padiLink.ts";
-import type { PadiSession } from "./padiSession.ts";
+import {
+  ensurePadiBinding,
+  handlePadiBootFailure,
+} from "./padi/padiBinding.ts";
+import { mapConnectionToPadiLink } from "./padi/padiLink.ts";
+import type { PadiSession } from "./padi/padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import {
   assertRemovableHost,
   ensureRemotePadiBinding,
   parseKoluPadiHostSeed,
-} from "./remotePadiBinding.ts";
-import { pruneToMembers } from "./reServeEviction.ts";
+} from "./padi/remotePadiBinding.ts";
+import { pruneToMembers } from "./padi/reServeEviction.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
 import { buildAppRouter } from "./router.ts";
 import {
   claimLocalSupervisor,
   supervisorConflictError,
-} from "./supervisorClaim.ts";
+} from "./padi/supervisorClaim.ts";
 import { koluSurfaceCtx, koluSurfaceRouter } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
