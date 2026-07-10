@@ -9,6 +9,7 @@
     "./surface": "./src/surface.ts",
     "./surfacesWithPadi": "./src/surfacesWithPadi.ts",
     "./hostKey": "./src/hostKey.ts",
+    "./hostHue": "./src/hostHue.ts",
     "./contract": "./src/contract.ts",
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",

@@ -45,7 +45,6 @@ import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
   DaemonInventory,
-  HostMapGate,
   KoluBuildInfo,
   PadiLink,
   Preferences,
@@ -217,20 +216,6 @@ const daemonInventoryCellStore = {
   },
 };
 
-// ── hostMapGate cell: the multi-host feature gate (KOLU_PADI_HOST seeds a remote) ──
-//
-// Server-authored: set ONCE at boot from `isMultiHost()` (`index.ts`); clients read it
-// to render the selector strip (env-unset → `enabled: false` → zero multi-host UI). A
-// live signal, in-memory (no on-disk slot); the `false` seed is the honest single-host
-// default before the boot write.
-let currentHostMapGate: HostMapGate = { enabled: false };
-const hostMapGateCellStore = {
-  get: (): HostMapGate => currentHostMapGate,
-  set: (value: HostMapGate): void => {
-    currentHostMapGate = value;
-  },
-};
-
 // ── kolu's own-surface implementation deps (concretely typed) ───────────
 //
 // Typed against `koluSurface.spec` so every stream `read(input)` / collection
@@ -302,12 +287,6 @@ const koluDeps: Omit<
       // JSON compare is fine (the lists are tiny, a handful of daemons at most).
       store: daemonInventoryCellStore,
       equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
-    },
-    hostMapGate: {
-      // Server-authored boot constant; the in-memory store has no persistent slot. Set
-      // once from `isMultiHost()` (`index.ts`). `equals` dedups the single identity write.
-      store: hostMapGateCellStore,
-      equals: (a, b) => a.enabled === b.enabled,
     },
   },
 };

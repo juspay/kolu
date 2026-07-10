@@ -80,7 +80,6 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import {
   assertRemovableHost,
   ensureRemotePadiBinding,
-  isMultiHost,
   parseKoluPadiHostSeed,
 } from "./remotePadiBinding.ts";
 import { pruneToMembers } from "./reServeEviction.ts";
@@ -460,10 +459,6 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   causeFor: (_host, session) =>
     session.entryFailedDetail() ?? { cause: "other" },
 });
-
-// Publish the multi-host gate as a cell — the client reads THIS to render the selector
-// strip (env-unset → false → zero multi-host UI). The client NEVER reads env directly.
-koluSurfaceCtx.cells.hostMapGate.set({ enabled: isMultiHost() });
 
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own
 // siblings. `serveHostMap` returns a top-level single-surface router

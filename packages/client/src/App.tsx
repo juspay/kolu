@@ -79,7 +79,14 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { activePadiRpc, savedSession as serverSavedSession } from "./wire";
+import { hostHue } from "./host/hostChipTone";
+import {
+  activeHost,
+  activePadiRpc,
+  hostKeys,
+  savedSession as serverSavedSession,
+  setActiveHost,
+} from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -235,6 +242,9 @@ const App: Component = () => {
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
     workspaceEntries,
     recencyOf,
+    hostKeys,
+    activeHost,
+    switchHost: setActiveHost,
   });
 
   /** Canvas tile body — every tile stays mounted (`visible={true}`) so
@@ -385,13 +395,19 @@ const App: Component = () => {
       {/* relative: anchor for overlay panels.
        *  --active-terminal-{bg,fg} published here so child components
        *  can read them via CSS without prop drilling. The fg lets sub-
-       *  components re-tune text tiers against the terminal theme. */}
+       *  components re-tune text tiers against the terminal theme.
+       *  --canvas-hue is the ACTIVE host's identity hue, published on this
+       *  ONE wrapper that spans every canvas surface (empty · populated ·
+       *  connecting · degraded · host-down) so the `.canvas-grid-bg` floor
+       *  in ALL of them picks it up by inheritance and re-tints reactively
+       *  the instant `activeHost` changes — no per-surface wiring. */}
       <div
         class="relative flex flex-1 min-h-0"
         style={{
           "--active-terminal-bg":
             activeTheme().background ?? "var(--color-surface-1)",
           "--active-terminal-fg": activeTheme().foreground ?? "var(--color-fg)",
+          "--canvas-hue": hostHue(activeHost()),
         }}
       >
         {/* Exactly one canvas surface, chosen by `canvasMode` — a total,
