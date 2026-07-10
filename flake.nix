@@ -121,6 +121,9 @@
               # kolu's codex provider requires, so its detection stays disabled.
               # See nix/packages/codex-pinned.nix.
               (import ./nix/packages/codex-pinned.nix { inherit pkgs; })
+              # Real Claude Code (unfree; scoped-allowUnfree import) for the
+              # claude live-state e2e — talks to ollama's /v1/messages.
+              (import ./nix/packages/claude-code.nix { inherit pkgs; })
             ];
             env = (prev.env or { }) // {
               PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;

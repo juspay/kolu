@@ -59,15 +59,6 @@ const mkSubDir = (name: string) => {
   return dir;
 };
 
-/** Per-worker temp dirs for the Claude Code mock harness — see
- *  `claude_code_steps.ts`. Sharing one dir across all eight cucumber
- *  workers (the previous setup, exported once before `pnpm test`) puts
- *  enough inotify pressure on the server's `fs.watch(SESSIONS_DIR)` that
- *  events get dropped under load and detection silently misses the mock
- *  session. Each worker getting its own dir eliminates the contention. */
-const claudeSessionsDir = mkSubDir("claude-sessions");
-const claudeProjectsDir = mkSubDir("claude-projects");
-
 /** Per-worker temp root for the OpenCode mock harness — see
  *  `opencode_steps.ts`. The provider keys off `state.cwd`, so the fixture DB
  *  rows carry a cwd that the scenario also `cd`s into so
@@ -143,6 +134,16 @@ const grokDir = RECORDING ? undefined : mkSubDir("grok");
 // unconditional shape: codex-on-ollama is the default, no mock branch for codex
 // STATE. RECORDING keeps the real home and unsets everything.
 const codexDir = fixtureHome ? path.join(fixtureHome, ".codex") : undefined;
+// Claude, like codex, uses the throwaway home's REAL default `~/.claude/*`:
+// real claude (the live-state scenarios) writes there, and the surviving mock
+// scenarios point their KOLU_CLAUDE_*_DIR overrides at the SAME paths, so one
+// unconditional shape covers both. RECORDING keeps the real home.
+const claudeSessionsDir = fixtureHome
+  ? path.join(fixtureHome, ".claude", "sessions")
+  : undefined;
+const claudeProjectsDir = fixtureHome
+  ? path.join(fixtureHome, ".claude", "projects")
+  : undefined;
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
   string | undefined
@@ -225,6 +226,45 @@ if (!RECORDING && fixtureHome) {
   // instead (the nix wrapper is self-contained, so it runs fine off-PATH). If
   // codex isn't resolvable here the lane can't run — fail loud.
   process.env.KOLU_E2E_CODEX_BIN = execSync("command -v codex", {
+    encoding: "utf8",
+  }).trim();
+
+  // Claude: same shape as codex. claude-code speaks the Anthropic Messages API,
+  // which ollama serves at /v1/messages, so point ANTHROPIC_BASE_URL at ollama's
+  // ROOT (claude appends /v1/messages). These MUST be real process env — claude
+  // does NOT apply settings.json's `env` to its API base URL — so they're set on
+  // process.env here (the server child inherits them) and added to the PTY
+  // whitelist in startServerChild so they reach the terminal claude runs in.
+  // `.claude.json` pre-clears claude's first-run gates (onboarding, theme,
+  // folder-trust) so it boots straight to the prompt. The "small/fast" model
+  // (claude's background summaries) is the same tiny model; ollama ignores auth.
+  const claudeHome = path.join(fixtureHome, ".claude");
+  fs.mkdirSync(claudeHome, { recursive: true });
+  process.env.ANTHROPIC_BASE_URL = baseUrl.replace(/\/v1\/?$/, "");
+  process.env.ANTHROPIC_AUTH_TOKEN = "kolu-e2e-ollama";
+  process.env.ANTHROPIC_MODEL = model;
+  process.env.ANTHROPIC_SMALL_FAST_MODEL = model;
+  process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
+  fs.writeFileSync(
+    path.join(fixtureHome, ".claude.json"),
+    JSON.stringify(
+      {
+        hasCompletedOnboarding: true,
+        theme: "dark",
+        bypassPermissionsModeAccepted: true,
+        projects: {
+          [fixtureHome]: {
+            hasTrustDialogAccepted: true,
+            hasCompletedProjectOnboarding: true,
+            allowedTools: [],
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  process.env.KOLU_E2E_CLAUDE_BIN = execSync("command -v claude", {
     encoding: "utf8",
   }).trim();
 }
@@ -811,9 +851,17 @@ async function startServerChild(koluServer: string): Promise<void> {
   // git commit` inside the terminal under test) inherit the same
   // identity set on process.env above. Without this, the whitelist
   // filter strips them and those scenarios fail on pristine hosts.
+  //
+  // ANTHROPIC_*/CLAUDE_CODE_* likewise must reach the PTY: the real `claude`
+  // the live-state scenario launches reads ANTHROPIC_BASE_URL from its own
+  // process env to find ollama's /v1/messages (claude does NOT honor
+  // settings.json's `env` for that). hooks.ts sets them on process.env; the
+  // server child inherits them, and this whitelist lets them cross into the
+  // terminal. Harmless everywhere else (only claude reads them).
   const envWhitelist = [
     NIX_ENV_WHITELIST,
     "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
+    "ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN,ANTHROPIC_MODEL,ANTHROPIC_SMALL_FAST_MODEL,CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
   ].join(",");
   // Append-mode per-worker server log: a server that dies mid-run otherwise
   // leaves NO trace in the suite log; the file preserves the crash stack /
