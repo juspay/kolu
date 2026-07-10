@@ -1,3 +1,20 @@
+// E2E EXEMPTION (srid's stage-5 ruling, token OLLAMA-E2E-R3W7). These pure
+// derivations are the sanctioned unit coverage for the two codex crafted-mock
+// scenarios that a real turn on a CI-runnable model can't reproduce:
+//
+//   - parseRolloutState → tool_use (MODEL-EMISSION-GATED): needs codex to emit a
+//     function_call, which no CI-runnable ollama model does (the stages-3/4
+//     five-config proof; see the opencode/grok tool_use exemptions). The mock
+//     e2e is deleted.
+//   - parseRolloutContextTokens → the exact per-turn / no-double-count-cache
+//     arithmetic: a real turn can't pin an exact figure (cached_input_tokens
+//     especially isn't forceable). The BEHAVIORAL half — "a real turn's token
+//     count increased" — IS ported to codex-real.feature (non-zero badge); the
+//     exact arithmetic (input_tokens is per-turn not cumulative; cached is not
+//     double-counted) stays here.
+//
+// RESUMPTION: when a CI runner can serve a tool-capable model, port tool_use to
+// codex-real; the token arithmetic stays a unit concern regardless.
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
