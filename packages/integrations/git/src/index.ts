@@ -17,7 +17,13 @@ export {
 // Config watcher (refcounted shared singleton — remote-URL changes)
 export { watchGitConfig } from "./config-watcher.ts";
 // Error types
-export { err, type GitError, type GitResult, ok } from "./errors.ts";
+export {
+  err,
+  type GitError,
+  type GitResult,
+  isFileGoneError,
+  ok,
+} from "./errors.ts";
 // HEAD watcher (refcounted shared singleton)
 export { watchGitHead } from "./head-watcher.ts";
 // Index watcher (refcounted shared singleton, axis 3)
