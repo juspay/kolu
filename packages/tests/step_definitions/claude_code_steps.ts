@@ -51,8 +51,22 @@ const FORK_SUBAGENT_ID = "aimplement-it-test00000000000000";
 // Read these lazily rather than at module load — `hooks.ts` sets per-worker
 // temp dirs on `process.env`, and cucumber's step/support module import
 // order is not guaranteed, so a top-level capture here would race.
-const getSessionsDir = () => process.env.KOLU_CLAUDE_SESSIONS_DIR;
-const getProjectsDir = () => process.env.KOLU_CLAUDE_PROJECTS_DIR;
+// The dock @claude-mock scenarios still write crafted claude sessions; they land
+// at the throwaway home's REAL default ~/.claude/{sessions,projects} (the same
+// HOME-based path the provider reads) — no KOLU_CLAUDE_*_DIR override knob. (Whether
+// these dock UI tests keep an agent mock at all is a pending srid scope decision.)
+const claudeDir = () => {
+  const home = process.env.KOLU_E2E_FIXTURE_HOME;
+  return home ? path.join(home, ".claude") : undefined;
+};
+const getSessionsDir = () => {
+  const dir = claudeDir();
+  return dir ? path.join(dir, "sessions") : undefined;
+};
+const getProjectsDir = () => {
+  const dir = claudeDir();
+  return dir ? path.join(dir, "projects") : undefined;
+};
 
 /** Get the terminal shell PID by reading the xterm buffer after `echo $$`. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {

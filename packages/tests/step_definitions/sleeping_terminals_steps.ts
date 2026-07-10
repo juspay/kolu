@@ -27,13 +27,18 @@
 import * as assert from "node:assert";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { LOCAL_LOCATION, type SavedSleepingTerminal } from "@kolu/padi/surface";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { padiFold } from "../support/padiEnvelope.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { codexMockCwd } from "./codex_steps.ts";
+
+/** The real codex thread id recorded before sleep (from `~/.codex/state_5.sqlite`),
+ *  asserted to be the id the woken terminal resumes by — the dynamic-id form of
+ *  the SAME-conversation proof (the mock used a fixed id). */
+let recordedCodexThreadId = "";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const CANVAS_TILE_SELECTOR = '[data-testid="canvas-tile"]';
@@ -243,27 +248,40 @@ Then("the slept terminal should be sleeping", async function (this: KoluWorld) {
   await waitForSleeping(this, id);
 });
 
-Then(
-  "the dormant tile should show its saved working directory",
-  async function (this: KoluWorld) {
-    // The dormant body surfaces the LAST-KNOWN metadata frozen at sleep — here
-    // the cwd the codex mock `cd`'d the terminal into. Assert the `dormant-cwd`
-    // line, scoped to THIS slept tile, reports that saved cwd (its unique leaf).
-    const id = sleptIdByWorld.get(this);
-    assert.ok(id, "No slept terminal id captured — call the sleep step first");
-    const leaf = path.basename(codexMockCwd());
-    await this.page.waitForFunction(
-      ({ sel, tileId, want }) => {
-        const el = document.querySelector(
-          `${sel}[data-terminal-id="${tileId}"] [data-testid="dormant-cwd"]`,
-        );
-        return (el?.textContent ?? "").includes(want);
-      },
-      { sel: CANVAS_TILE_SELECTOR, tileId: id, want: leaf },
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
+When("I record the real Codex session id", async function (this: KoluWorld) {
+  // Read the real codex thread id from the throwaway home's state DB — the id the
+  // server captures and replays as `codex resume <id>` on wake. Poll: the thread
+  // row lands once codex's first turn writes it. Asserting THIS id after wake is
+  // the dynamic-id form of the SAME-conversation proof (the mock used a fixed id).
+  const home = process.env.KOLU_E2E_FIXTURE_HOME;
+  assert.ok(
+    home,
+    "KOLU_E2E_FIXTURE_HOME unset — the real-agent home isn't seeded",
+  );
+  const dbPath = path.join(home, ".codex", "state_5.sqlite");
+  const readLatestThreadId = (): string | null => {
+    try {
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      const row = db
+        .prepare("SELECT id FROM threads ORDER BY rowid DESC LIMIT 1")
+        .get() as { id?: string } | undefined;
+      db.close();
+      return row?.id ?? null;
+    } catch {
+      return null; // DB not written yet
+    }
+  };
+  await pollFor({
+    observe: () => readLatestThreadId(),
+    isDone: (id) => typeof id === "string" && id.length > 0,
+    onTimeout: () =>
+      new Error(`No codex thread id in ${dbPath} — codex wrote no session`),
+    timeoutMs: 30_000,
+  });
+  const id = readLatestThreadId();
+  assert.ok(id, "codex thread id vanished after poll");
+  recordedCodexThreadId = id;
+});
 
 Then("the slept terminal should be live", async function (this: KoluWorld) {
   const id = sleptIdByWorld.get(this);
@@ -423,28 +441,24 @@ Then(
 );
 
 Then(
-  "the woken terminal should resume in the same working directory",
+  "the woken terminal should replay the recorded Codex resume invocation",
   async function (this: KoluWorld) {
-    // The re-spawned PTY must come back in the agent's SAVED cwd — the runtime
-    // cwd the live cwd-sensor tracked (the mock `cd`'d the terminal there before
-    // launching the agent), persisted on the sleeping arm and replayed by `wake`
-    // (`cwd: meta.cwd`). A resume into a default/wrong cwd is exactly the hole
-    // this guards. The codex MOCK can't reliably prove this via its indicator: its
-    // fake `codex` is reached by ABSOLUTE PATH while the replayed `codex resume
-    // <session-id>` resume form runs the bare-word `codex`, so `matchesAgent` can't
-    // depend on it re-lighting from the resume. So prove the cwd DIRECTLY
-    // and mock-independently — run `pwd` in the now-live woken terminal and
-    // assert it reports the saved cwd. Scope the buffer read to THIS tile's id.
+    // The SAME-conversation proof, dynamic-id form: on wake the server re-spawns
+    // the PTY on the SAME id and TYPES the agent's resume form — `codex resume
+    // <thread-id>` — into it, where <thread-id> is the id we recorded from the
+    // real session BEFORE sleep. A fresh/blank agent would type NOTHING, and a
+    // wrong-session resume would carry a different id; finding the EXACT recorded
+    // id in the woken tile's buffer is what neither could produce.
+    assert.ok(
+      recordedCodexThreadId,
+      "No codex thread id recorded — call the record step before sleeping",
+    );
     const id = sleptIdByWorld.get(this);
     assert.ok(id, "No slept/woken terminal id captured");
-    await this.terminalRun("pwd");
+    const want = `codex resume ${recordedCodexThreadId}`;
     const scopedSelector = `${CANVAS_TILE_SELECTOR}[data-terminal-id="${id}"] [data-terminal-id][data-visible]`;
-    // Match the unique temp-dir leaf, not the full path: a long absolute path
-    // wraps across xterm rows (the buffer reader joins visual lines with "\n"),
-    // but the short mkdtemp leaf lands intact at the tail of the `pwd` output.
-    const wantCwdLeaf = path.basename(codexMockCwd());
     try {
-      await waitForBufferContains(this.page, wantCwdLeaf, {
+      await waitForBufferContains(this.page, want, {
         selector: scopedSelector,
       });
     } catch {
@@ -452,9 +466,8 @@ Then(
         () => "",
       );
       throw new Error(
-        `Woken terminal's \`pwd\` never reported the saved cwd (…/${wantCwdLeaf}) ` +
-          `— resume landed in the wrong cwd, not where the agent was slept. ` +
-          `Buffer:\n${dump.slice(0, 800)}`,
+        `Woken terminal never replayed "${want}" — a fresh/blank or wrong-session ` +
+          `resume could never produce the recorded id. Buffer:\n${dump.slice(0, 800)}`,
       );
     }
   },
