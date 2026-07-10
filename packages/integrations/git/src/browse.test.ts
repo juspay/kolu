@@ -129,6 +129,23 @@ describe("filePreviewTag — preview cache-buster", () => {
     expect(after.value).not.toBe(before.value);
   });
 
+  it("hashes the WHOLE file — a tail-only edit past 32 MiB still moves the tag", async () => {
+    // A large previewable HTML/PDF (a generated report) can exceed any prefix
+    // cutoff. The tag must reflect the file's FULL content, not a leading slice:
+    // an edit confined to the tail — same size, identical first 32 MiB — must
+    // still move the tag, or a big scrollable preview would silently freeze on
+    // stale bytes. Guards against a size-capped / leading-bytes-only shortcut.
+    const p = path.join(tmpDir, "big.html");
+    const head = Buffer.alloc(40 * 1024 * 1024, 0x61); // 40 MiB of 'a'
+    fs.writeFileSync(p, Buffer.concat([head, Buffer.from("<!-- tail A -->")]));
+    const before = await filePreviewTag(tmpDir, "big.html");
+    fs.writeFileSync(p, Buffer.concat([head, Buffer.from("<!-- tail B -->")]));
+    const after = await filePreviewTag(tmpDir, "big.html");
+    expect(before.ok && after.ok).toBe(true);
+    if (!before.ok || !after.ok) return;
+    expect(after.value).not.toBe(before.value);
+  });
+
   it("keeps the tag STABLE when the file is rewritten with identical bytes (git checkout / atomic rewrite)", async () => {
     // The reported regression: a preview scrolled to the middle reloads and
     // jumps to the top at "random" times while a remote terminal grinds a PR

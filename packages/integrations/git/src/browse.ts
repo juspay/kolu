@@ -6,7 +6,7 @@
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { open as fsOpen, readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import { open as fsOpen, readFile as fsReadFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
 import { err, type GitResult, ok } from "./errors.ts";
@@ -128,12 +128,6 @@ export async function readFile(
   }
 }
 
-/** Cap on the bytes fed to the preview-tag hash (32 MiB). Below it the whole
- *  file is hashed; above it only the size + this many leading bytes, so a
- *  multi-GB previewable video never lands whole in the serving padi's heap —
- *  honoring serve-dir's never-buffer invariant on the identity path too. */
-const MAX_TAG_HASH_BYTES = 32 * 1024 * 1024;
-
 /** A cache-buster TAG for the iframe preview URL (the `?v=<tag>` on the binary
  *  route). The contract: the tag changes **iff the file's bytes change**, so an
  *  edit reloads the preview but an identical-content rewrite does NOT. The
@@ -143,10 +137,27 @@ const MAX_TAG_HASH_BYTES = 32 * 1024 * 1024;
  *
  *  So the tag is a hash of the CONTENT, not the mtime: the file's bytes are the
  *  honest identity of "has this preview changed?", where mtime is only a proxy
- *  that a working-tree re-materialization falsely trips. The bytes are read once
- *  per on-disk *change* (the `subscribeFileChange` pulse is debounced and fires
- *  only on real repo events, never on a timer), and only for the bounded set of
- *  binary-previewable kinds. Same path-traversal guard as `readFile`. */
+ *  that a working-tree re-materialization falsely trips. The WHOLE file is
+ *  hashed — no size cutoff, no leading-bytes shortcut — so a tail-only edit of a
+ *  large previewable file (a 40 MiB generated HTML report, a big PDF) is never
+ *  silently missed: every previewable kind reflects its full content, not a
+ *  prefix that a mid/tail edit leaves untouched.
+ *
+ *  Bounded heap regardless of size: the bytes stream through one open handle in
+ *  the read-stream's fixed-size chunks (`createReadStream`'s default 64 KiB
+ *  highWaterMark), fed to the hash chunk-by-chunk — so even a multi-GB video is
+ *  hashed without ever landing whole in the (possibly remote) padi heap,
+ *  honoring serve-dir's never-buffer invariant on this identity path too. The
+ *  single open handle pins ONE inode: an atomic write-and-rename mid-hash yields
+ *  a consistent snapshot of the file we opened, never a torn stat/read pair
+ *  where the size and the bytes describe different inodes (the same reason
+ *  serve-dir derives size + body from one `open`, not a `stat(path)` then a
+ *  separate read of the path).
+ *
+ *  The bytes are read once per on-disk *change* (the `subscribeFileChange` pulse
+ *  is debounced and fires only on real repo events, never on a timer), and only
+ *  for the bounded set of binary-previewable kinds. Same path-traversal guard as
+ *  `readFile`. */
 export async function filePreviewTag(
   repoPath: string,
   filePath: string,
@@ -154,45 +165,37 @@ export async function filePreviewTag(
 ): Promise<GitResult<string>> {
   const resolved = await resolveExistingUnder(repoPath, filePath, log);
   if (!resolved.ok) return resolved as GitResult<string>;
+  const abs = resolved.value.abs;
   try {
-    const { size } = await fsStat(resolved.value.abs);
     const hash = createHash("sha1");
-    if (size <= MAX_TAG_HASH_BYTES) {
-      // Small enough to hash whole — the honest byte identity, stable across an
-      // identical-content rewrite. Covers every realistic scrollable/raster
-      // preview (html/svg/pdf/image), where the scroll-preservation fix lives.
-      hash.update(await fsReadFile(resolved.value.abs));
-    } else {
-      // Too big to slurp (a previewable multi-GB video): hash the size plus only
-      // the first MAX_TAG_HASH_BYTES, streamed into a fixed buffer so the body
-      // never lands whole in the (possibly remote) padi heap on a
-      // `subscribeFileChange` pulse. Stays stable across an identical-content
-      // rewrite (same size + same prefix); the only miss is a same-size
-      // mid/tail-only video edit — a harmless missed reload for a kind that
-      // doesn't scroll anyway.
-      hash.update(String(size));
-      const fh = await fsOpen(resolved.value.abs, "r");
-      try {
-        const buf = Buffer.allocUnsafe(MAX_TAG_HASH_BYTES);
-        let off = 0;
-        while (off < MAX_TAG_HASH_BYTES) {
-          const { bytesRead } = await fh.read(
-            buf,
-            off,
-            MAX_TAG_HASH_BYTES - off,
-            off,
-          );
-          if (bytesRead === 0) break;
-          off += bytesRead;
-        }
-        hash.update(buf.subarray(0, off));
-      } finally {
-        await fh.close();
+    // One open handle for the whole read: size-and-bytes-from-one-inode (no
+    // TOCTOU on an atomic replace) and a bounded, streamed hash (never a
+    // whole-file slurp, whatever the size). `autoClose: false` so the `finally`
+    // owns the handle's close deterministically.
+    const fh = await fsOpen(abs, "r");
+    try {
+      for await (const chunk of fh.createReadStream({ autoClose: false })) {
+        hash.update(chunk as Buffer);
       }
+    } finally {
+      await fh.close();
     }
     return ok(hash.digest("hex"));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    // A file deleted while the Code tab is viewing it (ENOENT) is EXPECTED — the
+    // delete-while-viewing race servePadi maps to a typed NOT_FOUND — so it logs
+    // at debug, not error. Any other failure is a genuine, unexpected preview
+    // I/O fault and MUST surface at error level for operators (errors-must-log-
+    // at-error).
+    const isGone =
+      (e as { code?: string } | null)?.code === "ENOENT" ||
+      /ENOENT|no such file/i.test(msg);
+    if (isGone) {
+      log?.debug({ err: msg, repoPath, filePath }, "preview-tag file gone");
+    } else {
+      log?.error({ err: msg, repoPath, filePath }, "preview-tag hash failed");
+    }
     return err({ code: "GIT_FAILED", message: `Failed to hash file: ${msg}` });
   }
 }

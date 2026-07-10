@@ -122,12 +122,20 @@ export * from "./vocab.ts";
  *  diagnostic, which rides the re-served surface so it works identically local and
  *  remote); 1.3 ADDS the `identity` cell (padi's own build commit / surfaceVersion /
  *  boot time, the per-host twin of the control-core `hello` — see
- *  {@link PadiIdentitySchema}). Additive growth (a new optional field / stream /
- *  procedure / cell) is a minor bump; a shape-breaking change a major. A remote dial
- *  gates an incompatible padi via `isContractVersionCompatible`. Distinct from
- *  {@link CONTROL_CORE_VERSION}, which is frozen forever so a contract-revving
- *  deploy can still reach the daemon's control core. */
-export const PADI_SURFACE_VERSION = "1.3";
+ *  {@link PadiIdentitySchema}). 2.0 is the first MAJOR bump: `fs.statFileMtimeMs`
+ *  (a stat-mtime probe) is REMOVED and `fs.filePreviewTag` (a content-hash tag)
+ *  put in its place — a shape-breaking rename in BOTH directions (a 1.x binder
+ *  calling `statFileMtimeMs` on a 2.0 padi, or a 2.0 binder calling
+ *  `filePreviewTag` on a 1.x padi, each hit a missing procedure), so it CANNOT be
+ *  an additive minor: only a major flips `isContractVersionCompatible` to refuse
+ *  the skew in both directions (a minor bump would still let a 1.x binder adopt a
+ *  2.0 padi and call the vanished `statFileMtimeMs`). Additive growth (a new
+ *  optional field / stream / procedure / cell) is a minor bump; a shape-breaking
+ *  change a major. A remote dial gates an incompatible padi via
+ *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION},
+ *  which is frozen forever so a contract-revving deploy can still reach the
+ *  daemon's control core. */
+export const PADI_SURFACE_VERSION = "2.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });

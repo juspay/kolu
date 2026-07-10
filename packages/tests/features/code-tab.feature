@@ -1570,11 +1570,13 @@ Feature: Code tab (review + browse)
   # previewed file must refresh the iframe with no manual reload. Unlike the
   # text path above (new content arrives on the `fsReadFile` stream and re-feeds
   # Pierre), the binary path carries only a `url`. The refresh hinges on the
-  # server bumping `?v=<mtime>` on every save (`buildIframePreviewUrl`): the new
-  # URL breaks `fsReadFileOutputEqual` (binary equality is `a.url === b.url`), so
-  # a fresh snapshot pushes, the `binaryFile` memo identity flips, and FileView
-  # re-points the iframe `src`. This reads the rendered content *inside* the
-  # frame — proof the new bytes actually reached the preview, not merely that
+  # `subscribeFileChange` pulse re-querying `fs.filePreviewTag` (a CONTENT hash
+  # of the file's bytes) and the client rebuilding the URL with the fresh
+  # `?v=<tag>`: a real content change moves the tag, so the new URL flips the
+  # `binaryFile` memo identity and FileView re-points the iframe `src` — while an
+  # identical-content rewrite (same bytes, bumped mtime) leaves the tag, the URL,
+  # and the scroll position untouched. This reads the rendered content *inside*
+  # the frame — proof the new bytes actually reached the preview, not merely that
   # the src attribute moved.
   Scenario: Editing an HTML file refreshes the iframe preview live
     When I run "rm -rf /tmp/kolu-live-html && git init /tmp/kolu-live-html && cd /tmp/kolu-live-html"

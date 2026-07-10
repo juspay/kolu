@@ -24,12 +24,14 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 1.3, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 2.0, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1 ADDED `lifecycle.recycleKaval` (the "Restart kaval" button); 1.2 ADDS the
     // `hostInventory` cell (the "Running daemons" leak diagnostic); 1.3 ADDS the
     // `identity` cell (padi's own build commit/surfaceVersion/boot time, per host)
-    // — all additive minors over 1.0.
-    expect(PADI_SURFACE_VERSION).toBe("1.3");
+    // — all additive minors over 1.0. 2.0 is the first MAJOR: `fs.statFileMtimeMs`
+    // REMOVED, `fs.filePreviewTag` put in its place — a shape-breaking rename that
+    // must refuse a 1.x↔2.0 skew in both directions.
+    expect(PADI_SURFACE_VERSION).toBe("2.0");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
