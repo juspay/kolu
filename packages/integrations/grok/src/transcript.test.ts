@@ -3,8 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+// Isolate via $HOME (no override knob) — set before the dynamic import so
+// GROK_DIR (= os.homedir()/.grok) resolves under the temp home.
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-grok-tx-"));
-process.env.KOLU_GROK_DIR = tmpHome;
+process.env.HOME = tmpHome;
 
 const {
   contentToText,

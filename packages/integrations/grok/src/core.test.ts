@@ -3,9 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-// Point Grok home at a temp dir BEFORE importing modules that capture paths.
+// Isolate via $HOME (no override knob): point HOME at a temp dir BEFORE
+// importing modules that capture paths, so GROK_DIR (= os.homedir()/.grok)
+// resolves under it. The suite reads config-derived paths (SESSIONS_DIR etc.),
+// so the extra `.grok` segment is transparent.
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-grok-test-"));
-process.env.KOLU_GROK_DIR = tmpHome;
+process.env.HOME = tmpHome;
 
 const {
   deriveGrokInfo,

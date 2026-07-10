@@ -6,9 +6,11 @@ import os from "node:os";
 import path from "node:path";
 
 /** Root of Codex's per-user state directory. Contains the threads
- *  SQLite DB, session JSONL rollouts, auth, and config. */
-export const CODEX_DIR =
-  process.env.KOLU_CODEX_DIR ?? path.join(os.homedir(), ".codex");
+ *  SQLite DB, session JSONL rollouts, auth, and config. Resolved purely from
+ *  `$HOME` (`os.homedir()`) — no override knob: the e2e drives the REAL codex
+ *  inside a throwaway `$HOME`, and an override path is a second source of truth
+ *  for what `$HOME` already determines (the repo's no-override-knob doctrine). */
+export const CODEX_DIR = path.join(os.homedir(), ".codex");
 
 /** Find the highest-numbered `state_<N>.sqlite` under `dir`. Codex bumps
  *  this suffix on incompatible schema changes (current is v5;
