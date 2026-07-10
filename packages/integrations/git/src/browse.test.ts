@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAll, readFile, statFileMtimeMs } from "./browse.ts";
+import { listAll, readFile, statFileContentTag } from "./browse.ts";
 
 describe("listAll", () => {
   let tmpDir: string;
@@ -107,26 +107,76 @@ describe("readFile", () => {
   });
 });
 
-describe("statFileMtimeMs", () => {
+describe("statFileContentTag — preview cache-buster", () => {
   let tmpDir: string;
 
   beforeAll(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-statmtime-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-contenttag-test-"));
   });
 
   afterAll(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it("changes the tag when the file's bytes change", async () => {
+    const p = path.join(tmpDir, "page.html");
+    fs.writeFileSync(p, "<h1>before</h1>\n");
+    const before = await statFileContentTag(tmpDir, "page.html");
+    fs.writeFileSync(p, "<h1>after</h1>\n");
+    const after = await statFileContentTag(tmpDir, "page.html");
+    expect(before.ok && after.ok).toBe(true);
+    if (!before.ok || !after.ok) return;
+    expect(after.value).not.toBe(before.value);
+  });
+
+  it("keeps the tag STABLE when the file is rewritten with identical bytes (git checkout / atomic rewrite)", async () => {
+    // The reported regression: a preview scrolled to the middle reloads and
+    // jumps to the top at "random" times while a remote terminal grinds a PR
+    // loop. Cause: the iframe URL is cache-busted by mtime, and a `git checkout`
+    // across branches — or a formatter's write-and-rename — rewrites the
+    // working-tree file with the SAME bytes but a NEW mtime. The tag must track
+    // the CONTENT, not the mtime: identical bytes ⇒ identical tag ⇒ no reload.
+    const p = path.join(tmpDir, "stable.html");
+    const bytes = "<h1>unchanged</h1>\n";
+
+    // Two fixed, far-apart mtimes stand in for "the working tree was
+    // re-materialized later" — deterministic, no reliance on wall-clock or
+    // filesystem mtime resolution.
+    fs.writeFileSync(p, bytes);
+    fs.utimesSync(
+      p,
+      new Date("2020-01-01T00:00:00Z"),
+      new Date("2020-01-01T00:00:00Z"),
+    );
+    const first = await statFileContentTag(tmpDir, "stable.html");
+
+    // Identical bytes, later mtime — exactly what a same-content checkout does.
+    fs.writeFileSync(p, bytes);
+    fs.utimesSync(
+      p,
+      new Date("2030-01-01T00:00:00Z"),
+      new Date("2030-01-01T00:00:00Z"),
+    );
+    const reread = await readFile(tmpDir, "stable.html");
+    expect(reread.ok).toBe(true);
+    if (reread.ok) expect(reread.value.content).toBe(bytes);
+    const second = await statFileContentTag(tmpDir, "stable.html");
+
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    // Was RED against the old mtime-based tag; GREEN now the tag hashes content.
+    expect(second.value).toBe(first.value);
+  });
+
   it("rejects a symlink that escapes the repo root", async () => {
     const outside = fs.mkdtempSync(
-      path.join(os.tmpdir(), "kolu-statmtime-outside-"),
+      path.join(os.tmpdir(), "kolu-contenttag-outside-"),
     );
     try {
       const secret = path.join(outside, "secret.txt");
       fs.writeFileSync(secret, "TOP SECRET\n");
       fs.symlinkSync(secret, path.join(tmpDir, "leak.txt"));
-      const result = await statFileMtimeMs(tmpDir, "leak.txt");
+      const result = await statFileContentTag(tmpDir, "leak.txt");
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe("PATH_ESCAPES_ROOT");
     } finally {

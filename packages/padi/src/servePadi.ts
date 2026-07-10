@@ -451,9 +451,9 @@ export function buildPadiSurfaceDeps(deps: {
             throw fileGoneAsNotFound(e, input.filePath);
           }
         },
-        statFileMtimeMs: async ({ input }) => {
+        statFileContentTag: async ({ input }) => {
           try {
-            return await endpoint.fs.statFileMtimeMs(
+            return await endpoint.fs.statFileContentTag(
               input.repoPath,
               input.filePath,
             );

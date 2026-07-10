@@ -31,9 +31,17 @@ describe("createTerminalWorkspaceEndpoint", () => {
     });
   });
 
-  it("fs.statFileMtimeMs returns a positive mtime", async () => {
+  it("fs.statFileContentTag returns a content hash that tracks bytes, not mtime", async () => {
     const { fs: f } = createTerminalWorkspaceEndpoint(log);
-    expect(await f.statFileMtimeMs(repo, "a.txt")).toBeGreaterThan(0);
+    const tag = await f.statFileContentTag(repo, "a.txt");
+    expect(tag).toMatch(/^[0-9a-f]{40}$/);
+    // Touching the mtime without changing bytes leaves the tag stable.
+    fs.utimesSync(
+      path.join(repo, "a.txt"),
+      new Date("2031-01-01T00:00:00Z"),
+      new Date("2031-01-01T00:00:00Z"),
+    );
+    expect(await f.statFileContentTag(repo, "a.txt")).toBe(tag);
   });
 
   it("git.getStatus reports the uncommitted change", async () => {

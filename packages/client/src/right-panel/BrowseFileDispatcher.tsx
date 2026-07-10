@@ -124,11 +124,14 @@ export type BrowseFileDispatcherProps = {
  *  `fs.readFile` is TEXT-ONLY (`{ content, truncated }`) — deliberately not the
  *  union `koluSurface.fsReadFile` returned — so the dispatcher decides binary vs
  *  text itself, exactly as the old server backing did. A binary-previewable file
- *  reads its mtime (`fs.statFileMtimeMs`) and builds the `/api/terminals/:host/:id/file`
- *  URL with the `?v=<mtime>` cache-key (the same route + shape the server built,
- *  still served until W1.R5) so a save bumps the URL and the img/iframe reloads;
- *  a text file reads its content. Either way the `subscribeFileChange` pulse
- *  requeries on change, so the preview stays live. */
+ *  reads a CONTENT hash (`fs.statFileContentTag`) and builds the
+ *  `/api/terminals/:host/:id/file` URL with a `?v=<content-hash>` cache-key (the
+ *  same route + shape the server built, still served until W1.R5) so a real
+ *  content change bumps the URL and the img/iframe reloads — while an
+ *  identical-content rewrite (mtime bumped, bytes unchanged) leaves the URL
+ *  stable and the preview un-reloaded; a text file reads its content. Either way
+ *  the `subscribeFileChange` pulse requeries on change, so the preview stays
+ *  live. */
 type BrowseFileContent =
   | { kind: "text"; content: string; truncated: boolean }
   | { kind: "binary"; url: string };
@@ -146,16 +149,21 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: async (i, signal): Promise<BrowseFileContent> => {
       if (isBinaryPreviewable(i.filePath)) {
-        const mtimeMs = await activePadiRpc.surface.fs.statFileMtimeMs(
+        const contentTag = await activePadiRpc.surface.fs.statFileContentTag(
           { repoPath: i.repoPath, filePath: i.filePath },
           { signal },
         );
         return {
           kind: "binary",
-          // Key the file URL by the ACTIVE host's CANONICAL string so the route reads
-          // the bytes from the same padi the mtime above came from — a remote host's
-          // preview must not resolve against the local default.
-          url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
+          // Cache-bust by a CONTENT hash, not mtime: the iframe reloads (and a
+          // mid-scrolled preview jumps to the top) only when the file's BYTES
+          // change — never on an identical-content rewrite that merely bumps
+          // mtime (a `git checkout` across branches, a formatter's atomic
+          // write-and-rename). Key the file URL by the ACTIVE host's CANONICAL
+          // string so the route reads the bytes from the same padi the tag above
+          // came from — a remote host's preview must not resolve against the
+          // local default.
+          url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${contentTag}`,
         };
       }
       const { content, truncated } = await activePadiRpc.surface.fs.readFile(
@@ -166,7 +174,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     },
     onError: (err) => toast.error(`File content stream: ${err.message}`),
     // Delete-while-viewing parity: a file removed under the open Code tab makes
-    // `fs.readFile`/`statFileMtimeMs` return a typed `NOT_FOUND` (servePadi maps
+    // `fs.readFile`/`statFileContentTag` return a typed `NOT_FOUND` (servePadi maps
     // the ENOENT). Swallow it — keep the last content until the selection changes
     // — exactly as the old koluSurface value stream did (it just stopped
     // yielding); a raw ~150ms ENOENT error panel was a W1 regression.
@@ -476,8 +484,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   ];
 
   // Project each wire variant to a `FileData`. Identity changes when the
-  // content/url changes (e.g. the server bumps `?v=<mtime>` on save), so
-  // FileView re-renders through the same subscription path as before.
+  // content/url changes (e.g. the `?v=<content-hash>` cache-key moves when the
+  // bytes change), so FileView re-renders through the same subscription path as
+  // before.
   const textFile = createMemo<FileWithSource | null>(() => {
     const fc = fileContent();
     return fc?.kind === "text"

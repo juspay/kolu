@@ -701,7 +701,7 @@ export const padiSurface = defineSurface({
         input: FsFileInputSchema,
         output: FsReadFileTextOutputSchema,
       },
-      statFileMtimeMs: { input: FsFileInputSchema, output: z.number() },
+      statFileContentTag: { input: FsFileInputSchema, output: z.string() },
     },
     /** Git reads + worktree mutations scoped to a repo on the serving host — a
      *  worktree materializing on the wrong machine is unspellable. */

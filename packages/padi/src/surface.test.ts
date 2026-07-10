@@ -104,7 +104,7 @@ describe("padiSurface 1.0 contract", () => {
     expect(Object.keys(procs.fs ?? {})).toEqual([
       "listAll",
       "readFile",
-      "statFileMtimeMs",
+      "statFileContentTag",
     ]);
     expect(Object.keys(procs.git ?? {})).toEqual([
       "getStatus",

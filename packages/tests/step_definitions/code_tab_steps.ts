@@ -689,8 +689,8 @@ Then(
 // runs at an opaque origin (`allow-scripts`, no `allow-same-origin`), but
 // Playwright resolves it through the browser frame tree, so `frameLocator`
 // reaches its `<body>` regardless of origin. Polling (not a single read)
-// because a save re-points the iframe `src` at a fresh `?v=<mtime>` URL: the
-// old frame detaches and the new one navigates, so `textContent` throws
+// because a save re-points the iframe `src` at a fresh `?v=<content-hash>` URL:
+// the old frame detaches and the new one navigates, so `textContent` throws
 // transiently mid-swap — a short per-read timeout + `.catch(() => null)`
 // lets the poll ride through the navigation until the new content lands.
 Then(
@@ -701,7 +701,7 @@ Then(
       .locator("body");
     // Hydration budget: the preview content arrives over a server
     // subscription (selection → fsReadFile, or an *edit* re-firing the live
-    // watch which re-points the iframe `src` at a fresh `?v=<mtime>`). That
+    // watch which re-points the iframe `src` at a fresh `?v=<content-hash>`). That
     // fs.watch → SSE → reload round-trip is the slow axis under darwin CI
     // load — the edit-then-refresh regression guard (code-tab.feature:1364)
     // froze on the pre-edit body for >20 s under the post-build storm.
@@ -724,10 +724,13 @@ Then(
 // storm, so the iframe freezes on the pre-edit body and the bare assertion
 // above (even at HYDRATION_TIMEOUT) waits forever — no further event ever
 // comes. Re-touch the edited file's mtime each poll tick: each touch is a
-// fresh notification, so a dropped one is recovered, and a new mtime re-points
-// the iframe `src` (`?v=<mtime>`) to force the reload. The file already holds
-// the post-edit content, so this recovers the lost event without changing what
-// is asserted — it does NOT mask a broken watch re-arm (a touch of a file the
+// fresh notification, so a dropped one is recovered. The touch itself no longer
+// changes the URL (the `?v=` cache-key hashes CONTENT, not mtime) — it only
+// re-fires the dropped watch; the requery then hashes the already-written
+// post-edit content, whose new hash re-points the iframe `src` and forces the
+// reload. The file already holds the post-edit content, so this recovers the
+// lost event without changing what is asserted — it does NOT mask a broken
+// watch re-arm (a touch of a file the
 // watch isn't armed on still fires nothing). `absFile` is the absolute on-disk
 // path the shell wrote (the scenario's repo cwd + relative path).
 Then(

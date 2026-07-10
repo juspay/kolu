@@ -5,7 +5,8 @@
  *  listing `node_modules/`, `.git/`, build artifacts, etc. */
 
 import { execFile } from "node:child_process";
-import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile as fsReadFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
 import { err, type GitResult, ok } from "./errors.ts";
@@ -127,18 +128,29 @@ export async function readFile(
   }
 }
 
-/** Stat a file's mtime in ms-since-epoch, used to cache-bust the iframe URL
- *  for binary previewable kinds. Same path-traversal guard as `readFile`. */
-export async function statFileMtimeMs(
+/** A cache-buster TAG for the iframe preview URL (the `?v=<tag>` on the binary
+ *  route). The contract: the tag changes **iff the file's bytes change**, so an
+ *  edit reloads the preview but an identical-content rewrite does NOT. The
+ *  latter — a `git checkout` across branches, or a formatter's atomic
+ *  write-and-rename — bumps mtime without changing content, and a mtime-keyed
+ *  URL would reload the iframe and scroll a mid-scrolled preview to the top.
+ *
+ *  So the tag is a hash of the CONTENT, not the mtime: the file's bytes are the
+ *  honest identity of "has this preview changed?", where mtime is only a proxy
+ *  that a working-tree re-materialization falsely trips. The bytes are read once
+ *  per on-disk *change* (the `subscribeFileChange` pulse is debounced and fires
+ *  only on real repo events, never on a timer), and only for the bounded set of
+ *  binary-previewable kinds. Same path-traversal guard as `readFile`. */
+export async function statFileContentTag(
   repoPath: string,
   filePath: string,
   log?: Logger,
-): Promise<GitResult<number>> {
+): Promise<GitResult<string>> {
   const resolved = await resolveExistingUnder(repoPath, filePath, log);
-  if (!resolved.ok) return resolved as GitResult<number>;
+  if (!resolved.ok) return resolved as GitResult<string>;
   try {
-    const s = await fsStat(resolved.value.abs);
-    return ok(s.mtimeMs);
+    const bytes = await fsReadFile(resolved.value.abs);
+    return ok(createHash("sha1").update(bytes).digest("hex"));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return err({ code: "GIT_FAILED", message: `Failed to stat file: ${msg}` });

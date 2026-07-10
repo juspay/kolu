@@ -4,9 +4,10 @@
  *  seeking. Generic and Kolu-free; the host supplies any backdrop via `class`.
  *
  *  `preload="metadata"` fetches just enough to show the first frame + duration
- *  without streaming the whole file on open. The `url` carries `?v=<mtime>`, so
- *  a save reactively updates `src` (FileView re-renders this appliance on a
- *  fresh `FileData`) and the player reloads from the new URL — no stale source
+ *  without streaming the whole file on open. The `url` carries a `?v=<tag>`
+ *  cache-key, so a content change reactively updates `src` (FileView re-renders
+ *  this appliance on a fresh `FileData`) and the player reloads from the new
+ *  URL — no stale source
  *  lingers. Selecting a different file remounts the whole subtree (CodeTab keys
  *  its preview by selected path), so element identity is fresh across files. */
 

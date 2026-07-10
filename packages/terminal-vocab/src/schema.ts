@@ -322,7 +322,7 @@ export const RepoChangePulseSchema = z.object({
 });
 export type RepoChangePulse = z.infer<typeof RepoChangePulseSchema>;
 
-/** Input for the per-file fs procedures (`readFile`, `statFileMtimeMs`) and the
+/** Input for the per-file fs procedures (`readFile`, `statFileContentTag`) and the
  *  `subscribeFileChange` watcher. Deliberately NOT kolu-git's
  *  `FsReadFileInputSchema` (which carries a `terminalId`) — the library reads a
  *  file in a repo; the terminal/iframe-preview orchestration that needs the id
