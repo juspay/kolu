@@ -33,6 +33,126 @@ createEffect(() => title.set(badge() > 0 ? `(${badge()})` : ""));
 
 **The engine is decided:** `@preact/signals-core` behind reactor.ts now, `@solidjs/signals` the named swap target once Solid 2.0 and its ecosystem stabilize — [the engine note](surface-reactor-engine.html) holds the probed comparison and the eliminations; `reactor.ts` keeps it a two-way door (rename + a flush rule + the law tests).
 
+## The API, symbol by symbol
+
+Every new symbol, hello-world sized — one job each. The tag names the migration phase that ships it.
+
+**`derived.cell`** *(phase 0)* — a cell computed from siblings; recomputes when they change, publishes through its own `equals` gate.
+
+```ts
+cells: {
+  name:     { schema: z.string(), default: "world" },
+  greeting: derived.cell(($) => `hello, ${$.name()}!`),
+}
+```
+
+**`derived.cell.scan`** *(phase 0)* — a cell folded through carried state; passing `store:` makes the state survive restarts — omitting it is a visible choice.
+
+```ts
+const clicks = signalFromCallback<void>((emit) => button.onPress(emit));
+cells: {
+  count: derived.cell.scan({ over: clicks, initial: () => 0, step: (n) => n + 1 }),
+}
+```
+
+**`signalFromCallback`** *(phase 0)* — adapts any subscribe-style callback into a graph signal.
+
+```ts
+const online = signalFromCallback<boolean>(
+  (emit) => net.onChange(emit),  // install once; the returned fn uninstalls
+  true,                          // initial, until the source speaks
+);
+```
+
+**`signalFromPoll`** *(phase 2)* — a signal fed by re-reading a source on a tick; no dedup of its own — the target member's `equals` decides.
+
+```ts
+const temperature = signalFromPoll({
+  read: () => sensor.readCelsius(),          // T+0 seed; a failing FIRST read crashes boot
+  install: (tick) => everySeconds(5, tick),  // the caller owns the cadence
+});
+```
+
+**`derived.collection`** *(phase 2)* — a collection computed as a whole map; the bridge diffs each output against the last by the collection's `equals` and publishes only the changed keys.
+
+```ts
+collections: {
+  bigFiles: derived.collection(($) =>
+    filterValues($.files(), (f) => f.bytes > 1e6)),
+}
+```
+
+**`derived.collection.fromPoll`** *(phase 2 — pending Q3: may become labeled sugar over `signalFromPoll` + `derived.collection`)* — poll a keyed source; changed keys upsert, vanished keys evict.
+
+```ts
+collections: {
+  processes: derived.collection.fromPoll({
+    read: readProcessTable,   // Promise<ReadonlyMap<pid, Process>>
+    install: everySecond,
+  }),
+}
+```
+
+**`reactiveFamily`** *(phase 3)* — a keyed set of sources under one signal: membership diff, per-key last frame, per-key disposal and error isolation.
+
+```ts
+const rooms = reactiveFamily<RoomId, RoomState>({
+  members: roomIds,                         // a signal of the current key set
+  attach: (id, set) => watchRoom(id, set),  // per-key source; disposed on exit
+});
+// rooms.value: ReadonlyMap<RoomId, RoomState> — the last frame per live key
+```
+
+**`signalMap`** *(phase 4)* — a producer-side keyed store that is also a graph source: the app's registry, trackable.
+
+```ts
+const registry = signalMap<TerminalId, Terminal>();
+registry.set(id, term);   // writers mutate it like a Map…
+collections: {
+  terminals: derived.collection(() => mapValues(registry, compose)),  // …readers track it
+}
+```
+
+**`computed`** *(phase 1)* — a private intermediate node: shared work several members read, without itself becoming a wire member.
+
+```ts
+const frames = signalFromCallback<Stats>((emit) => statsTap(emit));
+const smoothed = computed(() => ema(frames.value));  // never on the wire
+cells: {
+  cpu: derived.cell(() => smoothed.value.cpu),
+  mem: derived.cell(() => smoothed.value.mem),
+}
+```
+
+**`ctx.batch`** *(phase 1)* — group several writes into one graph frame, so derivations recompute once.
+
+```ts
+ctx.batch(() => {
+  registry.set(id, next);
+  registry.delete(oldId);
+});  // one frame → one recompute per derivation
+```
+
+**`$`, the read face** *(phase 1)* — the typed sibling reader handed to every compute; reading is depending, and a derived sibling is read as its computed, never its mirror.
+
+```ts
+cells: {
+  overview: derived.cell(($) => ({
+    open:  $.terminals().size,       // $.someCollection(): ReadonlyMap<K,T>
+    theme: $.preferences().theme,    // $.someCell(): T
+  })),
+}
+```
+
+**`Subscription.updated`** *(client — ships with W5's phase 1 regardless)* — the change-iff-fired edge on any cell subscription; fires exactly when the producer's `equals` said "changed".
+
+```ts
+const alerts = client.cells.alerts.use();
+alerts.sub.updated(({ prev, next }) => {
+  if (next.level > prev.level) playRaiseSound();
+});
+```
+
 ## The worked examples
 
 The review artifact: real befores at master, the after as it would read.
