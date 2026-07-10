@@ -107,6 +107,19 @@ check during §2. `/ci` and `/evidence` already run on pu; keep it that way.
 other captures on-screen behavior — so **run them concurrently**; don't wait for
 green before capturing.
 
+**First, sync master — don't make the user ask.** The branch was cut from
+`origin/master` back in §2, and a long gauntlet lets master move on, so a naive CI
+run tests a **stale base** and the PR's merge-base drifts — this is the single most
+repeated human interjection into an otherwise-autonomous run ("merge latest master
+before CI"). Pre-empt it: **before** kicking off `/ci`, `git fetch origin` and merge
+`origin/<default>` into the branch so CI and the final `HEAD` sit on current master
+(the changelog is `merge=union` so it never conflicts; a *real* conflict is yours to
+resolve now, never to defer or paper over). **One ordering caveat** — never `git
+merge` while a background gauntlet step (a codex/lens round) is still committing
+per-round: it races the git index. If one is in flight, wait for it to settle, *then*
+merge, *then* start CI. Grep-check master isn't already an ancestor first — skip the
+merge only when `git merge-base --is-ancestor origin/<default> HEAD` is already true.
+
 1. **Kick off `/ci` first, backgrounded** — start the pipeline so it churns while
    you capture evidence. **`.agency/do.md`'s CI section is the source of truth for
    the run, and it supersedes anything here** — read it and follow it. The shape:
