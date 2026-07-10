@@ -134,6 +134,22 @@ describe("rankDockRows — parked bucket precedence", () => {
     expect(bucket(meta, true)).toBe("parked");
   });
 
+  // DECOUPLED dock.feature @claude-mock scenarios (srid's stage-6 ruling — same
+  // agent-mock-as-UI-fixture precedent as the ping scenarios). The three scenarios
+  // proved that an agent STATE drives the dock presentation — awaiting_user → a
+  // card, thinking → a working pill, waiting → a quiet idle row (no card, no
+  // pill). The dock doesn't care WHO produced the state; it's a plain INPUT to the
+  // rank fold, tested here directly instead of injected via a claude session mock.
+  // (awaiting_user → awaiting and waiting → idle are the two `it`s above; this
+  // pins the working-pill case to `thinking` exactly, the state the scenario used.)
+  it("ranks a fresh thinking agent as working — the dock's working pill", () => {
+    const meta = makeMeta({
+      agent: makeAgent("thinking"),
+      lastActivityAt: Date.now(),
+    });
+    expect(bucket(meta, false)).toBe("working");
+  });
+
   it("never-touched plain shells route to none, not idle", () => {
     expect(bucket(makeMeta(), false)).toBe("none");
   });

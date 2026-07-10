@@ -166,8 +166,7 @@ if (!RECORDING && fixtureHome) {
   // whose own HOME is the developer's) so the session-file assertion can look
   // under the real default `<fixtureHome>/.codex`.
   process.env.KOLU_E2E_FIXTURE_HOME = fixtureHome;
-  // Resolve codex's ABSOLUTE path and surface it, exactly as the mock harness
-  // does for its fake bins (KOLU_FAKE_CODEX_BIN): the hosted PTY re-sources the
+  // Resolve codex's ABSOLUTE path and surface it: the hosted PTY re-sources the
   // shell rc, which resets PATH to the system default and drops the nix-store
   // `codex` the e2e shell put on OUR PATH — so a bare `codex` is
   // "command not found" in the terminal. The step types this absolute path
@@ -281,41 +280,6 @@ if (!RECORDING && fixtureHome) {
     encoding: "utf8",
   }).trim();
 }
-
-/** Fake agent binaries the codex/opencode mock scenarios invoke by
- *  absolute path to bypass PATH resolution — the user's shell rc (e.g.
- *  ~/.bashrc) may prepend `~/.npm-global/bin` on startup and shadow any
- *  PATH override we set via the whitelist, so a real codex/opencode
- *  install on the host silently wins against the fake.
- *
- *  Each stub is a copy of `bash`, renamed to `codex` / `opencode`. The
- *  kernel's `/proc/<pid>/comm` (Linux) and sysctl KERN_PROC_PATHNAME
- *  (macOS) both reflect the execve basename, so a bash copy launched as
- *  `.../bin/codex -c "..."` shows up with comm="codex" — satisfying
- *  `readForegroundBasename() === "codex"` without requiring the real
- *  CLI to be installed.
- *
- *  `/bin/sleep` tempted as a simpler stub but fails on nixpkgs: coreutils
- *  ships as a multi-call binary that inspects argv[0] and errors with
- *  "unknown program 'codex'" when renamed. Bash is a single-purpose
- *  binary and copies cleanly.
- *
- *  Paths are surfaced to step definitions via KOLU_FAKE_CODEX_BIN,
- *  KOLU_FAKE_OPENCODE_BIN, and KOLU_FAKE_GROK_BIN env vars (on this
- *  worker's process env, not forwarded to the spawned server — the step
- *  defs read them directly and type the absolute path into the pty). */
-const fakeBinDir = mkSubDir("bin");
-const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
-const fakeBins: Record<string, string> = {};
-for (const name of ["codex", "opencode", "grok"]) {
-  const target = path.join(fakeBinDir, name);
-  fs.copyFileSync(bashPath, target);
-  fs.chmodSync(target, 0o755);
-  fakeBins[name] = target;
-}
-process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
-process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
-process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
