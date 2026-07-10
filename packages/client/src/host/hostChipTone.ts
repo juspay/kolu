@@ -6,7 +6,7 @@
 
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import type { HostMapGate } from "kolu-common/surface";
+import { hostHueFor } from "kolu-common/hostHue";
 
 /** Whether two `HostKey`s name the SAME host — compared by their CANONICAL
  *  string (`encodeHostKey`), never `===`: a `HostKey` is an object with no
@@ -22,38 +22,23 @@ export function sameHost(a: HostKey, b: HostKey): boolean {
   return encodeHostKey(a) === encodeHostKey(b);
 }
 
+/** The host's identity hue (a palette hex) — the accent each tab wears so a host
+ *  reads as a *place*, not just a label. Seeded on the CANONICAL host string
+ *  (`encodeHostKey`), so it's stable across the fresh `HostKey` objects every
+ *  membership read mints, and drawn from the SAME palette + hash the server's
+ *  PWA `theme-color` uses (`kolu-common/hostHue`) — one host, one colour, on
+ *  every surface. This is host IDENTITY, distinct from the connection dot's
+ *  {@link dotClass} STATUS tone (green/amber/red), which stays fact-driven. */
+export function hostHue(host: HostKey): string {
+  return hostHueFor(encodeHostKey(host));
+}
+
 /** Render a `HostKey` as its human display label — the LOCAL default reads
  *  "local"; a remote reads its ssh target. The ONE source of truth for a host's
  *  chip / dialog / tooltip label, shared by `HostSelectorStrip` and
  *  `HostDaemonChips` (it was hand-rolled identically in both). */
 export function hostLabel(h: HostKey): string {
   return h.kind === "local" ? "local" : h.target;
-}
-
-/** The gate DECISION — whether MULTIPLE-host chrome (the guest chips beyond the
- *  active one, plus the "+ add a host" affordance) renders. The strip itself is
- *  NEVER gated off entirely any more (W4 header redesign — "gate-off consistent
- *  with gate-on"): a single always-visible host chip, carrying the Padi/Kaval
- *  sub-chips, is the header's resting state whether or not the gate is open —
- *  see {@link shouldRenderHostChip}. `undefined` (before the first cell frame)
- *  reads CLOSED, so multi-host chrome never flashes in during warm-up. */
-export function hostGateOpen(gate: HostMapGate | undefined): boolean {
-  return gate?.enabled === true;
-}
-
-/** Whether a GIVEN host's chip renders. The active host's chip is ALWAYS shown
- *  (it is the header's one mandatory status chip, carrying the Padi/Kaval
- *  sub-chips) regardless of the gate; every other pool member's chip — and the
- *  "+ add" affordance beside them — is MULTIPLE-host chrome, shown only when
- *  {@link hostGateOpen}. With the gate closed the pool has no member but the
- *  local default anyway (env-unset boot never seeds a guest), so this reduces to
- *  "show exactly the local chip" — but the predicate holds even in a transient
- *  gate-closed-with-a-stray-guest state, rather than assuming that invariant. */
-export function shouldRenderHostChip(
-  gateOpen: boolean,
-  isActive: boolean,
-): boolean {
-  return gateOpen || isActive;
 }
 
 /** The connection dot's tailwind tone. Green (`bg-emerald-400`) is emitted ONLY for

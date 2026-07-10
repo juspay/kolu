@@ -45,7 +45,12 @@ import {
 } from "@kolu/padi/surface";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
-import { isLocalHost, makeSession, sshConnector } from "@kolu/surface-remote";
+import {
+  isLocalHost,
+  makeSession,
+  type SshProv,
+  sshConnector,
+} from "@kolu/surface-remote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -216,8 +221,8 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     // (the deleted `getHostSession` pool). Each `dial()` OWNS its fresh session — the
     // convergence test's re-dial after a drain gets a genuinely new one, exactly as the
     // old pooled `getHostSession` handed back a fresh session once the pooled link died.
-    const s = makeSession<PadiDaemonClient>({
-      initialConnection: "copying",
+    const s = makeSession<PadiDaemonClient, SshProv>({
+      initialConnection: "probing",
       connectOnce: sshConnector<PadiDaemonContract>({
         host: SSH_HOST as string,
         binary: "padi",

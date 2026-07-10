@@ -408,3 +408,68 @@ Bad: `packages/foo/` ships `package.json` + `src/` + `tsconfig.json`, no `README
 Good: `packages/foo/README.md` states the package's purpose and boundary in prose a contributor reads before opening the source.
 
 _Rationale_: a leaf package is a decomposition decision — pulling a concept out of where it was tangled. The README is where that decision is recorded and made greppable; without it the "why is this its own package" rationale lives only in a PR description that nobody re-reads. The boundary section is the load-bearing half: "it knows nothing about X" is what stops the package re-accreting the coupling it was extracted to escape. Codified alongside `@kolu/terminal-workspace` (the P1a extraction).
+
+### no-overloaded-null
+
+A nullable, sentinel, or optional whose **absent value carries more than one meaning** is a defect — one slot forced to answer two different questions, so a reader has to guess which one a given `null` means. Replace it with a discriminated `{ kind: … }` sum: every state a named arm the reader must branch on, and the impossible combinations unspellable. Flag, on a PR diff:
+
+- **(a) A `T | null` / `T | undefined` whose absent value conflates two distinct causes that *deserve* distinct handling** — caught by any of three signals: **(i)** the **producer** maps distinct causes to the same absent/sentinel value — ≥2 `return null` / write / schema branches, one an honest absence and one a *caught error or fault the domain should surface* (`if (!client) return null` sitting beside `catch { return null }`); **(ii)** ≥2 read sites handle the absence *divergently* (one treats it as "not yet", another as "errored"; one as "disconnected", another as "empty"); **(iii)** a name/comment/JSDoc admits two absence-reasons (`absent-vs-error`, `disconnected-vs-empty`, `not-yet-vs-never`) that a consumer *should* tell apart. The test is **normative** — do the causes deserve to be told apart (honest absence vs caught error is the archetype)? — not merely whether some current reader happens to. One nullable, two questions. (This is why (i) matters: a single consumer that renders both the same isn't a survivor when one cause is a swallowed error — that uniform rendering *is* the bug the seeded fixture below shows.)
+- **(b) A string/number sentinel** (`""`, `-1`, `0`, `"none"`, `"unknown"`) standing in for a state that has a **real name elsewhere** — `commit === ""` meaning "dev build", `id === -1` meaning "unsaved", `status === ""` meaning "never connected". The magic value is an unnamed member of a union that deserves naming.
+- **(c) An optional field a consumer treats as an on/off state** — `field?:` a reader branches on as `field === undefined ? off : on`, where "off" is a *named condition of the domain* (disabled, disconnected, anonymous), not merely "this datum happens to be absent".
+
+Guidance: prefer a `{ kind: … }` discriminated union — one arm per state, each carrying exactly the data that state has, dispatched with `ts-pattern` (`prefer-ts-pattern`). `SurfaceIdentity` (`packages/surface/src/identity.ts`) is the canonical exemplar. It began as `identity(): T | null` (null = no link) **and** `baked: T | null` (null = no build) **and** `commit: string` (`""` conflating a dev tree with a real commit) — two nulls and a `""` sentinel, three overlapping questions — and became:
+
+```ts
+// Before — two nulls and a "" sentinel, a reader guessing which question each answers:
+type SurfaceIdentity = { identity: T | null; baked: BakedIdentity | null };
+//   identity null → no live link?  errored?
+//   baked null    → no build?      disconnected so unknown?
+//   commit ""     → dev tree?      a real commit we failed to read?
+
+// After — one sum, every state named, impossible states unspellable:
+type SurfaceIdentity =
+  | { kind: "disconnected" }                                        // no live link
+  | { kind: "anonymous"; startedAt: number }                        // live, no build
+  | { kind: "identified"; startedAt: number; baked: BakedIdentity }; // live + build
+type BuildCommit = { kind: "commit"; sha: string } | { kind: "dev" };
+```
+
+`baked`-while-disconnected and dev-might-be-real can no longer be written; the reader `match`es on `kind` instead of guessing what a `null` meant.
+
+_Bad_ (seeded two-meaning fixture — `null` answers both "no client" and "read failed", and a real failure hides behind the same dash an honest absence renders):
+
+```ts
+function readMemory(): number | null {
+  const client = currentClient();
+  if (!client) return null;              // meaning 1: no live client (honest absent)
+  try { return client.rss(); }
+  catch { return null; }                 // meaning 2: read errored — SAME null
+}
+// consumer renders null as "—", so a real read failure is invisible
+```
+
+Fix — a sum that keeps the two apart (mirrors the shipped `ProcessRss` value·absent·error split):
+
+```ts
+type MemoryReading =
+  | { kind: "value"; rss: number }
+  | { kind: "absent" }                   // no live client — nothing to read
+  | { kind: "error"; message: string };  // a real read failed — surface it
+```
+
+_Quiet_ (single-meaning counterexample — leave alone; do **not** flag):
+
+```ts
+// One meaning: the lookup found nothing. No second question rides on the undefined.
+const entry = entries.find((e) => e.id === id); // Entry | undefined
+if (entry === undefined) return; // "not found" is the only thing undefined can mean here
+```
+
+_Allowed_ — the boundary that keeps this from becoming a blanket anti-null crusade:
+
+- **A single honest "absent"** with one interpretation: `find()` → `undefined`; an optional config field simply present-or-not; a `T | undefined` signal for "not loaded yet" with exactly one reading. A single-meaning absence is fine — the target is a `null` (or sentinel, or optional) doing **two jobs**.
+- **Two *causes* that fold to one *effect*** at every read site: `contextTokens: number | null` whose comment names "no telemetry" *and* "no assistant turn yet" but where every consumer renders the absence identically ("—") is a survivor, not a hit — **both are honest absences** (no telemetry yet, no turn yet), *neither is a fault*, so nothing *should* disambiguate. This is the exact boundary against criterion (a)(i): that producer-collapse signal fires only when one of the collapsed causes is a *caught error or fault the domain should surface*, never when two honest "no datum yet" causes both fold to the same "—".
+- **A nullable discriminated to a `{ kind }` sum at its sole read site** (e.g. `boundHost: string | null` folded to `DaemonBinding` one line into its only consumer): already single-meaning at the seam; pushing the sum up when it only relocates an env-derived null check removes no illegal state.
+- **A genuine two-state encoding where both values are named and needed**: `token: string | null` where `null` = "between tokens" and `""` = "an empty token in progress" (round-tripping `shellJoin`) — two states, two meanings, correctly distinct.
+
+_Rationale_: a nullable that answers two questions complects two states into one slot (hickey) and makes an illegal state representable (architecture-first). Because the type can't tell `disconnected` from `errored`, the two get handled the same and one silently rots — exactly how a real read failure hides behind an "absent" dash. A `{ kind: … }` sum turns each state into a name the compiler forces every consumer to branch on; adding a state later is a compile error at every site, not a silent fall-through. Codified after the `SurfaceIdentity` design debate (2026-07-05) — the exemplar above — and the L26 sweep that recorded its honest single-meaning survivors.

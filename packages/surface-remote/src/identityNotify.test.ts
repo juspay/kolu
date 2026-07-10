@@ -31,7 +31,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { provisionAgent } from "./nixCopy";
 import { makeSession } from "./session";
-import { type AgentClient, sshConnector } from "./sshConnector";
+import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
 
 vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
@@ -79,8 +79,8 @@ describe("makeSession identity republish (F1)", () => {
   });
 
   it("publishes a state frame when the async system.identity probe lands, so onState consumers resample", async () => {
-    const session = makeSession<AgentClient<SurfaceContract>>({
-      initialConnection: "copying",
+    const session = makeSession<AgentClient<SurfaceContract>, SshProv>({
+      initialConnection: "probing",
       connectOnce: sshConnector<SurfaceContract>({
         host: "testhost",
         binary: "agent",

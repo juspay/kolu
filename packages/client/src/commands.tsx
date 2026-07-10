@@ -21,11 +21,13 @@ import type { DockSourceEntry } from "./canvas/dockModel";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
+import { hostLabel, sameHost } from "./host/hostChipTone";
 import {
   ACTIONS,
   type ActionContext,
   actionPaletteCommand,
 } from "./input/actions";
+import type { HostKey } from "kolu-common/hostKey";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { daemonWarming } from "./kaval/useDaemonStatus";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
@@ -139,6 +141,11 @@ export interface CommandDeps extends ActionContext {
   // accessor the "Search workspaces" group walks to populate its rows.
   workspaceEntries: Accessor<DockSourceEntry[]>;
   recencyOf: (id: TerminalId) => number;
+  // Host switcher — the pool, the active host, and the switch writer the
+  // "Switch host" group (⌘⇧H) walks to populate its rows.
+  hostKeys: Accessor<HostKey[]>;
+  activeHost: Accessor<HostKey>;
+  switchHost: (host: HostKey) => void;
   // Debug
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
@@ -227,6 +234,32 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ];
       },
     },
+
+    // --- Switch host (⌘⇧H) — only once the pool holds more than local ---
+    ...(deps.hostKeys().length > 1
+      ? [
+          {
+            kind: "group" as const,
+            name: "Switch host",
+            description: "Switch which machine the canvas views",
+            section: "workspaces" as const,
+            keybind: ACTIONS.openHostSwitcher.keybind,
+            children: (): PaletteItem[] =>
+              deps.hostKeys().map(
+                (h): PaletteItem => ({
+                  kind: "action",
+                  name: hostLabel(h),
+                  description: sameHost(h, deps.activeHost())
+                    ? "active"
+                    : undefined,
+                  onSelect: () => {
+                    if (!sameHost(h, deps.activeHost())) deps.switchHost(h);
+                  },
+                }),
+              ),
+          },
+        ]
+      : []),
 
     // --- Active Terminal (conditional on focus) ---
     ...(deps.activeId() !== null

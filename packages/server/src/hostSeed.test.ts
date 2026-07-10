@@ -10,7 +10,6 @@ import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { describe, expect, it } from "vitest";
 import {
   assertRemovableHost,
-  isMultiHost,
   KOLU_PADI_HOST_ENV,
   parseKoluPadiHostSeed,
   UnremovableHostError,
@@ -32,14 +31,12 @@ describe("parseKoluPadiHostSeed", () => {
   it("unset → [LOCAL_HOST] — a valid 1-member map (pixel-identical single-host)", () => {
     withEnv(undefined, () => {
       expect(parseKoluPadiHostSeed().map(encodeHostKey)).toEqual(["local"]);
-      expect(isMultiHost()).toBe(false);
     });
   });
 
   it("blank/whitespace env → local only", () => {
     withEnv("   ", () => {
       expect(parseKoluPadiHostSeed().map(encodeHostKey)).toEqual(["local"]);
-      expect(isMultiHost()).toBe(false);
     });
   });
 
@@ -50,7 +47,6 @@ describe("parseKoluPadiHostSeed", () => {
         "remote:srid@zest",
         "remote:srid@yast",
       ]);
-      expect(isMultiHost()).toBe(true);
     });
   });
 

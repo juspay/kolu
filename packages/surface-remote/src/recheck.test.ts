@@ -26,8 +26,12 @@ import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { provisionAgent } from "./nixCopy";
-import { makeSession, type SessionState } from "./session";
-import { type AgentClient, sshConnector } from "./sshConnector";
+import {
+  type DownSessionState,
+  makeSession,
+  type SessionState,
+} from "./session";
+import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
 
 vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
@@ -43,24 +47,20 @@ const contract = {
  *  cell's snapshot-then-delta), so a fresh subscribe/unsubscribe reads the
  *  current state without waiting on async delta delivery. */
 /** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
- *  the UP arm carries no `lastError`/`failureCause` fields at all, so a test
- *  that expects a down state asserts it here rather than reading a field that
- *  doesn't exist on a live/warming snapshot. */
-function down(
-  s: SessionState,
-): Extract<SessionState, { connection: "disconnected" | "failed" }> {
-  if (s.connection !== "disconnected" && s.connection !== "failed") {
-    throw new Error(
-      `expected a DOWN session state, got connection=${s.connection}`,
-    );
+ *  the UP arm carries no `error`/`cause` fields at all, so a test that expects a
+ *  down state asserts it here rather than reading a field that doesn't exist on a
+ *  live/warming snapshot. */
+function down(s: SessionState<SshProv>): DownSessionState {
+  if (s.phase !== "disconnected" && s.phase !== "failed") {
+    throw new Error(`expected a DOWN session state, got phase=${s.phase}`);
   }
   return s;
 }
 
 function snap(session: {
-  onState(cb: (s: SessionState) => void): () => void;
-}): SessionState {
-  let s!: SessionState;
+  onState(cb: (s: SessionState<SshProv>) => void): () => void;
+}): SessionState<SshProv> {
+  let s!: SessionState<SshProv>;
   session.onState((state) => {
     s = state;
   })();
@@ -133,8 +133,8 @@ describe("HostSession child-exit classification", () => {
     // the command and it died — a "remote" fault, so the give-up gate must
     // bound it. Pre-fix every child exit was "network" → infinite retry.
     vi.mocked(spawn).mockImplementation(() => crashingChild(127) as never);
-    const session = makeSession<AgentClient<typeof contract>>({
-      initialConnection: "copying",
+    const session = makeSession<AgentClient<typeof contract>, SshProv>({
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -147,8 +147,8 @@ describe("HostSession child-exit classification", () => {
 
     // 5 attempts of copying→connecting→exit 127→backoff (10/20/40/80ms).
     await vi.advanceTimersByTimeAsync(3000);
-    expect(snap(session).connection).toBe("failed");
-    expect(down(snap(session)).failureCause).toBe("remote");
+    expect(snap(session).phase).toBe("failed");
+    expect(down(snap(session)).cause).toBe("remote");
 
     session.destroy();
   });
@@ -177,8 +177,8 @@ describe("HostSession.recheck", () => {
   });
 
   it("force-cycles a live (connected) link and reconnects", async () => {
-    const session = makeSession<AgentClient<typeof contract>>({
-      initialConnection: "copying",
+    const session = makeSession<AgentClient<typeof contract>, SshProv>({
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -192,11 +192,11 @@ describe("HostSession.recheck", () => {
     // Flush the (resolved) resolve + provision microtasks so the first
     // child spawns and we enter `connecting`.
     await vi.advanceTimersByTimeAsync(1);
-    expect(snap(session).connection).toBe("connecting");
+    expect(snap(session).phase).toBe("connecting");
     // The bridge marks `connected` after the first RPC — simulate it so we
     // test the "seemingly-connected but actually stale" wake case.
     session.markConnected();
-    expect(snap(session).connection).toBe("connected");
+    expect(snap(session).phase).toBe("connected");
     expect(spawn).toHaveBeenCalledTimes(1);
 
     // The wake signal. Unlike `reconnect()` (which would no-op on a live
@@ -208,14 +208,14 @@ describe("HostSession.recheck", () => {
     // respawning after the (reset) backoff — a fresh ssh child.
     await vi.advanceTimersByTimeAsync(100);
     expect(spawn).toHaveBeenCalledTimes(2);
-    expect(snap(session).connection).toBe("connecting");
+    expect(snap(session).phase).toBe("connecting");
 
     session.destroy();
   });
 
   it("a recheck() cycle mid-connecting retries as network, not bounded remote (Codex P1)", async () => {
-    const session = makeSession<AgentClient<typeof contract>>({
-      initialConnection: "copying",
+    const session = makeSession<AgentClient<typeof contract>, SshProv>({
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
@@ -232,7 +232,7 @@ describe("HostSession.recheck", () => {
     // would be classified `"remote"` (not 255, never connected) and consume
     // the bounded give-up budget; the fix labels it `"network"`.
     await vi.advanceTimersByTimeAsync(1);
-    expect(snap(session).connection).toBe("connecting");
+    expect(snap(session).phase).toBe("connecting");
 
     session.recheck();
     // controllableChild.kill() emits `exit` synchronously, but post-S9 the
@@ -241,14 +241,14 @@ describe("HostSession.recheck", () => {
     // (unchanged) verdict: a wake-cycle mid-`connecting` is `"network"`, not the
     // bounded `"remote"` that would consume the give-up budget.
     await Promise.resolve();
-    expect(down(snap(session)).failureCause).toBe("network");
+    expect(down(snap(session)).cause).toBe("network");
 
     session.destroy();
   });
 
   it("is a no-op on an unreferenced session (no spawn, no throw)", () => {
-    const session = makeSession<AgentClient<typeof contract>>({
-      initialConnection: "copying",
+    const session = makeSession<AgentClient<typeof contract>, SshProv>({
+      initialConnection: "probing",
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",

@@ -44,6 +44,7 @@ import {
   ConnectError,
   type Connection,
   type SessionState,
+  type SshProv,
 } from "@kolu/surface-remote";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -244,8 +245,8 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
 
 /** Synchronous `SessionState` snapshot — `onState` fires the current state on subscribe
  *  (snapshot-then-delta), so a subscribe/unsubscribe reads it now. */
-function snap(session: PadiSession): SessionState {
-  let s!: SessionState;
+function snap(session: PadiSession): SessionState<SshProv> {
+  let s!: SessionState<SshProv>;
   session.onState((state) => {
     s = state;
   })();
@@ -253,16 +254,14 @@ function snap(session: PadiSession): SessionState {
 }
 
 /** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
- *  the UP arm carries no `lastError`/`failureCause` fields at all, so a test
- *  that expects a down state asserts it here rather than reading a field that
- *  doesn't exist on a live/warming snapshot. */
+ *  the UP arm carries no `error`/`cause` fields at all, so a test that expects a
+ *  down state asserts it here rather than reading a field that doesn't exist on a
+ *  live/warming snapshot. */
 function down(
-  s: SessionState,
-): Extract<SessionState, { connection: "disconnected" | "failed" }> {
-  if (s.connection !== "disconnected" && s.connection !== "failed") {
-    throw new Error(
-      `expected a DOWN session state, got connection=${s.connection}`,
-    );
+  s: SessionState<SshProv>,
+): Extract<SessionState, { phase: "disconnected" | "failed" }> {
+  if (s.phase !== "disconnected" && s.phase !== "failed") {
+    throw new Error(`expected a DOWN session state, got phase=${s.phase}`);
   }
   return s;
 }
@@ -351,8 +350,8 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
 
     // The connection cell reads a loud, honest degraded/remote frame.
     const s = snap(session);
-    expect(s.connection).toBe("disconnected");
-    expect(down(s).failureCause).toBe("remote");
+    expect(s.phase).toBe("disconnected");
+    expect(down(s).cause).toBe("remote");
     // Identity is the honest `disconnected` arm (nothing adopted) — the old
     // padiSurfaceVersion()===null.
     expect(session.identity().kind).toBe("disconnected");
@@ -395,7 +394,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     // Walk the exponential backoff (2s+4s+8s+16s) to the give-up.
     await flush(60_000);
 
-    expect(snap(session).connection).toBe("failed");
+    expect(snap(session).phase).toBe("failed");
     // No live client (canvas dead) — currentClient is null (honest absent).
     expect(session.currentClient()).toBeNull();
     // …but the REASON is a standing, surfaced convergence state.
@@ -516,6 +515,22 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     expect(second.baked.commit).toEqual({ kind: "commit", sha: "bbb2222" });
   });
 
+  it("resets clockOffset to null on link death — a reconnect never reads a `connected` with the prior episode's offset (d2)", async () => {
+    const { session, enqueue, handles } = makeArm({ binderBuildId: "" });
+    enqueue(serve(helloVals()));
+    await pinAdopt(session);
+    // admit measured the offset against THIS episode's padi (the offset-at-hello contract).
+    expect(session.clockOffset()).not.toBeNull();
+
+    // Link dies → disconnected: the measured offset belongs to the dead episode, so it must
+    // clear to null (a reconnect re-measures at the next admit). Otherwise `projectState`
+    // could fold a stale offset into a fresh `connected` on a reconnect race.
+    handles[0]!.kill();
+    await flush();
+    expect(snap(session).phase).toBe("disconnected");
+    expect(session.clockOffset()).toBeNull();
+  });
+
   it("advances currentClient identity per spawn, but stays STABLE within one (no cursor spin)", async () => {
     const { session, enqueue, handles } = makeArm({ binderBuildId: "" });
     enqueue(serve(helloVals()));
@@ -544,10 +559,10 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
 
     await pinAdopt(session);
     expect(handles.length).toBe(1); // pin kicked exactly one spawn
-    expect(snap(session).connection).toBe("connected");
+    expect(snap(session).phase).toBe("connected");
 
     session.markConnected(); // idempotent — a second mark is a no-op
-    expect(snap(session).connection).toBe("connected");
+    expect(snap(session).phase).toBe("connected");
 
     session.destroy();
     expect(session.isDestroyed()).toBe(true);
@@ -673,7 +688,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(conv?.detail).toMatch(
       /flapping|will not converge|riding the resident/i,
     );
-    expect(snap(session).connection).toBe("connected"); // canvas alive
+    expect(snap(session).phase).toBe("connected"); // canvas alive
     const id = session.identity();
     expect(id.kind === "identified" && id.baked.contractVersion).toBe(
       PADI_SURFACE_VERSION,
@@ -785,7 +800,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     const conv = session.convergence();
     expect(conv?.state).toBe("adopted-stale");
     expect(conv?.detail).toMatch(/did not take|kept answering/i);
-    expect(snap(session).connection).toBe("connected"); // canvas stays live
+    expect(snap(session).phase).toBe("connected"); // canvas stays live
   });
 
   it("contract skew, binder NEWER → drains (newest-wins), instance-keyed bounded", async () => {
@@ -874,8 +889,8 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     p.catch(() => {});
     await flush(CEIL);
     await expect(p).rejects.toThrow(/build mismatch/i);
-    expect(down(snap(session)).failureCause).toBe("network");
-    expect(snap(session).connection).not.toBe("failed");
+    expect(down(snap(session)).cause).toBe("network");
+    expect(snap(session).phase).not.toBe("failed");
   });
 
   it("contract skew, binder NEWER, drain does NOT take → degrades LOUDLY (unconverged), never adopts an incompatible contract", async () => {
@@ -895,8 +910,8 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(handles[0]!.drainCount).toBe(1); // attempted once, no kill
     await flush();
     const s = snap(session);
-    expect(s.connection).toBe("disconnected");
-    expect(down(s).failureCause).toBe("remote");
+    expect(s.phase).toBe("disconnected");
+    expect(down(s).cause).toBe("remote");
     expect(session.identity().kind).toBe("disconnected");
     // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
     // can't be ridden, unlike a build mismatch).
@@ -925,7 +940,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     // fault). The healthy bind's convergence clears to null → no domain cause.
     handles[0]!.kill();
     await flush();
-    expect(snap(session).connection).toBe("disconnected");
+    expect(snap(session).phase).toBe("disconnected");
     expect(session.entryFailedDetail()).toBeNull();
   });
 

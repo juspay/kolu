@@ -48,8 +48,9 @@ import { createImportSessionAction } from "./importSessionAction";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
+import { ConnectCanvas } from "./host/ConnectCanvas";
 import DegradedCanvas from "./kaval/DegradedCanvas";
-import HostDownCanvas from "./kaval/HostDownCanvas";
+import HostDownCanvas from "./host/HostDownCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
@@ -78,7 +79,14 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { activePadiRpc, savedSession as serverSavedSession } from "./wire";
+import { hostHue } from "./host/hostChipTone";
+import {
+  activeHost,
+  activePadiRpc,
+  hostKeys,
+  savedSession as serverSavedSession,
+  setActiveHost,
+} from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -234,6 +242,9 @@ const App: Component = () => {
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
     workspaceEntries,
     recencyOf,
+    hostKeys,
+    activeHost,
+    switchHost: setActiveHost,
   });
 
   /** Canvas tile body — every tile stays mounted (`visible={true}`) so
@@ -384,13 +395,19 @@ const App: Component = () => {
       {/* relative: anchor for overlay panels.
        *  --active-terminal-{bg,fg} published here so child components
        *  can read them via CSS without prop drilling. The fg lets sub-
-       *  components re-tune text tiers against the terminal theme. */}
+       *  components re-tune text tiers against the terminal theme.
+       *  --canvas-hue is the ACTIVE host's identity hue, published on this
+       *  ONE wrapper that spans every canvas surface (empty · populated ·
+       *  connecting · degraded · host-down) so the `.canvas-grid-bg` floor
+       *  in ALL of them picks it up by inheritance and re-tints reactively
+       *  the instant `activeHost` changes — no per-surface wiring. */}
       <div
         class="relative flex flex-1 min-h-0"
         style={{
           "--active-terminal-bg":
             activeTheme().background ?? "var(--color-surface-1)",
           "--active-terminal-fg": activeTheme().foreground ?? "var(--color-fg)",
+          "--canvas-hue": hostHue(activeHost()),
         }}
       >
         {/* Exactly one canvas surface, chosen by `canvasMode` — a total,
@@ -410,11 +427,12 @@ const App: Component = () => {
             fine-grainedly. Keep this as `<Switch>`. */}
         <Switch>
           <Match when={mode().kind === "connecting"}>
-            {/* Neutral connecting state until BOTH the session cell AND the
-                daemon-status stream have produced their first value. */}
-            <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
-              Connecting...
-            </div>
+            {/* Neutral connecting state until BOTH the session cell AND the daemon-status
+                stream have produced their first value. Funnels through `ConnectCanvas` (the
+                ONE not-yet-connected renderer) with no `daemonState` — so it shows the SAME
+                "Connecting to <host>…" copy as the `warming` overlay's gap/probing case, and a
+                routing flap between the two modes produces identical pixels (no flicker). */}
+            <ConnectCanvas daemonState={undefined} />
           </Match>
           <Match when={downMode()}>
             {(m) => <DegradedCanvas state={m().state} />}
@@ -426,15 +444,11 @@ const App: Component = () => {
             {(m) => <HostDownCanvas cause={m().cause} reason={m().reason} />}
           </Match>
           <Match when={warmingMode()}>
-            {(m) => (
-              <div
-                data-testid="daemon-warming"
-                data-daemon-state={m().daemonState}
-                class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
-              >
-                {m().label}
-              </div>
-            )}
+            {/* The host binding is coming up. `ConnectCanvas` narrates a REMOTE cold
+                provision off the connection cell (copying → building, live log tail +
+                elapsed) instead of a mute "Connecting…"; a kaval-restart warming
+                (daemonState defined) keeps the neutral label. */}
+            {(m) => <ConnectCanvas daemonState={m().daemonState} />}
           </Match>
           <Match when={mode().kind === "empty"}>
             {/* biome-ignore lint/a11y/noStaticElementInteractions: the zero-terminal canvas surface is the same pointer-driven canvas widget as TerminalCanvas (which lives in biome's spatial-mouse-canvas a11y override) — double-click-to-create's keyboard equivalent is the ⌘K/⌘T palette it opens, so role/tabIndex/fake onKeyDown would claim a11y it doesn't deliver. Scoped inline because App.tsx is the composition root, not a dedicated canvas file that warrants a file-wide override. */}

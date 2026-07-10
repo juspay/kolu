@@ -28,7 +28,7 @@ import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
 import { resolveSystem } from "./arch";
 import { makeSession } from "./session";
-import { type AgentClient, sshConnector } from "./sshConnector";
+import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
 
 /** Parse + validate a `{ system → drvPath }` map from an already-read env value.
  *  The env-var NAME is the caller's (the Nix-wrapper boundary spells it
@@ -168,7 +168,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // `session.destroy()`, and each dial gets its own connector (resolver/drv map)
   // and its own teardown, so two concurrent dials never share a session where
   // either `dispose()` kills the other's link.
-  const session = makeSession<AgentClient<C>>({
+  const session = makeSession<AgentClient<C>, SshProv>({
     connectOnce: sshConnector<C>({
       host: opts.host,
       binary: opts.binary,
@@ -177,8 +177,9 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
         resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
     }),
     // The ssh connector PROVISIONS — it nix-copies the agent closure to the remote
-    // before the transport is up — so this session opens at the "copying" phase.
-    initialConnection: "copying",
+    // before the transport is up — so this session opens at "probing" (the arch probe +
+    // warm check), advancing to "copying"/"building" only when a real cold copy runs.
+    initialConnection: "probing",
     onLog: opts.onLog,
     // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag
     // every `HostSession` line carried), so an alt-screen consumer's log filtering
@@ -186,33 +187,38 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     label: `host:${opts.host}`,
   });
   // Capture the latest session state (snapshot-then-delta) so the failure path can
-  // read the agent's own fatal off `remoteProgressLines` — the role exposes no
-  // synchronous `current()` snapshot, so a live `onState` mirror stands in.
+  // read the agent's own fatal off the log's REMOTE-origin lines — the role exposes
+  // no synchronous `current()` snapshot, so a live `onState` mirror stands in. The
+  // remote lines are now the `source === "remote"` entries of the unified `log`
+  // (provenance is a field), reduced to their raw text.
   let latestRemoteLines: readonly string[] = [];
   const unsubState = session.onState((s) => {
-    latestRemoteLines = s.remoteProgressLines;
+    latestRemoteLines = s.log
+      .filter((e) => e.source === "remote")
+      .map((e) => e.line);
   });
   // The agent's OWN fatal reason, read off the session AFTER a failed dial. When
   // the agent exits before serving — a bad `--kaval` pick, a startup crash — the
   // `probe` below rejects with the transport's opaque "stream closed" error, but
-  // the agent's last stderr (on the session's `remoteProgressLines`) is the real
-  // reason. The agent writes its fatal as `<fatalPrefix> <message>` to its own
-  // stderr right before exiting (see pulam's / kaval's bin.ts), forwarded onto
-  // `remoteProgressLines` — the remote-origin lines, already separated from the
-  // session's OWN local lifecycle chatter ("agent exited", "reconnecting in
-  // 2000ms…"). Reading them BY ORIGIN (the field) rather than re-parsing the
-  // session's internal `[remote] ` tag keeps the only shared convention here the
-  // agent's own `<fatalPrefix>` fatal shape (caller-supplied — it is NOT always
-  // `${drvNoun}:`; kaval's `--stdio` front writes `kaval --stdio:`).
+  // the agent's last stderr (the REMOTE-origin lines of the session's `log` —
+  // `log` entries with `source === "remote"`) is the real reason. The agent writes
+  // its fatal as `<fatalPrefix> <message>` to its own stderr right before exiting
+  // (see pulam's / kaval's bin.ts), forwarded onto those remote-origin `log` lines,
+  // already separated (by the `source` field) from the session's OWN local
+  // lifecycle chatter ("agent exited", "reconnecting in 2000ms…"). Reading them BY
+  // ORIGIN (`source === "remote"`) rather than re-parsing an in-band tag keeps the
+  // only shared convention here the agent's own `<fatalPrefix>` fatal shape
+  // (caller-supplied — it is NOT always `${drvNoun}:`; kaval's `--stdio` front
+  // writes `kaval --stdio:`).
   //
-  // The fatal is the LAST thing the agent writes, so it is the TAIL of
-  // `remoteProgressLines` (never evicted by the `MAX_PROGRESS_LINES` cap, which
-  // drops the oldest) — captured FROM the last prefixed line THROUGH the end, not
-  // just that one line. pulam's ambiguity error is multi-line (the "more than one
-  // kaval" header plus each `--kaval <socket>` candidate the user needs to
-  // recover): `forEachLine` splits it into separate `remoteProgressLines` entries
-  // where only the first carries the prefix, so matching a single prefixed line
-  // would drop the candidates. We read the WHOLE current tail once, on the catch
+  // The fatal is the LAST thing the agent writes, so it is the TAIL of the
+  // remote-origin lines (never evicted by the `MAX_PROGRESS_LINES` cap, which drops
+  // the oldest) — captured FROM the last prefixed line THROUGH the end, not just
+  // that one line. pulam's ambiguity error is multi-line (the "more than one kaval"
+  // header plus each `--kaval <socket>` candidate the user needs to recover):
+  // `forEachLine` splits it into separate remote `log` entries where only the first
+  // carries the prefix, so matching a single prefixed line would drop the
+  // candidates. We read the WHOLE current tail once, on the catch
   // path — no `onState` accumulator (a cached partial block could otherwise
   // short-circuit a later full read under stderr fragmentation).
   const agentFatal = (remoteLines: readonly string[]): string | undefined => {

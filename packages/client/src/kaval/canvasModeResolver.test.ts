@@ -31,7 +31,6 @@ function connected(
     entry: "connected",
     down: undefined,
     warming: false,
-    warmingLabel: "Connecting…",
     daemonState: "connected",
     terminalCount: 1,
     recordsAwaited: 0,
@@ -97,20 +96,74 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     ).toEqual({ kind: "down", state: "dead" });
   });
 
-  it("a REMOTE host past the local 30s ceiling stays `connecting` while its entry is merely provisioning (warming) — never a false 'kaval didn't start'", () => {
-    // srid's exact class: `copying`/`warming` (nix-copy + build) legitimately
-    // outlasts the LOCAL connect watchdog the ceiling mirrors. The entry is
-    // `warming` (not `failed`), so the ceiling must NOT fire for a remote host.
+  it("a REMOTE binding coming up (connectPhase copying/building) resolves to `warming` off its OWN connection cell — never a mute 'Connecting…' (W6 items 3+5)", () => {
+    // srid's exact class: `copying`/`building` (nix-copy + build) legitimately outlasts
+    // the LOCAL connect watchdog, and the re-served daemon-status never yields until it
+    // CONNECTS — so `daemonPending` stays true the whole time. W6: the overlay routes on
+    // the ACTIVE host's OWN `connectPhase` (the SAME channel ConnectCanvas narrates off),
+    // so a provisioning phase resolves to `warming` regardless of the loading gate. Pre-W6
+    // this returned a mute `{ kind: "connecting" }` — indistinguishable from a hang.
     expect(
       resolveCanvasMode({
         ...liveness,
         entry: "warming",
-        warmingLabel: "Connecting…",
+        connectPhase: "copying",
         daemonPending: true,
         pendingTimedOut: true,
         isLocalHost: false,
       }),
-    ).toEqual({ kind: "connecting" });
+    ).toEqual({
+      kind: "warming",
+      daemonState: undefined,
+    });
+  });
+
+  it("a LOCAL binding wedged past its connect ceiling still earns down/dead — the #1713 safety survives the connectPhase routing", () => {
+    // The overlay routes on `connectPhase`, but a LOCAL endpoint's own connect watchdog
+    // still earns the `pendingTimedOut` → down/dead verdict rather than a forever-
+    // narrating overlay (a remote's ssh + nix copy + build legitimately outlasts it).
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "warming",
+        connectPhase: "connecting",
+        daemonPending: true,
+        pendingTimedOut: true,
+        isLocalHost: true,
+      }),
+    ).toEqual({ kind: "down", state: "dead" });
+  });
+
+  it("A' — a CONNECTED entry can NEVER show the connect overlay (the green-chip / Building-forever trap is unspellable)", () => {
+    // THE LIVE BUG (srid, deployed 5ec5347): EntryStatus `connected` (green chip) while the
+    // lagging/stale connection cell still read `building` routed the canvas to ConnectCanvas
+    // FOREVER — the connected arm's workspace path was structurally unreachable. A' removes
+    // `connectPhase` from the connected arm entirely, so a connected host with terminals
+    // resolves straight to the workspace; the contradiction is a TYPE error, not a runtime
+    // tie (pinned in `canvasModeResolver.test-d.ts`). The connect overlay routes off the cell
+    // ONLY while the entry itself is pre-connected (the warming/not-a-member arms below).
+    expect(resolveCanvasMode(connected({ terminalCount: 5 }))).toEqual({
+      kind: "workspace",
+    });
+    // A connected-but-idle host still reaches `empty`, never a trapped overlay.
+    expect(resolveCanvasMode(connected({ terminalCount: 0 }))).toEqual({
+      kind: "empty",
+    });
+    // The cell flipped to `connected` but EntryStatus still says `warming` → the overlay does
+    // NOT show; the neutral warming surface does (its copy derived at render). `connectPhase`
+    // is typed `ConnectPhase`, so a `connected` cell phase is UNCONSTRUCTIBLE on this arm —
+    // `useCanvasMode` narrows it to `undefined` at the facts boundary, which is what the
+    // resolver sees (no overlay). The mode carries no string — just `daemonState: undefined`.
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "warming",
+        connectPhase: undefined,
+      }),
+    ).toEqual({
+      kind: "warming",
+      daemonState: undefined,
+    });
   });
 
   it("a FAILED entry reaches host-failed even with daemonPending + past the ceiling — the loading gate never intercepts a failed host (step-5 fix)", () => {
@@ -160,11 +213,10 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
       resolveCanvasMode({
         ...liveness,
         entry: "warming",
-        warmingLabel: "Connecting…",
+        connectPhase: undefined,
       }),
     ).toEqual({
       kind: "warming",
-      label: "Connecting…",
       daemonState: undefined,
     });
   });
@@ -194,7 +246,13 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
   });
 
   it("a not-a-member entry (mid host-switch) holds the neutral connecting surface", () => {
-    expect(resolveCanvasMode({ ...liveness, entry: "not-a-member" })).toEqual({
+    expect(
+      resolveCanvasMode({
+        ...liveness,
+        entry: "not-a-member",
+        connectPhase: undefined,
+      }),
+    ).toEqual({
       kind: "connecting",
     });
   });
@@ -216,25 +274,23 @@ describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
     ).toEqual({ kind: "down", state: "degraded" });
   });
 
-  it("warming beats empty and carries its label + daemonState payload", () => {
+  it("warming beats empty and carries its daemonState payload (copy is derived at render)", () => {
     const daemonState: DaemonState = "restarting";
     expect(
       resolveCanvasMode(
         connected({
           warming: true,
-          warmingLabel: "Restarting kaval…",
           daemonState,
           terminalCount: 0,
         }),
       ),
     ).toEqual({
       kind: "warming",
-      label: "Restarting kaval…",
       daemonState: "restarting",
     });
   });
 
-  it("warming preserves an undefined daemonState (pre-first-yield label)", () => {
+  it("warming preserves an undefined daemonState (pre-first-yield)", () => {
     expect(
       resolveCanvasMode(connected({ warming: true, daemonState: undefined })),
     ).toMatchObject({ kind: "warming", daemonState: undefined });

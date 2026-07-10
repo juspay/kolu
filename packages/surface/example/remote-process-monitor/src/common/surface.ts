@@ -31,7 +31,6 @@ import { z } from "zod";
 
 export {
   type ConnectionInfo,
-  type ConnectionState,
   DEFAULT_CONNECTION,
 } from "@kolu/surface-remote/connection";
 

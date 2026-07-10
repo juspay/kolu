@@ -18,26 +18,26 @@ import {
   type ClosedInfo,
   type ConnectContext,
   type Connection,
+  type DownSessionState,
   makeSession,
   type Session,
   type SessionState,
 } from "./session";
+import type { SshProv } from "./sshConnector";
 
 /** The latest state frame the session has published (snapshot-then-delta). */
-function latest<C>(session: Session<C, "copying">): SessionState {
-  let cur!: SessionState;
+function latest<C>(session: Session<C, SshProv>): SessionState<SshProv> {
+  let cur!: SessionState<SshProv>;
   session.onState((s) => {
     cur = s;
   })();
   return cur;
 }
 
-/** A down-arm narrowing so the test can read `lastError` / `failureCause`. */
-function down(
-  s: SessionState,
-): Extract<SessionState, { connection: "disconnected" | "failed" }> {
-  if (s.connection !== "disconnected" && s.connection !== "failed") {
-    throw new Error(`expected a down arm, got ${s.connection}`);
+/** A down-arm narrowing so the test can read `error` / `cause`. */
+function down(s: SessionState<SshProv>): DownSessionState {
+  if (s.phase !== "disconnected" && s.phase !== "failed") {
+    throw new Error(`expected a down arm, got ${s.phase}`);
   }
   return s;
 }
@@ -76,8 +76,8 @@ describe("ClosedInfo non-exit transport deaths", () => {
 
   it("endpoint-down classifies remote (bounded) when never connected, with an honest reason", async () => {
     const { connectOnce, die } = drivableConnector();
-    const session = makeSession<unknown>({
-      initialConnection: "copying",
+    const session = makeSession<unknown, SshProv>({
+      initialConnection: "probing",
       connectOnce,
       reconnectDelayMs: 60_000, // keep the follow-on redial out of the window
       label: "ep",
@@ -87,20 +87,20 @@ describe("ClosedInfo non-exit transport deaths", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     const d = down(latest(session));
-    expect(d.connection).toBe("disconnected");
+    expect(d.phase).toBe("disconnected");
     // Never connected → the endpoint refused to come up → bounded `"remote"`.
-    expect(d.failureCause).toBe("remote");
+    expect(d.cause).toBe("remote");
     // Honest: NOT the both-null "agent exited (code=null, signal=null)" lie.
-    expect(d.lastError).toBe("endpoint link down (no process exit)");
-    expect(d.lastError).not.toContain("code=null");
+    expect(d.error).toBe("endpoint link down (no process exit)");
+    expect(d.error).not.toContain("code=null");
 
     session.destroy();
   });
 
   it("transport-failed classifies network (retry forever)", async () => {
     const { connectOnce, die } = drivableConnector();
-    const session = makeSession<unknown>({
-      initialConnection: "copying",
+    const session = makeSession<unknown, SshProv>({
+      initialConnection: "probing",
       connectOnce,
       reconnectDelayMs: 60_000,
       label: "tf",
@@ -110,9 +110,9 @@ describe("ClosedInfo non-exit transport deaths", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     const d = down(latest(session));
-    expect(d.connection).toBe("disconnected");
-    expect(d.failureCause).toBe("network");
-    expect(d.lastError).toMatch(/ssh transport connection failed/i);
+    expect(d.phase).toBe("disconnected");
+    expect(d.cause).toBe("network");
+    expect(d.error).toMatch(/ssh transport connection failed/i);
 
     session.destroy();
   });

@@ -28,6 +28,7 @@ import {
   seedConnectionCell,
   type Session,
   sshConnector,
+  type SshProv,
 } from "@kolu/surface-remote";
 import { mirroredSurface } from "@kolu/surface-remote/connection";
 import { z } from "zod";
@@ -53,8 +54,11 @@ const resolveDrv = (_host: string): Promise<string> =>
   Promise.resolve("/nix/store/…-my-agent.drv");
 
 // #region dial
-const session: Session<AgentClient<typeof base.contract>> = makeSession({
-  initialConnection: "copying", // an ssh session provisions before it connects
+const session: Session<
+  AgentClient<typeof base.contract>,
+  SshProv
+> = makeSession({
+  initialConnection: "probing", // an ssh session provisions before it connects
   connectOnce: sshConnector<typeof base.contract>({
     host: "alice@bob.example", // any ssh target; "localhost" short-circuits
     binary: "my-agent", // exe name inside the realised closure

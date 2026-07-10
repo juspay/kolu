@@ -80,7 +80,6 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import {
   assertRemovableHost,
   ensureRemotePadiBinding,
-  isMultiHost,
   parseKoluPadiHostSeed,
 } from "./remotePadiBinding.ts";
 import { pruneToMembers } from "./reServeEviction.ts";
@@ -446,6 +445,11 @@ const reServedPadiClient = surfaceClientRef(
 const padiMap = serveHostMap(padiHostMap, pool, {
   // biome-ignore lint/suspicious/noExplicitAny: ReServedSurface.router is opaque (`unknown`); directLink forwards it structurally, exactly as the memory sampler's `surfaceClientRef` does above.
   linkFor: (h, s) => directLink(reServeFor(h, s).router as any),
+  // The clock offset is now INJECTED (no `ClockableSession` type bound): padi's
+  // arms measure it at the admit handshake, so hand `serveHostMap` the real
+  // measurer. `null` until the first hello stamps it (offset-at-hello is the
+  // contract) → the entry reads `connecting` until then.
+  offsetOf: (s) => s.clockOffset(),
   // D1 + D2: the DOMAIN cause (+ D2's typed running/expected pair on
   // contract-skew-refused) — padi's own knowledge (`session.entryFailedDetail()`,
   // derived from `convergence()`/the drv-resolution fault, both arm-local), never
@@ -455,10 +459,6 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   causeFor: (_host, session) =>
     session.entryFailedDetail() ?? { cause: "other" },
 });
-
-// Publish the multi-host gate as a cell — the client reads THIS to render the selector
-// strip (env-unset → false → zero multi-host UI). The client NEVER reads env directly.
-koluSurfaceCtx.cells.hostMapGate.set({ enabled: isMultiHost() });
 
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own
 // siblings. `serveHostMap` returns a top-level single-surface router
@@ -835,7 +835,7 @@ const padiBuildCommit = (): string | null => {
 };
 
 padiSession.onState((s) => {
-  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.connection));
+  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.phase));
   // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
   // time (constant) plus the bound padi's honest boot time (`null` while unbound). A
   // padi (re)connect refreshes padi's uptime and a drop clears it to the honest

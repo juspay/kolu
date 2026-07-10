@@ -25,6 +25,7 @@ import {
   type Session,
   type SessionState,
   sshConnector,
+  type SshProv,
 } from "@kolu/surface-remote";
 import {
   defineSurfaceMap,
@@ -87,26 +88,35 @@ interface HostBinding {
 }
 
 // Project the session's connection state onto the map's per-entry state — one
-// dead box becomes exactly one honest `failed` chip.
-function projectState(s: SessionState): EntryConnectionState<"copying"> {
-  switch (s.connection) {
+// dead box becomes exactly one honest `failed` chip. The ssh connector's two
+// provisioning phases (`copying`/`building`) both fold to the map's coarse
+// `copying` bucket; the fine phase rides the per-host `connection` cell.
+function projectState(
+  s: SessionState<SshProv>,
+): EntryConnectionState<"copying"> {
+  switch (s.phase) {
+    case "probing":
     case "copying":
+    case "building":
       return { kind: "copying" };
     case "connecting":
       return { kind: "connecting" };
     case "connected":
       return { kind: "connected", clockOffset: 0 };
     case "disconnected":
-      return { kind: "disconnected", reason: s.lastError ?? "" };
+      return { kind: "disconnected", reason: s.error };
     case "failed":
-      return { kind: "failed", reason: s.lastError ?? "" };
+      return { kind: "failed", reason: s.error };
   }
 }
 
 // #region binding
 function buildHostBinding(host: string, agentDrv: string): HostBinding {
-  const session: Session<AgentClient<typeof entry.contract>> = makeSession({
-    initialConnection: "copying",
+  const session: Session<
+    AgentClient<typeof entry.contract>,
+    SshProv
+  > = makeSession({
+    initialConnection: "probing",
     connectOnce: sshConnector<typeof entry.contract>({
       host,
       binary: "fleet-top-agent",
@@ -173,7 +183,7 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
   const router = implement(entry.contract).router({ ...fragment.router });
   const link = directLink<typeof entry.contract>(router);
 
-  let latest: SessionState = { connection: "copying" } as SessionState;
+  let latest: SessionState<SshProv> = { phase: "probing", log: [], sinceMs: 0 };
   const unsub = session.onState((s) => {
     latest = s;
   });

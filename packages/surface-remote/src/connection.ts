@@ -27,78 +27,101 @@ import {
   type SurfaceSpec,
 } from "@kolu/surface/define";
 import { z } from "zod";
+// TYPE-ONLY (erased at runtime): the cell value IS `SessionState<SshProv>`, so this
+// module keeps ONE connection-state type family. Neither import pulls the node/server
+// code those modules carry — `import type` emits nothing.
+import type { SessionState } from "./session";
+import type { SshProv } from "./sshConnector";
 
-/** The link phases, mirroring `HostSession`'s lifecycle 1:1 — the runtime
- *  source both the cell's `z.enum` and the `ConnectionState` type derive from,
- *  so the schema and the session type can't drift. `failed` is terminal: the
- *  reconnect loop exhausted its budget on a `"remote"` fault and gave up (a
- *  `"network"` fault never reaches it — it retries forever); `reconnect()`
- *  re-arms it. */
-export const CONNECTION_STATES = [
-  "copying",
-  "connecting",
-  "connected",
-  "disconnected",
-  "failed",
-] as const;
-
-/** The session's link phase. Single-sourced from {@link CONNECTION_STATES}. */
-export type ConnectionState = (typeof CONNECTION_STATES)[number];
-
-/** The LOCAL / endpoint arm's phase set — `ConnectionState` MINUS `"copying"`.
- *  `"copying"` is the nix-closure-PROVISIONING phase; a NON-provisioning connector
- *  (the local `endpointConnector` — the daemon is already here, nothing to copy)
- *  can never enter it, so its session type OMITS it and `local is copying` becomes
- *  a COMPILE error, not a runtime lie. The full `ConnectionState` stays for the
- *  ssh/provisioning arm and the heterogeneous pool boundary. (juspay/kolu#1716.) */
-export const LOCAL_CONNECTION_STATES = [
-  "connecting",
-  "connected",
-  "disconnected",
-  "failed",
-] as const satisfies readonly Exclude<ConnectionState, "copying">[];
-
-/** The local/endpoint session's link phase — {@link ConnectionState} without the
- *  remote-only `"copying"` provisioning phase. */
-export type LocalConnectionState = (typeof LOCAL_CONNECTION_STATES)[number];
-
-/** The PROVISIONING-only phases a provisioning connector (ssh) adds beyond the
- *  always-present {@link LocalConnectionState} — today just `"copying"`. A session's
- *  connection type is `LocalConnectionState | Prov`: the four local phases are
- *  ALWAYS reachable (so the session machine's internal transitions typecheck for
- *  any `Prov`), and `Prov` widens ONLY the provisioning arm. `Prov = never` (the
- *  local/endpoint arm) yields exactly `LocalConnectionState`; `Prov =
- *  ProvisioningPhase` (the ssh arm, the default) yields exactly `ConnectionState`. */
-export type ProvisioningPhase = Exclude<ConnectionState, LocalConnectionState>;
-
-/** Why a down link is down — `"network"` (host unreachable; retries forever)
- *  vs `"remote"` (host reached, rejected us; terminal `failed`). Single-sourced
- *  here so the cell schema and `HostSession`'s `FailureCause` can't drift. */
-export const FAILURE_CAUSES = ["network", "remote"] as const;
-export type FailureCause = (typeof FAILURE_CAUSES)[number];
-
-/** The browser-facing connection-health cell value — the four fields a viewer
- *  renders, projected from the richer `HostSessionState`. */
-export const ConnectionInfoSchema = z.object({
-  state: z.enum(CONNECTION_STATES),
-  /** The terse failure headline when `state` is `disconnected` / `failed`. */
-  lastError: z.string().nullable(),
-  /** Refines a down link's message (`network` → "unreachable" vs `remote`). */
-  failureCause: z.enum(FAILURE_CAUSES).nullable(),
-  /** The link log tail — the real "why" behind a `failed`. */
-  progressLines: z.array(z.string()).readonly(),
+/** One line of the link's provenance-tagged log tail — the browser mirror of a
+ *  session's {@link SessionState.log} entry: `source` is WHERE the line came from
+ *  (`"local"` = the parent's own provisioning / lifecycle chatter, `"remote"` =
+ *  the far agent's forwarded stderr), a FIELD now rather than an in-band
+ *  `[local] `/`[remote] ` string prefix. */
+export const LogEntrySchema = z.object({
+  source: z.enum(["local", "remote"]),
+  line: z.string(),
 });
-export type ConnectionInfo = z.infer<typeof ConnectionInfoSchema>;
+export type LogEntry = z.infer<typeof LogEntrySchema>;
+
+const logSchema = z.array(LogEntrySchema).readonly();
+
+/** The browser-facing connection-health cell value. NOT a separate mirror type: the
+ *  cell IS the session sum on the wire — `ConnectionInfo = SessionState<SshProv>`
+ *  (below), so there is exactly ONE connection-state type family. This zod schema
+ *  must exist (a wire cell needs a concrete browser-safe validator, which a
+ *  TS-generic type is not), so it hand-restates the same arms — but the drift risk
+ *  is closed by a COMPILE-TIME pin (`connectionInfoIdentity.test-d.ts`) asserting
+ *  `z.infer<typeof ConnectionInfoSchema>` ≡ `SessionState<SshProv>`: add a phase or
+ *  change an invariant on one and the build fails until the other agrees, rather
+ *  than a runtime zod throw. Discriminated on `phase`:
+ *
+ *   - UP (the ssh connector's `probing`/`copying`/`building` provisioning phases
+ *     plus `connecting`/`connected`): carries only the `log` tail + `sinceMs`, no
+ *     error FIELDS.
+ *   - `disconnected`: `error` + `cause` (`network` unreachable / `remote` refused).
+ *   - `failed`: terminal, `cause` is the `"remote"` literal — a `network` fault
+ *     never gives up, so `failed`+`network` is unrepresentable (mirroring the pin).
+ *
+ *  The provisioning phase NAMES are the ssh connector's own vocabulary; the cell is
+ *  composed only at the remote re-serve seam ({@link mirroredSurface}), which mirrors
+ *  exactly those ssh sessions, so naming them here is honest. */
+const upArm = <P extends string>(phase: P) =>
+  z.object({ phase: z.literal(phase), log: logSchema, sinceMs: z.number() });
+
+export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
+  upArm("probing"),
+  upArm("copying"),
+  upArm("building"),
+  upArm("connecting"),
+  upArm("connected"),
+  z.object({
+    phase: z.literal("disconnected"),
+    error: z.string(),
+    cause: z.enum(["network", "remote"]),
+    log: logSchema,
+    sinceMs: z.number(),
+  }),
+  z.object({
+    phase: z.literal("failed"),
+    error: z.string(),
+    cause: z.literal("remote"),
+    log: logSchema,
+    sinceMs: z.number(),
+  }),
+]);
+
+/** The connection cell's value IS the session sum at the ssh connector's `Prov` —
+ *  one type family, not a parallel mirror. Kept as a TYPE-ONLY alias (both imports
+ *  are `import type`, fully erased, so this browser-safe module still pulls no
+ *  node/server code at runtime), with the zod schema above pinned structurally
+ *  equal to it. */
+export type ConnectionInfo = SessionState<SshProv>;
+
+/** The up-but-not-yet-connected phases — what a connect/progress UI narrates (the connect
+ *  overlay, a per-host status/color map). The subset of `ConnectionInfo["phase"]` a UI shows
+ *  WHILE a host is still coming up: the connector's provisioning phases (`SshProv`) plus the
+ *  brief `connecting` handshake. `connected` (the workspace shows) and `disconnected`/`failed`
+ *  (their own down-surface) are excluded. DERIVED from the one phase family so it auto-tracks
+ *  any future `SshProv` phase — a UI's exhaustive `switch`/`Record` over `ConnectPhase` then
+ *  fails to compile until it handles the new phase, the drift signal a hand-listed copy
+ *  silently swallows. Lives HERE, beside `ConnectionInfo`, as the honest owner, so a UI that
+ *  narrates only the coming-up phases (kolu's connect overlay) imports this subset rather than
+ *  re-listing the literals. (A consumer whose map keys the FULL phase union keys on
+ *  `ConnectionInfo["phase"]` directly — this alias is the up-but-not-yet-connected subset.) */
+export type ConnectPhase = Exclude<
+  ConnectionInfo["phase"],
+  "connected" | "disconnected" | "failed"
+>;
 
 /** Gate-closed by default: a freshly-composed cell reads `connecting`, so
  *  "healthy-empty before the first remote frame" is structurally
  *  unrepresentable. The parent overwrites it from the live session; the agent
  *  never does. */
 export const DEFAULT_CONNECTION: ConnectionInfo = {
-  state: "connecting",
-  lastError: null,
-  failureCause: null,
-  progressLines: [],
+  phase: "connecting",
+  log: [],
+  sinceMs: 0,
 };
 
 /** The composable cell descriptor — composed onto a surface ONLY by
@@ -128,13 +151,13 @@ export const connectionCell = {
   // state: every connection dot is the fact-gated `<HostStatusPip>`, whose green is
   // emitted only from the ready verdict. That last guarantee is by CONVENTION, not
   // construction — nothing structurally stops a NEW widget from reading the raw
-  // `.state` — so the rule for a new one is: paint via `<HostStatusPip>`, never
-  // colour a dot from `.state`. The ssh
-  // VOCABULARY (`"connected"`, the four-state enum) stays HERE beside the schema;
+  // `.phase` — so the rule for a new one is: paint via `<HostStatusPip>`, never
+  // colour a dot from `.phase`. The ssh
+  // VOCABULARY (`"connected"`, the phase sum) stays HERE beside the schema;
   // `@kolu/surface` only invokes the predicate (the `resolveCellVerbs`-style
   // mechanism/vocabulary split). `DEFAULT_CONNECTION` is `connecting` — gate-closed
   // — so a freshly-composed cell reads not-live until a genuine `connected` frame.
-  liveWhen: (v: ConnectionInfo) => v.state === "connected",
+  liveWhen: (v: ConnectionInfo) => v.phase === "connected",
 } as const;
 
 /** A base spec with the reserved get-only `connection` cell added.

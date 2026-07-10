@@ -4,8 +4,8 @@
  * `"copying"` — the local endpoint connector provisions nothing (the daemon is
  * already here), so the provisioning phase is a remote-only fact. Before
  * `PadiSession` became generic over `Prov`, `asPadiSession` took a fixed
- * `base: Session<PadiSurfaceClient>` (Prov defaulting to the FULL
- * `ProvisioningPhase`), so the local arm's narrowed `Session<_, never>` base was
+ * `base: Session<PadiSurfaceClient>` (Prov defaulting to the ssh connector's
+ * `SshProv`), so the local arm's narrowed `Session<_, never>` base was
  * silently WIDENED back to the full union the moment it passed through — this
  * file pins that the narrowing now survives instead.
  *
@@ -37,17 +37,17 @@ localPadi.onState((s) => {
   // union here is exactly `"connecting" | "connected"`. If this line ever
   // compiles, the copying-unrepresentable split has regressed for padi's last
   // consumer.
-  if (s.connection === "copying") {
+  if (s.phase === "copying") {
     // unreachable — pinned above, not exercised at runtime.
   }
 });
 
-// The REMOTE ssh arm keeps the default (full `ProvisioningPhase`): `"copying"` is
-// its actual opening phase (`remotePadiBinding.ts`'s `initialConnection:
-// "copying"`), so it must stay legal to read here — the split cuts only ONE way.
+// The REMOTE ssh arm keeps the default (`SshProv`): `"copying"` is its actual
+// opening phase (`remotePadiBinding.ts`'s `initialConnection: "probing"`), so it
+// must stay legal to read here — the split cuts only ONE way.
 declare const remotePadi: PadiSession;
 remotePadi.onState((s) => {
-  if (s.connection === "copying") {
+  if (s.phase === "copying") {
     // reachable for the remote (provisioning) arm — no `@ts-expect-error` here.
   }
 });
