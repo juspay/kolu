@@ -1,6 +1,6 @@
 ---
 title: The reactive bridge — backend signals, one seamless API
-description: "The ratified direction for backend reactivity: state is a signal, derived state is a computed, the wire is a signal boundary that snapshots and replays. A signals engine (slot open — srid picks) lives behind reactor.ts in @kolu/surface, apps are lint-banned from touching it; every wire law stays where it lives today; Solid is unchanged client-side; streams and events stay off the graph permanently. The worked before/after examples, the law-enforcement table, the fate of the seven wire-contract names, the migration phases (phase 0 IS the W5 slice), the honest costs, and the open questions srid rules on."
+description: "The ratified direction for backend reactivity: state is a signal, derived state is a computed, the wire is a signal boundary that snapshots and replays. The engine — @preact/signals-core now, @solidjs/signals the named swap target — lives behind reactor.ts in @kolu/surface, apps are lint-banned from touching it; every wire law stays where it lives today; Solid is unchanged client-side; streams and events stay off the graph permanently. The worked before/after examples, the law-enforcement table, the fate of the seven wire-contract names, the migration phases (phase 0 IS the W5 slice), the honest costs, the open questions srid rules on, and the exhaustive reflex→surface mapping as the closing appendix."
 parents: [pedagogy, padi]
 status: proposed
 maturity: seedling
@@ -13,7 +13,7 @@ import layers from "../../diagrams/surface-reactive-bridge-layers.svg?raw";
 
 **The model, in one paragraph.** State is a signal; derived state is a computed; an effect reacts; **the wire is a signal boundary that snapshots and replays**. Server-side, a signals engine becomes a dependency of `@kolu/surface` only, wrapped in one module — `reactor.ts` — which exports `computed` and the bridge constructors but never raw `signal` or raw `effect`; the engine's deep import is lint-banned outside reactor.ts, so the wrapper is the only graph exit by construction, not by review. Client-side, Solid is mechanically unchanged. **Streams and events deliberately do not ride the graph** — a signal is state, not a log (it conflates same-batch frames by construction); they keep snapshot-then-delta and `ctx.publish`. This is a named, permanent boundary. And the wire adds what no engine has — latency, serialization, authority, partial failure — which the API names rather than hides: **seamless API, not seamless semantics**.
 
-<Svg svg={layers} wide caption="Three layers. The engine (slot open) hidden behind reactor.ts; the bridge, where every wire law lives — sources in, computed graph with typed sibling reads, wire-effect exits as leaves into the untouched publish paths; the wire as the honest boundary; the Solid client unchanged." />
+<Svg svg={layers} wide caption="Three layers. The engine — @preact/signals-core, swappable to @solidjs/signals — hidden behind reactor.ts; the bridge, where every wire law lives — sources in, computed graph with typed sibling reads, wire-effect exits as leaves into the untouched publish paths; the wire as the honest boundary; the Solid client unchanged." />
 
 The one story, both sides — derive on whichever side of the wire the inputs live:
 
@@ -31,7 +31,7 @@ createEffect(() => title.set(badge() > 0 ? `(${badge()})` : ""));
 
 `$` is the typed sibling read face (a plain mapped type over the spec — no `keyof` union explosion): `$.someCell(): T`, `$.someCollection(): ReadonlyMap<K,T>`. The critical rule: an authored member's graph face is its post-equals mirror; **a derived member's graph face is its `computed` directly** — so every derivation chain is a pure computed graph (glitch-free by the engine's version-checked lazy pull) and each wire effect is a leaf into `applyAndPublish`, untouched.
 
-**The engine slot is open — srid has not picked.** `@preact/signals-core` is the working default the design was built and verified against (zero deps, no DOM reach, fully synchronous); the alternatives under comparison include `@vue/reactivity`, `alien-signals`, and the TC39 signals polyfill. `reactor.ts` exists precisely to make this a two-way door — see open question 1.
+**The engine is decided:** `@preact/signals-core` behind reactor.ts now, `@solidjs/signals` the named swap target once Solid 2.0 and its ecosystem stabilize — [the engine note](surface-reactor-engine.html) holds the probed comparison and the eliminations; `reactor.ts` keeps it a two-way door (rename + a flush rule + the law tests).
 
 ## The worked examples
 
@@ -186,7 +186,7 @@ The campaign-1 hand-roll deletions land across these phases (urgency riders P1; 
 
 ## The open questions
 
-1. **The engine.** srid picks: `@preact/signals-core` (the working default) vs `@vue/reactivity` vs `alien-signals` vs the TC39 signals polyfill vs others — comparison in flight; `reactor.ts` is designed to make this a two-way door (one module re-implements, nothing above it moves).
+1. **The engine — decided.** `@preact/signals-core` now; `@solidjs/signals` the named swap target once Solid 2.0 and its ecosystem stabilize — the probed comparison, the eliminations, and the two-way-door demonstration live in [the engine note](surface-reactor-engine.html).
 2. **The mirror-poke seam** (the perfection audit's open repair): the two-site post-equals rider re-instantiates, one tier down, the convention class the bridge kills for apps. Ship the structural fix (a bridge-owned store wrapper both write paths must pass through / onWrite-composition at walk — under which the forwarded-cell semantics fall out correctly) or ship the rider with the day-one pinning tests?
 3. **The `.fromPoll` fused constructors:** keep as named forms, or downgrade to labeled sugar over `signalFromPoll` + `derived.cell`/`.collection` so the vocabulary stays minimal?
 4. **Skip-continue visibility:** the stopped-latch covers a stopped *stateful* pump; a persistently-throwing *stateless* compute holds-last-published with health live — silently stale at the member level. Extend the latch (e.g. a consecutive-failure counter into health)?
@@ -196,3 +196,91 @@ The campaign-1 hand-roll deletions land across these phases (urgency riders P1; 
 8. **activityFeed:** fix the mutating read (`activity.ts:50-57`) now; `trackRecent*` migrates to a scan whenever next touched — churn timing only.
 9. **Phase 4:** does padi's terminal-registry become a `signalMap`? With it, all five convention-publish seams die; without it, they persist. Padi's call, on phases 1–3 as evidence.
 10. **Cross-surface zip stays client-side as law** (no transactional frame across channels) — reconfirm, or leave a documented-eventual-consistency variant open if demand ever names one?
+
+## Appendix — the reflex→surface mapping, exhaustively
+
+The primitive correspondences the bridge stands on — every reflex combinator family, its verdict, and its surface analog. The verdicts read in the vocabulary of the study that fed the bridge; "the fate of the seven names" above maps them (`deriveCell`/`scanCell` → `derived.cell`/`.scan`; `foldCollection`/`combineCells` → `computed` composition; `pollCollection` → `derived.collection.fromPoll`; `registryFromFamily` → `reactiveFamily` + `derived.registry`; `scanStream` survives off-graph). Legend: **EXISTS** (file:line, verified in-tree) · **ADD-SHIP** (demand named) · **ADD-DEFER** (trigger named) · **N/A** (argued). File cites are kolu `packages/surface/src/…` unless another package is named.
+
+| reflex combinator / family | verdict | surface analog |
+|---|---|---|
+| **§0 primitives** | | |
+| `Behavior` | EXISTS | stream member (`define.ts:152-155`): derived, read-only, sampled at will. Server-side, any sibling cell's current value is also a Behavior: `deps.store.get()` read synchronously (`server.ts:198-207`). |
+| `Event` | EXISTS | event member (`define.ts:157-160`): occurrence, no snapshot obligation (`project.ts:172-179`). |
+| `Dynamic` | EXISTS + phase 1 | cell (`define.ts:89-144`) is the value half; the change half is phase 1's `updated()` on the client Subscription, change-iff-fired enforced at the producer by spec `equals` (`server.ts:198-207`). |
+| `Incremental` | EXISTS | collection with the opt-in `deltas` verb (`define.ts:64-87`): snapshot = PatchTarget, coalesced `upserts`/`removes` = the patch; one wire authority `collectionDeltasSchema` (`define.ts:274-287`). |
+| `currentIncremental` | EXISTS | the collection's snapshot half: server `readAll()` / client per-key `get` + `keys` — the current PatchTarget without the patch stream. |
+| `updatedIncremental` | EXISTS | the `deltas` verb's delta frames alone — the patch stream without the snapshot (a client that skips frame 1). |
+| `incrementalToDynamic` | EXISTS | snapshot + client-side fold of deltas into a whole-map view — what the `deltas` verb's client consumer does (surface-map's folded entry collection decodes the same one authority). |
+| `PushM` / `PullM` | N/A | the server process is the monad — handlers are arbitrary TS reading stores synchronously. |
+| `never` | EXISTS | an event member nobody publishes. |
+| `constant` | EXISTS | a cell default with no writer; `inMemoryCell(initial)` (`project.ts:242`). |
+| `push` / `pushAlways` / `pushCheap` | EXISTS / ADD-DEFER | always-firing map = `deriveEvent` (`project.ts:180-187`); the Maybe-filtering half is a deferred `SKIP` return. Cheap variants N/A (graph-caching contract; a surface bus is already multicast). |
+| `pull` | free under the bridge / EXISTS client | server-side multi-cell recompute is a `computed` over `$` reads; client-side, a Solid memo over `useCell` subscriptions already is `pull`. |
+| `switch`, `coincidence` | N/A | a switching occurrence must carry an Event *as its value*; a wire frame is Zod-schema'd data (`define.ts:245-265`). The index travels as data and the client re-subscribes — `scopedByEntry` (`scoped.ts:81-210`) is the switching machinery. |
+| `current` / `updated` | EXISTS / phase 1 | the client accessor half exists today; `updated()` change pairs are phase 1. |
+| `unsafeBuildDynamic` / `unsafeBuildIncremental` | EXISTS | the raw `source` escape hatch (StreamImplDeps raw branch, `server.ts:1171-1199`): the author vouches for snapshot-then-delta — reflex's "caller owns the law" posture. |
+| `mergeIncrementalG` / `…WithMoveG` | ADD-DEFER | keyed sources joining/leaving under a membership reconcile, as a collection member — under the bridge, `reactiveFamily` feeding a `derived.collection` if that face ever earns a consumer. |
+| `behaviorCoercion` etc. | N/A | TS structural typing makes coercions free. |
+| `sample` (MonadSample) | EXISTS | synchronous `store.get()` / ctx `cells.<k>.get()` (`server.ts:1469-1474`); app-level use: `activity.ts:73-101`. |
+| `hold` / `holdDyn` | ADD-SHIP | `signalFromCallback` + `derived.cell`: hold a push source's last frame in a cell. |
+| `holdIncremental` | EXISTS | the collection store + wrapped upsert/remove publish path (`server.ts:1585-1600`). |
+| *poll → keyed snapshot reconcile* | **ADD-SHIP** | `derived.collection.fromPoll` — no single reflex name. The most-repeated hand-roll in both trees. |
+| `buildDynamic` | EXISTS-in-ADD | derived cells seed from computed truth at wiring (eager pull at walk), never a fabricated default. |
+| `headE` / `now` / `slowHeadE` | N/A | no wire demand; a raw `source` generator expresses one-shot/first-occurrence trivially. |
+| **§1 pure map/filter** | | |
+| `fmap` (Event/Dynamic/Behavior) | EXISTS | `deriveEvent` (`project.ts:180-187`), `deriveCell` (`project.ts:236-280`, error policy per the statefulness line), `deriveStream` (`project.ts:163-170`). |
+| `fmapMaybe` / `ffilter` / `filterLeft` / `filterRight` | ADD-DEFER | `SKIP`-returning map on events ONLY. Illegal on streams: dropping the first frame breaks snapshot-then-delta reconnect (`define.ts:58-63`); a "filtered stream" is a scan holding the last passing value. |
+| `ffor`/`ffor2`/`ffor3` | N/A | argument-order sugar. |
+| `splitE` / `Unzip` | composition | two derived members off one upstream; the source bus multicasts. |
+| Event `Alt`/`Apply`/`Bind`/`Semigroup`/`Align`/`Zip` | N/A | defined by same-frame simultaneity; per-member wire channels share no frame. |
+| cheap variants (`fmapCheap`…) | N/A | Haskell pull-graph perf contract; no analog. |
+| `traceEvent` / `traceDyn` | EXISTS | the `onWrite` fire-and-forget seam on cells (`server.ts` ~1110) or a logging map. |
+| **§2 sampling (Behavior×Event)** | | |
+| `tag`/`attach`/`attachWith`/`<@>`/`<@` | free server-side / N/A wire / EXISTS client | same-process: a `computed` reads sibling stores at its tick. Cross-surface over the wire: N/A (no shared frame). Client-side pairing: the UI's reactive batch. |
+| `gate` | ADD-DEFER | drop upstream frames while a sibling cell's current value fails a predicate; same-process only. |
+| `tagPromptlyDyn` family vs `tag (current d)` | N/A distinction | folds always see the post-write value (`store.set` precedes `bus.publish`, `server.ts:198-207`) — uniformly "promptly"; per-member channels share no frame, so no same-frame old/new distinction exists to spell. |
+| **§3 fan-in** | | |
+| `merge`/`mergeWith`/`leftmost`/`mergeList` | ADD-DEFER | interleave N upstreams into one event member. No cross-channel simultaneity ⇒ the three conflict policies are vacuously one shape. |
+| `mergeMap` / `mergeInt` / `mergeIntIncremental` | EXISTS | the deltas coalescer: N same-tick keyed mutations publish ONE `upserts`/`removes` frame (`createTickCoalescer`, `server.ts:281-312`); tick = microtask. |
+| `alignEventWithMaybe` / `difference` | N/A | simultaneity-defined. |
+| `mergeIncremental` / `mergeMapIncremental(WithMove)` | ADD-DEFER | the collection-member face of the keyed-family core. |
+| `unsafeMapIncremental` | ADD-DEFER | patch-preserving per-key map; hard dependency on `CollectionSpec.equals` for its reconnect diff. |
+| **§4 fan-out** | | |
+| `fan` / `fanMap` / `EventSelector` / `selectG` | EXISTS | collection per-key `get` over `perKeyBus` (`server.ts:382-417`): key in, per-key stream out; absent key = held-open subscription. |
+| `fanEither` / `fanThese` | composition (deferred) | two `SKIP`-filtered derived events off one upstream — needs the filter ADD. |
+| `filterEventKey` / `factorEvent` | N/A | the key travels as data and the client re-subscribes; stop-permanently semantics have no demand. |
+| `fanInt` / `EventSelectorInt` | N/A | perf specialization of fan. |
+| **§5 hold-class (stateful)** | | |
+| `hold`/`holdDyn` | ADD-SHIP | `signalFromCallback` (+ `derived.cell`) and `signalFromPoll` (no isEqual — dedup at the target cell's spec `equals`). |
+| `Accumulator` (`accum*`), `foldDyn`/`foldDynMaybe*` | ADD-SHIP | `derived.cell.scan` — `(state, frame) => state` fold into a cell; `accumMaybe`'s "Nothing = no update" = return the previous state reference. Demand: drishti's committed alerts scan (paired-PR campaign); the padi activityFeed adoption is conditional (the activityFeed open question). |
+| `mapAccumDyn`/`mapAccumB` (state + output, snapshot-worthy) | ADD-SHIP | `scanStream` — carried state + per-frame delta, wire face `snapshot(state)`-then-deltas via `subscribeBeforeSnapshot` (`server.ts:350-363`). |
+| `mapAccum_` family / `numberOccurrences*` / `zipListWithEvent` | N/A → raw `source` | the state-*discarded* variants output an Event with no snapshot obligation — the honest analog is a raw `source` generator closing over carried state (`project.ts:172-179`). |
+| `accumIncremental` (fold to a PATCH) | ADD-DEFER | fold emitting collection patches instead of full refolds. Trigger: a full refold measured too hot over large N (urgency today is a deliberate, cheap full refold, `urgency.ts:23-38`). |
+| `scanDyn`/`scanDynMaybe`/`mapDynM` | ADD-SHIP | `derived.cell.scan` with a cell upstream. |
+| `count`/`toggle` | N/A named | one-line scan instances. |
+| `tailE`/`headTailE`/`takeWhileE`/…/`improvingMaybe` | N/A | prefix/suffix machines; a raw `source` generator; no in-repo demand. |
+| **§6 switching (higher-order)** | | |
+| `switch`/`switchHold*`/`switcher`/`switchDyn`/`switchPromptlyDyn`/`coincidence`/`coincidencePatch*` | N/A on the wire | a live channel is process-bound state and the only serializable stand-in is a capability handle (dead epochs, no snapshot obligation, a second writer on "which stream is current"). The index travels as data (a per-key `get` held open on an absent key is `switchHold never`'s idle state, `server.ts:382-417`); the client re-subscribes — `scopedByEntry` (`scoped.ts:81-210`) is the switching machinery. |
+| `join` (Dynamic-is-a-Monad, unkeyed) | N/A wire | a cell-of-cell is unspellable as wire data (the inner cell would travel as a channel capability); the outer value is data, the client re-subscribes. Keyed `joinDynThroughMap` is the collection row (§8). |
+| `maybeDyn`/`eitherDyn`/`factorDyn` | N/A wire | client-side discriminated rendering: a memo on the discriminant; Solid `<Show>`/`<Switch>`. |
+| **§7 uniqueness** | | |
+| `holdUniqDyn` / `holdUniqDynBy` | EXISTS | producer-side spec `equals` (`define.ts:124`), enforced on both write paths (`server.ts:198-207`, `1469-1474`). THIS is where equals lives: at the ONE writer's publish gate, never inside a deriver, never at a mirror. |
+| `UniqDynamic` + ptr-equality | N/A | explicit, reviewable predicate on the spec; JS has no WHNF/ptr semantics to exploit. |
+| `alreadyUniqDynamic` | EXISTS | the per-write `force` equals bypass (`server.ts:1238`) for re-serve rebind epochs. |
+| stream uniqueness | EXISTS (poll shape) | `pollOnEvent`'s `isEqual` yield gate (`server.ts:540-561`, gate at `:557`) — streams have no spec-equals gate, so the source owns it; cells do. |
+| collection VALUE uniqueness | **ADD-SHIP** | `CollectionSpec.equals` gating per-key publish + coalescer enqueue (`server.ts:1585-1600`), mirroring the cell gate. Live demand: drishti's `processChanged` (agent `main.ts:90-106`), hand-held at the write site today. |
+| `demux` | N/A wire | selection is client state; `demuxed(k)` = a client memo. |
+| **§8 combining / distribution** | | |
+| `zipDyn` / `zipDynWith` | free server-side / N/A cross-surface / EXISTS client | server-side: a `computed` over multiple `$` reads (the diamond example). Cross-surface wire zip deliberately absent: independent channels can present (new a, old b); no transactional frame restores glitch-freedom. |
+| `distributeMapOverDynPure` / `joinDynThroughMap` / `distributeList*` | EXISTS | the collection IS the distributed map: `deltas` = a coherent whole-map view per tick; `keys`+`get` = the per-key view. |
+| `splitDynPure` | composition | two derived cells off one upstream. |
+| `constDyn` / `unsafeDynamic` | EXISTS | cell default with no writer / the raw-source escape hatch. |
+| HList machinery / `collectDynPure` | N/A | TS structural records; n-ary combines are `computed` composition. |
+| Num/IsString/Semigroup instances | N/A | sugar over fmap/zip. |
+| **§10 Adjustable + collection UIs** | | |
+| `Adjustable`/`runWithReplace`/`traverse*WithAdjust(WithMove)` | EXISTS client / **ADD-SHIP server** | client: `scopedByEntry` (`scoped.ts:81-210`). Server: `reactiveFamily` + `derived.registry`. |
+| `listHoldWithKey`/`listWithKey`/…/`simpleList` | same | `scopedByEntry` / `watchByEntry` (client); `reactiveFamily` (server). |
+| `networkView`/`networkHold`/`untilReady` | N/A | whole-graph replacement is a process/UI concern: Solid `<Show>`/Suspense client-side; server-side, the re-serve rebind epoch (force republish, `server.ts:1238`). |
+| **§11 Query** | | |
+| `Query`/`crop`/`QueryMorphism`/`SelectedCount`/`MonadQuery`/`queryDyn` | N/A as API | per-member subscription + AbortSignal IS a query declaration; subscriber counts are SelectedCount; abort is the decrement-to-zero prune. Crop *policy* is app-level (W7 K1). A genuine analog becomes worth building at range/viewport partial subscription over a large collection. |
+| deprecated inventory | N/A | aliases of covered combinators. |

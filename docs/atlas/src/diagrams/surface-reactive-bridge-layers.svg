@@ -7,10 +7,10 @@
   </defs>
 
   <!-- layer 1: engine -->
-  <text x="30" y="30" fill="#8b95a7" font-size="13" font-weight="600">LAYER 1 — PRODUCER ENGINE (the open slot)</text>
+  <text x="30" y="30" fill="#8b95a7" font-size="13" font-weight="600">LAYER 1 — PRODUCER ENGINE (decided)</text>
   <rect x="30" y="42" width="920" height="66" rx="9" fill="#1a2130" stroke="#a78bfa" stroke-width="1.5"/>
-  <text x="490" y="66" fill="#e6eaf2" font-size="12" text-anchor="middle">a signals engine — hidden behind reactor.ts, the ONLY module allowed to import it (lint-banned elsewhere)</text>
-  <text x="490" y="84" fill="#8b95a7" font-size="10.5" text-anchor="middle">engine NOT yet picked (open question 1): @preact/signals-core is the working default · @vue/reactivity · alien-signals · TC39 polyfill …</text>
+  <text x="490" y="66" fill="#e6eaf2" font-size="12" text-anchor="middle">@preact/signals-core — swappable → @solidjs/signals (once Solid 2.0 + ecosystem stabilize)</text>
+  <text x="490" y="84" fill="#8b95a7" font-size="10.5" text-anchor="middle">hidden behind reactor.ts, the ONLY module allowed to import it (lint-banned elsewhere)</text>
   <text x="490" y="100" fill="#8b95a7" font-size="10.5" text-anchor="middle">reactor.ts exports computed + bridge constructors — never raw signal, never raw effect</text>
 
   <!-- layer 2: bridge -->
