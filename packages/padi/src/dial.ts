@@ -8,7 +8,7 @@
  * COMBINED-contract client (it reaches `.surface.control.core.*` AND scopes to
  * `.surface.padi`). This is the kaval precedent: a daemon's package owns the dial
  * kit its clients share, so BOTH consumers import it —
- *   - kolu-server's binder (`server/src/padiBinding.ts`), which layers
+ *   - kolu-server's binder (`server/src/padi/padiBinding.ts`), which layers
  *     SUPERVISION (drivers · adopt/spawn/refuse · the newer-binder drain
  *     convergence · the reconnect-mirror session · the re-serve) on top; and
  *   - `padi-tui`, which dials, runs one verb, and disposes.

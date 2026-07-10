@@ -147,7 +147,7 @@ describe("the daemon-rail floor is now host-UNIFORM (W4 daemon-rail unification 
   // by `localPadiLinkOnly` — alongside `channelLive`. But `padiLink` and `channelLive` are
   // BOTH projections of the exact SAME underlying session state for LOCAL_HOST (the local
   // padi's `Session`, shared verbatim by `serveHostMap`'s per-host `entries` projection and
-  // kolu-server's `padiLink` cell — see `packages/server/src/padiBinding.ts` /
+  // kolu-server's `padiLink` cell — see `packages/server/src/padi/padiBinding.ts` /
   // `packages/surface-remote/src/serveHostMap.ts`): whenever `padiLink !== "connected"`,
   // the LOCAL_HOST entry is ALSO not `connected`, so `channelLive` is ALSO already false —
   // the padi-link fold's extra "OR" term was multiplied by an already-false floor and could

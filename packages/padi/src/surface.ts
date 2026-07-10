@@ -14,9 +14,9 @@
  * member per commit. No backings adapter ever exists — by the time anything
  * serves, the backing code already lives here.
  *
- * Unlike the frozen `terminalWorkspaceSurface` (3.0, dying with its pulam-era
- * consumers), this is a NEW surface — so a new per-host capability lands here
- * without being threaded through those dying consumers. It composes the two
+ * Unlike the frozen `terminalWorkspaceSurface` (3.0, the legacy generic base no
+ * longer growing new members), this is a NEW surface — so a new per-host
+ * capability lands here without being threaded through that frozen base. It composes the two
  * halves of a terminal record server-side into ONE `terminals` collection
  * (`authored ⋈ snapshot`), folds an `urgency` projection off the registry, and
  * gathers every host-side capability (lifecycle · chrome · attach · screen ·
@@ -83,9 +83,12 @@ import {
   ExportTranscriptHtmlOutputSchema,
 } from "./transcriptSchema.ts";
 import {
+  CanvasLayoutSchema,
+  RightPanelPerTerminalStateSchema,
+} from "./chromeVocab.ts";
+import {
   ActiveTerminalSchema,
   ActivityFeedSchema,
-  CanvasLayoutSchema,
   DaemonStatusSchema,
   DEFAULT_PADI_PROCESS_MEMORY,
   InitialTerminalMetadataSchema,
@@ -94,7 +97,6 @@ import {
   ParkedDiscriminantSchema,
   PersistedSnapshotSchema,
   PtyHostIdentitySchema,
-  RightPanelPerTerminalStateSchema,
   SavedSessionSchema,
   SavedSleepingTerminalSchema,
   SleepingTerminalSchema,
@@ -104,7 +106,10 @@ import {
 
 // The terminal VOCABULARY (schemas · records · pure helpers) now lives HERE, in
 // `@kolu/padi` — the terminal-domain authority. Re-exported from this browser-safe
-// entry so consumers reach the schemas as `@kolu/padi/surface`.
+// entry so consumers reach the schemas as `@kolu/padi/surface`. The UI-chrome half
+// (`./chromeVocab.ts`, split out in L17) rides the same entry, so the export set is
+// unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
+export * from "./chromeVocab.ts";
 export * from "./vocab.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────

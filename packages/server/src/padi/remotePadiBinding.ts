@@ -54,7 +54,7 @@ import {
   type HostKey,
   LOCAL_HOST,
 } from "kolu-common/surfacesWithPadi";
-import { log } from "./log.ts";
+import { log } from "../log.ts";
 // padi's convergence policy — ONE declaration, consumed by BOTH arms: the local binder
 // feeds it to the kit's `converge()`, this remote arm to the pure `decide()`.
 import {

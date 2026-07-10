@@ -200,7 +200,7 @@ const koluStateDir = mkSubDir("state");
 
 /** Per-worker padi state-root — the CRITICAL isolation seam of the W2.2 cutover.
  *  kolu-server no longer serves padi in-process; it SPAWNS a separate padi PROCESS
- *  (server/src/padiBinding.ts), and padi in turn spawns its OWN kaval. padi's whole
+ *  (server/src/padi/padiBinding.ts), and padi in turn spawns its OWN kaval. padi's whole
  *  identity — its socket + single-instance gate AND its kaval's socket + gate — is
  *  DERIVED from a digest of this state-root path (padi/src/stateRoot.ts). Without a
  *  private state-root per worker, every worker's server would resolve the SAME

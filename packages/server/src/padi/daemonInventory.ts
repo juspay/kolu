@@ -34,7 +34,7 @@ import type {
   DaemonInventory,
   PadiConvergence,
 } from "kolu-common/surface";
-import { log } from "./log.ts";
+import { log } from "../log.ts";
 
 /** The seams the publisher reads/writes through — injected so the wiring is one call
  *  and a test can drive it without a real host. `discover*`/`probe` are the read-only
