@@ -103,16 +103,20 @@ The host's chip dot tells you where it is:
 | green | connected and live (shown only over a real link — never green over a dead host) |
 | red | provisioning or the link failed |
 
-<Aside type="note" title="Cold connects look quiet — for now">
-  During a first-time provisioning the canvas currently shows a plain
-  “connecting…” without a live build tail, so a slow-but-working cold connect can
-  read as a hang. It **is** working; give a fresh host a few minutes. Richer
-  in-canvas progress is a known gap being worked on.
+<Aside type="note" title="What a cold connect shows you">
+  A first-time provisioning **narrates itself** on the canvas. It names the real
+  phase — **“Provisioning kolu onto `<host>`…”** while it ships the closure, then
+  **“Building on `<host>`… this can take a few minutes”** during the compile — with a
+  **live tail of the actual Nix output** and an **elapsed timer** climbing beside it. So a
+  slow-but-working cold connect reads as *progress*, not a hang. There's no fake progress
+  bar — a Nix build has no honest percentage — so the reassurance is the named phase, the
+  real output, and the clock. A **warm** reconnect (the closure is already on the host)
+  skips straight to connected, with no build UI at all.
 
-  Meanwhile the real detail is in the **kolu server logs** — they carry the live
-  `nix copy` and build output, so you can watch progress there and read the actual
-  reason if a connect genuinely fails. Under systemd that's `journalctl` for your
-  kolu service; padi also keeps its own log in its state-root on the host.
+  The canvas shows a **tail**; the full firehose still lives in the **kolu server logs** —
+  the complete `nix copy` and build output, and the actual reason if a connect genuinely
+  fails. Under systemd that's `journalctl` for your kolu service; padi also keeps its own
+  log in its state-root on the host.
 </Aside>
 
 ## Switch hosts, and per-host canvases
