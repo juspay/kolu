@@ -1,3 +1,25 @@
+// E2E EXEMPTION (srid's stage-5 ruling, token OLLAMA-E2E-R3W7). These pure
+// derivations are the sanctioned unit coverage for the crafted @claude-mock
+// scenarios (claude-code.feature) that a real claude turn on a CI-runnable model
+// can't reproduce. That feature is deleted; coverage split as srid ruled:
+//
+//   MODEL-EMISSION-GATED (need the model to emit the shape — no CI-runnable
+//   ollama model does; inherits the stages-3/4 five-config proof): tool_use,
+//   task-progress (deriveTaskProgress), running_background / workflow fan-out,
+//   background_bash, an interrupted TOOL call, AskUserQuestion + tool-permission
+//   promotion (screen.test.ts), orphaned / journalless workflow
+//   (transient-decay.test.ts), /fork (fork-detection.test.ts). Exempt.
+//   STATE MACHINE (thinking / waiting / thinking→waiting cycle,
+//   previous-session-JSONL selection): deriveState is unit-tested here, and the
+//   real thinking→waiting arc is asserted live for codex/grok/opencode-real.
+//   PORTED to real (claude-cli-real.feature): interrupt (Esc → waiting),
+//   /compact (→ waiting), --continue resume, session-end. The 2 workspace-ping
+//   scenarios were redundant with activity-alerts.feature (a direct alert
+//   trigger, no agent mock) — dropped, not exempted.
+//
+// RESUMPTION: when a CI runner can serve a tool-capable model, port the
+// model-emission-gated states to claude-real / claude-cli-real (see #1754 for
+// the fast-turn state-detection bug that also gates claude's live state).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
