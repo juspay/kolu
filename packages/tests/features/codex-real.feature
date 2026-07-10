@@ -8,8 +8,8 @@ Feature: Codex live-state detection against a real ollama model
   crafted-fixture regression guards that a real turn can't reproduce stay in
   codex.feature.
 
-  ollama + the model are set up unconditionally by the e2e recipe
-  (packages/tests/with-ollama.sh); hooks.ts seeds the throwaway home's
+  ollama + the model are set up unconditionally by process-compose via
+  services-flake (nix/e2e-pc.nix); hooks.ts seeds the throwaway home's
   ~/.codex/config.toml to point codex at ollama's Responses API and fails loud
   if the endpoint is absent. codex is pinned to 0.130.0 on every platform
   (nix/packages/codex-pinned.nix) because nixpkgs' 0.114.0 predates the

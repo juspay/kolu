@@ -82,6 +82,11 @@
         removeAttrs kolu [ "koluEnv" "typecheck" ] // {
           website = website.default;
           website-pnpm-deps = website.pnpmDeps;
+          # The e2e suite's ollama backend, orchestrated by process-compose via
+          # services-flake (npins-pinned). `just test` / `test-quick` run this
+          # package; its `test` process IS the cucumber suite, gated on ollama
+          # healthy + model pulled + warmed. See nix/e2e-pc.nix.
+          e2e-pc = import ./nix/e2e-pc.nix { inherit pkgs; };
         });
       # Type gates on every system. The build environment (nodejs/pnpm and the
       # platform-resolved deps `pnpmConfigHook` installs) differs per platform,

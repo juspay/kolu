@@ -334,10 +334,15 @@ test: install
     # very "two recipes shelling out to pnpm install race and corrupt each
     # other's node_modules" hazard ci/mod.just documents. CI invokes this recipe
     # with `just --no-deps test` so even the `install` dep can't race the unit lane.
-    # `with-ollama.sh` wraps the run in a private health-gated ollama — the
-    # e2e suite's unconditional agent backend (codex-on-ollama). cwd is
-    # packages/tests, so the script is `./with-ollama.sh`.
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} bash ./with-ollama.sh pnpm test
+    # The e2e suite runs UNDER process-compose (services-flake): its `test`
+    # process is the cucumber run, gated on ollama healthy + model pulled +
+    # warmed. `.#e2e-pc`'s testPackage exits with the suite's code. Launched
+    # inside the e2e shell so the cucumber process inherits playwright/node/pnpm;
+    # KOLU_REPO_ROOT lets the `test` process find packages/tests.
+    pc="$(nix build {{ justfile_directory() }}#e2e-pc --no-link --print-out-paths)"
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" \
+        KOLU_REPO_ROOT="{{ justfile_directory() }}" KOLU_E2E_CUCUMBER_ARGS="" \
+        {{ nix_shell_e2e }} "$pc/bin/kolu-e2e-ollama-test"
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.
@@ -359,14 +364,14 @@ test-quick *args: install
     KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
-    cd packages/tests
-    {{ nix_shell_e2e }} pnpm install
-    # `with-ollama.sh` wraps the run in a private health-gated ollama — the
-    # e2e suite's unconditional agent backend (codex-on-ollama).
+    {{ nix_shell_e2e }} bash -c 'cd packages/tests && pnpm install'
+    # Same process-compose orchestration as `test`: the cucumber run is the
+    # `test` process, gated on ollama healthy + model pulled + warmed. Feature
+    # selectors pass through as KOLU_E2E_CUCUMBER_ARGS.
+    pc="$(nix build {{ justfile_directory() }}#e2e-pc --no-link --print-out-paths)"
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
-        {{ nix_shell_e2e }} bash ./with-ollama.sh node --import tsx \
-        ./node_modules/@cucumber/cucumber/bin/cucumber-js \
-        --profile ui {{ args }}
+        KOLU_REPO_ROOT="{{ justfile_directory() }}" KOLU_E2E_CUCUMBER_ARGS="{{ args }}" \
+        {{ nix_shell_e2e }} "$pc/bin/kolu-e2e-ollama-test"
 
 # Capture marketing screencasts (KOLU_X11CAP): headful Chrome at 2x under Xvfb,
 # grabbed by `ffmpeg -f x11grab`, transcoded into website/public/demo/. Per do.md
