@@ -36,7 +36,7 @@ import { toast } from "solid-sonner";
 import { app } from "../wire";
 
 // HOST-SCOPING: every reader below rides koluSurface's `daemonInventory` cell, which
-// `server/src/daemonInventory.ts` populates off the LEGACY single-bind `padiSession` —
+// `server/src/padi/daemonInventory.ts` populates off the LEGACY single-bind `padiSession` —
 // under always-map that session is hardcoded to the unremovable LOCAL default
 // (`boundHost: null`, `server/src/index.ts`), so `daemonScanBoundHost`/
 // `localScanKavals`/`localScanPadis`/`boundPadiConvergence` all describe the LOCAL bind

@@ -207,7 +207,7 @@ export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 // `state` must gate the live overlay. Presence consumers (canvas, dock, minimap,
 // arrange, cycle, switcher) read the union; any consumer that touches a live field
 // (full agent / foreground) must first narrow `state === "active"`. `state` never
-// crosses the awareness wire (pulam/kaval never see a sleeping arm).
+// crosses the awareness wire (kaval never sees a sleeping arm).
 
 const ActiveDiscriminantSchema = z.object({ state: z.literal("active") });
 const SleepingDiscriminantSchema = z.object({

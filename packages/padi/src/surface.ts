@@ -14,9 +14,9 @@
  * member per commit. No backings adapter ever exists — by the time anything
  * serves, the backing code already lives here.
  *
- * Unlike the frozen `terminalWorkspaceSurface` (3.0, dying with its pulam-era
- * consumers), this is a NEW surface — so a new per-host capability lands here
- * without being threaded through those dying consumers. It composes the two
+ * Unlike the frozen `terminalWorkspaceSurface` (3.0, the legacy generic base no
+ * longer growing new members), this is a NEW surface — so a new per-host
+ * capability lands here without being threaded through that frozen base. It composes the two
  * halves of a terminal record server-side into ONE `terminals` collection
  * (`authored ⋈ snapshot`), folds an `urgency` projection off the registry, and
  * gathers every host-side capability (lifecycle · chrome · attach · screen ·

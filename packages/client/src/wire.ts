@@ -64,7 +64,7 @@ const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 
 // `connectSurfaces` is the receptacle for "multiple sibling surfaces over one
 // reconnecting socket with the half-open watchdog wired in." kolu plugs into it
-// like pulam-web/drishti do, instead of re-assembling `createSurfaceSocket` →
+// like drishti does, instead of re-assembling `createSurfaceSocket` →
 // `createLiveSignal` → `surfaceClients` by hand: it owns the socket + the `pid`
 // echo (which threads the last-observed server `processId` back as a query param on
 // every (re)connect, so a stale tab reconnecting to a RESTARTED server is recognized

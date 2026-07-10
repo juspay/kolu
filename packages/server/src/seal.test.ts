@@ -4,8 +4,8 @@
  * By the end of W1.R the terminal domain has fully relocated into `@kolu/padi`:
  * kolu-server is the staying WEB SHELL (HTTP/ws transport, static serving, the
  * surface wiring, the memory sampler, TLS, branding) and reaches the terminal
- * domain ONLY through `@kolu/padi`'s three published entry points
- * (`/assembly`, `/surface`, `/log`). This test makes that boundary a
+ * domain ONLY through `@kolu/padi`'s published entry points that `ALLOWED_PADI`
+ * names (`/assembly`, `/dial`, `/surface`, `/log`). This test makes that boundary a
  * compile-and-CI fact rather than a convention — it fails the moment a
  * terminal-domain module reappears under `packages/server/src`, a deep
  * `@kolu/padi/src/...` import bypasses the barrel, or a root `terminal.*` /

@@ -205,7 +205,7 @@ export function resolvePadiLaunch(
   // (not a hoisted .bin), exactly as localDriver.ts does for kaval.
   const require = createRequire(import.meta.url);
   const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
-  // packages/server/src/padiBinding.ts → packages/padi/src/bin.ts
+  // packages/server/src/padi/padiBinding.ts → packages/padi/src/bin.ts
   const binTs = fileURLToPath(
     new URL("../../padi/src/bin.ts", import.meta.url),
   );
