@@ -10,30 +10,24 @@
  * The live ring is a ring (it wraps the core); the alert is a small CORNER BADGE,
  * deliberately NOT a second ring — a surrounding alert ring (especially nested
  * with the live ring) read as overwhelming, so the two axes use different shapes
- * and never compound into concentric circles. Motion is transform/opacity only
- * (compositor-friendly — no per-frame repaint, see performance.mdx), and a
- * reduced-motion preference holds both still. */
+ * and never compound into concentric circles.
+ *
+ * Both cues are STATIC by default. They used to run perpetual `infinite`
+ * animations (a rotating live ring, a pulsing alert badge), but a perpetual
+ * composited animation keeps Chrome's compositor producing begin-frames for as
+ * long as it runs — the same idle/active CPU burn #1748 removed from the tile
+ * aura, the agent indicator, and the standalone live dot, but which that PR did
+ * NOT reach here (this shared leaf is the live SUCCESSOR of the dot it froze).
+ * The colour + shape carry the state with no motion: a green ring means live, an
+ * amber badge means an unread alert — exactly what `prefers-reduced-motion`
+ * users already saw, now the default for everyone. See
+ * `docs/perf-investigations/remote-host-resource-usage.md`. */
 
-@keyframes statepip-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes statepip-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-
-/* live = this terminal is moving bytes right now: a thin green arc that sweeps
- * gently around the core (the old standalone live-activity dot, now the
- * indicator's rotating edge). `inset: -2px` so its outer edge matches the alert
- * badge's; the `mask` cuts the centre so only a 1.5px ring remains; the conic arc
- * fades at both ends so the rotation reads as a soft sweep, not a hard spinner. */
+/* live = this terminal is moving bytes right now: a thin green arc around the
+ * core (the old standalone live-activity dot, now the indicator's edge).
+ * `inset: -2px` so its outer edge matches the alert badge's; the `mask` cuts the
+ * centre so only a 1.5px ring remains; the conic arc fades at both ends. Static:
+ * the green presence, not motion, carries "live". */
 .statepip-live-ring {
   position: absolute;
   inset: -2px;
@@ -54,7 +48,6 @@
     transparent calc(100% - 1.5px),
     #000 calc(100% - 1.5px)
   );
-  animation: statepip-spin 3.6s linear infinite;
   pointer-events: none;
 }
 
@@ -63,7 +56,8 @@
  * a small amber CORNER BADGE at the top-right (the pattern the dock rail already
  * uses), NOT a ring — so it never competes with the live ring or nests into a
  * second circle. The dark separator lifts it off the live ring + the row
- * background; the gentle pulse draws the eye without shouting. */
+ * background; the amber presence draws the eye without shouting — a static
+ * badge, no pulse (see the file header for why the perpetual animation went). */
 .statepip-alert-badge {
   position: absolute;
   top: -1px;
@@ -73,13 +67,5 @@
   border-radius: 9999px;
   background: var(--color-attention);
   box-shadow: 0 0 0 1.5px var(--color-surface-1);
-  animation: statepip-pulse 1.8s ease-in-out infinite;
   pointer-events: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .statepip-live-ring,
-  .statepip-alert-badge {
-    animation: none;
-  }
 }
