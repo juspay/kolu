@@ -58,6 +58,11 @@ import {
 } from "./identity";
 import type { Cell, Collection, Event, Stream } from "./index";
 import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
+// The derived-cell brand lives in its own import-free leaf so the boot walk can
+// spot a reactor `derived.cell(...)` dep WITHOUT importing `reactor.ts` (which
+// imports the signals engine) — no import cycle, and the engine stays reachable
+// only through `reactor.ts`.
+import { isDerivedCellDeps } from "./reactorBrand";
 
 /** This server process's start time (ms epoch), captured once when the serve path
  *  module loads — which, for a daemon that imports it at boot, is the process
@@ -1415,6 +1420,20 @@ function walkSurface<const S extends SurfaceSpec>(
       | undefined;
     if (!cellDeps) {
       throw new Error(`implementSurface: missing deps for cell "${key}"`);
+    }
+    // Boot narrowing for a reactor `derived.cell(...)`: the graph is the
+    // member's ONE writer, so a derived cell is wire-read-only BY CONSTRUCTION.
+    // Crash loudly if it declares any write verb (`set`/`patch`/`test__set`) —
+    // a second writer is a defect, not a knob, and this makes it a boot crash
+    // rather than a silent double-writer. The derived value still reaches the
+    // wire through the `connect` seam below; `get` is its only exposed verb.
+    if (isDerivedCellDeps(cellDeps)) {
+      const writeVerbs = resolveCellVerbs(cellSpec).filter((v) => v !== "get");
+      if (writeVerbs.length > 0) {
+        throw new Error(
+          `implementSurface: derived cell "${key}" is wire-read-only (its derivation is the one writer) but declares write verb(s) [${writeVerbs.join(", ")}] — declare verbs: ["get"] (test__set included).`,
+        );
+      }
     }
     // Spec-declared `patch` wins; deps may override (rare). Cells with
     // `patchSchema` need one or the other — error loudly if both are
