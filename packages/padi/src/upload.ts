@@ -5,9 +5,9 @@
  * means the two sides cannot drift on the rejection threshold.
  */
 
-/** Hard cap on a single dropped file. Agents don't need huge binaries;
- *  the goal is "paste me a snippet/log/screenshot", not "ship me a tarball". */
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** Hard cap on a single dropped file. This leaves room for a useful bug-repro
+ *  video while bounding the current whole-file, base64-encoded RPC upload. */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 /** The video containers a dropped file may carry — padi's OWN list, in extension
  *  form (no leading dot). The CANONICAL source (L17): padi owns the upload/file
@@ -94,7 +94,7 @@ export const ALLOWED_UPLOAD_EXTENSIONS: readonly string[] = [
   "svg",
   // Video — the containers Kolu can play back in the Code browser (padi's own
   // canonical `UPLOAD_VIDEO_EXTENSIONS`; the app's preview list derives from it,
-  // so they can't drift). The 10 MB cap above still applies — video is allowed,
+  // so they can't drift). The 50 MB cap above still applies — video is allowed,
   // not exempted.
   ...UPLOAD_VIDEO_EXTENSIONS,
 ];

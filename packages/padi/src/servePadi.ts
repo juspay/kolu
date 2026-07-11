@@ -506,7 +506,7 @@ export function buildPadiSurfaceDeps(deps: {
         // client prechecks for a fast toast, but a direct/buggy caller must not be
         // able to write disallowed/oversized bytes, nor orphan a scratch file
         // under an absent/sleeping/parked id — hence require an ACTIVE terminal
-        // and run `rejectionFor` (extension allowlist + 10 MB cap). "image.png"
+        // and run `rejectionFor` (extension allowlist + 50 MB cap). "image.png"
         // passes the allowlist, so a clipboard paste is gated on size exactly as
         // the old `sizeRejectionFor` path was.
         write: ({ input }) => {
