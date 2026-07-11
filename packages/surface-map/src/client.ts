@@ -19,9 +19,7 @@ import { defineSurface, scopeSibling } from "@kolu/surface/define";
 import { isDirectLink } from "@kolu/surface/links/direct";
 import {
   buildSurfaceClient,
-  type CellChange,
   createKeyedRoot,
-  type Dispose,
   isLiveSignalHandle,
   type ReadOnlyBoundCollection,
   resolveTransport,
@@ -237,15 +235,17 @@ function delegateSubscription<T>(
     pending: () => current().pending(),
     error: () => current().error(),
     complete: () => current().complete?.() ?? false,
-    // `updated` forwards to whatever subscription is CURRENT — so it exists on a
-    // re-keyed sub rather than being silently absent (a call would otherwise
-    // throw "not a function"). It registers on the current entry's sub; across a
-    // re-key that registration ends with the old sub (a switch IS a fresh
-    // subscription, whose first frame is a value, not a change). A consumer that
-    // needs honest change pairs ACROSS a re-key uses the pure `entry(key)` path
-    // (what `watchByEntry` does), which hands back the base sub untouched.
-    updated: (handler: (change: CellChange<T>) => void): Dispose =>
-      current().updated?.(handler) ?? (() => {}),
+    // NO `updated` here — deliberately left absent (it is OPTIONAL on
+    // `Subscription<T>`, so the type is still satisfied). `updated` carries a hard
+    // law (a differing frame fires exactly once with the true `prev`); a delegated
+    // re-keyed sub CANNOT honor it — across a re-key the registration ends on the
+    // old sub and the fresh sub's first frame is a value, not a change, so a
+    // genuine host-switch value change would be silently dropped. A present-but-
+    // law-violating `updated` is worse than its absence: absence steers any
+    // consumer that needs honest change pairs onto the `entry(key)` path (what
+    // `watchByEntry` does), which hands back the base sub untouched. If
+    // "changes of the currently-viewed entry" is ever genuinely wanted, give it a
+    // distinct documented name rather than overloading the law-bearing `updated`.
   }) as Subscription<T>;
 }
 
