@@ -34,12 +34,18 @@
  *  here: they stay active-host-only (a sub-second re-attach paint remains, the one
  *  deliberate W9 exclusion), so no GL context is retained per host.
  *
- *  ── Toasts follow the ACTIVE host ───────────────────────────────────────────
- *  A retained BACKGROUND host's subscription now lives while you view another
- *  host, so its `onError` is gated on `ctx.isActive()`: only the shown host raises
- *  a toast, exactly as the pre-W9 active-host-only readouts did. A background
- *  error still reaches the UI structurally (the chip / `EntryStatus`), just not as
- *  a toast for a host you are not looking at. */
+ *  ── A sub error is surfaced, never dropped — toast if shown, else log ───────
+ *  A retained BACKGROUND host's subscription now lives while you view another host,
+ *  so a toast for it would be noise (an unlabeled error about a canvas you are not
+ *  looking at). But `wireSubscriptionError` fires its error edge ONCE, so simply
+ *  suppressing the toast would DISCARD a background failure permanently (no re-fire on
+ *  switch-back). So `surfaceSubError` splits by `ctx.isActive()`: the shown host
+ *  TOASTS (immediate feedback, exactly as the pre-W9 active-host-only readouts did); a
+ *  backgrounded host LOGS to `console.error` (named by host) so the failure is never
+ *  invisible — mirroring `watchByEntry`'s own default `onError` and the
+ *  `caught-error-must-not-collapse-to-empty` rule. Switching to a broken host then also
+ *  shows its degraded state structurally (an errored `terminals`/`session` reads empty
+ *  → the canvas's connecting/empty surface). */
 
 import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
@@ -47,7 +53,7 @@ import {
   createReactiveSubscription,
   type Subscription,
 } from "@kolu/surface/solid";
-import type { HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
@@ -86,12 +92,19 @@ export function createHostWire(
 ): HostWire {
   const entry = padiMap.entry(host);
 
-  // Toast ONLY for the shown host — the subscription is retained per host, so a
-  // background host's error must not toast for a canvas you are not looking at
-  // (the pre-W9 active-host-only readouts toasted only the active host). The
-  // underlying error state still reaches the UI structurally.
-  const activeToast = (label: string) => (err: Error) => {
-    if (ctx.isActive()) toast.error(`${label}: ${err.message}`);
+  // Surface a retained sub's error WITHOUT dropping it: the shown host toasts; a
+  // backgrounded host logs (a toast for a host you are not looking at is noise, but
+  // `wireSubscriptionError`'s edge fires once — silently suppressing it would discard
+  // the failure permanently). See the header for the full rationale.
+  const encoded = encodeHostKey(host);
+  const surfaceSubError = (label: string) => (err: Error) => {
+    if (ctx.isActive()) {
+      toast.error(`${label}: ${err.message}`);
+    } else {
+      console.error(
+        `createHostWire: background ${label} for ${encoded}: ${err.message}`,
+      );
+    }
   };
 
   // The terminal-list keys stream — an UNENROLLED STREAM_RETRY stream (the #1591
@@ -105,7 +118,7 @@ export function createHostWire(
       unenrolledStreamCall(padiRpcOf(h).surface.terminals.keys, undefined, {
         signal,
       }),
-    { onError: activeToast("Terminal list error") },
+    { onError: surfaceSubError("Terminal list error") },
   );
 
   // The composed `terminals` metadata collection, keyed off THIS host's own
@@ -116,24 +129,24 @@ export function createHostWire(
   const keys = createMemo<TerminalId[]>(() => terminalKeys() ?? []);
   const terminals = entry.collections.terminals.use({
     keys,
-    onError: activeToast("Metadata error"),
+    onError: surfaceSubError("Metadata error"),
   });
 
   // The persisted saved-session cell (host-owned, restore-relevant).
   const session = entry.cells.session.use({
-    onError: activeToast("Saved-session subscription error"),
+    onError: surfaceSubError("Saved-session subscription error"),
   });
 
   // The MRU activity feed (recent repos / agents — host-fs facts).
   const activityFeed = entry.cells.activityFeed.use({
-    onError: activeToast("Activity feed subscription error"),
+    onError: surfaceSubError("Activity feed subscription error"),
   });
 
   // The kaval daemon-status collection (this host's local kaval, keyed by its
   // local location). `useDaemonStatus` reads it through `activeScope().wire`.
   const daemonStatus = entry.collections.daemonStatus.use({
     keys: () => [encodeHostLocation(LOCAL_LOCATION)],
-    onError: activeToast("Daemon status error"),
+    onError: surfaceSubError("Daemon status error"),
   });
 
   // Stamp the daemon-status pending-wait anchor ONCE, at scope birth (this host's
