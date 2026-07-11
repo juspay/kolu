@@ -76,8 +76,6 @@ interface MembershipKernel<K> {
   /** Every current member key, from the `entries` membership view (opened ONCE —
    *  a second `.use()` is a second wire subscription). */
   readonly memberKeys: Accessor<K[]>;
-  /** The encoded member set — for membership-exit pruning. */
-  readonly memberSet: Accessor<Set<string>>;
 }
 
 function membershipKernel<
@@ -88,8 +86,7 @@ function membershipKernel<
   const enc = (key: z.infer<KS>): string => client.codec.encode(key);
   const entriesView = client.entries.use();
   const memberKeys = createMemo(() => entriesView.keys());
-  const memberSet = createMemo(() => new Set(memberKeys().map(enc)));
-  return { enc, memberKeys, memberSet };
+  return { enc, memberKeys };
 }
 
 /** Retained-per-key roots over a SOURCE key list, eager-pinned. A key's root
@@ -163,7 +160,11 @@ export function scopedByEntry<
 
   requireOwner("scopedByEntry");
 
-  const { enc, memberSet } = membershipKernel(client);
+  const { enc, memberKeys } = membershipKernel(client);
+  // The encoded member set — scopedByEntry's own, for membership-exit pruning of
+  // the `activated` accumulator. (watchByEntry needs no set: it feeds the full
+  // member list to the roots directly, so the kernel doesn't build one.)
+  const memberSet = createMemo(() => new Set(memberKeys().map(enc)));
 
   // The ACTIVATED set — the keyArray source, and the single writer of owner
   // lifetime. A pure prev-accumulator memo (no signal writes): it keeps the keys

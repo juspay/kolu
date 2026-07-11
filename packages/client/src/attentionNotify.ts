@@ -24,7 +24,7 @@ import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
  *  encoded host key the click switches to before focusing. */
 export type AttentionClick =
   | { kind: "terminal"; host: string; terminalId: TerminalId }
-  | { kind: "host"; host: string; id: string };
+  | { kind: "host"; host: string; id: TerminalId };
 
 /** Whether a string is a CANONICAL encoded host key — the exact domain
  *  `decodeHostKey` accepts (`"local"` or `"remote:<target>"`). Validated at the

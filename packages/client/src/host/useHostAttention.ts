@@ -135,7 +135,7 @@ export function useHostAttention(deps: {
       match(data)
         .with({ kind: "host" }, ({ host, id }) => {
           setActiveHost(decodeHostKey(host));
-          deps.focusTerminal(id as TerminalId);
+          deps.focusTerminal(id);
         })
         .with({ kind: "terminal" }, ({ host, terminalId }) => {
           setActiveHost(decodeHostKey(host));
