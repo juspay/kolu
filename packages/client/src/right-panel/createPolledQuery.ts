@@ -96,10 +96,18 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
    *  host change). OFF by default: a fresh key still blanks + goes `pending`, exactly
    *  as before (so the value-keyed `#1714` contract and the host-change blank are
    *  unchanged on the default path). The Code-tab repo/file queries opt in.
-   *  Bounded by a small LRU ({@link RETAIN_LRU}) so a long session cannot grow it
-   *  without bound — a switch-back is a RECENT key, and a host you left long ago
-   *  falls off the tail as you visit others (the retention follows the same "held
-   *  while near, dropped when gone" shape the per-host wire subs have). */
+   *
+   *  REQUIRES `pulseHost` to be HOST-scoped: the retain key is `(input, host)`, so
+   *  without `pulseHost` the cache is input-only and two hosts sharing one input
+   *  would collide. Both opt-in call sites pass `pulseHost: activeHost`.
+   *
+   *  The retention is an in-memory LRU ({@link RETAIN_LRU}), NOT membership-tied:
+   *  unlike the per-host WIRE subs (which the `scopedByEntry` owner disposes the
+   *  instant a host leaves the pool), a key here is evicted only by the LRU tail as
+   *  other keys are seen. So a host removed-then-re-added can briefly ADOPT its
+   *  pre-removal value for ONE pulse before the fresh pulse frame refreshes it — the
+   *  same sub-second staleness window a normal switch-back has, bounded to
+   *  {@link RETAIN_LRU} entries and self-healing, never a durable wrong-host read. */
   retainAcrossKeys?: boolean;
 }
 

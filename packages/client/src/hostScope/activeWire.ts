@@ -12,6 +12,13 @@
  *  acyclic (`wire ← hostScopes ← activeWire`). Consumers import these facades from
  *  HERE, not from `wire.ts`.
  *
+ *  This module windows THREE of the five `HostScope.wire` members — `activityFeed`
+ *  (via `recentRepos`/`recentAgents`), `session`, and `terminalKeys`. The other two
+ *  are windowed where their heavy derivation already lives, not here: `terminals`
+ *  through `terminal/useTerminalMetadata.ts` (the identity-stable metadata
+ *  projection) and `daemonStatus` through `kaval/useDaemonStatus.ts` (the
+ *  liveness/pending accessors) — each reads `activeScope().wire.<member>` directly.
+ *
  *  Each exported facade reference is STABLE (a module-level accessor / `Object.assign`),
  *  so a consumer holding one is unaffected by a switch; only the value it reads follows
  *  the active host. `activeScope()` is briefly `undefined` during the removal race (the
