@@ -20,14 +20,21 @@ Feature: Claude Code CLI-feature / user-action states against a real ollama mode
     Then the tile chrome should show a Claude indicator with state "waiting" within 60 seconds
     And there should be no page errors
 
-  Scenario: A trailing /compact on a real claude session reads as waiting, not stuck
-    # CLI FEATURE: /compact appends a summary + local-command bookkeeping; kolu
-    # must skip those non-prompt entries and read the prior turn's waiting, not
-    # pin the pill on thinking (the stuck-pill regression).
+  Scenario: A real claude session stays detected across a trailing /compact
+    # CLI FEATURE: /compact appends a summary + local-command bookkeeping. Scope
+    # note (srid's ruling B-PRIME → fallback, same as codex-real/grok-real): this
+    # asserts DETECTION survives /compact (kind=claude-code), NOT the prior turn's
+    # waiting state. The (b) real attempt was MADE and passed on darwin, but on a
+    # fast turn the transcript append lands AFTER the watcher attaches and a
+    # coalesced fs.watch re-read strands "thinking" — the append-poll half of
+    # juspay/kolu#1754, which strands ANY state assert on a fast turn regardless of
+    # the target state's stability. Restore the state="waiting" assert (skip the
+    # /compact bookkeeping, read the prior turn's waiting, not the stuck pill) when
+    # #1754 lands. The non-prompt-entry skipping stays unit-tested.
     When I launch the real Claude agent with prompt "Say the single word DONE and then stop."
     And the tile chrome should show a Claude indicator within 60 seconds
     And I run the Claude slash command "/compact"
-    Then the tile chrome should show a Claude indicator with state "waiting" within 60 seconds
+    Then the tile chrome should show a Claude indicator within 60 seconds
     And there should be no page errors
 
   # NOTE: /fork was ATTEMPTED here and exempted (srid's (b) ruling) — real
