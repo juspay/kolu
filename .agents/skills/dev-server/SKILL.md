@@ -118,6 +118,31 @@ client_url=$(jq -r .client .dev-server/ports.json)
 This is the local path the evidence skill's "drive a state live" step (§A2) uses
 for a state no e2e scenario reaches.
 
+## 4b. Dev build wedges at "Connecting to local…"? Prove change-independence *before* bisecting your diff
+
+The dev build has a **flaky host-resolution race** that wedges a fresh terminal
+at "Connecting to local…" — the console shows `scopedByEntry: active() names
+non-member local — no owned world`. It fires **upstream of any terminal/tab
+rendering** and hits `master` intermittently too, so it is almost never your
+change. A past run burned an enormous amount of effort A/B-bisecting its own diff
+across ~20 reloads before realizing the wedge was code-independent.
+
+So when a runtime wedge blocks verification, **reproduce it on `master` first**,
+rather than assuming it's your diff:
+
+- Wedges on `master` too (even 1-in-N reloads) → it's environmental, not yours.
+  Reload until it connects (the race clears on some reload) and run the real
+  check — or move the runtime check to a clean **pu** box (the **evidence**
+  skill), where this dev-only race doesn't occur.
+- Connects cleanly on `master` every time but wedges only with your diff → now
+  bisecting is warranted.
+
+Never *assume* a wedge is the known flake to wave it away — that could mask a real
+regression, defeating the whole point of runtime verification. **Prove** it:
+reproduce on `master`, or point at the part of your diff that provably can't reach
+the wedged code path (e.g. a component that isn't even mounted in the "Connecting"
+state, per `App.tsx`'s mutually-exclusive `connecting` vs. `workspace` arms).
+
 ## 5. Tear down only the dev instance
 
 On cleanup, kill **only** the PIDs bound to the remembered random ports (or rooted

@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-07-09T20:32:49.565344+00:00'
-apm_version: 0.24.0
+generated_at: '2026-07-11T15:30:59.799061+00:00'
+apm_version: 0.24.1
 dependencies:
 - repo_url: _local/agents
   name: agents
@@ -66,7 +66,7 @@ dependencies:
   deployed_file_hashes:
     .agents/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
     .agents/skills/be-review/SKILL.md: sha256:effd4d39e369d4e8004c6c30a0c69ea420cfb5820ad576663e443529951197db
-    .agents/skills/be/SKILL.md: sha256:9996dc40d894cadf2c8e1d7eb43fdcb092e6bf6f36ba10bbae87af4362afba37
+    .agents/skills/be/SKILL.md: sha256:e7ad6d775802d78e80bf3e541581240d5933185de527aa00e58354bfeabd7b9e
     .agents/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
     .agents/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
     .agents/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
@@ -84,7 +84,7 @@ dependencies:
     .agents/skills/surface/SKILL.md: sha256:407652ca44fc119dba06be3816009eaa4331189f9bf3807c6b65e95f95b0cbad
     .claude/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
     .claude/skills/be-review/SKILL.md: sha256:effd4d39e369d4e8004c6c30a0c69ea420cfb5820ad576663e443529951197db
-    .claude/skills/be/SKILL.md: sha256:9996dc40d894cadf2c8e1d7eb43fdcb092e6bf6f36ba10bbae87af4362afba37
+    .claude/skills/be/SKILL.md: sha256:e7ad6d775802d78e80bf3e541581240d5933185de527aa00e58354bfeabd7b9e
     .claude/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
     .claude/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
     .claude/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
@@ -357,6 +357,9 @@ mcp_configs:
     transport: stdio
     registry: false
     command: .agents/skills/odu-mcp/bin/serve
+mcp_config_provenance:
+  chrome-devtools: nix-chrome-devtools-mcp
+  odu: odu
 local_deployed_files:
 - .agents/skills/atlas
 - .agents/skills/atlas/SKILL.md
@@ -441,7 +444,7 @@ local_deployed_files:
 local_deployed_file_hashes:
   .agents/skills/atlas/SKILL.md: sha256:64909c9058667c6eefa9efcd7249737b7feb401015f110b09b6ea69718f35ef3
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .agents/skills/dev-server/SKILL.md: sha256:f4f9e6479103ceec2c90496c85fca5c5bdd57c79bd59e80852307c6b9d286617
+  .agents/skills/dev-server/SKILL.md: sha256:e59ea0a5dc994f0f912e5e48f92a3266473f1532f1743a45e8cf1af867014a2f
   .agents/skills/evidence/SKILL.md: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
   .agents/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
   .agents/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
@@ -471,7 +474,7 @@ local_deployed_file_hashes:
   .claude/rules/website-docs.md: sha256:f40e3f50cfaf186997105ccfd11405bd3f90e9b80e771f9157907e1538b0167f
   .claude/skills/atlas/SKILL.md: sha256:64909c9058667c6eefa9efcd7249737b7feb401015f110b09b6ea69718f35ef3
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .claude/skills/dev-server/SKILL.md: sha256:f4f9e6479103ceec2c90496c85fca5c5bdd57c79bd59e80852307c6b9d286617
+  .claude/skills/dev-server/SKILL.md: sha256:e59ea0a5dc994f0f912e5e48f92a3266473f1532f1743a45e8cf1af867014a2f
   .claude/skills/evidence/SKILL.md: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
   .claude/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
   .claude/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
