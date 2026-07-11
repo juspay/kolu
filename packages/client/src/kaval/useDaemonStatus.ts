@@ -144,13 +144,25 @@ const sub = createRoot(() =>
  *  is reprojected onto THIS browser's clock at THIS ingestion boundary — the Kaval/Padi
  *  dialogs render `now − startedAt` uptime, and a raw remote epoch would mix two clocks
  *  (the foreign-clock fence, applied once here, not per-dialog). A null offset (host
- *  warming) ⇒ `startedAt` 0, which the dialogs already gate as "unknown". */
+ *  warming) ⇒ `startedAt` 0, which the dialogs already gate as "unknown".
+ *
+ *  Memoized — ONE reprojection per `daemonStatus` (or clock) change shared by every
+ *  consumer, rather than a fresh `{...status}` spread minted on each of the several
+ *  reads a dialog does per render. The same idiom `HostDaemonChips.daemon()` uses;
+ *  unifying the two keeps the repo's reprojection story uniform. Module-lifetime root
+ *  like `sub` above. */
+const localDaemonStatusMemo = createRoot(() =>
+  createMemo((): DaemonStatus | undefined => {
+    const status = sub.byKey(encodeHostLocation(LOCAL_LOCATION))?.();
+    if (status === undefined || typeof status.startedAt !== "number")
+      return status;
+    const local = padiMap.entry(activeHost()).clock.toLocal(status.startedAt);
+    return { ...status, startedAt: local ?? 0 };
+  }),
+);
+
 export function localDaemonStatus(): DaemonStatus | undefined {
-  const status = sub.byKey(encodeHostLocation(LOCAL_LOCATION))?.();
-  if (status === undefined || typeof status.startedAt !== "number")
-    return status;
-  const local = padiMap.entry(activeHost()).clock.toLocal(status.startedAt);
-  return { ...status, startedAt: local ?? 0 };
+  return localDaemonStatusMemo();
 }
 
 // kolu-server's live view of its binding to the local padi, off koluSurface's server-

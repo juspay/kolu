@@ -225,13 +225,17 @@ const CodeTab: Component<{
   // to dismiss it manually. Draft body is lost, which matches every
   // other modal-on-navigate behavior in kolu.
   const composer = useComposer();
-  createEffect(
-    on(
-      () => [selectedPath(), view(), repoPath()] as const,
-      () => composer.close(),
-      { defer: true },
-    ),
+  // Key on the VALUE tuple, not the raw signals: `on` fires on every
+  // INVALIDATION of its source, so an array of `[selectedPath(), view(),
+  // repoPath()]` re-closes the composer on any incidental invalidation (a
+  // same-repo active-terminal switch re-evaluates `repoPath()` to the same
+  // string). A primitive-string memo (the `slotKey` precedent below) notifies
+  // only on a real navigation, so the composer is dismissed iff the file / mode /
+  // repo actually changed.
+  const composerAnchor = createMemo(
+    () => `${selectedPath() ?? ""} ${view()} ${repoPath() ?? ""}`,
   );
+  createEffect(on(composerAnchor, () => composer.close(), { defer: true }));
   const isDiffView = () => view() !== "browse";
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
