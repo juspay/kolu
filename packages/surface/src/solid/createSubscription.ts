@@ -146,6 +146,60 @@ export function framesEqual(a: unknown, b: unknown): boolean {
   return true;
 }
 
+/** The change-iff-fired half of the Dynamic, as a standalone tracker so BOTH
+ *  subscription factories share ONE implementation of the law (only the value
+ *  type differs). `lastSeen` is tracked from the very first frame — independent
+ *  of whether any handler is registered — so "a first frame never fires" holds
+ *  no matter when a consumer subscribes.
+ *
+ *   - `noteFrame(next)` — call on every stream frame (before the store write):
+ *     the first frame seeds `lastSeen` silently; an equal frame (a reconnect
+ *     snapshot) is silent; a differing frame fans out one `{prev, next}` change.
+ *   - `reset()` — a fresh subscription (the reactive factory's input change)
+ *     re-arms the first-frame rule; handlers survive (they belong to the caller).
+ *   - `updated(handler)` — subscribe; returns a `Dispose`. */
+export function createUpdatedTracker<V>(): {
+  noteFrame: (next: V) => void;
+  updated: (handler: (change: CellChange<V>) => void) => Dispose;
+  reset: () => void;
+} {
+  const handlers = new Set<(change: CellChange<V>) => void>();
+  let lastSeen: { has: boolean; value: V } = {
+    has: false,
+    value: undefined as V,
+  };
+  return {
+    noteFrame(next) {
+      if (!lastSeen.has) {
+        lastSeen = { has: true, value: next }; // first frame: a value, not a change
+        return;
+      }
+      if (framesEqual(lastSeen.value, next)) return; // equal reconnect snapshot: silent
+      const prev = lastSeen.value;
+      lastSeen = { has: true, value: next };
+      if (handlers.size === 0) return;
+      // Hand consumers a SNAPSHOT: the store writes these frames through Solid's
+      // `reconcile`, which adopts a frame and mutates it on the next write — a
+      // retained `{prev, next}` would silently mutate out from under the
+      // consumer. Clone only on a firing change with subscribers, so the hot
+      // no-op path pays nothing. (`framesEqual` above ran on the pre-write
+      // values, so the baseline compare is unaffected by the mutation.)
+      const change: CellChange<V> = {
+        prev: structuredClone(prev),
+        next: structuredClone(next),
+      };
+      for (const h of [...handlers]) h(change);
+    },
+    updated(handler) {
+      handlers.add(handler);
+      return () => handlers.delete(handler);
+    },
+    reset() {
+      lastSeen = { has: false, value: undefined as V };
+    },
+  };
+}
+
 /** Convert an async stream into a SolidJS signal. `source` receives the
  *  subscription's OWN abort signal (the external `options.signal` when supplied,
  *  else the internal `AbortController` this call creates) — thread it into the
@@ -197,35 +251,9 @@ export function createSubscription<T, R = T>(
     writeWrappedValue(setStore, next as T | R | undefined);
   }
 
-  // The change-iff-fired half of the Dynamic. `lastSeen` is tracked from the
-  // very first frame — independent of whether any handler is registered — so the
-  // "first frame never fires" law holds no matter when a consumer subscribes.
-  const updatedHandlers = new Set<(change: CellChange<T | R>) => void>();
-  let lastSeen: { has: boolean; value: T | R } = {
-    has: false,
-    value: undefined as T | R,
-  };
-  function noteFrame(next: T | R): void {
-    if (!lastSeen.has) {
-      lastSeen = { has: true, value: next }; // first frame: a value, not a change
-      return;
-    }
-    if (framesEqual(lastSeen.value, next)) return; // equal reconnect snapshot: silent
-    const prev = lastSeen.value;
-    lastSeen = { has: true, value: next };
-    if (updatedHandlers.size === 0) return;
-    // Hand consumers a SNAPSHOT: the store writes these frames through Solid's
-    // `reconcile`, which adopts a frame and mutates it on the next write — a
-    // retained `{prev, next}` would silently mutate out from under the consumer.
-    // Clone only on a firing change with subscribers, so the hot no-op path pays
-    // nothing. (`framesEqual` above ran on the pre-write values, so the baseline
-    // compare is unaffected by the mutation.)
-    const change: CellChange<T | R> = {
-      prev: structuredClone(prev),
-      next: structuredClone(next),
-    };
-    for (const h of [...updatedHandlers]) h(change);
-  }
+  // The change-iff-fired half of the Dynamic — the ONE law shared with
+  // `createReactiveSubscription` via `createUpdatedTracker`.
+  const tracker = createUpdatedTracker<T | R>();
 
   function toError(err: unknown): Error {
     return err instanceof Error ? err : new Error(String(err));
@@ -248,7 +276,7 @@ export function createSubscription<T, R = T>(
       for await (const item of iterable) {
         if (abortSignal.aborted) break;
         const next = reduce ? reduce(store.v as T | R, item) : (item as T | R);
-        noteFrame(next); // fire `updated` on a genuine change, before the write
+        tracker.noteFrame(next); // fire `updated` on a genuine change, before the write
         updateValue(next);
         if (pending()) setPending(false);
         if (error()) setError(undefined);
@@ -275,10 +303,7 @@ export function createSubscription<T, R = T>(
     error,
     pending,
     complete,
-    updated: (handler: (change: CellChange<T | R>) => void): Dispose => {
-      updatedHandlers.add(handler);
-      return () => updatedHandlers.delete(handler);
-    },
+    updated: tracker.updated,
   }) as Subscription<T | R>;
 
   if (options?.onError) {

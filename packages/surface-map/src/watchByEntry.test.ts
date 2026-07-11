@@ -33,7 +33,7 @@ describe("watchByEntry — eager attention over entries membership", () => {
       const att = watchByEntry(
         client,
         (e) => e.cells.urgency,
-        (v: { awaitingIds: string[] }) => v.awaitingIds,
+        (v) => [...v.awaitingIds],
         (host, raised) => raises.push({ host, ids: [...raised] }),
       );
 
@@ -74,7 +74,7 @@ describe("watchByEntry — eager attention over entries membership", () => {
       watchByEntry(
         client,
         (e) => e.cells.urgency,
-        (v: { awaitingIds: string[] }) => v.awaitingIds,
+        (v) => [...v.awaitingIds],
         (host, raised) => raises.push({ host, ids: [...raised] }),
       );
       const entry = makeEntry({ awaiting: 0, awaitingIds: [] });
@@ -107,7 +107,7 @@ describe("watchByEntry — eager attention over entries membership", () => {
       const att = watchByEntry(
         client,
         (e) => e.cells.urgency,
-        (v: { awaitingIds: string[] }) => v.awaitingIds,
+        (v) => [...v.awaitingIds],
         () => {},
       );
       const entry = makeEntry({ awaiting: 1, awaitingIds: ["t1"] });
@@ -132,7 +132,7 @@ describe("watchByEntry — eager attention over entries membership", () => {
       const att = watchByEntry(
         client,
         (e) => e.cells.urgency,
-        (v: { awaitingIds: string[] }) => v.awaitingIds,
+        (v) => [...v.awaitingIds],
         () => {},
       );
       addSession(

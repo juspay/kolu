@@ -19,7 +19,9 @@ import { defineSurface, scopeSibling } from "@kolu/surface/define";
 import { isDirectLink } from "@kolu/surface/links/direct";
 import {
   buildSurfaceClient,
+  type CellChange,
   createKeyedRoot,
+  type Dispose,
   isLiveSignalHandle,
   type ReadOnlyBoundCollection,
   resolveTransport,
@@ -235,6 +237,15 @@ function delegateSubscription<T>(
     pending: () => current().pending(),
     error: () => current().error(),
     complete: () => current().complete?.() ?? false,
+    // `updated` forwards to whatever subscription is CURRENT — so it exists on a
+    // re-keyed sub rather than being silently absent (a call would otherwise
+    // throw "not a function"). It registers on the current entry's sub; across a
+    // re-key that registration ends with the old sub (a switch IS a fresh
+    // subscription, whose first frame is a value, not a change). A consumer that
+    // needs honest change pairs ACROSS a re-key uses the pure `entry(key)` path
+    // (what `watchByEntry` does), which hands back the base sub untouched.
+    updated: (handler: (change: CellChange<T>) => void): Dispose =>
+      current().updated?.(handler) ?? (() => {}),
   }) as Subscription<T>;
 }
 

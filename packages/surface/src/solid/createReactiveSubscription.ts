@@ -23,12 +23,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import {
-  type CellChange,
-  type Dispose,
-  framesEqual,
-  type Subscription,
-} from "./createSubscription";
+import { createUpdatedTracker, type Subscription } from "./createSubscription";
 import { writeWrappedValue } from "./writeValue";
 
 export interface ReactiveSubscriptionOptions {
@@ -49,31 +44,11 @@ export function createReactiveSubscription<I, T>(
     return err instanceof Error ? err : new Error(String(err));
   }
 
-  // The change-iff-fired half of the Dynamic (see `createSubscription`). A fresh
-  // input opens a fresh subscription, so `lastSeen` resets with the rest of the
-  // state below — the new input's first frame is a value, not a change.
-  const updatedHandlers = new Set<(change: CellChange<T>) => void>();
-  let lastSeen: { has: boolean; value: T } = {
-    has: false,
-    value: undefined as T,
-  };
-  function noteFrame(next: T): void {
-    if (!lastSeen.has) {
-      lastSeen = { has: true, value: next };
-      return;
-    }
-    if (framesEqual(lastSeen.value, next)) return;
-    const prev = lastSeen.value;
-    lastSeen = { has: true, value: next };
-    if (updatedHandlers.size === 0) return;
-    // Snapshot the pair — the store reconciles these frames and would mutate a
-    // retained reference (see `createSubscription`'s `noteFrame`).
-    const change: CellChange<T> = {
-      prev: structuredClone(prev),
-      next: structuredClone(next),
-    };
-    for (const h of [...updatedHandlers]) h(change);
-  }
+  // The change-iff-fired half of the Dynamic — the ONE law shared with
+  // `createSubscription` via `createUpdatedTracker`. A fresh input opens a fresh
+  // subscription, so the tracker is `reset()` with the rest of the state below —
+  // the new input's first frame is a value, not a change.
+  const tracker = createUpdatedTracker<T>();
 
   createEffect(
     on(inputFn, (input) => {
@@ -85,7 +60,7 @@ export function createReactiveSubscription<I, T>(
       setError(undefined);
       setPending(true);
       setComplete(false);
-      lastSeen = { has: false, value: undefined as T };
+      tracker.reset();
       if (input === null) return;
 
       const controller = new AbortController();
@@ -96,7 +71,7 @@ export function createReactiveSubscription<I, T>(
           const iterable = await factory(input, controller.signal);
           for await (const item of iterable) {
             if (controller.signal.aborted) break;
-            noteFrame(item);
+            tracker.noteFrame(item);
             writeWrappedValue(setStore, item);
             if (pending()) setPending(false);
             if (error()) setError(undefined);
@@ -121,10 +96,7 @@ export function createReactiveSubscription<I, T>(
     error,
     pending,
     complete,
-    updated: (handler: (change: CellChange<T>) => void): Dispose => {
-      updatedHandlers.add(handler);
-      return () => updatedHandlers.delete(handler);
-    },
+    updated: tracker.updated,
   }) as Subscription<T>;
 
   // Route `onError` through the SAME self-clearing EDGE effect `createSubscription`

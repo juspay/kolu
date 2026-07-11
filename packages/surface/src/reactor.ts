@@ -56,23 +56,29 @@ export interface GraphNode<T> {
 
 /** A `scan` node — a `GraphNode` that can permanently STOP (a step threw). */
 export interface ScanNode<T> extends GraphNode<T> {
-  /** Latches `true` the first time a step throws. It never heals — a stopped
-   *  derivation holds its last value until the process restarts. An app may
-   *  fold this into the member's `liveWhen` so a frozen derivation reads
-   *  unhealthy rather than a green light on stale data. */
+  /** Latches `true` the first time a step throws, and never heals — a stopped
+   *  derivation holds its last value until the process restarts. Server-side and
+   *  observable: it gates the scan from stepping again and distinguishes a frozen
+   *  derivation from a legitimately quiet one. (Surfacing a stopped derivation
+   *  into the surface's client-side liveness is a LATER phase — the reactive
+   *  bridge's open "unhealthy-after-N-failures" question; phase 0 stops loudly,
+   *  logs, and latches, but does not yet flip health.) */
   readonly stopped: ReadonlySignal<boolean>;
 }
 
 // ── source — external input into the graph ───────────────────────────────
 
+/** What an install returns: an uninstall fn, or nothing. The `| void` is the
+ *  honest union — a tap with cleanup returns its uninstall fn, one without
+ *  returns nothing; both must be accepted (and `| undefined` would reject a
+ *  void-returning install). Kept on its own short line so the suppression can't
+ *  drift off it under a reformat. */
+// biome-ignore lint/suspicious/noConfusingVoidType: `void` is a required union member — an install with no cleanup returns nothing.
+type SourceCleanup = (() => void) | void;
+
 /** Install a push emitter; return an uninstall fn (or nothing). Called once,
- *  lazily, when the first consumer (a `scan`) subscribes. The `| void` return is
- *  the honest union: a tap with cleanup returns its uninstall fn, one without
- *  returns nothing — both must be accepted. */
-// biome-ignore lint/suspicious/noConfusingVoidType: see the doc comment — `void` is a required union member (an install with no cleanup).
-export type SourceInstall<T> = (
-  emit: (frame: T) => void,
-) => (() => void) | void;
+ *  lazily, when the first consumer (a `scan`) subscribes. */
+export type SourceInstall<T> = (emit: (frame: T) => void) => SourceCleanup;
 
 /** An external input into the graph. Beyond the level signal every node has, a
  *  source exposes per-OCCURRENCE subscription: each `emit(frame)` is an
@@ -215,10 +221,6 @@ export function scan<F, S>(
 export interface DerivedCell<T> {
   readonly store: CellStore<T>;
   readonly connect: (cell: { set: (next: T) => void }) => void;
-  /** The backing node's `stopped` latch, forwarded so an app can fold it into
-   *  the member's `liveWhen`. `undefined` for a stateless node with no stop
-   *  concept. */
-  readonly stopped?: ReadonlySignal<boolean>;
   /** Tear down the connect effect and the backing node. */
   readonly dispose: () => void;
   readonly [DERIVED_CELL_BRAND]: true;
@@ -248,11 +250,9 @@ export const derived = {
     };
 
     let disposeEffect: (() => void) | undefined;
-    const stopped = (node as Partial<ScanNode<T>>).stopped;
 
     return {
       store,
-      stopped,
       [DERIVED_CELL_BRAND]: true,
       connect: (cell) => {
         // The connect seam: an engine effect subscribes the node's level and
