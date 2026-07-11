@@ -220,6 +220,52 @@ describe("notify.onClick", () => {
     expect(seen).toHaveLength(1);
   });
 
+  it("routes exactly once even when the ack postMessage throws (redundant worker mid-replacement)", () => {
+    const env = stubEnv({ registration: null });
+    const notify = createNotify<Click>(parseClick);
+    const seen: Click[] = [];
+    notify.onClick((d) => seen.push(d));
+
+    // The delivering worker turned `redundant` mid worker-replacement: acking it throws.
+    // The route runs BEFORE the ack and the id is durably claimed first, so the click
+    // fires exactly once and the throw never propagates — earlier ordering (ack-then-route)
+    // would have claimed the id, thrown, and left the handler never invoked (zero actions).
+    const throwingSource = {
+      postMessage: vi.fn(() => {
+        throw new Error("worker redundant");
+      }),
+    };
+    expect(() =>
+      env.emitMessage(
+        {
+          type: SW_MESSAGE_TYPE,
+          data: { host: "hostB", id: "t7" },
+          id: "click-1",
+        },
+        throwingSource,
+      ),
+    ).not.toThrow();
+    expect(seen).toEqual([{ host: "hostB", id: "t7" }]);
+    expect(throwingSource.postMessage).toHaveBeenCalledOnce();
+
+    // The id is durably claimed, so the worker's fallback navigation (and any retry) is
+    // deduped — a retry of the same id acks but never re-routes.
+    const retrySource = { postMessage: vi.fn() };
+    env.emitMessage(
+      {
+        type: SW_MESSAGE_TYPE,
+        data: { host: "hostB", id: "t7" },
+        id: "click-1",
+      },
+      retrySource,
+    );
+    expect(seen).toHaveLength(1);
+    expect(retrySource.postMessage).toHaveBeenCalledWith({
+      type: NOTIFICATION_ACK_TYPE,
+      id: "click-1",
+    });
+  });
+
   it("does NOT route a live id-carrying click when event.source is absent (defers to the fallback navigation)", () => {
     const env = stubEnv({ registration: null });
     const notify = createNotify<Click>(parseClick);

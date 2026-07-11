@@ -96,6 +96,19 @@ export function createNotify<D>(
     handler(parsed);
   };
 
+  // Ack the delivering worker to silence its retry loop. Best-effort: mid
+  // worker-replacement `postMessage` can throw (the delivering worker went
+  // `redundant`). A throw here must NOT propagate — by the time we ack, the click
+  // has already been routed AND the id durably claimed, so the worker's fallback
+  // navigation is deduped at `consumePendingClick`; the click still fires exactly once.
+  const ackDelivery = (source: ServiceWorker, id: string): void => {
+    try {
+      source.postMessage({ type: NOTIFICATION_ACK_TYPE, id });
+    } catch (err) {
+      console.warn("notify.onClick: ack postMessage failed", err);
+    }
+  };
+
   return {
     async requestPermission(): Promise<boolean> {
       if (typeof Notification === "undefined") return false;
@@ -170,14 +183,21 @@ export function createNotify<D>(
           if (wasRouted(id)) {
             // Already routed (a retry arriving before our earlier ack landed) — ack to
             // silence the loop, but never route twice.
-            source.postMessage({ type: NOTIFICATION_ACK_TYPE, id });
+            ackDelivery(source, id);
             return;
           }
-          // Record-then-route, and only if the record is DURABLE: a non-durable record
-          // couldn't survive the fallback navigation, so routing live would risk a
+          // Durably CLAIM the id first, and only if the record persisted: a non-durable
+          // record couldn't survive the fallback navigation, so routing live would risk a
           // double-fire — defer to the fallback route instead (stay silent, no ack).
           if (!markRouted(id)) return;
-          source.postMessage({ type: NOTIFICATION_ACK_TYPE, id });
+          // ROUTE before the ack. The ack (`postMessage`) can throw when the delivering
+          // worker turned redundant mid-replacement; if we acked first and it threw, the
+          // id would be claimed with the handler never run, and the worker's fallback
+          // navigation would be suppressed at `consumePendingClick` — ZERO actions. By
+          // routing first, the click has fired exactly once no matter how the ack goes.
+          route(msg.data, handler);
+          ackDelivery(source, id);
+          return;
         }
         route(msg.data, handler);
       };
