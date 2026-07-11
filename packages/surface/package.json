@@ -19,6 +19,7 @@
     "./loopback": "./src/loopback.ts",
     "./mirror": "./src/mirrorRemoteSurface.ts",
     "./project": "./src/project.ts",
+    "./reactor": "./src/reactor.ts",
     "./server": "./src/server.ts",
     "./ws-origin": "./src/wsOrigin.ts",
     "./solid": "./src/solid/index.ts",
@@ -43,6 +44,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
+    "@preact/signals-core": "^1.8.0",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",

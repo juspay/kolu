@@ -120,6 +120,7 @@ no separate `progressLines` / `remoteProgressLines` — provenance is the `sourc
 - **`recheck()` versus `reconnect()`.** `reconnect()` re-arms a `failed`/idle session and won't disturb a live link (the manual button). `recheck()` force-cycles whatever is there, including a `connected` link (the wake/network-change companion, since a post-sleep link is often stale).
 - **Liveness watchdog, default-on.** While `connected`, it probes the reserved `system.live` round-trip on an interval. A timeout means a silently-wedged remote and force-cycles the child; a rejection still counts as alive. Opt out with `liveness: false`.
 - **State progression.** `copying → connecting → connected`; on drop, `disconnected → copying → …` at exponential backoff capped at 60s.
+- **A mirror never fabricates a value.** A re-served (mirrored) cell serves NO frame until the authority's first real fold. Its store still seeds the declared default (so `store.get()` is a typed `T`), but the framework's `hasSnapshot` gate withholds that seed until the fold writes the authority's first frame — on a mirror the only writer is the fold, never a wire client. So the reader's `T | undefined` ("no frame yet") holds end to end: the mirror relays truth or stays silent, and the declared default belongs to the ONE writer, never a mirror relaying a guess.
 
 <Aside type="note" title="Nix is the contract, not the implementation">
   Provisioning ships a `.drv` (a [Nix derivation](https://nixos.org/manual/nix/stable/language/derivations.html) — build instructions, platform-neutral), so the

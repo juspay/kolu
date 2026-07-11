@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { pollUntil } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 When("I click the activity alerts toggle", async function (this: KoluWorld) {
@@ -111,15 +112,27 @@ When("I stub the Badging API", async function (this: KoluWorld) {
 Then(
   "the app badge should show {int}",
   async function (this: KoluWorld, expected: number) {
-    await this.waitForFrame();
-    const lastSet = await this.page.evaluate(() => {
-      const calls = window.__badgeCalls ?? [];
-      return calls
-        .filter(
-          (c): c is { method: "set"; count?: number } => c.method === "set",
-        )
-        .pop();
-    });
+    // POLL: the badge is now the cross-host `urgency` (awaiting-agent) count — a
+    // WIRE fact that lands after the agent-state round-trips through padi's fold
+    // and the client's watcher, so a single-read assert races the propagation.
+    // Wait for the last `set` call to reach the expected count.
+    const lastSet = await pollUntil(
+      this.page,
+      () =>
+        this.page.evaluate(() => {
+          const calls = window.__badgeCalls ?? [];
+          return (
+            calls
+              .filter(
+                (c): c is { method: "set"; count?: number } =>
+                  c.method === "set",
+              )
+              .pop() ?? null
+          );
+        }),
+      (s) => s?.count === expected,
+      { attempts: 40, intervalMs: 250 },
+    );
     assert.ok(lastSet, "Expected setAppBadge to have been called");
     assert.strictEqual(lastSet.count, expected);
   },

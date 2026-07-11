@@ -1180,6 +1180,9 @@ importers:
       '@orpc/standard-server-peer':
         specifier: ^1.13.13
         version: 1.13.13
+      '@preact/signals-core':
+        specifier: ^1.8.0
+        version: 1.14.4
       '@solid-primitives/rootless':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
@@ -2703,6 +2706,9 @@ packages:
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
+
+  '@preact/signals-core@1.14.4':
+    resolution: {integrity: sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==}
 
   '@rolldown/binding-android-arm64@1.1.2':
     resolution: {integrity: sha512-2cZ+7xRS+DBcuJBJKnfzsbleumJhBqSlJVpuzHC0nTqfd3QQ7Vx2/x5YR/D7cBamKSeWplwo82Fn9lqYUDEMfA==}
@@ -5751,6 +5757,8 @@ snapshots:
       react: 19.2.5
 
   '@pinojs/redact@0.4.0': {}
+
+  '@preact/signals-core@1.14.4': {}
 
   '@rolldown/binding-android-arm64@1.1.2':
     optional: true

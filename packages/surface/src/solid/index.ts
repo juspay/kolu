@@ -25,7 +25,9 @@ export {
   type ReactiveSubscriptionOptions,
 } from "./createReactiveSubscription";
 export {
+  type CellChange,
   createSubscription,
+  type Dispose,
   type Subscription,
   type SubscriptionOptions,
   wireSubscriptionError,

@@ -1,7 +1,11 @@
 import * as assert from "node:assert";
 import { createEffect, createRoot } from "solid-js";
-import { describe, expect, it } from "vitest";
-import { createSubscription, type Subscription } from "./createSubscription";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createSubscription,
+  createUpdatedTracker,
+  type Subscription,
+} from "./createSubscription";
 
 /** Test-local: read the current value of a subscription, throwing with a
  *  descriptive message if it hasn't yielded yet. Replaces inline non-null
@@ -559,6 +563,300 @@ describe("createSubscription", () => {
 
       expect(result.error).toBe("connection failed");
       expect(result.pending).toBe(false);
+    });
+  });
+
+  describe("updated() — the change-iff-fired law", () => {
+    it("a first frame is a value, not a change — it never fires", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+        const changes: Array<{ prev: number; next: number }> = [];
+        sub.updated?.((c) => changes.push(c));
+
+        stream.push(7);
+        await flush();
+        expect(readSub(sub)).toBe(7);
+        expect(changes).toEqual([]); // first frame: silent
+        dispose();
+      });
+    });
+
+    it("a differing frame fires once with prev = the last-seen value", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+        const changes: Array<{ prev: number; next: number }> = [];
+        sub.updated?.((c) => changes.push(c));
+
+        stream.push(1);
+        await flush();
+        stream.push(2);
+        await flush();
+        stream.push(5);
+        await flush();
+        expect(changes).toEqual([
+          { prev: 1, next: 2 },
+          { prev: 2, next: 5 },
+        ]);
+        dispose();
+      });
+    });
+
+    it("an equal reconnect snapshot (fresh object, same content) never fires", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<{ ids: number[] }>();
+        const sub = createSubscription(async () => stream.iterate());
+        const changes: Array<unknown> = [];
+        sub.updated?.((c) => changes.push(c));
+
+        stream.push({ ids: [1, 2] });
+        await flush();
+        // A link flap replays current truth as a byte-fresh object — value-equal
+        // to the last-seen, so the law says: silent.
+        stream.push({ ids: [1, 2] });
+        await flush();
+        expect(changes).toEqual([]);
+
+        // A genuine change still fires, with the structurally-correct prev.
+        stream.push({ ids: [1, 2, 3] });
+        await flush();
+        expect(changes).toEqual([
+          { prev: { ids: [1, 2] }, next: { ids: [1, 2, 3] } },
+        ]);
+        dispose();
+      });
+    });
+
+    it("a change in a non-JSON value (distinct Dates) is NOT suppressed", async () => {
+      // The primitives are generic over arbitrary AsyncIterable<T>, and a value need
+      // not be JSON-shaped (a directLink passes objects through unserialized; Zod
+      // admits z.date()). A naive plain-object walk reads two Dates as equal (they
+      // have no enumerable keys) and would SUPPRESS a real change — the comparator
+      // must compare Dates by instant and, in general, never yield a false-positive.
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<{ at: Date }>();
+        const sub = createSubscription(async () => stream.iterate());
+        const seen: Array<{ prev: { at: Date }; next: { at: Date } }> = [];
+        sub.updated?.((c) => seen.push(c));
+
+        stream.push({ at: new Date(1000) });
+        await flush();
+        // Equal instant, fresh object — the law says silent.
+        stream.push({ at: new Date(1000) });
+        await flush();
+        expect(seen).toEqual([]);
+        // Different instant — a REAL change; must fire (the suppression bug).
+        stream.push({ at: new Date(2000) });
+        await flush();
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.prev.at.getTime()).toBe(1000);
+        expect(seen[0]?.next.at.getTime()).toBe(2000);
+        dispose();
+      });
+    });
+
+    // The frame comparator (`framesEqual`) is private; these exercise it directly
+    // through the tracker that owns it, so a cyclic / sparse / augmented / non-JSON
+    // frame is checked WITHOUT the store's `reconcile` (which cannot hold a cyclic
+    // object at all — an orthogonal limit). A directLink passes values through
+    // unserialized, so any of these shapes can reach the comparator.
+    describe("framesEqual (via the tracker) — conservative + cycle-safe", () => {
+      it("compares a cyclic frame without a stack overflow", () => {
+        type Node = { label: string; self?: Node };
+        const tracker = createUpdatedTracker<Node>();
+        const seen: Array<{ prev: Node; next: Node }> = [];
+        tracker.updated((c) => seen.push(c));
+
+        const a: Node = { label: "x" };
+        a.self = a;
+        tracker.noteFrame(a); // first frame: seed, silent
+        // A value-equal cyclic frame (fresh object, same shape): the back-edge is
+        // compared as equal — no unbounded recursion, and silent.
+        const a2: Node = { label: "x" };
+        a2.self = a2;
+        tracker.noteFrame(a2);
+        expect(seen).toEqual([]);
+        // A genuine change to a cyclic frame still fires exactly once.
+        const b: Node = { label: "y" };
+        b.self = b;
+        tracker.noteFrame(b);
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.next.label).toBe("y");
+      });
+
+      it("distinguishes a self-cycle from a child-cycle of the same labels", () => {
+        // Both frames are `{ self: <node labelled "x"> }`, but the back-edge closes
+        // DIFFERENTLY: the seed self-references the root, the next references a
+        // distinct child. A cycle guard that only asks "seen this node before" reads
+        // them equal and suppresses the change; a topology-aware guard fires it.
+        type Node = { label: string; self?: Node };
+        const tracker = createUpdatedTracker<Node>();
+        const seen: Array<{ prev: Node; next: Node }> = [];
+        tracker.updated((c) => seen.push(c));
+
+        const root: Node = { label: "x" };
+        root.self = root; // self-cycle: root.self === root
+        tracker.noteFrame(root); // seed, silent
+
+        const outer: Node = { label: "x" };
+        const child: Node = { label: "x" };
+        child.self = child;
+        outer.self = child; // child-cycle: outer.self !== outer
+        tracker.noteFrame(outer);
+        // The topologies differ (root.self === root vs outer.self !== outer), so this
+        // is a real change and must fire exactly once — never be swallowed.
+        expect(seen).toHaveLength(1);
+      });
+
+      it("treats two matching self-cycles as equal (no spurious fire)", () => {
+        type Node = { label: string; self?: Node };
+        const tracker = createUpdatedTracker<Node>();
+        const seen: unknown[] = [];
+        tracker.updated((c) => seen.push(c));
+
+        const a: Node = { label: "x" };
+        a.self = a;
+        tracker.noteFrame(a); // seed
+        const b: Node = { label: "x" };
+        b.self = b;
+        tracker.noteFrame(b); // same topology + labels — must stay silent
+        expect(seen).toEqual([]);
+      });
+
+      it("does not treat a sparse array as equal to a dense-undefined array", () => {
+        const tracker = createUpdatedTracker<number[]>();
+        const seen: unknown[] = [];
+        tracker.updated((c) => seen.push(c));
+
+        // biome-ignore lint/suspicious/noSparseArray: exercising sparse-vs-dense
+        const sparse = [, ,] as unknown as number[];
+        tracker.noteFrame(sparse); // seed
+        // Holes (absent indices) differ from present `undefined` — must fire, never
+        // be suppressed.
+        const dense = [undefined, undefined] as unknown as number[];
+        tracker.noteFrame(dense);
+        expect(seen).toHaveLength(1);
+      });
+
+      it("does not ignore an augmenting own property on an array", () => {
+        type Aug = number[] & { tag?: string };
+        const tracker = createUpdatedTracker<Aug>();
+        const seen: unknown[] = [];
+        tracker.updated((c) => seen.push(c));
+
+        tracker.noteFrame([1, 2] as Aug); // seed
+        const augmented = [1, 2] as Aug;
+        augmented.tag = "changed";
+        tracker.noteFrame(augmented);
+        expect(seen).toHaveLength(1);
+      });
+
+      it("does not ignore a non-enumerable own property", () => {
+        type WithHidden = { visible: number };
+        const tracker = createUpdatedTracker<WithHidden>();
+        const seen: unknown[] = [];
+        tracker.updated((c) => seen.push(c));
+
+        tracker.noteFrame({ visible: 1 }); // seed
+        const withHidden = { visible: 1 } as WithHidden;
+        Object.defineProperty(withHidden, "hidden", {
+          value: 9,
+          enumerable: false,
+        });
+        // `Object.keys` would miss `hidden`; `getOwnPropertyNames` sees it, so the
+        // extra prop makes the frame differ and fire.
+        tracker.noteFrame(withHidden);
+        expect(seen).toHaveLength(1);
+      });
+    });
+
+    it("a handler added mid-stream sees only changes from that point on", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+
+        stream.push(1);
+        await flush();
+        stream.push(2);
+        await flush();
+
+        // Subscribe AFTER two frames — no replay of the missed change.
+        const changes: Array<{ prev: number; next: number }> = [];
+        sub.updated?.((c) => changes.push(c));
+        stream.push(9);
+        await flush();
+        expect(changes).toEqual([{ prev: 2, next: 9 }]);
+        dispose();
+      });
+    });
+
+    it("dispose stops a handler firing", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+        const changes: number[] = [];
+        const off = sub.updated?.((c) => changes.push(c.next));
+
+        stream.push(1);
+        await flush();
+        stream.push(2);
+        await flush();
+        off?.();
+        stream.push(3);
+        await flush();
+        expect(changes).toEqual([2]); // 3's change never reached the disposed handler
+        dispose();
+      });
+    });
+
+    it("a throwing handler does not abort fanout, terminate the stream, or become a stream error", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await createRoot(async (dispose) => {
+          const stream = controllableStream<number>();
+          const sub = createSubscription(async () => stream.iterate());
+          const good: number[] = [];
+          // A misbehaving consumer subscribes first, then a well-behaved one.
+          sub.updated?.(() => {
+            throw new Error("consumer bug");
+          });
+          sub.updated?.((c) => good.push(c.next));
+
+          stream.push(1);
+          await flush();
+          stream.push(2); // the throwing handler runs first on THIS change…
+          await flush();
+          stream.push(3); // …and the stream keeps delivering after it
+          await flush();
+
+          expect(good).toEqual([2, 3]); // fanout continued past the thrower, both frames
+          expect(sub.error()).toBeUndefined(); // a handler bug is NOT an upstream stream error
+          dispose();
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("with no handler registered, the baseline still advances (a late subscriber sees only changes from then on)", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+        // No handler yet — the hot path advances lastSeen in O(1) without compares.
+        stream.push(1);
+        await flush();
+        stream.push(2);
+        await flush();
+        const changes: Array<{ prev: number; next: number }> = [];
+        sub.updated?.((c) => changes.push(c));
+        stream.push(2); // equal to the last-seen baseline (2) → silent
+        await flush();
+        stream.push(7); // a genuine change from the advanced baseline
+        await flush();
+        expect(changes).toEqual([{ prev: 2, next: 7 }]);
+        dispose();
+      });
     });
   });
 });

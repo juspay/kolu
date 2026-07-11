@@ -66,7 +66,7 @@ export function makeEntry(urgency: {
   awaitingIds: string[];
 }) {
   let urgencyGetCount = 0;
-  const { router } = implementSurface(entrySurface, {
+  const { router, ctx } = implementSurface(entrySurface, {
     channel: inMemoryChannelByName(),
     cells: { urgency: { store: inMemoryStore(urgency) } },
     collections: {
@@ -101,7 +101,15 @@ export function makeEntry(urgency: {
       });
     },
   });
-  return { link, urgencyGetCount: () => urgencyGetCount };
+  return {
+    link,
+    urgencyGetCount: () => urgencyGetCount,
+    /** Push a new urgency value through the server-internal ctx writer (the fold
+     *  path) so a downstream watcher sees a genuine change — for driving
+     *  `watchByEntry`'s raise detection. */
+    setUrgency: (u: { awaiting: number; awaitingIds: string[] }) =>
+      ctx.cells.urgency.set(u),
+  };
 }
 
 /** A mock `MapRegistry` backed by a `Map` of key → session|fault. Honors the two

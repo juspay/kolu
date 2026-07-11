@@ -18,13 +18,19 @@ Feature: Activity Alerts
     Then no workspace switcher branch should be notified
     And there should be no page errors
 
-  Scenario: Simulated alert badges the PWA dock icon
-    When I create a terminal
-    And I stub the Badging API
-    And I simulate an activity alert
-    Then the app badge should show 1
-    When I click the notified workspace switcher branch
-    Then the app badge should be cleared
+  Scenario: An agent awaiting you badges the PWA dock icon
+    # W5 cross-host attention: the app badge is now the count of agents AWAITING
+    # you across every bound host (padi's `urgency` projection), not the old
+    # active-host activity-alert marks. A simulated activity alert (glow /
+    # notification) no longer badges — a REAL `awaiting_user` agent does, which is
+    # the done-criterion. Driven through the real agent-state pipeline (padi's
+    # urgency fold → the client's cross-host watcher), so the badge assertion
+    # polls for the wire round-trip.
+    When I stub the Badging API
+    And a Claude Code session is mocked with state "awaiting_user"
+    And I create a terminal
+    Then the tile chrome should show an agent indicator with state "awaiting_user"
+    And the app badge should show 1
     And there should be no page errors
 
   Scenario: Alerts respect the settings toggle
@@ -36,12 +42,3 @@ Feature: Activity Alerts
     Then no workspace switcher branch should be notified
     And there should be no page errors
 
-  Scenario: Hidden active terminal badges the PWA dock icon
-    When I stub the Badging API
-    And I simulate the Kolu tab being hidden
-    And I simulate an activity alert for the active terminal
-    Then the app badge should show 1
-    When I simulate the Kolu tab becoming visible
-    Then the app badge should be cleared
-    And no workspace switcher branch should be notified
-    And there should be no page errors

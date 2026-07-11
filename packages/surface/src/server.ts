@@ -58,6 +58,11 @@ import {
 } from "./identity";
 import type { Cell, Collection, Event, Stream } from "./index";
 import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
+// The derived-cell brand lives in its own import-free leaf so the boot walk can
+// spot a reactor `derived.cell(...)` dep WITHOUT importing `reactor.ts` (which
+// imports the signals engine) — no import cycle, and the engine stays reachable
+// only through `reactor.ts`.
+import { isDerivedCellDeps } from "./reactorBrand";
 
 /** This server process's start time (ms epoch), captured once when the serve path
  *  module loads — which, for a daemon that imports it at boot, is the process
@@ -156,6 +161,18 @@ export interface CellHandlerDeps<T, P = T> {
    *  strand a value the mirror never reverts). The `@kolu/surface-remote`
    *  re-serve is the consumer. */
   forward?: CellForward<T, P>;
+  /** Mirror-never-fabricate gate (forward mirrors only). When present, `get`
+   *  withholds the opening snapshot until this returns `true` — i.e. until the
+   *  authority's first real frame has folded into `store`. Before that, the
+   *  seeded default is a fabrication asserted by NOBODY (the mirror needed
+   *  something to show), byte-indistinguishable from a value the authority
+   *  actually sent — the exact frame that makes a reconnect fire duplicate
+   *  notifications. Withholding it makes the reader's `T | undefined` ("no frame
+   *  yet") true end-to-end: the mirror relays truth or stays silent; the declared
+   *  default belongs to the ONE writer. Omitted (the authoring, non-mirror case)
+   *  means "always serve the snapshot" — that endpoint IS the authority, so its
+   *  default is legitimate. */
+  hasSnapshot?: () => boolean;
 }
 
 /** The write-forwarding handlers a re-serving mirror plugs into
@@ -214,8 +231,16 @@ export function cellHandlers<Name extends string, T, P = T>(
   if (forward) {
     return {
       get: async function* ({ signal }) {
-        yield deps.store.get();
-        for await (const v of deps.bus.subscribe(signal)) yield v;
+        // Subscribe BEFORE the snapshot decision, and make the two one
+        // synchronous step (no await between): the authority's first fold is
+        // then either already past (`hasSnapshot()` true → replay the folded
+        // value as the snapshot for a late subscriber) or still future (captured
+        // by `sub`, delivered as the first frame) — never missed, never
+        // double-served. Mirror-never-fabricate: withhold the seeded default
+        // until the fold has primed the store (`hasSnapshot()` false).
+        const sub = deps.bus.subscribe(signal);
+        if (deps.hasSnapshot?.() ?? true) yield deps.store.get();
+        for await (const v of sub) yield v;
       },
       set: ({ input }) => forward.set(input),
       patch: ({ input }) => forward.patch(input),
@@ -1113,6 +1138,8 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
       /** Write-forwarding seam for a re-serving mirror. See
        *  `CellHandlerDeps.forward`. */
       forward?: CellForward<T, P>;
+      /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
+      hasSnapshot?: () => boolean;
       /** Optional async-source republish. The runtime fires it ONCE after
        *  the cell is wired, handing it the cell ctx setter, so a
        *  late-arriving value flows through the same equals/onWrite/store.set/
@@ -1128,6 +1155,8 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
         /** Write-forwarding seam for a re-serving mirror. See
          *  `CellHandlerDeps.forward`. */
         forward?: CellForward<T, T>;
+        /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
+        hasSnapshot?: () => boolean;
         /** Optional async-source republish. The runtime fires it ONCE after
          *  the cell is wired, handing it the cell ctx setter, so a
          *  late-arriving value flows through the same equals/onWrite/
@@ -1410,11 +1439,36 @@ function walkSurface<const S extends SurfaceSpec>(
           onMutate?: (p: unknown, c: unknown) => void;
           onWrite?: (next: unknown) => void;
           forward?: CellForward<unknown, unknown>;
+          hasSnapshot?: () => boolean;
           connect?: (c: { set: (v: unknown) => void }) => void | Promise<void>;
         }
       | undefined;
     if (!cellDeps) {
       throw new Error(`implementSurface: missing deps for cell "${key}"`);
+    }
+    // Boot narrowing for a reactor `derived.cell(...)`: the graph is the
+    // member's ONE writer, so a derived cell is wire-read-only BY CONSTRUCTION.
+    // Crash loudly if it declares any write verb (`set`/`patch`/`test__set`) —
+    // a second writer is a defect, not a knob, and this makes it a boot crash
+    // rather than a silent double-writer. The derived value still reaches the
+    // wire through the `connect` seam below; `get` is its only exposed verb.
+    if (isDerivedCellDeps(cellDeps)) {
+      const writeVerbs = resolveCellVerbs(cellSpec).filter((v) => v !== "get");
+      if (writeVerbs.length > 0) {
+        throw new Error(
+          `implementSurface: derived cell "${key}" is wire-read-only (its derivation is the one writer) but declares write verb(s) [${writeVerbs.join(", ")}] — declare verbs: ["get"] (test__set included).`,
+        );
+      }
+    }
+    // Mirror-never-fabricate, fail-fast: a write-forwarding cell (a re-serve
+    // mirror — the ONLY producer of `forward`) MUST carry the `hasSnapshot` gate,
+    // or `cellHandlers.get` would fall back to `?? true` and serve the seeded
+    // default as if the authority had sent it — the exact fabrication the gate
+    // exists to forbid. Crash at boot rather than let the impossible state ship.
+    if (cellDeps.forward && !cellDeps.hasSnapshot) {
+      throw new Error(
+        `implementSurface: forwarding cell "${key}" must declare a hasSnapshot gate (mirror-never-fabricate) — a mirror serves no frame until the authority's first fold. See CellHandlerDeps.hasSnapshot.`,
+      );
     }
     // Spec-declared `patch` wins; deps may override (rare). Cells with
     // `patchSchema` need one or the other — error loudly if both are
@@ -1429,17 +1483,29 @@ function walkSurface<const S extends SurfaceSpec>(
     // resolution rule as `patch`.
     const equalsFn = cellSpec.equals ?? cellDeps.equals;
     const onWriteFn = cellDeps.onWrite;
+    // A derived cell's PUBLIC `store` is a read-only, stateless facade (its `get`
+    // pulls the graph node's current level, its `set` throws — the graph is the one
+    // writer). The dep carries NO writable store, so nothing a holder can reflect off
+    // it can poison the wire snapshot. `implementSurface` builds and OWNS the private
+    // serving store here — seeded from the facade's `get` (the node's current level) —
+    // and drives it exclusively through the `connect` seam below, so `cellHandlers.get`
+    // and `ctxApply` read/write this closure-private store, never anything on the dep.
+    // A non-derived cell uses its own `store` directly.
+    const store: CellStore<unknown> = isDerivedCellDeps(cellDeps)
+      ? inMemoryStore(cellDeps.store.get())
+      : cellDeps.store;
     const handlers = cellHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.cells as any)[key] as Cell<string, unknown>,
       {
-        store: cellDeps.store,
+        store,
         bus,
         patch: patchFn,
         equals: equalsFn,
         onMutate: cellDeps.onMutate,
         onWrite: onWriteFn,
         forward: cellDeps.forward,
+        hasSnapshot: cellDeps.hasSnapshot,
       },
     );
 
@@ -1459,8 +1525,8 @@ function walkSurface<const S extends SurfaceSpec>(
     // `cellHandlers.applyAndPublish`. Kept duplicated rather than
     // extracted to a shared helper so the two paths diverge loudly
     // (TypeScript errors / test failures) if anyone adds a step to
-    // only one side.
-    const store = cellDeps.store;
+    // only one side. (`store` — resolved above — is a derived cell's private
+    // writable backing, or a non-derived cell's own store.)
     // `force` bypasses the `equals` dedup for ONE write — a re-serve's rebind epoch
     // uses it so a fresh spawn re-confirming a value EQUAL to the pre-drain one still
     // republishes, letting a downstream holder tell "rebound and confirmed" from
@@ -1472,8 +1538,11 @@ function walkSurface<const S extends SurfaceSpec>(
       store.set(next);
       bus.publish(next);
     }
-    cellsCtx[key] = {
-      get: () => store.get(),
+    // The write arm (`set`/`patch`) as its own object. The `connect` seam gets it
+    // PRIVATELY (below) so the graph — a derived cell's ONE writer — can push
+    // through the member's write gate, WITHOUT that setter also landing on the
+    // procedure-handler-visible `ctx.cells.<key>`.
+    const writeArm = {
       set: ctxApply,
       ...(patchFn
         ? {
@@ -1483,15 +1552,37 @@ function walkSurface<const S extends SurfaceSpec>(
           }
         : {}),
     };
+    // A derived cell is wire-read-only AND server-internal-read-only: the graph
+    // is its one writer, and it reaches the store ONLY through `connect` (the
+    // private `writeArm` below). So a derived cell's `ctx.cells.<key>` exposes `get`
+    // plus a THROWING `set`/`patch` — a fail-fast one-writer guard, not a live write
+    // path. Keeping the setters PRESENT (throwing) rather than absent makes the ctx
+    // TYPE honest: `CellCtxFor` promises `set`/`patch`, and a procedure handler that
+    // calls one gets a loud "graph-owned (one writer)" error, never a second writer
+    // publishing a value the graph never derived and never a bare "set is not a
+    // function". Non-derived cells keep their real server-internal writers.
+    const derivedWriteGuard = (): never => {
+      throw new Error(
+        `implementSurface: cell "${key}" is graph-owned (a derived cell) — the graph is its one writer; ctx.cells.${key}.set/patch is not a write path.`,
+      );
+    };
+    cellsCtx[key] = isDerivedCellDeps(cellDeps)
+      ? {
+          get: () => store.get(),
+          set: derivedWriteGuard,
+          ...(patchFn ? { patch: derivedWriteGuard } : {}),
+        }
+      : { get: () => store.get(), ...writeArm };
 
     // Optional async-source republish: fire once after the cell ctx is
-    // wired, handing it the ctx setter so a late-arriving value flows
-    // through the same equals/onWrite/store.set/bus.publish path.
+    // wired, handing it the PRIVATE write arm so a late-arriving value (and a
+    // derived cell's graph pushes) flows through the same
+    // equals/onWrite/store.set/bus.publish path — without exposing `set` on a
+    // derived cell's public ctx.
     const cd = cellDeps as {
       connect?: (c: { set: (v: unknown) => void }) => void | Promise<void>;
     };
-    if (cd.connect)
-      void cd.connect(cellsCtx[key] as { set: (v: unknown) => void });
+    if (cd.connect) void cd.connect(writeArm);
 
     const verbs = resolveCellVerbs(cellSpec);
     const ns: Record<string, unknown> = {};

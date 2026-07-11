@@ -67,6 +67,7 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
+import { useHostAttention } from "./host/useHostAttention";
 import { useTerminals } from "./terminal/useTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { realSizes } from "./ui/corvuResizable";
@@ -90,6 +91,11 @@ import {
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
+  // Cross-host attention (W5): OS notification + app badge + one-action click for
+  // an agent awaiting on a host you are NOT looking at, off the urgency projection
+  // the host chips already read. `store.activate` focuses a tile on the (post-
+  // switch) active host.
+  useHostAttention({ focusTerminal: store.activate });
   // The tile registry — what the canvas, dock, switcher, and mode read for tile
   // PRESENCE (the set, layout, active selection, count). The terminal store
   // stays the source for terminal CONTENT (display info, metadata, the active

@@ -128,7 +128,23 @@
         // (noFloatingPromises, noMisusedPromises, noImportCycles) are promoted
         // to `error` separately — `!` carries no such hazard, so it stays off
         // rather than advisory-but-unenforced.
-        "noNonNullAssertion": "off"
+        "noNonNullAssertion": "off",
+        // The signals engine (`@preact/signals-core`) is a dependency of
+        // `@kolu/surface` ONLY, wrapped by `reactor.ts` (the reactive bridge's
+        // one exit from the backend graph into the cell machinery). Banning its
+        // deep import everywhere else makes that wrapper the graph's only exit
+        // BY CONSTRUCTION, not by review — so the engine stays swappable
+        // (`@solidjs/signals` is the named target) behind one module. The two
+        // sanctioned exceptions are `reactor.ts` itself and the engine-law test
+        // (the engine's acceptance suite), re-allowed in `overrides` below.
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "@preact/signals-core": "Do not import the signals engine directly — it is wrapped by @kolu/surface's reactor.ts (the graph's one exit). Import derived.cell / scan / source from ./reactor instead."
+            }
+          }
+        }
       },
       "correctness": {
         // Project-domain rule: 293 sites of bare relative imports that
@@ -215,6 +231,25 @@
             "noStaticElementInteractions": "off",
             "useKeyWithClickEvents": "off",
             "noNoninteractiveElementInteractions": "off"
+          }
+        }
+      }
+    },
+    {
+      // The two sanctioned homes of the direct `@preact/signals-core` import:
+      // `reactor.ts` is the wrapper (the graph's one exit), and the engine-law
+      // test is the engine's acceptance suite — it must exercise the raw engine
+      // to pin the guarantees (glitch-freedom, equality-cascade stop, disposal)
+      // a swap to `@solidjs/signals` would have to reproduce. Everywhere else
+      // the `style/noRestrictedImports` ban above stands.
+      "includes": [
+        "packages/surface/src/reactor.ts",
+        "packages/surface/src/reactorEngineLaws.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
           }
         }
       }

@@ -120,3 +120,33 @@ declares it; `buildInfoServer({ buildInfo? })` and `surfaceAppServer({ buildInfo
 - By default the package ships `SW_SOURCE`, a self-destructing retirement worker at `/sw.js`, plus `retireServiceWorker()` to retire any worker a prior build registered.
 - The one opt-in is a **fetch-less** notification worker (`NOTIFICATION_SW_SOURCE`), registered via `registerOrRetireServiceWorker()`. An app registers (notify) **or** retires (none) — never both.
 - Gate all service-worker logic on `window.isSecureContext`, never `location.protocol === "https:"`.
+
+## OS notifications
+
+`createNotify<D>(parse)` (`@kolu/surface-app/notify`) is the last hop of
+cross-host attention: showing an OS notification from a PWA through the origin's
+**one** service worker (the fetch-less `NOTIFICATION_SW_SOURCE` above). `D` is the
+app's own click-routing payload shape — kolu's is a `kind`-discriminated union,
+`{ kind: "host"; host; id } | { kind: "terminal"; host; terminalId }`, so the one
+click router can never cross-deliver the two, and both carry `host` so a click
+switches to the originating host before focusing. `parse(data): D | undefined`
+validates each incoming click envelope; a malformed or stale (pre-upgrade) payload
+is dropped, never routed. It returns a `Notify<D>`:
+
+| Method | Role |
+| --- | --- |
+| `requestPermission()` | request OS permission; resolves `true` when granted (idempotent). Delivery is a no-op until granted |
+| `show({ tag, title, body?, icon?, data })` | show — or replace, by `tag` — a notification. A no-op (never a throw or a hang) where there is no worker, no active worker, or no permission; an operational failure is caught and logged, so a caller may fire-and-forget |
+| `onClick(handler)` | subscribe to clicks; the handler receives the clicked notification's **validated** `data`. Covers the live path (the worker retries `postMessage` under an ACK handshake so a still-LOADING window that has not installed its listener yet does not drop the click — the page acks the EXACT delivering worker via `event.source`, so the ack lands even mid worker-replacement) and the cold-start URL handoff (no window open → opens one carrying the payload in `NOTIFICATION_DATA_PARAM` plus a click id in `NOTIFICATION_CLICK_ID_PARAM`, read once at startup; a loading window that never acks is navigated to the same URL as a durable fallback). The click id dedups a live route against a fallback-navigate re-delivery (a bounded `sessionStorage` FIFO), so one click fires exactly one action. Exactly-once is structural, not best-effort: the page routes the LIVE message only when it can both ack the delivering worker (`event.source` present) AND durably record the id (`sessionStorage` writable); if either is missing it stays silent and lets the worker's URL-fallback navigation be the single route (a storage failure is warned, never swallowed into a double-fire). Returns an unsubscribe fn |
+
+Two landmines are why delivery is a framework piece — one seam at the origin's
+one service worker — rather than N windows each attempting their own:
+
+- **`getRegistration()`, never `.ready`.** `navigator.serviceWorker.ready` resolves only when an active worker exists — in any context where none registers (a dev server, a degraded boot) it hangs forever, silently killing the notification path. `getRegistration()` answers honestly, including "there isn't one".
+- **The worker shows it, never `new Notification()`.** In an installed (standalone) PWA the page-context constructor throws "Illegal constructor" — delivery must go through `registration.showNotification()`.
+
+The `tag` carries the multi-window discipline: two open windows must not both ping
+you, and a tag-keyed `show` makes the OS **replace** the same-tag notification
+instead of stacking a duplicate. The click payload comes back to `onClick` as the
+opaque `data` the app routes — the framework does not know what clicking attention
+means.

@@ -40,6 +40,11 @@ describe("isAllowedUploadName", () => {
 });
 
 describe("rejectionFor", () => {
+  it("allows files up to the 50 MiB bug-repro cap", () => {
+    expect(MAX_UPLOAD_BYTES).toBe(50 * 1024 * 1024);
+    expect(rejectionFor("recording.webm", MAX_UPLOAD_BYTES)).toBeNull();
+  });
+
   it("accepts a small allowed file", () => {
     expect(rejectionFor("notes.md", 1024)).toBeNull();
   });
@@ -74,7 +79,7 @@ describe("rejectionFor", () => {
 
   it("still enforces the size cap for video — it is not lifted for video", () => {
     // The cap is a deliberate, video-inclusive policy: a video can be
-    // dropped, but the 10 MB ceiling is shared with every other file type.
+    // dropped, but the 50 MB ceiling is shared with every other file type.
     expect(rejectionFor("recording.mov", MAX_UPLOAD_BYTES + 1)).toMatch(
       /too large/,
     );
