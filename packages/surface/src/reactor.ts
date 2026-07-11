@@ -39,7 +39,7 @@ import {
   signal,
 } from "@preact/signals-core";
 import { DERIVED_CELL_BRAND } from "./reactorBrand";
-import type { CellStore } from "./server";
+import { type CellStore, inMemoryStore } from "./server";
 
 // ── Graph node ───────────────────────────────────────────────────────────
 
@@ -240,14 +240,10 @@ export const derived = {
   cell<T>(node: GraphNode<T>): DerivedCell<T> {
     // Eager seed — a pull of the node's current level. This is the derived
     // cell's legitimate default (its serving endpoint IS the authority), the
-    // exact opposite of a mirror fabricating a default it never received.
-    let value: T = node.value.peek();
-    const store: CellStore<T> = {
-      get: () => value,
-      set: (v) => {
-        value = v;
-      },
-    };
+    // exact opposite of a mirror fabricating a default it never received. Reuse
+    // the canonical `inMemoryStore` primitive rather than re-hand-rolling the
+    // get/set-over-closure it already is.
+    const store = inMemoryStore(node.value.peek());
 
     let disposeEffect: (() => void) | undefined;
 
