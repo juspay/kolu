@@ -21,13 +21,7 @@
  * consumer reads the same singleton without per-component lookups.
  */
 
-import type {
-  padiSurface,
-  RecentAgent,
-  RecentRepo,
-  SavedSession,
-} from "@kolu/padi/surface";
-import type { Subscription } from "@kolu/surface/solid";
+import type { padiSurface } from "@kolu/padi/surface";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
@@ -39,7 +33,6 @@ import {
   type Preferences,
   type PreferencesPatch,
   surfaces,
-  type TerminalId,
 } from "kolu-common/surface";
 import {
   type ConnectionInfo,
@@ -50,7 +43,6 @@ import {
 import type { WebSocket as PartySocket } from "partysocket";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { activeScope } from "./hostScope/hostScopes.ts";
 import { floorConnectionInfo } from "./host/connectionFloor.ts";
 import { createRejoinKeyedSub } from "./host/connectionRearm.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
@@ -358,18 +350,14 @@ export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
 export const connectionInfo = (): ConnectionInfo | undefined =>
   floorConnectionInfo(hostScoped.connection(), padiMap.live());
 
-// The activity feed / saved session / terminal-list facades are WINDOWS over the
-// active host's RETAINED wire subscriptions (`activeScope().wire`, W9). The exported
-// facade references stay STABLE (a module-level accessor / `Object.assign`), so a
-// consumer holding one is unaffected by a switch; only the value it reads follows the
-// active host. `activeScope()` is briefly `undefined` during the removal race (the
-// active host left the pool; `wire.ts`'s reconcile re-points `activeHost` a tick
-// later) — each facade floors that to its empty form, exactly as the pre-W9 readouts
-// floored a pending sub.
-export const recentRepos = (): RecentRepo[] =>
-  activeScope()?.wire.activityFeed.value()?.recentRepos ?? [];
-export const recentAgents = (): RecentAgent[] =>
-  activeScope()?.wire.activityFeed.value()?.recentAgents ?? [];
+// The per-host wire-view facades — recentRepos / recentAgents / savedSession /
+// savedSessionSub / terminalListSub — WINDOW the active host's RETAINED wire
+// subscriptions (`activeScope().wire`, W9). They live in `./hostScope/activeWire.ts`,
+// NOT here: they depend on `activeScope` (`./hostScope/hostScopes`), which depends on
+// THIS module (`padiMap`/`activeHost`/`padiRpcOf`), so defining them here would close a
+// `wire → hostScopes → wire` import cycle (`biome`'s `noImportCycles`). That leaf module
+// imports both and is imported by neither, keeping the graph acyclic. Consumers import
+// those facades from `./hostScope/activeWire`, not from here.
 
 /** Local-store accessor for user preferences — authoritative after the first server yield. */
 export const preferences = (): Preferences =>
@@ -388,49 +376,3 @@ export function updatePreferences(
       toast.error(`Failed to save preferences: ${err.message}`),
     );
 }
-
-/** The persisted saved-session for the active host, or null when none exists / no yield
- *  yet. A window over the active host's RETAINED session cell — switch-BACK reads the
- *  held value with no pending gap. */
-export const savedSession = (): SavedSession | null =>
-  activeScope()?.wire.session.value() ?? null;
-
-/** The active host's saved-session Subscription handle — a STABLE facade (held by
- *  reference: `useSessionRestore`, `TerminalCanvas`) delegating to the retained session
- *  sub. Consumers read `savedSessionSub()` (the value) and `.pending()`; the reference is
- *  fixed while the value follows the active host. `pending()` floors to `true` during the
- *  removal race (no active host to report yet), matching a pre-first-value sub. */
-export const savedSessionSub: Subscription<SavedSession | null> = Object.assign(
-  (): SavedSession | null => activeScope()?.wire.session.sub() ?? null,
-  {
-    pending: (): boolean => activeScope()?.wire.session.sub.pending() ?? true,
-    error: (): Error | undefined => activeScope()?.wire.session.sub.error(),
-    complete: (): boolean =>
-      activeScope()?.wire.session.sub.complete?.() ?? false,
-  },
-);
-
-/** Subscription handle for the live terminal list of the active host — `{ id }` rows in
- *  server order, derived from the active host's RETAINED `terminals.keys` stream. A STABLE
- *  facade (held as `useTerminalStore`'s `list`/`listSub`) delegating to the retained
- *  sub, so a switch-BACK reads the held keys in one frame (no resubscribe, no pending
- *  window). Consumers read `.map(t => t.id)` / `.pending()` exactly as before; `pending()`
- *  floors to `true` and the value to `undefined` during the removal race. */
-export const terminalListSub: Subscription<{ id: TerminalId }[]> =
-  Object.assign(
-    () =>
-      activeScope()
-        ?.wire.terminalKeys()
-        ?.map((id) => ({ id })),
-    {
-      pending: (): boolean =>
-        activeScope()?.wire.terminalKeys.pending() ?? true,
-      error: (): Error | undefined => activeScope()?.wire.terminalKeys.error(),
-      // Forwarded, not dropped: `terminalKeys` is a `createReactiveSubscription`, which
-      // always populates `complete` — omitting it here would silently strand a consumer
-      // that checks it (there is none today, but the field-audit rule is "populate what
-      // the source has," not "only what today's readers use").
-      complete: (): boolean =>
-        activeScope()?.wire.terminalKeys.complete?.() ?? false,
-    },
-  );
