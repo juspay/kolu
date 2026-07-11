@@ -30,13 +30,9 @@ export function createRepoPolledQuery<
   /** Surface query (and pulse) failures — matches `.use(..., { onError })`. */
   onError?: (err: Error) => void;
 }): Subscription<Result> {
-  // Scoped PER HOST (padi W9's Code-tab half): each host keeps its own retained query
-  // instance, paused while backgrounded and resumed from its held value on switch-BACK
-  // — instant, no blank, and disposed when the host leaves the pool (ownership, not a
-  // keep-last cache). `query`/`pulseProc` bind to `activePadiRpc`, which is always THIS
-  // instance's host while it is active, so the closures stay correct unchanged.
-  // `live` / `pulseHost` are injected by `perHostPolledQuery` from the ownership
-  // authorities — not passed here.
+  // Scoped PER HOST via `perHostPolledQuery` (padi W9 — see its header). `query` /
+  // `pulseProc` bind to `activePadiRpc`, which is always THIS instance's host while it
+  // is active; `live` / `pulseHost` are injected by `perHostPolledQuery`, not here.
   return perHostPolledQuery({
     ...config,
     pulseProc: () => activePadiRpc.surface.subscribeRepoChange.get,

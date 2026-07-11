@@ -179,9 +179,8 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     // — exactly as the old koluSurface value stream did (it just stopped
     // yielding); a raw ~150ms ENOENT error panel was a W1 regression.
     swallowError: (err) => err instanceof ORPCError && err.code === "NOT_FOUND",
-    // Scoped PER HOST (padi W9): each host keeps its own retained file-content query,
-    // paused while backgrounded and resumed from its held content on switch-BACK — no
-    // blank — and disposed when the host leaves the pool (ownership, not a keep-last cache).
+    // Scoped PER HOST via `perHostPolledQuery` (padi W9 — see its header): retained +
+    // paused-while-backgrounded, resumed on switch-BACK.
   });
 
   // ── Wikilink navigation ────────────────────────────────────────────

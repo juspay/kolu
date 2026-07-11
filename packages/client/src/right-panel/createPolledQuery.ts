@@ -96,24 +96,14 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
    *  a file-gone predicate here so a delete-while-viewing keeps the last content
    *  until the selection changes, instead of flashing an ENOENT panel. */
   swallowError?: (err: Error) => boolean;
-  /** Whether this query is currently the SHOWN one — its polling gate. Defaults to
-   *  always-active (`() => true`), the standalone behavior. When it's `false` the
-   *  query PAUSES: the pulse subscription is torn down (no background polling) and
-   *  the last value + `pending` are FROZEN, held for a later resume. When it flips
-   *  back to `true` the query RESUMES: if the input is unchanged since it paused, the
-   *  held value stays (no blank) and the pulse re-subscribes to refresh it in the
-   *  background; if the input changed while paused, it blanks + re-queries like any
-   *  new input.
-   *
-   *  This is padi W9's Code-tab cure by OWNERSHIP, not keep-last: `perHostPolledQuery`
-   *  builds ONE `createPolledQuery` per host inside the `scopedByEntry` owner and wires
-   *  `active = ctx.isActive`, so each host's query state is retained in that host's
-   *  owned scope, paused while that host is backgrounded, resumed on switch-BACK
-   *  (instant, no blank), and disposed when the host leaves the pool. No cache, no key
-   *  enumeration, no LRU bound — the defect class the note targets is not merely
-   *  bounded but unrepresentable, symmetric with the retained wire subs. A key change
-   *  WHILE active still re-subscribes + blanks exactly as before (the `#1714`
-   *  value-keyed contract is untouched — the active-path behavior is unchanged). */
+  /** Whether this query is the SHOWN one — its polling gate. Defaults to always-on
+   *  (`() => true`), the standalone behavior. While `false` the query PAUSES: the pulse
+   *  is torn down (no background polling) and the last value + `pending` are FROZEN. On
+   *  re-activation it RESUMES: an unchanged input keeps the held value (no blank) and
+   *  the pulse refreshes it; a changed input blanks + re-queries like any new input.
+   *  A key change WHILE active is unaffected (the `#1714` value-keyed blank is unchanged).
+   *  `perHostPolledQuery` wires this to `ctx.isActive` for per-host switch-back by
+   *  ownership — see its header for the why. */
   active?: Accessor<boolean>;
 }
 
@@ -173,6 +163,14 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   // (blank). One value per instance (NOT a cache/LRU) — the instance IS a single host's
   // query, so it only ever holds that host's one current value.
   let shownKey: string | null = null;
+
+  /** Reset to the empty/loading state: no value, `pending`, no shown key. The idle
+   *  input and the changed-query paths below share it. */
+  function blank(): void {
+    setStore("v", undefined);
+    setPending(true);
+    shownKey = null;
+  }
 
   let controller: AbortController | null = null;
   function runQuery(i: Input, key: string): void {
@@ -248,27 +246,19 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       setComplete(false);
       if (i === null) {
         // Idle input: no pulse, no query. (`key` is null exactly when `i` is.)
-        setStore("v", undefined);
-        setPending(true);
-        shownKey = null;
+        blank();
         return;
       }
       // `key` is non-null exactly when `i` is (both derive from `input()` in
       // `inputState`), so past the guard above it is the canonical string to compare
       // against `shownKey` and stamp this run's value under.
       const activeKey = key as string;
-      if (activeKey === shownKey) {
-        // RESUME the same query we were showing — a switch-BACK with unchanged input:
-        // keep the held value (NO blank, stay non-`pending`); the pulse below refreshes
-        // it on its first frame (the immediate refresh on activation).
-      } else {
-        // A genuinely new query — a real input change while active, the first
-        // activation, or the query changed while we were paused: blank + `pending`
-        // until the fresh read lands (the `#1714` active-path behavior, unchanged).
-        setStore("v", undefined);
-        setPending(true);
-        shownKey = null;
-      }
+      // A changed query BLANKS — a real input change while active, the first activation,
+      // or the query changed while paused — going `pending` until the fresh read lands
+      // (the `#1714` active-path behavior, unchanged). An UNCHANGED key is the switch-BACK
+      // case: fall through with the held value kept (no blank, not `pending`), refreshed by
+      // the pulse below on its first frame (the immediate refresh on activation).
+      if (activeKey !== shownKey) blank();
       // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
       // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
       // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
