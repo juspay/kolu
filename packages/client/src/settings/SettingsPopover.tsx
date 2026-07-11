@@ -53,7 +53,7 @@ const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
     text: "WebGL on every tile — may thrash past ~16 terminals.",
     tone: "warn",
   },
-  dom: { text: "DOM renderer; lowest GPU, stable font on focus." },
+  dom: { text: "DOM renderer; lowest GPU but more RAM. Auto is recommended." },
 };
 
 /** New-terminal creation strategy. `Inherit` copies the active terminal's
