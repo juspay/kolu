@@ -1,6 +1,6 @@
 ---
 title: padi — the per-host terminal-workspace daemon
-description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W4 + W6–W8 shipped; next up W5 (cross-host attention), with the cleanup ledger in parallel.
+description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W8 all shipped; next up W9 (instant host switch-back), with the cleanup ledger in parallel.
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
@@ -39,7 +39,8 @@ export const ROADMAP = [
   { d: 0, g: "✓", c: "ship", l: "W7 · per-host state by ownership, not enumeration", m: "#1723 · drishti#91 · 2026-07-08", h: "#w7" },
   { d: 0, g: "✓", c: "ship", l: "W8 · remote terminals, documented honestly (docs phase)", m: "#1722 · #1727 · 2026-07-08", h: "#w8" },
   { d: 0, g: "✓", c: "ship", l: "W6 · the honest connect — the connection type made perfect + the connect overlay", m: "#1730 · drishti#92 · 2026-07-09", h: "#w6" },
-  { d: 0, g: "○", c: "prog", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "next — W4 ✓", h: "#w5" },
+  { d: 0, g: "✓", c: "ship", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "#1759 · drishti#93 in review · 2026-07-11", h: "#w5" },
+  { d: 0, g: "○", c: "prog", l: "W9 · instant host switch-back — retained per-host wire subscriptions (W7's K1)", m: "next — W5 ✓", h: "#w9" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -80,12 +81,12 @@ export const Switcher = () => (
 
 Shipped with W4: a **host switcher** — *kinda like tmux sessions* (under the command palette's Labs group until it stabilizes; the ChromeBar picker graduates later). A canvas shows **one host's terminals**; switching hosts swaps the whole canvas instantly (bindings stay warm server-side). A host's arrangement — tile layout, names, themes, remembered agent commands — **lives on that host**, so your desktop, laptop, and phone all see the same canvas for `nix@prod`, and a teammate-free second kolu (or a future kolu-tui) joins the same arrangement. A remote canvas is a **full peer** of the local one: Code tab, binary preview, paste/upload, transcript export, sleep/wake, session restore — all against the terminal's own host, nothing silently wrong-host.
 
-While you're parked on one host, the others reach you through the channels an installed PWA already owns: the **app badge** aggregates awaiting-agents across all bound hosts, the **switcher chips** carry per-host counts, and an **OS notification's click is one action** — switch binding + focus the tile. (The per-terminal plumbing — `setAppBadge`, service-worker notifications — already exists; W5 aggregates it across bindings.)
+While you're parked on one host, the others reach you through the channels an installed PWA already owns: the **app badge** aggregates awaiting-agents across all bound hosts, the **switcher chips** carry per-host counts, and an **OS notification's click is one action** — switch binding + focus the tile. (The per-terminal plumbing — `setAppBadge`, service-worker notifications — predated it; W5 aggregated it across bindings.)
 
 Two personas anchor the design, and both get the same shape: an **ephemeral cloud box** (a pu-style instance per project — teardown removes the host from the picker as one clean unit, never wreckage on a shared canvas) and a **permanent headless server** (days-long agents; hop local⇄server many times a day — instant switch + 1-action notification response is the tmux-grade loop that persona lives in).
 
 <Callout kind="note" title="Why not hybrid tiles (several hosts on one canvas)? Evaluated, deferred — not foreclosed">
-We compared three designs against real usage: plain switching (A), switching with warm connections and badges (A+ — this design), and mixed tiles (B). A+ gives nearly everything B would: you find out when an agent elsewhere needs you, you respond in one click, every device shows a host's canvas the same way, and tearing down a cloud box removes it cleanly. B's one real advantage is watching two hosts' terminals side by side in one window. Its real cost: two tiles that look identical — same repo, same branch, one of them is prod — differing only by a tiny badge. That's a wrong-host paste waiting to happen. And when the app is in the background (most of the day), B's on-screen indicators are invisible anyway; both designs end up relying on the OS notification. So: ship A+, and keep B possible later — it would be a layer on top of the same daemons, nothing below changes. If switching ever feels insufficient, the first thing to try is a **cross-host dock** (W5): other hosts' agents listed in your dock, click = switch — you want attention across hosts, not tiles across hosts. The dock data reserves a host field from W1 so this can land without breaking the contract.
+We compared three designs against real usage: plain switching (A), switching with warm connections and badges (A+ — this design), and mixed tiles (B). A+ gives nearly everything B would: you find out when an agent elsewhere needs you, you respond in one click, every device shows a host's canvas the same way, and tearing down a cloud box removes it cleanly. B's one real advantage is watching two hosts' terminals side by side in one window. Its real cost: two tiles that look identical — same repo, same branch, one of them is prod — differing only by a tiny badge. That's a wrong-host paste waiting to happen. And when the app is in the background (most of the day), B's on-screen indicators are invisible anyway; both designs end up relying on the OS notification. So: ship A+, and keep B possible later — it would be a layer on top of the same daemons, nothing below changes. If switching ever feels insufficient, the first thing to try is a **cross-host dock** ([future work](#future)): other hosts' agents listed in your dock, click = switch — you want attention across hosts, not tiles across hosts. The dock data reserves a host field from W1 so this can land without breaking the contract.
 </Callout>
 
 ## The architecture
@@ -164,108 +165,32 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W7" name="per-host state by ownership, not enumeration" status="shipped" needs={["W4"]} links={[{ label: "#1723", href: "https://github.com/juspay/kolu/pull/1723" }]} />
 <Phase id="W8" name="remote terminals, documented honestly (docs phase)" status="shipped" needs={["W4"]} links={[{ label: "#1722", href: "https://github.com/juspay/kolu/pull/1722" }, { label: "#1727", href: "https://github.com/juspay/kolu/pull/1727" }]} />
 <Phase id="W6" name="the honest connect — the connection type made perfect + the connect overlay" status="shipped" needs={["W4"]} links={[{ label: "#1730", href: "https://github.com/juspay/kolu/pull/1730" }]} />
+<Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="shipped" needs={["W4"]} links={[{ label: "#1759", href: "https://github.com/juspay/kolu/pull/1759" }]} />
 <Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
-<Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="todo" needs={["W4"]} />
+<Phase id="W9" name="instant host switch-back — retained per-host wire subscriptions (completing W7's K1)" status="todo" needs={["W7"]} />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
-**As of 2026-07-09, in order:**
+**As of 2026-07-11, in order:**
 
-1. **W5 — cross-host attention** is the next feature phase: everything it needs is shipped — the warm pool and per-host entries (W4), and now W6 (<PrLink pr={1730} /> + its drishti pair [srid/drishti#92](https://github.com/srid/drishti/pull/92), both merged 2026-07-09) — and the need is user-visible (the 2026-07-08 field note below).
+1. **W9 — instant host switch-back** is the next feature phase: W5 shipped (<PrLink pr={1759} />, 2026-07-11), and a 2026-07-11 root-cause pinned why every host switch still rebuilds the whole canvas — the cure is completing W7's K1 (below).
 2. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
-3. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed.
+3. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed; W5's drishti pair ([srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell) is still in review.
 
 **The law of every PR in this plan (srid, promoted note-wide 2026-07-04): a PR is self-sufficient and end-to-end — it ships NOTHING that isn't consumed within it.** No framework halves awaiting their consumer, no pools nobody switches, no contracts nobody serves: a capability with zero consumers is a *commit stage inside* the PR that consumes it, never a PR of its own (W2.2's "a daemon with zero consumers is a commit stage" ruling; the #1651 complete-but-unconsumed adapter is the canonical tell). The one sanctioned exception is a framework PR whose consumer-proof is a paired second consumer landing with it (the W2.1/drishti precedent).
 
-<a id="w5"></a>
+<a id="w9"></a>
 
-### W5 — cross-host attention *(next up — everything it needs shipped with W4)*
+### W9 — instant host switch-back *(next up — completing W7's K1)*
 
-**In simple words:** today, if an agent on another host needs you, kolu mostly can't tell you — the host strip's chips already show each host's awaiting count (the urgency cell ships today), but nothing escapes the app for a host you're not looking at. After this phase, kolu rolls the needs-you signal up where it can reach you: the app icon badge sums all hosts, an OS notification fires for a background host, and clicking it switches to the right host and focuses the terminal that wants you.
+**In simple words:** switching hosts is supposed to feel like switching tmux sessions — instant, the canvas already there. Today every switch-back rebuilds the whole canvas instead: the dock empties and refills, the terminal goes black, the Code tab drops to "Loading…" — about a second of churn for state the client held moments ago.
 
-kolu-server subscribes each warm binding's **urgency-projection member** (the one thing it reads from every pool host) and sums it onto the shell surface: PWA **app badge** aggregated across bindings; per-host **switcher-chip counts**; **OS notification whose click = switch + focus** (1 action). **Urgency-only** on any multi-host wire — no recency, no snapshots.
+**The cause, in one line:** every per-host wire readout keys on `activeHost` with dispose-on-key-change, so switch-back reopens each readout from *pending* — pending data makes `canvasMode` leave `workspace`, and the `<Switch>` arm unmounts Dock, tiles, and RightPanel wholesale.<Footnote>The chain, frame-grounded against a screen recording (root-caused 2026-07-11): every per-host wire readout keys on `activeHost` via `useEntry`/`createKeyedRoot` (`packages/client/src/wire.ts`, `useTerminalMetadata.ts`), so switch-back reopens the terminal-keys stream, the metadata collection, daemon status, and session cells from pending; pending data makes `canvasModeResolver` leave `workspace`, so `App.tsx`'s `<Switch>` unmounts the entire workspace arm, which remounts from zero as records trickle back — the Dock refills incrementally, the terminal goes black while xterm content refetches, and the Code tab drops to "Loading…". Transport stays warm; the ~1s is purely logical resubscribe + refetch, and it is distinct from the #1714 reprojectClock identity flicker (#1753 does not fix it).</Footnote>
 
-**The ratified architecture (2026-07-10).**<Footnote>Two grounded reviews: a 12-agent /architecture-first-principles + /perfection-review fan-out (3 ground readers over kolu, drishti, and the framework seams · 3 independent designs · 6 adversarial refuters — the level layer survived every adversary; browser-side frame-diff edge detection was refuted four ways: unordered streams, default-materialization double-fire after restarts, per-window dedup memory, and clear→re-raise misses inside a link flap), then an independent /hickey pass that cut the surface-map braid (attention has nothing to do with maps) and found the hydration lie, re-judged with the fact that drishti's adoption is committed and lands paired.</Footnote> Attention is **level state** ("what needs you now"), written once per host at the endpoint that can know it, carried as an ordinary per-entry cell — an event member is the wrong carrier (fired while the browser is closed or the link is flapping it is simply *gone*; a cell replays current truth on every (re)connect). **kolu mints no wire member**: the cell already exists on master — `cells.urgency` (`packages/padi/src/surface.ts`; `PadiUrgencySchema = { awaitingIds: TerminalId[] }`, padi's registry fold the sole writer, read-only on the client, no recency and no count field — the count is derived as `awaitingIds.length` at every read site, as the host strip's chips already do), the deliberately tiny per-host projection W7's K1 ruling keeps hot while full wire subscriptions stay active-host-only. **drishti's `alerts` cell is W5's one new wire member** (its server holds the metrics history — threshold + hysteresis live there — and no member carries those facts today). It lands as **two PRs**: **phase 1**, W5's framework slice, is **phase 0 of the [reactive bridge](surface-reactive-bridge.html)** — `reactor.ts` exporting `derived.cell` + `scan` + `source`, riding existing seams (zero runtime surgery), drishti alerts the first consumer, paired PR — plus `updated()` change pairs and mirrors-never-fabricate, which ship regardless; **phase 2** is W5 itself on top. The full bridge phases and the campaign-1 hand-roll deletions are **separate, sequenced after** — [the bridge note](surface-reactive-bridge.html) holds them. Four framework packages gain a piece — `@kolu/surface` (the completed Dynamic + bridge phase 0), `@kolu/surface-remote` (a mirror never fabricates a value), `@kolu/surface-map` (the eager watcher), `@kolu/surface-app` (delivery) — taught end-to-end in [the attention primer](surface-attention-101.html):
+**The fix is W7's own cure applied to its one exclusion (K1):** the per-host wire subscriptions — terminal keys, `terminals`, saved session, daemon status, activity feed — move into the retained `scopedByEntry` per-host owner: created lazily on first activation, retained across switch-away, disposed only on membership exit. Switch-back then has no resubscribe at all, so no pending window *can* exist. (Keep-last-value or holding the mode would leave the defect expressible per readout — enumeration, the bug-shape W7 was built to kill.)
 
-```ts
-// ── PHASE 1 · the surface refactor PR ───────────────────────────────────────
+**Deliberately excluded:** xterm/WebGL stay active-host-only — a sub-second re-attach paint remains, mitigable later via a per-host screen snapshot. No server or padi changes.
 
-// @kolu/surface — the cell reader completes the Dynamic:
-interface Subscription<T> extends Accessor<T | undefined> {
-  // pending / error / complete as today, plus:
-  updated(handler: (change: { prev: T; next: T }) => void): Dispose;
-  // fires exactly when the value CHANGES (equals-deduped at the producer);
-  // a first frame is a value, not a change — it never fires;
-  // a reconnect snapshot equal to the last-seen value never fires;
-  // one that differs fires exactly once, prev = the last-seen value.
-}
-
-// @kolu/surface-remote — a mirror never fabricates a value: a mirrored cell
-// serves NO frame until the authority's first real one, so the reader's
-// "undefined until the first frame" is true end-to-end; the declared default
-// belongs to the one writer, never to mirrors.
-
-// @kolu/surface — bridge phase 0: reactor.ts exports derived.cell +
-// scan + source (the engine hidden behind it, lint-banned elsewhere);
-// a derived member is wire-read-only by construction (no ctx entry,
-// no write verbs); rides the existing cell connect seam. Full phases
-// + laws: surface-reactive-bridge.html.
-
-// ── PHASE 2 · W5 — attention on top ─────────────────────────────────────────
-
-// @kolu/surface-map — an eager per-member watcher on scopedByEntry's membership
-// kernel (entries fold · codec identity · keyArray roots · dispose-on-exit —
-// one kernel, two policies: lazy scopedByEntry for client state, eager watcher
-// reading the wire). Raise detection is a pure set-diff over updated's
-// {prev, next} pairs — no hand-held prev, no frame classification:
-function watchByEntry<A>(client, cell, items, onRaise): {
-  get(key): { kind: "live" | "stale"; value: A } | undefined;  // chips read this
-};  // items(a) ⇒ stable ids — the app's one obligation;
-    // deliberately NO total(): aggregation is app policy (the two consumers disagree)
-
-// @kolu/surface-app — delivery at the origin's ONE service worker (never per window):
-notify.show({ tag: `${host}/${itemId}`, title, data: { host, itemId } });  // same tag replaces, never stacks
-notify.onClick(({ host, itemId }) => { /* the app routes */ });
-```
-
-kolu (phase 2 — this phase; nothing minted, the member exists on master):
-
-```ts
-// padi — no new member, no production change in W5: cells.urgency ships today
-// (packages/padi/src/surface.ts). Its re-production as a declaration —
-// derived.cell(($) => recomputeUrgency($.terminals())) — is bridge PHASE 1,
-// sequenced after W5; cell, equals, and consumers are unchanged on the wire.
-
-// client — chips, badge, notification:
-const att = watchByEntry(padiMap, e => e.cells.urgency, v => v.awaitingIds,
-  (host, raised) => raised.forEach(id =>
-    notify.show({ tag: `${host}/${id}`, title: `terminal awaiting on ${hostLabel(host)}`,
-                  data: { host, id } })));
-// chip(host): att.get(host) — count = value.awaitingIds.length, dimmed when stale
-// badge: Σ awaitingIds.length over LIVE hosts — kolu's own one-line fold
-notify.onClick(({ host, id }) => { switchHost(host); focusTerminal(id); });
-```
-
-drishti (the paired consumer — the one new wire member):
-
-```ts
-// server — the one writer, declared (bridge phase 0's first consumer):
-const metrics = source<MetricsFrame>((emit) => installMetricsTap(emit));
-cells.alerts = derived.cell(scan(metrics, noAlerts, applyHysteresis));
-// no store — the alert level must not survive restarts;
-// step returning the prev reference ⇒ no publish
-
-// client:
-const att = watchByEntry(hostMap, e => e.cells.alerts, v => v.items.map(i => i.id),
-  (host, raised, v) => raised.forEach(id =>
-    notify.show({ tag: `${host}/${id}`, title: labelOf(v, id), data: { host, id } })));
-// badge: count of hosts with any live alert — drishti's own fold, NOT a sum
-notify.onClick(({ host }) => expandHost(host));
-```
-
-What stays app-side, deliberately: the domain folds and value shapes (two folds that merely rhyme are not unified), every aggregation, the pixels, the click semantics.
-
-- **Done:** an agent flips to awaiting on host B while every view is parked on host A → chip count, app badge, and notification all fire; the notification click lands focused on the right tile; killing host B's link degrades its chip, never the app.
-- *Field note (2026-07-08, srid on the W4 deploy):* the asymmetry is now user-visible — OS notifications escape the app (cross-host reach), but unread marks live in each host's `hostScope` owner (W7), whose only render surface is the active host's dock, so a background host's attention is invisible. W5's app-escaping rollup (badge + notification off the urgency cell the chips already read) is the missing reach. One wiring fact for the implementer: `useTerminalAlerts`'s transition watcher rides the ACTIVE host's swapped store — the urgency-projection member (this phase's wire design) is what makes background hosts observable, not the client-side watcher.
+**Same class, same cure, as a follow-on:** `createPolledQuery` blanks and pends the Code-tab queries on host change — scope the query per host.
 
 <a id="cleanup"></a>
 
@@ -274,7 +199,7 @@ What stays app-side, deliberately: the domain folds and value shapes (two folds 
 W2 and W3 ship at pace (a deliberate call); the ledger pays the pace's debts — refactors, decomplecting, framework-level electricity upstreaming, deletions. Nothing user-visible ships here; that is the point. **The full ledger — each entry a self-sufficient, lens-framed brief an implementing agent can execute under coordinator guidance — lives in [padi — the consolidation ledger](padi-cleanup.html)**, appraised and appended as each W phase lands (a shipped phase's "deferred / acceptable-for-scope" review items land there explicitly; an entry that never ripens is deleted with a reason). The index, for orientation:
 
 - **Shipped:** campaigns 2 + 3 in one PR (<PrLink pr={1747} /> — L27 server re-cut · L17 vocab homes · L13 seal flank · L11 wire sweep · L18 HydrationPhase) · L3 the convergence kit (<PrLink pr={1674} />) · L5 both halves (ProcessRss in W2.2; video-ext via L17 in #1747) · L6 `padiBinding` split (<PrLink pr={1698} />) · L7 `terminal-workspace` re-cut (<PrLink pr={1734} />) · L14 memory via the mirror (<PrLink pr={1699} />) · L15+L16 write-seam/boot invariants (<PrLink pr={1703} />) · L23 remote arm on the kit (<PrLink pr={1700} />) · L26 the `no-overloaded-null` guardrail (<PrLink pr={1744} />)
-- **The one remaining campaign** (the plan lives in the ledger note): complete the primitives — W5 phase-1, absorbing L28 rung 2 · L1 · L20·21 under its one drishti pairing, with L8's hygiene residue as its tail commit. L24 (`padi-tui --host`) ships as its own feature PR — a feature never rides a refactor campaign.
+- **The one remaining campaign** (the plan lives in the ledger note): complete the primitives — its deep move, bridge phase 0, shipped inside W5 (<PrLink pr={1759} />); the residue is L28 rung 2 · L1 · L20·21, with L8's hygiene sweep as its tail commit. L24 (`padi-tui --host`) ships as its own feature PR — a feature never rides a refactor campaign.
 - **Parked / gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence · L12 (srid mints) · L10 (tracker-driven)
 
 <a id="w34"></a>
@@ -317,7 +242,7 @@ Each phase, compacted to what shipped and the facts that still govern; the full 
 | re-serve machinery | **W2.1** ✓ <PrLink pr={1661} />, into existing `@kolu/surface` / `surface-nix-host` | it generalizes proven pulam-web code for a second consumer (kolu-server) — that *is* the graduation moment; no new package, it extends the receptacle that already owns mirroring (drishti-gated) |
 | the control core | lives in `@kolu/padi` | extraction is gated on electricity test ② (a real axis of variation), and with one daemon the axis doesn't vary yet — nothing to encapsulate. If a second daemon adopts it, that's test ③'s after-the-fact proof and it graduates to `@kolu/surface-daemon`. (Corrected 2026-07-03: an earlier wording here inverted the doctrine into 'proof before extraction' — the second consumer is the proof extraction was right, never the gate for doing it) |
 | padi's `wait` (the agent done-signal) | **W2.3**, a subcommand of the padi binary | no new package: the kaval-tui precedent (separate TUI package) is for a full client; a done-signal probe rides the daemon's own CLI |
-| `kolu-tui` | **W5**, new package | a new consumer app, not an extraction — it exists to prove padiSurface serves a second frontend (test ③'s proof). W5 because it's demand-driven, not because anything forbids it earlier |
+| `kolu-tui` | **future work**, new package | a new consumer app, not an extraction — it exists to prove padiSurface serves a second frontend (test ③'s proof). Demand-driven, not scheduled — nothing forbids it earlier |
 
 <a id="w0"></a>
 
@@ -389,7 +314,7 @@ Still live from the ship: **honest clocks (piece 5) is a named fast-follow** —
 
 **Shipped 2026-07-08** — the class fix for W4's "forgotten field" bug family (focus, splits, camera each quietly living at app lifetime while the tiles became per-host): per-host-ness flipped from **enumeration to ownership**. `scopedByEntry` lives in `@kolu/surface-map`; kolu's `hostScope/hostScopes` dissolves the `HostView` record and its kin into one per-host reactive owner, so everything born inside the canvas subtree is per-host **by construction**, and a boundary-guard test (`canvas/canvasBoundaryGuard.test.ts`) fences state born outside it. The design story lives in [surface-map-101](surface-map-101.html).
 
-Two live edges. **K1, consciously excluded — now the slotted work item after [W5](#w5):** the owner retains only *cheap, client-owned* state (focus, MRU, attention, camera, the restore latch) while the **wire subscriptions** stay active-host-only, and a 2026-07-11 root-cause showed that deferral is exactly why every host switch rebuilds the whole canvas — the dispose-on-key-change resubscribe reopens the per-host readouts from *pending*, `canvasMode` leaves `workspace`, and the `<Switch>` arm unmounts Dock, tiles, and RightPanel wholesale.<Footnote>The chain, frame-grounded against a screen recording: every per-host wire readout keys on `activeHost` via `useEntry`/`createKeyedRoot` (`packages/client/src/wire.ts`, `useTerminalMetadata.ts`), so switch-back reopens the terminal-keys stream, the metadata collection, daemon status, and session cells from pending; pending data makes `canvasModeResolver` leave `workspace`, so `App.tsx`'s `<Switch>` unmounts the entire workspace arm, which remounts from zero as records trickle back — the Dock refills incrementally, the terminal goes black while xterm content refetches, and the Code tab drops to "Loading…". Transport stays warm; the ~1s is purely logical resubscribe + refetch, and it is distinct from the #1714 reprojectClock identity flicker (#1753 does not fix it). Same class, same cure as a follow-on: `createPolledQuery` blanks and pends the Code-tab queries on host change — scope the query per host. No server or padi changes.</Footnote> The fix is W7's own cure applied to its exclusion: the per-host wire subscriptions (terminal keys, `terminals`, saved session, daemon status, activity feed) move into the retained `scopedByEntry` owner — created lazily on first activation, retained across switch-away, disposed only on membership exit — so switch-back has no resubscribe at all and no pending window *can* exist (keep-last-value or holding the mode would leave the defect expressible per readout — enumeration, the bug-shape W7 was built to kill). Deliberately still active-host-only: xterm/WebGL — a sub-second re-attach paint remains, mitigable later via a per-host screen snapshot. **Field acceptance still open:** srid confirms the live camera symptom gone on a **real deploy** (the timing a unit pin structurally can't see) before this phase closes.
+Two live edges: **K1's completion is [W9](#w9)** — the per-host wire subscriptions the owner deliberately did not retain, now the next feature phase. **Field acceptance still open:** srid confirms the live camera symptom gone on a **real deploy** (the timing a unit pin structurally can't see) before this phase closes.
 
 <a id="w8"></a>
 
@@ -429,6 +354,11 @@ type SshProv = "probing" | "copying" | "building";
 // derive from it, never hand-list phase names.
 ```
 
+<a id="w5"></a>
+
+### W5 — cross-host attention — *shipped* <PrLink pr={1759} /> *(the drishti pair [srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell, the first reactor consumer — is still in review)*
+
+**Shipped 2026-07-11** (merge `52d60bf1b`) — an agent flipping to *awaiting you* on a background host now reaches you: an **OS notification** whose click is one action (switch host + focus the tile), the PWA **app badge** summed over live hosts, beside the switcher chips' per-host counts (W4). The architecture as ratified: attention is **level state** carried in an ordinary per-entry cell — **kolu minted no wire member** (it consumes padi's existing `cells.urgency`, the tiny projection W7's K1 ruling keeps hot per host) — and the PR's framework slice is **phase 0 of the [reactive bridge](surface-reactive-bridge.html)**: `reactor.ts` (`source` · `scan` · `derived.cell`, the engine lint-banned behind it) in `@kolu/surface`, `Subscription.updated()` change pairs, mirrors-never-fabricate in `@kolu/surface-remote`, the eager `watchByEntry` watcher in `@kolu/surface-map`, and `notify` delivery in `@kolu/surface-app`. The design is taught end-to-end in [the attention primer](surface-attention-101.html); the bridge's later phases, sequenced after, live in [the bridge note](surface-reactive-bridge.html).
 
 ### Superseded by this note
 

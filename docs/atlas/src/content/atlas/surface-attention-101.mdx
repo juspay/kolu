@@ -4,14 +4,14 @@ description: "A plain-words primer on the two-phase design behind W5's cross-hos
 parents: [pedagogy, padi]
 status: proposed
 maturity: seedling
-updated: 2026-07-10
+updated: 2026-07-11
 ---
 
 import Svg from "../../components/Svg.astro";
 import Footnote from "../../components/Footnote.astro";
 import pieces from "../../diagrams/surface-attention-101-pieces.svg?raw";
 
-This is the third primer in the series. [The hosting side](surface-hosting-101.html) taught how **one** surface crosses a machine; [the client half](surface-map-101.html) taught **many** keyed surfaces over one socket. This note teaches the layer [padi W5](padi.html#w5) adds on top: turning a per-host fact ("these terminals need you", "this host's CPU is in trouble") into **attention you can trust** — a chip count, an app badge, an OS notification — without anyone hand-diffing frames. It is design, not yet shipped code: read it to judge the design, or to implement it. The work lands in **two phases**: first a surface refactor that completes the framework's primitives (its own PR, with paired kolu, drishti, and odu adoption PRs — the primitives are modified freely), then W5 itself riding them.
+This is the third primer in the series. [The hosting side](surface-hosting-101.html) taught how **one** surface crosses a machine; [the client half](surface-map-101.html) taught **many** keyed surfaces over one socket. This note teaches the layer [padi W5](padi.html#w5) adds on top: turning a per-host fact ("these terminals need you", "this host's CPU is in trouble") into **attention you can trust** — a chip count, an app badge, an OS notification — without anyone hand-diffing frames. It shipped with W5 as one PR ([kolu#1759](https://github.com/juspay/kolu/pull/1759), merged 2026-07-11; the paired drishti PR, [srid/drishti#93](https://github.com/srid/drishti/pull/93), is still in review). The work landed in **two phases** inside it: first a surface refactor that completes the framework's primitives, then W5 itself riding them.
 
 <Svg svg={pieces} wide caption="Two phases. Phase 1 completes the primitives: the cell reader gains updated() (change pairs, fired iff the value changes), mirrors stop fabricating first frames, and derived members become declarations over the backend signal graph (the reactive bridge's phase 0). Phase 2 builds attention on those: one writer per host publishes a level-state cell (kolu's urgency exists on master; drishti's alerts is W5's one new member); watchByEntry raises new item ids by set-diffing updated pairs; notify delivers at the origin's one service worker; each app keeps its own aggregation and click semantics." />
 
@@ -61,7 +61,7 @@ The fix is subtraction: **a mirrored cell serves no frame until the authority's 
 
 The third piece generalizes the first two: a **derived** member — a cell whose value is a projection of some other live thing — becomes a *declaration* over a backend **signal graph**, instead of a `.set()` a human remembers to wire. The graph's engine lives behind one module, `reactor.ts` in `@kolu/surface` (its deep import lint-banned everywhere else; the engine is **decided** — `@preact/signals-core` now, `@solidjs/signals` the named swap target, per [the engine note](surface-reactor-engine.html)), and reactor.ts exports only the sanctioned shapes: `derived.cell(nodeOrFn)`, the free-standing `scan(source, initial, step)`, and `source(...)` for external input (push or poll). Three guarantees ride every declaration: **one writer, structural** (a derived member has no ctx entry and no wire write verbs — a second writer is unrepresentable); **dedup at the member's spec `equals`, once** — the same gate that makes `updated()`'s law true; **the framework's reconnect story** — on the wire a derived cell is an ordinary cell, so consumers can't tell it was derived.
 
-W5 ships exactly **phase 0** of this — the constructors above, riding existing seams, with drishti's alerts as the first consumer. The full design — the model, the laws, the worked examples, the later phases — is [the reactive bridge](surface-reactive-bridge.html).
+W5 shipped exactly **phase 0** of this — the constructors above, riding existing seams, with drishti's alerts as the first consumer. The full design — the model, the laws, the worked examples, the later phases — is [the reactive bridge](surface-reactive-bridge.html).
 
 ## Phase 2 — attention, riding the completed primitives
 
