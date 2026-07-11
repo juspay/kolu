@@ -112,10 +112,14 @@ Three guarantees ride phase 0:
 `scan` carries the **stop-hold error law**: a step that throws stops the
 derivation (its source subscription is disposed), holds the last value (never a
 fabricated reset), logs loudly, and latches `stopped` — a `ReadonlySignal<boolean>`
-an app can fold into the member's `liveWhen` so a frozen derivation reads
-unhealthy rather than green over stale data. It never heals; recovery is a
-restart. Streams and events deliberately do **not** ride the graph — a signal
-conflates same-batch frames, and a stream must see every one.
+that is **server-observable in phase 0**: it gates the scan from stepping again
+and distinguishes a frozen derivation from a legitimately quiet one. Bridging
+`stopped` into the surface's client-side liveness (folding it into a member's
+`liveWhen`, which in phase 0 receives the serialized cell VALUE, not the signal)
+is a deliberate **later phase** — the "unhealthy-after-N-failures" question; phase
+0 stops loudly and latches but does not yet flip client health. It never heals;
+recovery is a restart. Streams and events deliberately do **not** ride the graph —
+a signal conflates same-batch frames, and a stream must see every one.
 
 ## Consuming in SolidJS
 
@@ -138,10 +142,15 @@ A cell's `authority` is `"server"` (default — every push reconciles) or
 that returns `null` pauses a stream or event. `surfaceClients(link, map)` splits
 one combined transport into a sibling client per surface.
 
-The accessor these hooks return is a `Subscription<T>` (`@kolu/surface/solid`) —
-a SolidJS `Accessor<T | undefined>` with `.pending()`, `.error()`, `.complete()`
-(latches once the stream ends normally; the value is then frozen), and
-`.updated(handler)`. `.updated()` is the change half of an FRP `Dynamic`:
+A `Subscription<T>` (`@kolu/surface/solid`) is a SolidJS `Accessor<T | undefined>`
+with `.pending()`, `.error()`, `.complete()` (latches once the stream ends
+normally; the value is then frozen), and `.updated(handler)`. **Where it sits
+differs by member:** `streams.X.use(...)` returns the `Subscription` DIRECTLY (call
+it for the value). `cells.X.use(...)` returns a result object — `{ value, pending,
+error, set, patch, sub }` — whose `.value` is the accessor and whose `.sub` is the
+`Subscription`, so the change channel is `cells.X.use(...).sub.updated(...)`.
+Collection subscriptions depend on the selected delivery path. `.updated()` is the
+change half of an FRP `Dynamic`:
 subscribe to `{ prev, next }` change pairs (`CellChange<T>`) under the
 **change-iff-fired** law — a first frame is a value, not a change and never
 fires; a reconnect snapshot equal (by value) to the last-seen frame never fires;

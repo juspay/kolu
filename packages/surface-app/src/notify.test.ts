@@ -2,16 +2,31 @@
  * `notify` — the origin's OS-notification delivery seam. Pins both PWA landmines
  * (getRegistration not `.ready`; the worker shows it via `showNotification`, never
  * `new Notification()`), the tag-keyed replace, the fire-and-forget no-ops (no
- * worker / no permission), and the click round-trip.
+ * worker / no active worker / no permission / delivery failure), and the click
+ * round-trip through the validating `parse`.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SW_MESSAGE_TYPE } from "./index";
 import { createNotify } from "./notify";
 
+interface Click {
+  host: string;
+  id: string;
+}
+
+/** A validator for the test payload shape — the real seam demands one so a
+ *  malformed/stale envelope is dropped, never routed. */
+const parseClick = (data: unknown): Click | undefined => {
+  if (typeof data !== "object" || data === null) return undefined;
+  const d = data as Record<string, unknown>;
+  if (typeof d.host !== "string" || typeof d.id !== "string") return undefined;
+  return { host: d.host, id: d.id };
+};
+
 interface FakeReg {
+  active: object | null;
   showNotification: ReturnType<typeof vi.fn>;
-  getNotifications: ReturnType<typeof vi.fn>;
 }
 
 /** Stub `navigator.serviceWorker` with a controllable registration + message bus,
@@ -44,16 +59,18 @@ function stubEnv(opts: {
   };
 }
 
+const activeReg = (): FakeReg => ({
+  active: {},
+  showNotification: vi.fn().mockResolvedValue(undefined),
+});
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("notify.show", () => {
   it("shows through the service worker with the tag (landmine 2 + tag replace)", async () => {
-    const reg: FakeReg = {
-      showNotification: vi.fn().mockResolvedValue(undefined),
-      getNotifications: vi.fn().mockResolvedValue([]),
-    };
+    const reg = activeReg();
     const env = stubEnv({ registration: reg });
-    const notify = createNotify<{ host: string; id: string }>();
+    const notify = createNotify<Click>(parseClick);
 
     await notify.show({
       tag: "hostB/t7",
@@ -73,49 +90,56 @@ describe("notify.show", () => {
 
   it("is a silent no-op when there is no registration (dev / degraded boot — never hangs)", async () => {
     stubEnv({ registration: null });
-    const notify = createNotify<unknown>();
+    const notify = createNotify<Click>(parseClick);
     // Resolves — does not hang (the `.ready` failure mode this seam exists to avoid).
     await expect(
-      notify.show({ tag: "t", title: "x", data: null }),
+      notify.show({ tag: "t", title: "x", data: { host: "h", id: "i" } }),
     ).resolves.toBeUndefined();
   });
 
-  it("is a silent no-op when permission is not granted", async () => {
+  it("is a silent no-op when the registration has no active worker", async () => {
     const reg: FakeReg = {
+      active: null, // installing/waiting — showNotification would reject
       showNotification: vi.fn(),
-      getNotifications: vi.fn(),
-    };
-    stubEnv({ registration: reg, permission: "default" });
-    const notify = createNotify<unknown>();
-    await notify.show({ tag: "t", title: "x", data: null });
-    expect(reg.showNotification).not.toHaveBeenCalled();
-  });
-});
-
-describe("notify.close", () => {
-  it("closes open notifications carrying the tag", async () => {
-    const close = vi.fn();
-    const reg: FakeReg = {
-      showNotification: vi.fn(),
-      getNotifications: vi.fn().mockResolvedValue([{ close }, { close }]),
     };
     stubEnv({ registration: reg });
-    const notify = createNotify<unknown>();
-    await notify.close("hostB/t7");
-    expect(reg.getNotifications).toHaveBeenCalledWith({ tag: "hostB/t7" });
-    expect(close).toHaveBeenCalledTimes(2);
+    const notify = createNotify<Click>(parseClick);
+    await notify.show({ tag: "t", title: "x", data: { host: "h", id: "i" } });
+    expect(reg.showNotification).not.toHaveBeenCalled();
+  });
+
+  it("is a silent no-op when permission is not granted", async () => {
+    const reg = activeReg();
+    stubEnv({ registration: reg, permission: "default" });
+    const notify = createNotify<Click>(parseClick);
+    await notify.show({ tag: "t", title: "x", data: { host: "h", id: "i" } });
+    expect(reg.showNotification).not.toHaveBeenCalled();
+  });
+
+  it("swallows a showNotification rejection (fire-and-forget never rejects)", async () => {
+    const reg: FakeReg = {
+      active: {},
+      showNotification: vi.fn().mockRejectedValue(new Error("boom")),
+    };
+    stubEnv({ registration: reg });
+    const notify = createNotify<Click>(parseClick);
+    await expect(
+      notify.show({ tag: "t", title: "x", data: { host: "h", id: "i" } }),
+    ).resolves.toBeUndefined();
   });
 });
 
 describe("notify.onClick", () => {
-  it("fires with the payload on a SW click message, ignores other messages, unsubscribes", () => {
+  it("fires with the validated payload, ignores other messages + malformed data, unsubscribes", () => {
     const env = stubEnv({ registration: null });
-    const notify = createNotify<{ host: string; id: string }>();
-    const seen: Array<{ host: string; id: string }> = [];
+    const notify = createNotify<Click>(parseClick);
+    const seen: Click[] = [];
     const off = notify.onClick((d) => seen.push(d));
 
     // A non-click message is ignored.
     env.emitMessage({ type: "something-else", data: { host: "x", id: "y" } });
+    // A malformed/stale envelope (no valid shape) is dropped, never routed.
+    env.emitMessage({ type: SW_MESSAGE_TYPE, data: {} });
     // A real click envelope (as NOTIFICATION_SW_SOURCE posts it) delivers `data`.
     env.emitMessage({
       type: SW_MESSAGE_TYPE,

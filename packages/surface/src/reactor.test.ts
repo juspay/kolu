@@ -85,6 +85,45 @@ describe("source", () => {
     emit(2);
     expect(seen).toEqual([1, 2, 2]); // occurrences, not deduped levels
   });
+
+  it("fences a late emit from a torn-down tap (generation fence)", () => {
+    // A racy source keeps its `emit` and fires it AFTER uninstall — a stale
+    // occurrence from generation A must not reach generation B's listeners.
+    let staleEmit!: (n: number) => void; // generation-A's emit, held across re-install
+    let firstInstall = true;
+    const src = source<number>((e) => {
+      if (firstInstall) {
+        staleEmit = e;
+        firstInstall = false;
+      }
+      return () => {};
+    });
+    const genA: number[] = [];
+    const off = src.subscribe((n) => genA.push(n));
+    off(); // last subscriber leaves → tap uninstalled, generation bumped
+    // Re-subscribe (generation B) with a fresh listener.
+    const genB: number[] = [];
+    src.subscribe((n) => genB.push(n));
+    staleEmit(99); // the STALE generation-A emit fires now
+    expect(genA).toEqual([]); // A's listener is gone
+    expect(genB).toEqual([]); // and B never hears A's stale occurrence
+  });
+
+  it("a throwing install is retryable — not wedged installed with a leaked listener", () => {
+    let attempts = 0;
+    const src = source<number>((e) => {
+      attempts++;
+      if (attempts === 1) throw new Error("install failed");
+      e(7); // second attempt installs and emits synchronously
+      return () => {};
+    });
+    expect(() => src.subscribe(() => {})).toThrow("install failed");
+    // The failed install left nothing behind; a later subscriber retries install.
+    const seen: number[] = [];
+    src.subscribe((n) => seen.push(n));
+    expect(attempts).toBe(2);
+    expect(seen).toEqual([7]);
+  });
 });
 
 describe("scan", () => {
@@ -165,6 +204,30 @@ describe("scan", () => {
 
       emit(10); // after stop: ignored — the derivation is frozen
       expect(acc.value.value).toBe(3);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("stop-hold disposes the source tap even when the FIRST frame throws synchronously on install", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let uninstalled = 0;
+      // A source that emits synchronously DURING install — the scan's step throws
+      // on that first frame, before `subscribe` has returned its unsubscribe
+      // handle. The stop must still dispose the tap (not leak it, guarded).
+      const src = source<number>((emit) => {
+        emit(-1); // synchronous first occurrence
+        return () => {
+          uninstalled++;
+        };
+      });
+      const acc = scan(src, 0, (_n, v) => {
+        if (v < 0) throw new Error("bad first frame");
+        return v;
+      });
+      expect(acc.stopped.value).toBe(true); // latched even though it threw on install
+      expect(uninstalled).toBe(1); // the source tap was disposed, not left subscribed
     } finally {
       spy.mockRestore();
     }

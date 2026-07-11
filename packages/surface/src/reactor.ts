@@ -108,25 +108,43 @@ export function source<T>(install: SourceInstall<T>, initial?: T): Source<T> {
   const listeners = new Set<(frame: T) => void>();
   let uninstall: (() => void) | undefined;
   let installed = false;
+  // Generation fence: each install gets an `emit` bound to the generation it was
+  // installed under, and teardown bumps the generation. A late callback from a
+  // torn-down tap (generation A) that fires after an uninstall/reinstall is then
+  // silently DROPPED — never delivered as a current occurrence to generation B's
+  // listeners. The tap contract still says "stop emitting on uninstall"; the
+  // fence is the belt-and-braces that makes a racy source's stale frame a no-op
+  // rather than a phantom occurrence a `scan` folds in.
+  let generation = 0;
 
   // The bridge owns the batch: one occurrence is one graph frame, so the level
   // update and every scan step it drives coalesce into a single recompute pass.
-  const emit = (frame: T): void => {
-    batch(() => {
-      level.value = frame;
-      // Snapshot listeners so a step that (dis)connects mid-fan-out is safe.
-      for (const onEmit of [...listeners]) onEmit(frame);
-    });
-  };
+  const makeEmit =
+    (gen: number) =>
+    (frame: T): void => {
+      if (gen !== generation) return; // stale tap from a torn-down install — fenced
+      batch(() => {
+        level.value = frame;
+        // Snapshot listeners so a step that (dis)connects mid-fan-out is safe.
+        for (const onEmit of [...listeners]) onEmit(frame);
+      });
+    };
 
   const ensureInstalled = (): void => {
     if (installed) return;
+    // Transactional: mark installed only AFTER a successful `install`. A throwing
+    // install must leave the source uninstalled (installed = false, no leaked
+    // uninstall) so a later subscriber can retry — not wedged installed-forever
+    // with no way to emit. The just-added listener is removed by `subscribe`.
+    const gen = generation;
+    const cleanup = install(makeEmit(gen)) ?? undefined;
     installed = true;
-    uninstall = install(emit) ?? undefined;
+    uninstall = cleanup;
   };
   const teardown = (): void => {
     if (!installed) return;
     installed = false;
+    generation++; // invalidate the just-uninstalled tap's `emit`
     uninstall?.();
     uninstall = undefined;
   };
@@ -135,7 +153,14 @@ export function source<T>(install: SourceInstall<T>, initial?: T): Source<T> {
     value: level,
     subscribe(onEmit) {
       listeners.add(onEmit);
-      ensureInstalled();
+      try {
+        ensureInstalled();
+      } catch (err) {
+        // Install failed: undo the membership so we neither leak the listener nor
+        // report a subscription the caller can't unsubscribe (we rethrow).
+        listeners.delete(onEmit);
+        throw err;
+      }
       return () => {
         listeners.delete(onEmit);
         if (listeners.size === 0) teardown();
@@ -177,13 +202,23 @@ export function scan<F, S>(
   const state = signal<S>(initial);
   const stopped = signal(false);
   let unsubscribe: (() => void) | undefined;
+  // A stop requested DURING `src.subscribe` (a source that emits synchronously on
+  // install, whose first frame throws) has no `unsubscribe` handle yet — it is
+  // assigned only after `subscribe` returns. Latch the request here so the
+  // post-subscribe wiring disposes the handle the instant it exists, instead of
+  // leaving the stopped scan subscribed (guarded but leaking its source tap).
+  let stopRequested = false;
 
   const stop = (): void => {
-    unsubscribe?.();
-    unsubscribe = undefined;
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = undefined;
+    } else {
+      stopRequested = true; // handle not yet assigned (sync emit during subscribe)
+    }
   };
 
-  unsubscribe = src.subscribe((frame) => {
+  const handle = src.subscribe((frame) => {
     if (stopped.peek()) return;
     let next: S;
     try {
@@ -193,8 +228,11 @@ export function scan<F, S>(
         "reactor: scan step threw — stopping derivation, holding last value",
         err,
       );
-      stop();
+      // Latch `stopped` BEFORE tearing down: the stop-hold law's observable fact
+      // must hold even if `stop()`/cleanup throws — a failed unsubscribe can
+      // never un-stop or replace the latched state.
       stopped.value = true;
+      stop();
       return;
     }
     // "step returning the prev reference ⇒ no publish": a held level writes
@@ -203,6 +241,10 @@ export function scan<F, S>(
     // differ by reference but not by content.
     if (next !== state.peek()) state.value = next;
   });
+  // If a synchronous install-emit already stopped us, dispose the handle now
+  // (never retain it); otherwise keep it as the live unsubscribe.
+  if (stopRequested) handle();
+  else unsubscribe = handle;
 
   return {
     value: state,

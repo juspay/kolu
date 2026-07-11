@@ -183,6 +183,14 @@ async function retire() {
  *  a compile error on the page instead of a silently-dropped click. */
 export const SW_MESSAGE_TYPE = "notificationclick";
 
+/** The URL query param the notification worker uses to hand a click payload to a
+ *  COLD-started app (no window was open, so there is no client to `postMessage`).
+ *  The worker JSON-encodes the notification's `data` into this param on the URL it
+ *  opens; the page-side `onClick` reads it once at startup, routes it through the
+ *  same validated path as a live click, then strips it. Without this, a one-action
+ *  click on a closed PWA would open the app but DROP the routing payload. */
+export const NOTIFICATION_DATA_PARAM = "__notify";
+
 /** The notification service worker — the opt-in `/sw.js` source for an app that
  *  shows OS notifications (`ServiceWorkerRegistration.showNotification`, the ONLY
  *  notification path that works in an installed PWA — the page-level
@@ -238,7 +246,12 @@ async function focusApp(data) {
     await client.focus();
     client.postMessage({ type: ${JSON.stringify(SW_MESSAGE_TYPE)}, data });
   } else {
-    await self.clients.openWindow("/");
+    // No window to postMessage — open one with the routing payload encoded in the
+    // URL so the cold-started page can pick it up (the one-action click survives a
+    // closed PWA). The page reads and strips ${JSON.stringify(NOTIFICATION_DATA_PARAM)} at startup.
+    const param = ${JSON.stringify(NOTIFICATION_DATA_PARAM)};
+    const url = "/?" + param + "=" + encodeURIComponent(JSON.stringify(data));
+    await self.clients.openWindow(url);
   }
 }
 `;

@@ -8,13 +8,11 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
+import { encodeHostKey } from "kolu-common/hostKey";
 import { type Accessor, createEffect, on } from "solid-js";
-import { preferences } from "../wire";
+import { activeHost, preferences } from "../wire";
 import type { TerminalSubject } from "./terminalSubject";
-import {
-  fireActivityAlert,
-  requestNotificationPermission,
-} from "./useActivityAlerts";
+import { fireActivityAlert } from "./useActivityAlerts";
 
 export function useTerminalAlerts(deps: {
   activeId: Accessor<TerminalId | null>;
@@ -26,8 +24,10 @@ export function useTerminalAlerts(deps: {
 }) {
   const activityAlerts = () => preferences().activityAlerts;
 
-  // Request browser notification permission eagerly when alerts are enabled
-  if (activityAlerts()) requestNotificationPermission();
+  // Notification permission is requested by `useHostAttention`'s single reactive
+  // requester (off the same `activityAlerts` rule), so this module no longer asks
+  // too — a second startup request while permission is still `default` is a
+  // redundant prompt the browser does not coalesce.
 
   // The OS app badge is no longer written here. It became a CROSS-HOST fact in
   // W5 — the sum of every LIVE host's `urgency.awaitingIds.length`, owned by
@@ -95,8 +95,11 @@ export function useTerminalAlerts(deps: {
     // `isBackground || document.hidden` gate meant a banner essentially never
     // fired. `hasFocus()` is false whenever the doc is hidden too, so it
     // subsumes the old check and also covers "switched apps, kolu still visible".
+    // The finished terminal lives on the host that is active right now (this
+    // module watches the active host's terminals). Stamp that host onto the
+    // notification so a click after a host-switch returns to the right padi.
     if (isBackground || !document.hasFocus())
-      fireActivityAlert(deps.getSubject(id), id);
+      fireActivityAlert(deps.getSubject(id), id, encodeHostKey(activeHost()));
   }
 
   function simulateAlert(options?: { target?: "active" | "inactive" }) {

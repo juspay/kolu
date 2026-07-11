@@ -123,17 +123,21 @@ declares it; `buildInfoServer({ buildInfo? })` and `surfaceAppServer({ buildInfo
 
 ## OS notifications
 
-`createNotify<D>()` (`@kolu/surface-app/notify`) is the last hop of cross-host
-attention: showing an OS notification from a PWA through the origin's **one**
-service worker (the fetch-less `NOTIFICATION_SW_SOURCE` above). `D` is the app's
-own click-routing payload shape (kolu: `{ host, id }`). It returns a `Notify<D>`:
+`createNotify<D>(parse)` (`@kolu/surface-app/notify`) is the last hop of
+cross-host attention: showing an OS notification from a PWA through the origin's
+**one** service worker (the fetch-less `NOTIFICATION_SW_SOURCE` above). `D` is the
+app's own click-routing payload shape — kolu's is a `kind`-discriminated union,
+`{ kind: "host"; host; id } | { kind: "terminal"; host; terminalId }`, so the one
+click router can never cross-deliver the two, and both carry `host` so a click
+switches to the originating host before focusing. `parse(data): D | undefined`
+validates each incoming click envelope; a malformed or stale (pre-upgrade) payload
+is dropped, never routed. It returns a `Notify<D>`:
 
 | Method | Role |
 | --- | --- |
 | `requestPermission()` | request OS permission; resolves `true` when granted (idempotent). Delivery is a no-op until granted |
-| `show({ tag, title, body?, icon?, data })` | show — or replace, by `tag` — a notification. A no-op (never a throw or a hang) where there is no worker or no permission, so a caller may fire-and-forget |
-| `close(tag)` | close any open notification(s) carrying `tag` (e.g. when its attention clears) |
-| `onClick(handler)` | subscribe to clicks; the handler receives the clicked notification's `data`; returns an unsubscribe fn |
+| `show({ tag, title, body?, icon?, data })` | show — or replace, by `tag` — a notification. A no-op (never a throw or a hang) where there is no worker, no active worker, or no permission; an operational failure is caught and logged, so a caller may fire-and-forget |
+| `onClick(handler)` | subscribe to clicks; the handler receives the clicked notification's **validated** `data`. Covers both the live postMessage path and the cold-start URL handoff (a click with no window open opens one carrying the payload in `NOTIFICATION_DATA_PARAM`, read once at startup). Returns an unsubscribe fn |
 
 Two landmines are why delivery is a framework piece — one seam at the origin's
 one service worker — rather than N windows each attempting their own:

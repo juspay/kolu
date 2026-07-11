@@ -15,6 +15,7 @@ import { watchByEntry } from "@kolu/surface-map/client";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, onCleanup } from "solid-js";
+import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import {
   activeHost,
@@ -72,19 +73,35 @@ export function useHostAttention(deps: {
   // The app badge = Σ awaitingIds.length over LIVE hosts — kolu's own one-line
   // fold. A dead host's held count never inflates it (its chip dims instead); the
   // active host is a live host, so its awaiting agents are counted too. The
-  // effect re-runs on any host's urgency/liveness change; guard the OS write so
-  // an unchanged count never re-touches the shell.
-  let lastCount = -1;
+  // effect re-runs on any host's urgency/liveness change; `paintBadge` (below)
+  // dedups an unchanged count and serialises the async shell writes so a rapid
+  // set→clear can't land out of order.
+  //
+  // `lastCount` is the count last HANDED to the shell (undefined = never written
+  // yet — a distinct "no write" state, not a magic `-1` inside the real domain).
+  let lastCount: number | undefined;
+  // Badge writes are async and order-sensitive: chained through one tail so a
+  // later write always applies after an earlier one (never a stale set winning a
+  // race with a newer clear), and a rejection is reported, not left unhandled.
+  let badgeTail: Promise<unknown> = Promise.resolve();
+  const paintBadge = (count: number): void => {
+    if (count === lastCount) return;
+    lastCount = count;
+    badgeTail = badgeTail
+      .then(() =>
+        count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge(),
+      )
+      .catch((err) =>
+        console.warn("useHostAttention: app-badge write failed", err),
+      );
+  };
   createEffect(() => {
     if (!("setAppBadge" in navigator)) return;
     // Gate the badge on the SAME single `activityAlerts` decision that gates the
     // notification leg — one user choice, both outputs. With alerts off, clear
-    // any live badge and reset so a later re-enable repaints from a clean count.
+    // any live badge so a later re-enable repaints from a clean count.
     if (!enabled()) {
-      if (lastCount !== 0) {
-        lastCount = 0;
-        void navigator.clearAppBadge();
-      }
+      paintBadge(0);
       return;
     }
     let count = 0;
@@ -92,28 +109,29 @@ export function useHostAttention(deps: {
       const watched = attention.get(host);
       if (watched?.kind === "live") count += watched.value.awaitingIds.length;
     }
-    if (count === lastCount) return;
-    lastCount = count;
-    if (count > 0) void navigator.setAppBadge(count);
-    else void navigator.clearAppBadge();
+    paintBadge(count);
   });
 
   // The SINGLE `notify.onClick` router for the whole client — one listener on the
   // origin's one service-worker message channel, switching on the discriminated
   // payload so a per-terminal click and a cross-host click can never
-  // cross-deliver. A `host` click is ONE action: switch to that host, then focus
-  // the terminal that wants you (after the switch, `focusTerminal` targets the
-  // now-active host; the center-on-active impulse pans once the tile renders). A
-  // `terminal` click (from the per-terminal activity-alert path) just focuses the
-  // finished terminal on the current host.
+  // cross-deliver. BOTH clicks are ONE action and BOTH switch to the originating
+  // host first: a notification outlives the active-host selection, so focusing
+  // without switching would route the terminal id against whatever host is active
+  // now. After `setActiveHost`, `focusTerminal` targets the now-correct host (the
+  // center-on-active impulse pans once the tile renders).
   onCleanup(
-    notify.onClick((data) => {
-      if (data.kind === "host") {
-        setActiveHost(decodeHostKey(data.host));
-        deps.focusTerminal(data.id as TerminalId);
-      } else {
-        deps.focusTerminal(data.terminalId);
-      }
-    }),
+    notify.onClick((data) =>
+      match(data)
+        .with({ kind: "host" }, ({ host, id }) => {
+          setActiveHost(decodeHostKey(host));
+          deps.focusTerminal(id as TerminalId);
+        })
+        .with({ kind: "terminal" }, ({ host, terminalId }) => {
+          setActiveHost(decodeHostKey(host));
+          deps.focusTerminal(terminalId);
+        })
+        .exhaustive(),
+    ),
   );
 }

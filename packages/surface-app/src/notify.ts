@@ -21,14 +21,18 @@
  * you, and with a tag-keyed `show` they can't (the OS REPLACES the same-tag
  * notification instead of stacking a duplicate). The click payload comes back to
  * `onClick` as plain `data` the APP routes; the framework does not know what
- * clicking attention means.
+ * clicking attention means — but it does VALIDATE the envelope (`parse`) before
+ * routing, so a `{}` a stale worker or a pre-upgrade notification substitutes is
+ * dropped loudly rather than mis-routed.
  *
- * The worker itself (`NOTIFICATION_SW_SOURCE`) already handles `notificationclick`
- * — it focuses an open window and `postMessage`s `{ type: SW_MESSAGE_TYPE, data }`;
- * `onClick` below is the page-side half that receives it.
+ * The worker itself (`NOTIFICATION_SW_SOURCE`) handles `notificationclick` two
+ * ways: it focuses an OPEN window and `postMessage`s `{ type: SW_MESSAGE_TYPE,
+ * data }` (the live path `onClick` receives), OR — with NO window open — it opens
+ * one with the payload encoded in a URL param (`NOTIFICATION_DATA_PARAM`), which
+ * `onClick` reads once at startup so the one-action click survives a cold start.
  */
 
-import { SW_MESSAGE_TYPE } from "./index";
+import { NOTIFICATION_DATA_PARAM, SW_MESSAGE_TYPE } from "./index";
 
 /** A notification to show. `tag` keys the multi-window replace; `data` is the
  *  opaque routing payload handed back to {@link Notify.onClick}. */
@@ -41,39 +45,65 @@ export interface NotifyOptions<D> {
   body?: string;
   icon?: string;
   /** Opaque routing payload — echoed to `onClick` when the notification is
-   *  clicked (structured-cloneable; the worker `postMessage`s it verbatim). */
+   *  clicked (structured-cloneable; the worker `postMessage`s it verbatim, and
+   *  JSON-encodes it into the cold-start URL param). */
   data: D;
 }
 
 /** The origin's notification seam. `D` is the app's own click-routing payload
- *  shape (kolu: `{ host, id }`). */
+ *  shape (kolu: a `{ kind }`-discriminated union). */
 export interface Notify<D> {
   /** Request OS notification permission (idempotent — resolves `true` when
    *  already granted, `false` when denied). Delivery is a no-op until granted. */
   requestPermission(): Promise<boolean>;
   /** Show (or replace, by `tag`) a notification through the service worker.
-   *  A no-op — never a throw or a hang — where there is no worker or no
-   *  permission, so a caller may fire-and-forget it. */
+   *  A no-op — never a throw or a hang — where there is no worker, no active
+   *  worker, or no permission; an operational browser failure is caught and
+   *  logged, never rejected. So a caller may safely fire-and-forget it. */
   show(opts: NotifyOptions<D>): Promise<void>;
-  /** Close any open notification(s) carrying `tag` (e.g. when its attention
-   *  clears). No-op where there is no worker. */
-  close(tag: string): Promise<void>;
   /** Subscribe to notification CLICKS. Fires with the clicked notification's
-   *  `data`; returns an unsubscribe fn. */
+   *  VALIDATED `data` (via `parse`; a malformed/stale envelope is dropped with a
+   *  warning, never routed). Covers both the live postMessage path and the
+   *  cold-start URL-param handoff. Returns an unsubscribe fn. */
   onClick(handler: (data: D) => void): () => void;
 }
 
 const swAvailable = (): boolean =>
   typeof navigator !== "undefined" && "serviceWorker" in navigator;
 
-/** Build a {@link Notify} for a payload shape `D`. */
-export function createNotify<D>(): Notify<D> {
+/** Build a {@link Notify} for a payload shape `D`. `parse` validates an incoming
+ *  click envelope — the framework relays only well-formed payloads, so a stale
+ *  notification carrying a pre-upgrade shape (or a `{}` a degraded worker
+ *  substitutes) is dropped, never mis-routed. Return `undefined` to reject. */
+export function createNotify<D>(
+  parse: (data: unknown) => D | undefined,
+): Notify<D> {
+  // Route one raw click envelope: validate, then hand the app its typed payload.
+  const route = (raw: unknown, handler: (data: D) => void): void => {
+    const parsed = parse(raw);
+    if (parsed === undefined) {
+      console.warn(
+        "notify.onClick: dropping malformed/stale click payload",
+        raw,
+      );
+      return;
+    }
+    handler(parsed);
+  };
+
   return {
     async requestPermission(): Promise<boolean> {
       if (typeof Notification === "undefined") return false;
       if (Notification.permission === "granted") return true;
       if (Notification.permission === "denied") return false;
-      return (await Notification.requestPermission()) === "granted";
+      try {
+        return (await Notification.requestPermission()) === "granted";
+      } catch (err) {
+        // A browser that rejects the prompt (or an insecure context) must not
+        // turn a fire-and-forget request into an unhandled rejection.
+        console.warn("notify.requestPermission failed", err);
+        return false;
+      }
     },
 
     async show(opts): Promise<void> {
@@ -86,36 +116,64 @@ export function createNotify<D>(): Notify<D> {
       ) {
         return;
       }
-      // Landmine 1: getRegistration(), never `.ready`.
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) return; // no worker to deliver through — honest, not a hang
-      // Landmine 2: the worker shows it; `tag` makes the OS replace, never stack.
-      await reg.showNotification(opts.title, {
-        tag: opts.tag,
-        body: opts.body,
-        icon: opts.icon,
-        data: opts.data,
-      });
-    },
-
-    async close(tag): Promise<void> {
-      if (!swAvailable()) return;
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) return;
-      const open = await reg.getNotifications({ tag });
-      for (const n of open) n.close();
+      try {
+        // Landmine 1: getRegistration(), never `.ready`.
+        const reg = await navigator.serviceWorker.getRegistration();
+        // A registration can exist WITHOUT an active worker (installing/waiting);
+        // `showNotification` on it rejects. `reg.active` is the honest gate.
+        if (!reg?.active) return; // no worker to deliver through — not a hang
+        // Landmine 2: the worker shows it; `tag` makes the OS replace, never stack.
+        await reg.showNotification(opts.title, {
+          tag: opts.tag,
+          body: opts.body,
+          icon: opts.icon,
+          data: opts.data,
+        });
+      } catch (err) {
+        // Delivery is best-effort: a failed OS notification is logged, never
+        // rejected into an unhandled promise the fire-and-forget caller discards.
+        console.warn("notify.show failed", err);
+      }
     },
 
     onClick(handler): () => void {
       if (!swAvailable()) return () => {};
       const listener = (event: MessageEvent): void => {
-        const msg = event.data as { type?: string; data?: D } | undefined;
+        const msg = event.data as { type?: string; data?: unknown } | undefined;
         if (msg?.type !== SW_MESSAGE_TYPE) return;
-        handler(msg.data as D);
+        route(msg.data, handler);
       };
       navigator.serviceWorker.addEventListener("message", listener);
+      // Cold-start handoff: a click with no window open opened one with the
+      // payload JSON-encoded in `NOTIFICATION_DATA_PARAM`. Consume it ONCE here
+      // (then strip it from the URL so a reload can't re-route) — the same
+      // validated `route` path, so a cold click and a live click behave alike.
+      consumePendingClick(handler, route);
       return () =>
         navigator.serviceWorker.removeEventListener("message", listener);
     },
   };
+}
+
+/** Read + retire a cold-start click payload from the URL (`NOTIFICATION_DATA_PARAM`),
+ *  routing it through the same validated path as a live postMessage click. */
+function consumePendingClick<D>(
+  handler: (data: D) => void,
+  route: (raw: unknown, handler: (data: D) => void) => void,
+): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  const encoded = url.searchParams.get(NOTIFICATION_DATA_PARAM);
+  if (encoded === null) return;
+  // Strip it first — regardless of validity — so a reload never re-fires it.
+  url.searchParams.delete(NOTIFICATION_DATA_PARAM);
+  window.history.replaceState(window.history.state, "", url.toString());
+  let raw: unknown;
+  try {
+    raw = JSON.parse(encoded);
+  } catch (err) {
+    console.warn("notify: dropping unparsable cold-start click payload", err);
+    return;
+  }
+  route(raw, handler);
 }

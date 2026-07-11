@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import { createEffect, createRoot } from "solid-js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSubscription, type Subscription } from "./createSubscription";
 
 /** Test-local: read the current value of a subscription, throwing with a
@@ -659,6 +659,55 @@ describe("createSubscription", () => {
         stream.push(3);
         await flush();
         expect(changes).toEqual([2]); // 3's change never reached the disposed handler
+        dispose();
+      });
+    });
+
+    it("a throwing handler does not abort fanout, terminate the stream, or become a stream error", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await createRoot(async (dispose) => {
+          const stream = controllableStream<number>();
+          const sub = createSubscription(async () => stream.iterate());
+          const good: number[] = [];
+          // A misbehaving consumer subscribes first, then a well-behaved one.
+          sub.updated?.(() => {
+            throw new Error("consumer bug");
+          });
+          sub.updated?.((c) => good.push(c.next));
+
+          stream.push(1);
+          await flush();
+          stream.push(2); // the throwing handler runs first on THIS change…
+          await flush();
+          stream.push(3); // …and the stream keeps delivering after it
+          await flush();
+
+          expect(good).toEqual([2, 3]); // fanout continued past the thrower, both frames
+          expect(sub.error()).toBeUndefined(); // a handler bug is NOT an upstream stream error
+          dispose();
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("with no handler registered, the baseline still advances (a late subscriber sees only changes from then on)", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+        // No handler yet — the hot path advances lastSeen in O(1) without compares.
+        stream.push(1);
+        await flush();
+        stream.push(2);
+        await flush();
+        const changes: Array<{ prev: number; next: number }> = [];
+        sub.updated?.((c) => changes.push(c));
+        stream.push(2); // equal to the last-seen baseline (2) → silent
+        await flush();
+        stream.push(7); // a genuine change from the advanced baseline
+        await flush();
+        expect(changes).toEqual([{ prev: 2, next: 7 }]);
         dispose();
       });
     });

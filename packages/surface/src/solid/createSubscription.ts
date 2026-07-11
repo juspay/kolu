@@ -17,14 +17,6 @@ import {
 import { createStore } from "solid-js/store";
 import { writeWrappedValue } from "./writeValue";
 
-/**
- * A SolidJS Accessor backed by a server stream.
- *
- * Extends `Accessor<T | undefined>` — calling it is a real SolidJS
- * reactive read, just like any signal from `createSignal`. Additional
- * properties for error and pending follow the same pattern as
- * SolidJS's `createResource`.
- */
 /** A teardown handle — call to unsubscribe. */
 export type Dispose = () => void;
 
@@ -35,6 +27,14 @@ export interface CellChange<T> {
   readonly next: T;
 }
 
+/**
+ * A SolidJS Accessor backed by a server stream.
+ *
+ * Extends `Accessor<T | undefined>` — calling it is a real SolidJS
+ * reactive read, just like any signal from `createSignal`. Additional
+ * properties for error and pending follow the same pattern as
+ * SolidJS's `createResource`.
+ */
 export interface Subscription<T> extends Accessor<T | undefined> {
   /** Stream error (undefined when healthy). */
   readonly error: Accessor<Error | undefined>;
@@ -164,20 +164,30 @@ export function createUpdatedTracker<V>(): {
   reset: () => void;
 } {
   const handlers = new Set<(change: CellChange<V>) => void>();
-  let lastSeen: { has: boolean; value: V } = {
-    has: false,
-    value: undefined as V,
+  // A discriminated union, not `{ has, value }`: there is no "unseen with a
+  // value" state to represent, and the unseen arm carries no `V` — so nothing
+  // manufactures an arbitrary `undefined as V` to satisfy the type.
+  let lastSeen: { kind: "unseen" } | { kind: "seen"; value: V } = {
+    kind: "unseen",
   };
   return {
     noteFrame(next) {
-      if (!lastSeen.has) {
-        lastSeen = { has: true, value: next }; // first frame: a value, not a change
+      if (lastSeen.kind === "unseen") {
+        lastSeen = { kind: "seen", value: next }; // first frame: a value, not a change
+        return;
+      }
+      // Hot-path short-circuit: with no handler registered, the baseline just
+      // advances to the latest frame in O(1) — a handler added later sees only
+      // changes FROM that point on, so it never needs the intervening compares.
+      // This keeps the deep `framesEqual` off every cell/stream/collection frame
+      // for the overwhelmingly common no-`updated`-handler case.
+      if (handlers.size === 0) {
+        lastSeen = { kind: "seen", value: next };
         return;
       }
       if (framesEqual(lastSeen.value, next)) return; // equal reconnect snapshot: silent
       const prev = lastSeen.value;
-      lastSeen = { has: true, value: next };
-      if (handlers.size === 0) return;
+      lastSeen = { kind: "seen", value: next };
       // Hand consumers a SNAPSHOT: the store writes these frames through Solid's
       // `reconcile`, which adopts a frame and mutates it on the next write — a
       // retained `{prev, next}` would silently mutate out from under the
@@ -188,14 +198,25 @@ export function createUpdatedTracker<V>(): {
         prev: structuredClone(prev),
         next: structuredClone(next),
       };
-      for (const h of [...handlers]) h(change);
+      // Guard each handler: one consumer's throwing `updated` callback must not
+      // abort fan-out to the others, and — critically for a SHARED subscription
+      // behind the keyed cache — must not escape into the stream-consume `catch`,
+      // where it would be misreported as an upstream stream error and terminate
+      // the iterator for EVERY cached consumer. Report loudly, keep going.
+      for (const h of [...handlers]) {
+        try {
+          h(change);
+        } catch (err) {
+          console.error("subscription `updated` handler threw", err);
+        }
+      }
     },
     updated(handler) {
       handlers.add(handler);
       return () => handlers.delete(handler);
     },
     reset() {
-      lastSeen = { has: false, value: undefined as V };
+      lastSeen = { kind: "unseen" };
     },
   };
 }

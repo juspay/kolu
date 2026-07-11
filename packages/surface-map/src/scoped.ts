@@ -299,7 +299,12 @@ export function watchByEntry<
   ES extends SurfaceSpec,
   Cause extends string,
   A,
-  I,
+  // Ids are `PropertyKey` (string / number / symbol), never objects: raise
+  // detection is a `Set` diff, and object ids — reconstructed fresh from each
+  // wire frame — would compare by REFERENCE and re-raise every frame. Constrain
+  // it so an object-id `items` is a compile error, not a silent every-frame
+  // storm.
+  I extends PropertyKey,
 >(
   client: SurfaceMapClient<KS, ES, Cause>,
   cell: (entry: Entry<ES, Cause>) => WatchableCell<A>,
@@ -321,17 +326,42 @@ export function watchByEntry<
   >(enc, memberKeys, (key) => {
     const entry = client.entry(key);
     const { value, sub } = cell(entry).use();
+    // Raise detection RIDES `updated` (the change-iff-fired law) — a watcher with
+    // no change channel would silently return values and never raise, defeating
+    // its one job. Fail fast rather than degrade: a watched cell MUST be minted by
+    // the surface factories (they always populate `updated`); optional chaining
+    // here would swallow the contract.
+    if (!sub.updated) {
+      throw new Error(
+        "watchByEntry: the watched cell's subscription has no `updated` — a watcher " +
+          "needs the change-iff-fired channel to detect raised ids. Select a cell " +
+          "minted by the surface factories (`entry.cells.<name>`), not a hand-assembled one.",
+      );
+    }
     // Raise detection: a pure set-diff over the framework's honest change pairs.
-    const off = sub.updated?.(({ prev, next }) => {
+    // Dedupe `next`'s ids first (`Set` on `PropertyKey`) so a frame that repeats
+    // an id can't raise it twice.
+    const off = sub.updated(({ prev, next }) => {
       const before = new Set<I>(items(prev));
-      const raised = items(next).filter((id) => !before.has(id));
+      const raised = [...new Set<I>(items(next))].filter(
+        (id) => !before.has(id),
+      );
       if (raised.length > 0) onRaise(key, raised, next);
     });
-    if (off) onCleanup(off);
-    // Point reads answer honestly: a host whose link is down keeps its last value,
-    // marked stale — the entry's floored `state()` is `connected` only over a live
-    // link (foldState downgrades a stale `connected` to `warming`).
-    const live = createMemo(() => entry.state().kind === "connected");
+    onCleanup(off);
+    // Point reads answer honestly. A value is LIVE only when the host link is up
+    // (`state().kind === "connected"`; foldState downgrades a stale `connected` to
+    // `warming`) AND this cell's own subscription is neither errored nor ended —
+    // urgency is not a `liveWhen` gate, so an errored/completed cell would NOT
+    // downgrade `entry.state()`, and reporting its frozen value as `live` would
+    // let a consumer count stale urgency. A cell in that state reads STALE (its
+    // last value dims) rather than lying live.
+    const live = createMemo(
+      () =>
+        entry.state().kind === "connected" &&
+        !sub.error() &&
+        !(sub.complete?.() ?? false),
+    );
     return { value, live };
   });
 

@@ -126,9 +126,12 @@ watchByEntry(client, cell, items, onRaise) → { get(key): { kind: "live" | "sta
 - **`cell(entry)`** selects the per-entry cell to watch (`e => e.cells.urgency`)
   — a get-only `WatchableCell<A>` whose `.use()` yields the current value and the
   raw `Subscription` (whose `updated` carries the change pairs).
-- **`items(value)`** extracts **stable** ids from the cell value
-  (`v => v.awaitingIds`). Stability is the app's one obligation — it is what makes
-  "same item, not a new one" decidable.
+- **`items(value)`** extracts **stable** `PropertyKey` ids from the cell value
+  (`v => v.awaitingIds`). Ids are `string`/`number`/`symbol`, never objects — the
+  set-diff compares by value, and object ids (rebuilt fresh per frame) would compare
+  by reference and re-raise every frame, so an object-id `items` is a compile error.
+  Stability is the app's one obligation — it is what makes "same item, not a new
+  one" decidable.
 - **`onRaise(key, raised, value)`** fires for newly-raised ids. Raise detection is
   a pure set-diff over the framework's `updated` `{ prev, next }` pairs:
   `items(next) ∖ items(prev)`. The change-iff-fired law upstream (see
@@ -138,8 +141,10 @@ watchByEntry(client, cell, items, onRaise) → { get(key): { kind: "live" | "sta
   **`undefined`** when the key is not a member OR has no frame yet (a mirror stays
   silent until the authority speaks — see
   [@kolu/surface-remote](/surface/ref-surface-remote)). `live` means our link to
-  the host is up and connected; `stale` holds the last value under a down link so
-  a chip DIMS rather than lies.
+  the host is up and connected **and** this cell's own subscription is neither
+  errored nor ended; an errored/ended cell reads `stale` (its last value dims)
+  rather than lying live, so a consumer never counts frozen data. `stale` also
+  holds the last value under a down link.
 - There is deliberately **no `total()`**: aggregation is app policy (kolu sums
   awaiting terminals across live hosts; drishti counts hosts in trouble — a sum
   would be noise), so the watcher hands facts and each app folds.

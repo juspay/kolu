@@ -47,19 +47,22 @@ export function requestNotificationPermission() {
  *  Delivery rides the shared `notify` seam: it shows through the service worker
  *  (the page-level `new Notification()` constructor is illegal in `standalone`
  *  display mode on Chromium and silently throws), and keys the banner by `tag`
- *  (the terminal id) so two open windows REPLACE rather than stack. A
+ *  (`${host}/${terminalId}`) so two open windows REPLACE rather than stack. A
  *  `kind: "terminal"` click routes back through the single `notify.onClick`
- *  router in `useHostAttention`. */
+ *  router in `useHostAttention`, which switches to `host` before focusing — the
+ *  terminal lives on the host that was active when it finished, and a click may
+ *  land after the user has switched away. */
 export function fireActivityAlert(
   subject: TerminalSubject,
   terminalId: TerminalId,
+  host: string,
 ) {
   playSound();
   void notify.show({
-    tag: terminalId,
+    tag: `${host}/${terminalId}`,
     title: `${subject.title} finished`,
     body: subject.description,
     icon: "/favicon.svg",
-    data: { kind: "terminal", terminalId },
+    data: { kind: "terminal", host, terminalId },
   });
 }
