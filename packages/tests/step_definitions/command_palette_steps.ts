@@ -241,6 +241,21 @@ Then(
 );
 
 Then(
+  "palette item {string} should not be visible",
+  async function (this: KoluWorld, text: string) {
+    const item = this.page
+      .locator(`${PALETTE_SELECTOR} [role="option"]`)
+      .filter({ hasText: new RegExp(`^${text}`) });
+    const count = await item.count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected palette item "${text}" to be hidden, but found ${count}`,
+    );
+  },
+);
+
+Then(
   "palette hint {string} should be visible",
   async function (this: KoluWorld, text: string) {
     const hint = this.page.locator(
