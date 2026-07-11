@@ -199,6 +199,15 @@ export const NOTIFICATION_ACK_TYPE = "notify-ack";
  *  click on a closed PWA would open the app but DROP the routing payload. */
 export const NOTIFICATION_DATA_PARAM = "__notify";
 
+/** The URL query param carrying the click's unique `id` alongside the payload on
+ *  the durable URL handoff. When the worker cannot confirm a live delivery and
+ *  falls back to NAVIGATING the focused window, the reloaded page reads this id and
+ *  skips routing if it already routed the same click live (a small sessionStorage
+ *  FIFO survives the navigation) — so a live route followed by a fallback navigate
+ *  can never fire the action twice. A cold-start window (a fresh tab) simply routes
+ *  it once. Shared so the worker source and the page reader can't drift. */
+export const NOTIFICATION_CLICK_ID_PARAM = "__notify_id";
+
 /** The notification service worker — the opt-in `/sw.js` source for an app that
  *  shows OS notifications (`ServiceWorkerRegistration.showNotification`, the ONLY
  *  notification path that works in an installed PWA — the page-level
@@ -243,11 +252,20 @@ async function takeover() {
     for (const client of clients) client.navigate(client.url);
   }
 }
-const notifyAcks = new Set();
+// Pending ACK waiters, keyed by the in-flight click \`id\`. Bounded to clicks
+// currently being delivered: an entry is added when a delivery loop starts and
+// removed the instant it is acked OR the loop gives up (\`finally\`), and an ACK for
+// an \`id\` no loop is waiting on finds no waiter and is dropped — so the map never
+// accumulates unsolicited or stale ids.
+const notifyAckWaiters = new Map();
 self.addEventListener("message", (event) => {
   const m = event.data;
   if (m && m.type === ${JSON.stringify(NOTIFICATION_ACK_TYPE)} && typeof m.id === "string") {
-    notifyAcks.add(m.id);
+    const w = notifyAckWaiters.get(m.id);
+    if (w) {
+      notifyAckWaiters.delete(m.id);
+      w();
+    }
   }
 });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -256,8 +274,17 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(focusApp(event.notification.data || {}));
 });
 async function focusApp(data) {
-  const param = ${JSON.stringify(NOTIFICATION_DATA_PARAM)};
-  const url = "/?" + param + "=" + encodeURIComponent(JSON.stringify(data));
+  const dataParam = ${JSON.stringify(NOTIFICATION_DATA_PARAM)};
+  const idParam = ${JSON.stringify(NOTIFICATION_CLICK_ID_PARAM)};
+  // One id per click — stamped on the live postMessage AND the durable URL handoff,
+  // so the page dedups a live route against a fallback-navigate re-delivery.
+  const id =
+    self.crypto && self.crypto.randomUUID
+      ? self.crypto.randomUUID()
+      : String(Date.now()) + "-" + Math.random();
+  const url =
+    "/?" + dataParam + "=" + encodeURIComponent(JSON.stringify(data)) +
+    "&" + idParam + "=" + encodeURIComponent(id);
   const clients = await self.clients.matchAll({
     type: "window",
     includeUncontrolled: true,
@@ -266,7 +293,7 @@ async function focusApp(data) {
   if (!client) {
     // No window at all — cold start: open one with the routing payload encoded in
     // the URL so the page can pick it up (the one-action click survives a closed
-    // PWA). The page reads and strips ${JSON.stringify(NOTIFICATION_DATA_PARAM)} at startup.
+    // PWA). The page reads and strips the params at startup.
     await self.clients.openWindow(url);
     return;
   }
@@ -274,23 +301,34 @@ async function focusApp(data) {
   // Deliver to the (possibly still-LOADING) window with an ACK handshake. A bare
   // postMessage is LOST if the page hasn't installed its click listener yet, so
   // retry until the page acks (it dedups by \`id\` and routes once), then stop. A
-  // fully-loaded window acks on the first try — no retries, no reload. If the page
-  // never acks (stuck / never listening), fall back to the DURABLE URL handoff:
-  // navigate the window so its startup reader picks the payload up (safe — an
-  // unacked window has no click-handler state to lose).
-  const id =
-    self.crypto && self.crypto.randomUUID
-      ? self.crypto.randomUUID()
-      : String(Date.now()) + "-" + Math.random();
-  for (let i = 0; i < 20; i++) {
-    client.postMessage({ type: ${JSON.stringify(SW_MESSAGE_TYPE)}, data, id });
-    await sleep(100);
-    if (notifyAcks.has(id)) {
-      notifyAcks.delete(id);
-      return;
+  // fully-loaded window acks on the first try — no retries, no reload. The page acks
+  // the EXACT delivering worker (via \`event.source\`), so an ack always reaches this
+  // loop even mid worker-replacement.
+  let acked = false;
+  const ackP = new Promise((resolve) => {
+    notifyAckWaiters.set(id, () => {
+      acked = true;
+      resolve();
+    });
+  });
+  try {
+    for (let i = 0; i < 20 && !acked; i++) {
+      client.postMessage({ type: ${JSON.stringify(SW_MESSAGE_TYPE)}, data, id });
+      await Promise.race([ackP, sleep(100)]);
     }
+  } finally {
+    notifyAckWaiters.delete(id);
   }
-  await client.navigate(url).catch(() => {});
+  if (acked) return;
+  // Never acked within the retry horizon — the page never received/routed the live
+  // message. Fall back to the DURABLE URL handoff: navigate the window so its startup
+  // reader picks the payload up. The id rides along, so a page that DID route live
+  // still dedups across the navigation. Report a failed navigation, never swallow it.
+  try {
+    await client.navigate(url);
+  } catch (err) {
+    console.warn("notify sw: fallback navigate failed", err);
+  }
 }
 `;
 

@@ -62,7 +62,7 @@ import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
 // spot a reactor `derived.cell(...)` dep WITHOUT importing `reactor.ts` (which
 // imports the signals engine) — no import cycle, and the engine stays reachable
 // only through `reactor.ts`.
-import { DERIVED_CELL_STORE, isDerivedCellDeps } from "./reactorBrand";
+import { isDerivedCellDeps } from "./reactorBrand";
 
 /** This server process's start time (ms epoch), captured once when the serve path
  *  module loads — which, for a daemon that imports it at boot, is the process
@@ -1483,26 +1483,17 @@ function walkSurface<const S extends SurfaceSpec>(
     // resolution rule as `patch`.
     const equalsFn = cellSpec.equals ?? cellDeps.equals;
     const onWriteFn = cellDeps.onWrite;
-    // A derived cell's PUBLIC `store` is a read-only facade (its `set` throws — the
-    // graph is the one writer); the real WRITABLE backing store rides privately under
-    // `DERIVED_CELL_STORE`. Resolve the writable one here so `cellHandlers.get` and
-    // `ctxApply` both read/write the SAME store — never the throwing facade — while no
-    // external holder of the dep can reach it to poison the wire snapshot. A
-    // non-derived cell uses its `store` directly.
-    let store: CellStore<unknown>;
-    if (isDerivedCellDeps(cellDeps)) {
-      const writable = (cellDeps as unknown as Record<PropertyKey, unknown>)[
-        DERIVED_CELL_STORE
-      ] as CellStore<unknown> | undefined;
-      if (!writable) {
-        throw new Error(
-          `implementSurface: derived cell "${key}" is missing its private backing store — build it with reactor's derived.cell(...)`,
-        );
-      }
-      store = writable;
-    } else {
-      store = cellDeps.store;
-    }
+    // A derived cell's PUBLIC `store` is a read-only, stateless facade (its `get`
+    // pulls the graph node's current level, its `set` throws — the graph is the one
+    // writer). The dep carries NO writable store, so nothing a holder can reflect off
+    // it can poison the wire snapshot. `implementSurface` builds and OWNS the private
+    // serving store here — seeded from the facade's `get` (the node's current level) —
+    // and drives it exclusively through the `connect` seam below, so `cellHandlers.get`
+    // and `ctxApply` read/write this closure-private store, never anything on the dep.
+    // A non-derived cell uses its own `store` directly.
+    const store: CellStore<unknown> = isDerivedCellDeps(cellDeps)
+      ? inMemoryStore(cellDeps.store.get())
+      : cellDeps.store;
     const handlers = cellHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.cells as any)[key] as Cell<string, unknown>,

@@ -38,8 +38,8 @@ import {
   type ReadonlySignal,
   signal,
 } from "@preact/signals-core";
-import { DERIVED_CELL_BRAND, DERIVED_CELL_STORE } from "./reactorBrand";
-import { type CellStore, inMemoryStore } from "./server";
+import { DERIVED_CELL_BRAND } from "./reactorBrand";
+import type { CellStore } from "./server";
 
 // ── Graph node ───────────────────────────────────────────────────────────
 
@@ -272,18 +272,14 @@ export function scan<F, S>(
  *  runtime surgery — the same `{ store, connect }` shape `deriveCell` already
  *  uses — plus the derived brand the boot walk reads to enforce wire-read-only. */
 export interface DerivedCell<T> {
-  /** READ-ONLY by construction: `get` serves the current derived value; `set`
-   *  THROWS (the graph is the one writer). Typed `CellStore<T>` so a derived cell
-   *  still satisfies `CellImplDeps`, but the setter is a fail-fast one-writer guard,
-   *  not a live write path — no holder of this dep can poison the snapshot
-   *  `cellHandlers.get` serves. `implementSurface` writes the real backing store
-   *  through the private {@link DERIVED_CELL_STORE} handle (the `connect` seam),
-   *  never this facade. */
+  /** READ-ONLY by construction and stateless: `get` reads the node's CURRENT level
+   *  live (`node.value.peek()`); `set` THROWS (the graph is the one writer). Typed
+   *  `CellStore<T>` so a derived cell still satisfies `CellImplDeps`, but the dep
+   *  carries NO writable backing store at all — nothing reflectively reachable
+   *  (`Object.getOwnPropertySymbols`) can poison the wire snapshot. `implementSurface`
+   *  builds its OWN private serving store (seeded from this `get`) and drives it
+   *  exclusively through the `connect` seam. */
   readonly store: CellStore<T>;
-  /** The real writable backing store, reachable ONLY by `implementSurface` via the
-   *  module-private symbol — never on the public `CellStore` interface, so it is not
-   *  a poison vector the way a public `store.set` would be. */
-  readonly [DERIVED_CELL_STORE]: CellStore<T>;
   readonly connect: (cell: { set: (next: T) => void }) => void;
   /** Tear down the connect effect and the backing node. */
   readonly dispose: () => void;
@@ -302,29 +298,24 @@ export const derived = {
    *  bus.publish` gate via the `connect` setter, so the wire dedup point is
    *  unchanged and a spec-`equals`-equal recompute never crosses the wire. */
   cell<T>(node: GraphNode<T>): DerivedCell<T> {
-    // Eager seed — a pull of the node's current level. This is the derived
-    // cell's legitimate default (its serving endpoint IS the authority), the
-    // exact opposite of a mirror fabricating a default it never received. Reuse
-    // the canonical `inMemoryStore` primitive rather than re-hand-rolling the
-    // get/set-over-closure it already is.
-    const store = inMemoryStore(node.value.peek());
-
     let disposeEffect: (() => void) | undefined;
 
     return {
-      // Public store is READ-ONLY: `get` serves the current derived value; `set`
-      // throws (fail-fast one-writer guard). The real writable `store` is carried
-      // privately under `DERIVED_CELL_STORE` for `implementSurface`; no external
-      // holder can `.store.set(fake)` to poison the wire snapshot.
+      // Public store is a READ-ONLY, STATELESS facade: `get` pulls the node's
+      // current level live (its serving endpoint IS the authority — an eager
+      // truth, never a fabricated default); `set` throws (fail-fast one-writer
+      // guard). The dep carries NO writable store — `implementSurface` builds and
+      // owns its own private serving store (seeded from this `get`) and writes it
+      // only through the `connect` seam, so nothing a holder can reflect off this
+      // dep can poison the wire snapshot `cellHandlers.get` serves.
       store: {
-        get: () => store.get(),
+        get: () => node.value.peek(),
         set: () => {
           throw new Error(
             "derived cell store is graph-owned (one writer) — the graph is its only writer; do not set it directly",
           );
         },
       },
-      [DERIVED_CELL_STORE]: store,
       [DERIVED_CELL_BRAND]: true,
       connect: (cell) => {
         // The connect seam: an engine effect subscribes the node's level and

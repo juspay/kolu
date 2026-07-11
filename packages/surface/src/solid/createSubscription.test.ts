@@ -1,7 +1,11 @@
 import * as assert from "node:assert";
 import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
-import { createSubscription, type Subscription } from "./createSubscription";
+import {
+  createSubscription,
+  createUpdatedTracker,
+  type Subscription,
+} from "./createSubscription";
 
 /** Test-local: read the current value of a subscription, throwing with a
  *  descriptive message if it hasn't yielded yet. Replaces inline non-null
@@ -649,6 +653,82 @@ describe("createSubscription", () => {
         expect(seen[0]?.prev.at.getTime()).toBe(1000);
         expect(seen[0]?.next.at.getTime()).toBe(2000);
         dispose();
+      });
+    });
+
+    // The frame comparator (`framesEqual`) is private; these exercise it directly
+    // through the tracker that owns it, so a cyclic / sparse / augmented / non-JSON
+    // frame is checked WITHOUT the store's `reconcile` (which cannot hold a cyclic
+    // object at all — an orthogonal limit). A directLink passes values through
+    // unserialized, so any of these shapes can reach the comparator.
+    describe("framesEqual (via the tracker) — conservative + cycle-safe", () => {
+      it("compares a cyclic frame without a stack overflow", () => {
+        type Node = { label: string; self?: Node };
+        const tracker = createUpdatedTracker<Node>();
+        const seen: Array<{ prev: Node; next: Node }> = [];
+        tracker.updated((c) => seen.push(c));
+
+        const a: Node = { label: "x" };
+        a.self = a;
+        tracker.noteFrame(a); // first frame: seed, silent
+        // A value-equal cyclic frame (fresh object, same shape): the back-edge is
+        // compared as equal — no unbounded recursion, and silent.
+        const a2: Node = { label: "x" };
+        a2.self = a2;
+        tracker.noteFrame(a2);
+        expect(seen).toEqual([]);
+        // A genuine change to a cyclic frame still fires exactly once.
+        const b: Node = { label: "y" };
+        b.self = b;
+        tracker.noteFrame(b);
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.next.label).toBe("y");
+      });
+
+      it("does not treat a sparse array as equal to a dense-undefined array", () => {
+        const tracker = createUpdatedTracker<number[]>();
+        const seen: unknown[] = [];
+        tracker.updated((c) => seen.push(c));
+
+        // biome-ignore lint/suspicious/noSparseArray: exercising sparse-vs-dense
+        const sparse = [, ,] as unknown as number[];
+        tracker.noteFrame(sparse); // seed
+        // Holes (absent indices) differ from present `undefined` — must fire, never
+        // be suppressed.
+        const dense = [undefined, undefined] as unknown as number[];
+        tracker.noteFrame(dense);
+        expect(seen).toHaveLength(1);
+      });
+
+      it("does not ignore an augmenting own property on an array", () => {
+        type Aug = number[] & { tag?: string };
+        const tracker = createUpdatedTracker<Aug>();
+        const seen: unknown[] = [];
+        tracker.updated((c) => seen.push(c));
+
+        tracker.noteFrame([1, 2] as Aug); // seed
+        const augmented = [1, 2] as Aug;
+        augmented.tag = "changed";
+        tracker.noteFrame(augmented);
+        expect(seen).toHaveLength(1);
+      });
+
+      it("does not ignore a non-enumerable own property", () => {
+        type WithHidden = { visible: number };
+        const tracker = createUpdatedTracker<WithHidden>();
+        const seen: unknown[] = [];
+        tracker.updated((c) => seen.push(c));
+
+        tracker.noteFrame({ visible: 1 }); // seed
+        const withHidden = { visible: 1 } as WithHidden;
+        Object.defineProperty(withHidden, "hidden", {
+          value: 9,
+          enumerable: false,
+        });
+        // `Object.keys` would miss `hidden`; `getOwnPropertyNames` sees it, so the
+        // extra prop makes the frame differ and fire.
+        tracker.noteFrame(withHidden);
+        expect(seen).toHaveLength(1);
       });
     });
 

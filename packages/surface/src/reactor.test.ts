@@ -11,7 +11,6 @@ import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
 import { derived, scan, source } from "./reactor";
-import { DERIVED_CELL_STORE } from "./reactorBrand";
 import type { CellStore } from "./server";
 import {
   implementSurface,
@@ -274,10 +273,11 @@ describe("derived.cell", () => {
     // The public store is READ-ONLY (graph is the one writer): its `set` throws.
     expect(() => dc.store.set(99)).toThrow(/graph-owned/);
 
-    // `implementSurface` writes the PRIVATE backing store (via `DERIVED_CELL_STORE`);
-    // simulate that gate here, never the throwing public facade.
+    // `implementSurface` builds its OWN private serving store, seeded from the
+    // read-only facade's `get` (the node's current level), and drives it through
+    // `connect` — the dep carries no writable store. Simulate that gate here.
     const ctx = recordingCtx(
-      dc[DERIVED_CELL_STORE],
+      inMemoryStore(dc.store.get()),
       (a: number, b: number) => a === b,
     );
     dc.connect(ctx);
@@ -303,7 +303,7 @@ describe("derived.cell", () => {
     }));
     const dc = derived.cell(alerts);
     const ctx = recordingCtx(
-      dc[DERIVED_CELL_STORE],
+      inMemoryStore(dc.store.get()),
       (a: { level: string }, b: { level: string }) => a.level === b.level,
     );
     dc.connect(ctx);

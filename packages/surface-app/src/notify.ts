@@ -34,6 +34,7 @@
 
 import {
   NOTIFICATION_ACK_TYPE,
+  NOTIFICATION_CLICK_ID_PARAM,
   NOTIFICATION_DATA_PARAM,
   SW_MESSAGE_TYPE,
 } from "./index";
@@ -145,8 +146,8 @@ export function createNotify<D>(
       // The worker retries `postMessage` until we ACK (a message is dropped if this
       // page installed its listener AFTER the worker first posted — an open-but-still-
       // loading window). So: ACK every delivery (stops the retry loop), but ROUTE
-      // once per click `id` (a retry can arrive before our ack lands).
-      const routedIds = new Set<string>();
+      // once per click `id` (a retry can arrive before our ack lands, and a durable
+      // fallback navigate can re-deliver the same id after we already routed it).
       const listener = (event: MessageEvent): void => {
         const msg = event.data as
           | { type?: string; data?: unknown; id?: unknown }
@@ -154,19 +155,23 @@ export function createNotify<D>(
         if (msg?.type !== SW_MESSAGE_TYPE) return;
         const id = typeof msg.id === "string" ? msg.id : undefined;
         if (id !== undefined) {
-          navigator.serviceWorker.controller?.postMessage({
-            type: NOTIFICATION_ACK_TYPE,
-            id,
-          });
-          if (routedIds.has(id)) return; // already routed this click — a retry
-          routedIds.add(id);
+          // ACK the EXACT worker that delivered this message (`event.source`), NOT
+          // `navigator.serviceWorker.controller`: mid worker-replacement the
+          // controller can be a DIFFERENT worker than the one retrying, so acking
+          // the controller would never reach the delivering loop — it would time out
+          // and fall back to a navigate, re-routing the click. `event.source` is the
+          // sender, so the ack always lands.
+          const source = event.source as ServiceWorker | null;
+          source?.postMessage({ type: NOTIFICATION_ACK_TYPE, id });
+          if (wasRouted(id)) return; // already routed this click (retry / re-deliver)
+          markRouted(id);
         }
         route(msg.data, handler);
       };
       navigator.serviceWorker.addEventListener("message", listener);
-      // Cold-start handoff: a click with no window open opened one with the
-      // payload JSON-encoded in `NOTIFICATION_DATA_PARAM`. Consume it ONCE here
-      // (then strip it from the URL so a reload can't re-route) — the same
+      // Cold-start / fallback handoff: a click that couldn't be delivered live opened
+      // or navigated a window with the payload + id in the URL params. Consume it ONCE
+      // here (dedup by id, then strip the params so a reload can't re-route) — the same
       // validated `route` path, so a cold click and a live click behave alike.
       consumePendingClick(handler, route);
       return () =>
@@ -175,8 +180,47 @@ export function createNotify<D>(
   };
 }
 
-/** Read + retire a cold-start click payload from the URL (`NOTIFICATION_DATA_PARAM`),
- *  routing it through the same validated path as a live postMessage click. */
+/** A bounded FIFO of recently-routed click ids, kept in `sessionStorage` so it
+ *  survives the worker's durable fallback NAVIGATION (a live route followed by a
+ *  fallback navigate must not fire twice). Capped so it can never grow without
+ *  bound (F27); `sessionStorage` is per-tab and best-effort — if it is unavailable
+ *  (private mode, disabled) we simply lose cross-navigation dedup, never throw. */
+const ROUTED_IDS_KEY = "kolu.surface-app.notify.routedIds";
+const ROUTED_IDS_CAP = 64;
+
+function readRoutedIds(): string[] {
+  try {
+    const raw = sessionStorage.getItem(ROUTED_IDS_KEY);
+    const parsed: unknown = raw === null ? [] : JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function wasRouted(id: string): boolean {
+  return readRoutedIds().includes(id);
+}
+
+function markRouted(id: string): void {
+  try {
+    const ids = readRoutedIds();
+    if (ids.includes(id)) return;
+    ids.push(id);
+    while (ids.length > ROUTED_IDS_CAP) ids.shift();
+    sessionStorage.setItem(ROUTED_IDS_KEY, JSON.stringify(ids));
+  } catch {
+    // sessionStorage unavailable — cross-navigation dedup degrades, never crashes.
+  }
+}
+
+/** Read + retire a cold-start / fallback click payload from the URL
+ *  (`NOTIFICATION_DATA_PARAM` + `NOTIFICATION_CLICK_ID_PARAM`), routing it through the
+ *  same validated path as a live postMessage click. Dedups by id so a live route
+ *  followed by the worker's fallback NAVIGATION (which re-delivers the same id via the
+ *  URL) never fires the action twice. */
 function consumePendingClick<D>(
   handler: (data: D) => void,
   route: (raw: unknown, handler: (data: D) => void) => void,
@@ -184,10 +228,18 @@ function consumePendingClick<D>(
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   const encoded = url.searchParams.get(NOTIFICATION_DATA_PARAM);
+  const id = url.searchParams.get(NOTIFICATION_CLICK_ID_PARAM) ?? undefined;
   if (encoded === null) return;
-  // Strip it first — regardless of validity — so a reload never re-fires it.
+  // Strip both params first — regardless of validity — so a reload never re-fires it.
   url.searchParams.delete(NOTIFICATION_DATA_PARAM);
+  url.searchParams.delete(NOTIFICATION_CLICK_ID_PARAM);
   window.history.replaceState(window.history.state, "", url.toString());
+  // A fallback navigate re-delivers a click this page may have ALREADY routed live —
+  // skip it if so, and otherwise record it so a later re-delivery is deduped.
+  if (id !== undefined) {
+    if (wasRouted(id)) return;
+    markRouted(id);
+  }
   let raw: unknown;
   try {
     raw = JSON.parse(encoded);

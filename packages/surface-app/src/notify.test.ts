@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SW_MESSAGE_TYPE } from "./index";
+import { NOTIFICATION_ACK_TYPE, SW_MESSAGE_TYPE } from "./index";
 import { createNotify } from "./notify";
 
 interface Click {
@@ -35,25 +35,37 @@ function stubEnv(opts: {
   registration: FakeReg | null;
   permission?: NotificationPermission;
 }) {
-  const listeners = new Set<(e: { data: unknown }) => void>();
+  const listeners = new Set<(e: { data: unknown; source?: unknown }) => void>();
   const getRegistration = vi.fn().mockResolvedValue(opts.registration);
   vi.stubGlobal("navigator", {
     serviceWorker: {
       getRegistration,
-      addEventListener: (_t: string, cb: (e: { data: unknown }) => void) =>
-        listeners.add(cb),
-      removeEventListener: (_t: string, cb: (e: { data: unknown }) => void) =>
-        listeners.delete(cb),
+      addEventListener: (
+        _t: string,
+        cb: (e: { data: unknown; source?: unknown }) => void,
+      ) => listeners.add(cb),
+      removeEventListener: (
+        _t: string,
+        cb: (e: { data: unknown; source?: unknown }) => void,
+      ) => listeners.delete(cb),
     },
   });
   vi.stubGlobal("Notification", {
     permission: opts.permission ?? "granted",
     requestPermission: vi.fn().mockResolvedValue("granted"),
   });
+  // A minimal in-memory sessionStorage so the routed-id cross-navigation dedup has
+  // a store to read/write (jsdom-free unit env).
+  const store = new Map<string, string>();
+  vi.stubGlobal("sessionStorage", {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => store.set(k, v),
+    removeItem: (k: string) => store.delete(k),
+  });
   return {
     getRegistration,
-    emitMessage: (data: unknown) => {
-      for (const cb of [...listeners]) cb({ data });
+    emitMessage: (data: unknown, source?: unknown) => {
+      for (const cb of [...listeners]) cb({ data, source });
     },
     listenerCount: () => listeners.size,
   };
@@ -151,5 +163,42 @@ describe("notify.onClick", () => {
     expect(env.listenerCount()).toBe(0);
     env.emitMessage({ type: SW_MESSAGE_TYPE, data: { host: "z", id: "z" } });
     expect(seen).toHaveLength(1); // unsubscribed — no further delivery
+  });
+
+  it("acks the EXACT delivering worker (event.source) and routes once per click id", () => {
+    const env = stubEnv({ registration: null });
+    const notify = createNotify<Click>(parseClick);
+    const seen: Click[] = [];
+    notify.onClick((d) => seen.push(d));
+
+    const source = { postMessage: vi.fn() };
+    // A delivery carrying a click id: ack goes to event.source (never the page
+    // controller), and the payload routes once.
+    env.emitMessage(
+      {
+        type: SW_MESSAGE_TYPE,
+        data: { host: "hostB", id: "t7" },
+        id: "click-1",
+      },
+      source,
+    );
+    expect(source.postMessage).toHaveBeenCalledWith({
+      type: NOTIFICATION_ACK_TYPE,
+      id: "click-1",
+    });
+    expect(seen).toEqual([{ host: "hostB", id: "t7" }]);
+
+    // A retry of the SAME id (the worker posts again before the ack lands): ack
+    // again, but do NOT re-route — one action per click.
+    env.emitMessage(
+      {
+        type: SW_MESSAGE_TYPE,
+        data: { host: "hostB", id: "t7" },
+        id: "click-1",
+      },
+      source,
+    );
+    expect(source.postMessage).toHaveBeenCalledTimes(2);
+    expect(seen).toHaveLength(1);
   });
 });

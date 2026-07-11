@@ -131,7 +131,8 @@ otherwise thread at every hook.
 
 | Member | Hook | Returns |
 | --- | --- | --- |
-| cell | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a result object `{ value, pending, error, set, patch, sub }` — `value` is the accessor, `sub` is the `Subscription` (its `.updated(...)` is the change channel); mutate with `.set(v)` / `.patch(p)` |
+| cell (mutable) | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a `UseCellResult` `{ value, pending, error, set, patch, sub }` — `value` is the accessor, `sub` is the `Subscription` (its `.updated(...)` is the change channel); mutate with `.set(v)` / `.patch(p)` |
+| cell (read-only, `verbs: ["get"]`) | `.cells.X.use({ onError? })` | a `ReadOnlyUseCellResult` `{ value, pending, error, sub }` — NO `set` / `patch`, and the options accept ONLY `onError` (no `authority: "local"` branch — a get-only cell carries no wire mutation verb) |
 | collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)` |
 | stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, and `.updated(...)` |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
@@ -146,9 +147,13 @@ A `Subscription<T>` (`@kolu/surface/solid`) is a SolidJS `Accessor<T | undefined
 with `.pending()`, `.error()`, `.complete()` (latches once the stream ends
 normally; the value is then frozen), and `.updated(handler)`. **Where it sits
 differs by member:** `streams.X.use(...)` returns the `Subscription` DIRECTLY (call
-it for the value). `cells.X.use(...)` returns a result object — `{ value, pending,
-error, set, patch, sub }` — whose `.value` is the accessor and whose `.sub` is the
-`Subscription`, so the change channel is `cells.X.use(...).sub.updated(...)`.
+it for the value). A **mutable** `cells.X.use(...)` returns a `UseCellResult` — `{ value,
+pending, error, set, patch, sub }` — whose `.value` is the accessor and whose `.sub` is
+the `Subscription`, so the change channel is `cells.X.use(...).sub.updated(...)`. A
+**read-only** cell (declared `verbs: ["get"]`, e.g. a `derived.cell`) instead returns a
+`ReadOnlyUseCellResult` — `{ value, pending, error, sub }` with NO `set` / `patch` — and
+its `.use()` accepts only `onError` (no `authority: "local"` option, since a get-only cell
+has no wire mutation verb to reconcile against).
 Collection subscriptions depend on the selected delivery path. `.updated()` is the
 change half of an FRP `Dynamic`:
 subscribe to `{ prev, next }` change pairs (`CellChange<T>`) under the

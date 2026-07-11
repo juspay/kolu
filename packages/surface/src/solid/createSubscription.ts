@@ -116,16 +116,30 @@ export interface SubscriptionOptions<T, R = T> {
  *  real change.** The subscription primitives are generic over arbitrary
  *  `AsyncIterable<T>` (and a `directLink` passes values through WITHOUT
  *  serialization, and Zod admits `z.date()`/`z.map()`/`z.set()`), so a frame is not
- *  guaranteed to be JSON-shaped. Rather than a naive plain-object walk that would
- *  read two distinct `Date`s (or symbol-keyed objects) as equal and SUPPRESS a real
- *  `updated`, this handles the common cases exactly — primitives, arrays, plain
- *  objects (string keys), `Date` (by time), `Map`/`Set` — and returns `false` for
+ *  guaranteed to be JSON-shaped — nor acyclic. Rather than a naive plain-object walk
+ *  that would read two distinct `Date`s (or symbol-keyed objects) as equal and
+ *  SUPPRESS a real `updated`, this handles the common cases exactly — primitives,
+ *  arrays, plain objects, `Date` (by time), `Map`/`Set` — and returns `false` for
  *  anything it cannot prove equal (class instances, `RegExp`, typed arrays,
  *  symbol-keyed own props). A false-negative only fires a spurious `updated` with
- *  `prev ≈ next` (harmless); a false-positive would drop a change (the bug). Not
- *  exported: it is the private frame comparator for {@link Subscription.updated} and
- *  its reactive twin. */
+ *  `prev ≈ next` (harmless); a false-positive would drop a change (the bug).
+ *
+ *  Own-property comparison uses `Object.getOwnPropertyNames` (not `Object.keys`), so
+ *  a NON-ENUMERABLE own prop, an AUGMENTED array (`arr.foo = 1`), and a SPARSE array
+ *  (holes are absent from the name set, so `[,,]` ≠ `[undefined, undefined]`) are all
+ *  compared, never silently ignored. A `visiting` path-set breaks CYCLES: a frame
+ *  that loops back on itself compares equal at the back-edge instead of recursing
+ *  forever and crashing subscription consumption. Not exported: it is the private
+ *  frame comparator for {@link Subscription.updated} and its reactive twin. */
 function framesEqual(a: unknown, b: unknown): boolean {
+  return framesEqualOnPath(a, b, new Set());
+}
+
+function framesEqualOnPath(
+  a: unknown,
+  b: unknown,
+  visiting: Set<unknown>,
+): boolean {
   if (Object.is(a, b)) return true;
   if (
     typeof a !== "object" ||
@@ -135,66 +149,78 @@ function framesEqual(a: unknown, b: unknown): boolean {
   ) {
     return false;
   }
-  // Date — compare by instant. Only one being a Date ⇒ not equal.
+  // Date — compare by instant. Only one being a Date ⇒ not equal. (Non-recursive:
+  // checked before the cycle guard, never added to the path.)
   if (a instanceof Date || b instanceof Date) {
     return (
       a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
     );
   }
-  const aArr = Array.isArray(a);
-  if (aArr !== Array.isArray(b)) return false;
-  if (aArr) {
-    const bArr = b as unknown[];
-    if (a.length !== bArr.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!framesEqual(a[i], bArr[i])) return false;
+  // Cycle guard: if either side is already being compared higher on THIS path, the
+  // structure loops back — treat the back-edge as equal so a cyclic frame can't
+  // recurse forever and terminate the subscription. Path-scoped (deleted on unwind)
+  // so a DAG's shared subobject is still compared fresh on each branch.
+  if (visiting.has(a) || visiting.has(b)) return true;
+  visiting.add(a);
+  visiting.add(b);
+  try {
+    const aArr = Array.isArray(a);
+    if (aArr !== Array.isArray(b)) return false;
+    // Set — same size and every member present in both. Object members compare by
+    // identity via `has` (conservative: distinct-but-equal object members read as a
+    // change, never suppress one).
+    if (a instanceof Set || b instanceof Set) {
+      if (!(a instanceof Set && b instanceof Set) || a.size !== b.size) {
+        return false;
+      }
+      for (const v of a) if (!b.has(v)) return false;
+      return true;
     }
-    return true;
-  }
-  // Set — same size and every member present in both. Object members compare by
-  // identity via `has` (conservative: distinct-but-equal object members read as a
-  // change, never suppress one).
-  if (a instanceof Set || b instanceof Set) {
-    if (!(a instanceof Set && b instanceof Set) || a.size !== b.size) {
+    // Map — same size and every key's value equal (keys by identity via `has`).
+    if (a instanceof Map || b instanceof Map) {
+      if (!(a instanceof Map && b instanceof Map) || a.size !== b.size) {
+        return false;
+      }
+      for (const [k, v] of a) {
+        if (!b.has(k) || !framesEqualOnPath(v, b.get(k), visiting)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    // Plain objects and arrays. A non-plain, non-array prototype (class instance,
+    // RegExp, typed array, …) is treated as CHANGED — never claim an equality we
+    // can't prove, so a real change is never suppressed. Any own SYMBOL key likewise
+    // forces `false`: `getOwnPropertyNames` can't see symbol keys, so two objects
+    // differing only in a symbol-keyed value would otherwise read equal.
+    if (!aArr) {
+      const protoA = Object.getPrototypeOf(a);
+      if (protoA !== Object.prototype && protoA !== null) return false;
+      const protoB = Object.getPrototypeOf(b);
+      if (protoB !== Object.prototype && protoB !== null) return false;
+    }
+    if (
+      Object.getOwnPropertySymbols(a).length > 0 ||
+      Object.getOwnPropertySymbols(b).length > 0
+    ) {
       return false;
     }
-    for (const v of a) if (!b.has(v)) return false;
-    return true;
-  }
-  // Map — same size and every key's value equal (keys by identity via `has`).
-  if (a instanceof Map || b instanceof Map) {
-    if (!(a instanceof Map && b instanceof Map) || a.size !== b.size) {
-      return false;
+    // Full own-string-key set (enumerable AND non-enumerable). For arrays this
+    // includes `length`, every present index (holes are absent ⇒ sparse ≠ dense),
+    // and any augmenting prop — so nothing is silently ignored.
+    const aObj = a as Record<PropertyKey, unknown>;
+    const bObj = b as Record<PropertyKey, unknown>;
+    const aKeys = Object.getOwnPropertyNames(aObj);
+    if (aKeys.length !== Object.getOwnPropertyNames(bObj).length) return false;
+    for (const k of aKeys) {
+      if (!Object.hasOwn(bObj, k)) return false;
+      if (!framesEqualOnPath(aObj[k], bObj[k], visiting)) return false;
     }
-    for (const [k, v] of a) {
-      if (!b.has(k) || !framesEqual(v, b.get(k))) return false;
-    }
     return true;
+  } finally {
+    visiting.delete(a);
+    visiting.delete(b);
   }
-  // Plain objects ONLY. A non-plain prototype (class instance, RegExp, typed array,
-  // …) is treated as CHANGED — never claim an equality we can't prove, so a real
-  // change is never suppressed. Any own SYMBOL key likewise forces a `false`:
-  // `Object.keys` can't see symbol keys, so two objects differing only in a
-  // symbol-keyed value would otherwise read equal.
-  const protoA = Object.getPrototypeOf(a);
-  if (protoA !== Object.prototype && protoA !== null) return false;
-  const protoB = Object.getPrototypeOf(b);
-  if (protoB !== Object.prototype && protoB !== null) return false;
-  if (
-    Object.getOwnPropertySymbols(a).length > 0 ||
-    Object.getOwnPropertySymbols(b).length > 0
-  ) {
-    return false;
-  }
-  const aObj = a as Record<string, unknown>;
-  const bObj = b as Record<string, unknown>;
-  const aKeys = Object.keys(aObj);
-  if (aKeys.length !== Object.keys(bObj).length) return false;
-  for (const k of aKeys) {
-    if (!Object.hasOwn(bObj, k)) return false;
-    if (!framesEqual(aObj[k], bObj[k])) return false;
-  }
-  return true;
 }
 
 /** The change-iff-fired half of the Dynamic, as a standalone tracker so BOTH
