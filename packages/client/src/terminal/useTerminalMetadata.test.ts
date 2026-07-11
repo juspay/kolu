@@ -305,3 +305,170 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
     );
   });
 });
+
+describe("getMetadata identity stability (the #1714 right-panel-flicker guard)", () => {
+  // The regression: #1714 had `getMetadata` return `reprojectClock(rawTile(id))` —
+  // a FRESH object minted per call, reactive on the active host's clock — so every
+  // observation manufactured a spurious "new value". A consumer keyed on the
+  // reference (the `active` memo → `repoPath()` → the Code tab's polled queries)
+  // then blanked + remounted the tree on every incidental `lastActivityAt`/clock
+  // tick. The keyed reconcile-backed projection restores referential stability at
+  // this one boundary: the reference changes IFF the reprojected value changed, and
+  // a leaf reader (`meta.git.repoRoot`) is notified only on that leaf's change.
+  const START = 1_700_000_000_000;
+  // Only `cwd` + `git.repoRoot` matter here (the leaf a consumer tracks); a
+  // partial `git` is enough, cast past the full composed shape like the sibling
+  // reprojection tests do.
+  function meta(overrides: Record<string, unknown> = {}): TestMeta {
+    return {
+      cwd: "/p",
+      git: { repoRoot: "/p" },
+      ...overrides,
+    } as unknown as TestMeta;
+  }
+
+  it("returns the SAME reference across repeated reads, an unrelated-field tick, and a redundant re-emit", async () => {
+    await createRoot(async (dispose) => {
+      const [store, setStore] = createSignal<Record<string, TestMeta>>({
+        a: meta({ lastActivityAt: START }),
+      });
+      bag.keys = () => tids("a");
+      bag.metaOf = (id) => store()[id];
+      bag.clockOffset = () => 0;
+      const { getMetadata } = useTerminalMetadata({
+        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+      });
+      await flush();
+      const a = tids("a")[0] as TerminalId;
+
+      const r1 = getMetadata(a);
+      expect(r1).toBeDefined();
+      // Repeated reads in the same tick — one projected value, one reference.
+      expect(Object.is(r1, getMetadata(a))).toBe(true);
+
+      // An unrelated field ticks (lastActivityAt) — the reconcile keeps the record's
+      // proxy identity; a re-introduced fresh-object mint would fail this.
+      setStore((s) => ({ ...s, a: meta({ lastActivityAt: START + 5_000 }) }));
+      await flush();
+      const r2 = getMetadata(a);
+      expect(Object.is(r1, r2)).toBe(true);
+
+      // A redundant re-emit of an equal record lands identical projected values —
+      // still the same reference (reconcile is a no-op).
+      setStore((s) => ({ ...s, a: meta({ lastActivityAt: START + 5_000 }) }));
+      await flush();
+      expect(Object.is(r1, getMetadata(a))).toBe(true);
+
+      dispose();
+    });
+  });
+
+  it("does NOT notify a leaf consumer (git.repoRoot) on an incidental lastActivityAt/clock tick, but DOES on a real repoRoot change", async () => {
+    await createRoot(async (dispose) => {
+      const [store, setStore] = createSignal<Record<string, TestMeta>>({
+        a: meta({ lastActivityAt: START }),
+      });
+      const [offset, setOffset] = createSignal<number | null>(0);
+      bag.keys = () => tids("a");
+      bag.metaOf = (id) => store()[id];
+      bag.clockOffset = offset;
+      const { getMetadata } = useTerminalMetadata({
+        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+      });
+      const a = tids("a")[0] as TerminalId;
+
+      let runs = 0;
+      let seen: string | null | undefined;
+      createEffect(() => {
+        runs++;
+        seen = getMetadata(a)?.git?.repoRoot ?? null;
+      });
+      await flush();
+      expect(runs).toBe(1);
+      expect(seen).toBe("/p");
+
+      // lastActivityAt ticks — repoRoot unchanged. The #1714 flicker was this
+      // re-running (→ the Code tab remount). Post-fix the leaf reader is untouched.
+      setStore((s) => ({ ...s, a: meta({ lastActivityAt: START + 1_000 }) }));
+      await flush();
+      expect(runs).toBe(1);
+
+      // The active host's clock offset re-measures — reprojects the epoch but not
+      // repoRoot. The leaf reader must still not re-run.
+      setOffset(30_000);
+      await flush();
+      expect(runs).toBe(1);
+
+      // repoRoot ACTUALLY changes (a `cd` to a different repo) — now it re-runs.
+      setStore((s) => ({
+        ...s,
+        a: meta({ git: { repoRoot: "/q" }, lastActivityAt: START + 1_000 }),
+      }));
+      await flush();
+      expect(runs).toBe(2);
+      expect(seen).toBe("/q");
+
+      dispose();
+    });
+  });
+
+  it("keeps meta.agent referentially stable across a sibling tick, and notifies a leaf reader (agent.state) only on a real agent change", async () => {
+    await createRoot(async (dispose) => {
+      const agent = {
+        kind: "claude_code",
+        state: "thinking",
+        startedAt: START,
+      };
+      const [store, setStore] = createSignal<Record<string, TestMeta>>({
+        a: { cwd: "/p", agent } as unknown as TestMeta,
+      });
+      bag.keys = () => tids("a");
+      bag.metaOf = (id) => store()[id];
+      bag.clockOffset = () => 0;
+      const { getMetadata } = useTerminalMetadata({
+        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+      });
+      await flush();
+      const a = tids("a")[0] as TerminalId;
+      const agent1 = (getMetadata(a) as { agent?: unknown }).agent;
+
+      let stateRuns = 0;
+      let seenState: unknown;
+      createEffect(() => {
+        stateRuns++;
+        seenState = (getMetadata(a) as { agent?: { state?: string } })?.agent
+          ?.state;
+      });
+      await flush();
+      expect(stateRuns).toBe(1);
+      expect(seenState).toBe("thinking");
+
+      // A sibling top-level field ticks; the agent sub-object is unchanged. The
+      // `reconcile` keeps the agent proxy, and the state leaf reader does not re-run.
+      setStore((s) => ({
+        ...s,
+        a: { cwd: "/p2", agent } as unknown as TestMeta,
+      }));
+      await flush();
+      expect(
+        Object.is(agent1, (getMetadata(a) as { agent?: unknown }).agent),
+      ).toBe(true);
+      expect(stateRuns).toBe(1);
+
+      // The agent's own state changes — `reconcile` updates the `state` leaf IN
+      // PLACE (keeping the agent proxy), so a leaf reader re-runs, granularly.
+      setStore((s) => ({
+        ...s,
+        a: {
+          cwd: "/p2",
+          agent: { ...agent, state: "tool_use" },
+        } as unknown as TestMeta,
+      }));
+      await flush();
+      expect(stateRuns).toBe(2);
+      expect(seenState).toBe("tool_use");
+
+      dispose();
+    });
+  });
+});

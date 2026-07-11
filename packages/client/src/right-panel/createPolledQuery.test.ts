@@ -347,4 +347,53 @@ describe("createPolledQuery", () => {
     expect(res.v).toBe("content"); // last content retained
     expect(res.seen).toEqual([]); // no toast
   });
+
+  it("a fresh-reference-but-equal-value input does NOT blank or re-query (the #1714 contract)", async () => {
+    // The regression: `getMetadata` handed consumers a fresh object per tick, so
+    // `input` (keyed on `repoPath` off that object) re-evaluated to a NEW
+    // `{ repoPath }` object with the SAME value on every incidental metadata tick.
+    // The pre-fix `on(() => ({ i: input(), host }))` re-fired on that reference
+    // churn — blanking the value to `undefined`, going `pending`, and re-subscribing
+    // the pulse — which remounted the Code tab (the flicker). The value-deduped input
+    // key must make an equal-value re-eval a no-op: value retained, never pending, no
+    // extra query.
+    const res = await new Promise<{
+      v: unknown;
+      calls: number;
+      pending: boolean;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const [tick, setTick] = createSignal(0);
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          // A fresh `{ repoPath: "A" }` object every eval; `tick` invalidates the
+          // accessor WITHOUT changing the value — the exact churn #1714 fed in.
+          input: () => {
+            tick();
+            return { repoPath: "A" };
+          },
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async (i) => {
+            calls += 1;
+            return `${i.repoPath}#${calls}`;
+          },
+        });
+        await flush();
+        pulse(); // initial snapshot → "A#1"
+        await flush();
+
+        // An upstream reference tick: `input()` re-evals to a NEW object, same value.
+        setTick(1);
+        await flush();
+        resolve({ v: q(), calls, pending: q.pending() });
+        dispose();
+      });
+    });
+    expect(res.v).toBe("A#1"); // value retained — NOT blanked to undefined
+    expect(res.pending).toBe(false); // never went pending (the "Loading…" flash)
+    expect(res.calls).toBe(1); // no re-subscribe → no extra query
+  });
 });
