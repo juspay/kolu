@@ -88,6 +88,35 @@ transport, keyed the same as the map.
   (`implement` is re-exported from `@kolu/surface/peer-server`.)
 </Aside>
 
+## The reactor (reactive bridge, phase 0)
+
+`@kolu/surface/reactor` is the one exit from a backend signal graph into the
+cell machinery — state is a signal, derived state a computed, and the wire is
+the signal boundary that snapshots and replays. The signals engine
+(`@preact/signals-core`) is wrapped here and lint-banned everywhere else, so this
+wrapper is the graph's only exit by construction. Phase 0 exports exactly three
+symbols.
+
+| Export | Signature | Role |
+| --- | --- | --- |
+| `source(install, initial?)` | `(SourceInstall<T>, T?) → Source<T>` | an external push input; `install(emit)` returns an uninstall fn, installed lazily on the first subscriber and torn down when the last leaves. `initial` seeds the level (else `undefined` until the first frame) |
+| `scan(src, initial, step)` | `(Source<F>, S, (state, frame) => S) → ScanNode<S>` | fold a source's occurrences into a level; each emission steps once. A step returning the prev reference (`===`) means "no change" — the level holds and nothing publishes |
+| `derived.cell(node)` | `(GraphNode<T>) → DerivedCell<T>` | publish a graph node as a cell — the `{ store, connect }` deps for an `implementSurface` `cells.<key>` slot |
+
+Three guarantees ride phase 0:
+
+- **Wire-read-only by construction.** A `derived.cell` dep is branded; the boot walk crashes if that cell declares any write verb (`set` / `patch` / `test__set`). The graph is the member's only writer.
+- **Dedup at the member's `equals`, once.** A derived value flows through the member's own `equals → onWrite → store.set → bus.publish` gate (the `connect` seam), so the wire dedup point is unchanged and an `equals`-equal recompute never crosses the wire.
+- **Never fabricates.** The cell seeds from its node's current level by an eager pull at wiring (a throw at seed time is a boot crash) — truth, never a fabricated default served before the value exists.
+
+`scan` carries the **stop-hold error law**: a step that throws stops the
+derivation (its source subscription is disposed), holds the last value (never a
+fabricated reset), logs loudly, and latches `stopped` — a `ReadonlySignal<boolean>`
+an app can fold into the member's `liveWhen` so a frozen derivation reads
+unhealthy rather than green over stale data. It never heals; recovery is a
+restart. Streams and events deliberately do **not** ride the graph — a signal
+conflates same-batch frames, and a stream must see every one.
+
 ## Consuming in SolidJS
 
 `surfaceClient(surface, link)` returns a client with a bound accessor per
@@ -108,6 +137,18 @@ A cell's `authority` is `"server"` (default — every push reconciles) or
 `"local"` (the local store wins after the first server yield). An `inputFn`
 that returns `null` pauses a stream or event. `surfaceClients(link, map)` splits
 one combined transport into a sibling client per surface.
+
+The accessor these hooks return is a `Subscription<T>` (`@kolu/surface/solid`) —
+a SolidJS `Accessor<T | undefined>` with `.pending()`, `.error()`, `.complete()`
+(latches once the stream ends normally; the value is then frozen), and
+`.updated(handler)`. `.updated()` is the change half of an FRP `Dynamic`:
+subscribe to `{ prev, next }` change pairs (`CellChange<T>`) under the
+**change-iff-fired** law — a first frame is a value, not a change and never
+fires; a reconnect snapshot equal (by value) to the last-seen frame never fires;
+a frame that differs fires exactly once, with `prev` the last-seen value. It
+returns a `Dispose`. Optional for the same reason as `complete` — a
+hand-assembled `Subscription`-shaped value may omit it; every subscription this
+package's factories mint provides it.
 
 <Aside type="caution" title="Wire links must carry a watchdog">
   `surfaceClient` throws if handed a bare wire link — a `websocketLink` /

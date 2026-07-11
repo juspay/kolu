@@ -120,3 +120,29 @@ declares it; `buildInfoServer({ buildInfo? })` and `surfaceAppServer({ buildInfo
 - By default the package ships `SW_SOURCE`, a self-destructing retirement worker at `/sw.js`, plus `retireServiceWorker()` to retire any worker a prior build registered.
 - The one opt-in is a **fetch-less** notification worker (`NOTIFICATION_SW_SOURCE`), registered via `registerOrRetireServiceWorker()`. An app registers (notify) **or** retires (none) — never both.
 - Gate all service-worker logic on `window.isSecureContext`, never `location.protocol === "https:"`.
+
+## OS notifications
+
+`createNotify<D>()` (`@kolu/surface-app/notify`) is the last hop of cross-host
+attention: showing an OS notification from a PWA through the origin's **one**
+service worker (the fetch-less `NOTIFICATION_SW_SOURCE` above). `D` is the app's
+own click-routing payload shape (kolu: `{ host, id }`). It returns a `Notify<D>`:
+
+| Method | Role |
+| --- | --- |
+| `requestPermission()` | request OS permission; resolves `true` when granted (idempotent). Delivery is a no-op until granted |
+| `show({ tag, title, body?, icon?, data })` | show — or replace, by `tag` — a notification. A no-op (never a throw or a hang) where there is no worker or no permission, so a caller may fire-and-forget |
+| `close(tag)` | close any open notification(s) carrying `tag` (e.g. when its attention clears) |
+| `onClick(handler)` | subscribe to clicks; the handler receives the clicked notification's `data`; returns an unsubscribe fn |
+
+Two landmines are why delivery is a framework piece — one seam at the origin's
+one service worker — rather than N windows each attempting their own:
+
+- **`getRegistration()`, never `.ready`.** `navigator.serviceWorker.ready` resolves only when an active worker exists — in any context where none registers (a dev server, a degraded boot) it hangs forever, silently killing the notification path. `getRegistration()` answers honestly, including "there isn't one".
+- **The worker shows it, never `new Notification()`.** In an installed (standalone) PWA the page-context constructor throws "Illegal constructor" — delivery must go through `registration.showNotification()`.
+
+The `tag` carries the multi-window discipline: two open windows must not both ping
+you, and a tag-keyed `show` makes the OS **replace** the same-tag notification
+instead of stacking a duplicate. The click payload comes back to `onClick` as the
+opaque `data` the app routes — the framework does not know what clicking attention
+means.
