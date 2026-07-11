@@ -2,16 +2,19 @@
  * The live status of this host's pty-host daemon (kaval), as the server's
  * supervisor endpoint reports it on the `daemonStatus` surface collection.
  *
- * A module-level singleton subscription (one local host, keyed `"local"`),
- * consumed by the ChromeBar's KAVAL rail column and App.tsx's DegradedCanvas
- * gate — so the UI can tell "the daemon is down" apart from "you have no
- * terminals" (B2, the empty-canvas-lie fix).
+ * The `daemonStatus` collection rides the active host's RETAINED per-host wire
+ * owner (`activeScope().wire.daemonStatus`, W9 — opened once per host in
+ * `hostScope/createHostWire`, held across switch-away); this module reads
+ * through that window, keyed `"local"` for the active host's kaval. Consumed by
+ * the ChromeBar's KAVAL rail column and App.tsx's DegradedCanvas gate — so the
+ * UI can tell "the daemon is down" apart from "you have no terminals" (B2, the
+ * empty-canvas-lie fix).
  *
  * The PURE presentation (tables + projections — `DAEMON_STATE_PRESENTATION`,
  * `kavalDot`, `serverDot`, `toneDot`, `formatUptime`, …) lives in the
  * side-effect-free `./daemonPresentation`, re-exported here so existing call
- * sites are unchanged. This module owns only the wire-coupled bits: the live
- * subscription and the accessors over it.
+ * sites are unchanged. This module owns only the wire-coupled bits: the
+ * accessors/windows over that retained per-host subscription.
  */
 
 import {
@@ -173,7 +176,7 @@ export function reprojectDaemonStatus(
  *  `HostDaemonChips`'s per-host `daemon` memo, so the repo has a single reprojection
  *  concept rather than two identical bodies kept in sync by hand. A memo is already a
  *  callable accessor, so this IS `localDaemonStatus` — no pass-through wrapper. Module-
- *  lifetime root like `sub` above. */
+ *  lifetime root like `sharedDaemonTransportLive` above. */
 export const localDaemonStatus = createRoot(() =>
   createMemo((): DaemonStatus | undefined =>
     reprojectDaemonStatus(activeHost(), localDaemonEntry()?.()),

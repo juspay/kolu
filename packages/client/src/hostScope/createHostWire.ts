@@ -24,7 +24,7 @@
  *  instead inside this per-host owner — created LAZILY on first activation,
  *  RETAINED across every switch-away, DISPOSED only when the host leaves
  *  `padiMap.entries` — a switch-back has NO resubscribe at all, so no pending
- *  window can exist. The exported wire facades (`wire.ts`) and the metadata /
+ *  window can exist. The exported wire facades (`hostScope/activeWire.ts`) and the metadata /
  *  daemon readers (`useTerminalMetadata`, `useDaemonStatus`) become WINDOWS over
  *  `activeScope().wire`, reading whichever retained host is active.
  *

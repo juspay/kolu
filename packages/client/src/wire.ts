@@ -215,7 +215,8 @@ export const client = link;
 // The per-HOST wire subscriptions — activityFeed, saved session, the terminal-list keys,
 // the `terminals` metadata collection, and daemon status — moved OUT of here at W9: they
 // now live in the RETAINED per-host `scopedByEntry` owner (`hostScope/createHostWire`),
-// read through `activeScope().wire.*` by the facades below, so a switch-BACK has no
+// read through `activeScope().wire.*` by the facades in `./hostScope/activeWire`, so a
+// switch-BACK has no
 // resubscribe and no pending window (the ~1s canvas rebuild W7's K1 left behind). What
 // STAYS in this app-lifetime `createRoot` is the state that is NOT per-host-retained:
 //   - `preferences` — HOST-INDEPENDENT (no host to capture);
