@@ -10,12 +10,14 @@
  *  and DISPOSED only when the host leaves `padiMap.entries`. `ctx.isActive` is
  *  the owner's "am I the shown host" accessor.
  *
- *  What is DELIBERATELY NOT here (K1): the wire subscriptions (the `terminals`
- *  collection, saved session, activity feed) stay active-host-only via
- *  `padiMap.useEntry(activeHost)` re-keying in `wire.ts` — the owner retains
- *  cheap client-owned state, never sockets. (A future improvement — retaining
- *  those subs for instant switch-back — is consciously excluded from W7; see the
- *  atlas W7 stamp.)
+ *  The wire subscriptions (K1, completed by W9): the per-host readouts —
+ *  `terminalKeys`, the `terminals` collection, saved session, activity feed, and
+ *  daemon status — now live here too, in the `wire` member (`createHostWire`),
+ *  RETAINED across switch-away so a switch-back has no resubscribe and no pending
+ *  window. (W7 deliberately left them keyed on `activeHost`; W9 moves them in — the
+ *  atlas W7/W9 stamps.) The byte streams stay OUT: xterm/WebGL and the terminal
+ *  attach stream are active-host-only (a sub-second re-attach paint remains), so no
+ *  GL context is retained per host.
  *
  *  The `scopedByEntry` call is built through `createSharedRoot` — the in-repo
  *  primitive for a lazy-once value inside a never-disposed `createRoot` (the
@@ -35,6 +37,7 @@ import { createSharedRoot } from "../createSharedRoot";
 import { activeHost, padiMap } from "../wire";
 import { createCamera, type HostCamera } from "./createCamera";
 import { createHostPrefs, type HostPrefs } from "./createHostPrefs";
+import { createHostWire, type HostWire } from "./createHostWire";
 import {
   createSessionRestore,
   type HostRestoreLatch,
@@ -47,17 +50,21 @@ export interface HostScope {
   prefs: HostPrefs;
   camera: HostCamera;
   restore: HostRestoreLatch;
+  /** The host's retained wire subscriptions (W9) — read through
+   *  `activeScope().wire` by the exported facades and the metadata/daemon readers. */
+  wire: HostWire;
 }
 
 const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
   scopedByEntry(
     padiMap,
     activeHost,
-    (host: HostKey): HostScope => ({
+    (host: HostKey, ctx): HostScope => ({
       view: createViewState(host),
       prefs: createHostPrefs(host),
       camera: createCamera(),
       restore: createSessionRestore(),
+      wire: createHostWire(host, ctx),
     }),
   ),
 );

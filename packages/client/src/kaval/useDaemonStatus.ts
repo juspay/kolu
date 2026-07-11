@@ -26,6 +26,7 @@ import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
+import { activeScope } from "../hostScope/hostScopes";
 import { persistedPref } from "../persistedPref";
 import { getClockNow } from "../time/clock";
 import { activeHost, app, padiMap } from "../wire";
@@ -130,14 +131,19 @@ export function daemonChannelLive(): boolean {
 // (`daemonTransportLive`, `app.health().live`) is unchanged: padi and kolu are
 // siblings over the ONE socket, so the ws that delivers this is the same one
 // `app.health()` watches.
-// A host-scoped standing readout — rides `useEntry(activeHost)` under an app-scope
-// `createRoot` (module-lifetime), so it re-keys when the active host switches.
-const sub = createRoot(() =>
-  padiMap.useEntry(activeHost).collections.daemonStatus.use({
-    keys: () => [encodeHostLocation(LOCAL_LOCATION)],
-    onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
-  }),
-);
+//
+// The `daemonStatus` collection now RIDES the active host's RETAINED per-host owner
+// (`activeScope().wire.daemonStatus`, W9) — opened once per host in `createHostWire` and
+// held across switch-away — instead of a `useEntry(activeHost)` re-key under an app-scope
+// `createRoot` here, which reopened it from PENDING on every switch. That pending window
+// was a direct cause of the ~1s switch-back rebuild: `daemonStatusPending()` flipped true,
+// so `resolveCanvasMode` left `workspace` and `App.tsx`'s `<Switch>` unmounted the canvas
+// arm. Retained, a switch-BACK reads the held status with `pending()` already false, so the
+// canvas never leaves `workspace`. This accessor is the WINDOW onto whichever host is
+// active — the active host's LOCAL kaval status cell, `undefined` (⇒ pending) before its
+// first frame OR during the removal race (no active host to read this tick).
+const localDaemonEntry = () =>
+  activeScope()?.wire.daemonStatus.byKey(encodeHostLocation(LOCAL_LOCATION));
 
 /** Reproject a `DaemonStatus`'s `startedAt` from the serving host's clock onto THIS
  *  browser's clock (via `padiMap.entry(host).clock.toLocal`) — the foreign-clock fence
@@ -173,10 +179,7 @@ export function reprojectDaemonStatus(
  *  lifetime root like `sub` above. */
 export const localDaemonStatus = createRoot(() =>
   createMemo((): DaemonStatus | undefined =>
-    reprojectDaemonStatus(
-      activeHost(),
-      sub.byKey(encodeHostLocation(LOCAL_LOCATION))?.(),
-    ),
+    reprojectDaemonStatus(activeHost(), localDaemonEntry()?.()),
   ),
 );
 
@@ -230,7 +233,7 @@ export function padiLinkState(): PadiLink | undefined {
  *  subscription, which is itself the pre-first-value state, so treat that as
  *  pending too. */
 export function daemonStatusPending(): boolean {
-  return sub.byKey(encodeHostLocation(LOCAL_LOCATION))?.pending() ?? true;
+  return localDaemonEntry()?.pending() ?? true;
 }
 
 /** Mirrors `makeSession`'s default `connectTimeoutMs` (`@kolu/surface-remote`'s
