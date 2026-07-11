@@ -17,6 +17,16 @@ import {
 import { createStore } from "solid-js/store";
 import { writeWrappedValue } from "./writeValue";
 
+/** A teardown handle — call to unsubscribe. */
+export type Dispose = () => void;
+
+/** A value change on a cell subscription: the value BEFORE this frame and the
+ *  value AFTER. Delivered by {@link Subscription.updated}. */
+export interface CellChange<T> {
+  readonly prev: T;
+  readonly next: T;
+}
+
 /**
  * A SolidJS Accessor backed by a server stream.
  *
@@ -30,6 +40,27 @@ export interface Subscription<T> extends Accessor<T | undefined> {
   readonly error: Accessor<Error | undefined>;
   /** True while waiting for the first event from the stream. */
   readonly pending: Accessor<boolean>;
+  /** Subscribe to CHANGES — the missing half of an FRP `Dynamic`. Fires under
+   *  the **change-iff-fired** law:
+   *
+   *    - a FIRST frame is a value, not a change — it never fires (learning the
+   *      current truth is not news that something happened);
+   *    - a reconnect snapshot EQUAL to the last-seen value never fires (a link
+   *      flap replaying current truth changed nothing);
+   *    - a frame that DIFFERS fires exactly once, with `prev` = the last-seen
+   *      value.
+   *
+   *  Equality is by value (a reconnect re-serializes the same content into a
+   *  fresh object), matching the producer's own equals-dedup on deltas — so a
+   *  consumer that needs "what changed" gets honest `{prev, next}` pairs without
+   *  hand-holding a previous frame or classifying reconnect snapshots. A handler
+   *  added mid-stream sees only changes from that point on (read the accessor for
+   *  "what is"). Returns a `Dispose` to unsubscribe.
+   *
+   *  Optional for the same reason as `complete`: a hand-assembled
+   *  `Subscription`-shaped value need not provide it; every subscription minted
+   *  by this module's factories does. */
+  readonly updated?: (handler: (change: CellChange<T>) => void) => Dispose;
   /** True once the stream has ENDED NORMALLY (a typed end — never on abort).
    *  Latches permanently: once true, this subscription's value is FROZEN —
    *  it will never update again. Without this fact, an ended subscription
@@ -74,6 +105,221 @@ export interface SubscriptionOptions<T, R = T> {
    *  never reuses an ended stream. "A disposed subscription cannot report anything"
    *  extends here: an aborted subscription must not fire `onComplete`. */
   onComplete?: () => void;
+}
+
+/** Structural value equality for subscription frames — the change-iff-fired law's
+ *  "equal reconnect snapshot never fires" needs VALUE equality, since a reconnect
+ *  re-serializes the same content into a fresh object (reference equality would
+ *  misread it as a change).
+ *
+ *  **Conservative by construction: it NEVER yields a false-positive that hides a
+ *  real change.** The subscription primitives are generic over arbitrary
+ *  `AsyncIterable<T>` (and a `directLink` passes values through WITHOUT
+ *  serialization, and Zod admits `z.date()`/`z.map()`/`z.set()`), so a frame is not
+ *  guaranteed to be JSON-shaped — nor acyclic. Rather than a naive plain-object walk
+ *  that would read two distinct `Date`s (or symbol-keyed objects) as equal and
+ *  SUPPRESS a real `updated`, this handles the common cases exactly — primitives,
+ *  arrays, plain objects, `Date` (by time), `Map`/`Set` — and returns `false` for
+ *  anything it cannot prove equal (class instances, `RegExp`, typed arrays,
+ *  symbol-keyed own props). A false-negative only fires a spurious `updated` with
+ *  `prev ≈ next` (harmless); a false-positive would drop a change (the bug).
+ *
+ *  Own-property comparison uses `Object.getOwnPropertyNames` (not `Object.keys`), so
+ *  a NON-ENUMERABLE own prop, an AUGMENTED array (`arr.foo = 1`), and a SPARSE array
+ *  (holes are absent from the name set, so `[,,]` ≠ `[undefined, undefined]`) are all
+ *  compared, never silently ignored. A path-scoped `Pairing` breaks CYCLES *by
+ *  topology*: a frame that loops back compares equal at the back-edge only when it
+ *  closes to the SAME counterpart on the OTHER side — so a self-cycle (`a.self === a`)
+ *  and a child-cycle (`b.self` points elsewhere) DIVERGE here instead of reading
+ *  equal, never suppressing a real change a consumer could observe via `x.self === x`.
+ *  Not exported: it is the private frame comparator for {@link Subscription.updated}
+ *  and its reactive twin.
+ *
+ *  Why hand-rolled and not `dequal` / `fast-deep-equal` (both already in the
+ *  lockfile): a deep-equal here MUST be cycle-safe (a `directLink` frame can be
+ *  cyclic) AND never false-positive (a false-positive DROPS a real change — the
+ *  bug). `dequal` and `fast-deep-equal` recurse without cycle tracking, so a
+ *  cyclic frame stack-overflows rather than compares — the exact case this
+ *  comparator's path-scoped `Pairing` is built for. The narrow, verifiable "prove
+ *  equal or return false" contract is the point; a general library that can't
+ *  make that guarantee is the wrong tool, not a missing dependency. */
+function framesEqual(a: unknown, b: unknown): boolean {
+  return framesEqualOnPath(a, b, { aToB: new Map(), bToA: new Map() });
+}
+
+/** Path-scoped correspondence between the two graphs' objects currently on the
+ *  traversal stack. A revisited object closes a cycle: it is consistent only when it
+ *  maps to the counterpart it was first paired with (both directions), so different
+ *  cyclic topologies compare unequal rather than short-circuiting to `true`. Entries
+ *  are added on descent and deleted on unwind, so a DAG's shared subobject is still
+ *  compared fresh on each separate branch. */
+interface Pairing {
+  aToB: Map<unknown, unknown>;
+  bToA: Map<unknown, unknown>;
+}
+
+function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
+  if (Object.is(a, b)) return true;
+  if (
+    typeof a !== "object" ||
+    typeof b !== "object" ||
+    a === null ||
+    b === null
+  ) {
+    return false;
+  }
+  // Date — compare by instant. Only one being a Date ⇒ not equal. (Non-recursive:
+  // checked before the cycle guard, never added to the path.)
+  if (a instanceof Date || b instanceof Date) {
+    return (
+      a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
+    );
+  }
+  // Cycle guard: if either side is already on THIS path, the structure loops back.
+  // The back-edge is equal ONLY when it closes to the corresponding counterpart on
+  // both sides (`a` was paired with exactly `b` before) — otherwise the two graphs
+  // have different cyclic topology and must compare unequal. Comparing only "seen a
+  // node before" would read a self-cycle equal to a child-cycle and SUPPRESS a real
+  // change. Path-scoped (deleted on unwind) so a DAG's shared subobject compares
+  // fresh on each branch.
+  if (pairing.aToB.has(a) || pairing.bToA.has(b)) {
+    return pairing.aToB.get(a) === b && pairing.bToA.get(b) === a;
+  }
+  pairing.aToB.set(a, b);
+  pairing.bToA.set(b, a);
+  try {
+    const aArr = Array.isArray(a);
+    if (aArr !== Array.isArray(b)) return false;
+    // Set — same size and every member present in both. Object members compare by
+    // identity via `has` (conservative: distinct-but-equal object members read as a
+    // change, never suppress one).
+    if (a instanceof Set || b instanceof Set) {
+      if (!(a instanceof Set && b instanceof Set) || a.size !== b.size) {
+        return false;
+      }
+      for (const v of a) if (!b.has(v)) return false;
+      return true;
+    }
+    // Map — same size and every key's value equal (keys by identity via `has`).
+    if (a instanceof Map || b instanceof Map) {
+      if (!(a instanceof Map && b instanceof Map) || a.size !== b.size) {
+        return false;
+      }
+      for (const [k, v] of a) {
+        if (!b.has(k) || !framesEqualOnPath(v, b.get(k), pairing)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    // Plain objects and arrays. A non-plain, non-array prototype (class instance,
+    // RegExp, typed array, …) is treated as CHANGED — never claim an equality we
+    // can't prove, so a real change is never suppressed. Any own SYMBOL key likewise
+    // forces `false`: `getOwnPropertyNames` can't see symbol keys, so two objects
+    // differing only in a symbol-keyed value would otherwise read equal.
+    if (!aArr) {
+      const protoA = Object.getPrototypeOf(a);
+      if (protoA !== Object.prototype && protoA !== null) return false;
+      const protoB = Object.getPrototypeOf(b);
+      if (protoB !== Object.prototype && protoB !== null) return false;
+    }
+    if (
+      Object.getOwnPropertySymbols(a).length > 0 ||
+      Object.getOwnPropertySymbols(b).length > 0
+    ) {
+      return false;
+    }
+    // Full own-string-key set (enumerable AND non-enumerable). For arrays this
+    // includes `length`, every present index (holes are absent ⇒ sparse ≠ dense),
+    // and any augmenting prop — so nothing is silently ignored.
+    const aObj = a as Record<PropertyKey, unknown>;
+    const bObj = b as Record<PropertyKey, unknown>;
+    const aKeys = Object.getOwnPropertyNames(aObj);
+    if (aKeys.length !== Object.getOwnPropertyNames(bObj).length) return false;
+    for (const k of aKeys) {
+      if (!Object.hasOwn(bObj, k)) return false;
+      if (!framesEqualOnPath(aObj[k], bObj[k], pairing)) return false;
+    }
+    return true;
+  } finally {
+    pairing.aToB.delete(a);
+    pairing.bToA.delete(b);
+  }
+}
+
+/** The change-iff-fired half of the Dynamic, as a standalone tracker so BOTH
+ *  subscription factories share ONE implementation of the law (only the value
+ *  type differs). `lastSeen` is tracked from the very first frame — independent
+ *  of whether any handler is registered — so "a first frame never fires" holds
+ *  no matter when a consumer subscribes.
+ *
+ *   - `noteFrame(next)` — call on every stream frame (before the store write):
+ *     the first frame seeds `lastSeen` silently; an equal frame (a reconnect
+ *     snapshot) is silent; a differing frame fans out one `{prev, next}` change.
+ *   - `reset()` — a fresh subscription (the reactive factory's input change)
+ *     re-arms the first-frame rule; handlers survive (they belong to the caller).
+ *   - `updated(handler)` — subscribe; returns a `Dispose`. */
+export function createUpdatedTracker<V>(): {
+  noteFrame: (next: V) => void;
+  updated: (handler: (change: CellChange<V>) => void) => Dispose;
+  reset: () => void;
+} {
+  const handlers = new Set<(change: CellChange<V>) => void>();
+  // A discriminated union, not `{ has, value }`: there is no "unseen with a
+  // value" state to represent, and the unseen arm carries no `V` — so nothing
+  // manufactures an arbitrary `undefined as V` to satisfy the type.
+  let lastSeen: { kind: "unseen" } | { kind: "seen"; value: V } = {
+    kind: "unseen",
+  };
+  return {
+    noteFrame(next) {
+      if (lastSeen.kind === "unseen") {
+        lastSeen = { kind: "seen", value: next }; // first frame: a value, not a change
+        return;
+      }
+      // Hot-path short-circuit: with no handler registered, the baseline just
+      // advances to the latest frame in O(1) — a handler added later sees only
+      // changes FROM that point on, so it never needs the intervening compares.
+      // This keeps the deep `framesEqual` off every cell/stream/collection frame
+      // for the overwhelmingly common no-`updated`-handler case.
+      if (handlers.size === 0) {
+        lastSeen = { kind: "seen", value: next };
+        return;
+      }
+      if (framesEqual(lastSeen.value, next)) return; // equal reconnect snapshot: silent
+      const prev = lastSeen.value;
+      lastSeen = { kind: "seen", value: next };
+      // Hand consumers a SNAPSHOT: the store writes these frames through Solid's
+      // `reconcile`, which adopts a frame and mutates it on the next write — a
+      // retained `{prev, next}` would silently mutate out from under the
+      // consumer. Clone only on a firing change with subscribers, so the hot
+      // no-op path pays nothing. (`framesEqual` above ran on the pre-write
+      // values, so the baseline compare is unaffected by the mutation.)
+      const change: CellChange<V> = {
+        prev: structuredClone(prev),
+        next: structuredClone(next),
+      };
+      // Guard each handler: one consumer's throwing `updated` callback must not
+      // abort fan-out to the others, and — critically for a SHARED subscription
+      // behind the keyed cache — must not escape into the stream-consume `catch`,
+      // where it would be misreported as an upstream stream error and terminate
+      // the iterator for EVERY cached consumer. Report loudly, keep going.
+      for (const h of [...handlers]) {
+        try {
+          h(change);
+        } catch (err) {
+          console.error("subscription `updated` handler threw", err);
+        }
+      }
+    },
+    updated(handler) {
+      handlers.add(handler);
+      return () => handlers.delete(handler);
+    },
+    reset() {
+      lastSeen = { kind: "unseen" };
+    },
+  };
 }
 
 /** Convert an async stream into a SolidJS signal. `source` receives the
@@ -127,6 +373,10 @@ export function createSubscription<T, R = T>(
     writeWrappedValue(setStore, next as T | R | undefined);
   }
 
+  // The change-iff-fired half of the Dynamic — the ONE law shared with
+  // `createReactiveSubscription` via `createUpdatedTracker`.
+  const tracker = createUpdatedTracker<T | R>();
+
   function toError(err: unknown): Error {
     return err instanceof Error ? err : new Error(String(err));
   }
@@ -147,7 +397,9 @@ export function createSubscription<T, R = T>(
       const iterable = await source(abortSignal);
       for await (const item of iterable) {
         if (abortSignal.aborted) break;
-        updateValue(reduce ? reduce(store.v as T | R, item) : item);
+        const next = reduce ? reduce(store.v as T | R, item) : (item as T | R);
+        tracker.noteFrame(next); // fire `updated` on a genuine change, before the write
+        updateValue(next);
         if (pending()) setPending(false);
         if (error()) setError(undefined);
       }
@@ -173,6 +425,7 @@ export function createSubscription<T, R = T>(
     error,
     pending,
     complete,
+    updated: tracker.updated,
   }) as Subscription<T | R>;
 
   if (options?.onError) {

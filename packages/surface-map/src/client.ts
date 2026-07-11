@@ -235,6 +235,17 @@ function delegateSubscription<T>(
     pending: () => current().pending(),
     error: () => current().error(),
     complete: () => current().complete?.() ?? false,
+    // NO `updated` here — deliberately left absent (it is OPTIONAL on
+    // `Subscription<T>`, so the type is still satisfied). `updated` carries a hard
+    // law (a differing frame fires exactly once with the true `prev`); a delegated
+    // re-keyed sub CANNOT honor it — across a re-key the registration ends on the
+    // old sub and the fresh sub's first frame is a value, not a change, so a
+    // genuine host-switch value change would be silently dropped. A present-but-
+    // law-violating `updated` is worse than its absence: absence steers any
+    // consumer that needs honest change pairs onto the `entry(key)` path (what
+    // `watchByEntry` does), which hands back the base sub untouched. If
+    // "changes of the currently-viewed entry" is ever genuinely wanted, give it a
+    // distinct documented name rather than overloading the law-bearing `updated`.
   }) as Subscription<T>;
 }
 
@@ -586,8 +597,15 @@ export function connectSurfaceMap<
   return { entries, live, codec: map.codec, entry, useEntry, dispose };
 }
 
-// `scopedByEntry` — per-key CLIENT-side state owned by `entries` membership (the
-// retained-owner dual of `useEntry`'s dispose-on-switch). Lives here on the
-// inherently-Solid `@kolu/surface-map/client` entrypoint (the package has no
-// separate `/solid` subpath by design — see index.ts).
-export { type ScopedByEntry, scopedByEntry } from "./scoped";
+// `scopedByEntry` (lazy per-key state owned by membership) and `watchByEntry`
+// (the eager per-member attention watcher) — one shared membership kernel, two
+// laziness policies. Both live here on the inherently-Solid
+// `@kolu/surface-map/client` entrypoint (the package has no separate `/solid`
+// subpath by design — see index.ts).
+export {
+  type ScopedByEntry,
+  scopedByEntry,
+  type WatchByEntry,
+  watchByEntry,
+  type WatchedValue,
+} from "./scoped";
