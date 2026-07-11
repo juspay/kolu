@@ -34,6 +34,9 @@ interface FakeReg {
 function stubEnv(opts: {
   registration: FakeReg | null;
   permission?: NotificationPermission;
+  /** Simulate `sessionStorage` unavailable (private mode / disabled by policy):
+   *  every access throws, so the routed-id dedup can never be durably recorded. */
+  storageUnavailable?: boolean;
 }) {
   const listeners = new Set<(e: { data: unknown; source?: unknown }) => void>();
   const getRegistration = vi.fn().mockResolvedValue(opts.registration);
@@ -57,11 +60,26 @@ function stubEnv(opts: {
   // A minimal in-memory sessionStorage so the routed-id cross-navigation dedup has
   // a store to read/write (jsdom-free unit env).
   const store = new Map<string, string>();
-  vi.stubGlobal("sessionStorage", {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => store.set(k, v),
-    removeItem: (k: string) => store.delete(k),
-  });
+  vi.stubGlobal(
+    "sessionStorage",
+    opts.storageUnavailable
+      ? {
+          getItem: () => {
+            throw new Error("sessionStorage disabled");
+          },
+          setItem: () => {
+            throw new Error("sessionStorage disabled");
+          },
+          removeItem: () => {
+            throw new Error("sessionStorage disabled");
+          },
+        }
+      : {
+          getItem: (k: string) => store.get(k) ?? null,
+          setItem: (k: string, v: string) => store.set(k, v),
+          removeItem: (k: string) => store.delete(k),
+        },
+  );
   return {
     getRegistration,
     emitMessage: (data: unknown, source?: unknown) => {
@@ -200,5 +218,44 @@ describe("notify.onClick", () => {
     );
     expect(source.postMessage).toHaveBeenCalledTimes(2);
     expect(seen).toHaveLength(1);
+  });
+
+  it("does NOT route a live id-carrying click when event.source is absent (defers to the fallback navigation)", () => {
+    const env = stubEnv({ registration: null });
+    const notify = createNotify<Click>(parseClick);
+    const seen: Click[] = [];
+    notify.onClick((d) => seen.push(d));
+
+    // No `event.source` ⇒ the page can't ack the delivering worker, so routing live
+    // un-acked would let the worker's retry horizon lapse into a fallback navigate
+    // that routes the SAME click again. Stay silent: the fallback is the single route.
+    env.emitMessage({
+      type: SW_MESSAGE_TYPE,
+      data: { host: "hostB", id: "t7" },
+      id: "click-1",
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("does NOT route a live id-carrying click when the routed-id store is unavailable", () => {
+    const env = stubEnv({ registration: null, storageUnavailable: true });
+    const notify = createNotify<Click>(parseClick);
+    const seen: Click[] = [];
+    notify.onClick((d) => seen.push(d));
+
+    // The dedup record can't be persisted, so it couldn't survive a fallback
+    // navigation — routing live risks a double-fire. Defer to the fallback route, and
+    // do NOT ack (so the worker actually falls back).
+    const source = { postMessage: vi.fn() };
+    env.emitMessage(
+      {
+        type: SW_MESSAGE_TYPE,
+        data: { host: "hostB", id: "t7" },
+        id: "click-1",
+      },
+      source,
+    );
+    expect(seen).toEqual([]);
+    expect(source.postMessage).not.toHaveBeenCalled();
   });
 });

@@ -145,9 +145,13 @@ export function createNotify<D>(
       if (!swAvailable()) return () => {};
       // The worker retries `postMessage` until we ACK (a message is dropped if this
       // page installed its listener AFTER the worker first posted — an open-but-still-
-      // loading window). So: ACK every delivery (stops the retry loop), but ROUTE
-      // once per click `id` (a retry can arrive before our ack lands, and a durable
-      // fallback navigate can re-deliver the same id after we already routed it).
+      // loading window). Exactly-once live delivery needs BOTH halves: an ackable
+      // sender to stop the retry loop, AND a durable dedup record to suppress the
+      // fallback-navigate re-delivery of the same id. If EITHER is missing we do NOT
+      // route live — we stay silent, let the retry horizon lapse, and let the worker's
+      // URL fallback navigation be the SINGLE route (deduped there too). This is what
+      // keeps the one-action guarantee from silently degrading when `event.source` is
+      // absent or `sessionStorage` is unavailable.
       const listener = (event: MessageEvent): void => {
         const msg = event.data as
           | { type?: string; data?: unknown; id?: unknown }
@@ -155,16 +159,25 @@ export function createNotify<D>(
         if (msg?.type !== SW_MESSAGE_TYPE) return;
         const id = typeof msg.id === "string" ? msg.id : undefined;
         if (id !== undefined) {
-          // ACK the EXACT worker that delivered this message (`event.source`), NOT
-          // `navigator.serviceWorker.controller`: mid worker-replacement the
-          // controller can be a DIFFERENT worker than the one retrying, so acking
-          // the controller would never reach the delivering loop — it would time out
-          // and fall back to a navigate, re-routing the click. `event.source` is the
-          // sender, so the ack always lands.
-          const source = event.source as ServiceWorker | null;
-          source?.postMessage({ type: NOTIFICATION_ACK_TYPE, id });
-          if (wasRouted(id)) return; // already routed this click (retry / re-deliver)
-          markRouted(id);
+          // The ack must reach the EXACT worker that delivered this message
+          // (`event.source`), NOT `navigator.serviceWorker.controller`: mid
+          // worker-replacement the controller can be a DIFFERENT worker than the one
+          // retrying, so acking the controller would never reach the delivering loop.
+          const source = event.source as ServiceWorker | null | undefined;
+          // No ackable sender ⇒ we can't stop the retry loop; defer to the fallback
+          // navigation as the single route rather than routing live un-acked.
+          if (!source) return;
+          if (wasRouted(id)) {
+            // Already routed (a retry arriving before our earlier ack landed) — ack to
+            // silence the loop, but never route twice.
+            source.postMessage({ type: NOTIFICATION_ACK_TYPE, id });
+            return;
+          }
+          // Record-then-route, and only if the record is DURABLE: a non-durable record
+          // couldn't survive the fallback navigation, so routing live would risk a
+          // double-fire — defer to the fallback route instead (stay silent, no ack).
+          if (!markRouted(id)) return;
+          source.postMessage({ type: NOTIFICATION_ACK_TYPE, id });
         }
         route(msg.data, handler);
       };
@@ -183,36 +196,49 @@ export function createNotify<D>(
 /** A bounded FIFO of recently-routed click ids, kept in `sessionStorage` so it
  *  survives the worker's durable fallback NAVIGATION (a live route followed by a
  *  fallback navigate must not fire twice). Capped so it can never grow without
- *  bound (F27); `sessionStorage` is per-tab and best-effort — if it is unavailable
- *  (private mode, disabled) we simply lose cross-navigation dedup, never throw. */
+ *  bound (F27). `sessionStorage` is per-tab and can be unavailable (private mode,
+ *  storage disabled by policy) — but the exactly-once contract does NOT depend on
+ *  silently degrading here: the live-click path only records-and-routes when the
+ *  record is DURABLE (`markRouted` returns `true`), otherwise it stays silent and
+ *  lets the worker's URL fallback perform the single route. A storage failure is
+ *  surfaced (warned), never swallowed into a double-fire. */
 const ROUTED_IDS_KEY = "kolu.surface-app.notify.routedIds";
 const ROUTED_IDS_CAP = 64;
 
-function readRoutedIds(): string[] {
+/** Read the FIFO. `[]` on a genuinely-empty store; a storage READ failure returns
+ *  `undefined` so callers can tell "durably empty" from "storage broken". */
+function readRoutedIds(): string[] | undefined {
   try {
     const raw = sessionStorage.getItem(ROUTED_IDS_KEY);
     const parsed: unknown = raw === null ? [] : JSON.parse(raw);
     return Array.isArray(parsed)
       ? parsed.filter((x): x is string => typeof x === "string")
       : [];
-  } catch {
-    return [];
+  } catch (err) {
+    console.warn("notify: routed-id store read failed", err);
+    return undefined;
   }
 }
 
 function wasRouted(id: string): boolean {
-  return readRoutedIds().includes(id);
+  return readRoutedIds()?.includes(id) ?? false;
 }
 
-function markRouted(id: string): void {
+/** Durably record `id` as routed. Returns `true` iff the record is now persisted
+ *  (already present counts) — a `false` means storage was unavailable and the
+ *  caller must NOT route live (the fallback navigation will be the single route). */
+function markRouted(id: string): boolean {
+  const ids = readRoutedIds();
+  if (ids === undefined) return false; // storage unreadable — not durable
+  if (ids.includes(id)) return true;
+  ids.push(id);
+  while (ids.length > ROUTED_IDS_CAP) ids.shift();
   try {
-    const ids = readRoutedIds();
-    if (ids.includes(id)) return;
-    ids.push(id);
-    while (ids.length > ROUTED_IDS_CAP) ids.shift();
     sessionStorage.setItem(ROUTED_IDS_KEY, JSON.stringify(ids));
-  } catch {
-    // sessionStorage unavailable — cross-navigation dedup degrades, never crashes.
+    return true;
+  } catch (err) {
+    console.warn("notify: routed-id store write failed", err);
+    return false;
   }
 }
 

@@ -127,19 +127,29 @@ export interface SubscriptionOptions<T, R = T> {
  *  Own-property comparison uses `Object.getOwnPropertyNames` (not `Object.keys`), so
  *  a NON-ENUMERABLE own prop, an AUGMENTED array (`arr.foo = 1`), and a SPARSE array
  *  (holes are absent from the name set, so `[,,]` ≠ `[undefined, undefined]`) are all
- *  compared, never silently ignored. A `visiting` path-set breaks CYCLES: a frame
- *  that loops back on itself compares equal at the back-edge instead of recursing
- *  forever and crashing subscription consumption. Not exported: it is the private
- *  frame comparator for {@link Subscription.updated} and its reactive twin. */
+ *  compared, never silently ignored. A path-scoped `Pairing` breaks CYCLES *by
+ *  topology*: a frame that loops back compares equal at the back-edge only when it
+ *  closes to the SAME counterpart on the OTHER side — so a self-cycle (`a.self === a`)
+ *  and a child-cycle (`b.self` points elsewhere) DIVERGE here instead of reading
+ *  equal, never suppressing a real change a consumer could observe via `x.self === x`.
+ *  Not exported: it is the private frame comparator for {@link Subscription.updated}
+ *  and its reactive twin. */
 function framesEqual(a: unknown, b: unknown): boolean {
-  return framesEqualOnPath(a, b, new Set());
+  return framesEqualOnPath(a, b, { aToB: new Map(), bToA: new Map() });
 }
 
-function framesEqualOnPath(
-  a: unknown,
-  b: unknown,
-  visiting: Set<unknown>,
-): boolean {
+/** Path-scoped correspondence between the two graphs' objects currently on the
+ *  traversal stack. A revisited object closes a cycle: it is consistent only when it
+ *  maps to the counterpart it was first paired with (both directions), so different
+ *  cyclic topologies compare unequal rather than short-circuiting to `true`. Entries
+ *  are added on descent and deleted on unwind, so a DAG's shared subobject is still
+ *  compared fresh on each separate branch. */
+interface Pairing {
+  aToB: Map<unknown, unknown>;
+  bToA: Map<unknown, unknown>;
+}
+
+function framesEqualOnPath(a: unknown, b: unknown, pairing: Pairing): boolean {
   if (Object.is(a, b)) return true;
   if (
     typeof a !== "object" ||
@@ -156,13 +166,18 @@ function framesEqualOnPath(
       a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
     );
   }
-  // Cycle guard: if either side is already being compared higher on THIS path, the
-  // structure loops back — treat the back-edge as equal so a cyclic frame can't
-  // recurse forever and terminate the subscription. Path-scoped (deleted on unwind)
-  // so a DAG's shared subobject is still compared fresh on each branch.
-  if (visiting.has(a) || visiting.has(b)) return true;
-  visiting.add(a);
-  visiting.add(b);
+  // Cycle guard: if either side is already on THIS path, the structure loops back.
+  // The back-edge is equal ONLY when it closes to the corresponding counterpart on
+  // both sides (`a` was paired with exactly `b` before) — otherwise the two graphs
+  // have different cyclic topology and must compare unequal. Comparing only "seen a
+  // node before" would read a self-cycle equal to a child-cycle and SUPPRESS a real
+  // change. Path-scoped (deleted on unwind) so a DAG's shared subobject compares
+  // fresh on each branch.
+  if (pairing.aToB.has(a) || pairing.bToA.has(b)) {
+    return pairing.aToB.get(a) === b && pairing.bToA.get(b) === a;
+  }
+  pairing.aToB.set(a, b);
+  pairing.bToA.set(b, a);
   try {
     const aArr = Array.isArray(a);
     if (aArr !== Array.isArray(b)) return false;
@@ -182,7 +197,7 @@ function framesEqualOnPath(
         return false;
       }
       for (const [k, v] of a) {
-        if (!b.has(k) || !framesEqualOnPath(v, b.get(k), visiting)) {
+        if (!b.has(k) || !framesEqualOnPath(v, b.get(k), pairing)) {
           return false;
         }
       }
@@ -214,12 +229,12 @@ function framesEqualOnPath(
     if (aKeys.length !== Object.getOwnPropertyNames(bObj).length) return false;
     for (const k of aKeys) {
       if (!Object.hasOwn(bObj, k)) return false;
-      if (!framesEqualOnPath(aObj[k], bObj[k], visiting)) return false;
+      if (!framesEqualOnPath(aObj[k], bObj[k], pairing)) return false;
     }
     return true;
   } finally {
-    visiting.delete(a);
-    visiting.delete(b);
+    pairing.aToB.delete(a);
+    pairing.bToA.delete(b);
   }
 }
 

@@ -685,6 +685,45 @@ describe("createSubscription", () => {
         expect(seen[0]?.next.label).toBe("y");
       });
 
+      it("distinguishes a self-cycle from a child-cycle of the same labels", () => {
+        // Both frames are `{ self: <node labelled "x"> }`, but the back-edge closes
+        // DIFFERENTLY: the seed self-references the root, the next references a
+        // distinct child. A cycle guard that only asks "seen this node before" reads
+        // them equal and suppresses the change; a topology-aware guard fires it.
+        type Node = { label: string; self?: Node };
+        const tracker = createUpdatedTracker<Node>();
+        const seen: Array<{ prev: Node; next: Node }> = [];
+        tracker.updated((c) => seen.push(c));
+
+        const root: Node = { label: "x" };
+        root.self = root; // self-cycle: root.self === root
+        tracker.noteFrame(root); // seed, silent
+
+        const outer: Node = { label: "x" };
+        const child: Node = { label: "x" };
+        child.self = child;
+        outer.self = child; // child-cycle: outer.self !== outer
+        tracker.noteFrame(outer);
+        // The topologies differ (root.self === root vs outer.self !== outer), so this
+        // is a real change and must fire exactly once — never be swallowed.
+        expect(seen).toHaveLength(1);
+      });
+
+      it("treats two matching self-cycles as equal (no spurious fire)", () => {
+        type Node = { label: string; self?: Node };
+        const tracker = createUpdatedTracker<Node>();
+        const seen: unknown[] = [];
+        tracker.updated((c) => seen.push(c));
+
+        const a: Node = { label: "x" };
+        a.self = a;
+        tracker.noteFrame(a); // seed
+        const b: Node = { label: "x" };
+        b.self = b;
+        tracker.noteFrame(b); // same topology + labels — must stay silent
+        expect(seen).toEqual([]);
+      });
+
       it("does not treat a sparse array as equal to a dense-undefined array", () => {
         const tracker = createUpdatedTracker<number[]>();
         const seen: unknown[] = [];
