@@ -36,5 +36,11 @@ export function createRepoPolledQuery<
     pulseProc: () => activePadiRpc.surface.subscribeRepoChange.get,
     pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath }),
+    // Retain per `(input, host)` so a switch BACK to a previously-viewed host's repo
+    // adopts the held status/diff/file-list instantly instead of blanking to Loading
+    // (padi W9's Code-tab half — the `createPolledQuery` blank on a GENUINE host change).
+    // The pulse still re-subscribes and refreshes, so an adopted value is stale for at
+    // most one round-trip.
+    retainAcrossKeys: true,
   });
 }

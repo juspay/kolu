@@ -89,7 +89,25 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
    *  a file-gone predicate here so a delete-while-viewing keeps the last content
    *  until the selection changes, instead of flashing an ENOENT panel. */
   swallowError?: (err: Error) => boolean;
+  /** RETAIN the last result per `(input, host)` key, so a switch BACK to a
+   *  previously-loaded key ADOPTS the cached value — no blank, `pending` false —
+   *  while the pulse re-subscribes and refreshes in the background (padi W9's
+   *  Code-tab half: `createPolledQuery` used to blank the Code tab on every genuine
+   *  host change). OFF by default: a fresh key still blanks + goes `pending`, exactly
+   *  as before (so the value-keyed `#1714` contract and the host-change blank are
+   *  unchanged on the default path). The Code-tab repo/file queries opt in.
+   *  Bounded by a small LRU ({@link RETAIN_LRU}) so a long session cannot grow it
+   *  without bound — a switch-back is a RECENT key, and a host you left long ago
+   *  falls off the tail as you visit others (the retention follows the same "held
+   *  while near, dropped when gone" shape the per-host wire subs have). */
+  retainAcrossKeys?: boolean;
 }
+
+/** Max distinct `(input, host)` keys whose last value is held for switch-back
+ *  adoption, per query instance. Small: switch-back reads a RECENT key, and the
+ *  Code tab has a handful of live hosts, so a modest bound covers every real
+ *  switch-back while keeping the cache from growing over a long session. */
+const RETAIN_LRU = 8;
 
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
@@ -103,7 +121,24 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     query,
     onError,
     swallowError,
+    retainAcrossKeys = false,
   } = config;
+
+  // The per-key value cache for `retainAcrossKeys` (padi W9): the last result seen
+  // for each `(input, host)` key, so a switch BACK adopts it instead of blanking. A
+  // `Map` is insertion-ordered, which IS the LRU order here — `rememberValue` deletes
+  // then re-sets a key so a re-seen key moves to the tail, and the head (oldest) is
+  // evicted past `RETAIN_LRU`. Empty (and never touched) when `retainAcrossKeys` is off.
+  const retained = new Map<string, Result>();
+  function rememberValue(key: string, value: Result): void {
+    retained.delete(key);
+    retained.set(key, value);
+    while (retained.size > RETAIN_LRU) {
+      const oldest = retained.keys().next().value;
+      if (oldest === undefined) break;
+      retained.delete(oldest);
+    }
+  }
 
   const [store, setStore] = createStore<{ v: Result | undefined }>({
     v: undefined,
@@ -141,7 +176,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   }
 
   let controller: AbortController | null = null;
-  function runQuery(i: Input): void {
+  function runQuery(i: Input, key: string): void {
     controller?.abort();
     const ctl = new AbortController();
     controller = ctl;
@@ -150,6 +185,11 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
         const result = await query(i, ctl.signal);
         if (ctl.signal.aborted) return;
         writeWrappedValue<Result>(setStore, result);
+        // Remember this key's fresh value for a later switch-back adoption (W9). A
+        // no-op when `retainAcrossKeys` is off. The refresh keeps the cache current,
+        // so an adopted value is only ever stale for the one round-trip before the
+        // pulse's first frame requeries.
+        if (retainAcrossKeys) rememberValue(key, result);
         if (pending()) setPending(false);
         if (error()) setError(undefined);
       } catch (err) {
@@ -184,18 +224,34 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   );
 
   createEffect(
-    on(inputState, ({ i }) => {
-      // Reset for the new input: blank + pending until the fresh read lands, and
-      // abort any in-flight read from the prior input. `rawStream`'s own
-      // onCleanup (registered on this effect's run) tears down the previous
-      // pulse subscription before this re-run.
+    on(inputState, ({ i, key }) => {
+      // Abort any in-flight read from the prior input. `rawStream`'s own onCleanup
+      // (registered on this effect's run) tears down the previous pulse subscription
+      // before this re-run.
       controller?.abort();
       controller = null;
-      setStore("v", undefined);
       setError(undefined);
-      setPending(true);
       setComplete(false);
+      // Switch-back adoption (W9): if this `(input, host)` key was loaded before and
+      // is still retained, ADOPT its held value — no blank, not `pending` — so a
+      // switch BACK shows the Code tab instantly while the pulse below re-subscribes
+      // and refreshes. Otherwise blank + `pending` until the fresh read lands, exactly
+      // as before (the default, `retainAcrossKeys`-off, path — unchanged). `key` is
+      // non-null whenever `i` is (see `inputState`).
+      const cached =
+        retainAcrossKeys && key !== null ? retained.get(key) : undefined;
+      if (cached !== undefined) {
+        writeWrappedValue<Result>(setStore, cached);
+        setPending(false);
+      } else {
+        setStore("v", undefined);
+        setPending(true);
+      }
       if (i === null) return;
+      // `key` is non-null exactly when `i` is (both derive from `input()` in
+      // `inputState`), so past the guard above it is the canonical string to remember
+      // this run's fresh value under.
+      const activeKey = key as string;
       // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
       // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
       // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
@@ -215,7 +271,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
             pulseInput(i),
             { signal: pulseCtl.signal },
           )) {
-            runQuery(i);
+            runQuery(i, activeKey);
           }
           // Normal completion — the pulse iterable ended on its own (a typed end,
           // e.g. the host/entry left membership), not an abort: an aborted loop

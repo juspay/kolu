@@ -445,4 +445,73 @@ describe("createPolledQuery", () => {
     expect(res.after).toBe("A#2"); // re-queried on the new host's pulse
     expect(res.calls).toBe(2);
   });
+
+  it("retainAcrossKeys: a switch BACK to a previously-loaded key ADOPTS the cache (no blank), then the pulse refreshes (padi W9)", async () => {
+    // The Code-tab half of instant host switch-back: with `retainAcrossKeys`, a
+    // GENUINE host change to a key that was loaded before shows the held value
+    // instantly (no blank, not `pending`) while the re-subscribed pulse refreshes —
+    // instead of dropping the Code tab to "Loading…". A BRAND-NEW key still blanks,
+    // exactly as the default path (the sibling test above), so the value-keyed
+    // contract is untouched; only the SWITCH-BACK stops blanking.
+    const res = await new Promise<{
+      onHost1: unknown;
+      freshKeyBlank: { v: unknown; pending: boolean };
+      onHost2: unknown;
+      adopted: { v: unknown; pending: boolean };
+      refreshed: unknown;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const [host, setHost] = createSignal("host-1");
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: "A" }),
+          live,
+          pulseProc,
+          pulseHost: host,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async (i) => {
+            calls += 1;
+            return `${i.repoPath}#${calls}`;
+          },
+          retainAcrossKeys: true,
+        });
+        await flush();
+        pulse();
+        await flush();
+        const onHost1 = q(); // "A#1" — cached under the (A, host-1) key
+
+        // Switch to host-2 (same repoPath, a NEW key): still blanks + pending, since
+        // this key has no cached value yet — the default host-change behavior.
+        setHost("host-2");
+        await flush();
+        const freshKeyBlank = { v: q(), pending: q.pending() };
+        pulse();
+        await flush();
+        const onHost2 = q(); // "A#2" — now cached under (A, host-2)
+
+        // Switch BACK to host-1: its key IS cached, so adopt "A#1" WITHOUT blanking…
+        setHost("host-1");
+        await flush();
+        const adopted = { v: q(), pending: q.pending() };
+        // …and the re-subscribed pulse's first frame refreshes it in the background.
+        pulse();
+        await flush();
+        const refreshed = q(); // "A#3"
+
+        resolve({ onHost1, freshKeyBlank, onHost2, adopted, refreshed });
+        dispose();
+      });
+    });
+    expect(res.onHost1).toBe("A#1");
+    // A brand-new key still blanks + goes pending (unchanged from the default path).
+    expect(res.freshKeyBlank.v).toBeUndefined();
+    expect(res.freshKeyBlank.pending).toBe(true);
+    expect(res.onHost2).toBe("A#2");
+    // Switch-BACK adopts the cached value instantly — NO blank, NOT pending.
+    expect(res.adopted.v).toBe("A#1");
+    expect(res.adopted.pending).toBe(false);
+    // …and the pulse refreshes it in the background to the current on-disk value.
+    expect(res.refreshed).toBe("A#3");
+  });
 });
