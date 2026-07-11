@@ -41,3 +41,34 @@ When(
     await this.waitForFrame();
   },
 );
+
+When(
+  "I drop an {int} MiB file named {string} onto the terminal",
+  async function (this: KoluWorld, sizeMiB: number, name: string) {
+    await this.canvas.click();
+    await this.page.evaluate(
+      ({ name, sizeMiB }) => {
+        const target = document.querySelector(
+          "[data-focused][data-terminal-id]",
+        );
+        if (!target) throw new Error("No focused terminal container");
+        const dt = new DataTransfer();
+        dt.items.add(
+          new File([new Uint8Array(sizeMiB * 1024 * 1024)], name, {
+            type: "video/webm",
+          }),
+        );
+        const init = {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: dt,
+        } as const;
+        target.dispatchEvent(new DragEvent("dragover", init));
+        target.dispatchEvent(new DragEvent("drop", init));
+      },
+      { name, sizeMiB },
+    );
+    await this.waitForFrame();
+    await this.waitForFrame();
+  },
+);
