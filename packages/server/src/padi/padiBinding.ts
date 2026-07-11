@@ -78,7 +78,7 @@ import {
   measureClockOffset,
   type Session,
 } from "@kolu/surface-remote";
-import { log } from "./log.ts";
+import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
 // probe and the "restart" verb share. Carved out of this file in W4 ledger L6: it
@@ -205,9 +205,9 @@ export function resolvePadiLaunch(
   // (not a hoisted .bin), exactly as localDriver.ts does for kaval.
   const require = createRequire(import.meta.url);
   const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
-  // packages/server/src/padiBinding.ts → packages/padi/src/bin.ts
+  // packages/server/src/padi/padiBinding.ts → packages/padi/src/bin.ts
   const binTs = fileURLToPath(
-    new URL("../../padi/src/bin.ts", import.meta.url),
+    new URL("../../../padi/src/bin.ts", import.meta.url),
   );
   return {
     binPath: process.execPath,

@@ -34,29 +34,31 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
    *  while this is true so the click target doesn't detach mid-flight. */
   const [isRestoring, setIsRestoring] = createSignal(false);
 
-  // Hydrate from server state. TWO once-only steps, tracked separately:
-  //   - `decided`   — the empty-vs-restore DECISION (drives the restore card),
-  //                    made once the terminal list + saved-session cell report;
-  //   - `seeded`    — the client VIEW-STATE seed (active tile + canvas viewport
-  //                    + sub-panel tabs + MRU), run once REAL terminals appear.
+  // Hydrate from server state. ONE named `HydrationPhase` (pending → decided →
+  // seeded, `hostScope/createSessionRestore`) tracks TWO once-only steps:
+  //   - the empty-vs-restore DECISION (`markDecided`, drives the restore card),
+  //     made once the terminal list + saved-session cell report;
+  //   - the client VIEW-STATE seed (`markSeeded` — active tile + canvas viewport
+  //     + sub-panel tabs + MRU), run once REAL terminals appear.
   //
-  // The two are DISTINCT because W1.R6 deleted the client respawn loop that used
-  // to seed the view inline during a restore-from-empty-state: now that seeding
-  // rides THIS effect, which must fire when the restored terminals arrive — even
-  // though the empty-state decision already ran. (A browser reload re-mounts the
-  // hook, so both flags start false and the initial-load path is unchanged.)
+  // The two are DISTINCT steps of one phase because W1.R6 deleted the client
+  // respawn loop that used to seed the view inline during a restore-from-empty-
+  // state: now that seeding rides THIS effect, which must fire when the restored
+  // terminals arrive — even though the empty-state decision (`decided`) already
+  // ran. (A browser reload re-mounts the hook, so the phase starts `pending` and
+  // the initial-load path is unchanged.)
   //
-  // The two latches are PER HOST, owned by the host's `scopedByEntry` scope
+  // The phase is PER HOST, owned by the host's `scopedByEntry` scope
   // (`hostScope/createSessionRestore`) — the hand-rolled `Map` keyed by
   // `encodeHostKey(activeHost())` is GONE. `activeScope()` re-keys on host switch,
   // so this effect (which reads it) also tracks the switch and picks up the NEW
   // host's latch. A never-seeded host re-runs the decision + hydration (adopting
   // ITS saved-active tile immediately — zero dock click); a switch-BACK to an
-  // already-seeded host short-circuits, so its in-memory view (the owner's
+  // already-`seeded` host short-circuits, so its in-memory view (the owner's
   // per-host record) wins — savedSession seeds only the FIRST visit. (An explicit
-  // in-session restore re-arms the active host's `seeded` below.) During the
-  // removal race `activeScope()` is briefly `undefined` and the effect no-ops
-  // until `wire.ts` re-points `activeHost`.
+  // in-session restore calls `reseedForRestore()` on the active host below.)
+  // During the removal race `activeScope()` is briefly `undefined` and the effect
+  // no-ops until `wire.ts` re-points `activeHost`.
   createEffect(() => {
     const existing = store.listSub();
     const fromServer = serverSavedSession();
@@ -79,14 +81,14 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // (the gate above already waited for BOTH the list and session cells to
     // yield). When empty, the card reads `savedSession`; the re-fetch effect
     // below keeps it current after.
-    if (latch.state === "undecided") {
-      latch.state = "decided-unseeded";
+    if (latch.phase === "pending") {
+      latch.markDecided();
       if (store.terminalIds().length === 0) {
         setSavedSession(fromServer);
         return;
       }
     }
-    if (latch.state === "decided-seeded") return;
+    if (latch.phase === "seeded") return;
     // Wait for the composed record to arrive (via `store.getMetadata`) for EVERY
     // listed terminal — hydration reads `parentId` and `subPanel` off the record
     // (since #806 the list snapshot no longer carries `meta`). `getMetadata`
@@ -105,7 +107,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // never reaches here: the empty-vs-restore decision above returns first
     // (`terminalIds()` is empty).
     if (joined.length === 0) return;
-    latch.state = "decided-seeded";
+    latch.markSeeded();
     hydrateFromTerminals(joined, fromServer?.activeTerminalId ?? null);
   });
 
@@ -178,7 +180,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // decision latch and re-runs on a host switch.
     if (
       store.terminalIds().length === 0 &&
-      (activeScope()?.restore.state ?? "undecided") !== "undecided"
+      (activeScope()?.restore.phase ?? "pending") !== "pending"
     ) {
       setSavedSession(fromServer);
     }
@@ -209,9 +211,11 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // it here lets the effect re-seed once the restored terminals arrive; it
     // re-latches true after seeding, so a later reconnect is still a no-op.
     const latch = activeScope()?.restore;
-    // Re-arm: this runs from the restore card (already `decided`), so drop back to
-    // `decided-unseeded` — the next hydration effect re-seeds the view.
-    if (latch) latch.state = "decided-unseeded";
+    // Re-arm: this runs from the restore card (already past the decision), so drop
+    // back to `decided` via the NAMED transition — the next hydration effect
+    // re-seeds the view. (A named `reseedForRestore()` rather than an out-of-band
+    // raw phase write, which is exactly the hand-rolled-state-machine smell L18 named.)
+    latch?.reseedForRestore();
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
     );

@@ -18,9 +18,8 @@ Before any work, ask the user via **`AskUserQuestion`** (one call, batched):
 
 - **Plan first?** — write the plan as an **Atlas note** (`docs/atlas/src/content/atlas/<slug>.mdx`) for review *before* implementing, or implement straight. Default: straight, unless the task is large/ambiguous. *(If the prompt already points at an existing Atlas note or legacy `docs/plans/*.html`, skip this question — that file is the plan of record; reuse it.)*
 - **Task kind** — bug fix · feature/new behavior · refactor/chore. This sets the test strategy (see §2).
-- **Ultracode?** — include this question *only when no system-reminder says ultracode is on*. Remind the user that `/be` runs richer with ultracode (deeper review fan-out, adversarial verification of each finding) and ask whether to proceed on the standard pass or pause so they can enable it. Options: *Proceed (standard pass)* / *I'll enable ultracode first*. If they pick the latter, stop and let them turn it on, then re-run.
 
-Add a question only when something material is genuinely unclear — don't pad. Honor anything the user already pinned in the prompt instead of re-asking. **This single `AskUserQuestion` call is your one and only chance to ask** — surface every clarification you need now (including the ultracode check above), because everything after this is autonomous.
+Add a question only when something material is genuinely unclear — don't pad. Honor anything the user already pinned in the prompt instead of re-asking. **This single `AskUserQuestion` call is your one and only chance to ask** — surface every clarification you need now, because everything after this is autonomous.
 
 ## 1. Set up
 
@@ -106,6 +105,19 @@ check during §2. `/ci` and `/evidence` already run on pu; keep it that way.
 `/ci` and `/evidence` are independent — one exercises the build/test pipeline, the
 other captures on-screen behavior — so **run them concurrently**; don't wait for
 green before capturing.
+
+**First, sync master — don't make the user ask.** The branch was cut from
+`origin/master` back in §2, and a long gauntlet lets master move on, so a naive CI
+run tests a **stale base** and the PR's merge-base drifts — this is the single most
+repeated human interjection into an otherwise-autonomous run ("merge latest master
+before CI"). Pre-empt it: **before** kicking off `/ci`, `git fetch origin` and merge
+`origin/<default>` into the branch so CI and the final `HEAD` sit on current master
+(the changelog is `merge=union` so it never conflicts; a *real* conflict is yours to
+resolve now, never to defer or paper over). **One ordering caveat** — never `git
+merge` while a background gauntlet step (a codex/lens round) is still committing
+per-round: it races the git index. If one is in flight, wait for it to settle, *then*
+merge, *then* start CI. Grep-check master isn't already an ancestor first — skip the
+merge only when `git merge-base --is-ancestor origin/<default> HEAD` is already true.
 
 1. **Kick off `/ci` first, backgrounded** — start the pipeline so it churns while
    you capture evidence. **`.agency/do.md`'s CI section is the source of truth for

@@ -22,8 +22,12 @@
  * Discovery (flags go AFTER the subcommand): with no flag, padi-tui honors
  * $PADI_SOCKET — stamped into every terminal padi spawns — so inside a kolu
  * terminal it "just works"; otherwise it autodiscovers the running padi. Point it
- * elsewhere with --socket <path> or --state-root <dir> (dev/e2e). (A REMOTE padi
- * over ssh is W3; today padi-tui is local-only.)
+ * at a different LOCAL daemon with --socket <path> or --state-root <dir> (dev/e2e),
+ * or at a REMOTE padi over ssh with --host <ssh>: provision the daemon's closure
+ * with Nix, run `padi --stdio`, and speak the same `padiSurface` over that link
+ * (see `hostConnect.ts`). Read verbs (status/watch/wait) are safe; `create` lands a
+ * REAL terminal on the host — and it survives the link. --host is mutually
+ * exclusive with --socket / --state-root (all name a daemon; --host is remote).
  */
 
 import { resolveRunningPadiSocket } from "@kolu/padi/dial";
@@ -36,6 +40,7 @@ import {
 } from "./connect.ts";
 import { cli, command } from "cleye";
 import { runCreate } from "./create.ts";
+import { connectPadiTuiViaHost } from "./hostConnect.ts";
 import {
   awaitAgentState,
   readTerminalKeys,
@@ -60,7 +65,7 @@ import {
 // Declared on each subcommand — cleye binds flags only AFTER the subcommand (it
 // does not inherit a parent flag), so `--socket` goes after the command:
 // `padi-tui status --socket <path>`, never `padi-tui --socket <path> status`.
-const endpointFlags = {
+const localEndpointFlags = {
   socket: {
     type: String,
     description:
@@ -72,6 +77,21 @@ const endpointFlags = {
       "the padi STATE-ROOT to target (dev/e2e) — padi-tui derives the same digest→socket path padi computes for itself. Mutually exclusive with --socket; goes AFTER the subcommand.",
   },
 } as const;
+
+// --host reaches a REMOTE padi over ssh, provisioning it with Nix. Mutually
+// exclusive with --socket / --state-root (all name a daemon, --host a remote one);
+// the conflict is rejected in main().
+const hostFlag = {
+  host: {
+    type: String,
+    description:
+      "reach a padi on a REMOTE machine over ssh, provisioning it via Nix — e.g. --host nix@prod. padi runs as the SSH user, so you reach the padi owned by that user (its socket dir is 0700, owner-only); SSH in as the user that runs padi. Read verbs (status/watch/wait) are safe; `create` lands a REAL terminal on the host (that's the point), and it survives the link. Mutually exclusive with --socket / --state-root. Goes AFTER the subcommand.",
+  },
+} as const;
+
+// Every subcommand can target a local daemon (--socket / --state-root) or a
+// remote host (--host).
+const endpointFlags = { ...localEndpointFlags, ...hostFlag } as const;
 
 const jsonFlag = {
   json: {
@@ -86,7 +106,7 @@ const argv = cli({
   version: PADI_SURFACE_VERSION,
   help: {
     description:
-      "A terminal-side client for the padi workspace daemon — what every terminal is in (record state · repo·branch · PR · agent · foreground), read from a running `padi`. `status` snapshots it; `watch` follows it live (● = live byte activity); `wait` blocks until a terminal's agent reaches a state (working/awaiting/waiting) — the done-signal for scripting an agent that drives another agent; `create` spawns a terminal, split tile, or worktree'd agent. `--json` is scriptable.",
+      "A terminal-side client for the padi workspace daemon — what every terminal is in (record state · repo·branch · PR · agent · foreground), read from a running `padi`. `status` snapshots it; `watch` follows it live (● = live byte activity); `wait` blocks until a terminal's agent reaches a state (working/awaiting/waiting) — the done-signal for scripting an agent that drives another agent; `create` spawns a terminal, split tile, or worktree'd agent. Runs against the local padi by default, or a REMOTE one over ssh with `--host <ssh>` (provisioned with Nix). `--json` is scriptable.",
   },
   commands: [
     command({
@@ -150,7 +170,7 @@ const argv = cli({
         repo: {
           type: String,
           description:
-            "with --worktree: the repo to branch from (an absolute path on the host). Default: the current directory.",
+            "with --worktree: the repo to branch from (an absolute path on the padi's machine). Default (local padi): the current directory. Over --host it must be given explicitly — the worktree is cut on the REMOTE host, so it can't default to your local directory.",
         },
         ...jsonFlag,
       },
@@ -180,6 +200,14 @@ function fail(message: string): never {
   process.stderr.write(`padi-tui: ${message}\n`);
   process.exit(1);
 }
+
+/** The one `--worktree over --host needs --repo` usage-error message. Named once
+ *  because it is enforced at TWO sites — the pre-dial fast-path in `main` (fail
+ *  before Nix-provisioning a cold host) and the transport-blind invariant in
+ *  `cmdCreate` (`repoPath === undefined` iff host + no --repo) — so the two can't
+ *  drift. Both guards stay; only the string is shared. */
+const WORKTREE_OVER_HOST_NEEDS_REPO =
+  "--worktree over --host needs --repo <path on the host>: the worktree is cut on the REMOTE machine, so it can't default to your local directory. Pass --repo with an absolute path on the host.";
 
 /** The socket to dial. The selection policy (`--socket` wins; else `--state-root`;
  *  else $PADI_SOCKET; else discover) plus the candidate labels live in the shared
@@ -219,6 +247,48 @@ function connectLocal(socketPath: string): Promise<Connection> {
       `could not reach padi at ${socketPath} — ${(err as Error).message}. Is padi running? Inside a kolu terminal $PADI_SOCKET names it; otherwise pass --socket <path> or --state-root <dir>.`,
     ),
   );
+}
+
+/** Reach a REMOTE padi over ssh (`--host`): provision the daemon with Nix and dial
+ *  it. Fails loud with the underlying ssh/nix/skew reason so a misconfigured host
+ *  (no passwordless ssh, the user not in the remote's `trusted-users`, a contract
+ *  skew) reads as actionable rather than an opaque hang — the CLI is one-shot, so it
+ *  surfaces the first failure instead of spinning on a reconnect loop. */
+function connectHost(host: string): Promise<Connection> {
+  return connectPadiTuiViaHost(host).catch((err) =>
+    fail(`could not reach padi on ${host} — ${(err as Error).message}`),
+  );
+}
+
+/** The one daemon a command targets: a REMOTE padi over ssh (`--host`) or a LOCAL
+ *  one at a resolved socket path. Each arm carries exactly what its connect needs,
+ *  so the payload is live and `main` switches on it once — there is no parallel
+ *  `conn`/`endpoint` pair to keep in agreement. Stays local to `main`; the
+ *  co-location fact `create` needs rides on `Connection.localCwd` instead. */
+type Endpoint =
+  | { kind: "host"; host: string }
+  | { kind: "local"; socketPath: string };
+
+/** Resolve the flags to the ONE daemon target, owning all three-way
+ *  mutual-exclusion in one place: `--host` reaches a remote padi over ssh and is
+ *  mutually exclusive with the local `--socket` / `--state-root`; absent it, the
+ *  local socket policy (`--socket` vs `--state-root`) stays `resolveSocketPath`'s
+ *  own concern. So the whole "name exactly one target" policy reads top-to-bottom
+ *  here instead of fragmenting across `main` and the socket resolver. */
+function resolveEndpoint(flags: {
+  host: string | undefined;
+  socket: string | undefined;
+  stateRoot: string | undefined;
+}): Endpoint {
+  if (flags.host !== undefined) {
+    if (flags.socket !== undefined || flags.stateRoot !== undefined) {
+      fail(
+        "--host is mutually exclusive with --socket / --state-root: --host reaches a REMOTE padi over ssh, --socket / --state-root name a LOCAL one. Pass just one.",
+      );
+    }
+    return { kind: "host", host: flags.host };
+  }
+  return { kind: "local", socketPath: resolveSocketPath(flags) };
 }
 
 /** Resolve a user-typed id-or-prefix to a full terminal id against the live
@@ -432,17 +502,32 @@ async function cmdCreate(
   if (flags.parent !== undefined) {
     parentId = await resolveArg(conn.client, flags.parent);
   }
-  const worktree =
-    flags.worktree !== undefined
-      ? { repoPath: flags.repo ?? process.cwd(), name: flags.worktree }
-      : undefined;
+
+  // WHERE the new terminal opens depends on whether this daemon shares our
+  // filesystem — the one co-location fact `conn.localCwd` carries. A LOCAL padi runs
+  // on THIS machine, so `conn.localCwd` is `process.cwd()`, a real path there; a
+  // REMOTE one (`--host`) runs elsewhere, so `conn.localCwd` is undefined — the local
+  // cwd need not exist on the host, and padi defaults to the remote user's HOME
+  // (endpoint.ts: cwd resolves to home when undefined). `--worktree` overrides cwd
+  // with the host-side worktree path inside runCreate either way, but its repo is a
+  // HOST path over ssh: a remote --worktree can't default to the local cwd (a repo on
+  // the wrong machine), so it requires an explicit --repo.
+  let worktree: { repoPath: string; name: string } | undefined;
+  if (flags.worktree !== undefined) {
+    const repoPath = flags.repo ?? conn.localCwd;
+    if (repoPath === undefined) {
+      fail(WORKTREE_OVER_HOST_NEEDS_REPO);
+    }
+    worktree = { repoPath, name: flags.worktree };
+  }
 
   const result = await runCreate(conn.client, {
     parentId,
     worktree,
-    // A plain create opens where you are (the tmux convention); --worktree
+    // A plain LOCAL create opens where you are (the tmux convention); a REMOTE one
+    // has `conn.localCwd` undefined so padi defaults to the host's home. --worktree
     // overrides this with the worktree path inside runCreate.
-    cwd: process.cwd(),
+    cwd: conn.localCwd,
     argv: command,
   });
 
@@ -498,11 +583,31 @@ async function main(): Promise<void> {
     waitTargets = parsed.targets;
   }
 
-  const socketPath = resolveSocketPath({
-    socket: argv.flags.socket,
-    stateRoot: argv.flags.stateRoot,
-  });
-  const conn = await connectLocal(socketPath);
+  // Pick the transport once: `resolveEndpoint` owns the whole "name exactly one
+  // daemon target" policy (--host vs --socket / --state-root) and returns the ONE
+  // target, each arm carrying exactly what its connect needs. --host reaches a remote
+  // padi over ssh; otherwise dial the resolved local socket.
+  const endpoint = resolveEndpoint(argv.flags);
+
+  // A remote `--worktree` without `--repo` is a pure USAGE error — the worktree is
+  // cut on the remote host, so it can't default to the local cwd. Reject it BEFORE
+  // dialing (the same fail-fast the `wait` flags get above), so a cold or
+  // unreachable host doesn't make the user wait on provisioning only to learn the
+  // command was malformed. `cmdCreate` keeps the transport-blind guard on
+  // `conn.localCwd` as the defensive invariant.
+  if (
+    argv.command === "create" &&
+    endpoint.kind === "host" &&
+    argv.flags.worktree !== undefined &&
+    argv.flags.repo === undefined
+  ) {
+    fail(WORKTREE_OVER_HOST_NEEDS_REPO);
+  }
+
+  const conn: Connection =
+    endpoint.kind === "host"
+      ? await connectHost(endpoint.host)
+      : await connectLocal(endpoint.socketPath);
 
   // Narrow on `argv.command` so cleye's per-command flag/positional union collapses
   // to the one shape (only `wait` carries `--until`/`--timeout`, only `create` the

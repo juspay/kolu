@@ -80,7 +80,7 @@ const fakeEndpoint = {
   fs: {
     listAll: async () => [],
     readFile: async () => ({ content: "", truncated: false }),
-    statFileMtimeMs: async () => 0,
+    filePreviewTag: async () => "tag",
     subscribeRepoChange: () => () => {},
     subscribeFileChange: () => () => {},
   },
@@ -312,7 +312,7 @@ function thrownCode(fn: () => unknown): string {
 }
 
 describe("padi scratch.write re-enforces the authoritative upload gate (F1)", () => {
-  // A base64 string whose DECODED length exceeds the 10 MB cap (all-`A`, no
+  // A base64 string whose DECODED length exceeds the 50 MB cap (all-`A`, no
   // padding → decoded = floor(len*3/4)). It is rejected on size BEFORE any disk
   // write, so materializing the string is the whole cost.
   const oversize = "A".repeat(Math.ceil(((MAX_UPLOAD_BYTES + 4) * 4) / 3));

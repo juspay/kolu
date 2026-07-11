@@ -31,53 +31,17 @@ import {
 import { exactRestoreTarget } from "anyagent/cli";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import { z } from "zod";
+import {
+  CanvasLayoutSchema,
+  RightPanelPerTerminalStateSchema,
+  SubPanelStateSchema,
+} from "./chromeVocab.ts";
 
-export const CanvasLayoutSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
-});
-
-export const SubPanelStateSchema = z.object({
-  collapsed: z.boolean(),
-  panelSize: z.number(),
-});
-
-/** Sub-view of the Code tab: local/branch diff modes or the file browser. */
-export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
-
-/** Which tab is currently displayed in the right panel. */
-export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
-
-/** Per-terminal right-panel state — which tab is open, which sub-mode
- *  the Code tab is in, and which file the user last selected in each
- *  mode. The three fields move together because they are *about* the
- *  terminal's task (reviewing branch X, browsing repo, inspecting agent
- *  output) — switching terminals should restore them as a unit.
- *
- *  `selectedFileByMode` is per-mode so flipping between local↔branch↔browse
- *  within a single terminal keeps each mode's last-viewed file, mirroring
- *  the prior `(repo, mode)`-keyed localStorage slot behaviour.
- *
- *  Storage is flat (`activeTab` + `codeMode` as parallel fields) so Solid's
- *  shallow-merge `setStore` is correct. Consumption should go through the
- *  `rightPanelView()` DU projection — pattern-matching on `activeTab` /
- *  `codeMode` separately leaks the storage shape across the DU seam and
- *  defeats the "codeMode survives Inspector toggle" invariant. */
-export const RightPanelPerTerminalStateSchema = z.object({
-  activeTab: RightPanelTabKindSchema,
-  codeMode: CodeTabViewSchema,
-  /** Repo-relative file paths keyed by Code-tab sub-mode. Absence of a
-   *  key means "no selection" for that mode. */
-  selectedFileByMode: z
-    .object({
-      local: z.string().optional(),
-      branch: z.string().optional(),
-      browse: z.string().optional(),
-    })
-    .optional(),
-});
+// The UI-CHROME vocabulary (canvas layout · sub-panel · Code-tab views ·
+// right-panel state, plus their presentation helpers) lives in the sibling
+// `./chromeVocab.ts` now (W4 ledger L17) — a chrome-axis volatility distinct from
+// this module's PTY-lifecycle / session-persistence axis. The terminal-metadata
+// schemas below consume the three chrome schemas above; the arrow points one way.
 
 /**
  * Where a terminal's endpoint lives — a closed sum, not a host-id string.
@@ -210,9 +174,11 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
   /** Sub-panel collapsed/size state — client-reported, used for session restore. */
   subPanel: SubPanelStateSchema.optional(),
   /** Right-panel per-terminal state — client-reported. Holds the fields
-   *  that are *about* the terminal's task (active tab, code sub-mode,
-   *  per-mode file selection). The remaining right-panel fields (collapsed,
-   *  size, codeTabTreeSize) stay on preferences as workspace-level chrome. */
+   *  that are *about* the terminal's task: whether the panel is showing
+   *  (`collapsed`), the active tab, the code sub-mode, and the per-mode file
+   *  selection — so the panel follows the terminal (#959). Only the panel
+   *  width + Code-tab tree split stay on `preferences.rightPanel` (viewer
+   *  density taste, not per-terminal task state). */
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
   /** User-set freeform annotation — multiline markdown. The first line
    *  doubles as a glanceable tag (rendered as a chip next to the repo
@@ -243,7 +209,7 @@ export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 // `state` must gate the live overlay. Presence consumers (canvas, dock, minimap,
 // arrange, cycle, switcher) read the union; any consumer that touches a live field
 // (full agent / foreground) must first narrow `state === "active"`. `state` never
-// crosses the awareness wire (pulam/kaval never see a sleeping arm).
+// crosses the awareness wire (kaval never sees a sleeping arm).
 
 const ActiveDiscriminantSchema = z.object({ state: z.literal("active") });
 const SleepingDiscriminantSchema = z.object({
@@ -506,7 +472,6 @@ export const SavedSessionSchema = z.object({
   savedAt: z.number(),
 });
 
-export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
 export type TerminalClientMetadata = z.infer<
   typeof TerminalClientMetadataSchema
 >;
@@ -529,66 +494,6 @@ export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
 /** The sleeping arm of `SavedTerminal` — persisted base + `sleptAt` + id. What a
  *  slept terminal persists and what the boot seed / restore card read back. */
 export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
-
-export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
-
-/** User-facing name of a Code-tab view — the single source for the words the
- *  mode picker renders as a chip label and the file-tree right-click menu
- *  composes its "jump to view" entries from. Defining it once keeps the two
- *  surfaces in sync structurally rather than by convention. */
-const VIEW_LABELS: Record<CodeTabView, string> = {
-  browse: "All files",
-  local: "Local",
-  branch: "Branch",
-};
-
-/** Display name for a Code-tab view (e.g. "All files" / "Local" / "Branch"). */
-export function viewLabel(view: CodeTabView): string {
-  return VIEW_LABELS[view];
-}
-
-/** Canonical left-to-right order of the Code-tab views — the single source the
- *  scope switcher's segments and the file-tree right-click "jump to view"
- *  entries both order themselves by. Defined here (not derived from
- *  `CodeTabViewSchema`, whose enum order is storage-driven and differs) so the
- *  two surfaces stay in sync structurally rather than by a convention comment.
- *  Adding a view is one edit here. */
-export const CODE_TAB_VIEW_ORDER = ["browse", "local", "branch"] as const;
-
-export type RightPanelTabKind = z.infer<typeof RightPanelTabKindSchema>;
-export type RightPanelPerTerminalState = z.infer<
-  typeof RightPanelPerTerminalStateSchema
->;
-
-/** Discriminated-union view of the right panel's active tab. Derived from the
- *  flat `activeTab` + `codeMode` storage shape — see `rightPanelView()`. Use
- *  this for pattern matching at consumption sites; never write code that
- *  matches on `activeTab` and reads `codeMode` separately. */
-export type RightPanelTab =
-  | { kind: "inspector" }
-  | { kind: "code"; mode: CodeTabView };
-
-/** Default per-terminal right-panel state — seeded into the in-memory
- *  store when a terminal has no `rightPanel` record yet (fresh terminals,
- *  or terminals from a session predating this schema). */
-export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
-  typeof RightPanelPerTerminalStateSchema
-> = {
-  activeTab: "code",
-  codeMode: "browse",
-};
-
-/** Project the flat `RightPanelPerTerminalState` shape onto its DU view.
- *  Storage stays flat (Solid's setStore shallow-merges correctly); use sites
- *  get the exhaustive-match-friendly DU. */
-export function rightPanelView(p: {
-  activeTab: RightPanelTabKind;
-  codeMode: CodeTabView;
-}): RightPanelTab {
-  return p.activeTab === "inspector"
-    ? { kind: "inspector" }
-    : { kind: "code", mode: p.codeMode };
-}
 
 // ── kaval identity (the pty-host build identity) ───────────────────────
 //

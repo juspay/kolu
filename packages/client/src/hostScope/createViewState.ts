@@ -18,8 +18,11 @@
  *  close-all `reset()` clears. That split is deliberate: everything left in this
  *  factory is reset-on-close-all, so `reset()` clears its WHOLE state with no
  *  "clear these but not those" allow/deny list (the enumeration hazard W7 kills).
- *  The sticky filters/collapsed bit live in `createHostPrefs` precisely because
- *  they must SURVIVE a close-all. Only the momentary `centerActiveRequest` command
+ *  The sticky dock filters live in `createHostPrefs` precisely because
+ *  they must SURVIVE a close-all. (The right-panel collapsed bit is neither here
+ *  nor there: it travels with the TERMINAL via `TerminalMetadata.rightPanel`, not
+ *  the host scope — the panel follows the terminal, #959.) Only the momentary
+ *  `centerActiveRequest` command
  *  stays APP-level in the facade — a write-and-consume viewport impulse, never
  *  durable per-host state. The posture is PERSISTED per host
  *  (`kolu-canvasMaximized:<host>`, restoring the pre-W7 reload-survival that the
@@ -34,7 +37,11 @@ import { createStore, produce, reconcile } from "solid-js/store";
 import { perHostBoolPref } from "../persistedPref";
 import { padiRpcOf } from "../wire";
 
-type TerminalAttention = "unread" | "badge-only";
+// A terminal that has drawn attention while unwatched, surfaced as a dock unread
+// mark. (The former `"badge-only"` state drove the active-host OS badge; W5
+// moved the badge to the cross-host urgency sum in `useHostAttention`, so unread
+// is the only attention mark this per-host state carries now.)
+type TerminalAttention = "unread";
 
 export interface HostViewState {
   activeId: Accessor<TerminalId | null>;
@@ -47,10 +54,7 @@ export interface HostViewState {
     next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
   ) => void;
   markUnread: (id: TerminalId) => void;
-  markBadgeAttention: (id: TerminalId) => void;
-  clearBadgeAttention: () => void;
   isUnread: (id: TerminalId) => boolean;
-  hasBadgeAttention: (id: TerminalId) => boolean;
   // ── Per-host VIEW POSTURE (W7 TIER A) ────────────────────────────────
   /** Fullscreen-one-tile posture for THIS host. Persisted per host
    *  (`kolu-canvasMaximized:<host>`) so it survives reload — the pre-W7 behavior,
@@ -124,26 +128,8 @@ export function createViewState(host: HostKey): HostViewState {
     setAttention(id, "unread");
   }
 
-  function markBadgeAttention(id: TerminalId): void {
-    if (attention[id] !== "unread") setAttention(id, "badge-only");
-  }
-
-  function clearBadgeAttention(): void {
-    setAttention(
-      produce((s) => {
-        for (const id of Object.keys(s) as TerminalId[]) {
-          if (s[id] === "badge-only") delete s[id];
-        }
-      }),
-    );
-  }
-
   function isUnread(id: TerminalId): boolean {
     return attention[id] === "unread";
-  }
-
-  function hasBadgeAttention(id: TerminalId): boolean {
-    return attention[id] !== undefined;
   }
 
   function reset(): void {
@@ -167,10 +153,7 @@ export function createViewState(host: HostKey): HostViewState {
     writeActive,
     setMruOrder,
     markUnread,
-    markBadgeAttention,
-    clearBadgeAttention,
     isUnread,
-    hasBadgeAttention,
     canvasMaximized,
     setCanvasMaximized,
     reset,

@@ -22,7 +22,7 @@
  * Every padi + its detached kaval is reaped (SIGKILL via the gate files).
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -75,7 +75,7 @@ import {
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
 // spread) — there is no `PadiBindingSession` class.
 import type { PadiSession } from "./padiSession.ts";
-import { buildAppRouter } from "./router.ts";
+import { buildAppRouter } from "../router.ts";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
  *  (the drain path logs at info/warn/error; the test keeps stdout clean). */
@@ -556,7 +556,7 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // Simulate a kolu-server restart as a NEWER binder: drop the OLD binder's link
     // (padi + its detached kaval survive) WITHOUT touching padi, then re-bind with
     // a NEWER binderVersion. The running padi serves the real `PADI_SURFACE_VERSION`
-    // (1.0); a fake newer binder ("1.1") is how we exercise the drain arm without a
+    // (2.0); a fake newer binder ("2.1") is how we exercise the drain arm without a
     // second padiSurface build — the kit's probe reads the real identity, sees the skew,
     // and (drain-newer-else-refuse) drains it; the fresh spawn then connects genuinely
     // compatibly (real vs real), adopts the surviving kaval, and restores the session.
@@ -711,6 +711,36 @@ describe("resolvePadiLaunch — the legacy-kaval-socket adopt-hint (binder hints
       undefined,
     );
     expect(args).not.toContain("--legacy-kaval-socket");
+  });
+});
+
+describe("resolvePadiLaunch — the from-source entrypoint (KOLU_PADI_BIN unset) resolves to a REAL file", () => {
+  const stateRoot = "/state/root";
+
+  it("points at packages/padi/src/bin.ts, an existing file — not a phantom under packages/server/ (L27 move must not skew the ../.. hop)", () => {
+    const prev = process.env.KOLU_PADI_BIN;
+    delete process.env.KOLU_PADI_BIN;
+    try {
+      const { binPath, args } = resolvePadiLaunch(
+        stateRoot,
+        padiSocketPath(stateRoot),
+        undefined,
+        undefined,
+        undefined,
+      );
+      // from-source arm: process.execPath --import <tsx> <bin.ts> ...baseArgs
+      expect(binPath).toBe(process.execPath);
+      const importIdx = args.indexOf("--import");
+      expect(importIdx).toBeGreaterThanOrEqual(0);
+      const binTs = args[importIdx + 2];
+      if (binTs === undefined)
+        throw new Error("expected --import to be followed by a bin.ts path");
+      expect(binTs.endsWith("packages/padi/src/bin.ts")).toBe(true);
+      expect(existsSync(binTs)).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.KOLU_PADI_BIN;
+      else process.env.KOLU_PADI_BIN = prev;
+    }
   });
 });
 

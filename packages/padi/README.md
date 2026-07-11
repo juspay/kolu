@@ -77,7 +77,7 @@ remote host — reusing the local arm's seam, not a parallel one:
   its kaval + PTYs outlive the ssh link (detach → reattach). `./dial.test.ts` gains
   a stdio-front block proving the control-core handshake + terminal round-trip over
   the byte relay, minus ssh.
-- **The binding** (`packages/server/src/remotePadiBinding.ts`). The knob
+- **The binding** (`packages/server/src/padi/remotePadiBinding.ts`). The knob
   **`KOLU_PADI_HOST=<ssh host>`** — OFF by default, no UI (the picker is W3.2) —
   branches kolu-server onto `getHostSession({ binary: "padi", extraArgs:
   ["--stdio"] })` (`@kolu/surface-remote`, the exact stack `kaval-tui --host`

@@ -5,17 +5,18 @@
  * means the two sides cannot drift on the rejection threshold.
  */
 
-/** Hard cap on a single dropped file. Agents don't need huge binaries;
- *  the goal is "paste me a snippet/log/screenshot", not "ship me a tarball". */
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** Hard cap on a single dropped file. This leaves room for a useful bug-repro
+ *  video while bounding the current whole-file, base64-encoded RPC upload. */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
-/** The video containers a dropped file may carry — padi's OWN list (no leading
- *  dot). It MUST equal the app's `kolu-common/preview` `VIDEO_EXTENSIONS` (the
- *  formats the Code browser can play back): a video Kolu can preview is one you
- *  can also drop. padi owns the upload domain and must NOT import the app's
- *  preview module (the dependency arrow points OUT), so the two lists are kept
- *  in lockstep by a drift-guard TEST in kolu-common (`preview.test.ts`), not a
- *  shared import. */
+/** The video containers a dropped file may carry — padi's OWN list, in extension
+ *  form (no leading dot). The CANONICAL source (L17): padi owns the upload/file
+ *  domain, so this is the one home for the playable-container set. The app's
+ *  `kolu-common/preview` `VIDEO_EXTENSIONS` (the formats the Code browser plays
+ *  back) is DERIVED from this by prepending a dot — the app→padi arrow the seal
+ *  sanctions — so the droppable set and the playable set can't drift. The former
+ *  hand-kept copy + drift-guard test are gone; the type system carries what the
+ *  test policed. */
 export const UPLOAD_VIDEO_EXTENSIONS: readonly string[] = [
   "mp4",
   "m4v",
@@ -26,9 +27,10 @@ export const UPLOAD_VIDEO_EXTENSIONS: readonly string[] = [
 
 /** Lowercase file extensions (without leading dot) that may be dropped.
  *  Curated to text, code, structured data, common docs, images, and video.
- *  The video entries are derived from preview.ts's VIDEO_EXTENSIONS (its set is
- *  canonical); the image/doc/code entries are listed inline here. New entries
- *  land here, not at the call sites. */
+ *  The video entries are the canonical `UPLOAD_VIDEO_EXTENSIONS` above (padi owns
+ *  the container set; preview.ts derives its playable list from it); the
+ *  image/doc/code entries are listed inline here. New entries land here, not at
+ *  the call sites. */
 export const ALLOWED_UPLOAD_EXTENSIONS: readonly string[] = [
   // Text & docs
   "txt",
@@ -91,9 +93,9 @@ export const ALLOWED_UPLOAD_EXTENSIONS: readonly string[] = [
   "webp",
   "svg",
   // Video — the containers Kolu can play back in the Code browser (padi's own
-  // `UPLOAD_VIDEO_EXTENSIONS`, kept equal to the app's preview list by a drift
-  // test, not a shared import). The 10 MB cap above still applies — video is
-  // allowed, not exempted.
+  // canonical `UPLOAD_VIDEO_EXTENSIONS`; the app's preview list derives from it,
+  // so they can't drift). The 50 MB cap above still applies — video is allowed,
+  // not exempted.
   ...UPLOAD_VIDEO_EXTENSIONS,
 ];
 

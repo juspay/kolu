@@ -2,21 +2,31 @@
  *
  *  Three storage layers because the right panel has three volatilities:
  *
- *  - **Workspace chrome** (collapsed, size, codeTabTreeSize) lives on
- *    `preferences.rightPanel` — global to the user, set once and forgotten. Drives
- *    the desktop Resizable's collapsed/expanded geometry. (The collapsed bit is a
- *    VIEWER layout preference per THE RULE — global, not per-host — and MUST survive
- *    reload; a W7 attempt to make it per-host in-memory broke that across refresh.)
+ *  - **Workspace chrome** (size, codeTabTreeSize) lives on
+ *    `preferences.rightPanel` — global to the user, set once and forgotten.
+ *    `size`/`codeTabTreeSize` drive the desktop Resizable's width + the Code-tab
+ *    tree/content split (viewer density taste, tuned once, left put), each with a
+ *    real writer (`setPanelSize`/`setCodeTabTreeSize`). The NEW-TERMINAL collapsed
+ *    default is a separate top-level `preferences.newTerminalCollapsed` seed (not
+ *    on this record) — a copy-on-create default; the LIVE collapsed state follows
+ *    the terminal (below).
  *  - **Touch-layout drawer open state** (phone + compact) is session-local, NOT
  *    persisted. Dismissing the bottom-drawer host on a handheld is an ephemeral
  *    gesture; persisting it into account prefs would mean the next desktop
  *    session opens with the panel collapsed for reasons the user never
  *    expressed on desktop.
- *  - **Per-terminal task state** (activeTab, codeMode, per-mode selected
- *    file) lives in an in-memory store keyed by terminal id; mutations
+ *  - **Per-terminal task state** (collapsed, activeTab, codeMode, per-mode
+ *    selected file) lives in an in-memory store keyed by terminal id; mutations
  *    push to the server via padi's `chrome.setRightPanel`, which writes
  *    `TerminalMetadata.rightPanel` for session restore. Pattern mirrors
- *    `useSubPanel.ts` exactly.
+ *    `useSubPanel.ts` for `activeTab`/`codeMode`/`selectedFileByMode`.
+ *    `collapsed` joined this layer so the panel *follows the terminal* (#959) —
+ *    a PR-review terminal keeps its panel open while a build-log terminal keeps
+ *    its closed, instead of one global bit forcing both. Unlike `useSubPanel`
+ *    (which seeds from a plain static default), a fresh terminal seeds
+ *    `collapsed` by reading through the `newTerminalCollapsed` preference above,
+ *    then owns it. Persisted per-terminal via session restore, so it survives a
+ *    reload the same way the active tab does.
  *
  *  Callers read/write for the *active* terminal — the API is parameterless,
  *  resolving the current terminal id from `useTerminalStore` internally. */
@@ -36,6 +46,7 @@ import {
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
+import { toast } from "solid-sonner";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { isDesktop } from "../useMobile";
@@ -82,10 +93,10 @@ const [perTerminal, setPerTerminal] = createStore<
 >({});
 
 /** Session-local visibility of the touch-layout bottom-drawer host (phone +
- *  compact). Distinct from the persisted `preferences.rightPanel.collapsed` bit
- *  so dismissing the drawer on a handheld doesn't cross-contaminate the desktop
- *  chrome preference. `RightPanelDrawer` (the touch-layout host) owns the
- *  open/close gestures; the desktop Resizable ignores this signal entirely. */
+ *  compact). Distinct from the per-terminal `collapsed` bit so dismissing the
+ *  drawer on a handheld doesn't cross-contaminate the desktop panel state.
+ *  `RightPanelDrawer` (the touch-layout host) owns the open/close gestures; the
+ *  desktop Resizable ignores this signal entirely. */
 const [drawerOpen, setDrawerOpen] = createSignal(false);
 
 /** Per-terminal navigation history — one record per terminal bundling the
@@ -155,9 +166,23 @@ function browserFor(id: TerminalId): Browser<BrowserLocation> {
   return historyFor(id).browser;
 }
 
+/** The state a terminal with no record yet reads/seeds as. Every field is the
+ *  static `DEFAULT_RIGHT_PANEL_PER_TERMINAL` EXCEPT `collapsed`, which reads
+ *  through the user's NEW-TERMINAL default from `preferences.newTerminalCollapsed`
+ *  — a top-level copy-on-create seed (same seed shape as `newTerminalTheme`,
+ *  though that one has a settings writer and this does not yet), after which the
+ *  terminal owns its own `collapsed`. Computed fresh each call so it tracks the
+ *  live preference until the terminal first writes a record. */
+function freshPerTerminalState(): RightPanelPerTerminalState {
+  return {
+    ...DEFAULT_RIGHT_PANEL_PER_TERMINAL,
+    collapsed: preferences().newTerminalCollapsed,
+  };
+}
+
 function ensureState(id: TerminalId): void {
   if (perTerminal[id]) return;
-  setPerTerminal(id, { ...DEFAULT_RIGHT_PANEL_PER_TERMINAL });
+  setPerTerminal(id, freshPerTerminalState());
 }
 
 function reportToServer(id: TerminalId): void {
@@ -166,12 +191,24 @@ function reportToServer(id: TerminalId): void {
   void activePadiRpc.surface.chrome
     .setRightPanel({
       id,
+      collapsed: s.collapsed,
       activeTab: s.activeTab,
       codeMode: s.codeMode,
       selectedFileByMode: s.selectedFileByMode,
     })
     .catch((err: Error) =>
-      console.error("useRightPanel: setRightPanel RPC failed", err),
+      // A rejected `setRightPanel` means the optimistic per-terminal state
+      // (collapsed / active tab / code mode / selected file) is NOT persisted —
+      // it silently reverts on the next session restore. The connection-health
+      // pip only reports TRANSPORT health, so an application-level rejection
+      // (validation / authorization) on an otherwise-live padi would go
+      // unseen; surface it per the repo's terminal-mutation rule (toast with
+      // the server message). One STABLE toast id dedups the failure so a downed
+      // padi — where every tab/file/collapse write fails — collapses onto a
+      // single toast instead of one per interaction.
+      toast.error(`Failed to save panel state: ${err.message}`, {
+        id: "right-panel-report-failed",
+      }),
     );
 }
 
@@ -183,27 +220,28 @@ export function useRightPanel() {
   /** Whether there's anything for the panel to show — at least one terminal
    *  exists. An empty workspace renders the `EmptyState` in place of the
    *  panel host (App.tsx's `showEmpty`), so the desktop chrome must treat the
-   *  panel as absent regardless of the persisted `collapsed` preference —
+   *  panel as absent regardless of the active terminal's `collapsed` state —
    *  otherwise the ChromeBar reserves panel-width it never fills (a "ghost"
    *  gap) and the toggle reads as open with nothing behind it. */
   const hasTerminals = () => tileStore.tileCount() > 0;
 
-  /** The desktop panel's collapsed bit — a GLOBAL, server-persisted viewer-layout
-   *  preference (like `size`/`codeTabTreeSize` below), NOT per-host. Whether the
-   *  inspector/code panel takes canvas space is a VIEWER choice (THE RULE), and it
-   *  MUST survive a page reload — a W7-TIER-A attempt to make it per-host in-memory
-   *  silently lost it across refresh (6 e2e persistence scenarios). The per-host
-   *  CONTENT the panel shows (active tab, selected file) is separately per-terminal
-   *  below; only the take-up-space layout bit is global. */
-  const collapsed = (): boolean => rp().collapsed;
+  /** The desktop panel's collapsed bit — PER-TERMINAL, so the panel follows the
+   *  terminal (#959): each terminal remembers whether its panel was showing,
+   *  alongside its active tab and selected file (all on the same
+   *  `TerminalMetadata.rightPanel` record). Reads the ACTIVE terminal's value; a
+   *  terminal with no record yet (fresh, or none active) reads the new-terminal
+   *  default from `preferences.newTerminalCollapsed` via `freshPerTerminalState`.
+   *  It survives reload via session restore, exactly like the active tab. Only the
+   *  take-up-space *geometry* (`size`/`codeTabTreeSize` below) stays global. */
+  const collapsed = (): boolean => activeState().collapsed;
 
   /** Read the per-terminal record for the active terminal, falling back
    *  to defaults when no terminal is active or the terminal has no record
    *  yet. The returned object is read-only — write through the mutators. */
   function activeState(): RightPanelPerTerminalState {
     const id = store.activeId();
-    if (id === null) return DEFAULT_RIGHT_PANEL_PER_TERMINAL;
-    return perTerminal[id] ?? DEFAULT_RIGHT_PANEL_PER_TERMINAL;
+    if (id === null) return freshPerTerminalState();
+    return perTerminal[id] ?? freshPerTerminalState();
   }
 
   /** Mutate the active terminal's per-terminal record. No-op when no
@@ -231,20 +269,21 @@ export function useRightPanel() {
     reportToServer(id);
   }
 
-  /** Write the persisted desktop `collapsed` bit (global server pref). No-op on an
-   *  empty workspace — the EmptyState owns the screen and there's no panel host, so
-   *  flipping the bit would just record a ghost state. Every collapsed-mutating path
-   *  (toggle/collapse/expand and `reveal`'s desktop branch) routes through here so
-   *  the empty-workspace rule lives in one place rather than per-caller. */
+  /** Write the ACTIVE terminal's `collapsed` bit (per-terminal, reported to the
+   *  server for session restore). Naturally a no-op on an empty workspace — the
+   *  EmptyState owns the screen and there's no active terminal, so `mutateActive`
+   *  drops the write rather than recording a ghost state. Every collapsed-mutating
+   *  path (toggle/collapse/expand and `reveal`'s desktop branch) routes through
+   *  here so the per-terminal write lives in one place rather than per-caller. */
   const setCollapsed = (next: boolean) => {
-    if (!hasTerminals()) return;
-    updatePreferences({ rightPanel: { collapsed: next } });
+    mutateActive({ collapsed: next });
   };
 
   return {
     // ── Workspace chrome ─────────────────────────────────────────────
-    // `collapsed`/`size`/`codeTabTreeSize` are all GLOBAL server prefs — viewer
-    // layout/density taste, per-tab by THE RULE.
+    // `size`/`codeTabTreeSize` are GLOBAL server prefs — viewer layout/density
+    // taste, per-tab by THE RULE. `collapsed` is per-terminal (it follows the
+    // terminal, #959) but is grouped here as the panel's other visibility read.
     collapsed,
     panelSize: () => rp().size,
     /** At least one terminal exists, so the desktop panel host is mounted

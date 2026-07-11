@@ -52,7 +52,7 @@
   <path class="link" d="M750,121 L800,121"/>
   <rect class="chip" x="800" y="94" width="340" height="54" rx="8"/>
   <text class="tool"   x="818" y="116">AskUserQuestion  (batched, once)</text>
-  <text class="skilln" x="818" y="135">Plan first?  ·  Task kind  ·  Ultracode?</text>
+  <text class="skilln" x="818" y="135">Plan first?  ·  Task kind</text>
 
   <!-- ============ §1 Set up ============ -->
   <rect class="phase" x="330" y="192" width="420" height="72" rx="12" fill="#E3E9FD" stroke="#0D32B2"/>

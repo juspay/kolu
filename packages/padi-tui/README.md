@@ -44,7 +44,32 @@ padi-tui status --state-root ~/some/state   # derive the digest→socket from a 
 padi-tui status --socket /path/to/padi.sock # a literal socket path
 ```
 
-*(A remote padi over ssh is W3; today padi-tui is local-only.)*
+## --host — a remote padi over ssh
+
+`--host <ssh>` reaches a padi on **another machine**, the exact twin of
+[`kaval-tui --host`](../kaval-tui). It provisions the daemon's closure with Nix,
+runs `ssh <host> padi --stdio`, and speaks the same `padiSurface` over that link
+(via [`@kolu/surface-remote`](../surface-remote)'s `dialAgentOnce`) — so every
+verb runs unchanged against the remote:
+
+```sh
+padi-tui status --host nix@prod              # snapshot the terminals on prod
+padi-tui watch --host nix@prod               # …follow them live
+padi-tui wait "$id" --host nix@prod --until awaiting,waiting
+padi-tui create --host nix@prod -- claude    # spawn a REAL terminal on prod
+```
+
+padi runs **as the SSH user**, so you reach the padi owned by that user (its
+socket dir is `0700`, owner-only); SSH in as the user that runs padi. The remote
+terminals **survive the link** — `create` on the host, then a later `status` /
+`watch` finds them — because padi's `--stdio` mode fronts the *durable* daemon.
+A tui is a **dial**: read verbs are safe and `create` lands a real terminal
+(that's the point), but nothing here ever drains, converges, or recycles the
+remote padi — that stays the kolu-server binder's job ([#1313](https://github.com/juspay/kolu/issues/1313)).
+
+`--host` is mutually exclusive with `--socket` / `--state-root` (those name a
+local daemon). It needs the per-system padi derivation baked into the Nix
+wrapper, so run `padi-tui` from `nix run .#padi-tui`, not the raw entrypoint.
 
 ## wait — the agent-drives-agent done-signal
 
@@ -98,7 +123,10 @@ padi-tui create --worktree feat -- claude  # a fresh git worktree + a Claude Cod
 default the cwd) and opens the terminal there; anything after `--` is run in the
 new terminal. It composes the same `git.worktreeCreate` + create-with-cwd +
 `sendInput` the canvas worktree flow uses, so a worktree'd agent created here is
-byte-identical to one created from the browser.
+byte-identical to one created from the browser. Over `--host`, a plain `create`
+opens in the remote user's home (a local cwd need not exist there), and
+`--worktree` requires an explicit `--repo <host path>` — the worktree is cut on
+the remote machine, so it can't default to your local directory.
 
 ## status / watch
 

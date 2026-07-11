@@ -6,7 +6,8 @@
  *  On the touch layouts, the right panel hosts as a `@corvu/drawer
  *  side="bottom"`. Visibility is the session-local `useRightPanel.drawerOpen()`
  *  signal — dismissing the drawer on a handheld is not the same volatility as
- *  toggling the desktop chrome preference (see `useRightPanel.ts`).
+ *  toggling the desktop panel's per-terminal `collapsed` state (see
+ *  `useRightPanel.ts`).
  *
  *  On desktop the right panel is hosted by a `@corvu/resizable`
  *  `Resizable` wired up in `App.tsx` — the outer horizontal split between

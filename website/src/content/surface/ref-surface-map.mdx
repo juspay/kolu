@@ -110,6 +110,47 @@ reference-equal.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="scopedbyentry" />
 
+## `watchByEntry` — per-member attention, watched eagerly
+
+The third export of `/client`, and `scopedByEntry`'s eager twin on the **same**
+shared membership kernel (codec identity, the `entries` view, retained-per-key
+roots disposed on membership exit). Where `scopedByEntry` is lazy — an owner is
+built on a key's first activation — `watchByEntry` is **eager**: every member
+gets a root the moment it joins, because a background host is precisely the one
+you need to hear from.
+
+```
+watchByEntry(client, cell, items, onRaise) → { get(key): { kind: "live" | "stale"; value } | undefined }
+```
+
+- **`cell(entry)`** selects the per-entry cell to watch (`e => e.cells.urgency`)
+  — a get-only `WatchableCell<A>` whose `.use()` yields the current value and the
+  raw `Subscription` (whose `updated` carries the change pairs).
+- **`items(value)`** extracts **stable** `PropertyKey` ids from the cell value
+  (`v => v.awaitingIds`). Ids are `string`/`number`/`symbol`, never objects — the
+  set-diff compares by value, and object ids (rebuilt fresh per frame) would compare
+  by reference and re-raise every frame, so an object-id `items` is a compile error.
+  Stability is the app's one obligation — it is what makes "same item, not a new
+  one" decidable.
+- **`onRaise(key, raised, value)`** fires for newly-raised ids. Raise detection is
+  a pure set-diff over the framework's `updated` `{ prev, next }` pairs:
+  `items(next) ∖ items(prev)`. The change-iff-fired law upstream (see
+  `Subscription.updated`) is what makes a plain set-diff trustworthy — no
+  hand-held previous frame, no frame classification, no per-window memory.
+- **`get(key)`** is a point read — `{ kind: "live" | "stale"; value }` — or
+  **`undefined`** when the key is not a member OR has no frame yet (a mirror stays
+  silent until the authority speaks — see
+  [@kolu/surface-remote](/surface/ref-surface-remote)). `live` means our link to
+  the host is up and connected **and** this cell's own subscription is neither
+  errored nor ended; an errored/ended cell reads `stale` (its last value dims)
+  rather than lying live, so a consumer never counts frozen data. `stale` also
+  holds the last value under a down link.
+- There is deliberately **no `total()`**: aggregation is app policy (kolu sums
+  awaiting terminals across live hosts; drishti counts hosts in trouble — a sum
+  would be noise), so the watcher hands facts and each app folds.
+- Throws if called outside a reactive owner — it holds a `keyArray` of per-key
+  roots that must be disposed with the app.
+
 ## `EntryStatus<Cause>` — the projected per-entry status
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="entrystatus" />

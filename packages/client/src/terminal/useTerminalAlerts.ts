@@ -2,88 +2,45 @@
  *  Watches metadata subscriptions for agent state changes (any AI coding agent). */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
-import { SW_MESSAGE_TYPE } from "@kolu/surface-app";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   type AgentInfo,
   alertClass,
   type TerminalId,
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
+import { encodeHostKey } from "kolu-common/hostKey";
 import { type Accessor, createEffect, on } from "solid-js";
-import { preferences } from "../wire";
-import { useStaleCheck } from "./staleness";
+import { activeHost, preferences } from "../wire";
 import type { TerminalSubject } from "./terminalSubject";
-import {
-  fireActivityAlert,
-  requestNotificationPermission,
-} from "./useActivityAlerts";
+import { fireActivityAlert } from "./useActivityAlerts";
 
 export function useTerminalAlerts(deps: {
   activeId: Accessor<TerminalId | null>;
   activate: (id: TerminalId) => void;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   getSubject: (id: TerminalId) => TerminalSubject;
-  hasBadgeAttention: (id: TerminalId) => boolean;
-  clearBadgeAttention: () => void;
   markUnread: (id: TerminalId) => void;
-  markBadgeAttention: (id: TerminalId) => void;
   terminalIds: Accessor<TerminalId[]>;
 }) {
   const activityAlerts = () => preferences().activityAlerts;
-  const isStale = useStaleCheck();
 
-  // Request browser notification permission eagerly when alerts are enabled
-  if (activityAlerts()) requestNotificationPermission();
+  // Notification permission is requested by `useHostAttention`'s single reactive
+  // requester (off the same `activityAlerts` rule), so this module no longer asks
+  // too — a second startup request while permission is still `default` is a
+  // redundant prompt the browser does not coalesce.
 
-  // Stale terminals are excluded — but the attention mark itself
-  // stays, so a fresh agent transition (which bumps `lastActivityAt`
-  // and unparks) wakes the badge back up. `isStale` is purely
-  // temporal: a `waiting` agent past the activity window suppresses
-  // the badge along with every other stale terminal — by design, so a
-  // user who's been away long enough doesn't get a phantom badge from
-  // yesterday's queue. The dock still surfaces those terminals via
-  // their parked-row AgentIndicator; the OS badge is for "act now".
-  const isAttentionLive = (id: TerminalId) => {
-    if (!deps.hasBadgeAttention(id)) return false;
-    const meta = deps.getMetadata(id);
-    if (!meta) return false;
-    return !isStale(meta.lastActivityAt);
-  };
-
-  // Badge the PWA dock icon with terminals that need attention. The
-  // effect re-runs on every staleness tick (~60s), so guard against
-  // re-issuing the same count to the OS shell.
-  let lastBadgeCount = -1;
-  createEffect(() => {
-    if (!("setAppBadge" in navigator)) return;
-    const count = deps.terminalIds().filter(isAttentionLive).length;
-    if (count === lastBadgeCount) return;
-    lastBadgeCount = count;
-    if (count > 0) {
-      void navigator.setAppBadge(count);
-    } else {
-      void navigator.clearAppBadge();
-    }
-  });
-
-  makeEventListener(document, "visibilitychange", () => {
-    if (!document.hidden) deps.clearBadgeAttention();
-  });
-
-  // Route a click on an OS notification back to the terminal that finished. The
-  // notification worker (`NOTIFICATION_SW_SOURCE`) handles `notificationclick`
-  // in the worker — it can't reach into the page — so it focuses the window and
-  // posts the alert's `data` here, where we have `activate`. (An installed-PWA
-  // notification has no page-level `Notification.onclick`.)
-  if ("serviceWorker" in navigator) {
-    makeEventListener(navigator.serviceWorker, "message", (event) => {
-      const msg = event.data;
-      if (msg?.type !== SW_MESSAGE_TYPE) return;
-      const id = msg.data?.terminalId as TerminalId | undefined;
-      if (id !== undefined) deps.activate(id);
-    });
-  }
+  // The OS app badge is no longer written here. It became a CROSS-HOST fact in
+  // W5 — the sum of every LIVE host's `urgency.awaitingIds.length`, owned by
+  // `useHostAttention` off the urgency projection the host chips already read —
+  // so a background host's awaiting agents reach the dock icon too, not only the
+  // active host's. This module keeps its per-active-host job: fire the OS
+  // notification + dock unread for a terminal you are not actively watching.
+  //
+  // The click on an OS notification is routed by the SINGLE `notify.onClick`
+  // router in `useHostAttention` (the one seam that owns both the per-terminal
+  // and cross-host click payloads). This module no longer hand-rolls its own
+  // `serviceWorker` message listener — a second listener on the same channel
+  // would cross-deliver a `host` payload into a `terminal` handler.
 
   // Reactively watch agent state for all terminals.
   // SolidJS's on() tracks previous values natively — no manual Map needed.
@@ -129,11 +86,7 @@ export function useTerminalAlerts(deps: {
 
   function alertForTerminal(id: TerminalId) {
     const isBackground = id !== deps.activeId();
-    if (isBackground) {
-      deps.markUnread(id);
-    } else if (document.hidden) {
-      deps.markBadgeAttention(id);
-    }
+    if (isBackground) deps.markUnread(id);
     // Alert unless the user is *actively watching this very terminal* — i.e.
     // it's the active terminal AND kolu has focus. `document.hasFocus()` is the
     // right signal, not `document.hidden`: hidden is only true when kolu is fully
@@ -142,8 +95,11 @@ export function useTerminalAlerts(deps: {
     // `isBackground || document.hidden` gate meant a banner essentially never
     // fired. `hasFocus()` is false whenever the doc is hidden too, so it
     // subsumes the old check and also covers "switched apps, kolu still visible".
+    // The finished terminal lives on the host that is active right now (this
+    // module watches the active host's terminals). Stamp that host onto the
+    // notification so a click after a host-switch returns to the right padi.
     if (isBackground || !document.hasFocus())
-      void fireActivityAlert(deps.getSubject(id), { terminalId: id });
+      fireActivityAlert(deps.getSubject(id), id, encodeHostKey(activeHost()));
   }
 
   function simulateAlert(options?: { target?: "active" | "inactive" }) {

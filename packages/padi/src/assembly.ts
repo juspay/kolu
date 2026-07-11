@@ -85,7 +85,7 @@ export {
   setSavedSessionFromSnapshot,
 } from "./session.ts";
 // ── padi process rendezvous (W2.2 binder) ───────────────────────────────
-// kolu-server's padi BINDER (`server/src/padiBinding.ts`) resolves the SAME
+// kolu-server's padi BINDER (`server/src/padi/padiBinding.ts`) resolves the SAME
 // state-root → socket/gate paths padi computes for itself, so the supervisor and
 // the daemon never disagree on identity. Re-exported through this barrel so the
 // binder reaches the terminal domain only through @kolu/padi's published entry

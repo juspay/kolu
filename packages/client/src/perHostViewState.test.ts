@@ -3,7 +3,7 @@
  *  posture (`canvasMaximized`) in `hostScope/createViewState`, and the two dock
  *  filters (`activityWindow`, `showSleeping`) in the sibling `hostScope/createHostPrefs`
  *  (the sticky prefs a close-all must NOT clear). (The right-panel collapsed bit is
- *  NOT per-host — it's a global viewer-layout pref that must survive reload.)
+ *  neither — it's per-TERMINAL, on `TerminalMetadata.rightPanel`, so the panel follows the terminal, #959.)
  *  Each follows the maximized pattern: SET on host A → switch to
  *  host B sees the DEFAULT → switch BACK to A sees A's value RESTORED (the owner is
  *  RETAINED across a switch-away, disposed only on membership exit). All three are
@@ -132,12 +132,12 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
     });
   });
 
-  it("activityWindow: set on A → B sees 24h (default) → back to A restores 4h, and A's per-host key is written", async () => {
+  it("activityWindow: set on A → B sees all (default) → back to A restores 4h, and A's per-host key is written", async () => {
     await createRoot(async (dispose) => {
       try {
         switchTo(HOST_A);
         await flush();
-        expect(activityWindow()).toBe("24h");
+        expect(activityWindow()).toBe("all");
         setActivityWindow("4h");
         expect(activityWindow()).toBe("4h");
         await flush();
@@ -146,7 +146,7 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
 
         switchTo(HOST_B);
         await flush();
-        expect(activityWindow()).toBe("24h");
+        expect(activityWindow()).toBe("all");
 
         switchTo(HOST_A);
         await flush();
@@ -192,13 +192,11 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         vs.writeActive("term-1" as TerminalId);
         vs.setMruOrder(["term-1", "term-2"] as TerminalId[]);
         vs.markUnread("term-1" as TerminalId);
-        vs.markBadgeAttention("term-2" as TerminalId);
         vs.setCanvasMaximized(true);
         // Sanity: all four facts are non-default.
         expect(vs.activeId()).not.toBeNull();
         expect(vs.mruOrder().length).toBeGreaterThan(0);
         expect(vs.isUnread("term-1" as TerminalId)).toBe(true);
-        expect(vs.hasBadgeAttention("term-2" as TerminalId)).toBe(true);
         expect(vs.canvasMaximized()).toBe(true);
         // reset() must return EVERY fact to its default. A future reset-on-close-all
         // fact added to this factory but FORGOTTEN in reset() fails this assertion —
@@ -207,7 +205,6 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         expect(vs.activeId()).toBeNull();
         expect(vs.mruOrder()).toEqual([]);
         expect(vs.isUnread("term-1" as TerminalId)).toBe(false);
-        expect(vs.hasBadgeAttention("term-2" as TerminalId)).toBe(false);
         expect(vs.canvasMaximized()).toBe(false);
       } finally {
         dispose();

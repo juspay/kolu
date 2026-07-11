@@ -30,13 +30,15 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
+import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { assertPadiSurfaceCompatible } from "./dial.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
 } from "./stateRoot.ts";
-import type { PadiDaemonContract } from "./surface.ts";
+import { PADI_SURFACE_VERSION, type PadiDaemonContract } from "./surface.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const PADI_BIN = join(SRC, "bin.ts");
@@ -279,7 +281,7 @@ describe("padi the process — dial acceptance", () => {
     const hello = await conn.client.surface.control.core.hello();
     // padi echoes its own identity — the resolved state-root it anchored to.
     expect(hello.stateRoot).toBe(resolve(stateRoot));
-    expect(hello.surfaceVersion).toBe("1.3");
+    expect(hello.surfaceVersion).toBe("2.0");
     expect(hello.controlCoreVersion).toBe("1.0");
     // …and its boot time, stamped once at daemon init (honest uptime source).
     expect(hello.startedAt).toBeGreaterThan(0);
@@ -367,13 +369,13 @@ describe("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    // A binder NEWER than this padi (it requires padiSurface 2.0; padi serves 1.2)
+    // A binder NEWER than this padi (it requires padiSurface 3.0; padi serves 2.0)
     // reads the running version from the FROZEN control-core `hello` — the call
     // that must work at a mismatch — and finds it INCOMPATIBLE, so it REFUSES to
     // bind the versioned surface.
     const hello = await conn.client.surface.control.core.hello();
-    expect(hello.surfaceVersion).toBe("1.3");
-    expect(isContractVersionCompatible(hello.surfaceVersion, "2.0")).toBe(
+    expect(hello.surfaceVersion).toBe("2.0");
+    expect(isContractVersionCompatible(hello.surfaceVersion, "3.0")).toBe(
       false,
     );
 
@@ -414,7 +416,7 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
 
     const hello = await client.surface.control.core.hello();
     expect(hello.stateRoot).toBe(resolve(stateRoot));
-    expect(hello.surfaceVersion).toBe("1.3");
+    expect(hello.surfaceVersion).toBe("2.0");
     expect(hello.controlCoreVersion).toBe("1.0");
     expect(hello.startedAt).toBeGreaterThan(0);
 
@@ -491,4 +493,55 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
 
     await reapStdioFront(front2);
   }, 60000);
+});
+
+/**
+ * The dial kit's ONE compatibility judgement — pure, no process. Both transports
+ * run it: `connectPadi` after the local-socket handshake, and `padi-tui --host`'s
+ * ssh probe after the remote control-core `hello`. Testing it here pins the shared
+ * gate so the two transports can't drift.
+ */
+describe("assertPadiSurfaceCompatible", () => {
+  const parts = PADI_SURFACE_VERSION.split(".").map(Number);
+  const major = parts[0] ?? 0;
+  const minor = parts[1] ?? 0;
+
+  it("passes an exactly-matching padiSurface version", () => {
+    expect(() =>
+      assertPadiSurfaceCompatible(PADI_SURFACE_VERSION),
+    ).not.toThrow();
+  });
+
+  it("passes a newer MINOR (a padi ahead this client can still speak)", () => {
+    expect(() =>
+      assertPadiSurfaceCompatible(`${major}.${minor + 1}`),
+    ).not.toThrow();
+  });
+
+  it("REFUSES a newer MAJOR with a loud DaemonContractSkewError", () => {
+    expect(() => assertPadiSurfaceCompatible(`${major + 1}.0`)).toThrow(
+      DaemonContractSkewError,
+    );
+    expect(() => assertPadiSurfaceCompatible(`${major + 1}.0`)).toThrow(
+      /contract skew/,
+    );
+  });
+
+  it("REFUSES an older version (a padi too old for this client)", () => {
+    // "Too old" is an earlier minor within the same major, or an earlier major
+    // entirely. At a `.0` build (this major's floor) only the earlier-major form
+    // is expressible, so pick whichever is genuinely older than this build — this
+    // keeps the older-skew covered even at a fresh major (2.0), where an in-major
+    // older minor doesn't exist.
+    const older = minor > 0 ? `${major}.${minor - 1}` : `${major - 1}.0`;
+    expect(() => assertPadiSurfaceCompatible(older)).toThrow(
+      DaemonContractSkewError,
+    );
+  });
+
+  it("REFUSES an unparseable version string", () => {
+    expect(() => assertPadiSurfaceCompatible("not-a-version")).toThrow(
+      DaemonContractSkewError,
+    );
+  });
 });

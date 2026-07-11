@@ -75,6 +75,7 @@ const sentinel: SavedActiveTerminal = {
   canvasLayout: { x: 11, y: 22, w: 33, h: 44 },
   subPanel: { collapsed: true, panelSize: 257 },
   rightPanel: {
+    collapsed: true,
     activeTab: "code",
     codeMode: "branch",
     selectedFileByMode: { local: "a.ts", branch: "b.ts", browse: "c.ts" },

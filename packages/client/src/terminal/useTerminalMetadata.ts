@@ -19,8 +19,16 @@ import type {
   PadiTerminal,
   TerminalMetadata,
 } from "@kolu/padi/surface";
+import { writeWrappedValue } from "@kolu/surface/solid";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createMemo } from "solid-js";
+import {
+  type Accessor,
+  createComputed,
+  createMemo,
+  mapArray,
+  onCleanup,
+} from "solid-js";
+import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { activeHost, padiMap } from "../wire";
 import {
@@ -67,6 +75,67 @@ export function isParked(m: PadiTerminal): m is PadiParkedTerminal {
   return m.state === "parked";
 }
 
+/** Reproject the record's padi-host-stamped epochs onto THIS browser's clock at the
+ *  ingestion BOUNDARY — via the ACTIVE host's measured `clockOffset` — so no downstream
+ *  consumer ever subtracts a raw remote epoch from the local clock (the foreign-clock
+ *  fence, applied ONCE here rather than per-consumer, so nothing is translated twice).
+ *  The THREE padi-stamped epochs a tile consumer renders against `Date.now()` are:
+ *  `lastActivityAt` (top-level, optional — staleness/recency), the ACTIVE arm's
+ *  `agent.startedAt` (the "Running for" duration), and the SLEEPING arm's `sleptAt` (the
+ *  "asleep 3d" line + dock recency). (`adoptedAt` rides the daemon status, not a tile,
+ *  and is a monotonic host-to-host dedup key — never compared to the browser clock — so
+ *  it stays raw there; `parkedAt` lives only on the parked arm this boundary narrows out.)
+ *  A null offset (host still warming, no offset measured yet) maps each epoch to its
+ *  ABSENT form — `lastActivityAt` → undefined, `agent.startedAt`/`sleptAt` → 0 — every
+ *  one of which consumers already render as "unknown", never the raw value.
+ *
+ *  MODULE-PRIVATE (not exported, and the ONLY caller is the metadata projection's
+ *  per-id computed in `useTerminalMetadata`). It mints a FRESH object and reads the
+ *  active host's clock reactively — correct behaviour INSIDE the projection, where
+ *  `reconcile` collapses an unchanged reprojection back to a stable reference. Calling
+ *  it from any other tracking scope would reintroduce #1714's per-call identity churn,
+ *  which is why the value read path funnels through `getMetadata` alone. */
+function reprojectClock(record: TerminalMetadata): TerminalMetadata {
+  const { toLocal } = padiMap.entry(activeHost()).clock;
+  // 0 is an IN-BAND sentinel across these epochs ("no activity yet" for `lastActivityAt`,
+  // `z.number().default(0)`; the ABSENT/"unknown" form for `startedAt`/`sleptAt`), NOT an
+  // epoch — so it must NOT be reprojected: `toLocal(0)` = `-offset` would forge a garbage
+  // timestamp that isStale/formatTimeAgo/dock-ranking read as a real reading (a fresh remote
+  // shell → "55y ago" → dropped from the dock as "parked"). Only a real, NON-zero epoch is a
+  // host-clock value to translate; 0 (and undefined) pass through untouched. 0 doing double
+  // duty is an overloaded value — a padi-contract union splitting "no activity" from an epoch
+  // is the real fix, not tonight's; this comment stops a future cleanup from reprojecting the
+  // sentinel again.
+  const lastActivityAt = record.lastActivityAt
+    ? (toLocal(record.lastActivityAt) ?? undefined)
+    : record.lastActivityAt;
+  const agent =
+    "agent" in record && typeof record.agent?.startedAt === "number"
+      ? {
+          ...record.agent,
+          startedAt: record.agent.startedAt
+            ? (toLocal(record.agent.startedAt) ?? 0)
+            : record.agent.startedAt,
+        }
+      : "agent" in record
+        ? record.agent
+        : undefined;
+  const sleptAt =
+    "sleptAt" in record && typeof record.sleptAt === "number"
+      ? record.sleptAt
+        ? (toLocal(record.sleptAt) ?? 0)
+        : record.sleptAt
+      : undefined;
+  // The same type bridge the parked-narrow above rides: the reprojected fields keep
+  // their wire types (number|undefined), so this is a value-only rewrite of the record.
+  return {
+    ...record,
+    lastActivityAt,
+    ...(agent === undefined ? {} : { agent }),
+    ...(sleptAt === undefined ? {} : { sleptAt }),
+  } as TerminalMetadata;
+}
+
 export function useTerminalMetadata(deps: {
   list: Accessor<{ id: TerminalId }[] | undefined>;
 }) {
@@ -99,19 +168,83 @@ export function useTerminalMetadata(deps: {
   // This is the ONE type bridge where the padi wire shape meets the client's domain
   // type.
   //
-  /** A terminal's composed TILE record — `undefined` until the server-composed
-   *  record has arrived, AND `undefined` for a PARKED record (a restore-card row,
-   *  not a tile). The `byKey` read is reactive, so this re-runs as the record
-   *  updates. The value is read field-wise by every one of the ~20 consumers inside
-   *  its own tracking scope — none compares it by identity — so per-key reactivity
-   *  stays granular (a change to one terminal notifies only readers of that
-   *  terminal). This is ALSO the read the ordering filters below use for
-   *  `parentId`: presence (a real tile record arrived) is the gate that excludes a
-   *  still-loading OR parked terminal from the order. */
+  /** A terminal's composed TILE record — the identity-stable REPROJECTED record,
+   *  read through the per-id projection (below). `undefined` until the
+   *  server-composed record has arrived, AND `undefined` for a PARKED record (a
+   *  restore-card row, not a tile). Reactivity comes from the keyed `slots[id]`
+   *  read (re-subscribes when this id's projection lands) plus the projection's
+   *  reconciled `store.v` — so a leaf reader (`meta.git.repoRoot`) tracks that leaf
+   *  and is notified ONLY when its value changes, never on an incidental reproject
+   *  to an unchanged value (the #1714 flicker fix). The ORDERING filters read the
+   *  clock-free `rawTile` instead (see its doc), not this reprojected path. */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    const record = rawTile(id);
-    return record === undefined ? undefined : reprojectClock(record);
+    return slots[id]?.read();
   }
+
+  // --- The metadata projection: identity-stable reprojected records ---
+  //
+  /** Per-id reconcile-backed projection: `id → { read }`, where `read()` is the
+   *  reprojected record `getMetadata` returns. One `createComputed` per live
+   *  terminal reprojects its raw record and writes THROUGH `writeWrappedValue`
+   *  (the framework's reconcile-or-assign gate — `surface/src/solid/writeValue.ts`,
+   *  the same one every subscription value rides) into a per-id `{ v }` store.
+   *  Because that gate `reconcile`s, `store.v`'s proxy stays STABLE across the
+   *  record's continuous lifetime — a changed field mutates the proxy in place and
+   *  notifies only that leaf (the `useTerminalMetadata.test.ts` `lastActivityAt`
+   *  case). The reference turns over only around absence/recreation: `undefined ⇄
+   *  record`, or a structural swap `reconcile` can't merge in place.
+   *
+   *  This restores an identity-stability GUARANTEE at the one knowing endpoint.
+   *  #1714 broke it by having `getMetadata` return `reprojectClock(rawTile(id))`
+   *  — a fresh object minted per call, reactive on the active host's clock — so
+   *  every observation manufactured a spurious "new value"; a consumer keyed on
+   *  the reference (the `active` memo → `repoPath()` → the Code tab) then
+   *  remounted on every incidental `lastActivityAt`/`agent`/clock tick (the
+   *  right-panel flicker). With the projection, consumers reading `meta.git.…`
+   *  track that leaf again and are notified only on a real value change.
+   *
+   *  `slots` is a keyed store (not a plain Map) so `getMetadata`'s `slots[id]`
+   *  read re-subscribes when THIS id's projection is created/removed WITHOUT
+   *  tracking the whole membership — adding an unrelated terminal (a split) never
+   *  notifies `slots[otherId]` readers, so `active` doesn't churn on split-add.
+   *  `mapArray` gives each live id a reactive owner disposed when it leaves the
+   *  set. In-repo precedent for the shared-reprojection remedy: `HostDaemonChips`
+   *  `daemon()`. */
+  const [slots, setSlots] = createStore<
+    Record<TerminalId, { read: Accessor<TerminalMetadata | undefined> }>
+  >({});
+  const driveProjections = mapArray(keys, (id) => {
+    const [store, setStore] = createStore<{ v: TerminalMetadata | undefined }>({
+      v: undefined,
+    });
+    // Reprojects on every change of this id's raw record OR the active host's
+    // clock; `writeWrappedValue`'s `reconcile` keeps `store.v`'s identity when the
+    // reprojected value is unchanged. This computed is the SOLE caller of
+    // `reprojectClock` — the fresh-object read path is unspellable elsewhere.
+    createComputed(() => {
+      const record = rawTile(id);
+      writeWrappedValue<TerminalMetadata | undefined>(
+        setStore,
+        record === undefined ? undefined : reprojectClock(record),
+      );
+    });
+    setSlots(id, { read: () => store.v });
+    onCleanup(() =>
+      setSlots(
+        produce((s) => {
+          delete s[id];
+        }),
+      ),
+    );
+  });
+  // `mapArray` is lazy — drive it from a `createComputed` (not an effect) so the
+  // per-id owners are instantiated + reconciled SYNCHRONOUSLY: `getMetadata` is
+  // read in the same tick it's set up (the `active` memo on first render, and the
+  // hook's own `displayInfos`/`isWorktreeShared`), so the projection must be ready
+  // without waiting for the effect queue. Each per-id computed likewise reprojects
+  // eagerly, so a synchronous `getMetadata(id)` returns the value, not a transient
+  // `undefined`.
+  createComputed(driveProjections);
 
   /** The RAW composed tile record — presence + the parked-narrow, with NO clock
    *  reprojection. The ORDERING filters (`terminalIds`/`getSubTerminalIds`) read `parentId`
@@ -121,60 +254,6 @@ export function useTerminalMetadata(deps: {
   function rawTile(id: TerminalId): TerminalMetadata | undefined {
     const record = terminals.byKey(id)?.();
     return record === undefined || isParked(record) ? undefined : record;
-  }
-
-  /** Reproject the record's padi-host-stamped epochs onto THIS browser's clock at the
-   *  ingestion BOUNDARY — via the ACTIVE host's measured `clockOffset` — so no downstream
-   *  consumer ever subtracts a raw remote epoch from the local clock (the foreign-clock
-   *  fence, applied ONCE here rather than per-consumer, so nothing is translated twice).
-   *  The THREE padi-stamped epochs a tile consumer renders against `Date.now()` are:
-   *  `lastActivityAt` (top-level, optional — staleness/recency), the ACTIVE arm's
-   *  `agent.startedAt` (the "Running for" duration), and the SLEEPING arm's `sleptAt` (the
-   *  "asleep 3d" line + dock recency). (`adoptedAt` rides the daemon status, not a tile,
-   *  and is a monotonic host-to-host dedup key — never compared to the browser clock — so
-   *  it stays raw there; `parkedAt` lives only on the parked arm this boundary narrows out.)
-   *  A null offset (host still warming, no offset measured yet) maps each epoch to its
-   *  ABSENT form — `lastActivityAt` → undefined, `agent.startedAt`/`sleptAt` → 0 — every
-   *  one of which consumers already render as "unknown", never the raw value. */
-  function reprojectClock(record: TerminalMetadata): TerminalMetadata {
-    const { toLocal } = padiMap.entry(activeHost()).clock;
-    // 0 is an IN-BAND sentinel across these epochs ("no activity yet" for `lastActivityAt`,
-    // `z.number().default(0)`; the ABSENT/"unknown" form for `startedAt`/`sleptAt`), NOT an
-    // epoch — so it must NOT be reprojected: `toLocal(0)` = `-offset` would forge a garbage
-    // timestamp that isStale/formatTimeAgo/dock-ranking read as a real reading (a fresh remote
-    // shell → "55y ago" → dropped from the dock as "parked"). Only a real, NON-zero epoch is a
-    // host-clock value to translate; 0 (and undefined) pass through untouched. 0 doing double
-    // duty is an overloaded value — a padi-contract union splitting "no activity" from an epoch
-    // is the real fix, not tonight's; this comment stops a future cleanup from reprojecting the
-    // sentinel again.
-    const lastActivityAt = record.lastActivityAt
-      ? (toLocal(record.lastActivityAt) ?? undefined)
-      : record.lastActivityAt;
-    const agent =
-      "agent" in record && typeof record.agent?.startedAt === "number"
-        ? {
-            ...record.agent,
-            startedAt: record.agent.startedAt
-              ? (toLocal(record.agent.startedAt) ?? 0)
-              : record.agent.startedAt,
-          }
-        : "agent" in record
-          ? record.agent
-          : undefined;
-    const sleptAt =
-      "sleptAt" in record && typeof record.sleptAt === "number"
-        ? record.sleptAt
-          ? (toLocal(record.sleptAt) ?? 0)
-          : record.sleptAt
-        : undefined;
-    // The same type bridge the parked-narrow above rides: the reprojected fields keep
-    // their wire types (number|undefined), so this is a value-only rewrite of the record.
-    return {
-      ...record,
-      lastActivityAt,
-      ...(agent === undefined ? {} : { agent }),
-      ...(sleptAt === undefined ? {} : { sleptAt }),
-    } as TerminalMetadata;
   }
 
   /** The tri-state census of the listed terminals' composed records, counted from

@@ -80,7 +80,7 @@ In kolu, the Markdown renderer reports a clicked relative link via an `onNavigat
 
 HTML/SVG previews render in an **opaque-origin sandboxed iframe**, so the parent can't read `contentWindow.location` — when the user clicks an `<a>` inside the frame, all you learn (via a `postMessage` bridge) is the frame's new `location.pathname`. `pathFromPreviewPathname` inverts that back to a document path.
 
-The catch: the package can't know your preview-URL scheme. You serve previews at some `<prefix>/<encoded-path>?v=<mtime>`, and only *you* know how `encoded-path` is built. So you pass a **codec** — the `{ encode, decode }` pair your server already uses — and the function derives the prefix from the file currently shown, strips it, and decodes the rest:
+The catch: the package can't know your preview-URL scheme. You serve previews at some `<prefix>/<encoded-path>?v=<tag>`, and only *you* know how `encoded-path` is built. So you pass a **codec** — the `{ encode, decode }` pair your server already uses — and the function derives the prefix from the file currently shown, strips it, and decodes the rest:
 
 ```ts
 import { pathFromPreviewPathname, type PreviewPathCodec } from "@kolu/solid-browser";

@@ -17,3 +17,10 @@ Feature: Drag-and-drop file upload
     # drop and its saved path is bracketed-pasted into the PTY.
     When I drop a file named "screen-recording.mov" with content "fake video bytes" onto the terminal
     Then the screen state should contain "screen-recording.mov"
+
+  Scenario: a bug-repro video larger than the old limit reaches the PTY
+    # 11 MiB is just over the former 10 MiB cap. Exercise the real browser →
+    # base64 RPC → padi scratch-write path so the raised limit is visible
+    # end-to-end, not only pinned by the shared-policy unit test.
+    When I drop an 11 MiB file named "large-bug-repro.webm" onto the terminal
+    Then the screen state should contain "large-bug-repro.webm"

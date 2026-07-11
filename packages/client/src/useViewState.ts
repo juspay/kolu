@@ -85,11 +85,7 @@ export function useViewState() {
   }
 
   const markUnread = (id: TerminalId) => view()?.markUnread(id);
-  const markBadgeAttention = (id: TerminalId) => view()?.markBadgeAttention(id);
-  const clearBadgeAttention = () => view()?.clearBadgeAttention();
   const isUnread = (id: TerminalId): boolean => view()?.isUnread(id) ?? false;
-  const hasBadgeAttention = (id: TerminalId): boolean =>
-    view()?.hasBadgeAttention(id) ?? false;
 
   /** Clear the ACTIVE host's selection record (handleCloseAll closes every tile
    *  on the active host). Other hosts' records are untouched. The owner's `reset`
@@ -110,10 +106,7 @@ export function useViewState() {
     centerActiveRequest,
     requestCenterActive,
     markUnread,
-    markBadgeAttention,
-    clearBadgeAttention,
     isUnread,
-    hasBadgeAttention,
     reset,
   };
 }
