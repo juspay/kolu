@@ -52,10 +52,16 @@ import {
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import type { WebSocket as PartySocket } from "partysocket";
-import { createEffect, createRoot, createSignal } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createRoot,
+  createSignal,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { floorConnectionInfo } from "./host/connectionFloor.ts";
 import { createRejoinKeyedSub } from "./host/connectionRearm.ts";
+import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
@@ -364,6 +370,25 @@ export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
  *  authority `hostScoped` already holds, so the host-switcher palette group can
  *  list hosts without opening a second `entries` subscription. */
 export const hostKeys = hostScoped.hostKeys;
+
+/** The ACTIVE host GROUNDED against live membership — the accessor the per-host SCOPE
+ *  (`hostScope/hostScopes` → `scopedByEntry`) reads instead of raw `activeHost`. It is
+ *  the active host IFF it is a current member (`hostKeys`), else `null`.
+ *
+ *  `activeHost` is the per-tab persisted INTENT, restored SYNCHRONOUSLY from
+ *  sessionStorage a tick BEFORE the async `padiMap.entries` snapshot lands (juspay/kolu#1763).
+ *  Handing that ungrounded value straight to `scopedByEntry` makes it read the active host
+ *  as a non-member — the removal-race inhabitant (a dev warn + `undefined` world) — which at
+ *  boot is a FALSE positive: nothing departed, membership just has not arrived. Grounding it
+ *  here means the scope is never handed an active key membership does not ground: a
+ *  not-yet/never-grounded host reads as `null` (`scopedByEntry`'s honest no-selection
+ *  inhabitant, no warn), so the "kolu hands the per-host world an ungrounded active host"
+ *  class is unconstructible. `null` — NOT a local substitute — is the correct empty (see
+ *  {@link groundActiveHost}); the departed-active case is re-pointed to local by the ONE
+ *  reconcile effect above a tick later. `activeHost` itself stays the non-null intent every
+ *  other readout (`useEntry`, `foldState`, `padiRpcOf`) keys on. */
+export const groundedActiveHost: Accessor<HostKey | null> = () =>
+  groundActiveHost(activeHost(), hostKeys());
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive

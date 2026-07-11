@@ -37,10 +37,16 @@ vi.mock("./wire", async () => {
   const { mockPadiMap, mockPadiRpcOf } = await import(
     "./hostScope/mockHostMap.testlib"
   );
+  const { groundActiveHost } = await import("./host/groundActive");
   return {
     padiMap: mockPadiMap,
     padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
     activeHost: () => bag.activeHost(),
+    // The GROUNDED accessor the per-host scope reads (juspay/kolu#1763) — mirrors
+    // `wire.groundedActiveHost` over the mock membership: the active host IFF a member,
+    // else null (so an emptied `resetHosts` disposes the owner with no removal-race warn).
+    groundedActiveHost: () =>
+      groundActiveHost(bag.activeHost(), mockPadiMap.entries.use().keys()),
   };
 });
 

@@ -47,9 +47,14 @@ vi.mock("../wire", async () => {
   const { mockPadiMap, mockPadiRpcOf } = await import(
     "../hostScope/mockHostMap.testlib"
   );
+  const { groundActiveHost } = await import("../host/groundActive");
   return {
     padiMap: mockPadiMap,
     padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
+    // The GROUNDED accessor the per-host scope reads (juspay/kolu#1763) — the static
+    // local host grounded against the mock membership (`beforeEach` adds LOCAL_HOST).
+    groundedActiveHost: () =>
+      groundActiveHost({ kind: "local" }, mockPadiMap.entries.use().keys()),
     activePadiRpc: {
       surface: {
         session: {

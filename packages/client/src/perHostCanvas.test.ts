@@ -70,8 +70,13 @@ vi.mock("./wire", async () => {
   const { mockPadiMap, mockPadiRpcOf } = await import(
     "./hostScope/mockHostMap.testlib"
   );
+  const { groundActiveHost } = await import("./host/groundActive");
   return {
     padiMap: mockPadiMap,
+    // The GROUNDED accessor the per-host scope reads (juspay/kolu#1763) — mirrors
+    // `wire.groundedActiveHost` over the mock membership (`loadHost` adds the host).
+    groundedActiveHost: () =>
+      groundActiveHost(bag.activeHost(), mockPadiMap.entries.use().keys()),
     // `createViewState`'s `writeActive` reports the active tile here.
     padiRpcOf: mockPadiRpcOf(rpcSpy.setActive),
     activePadiRpc: {
