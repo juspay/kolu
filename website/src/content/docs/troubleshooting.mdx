@@ -92,6 +92,35 @@ Open the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> and run **Tutorial**
 same palette opens the first terminal flow in
 [First Five Minutes](/first-five-minutes).
 
+## kolu is using a lot of memory
+
+kolu runs entirely in your browser tab, and its memory grows with two things: how
+many terminals you have open, and how many hosts you are connected to. Each open
+terminal keeps its own scroll-back history, and **each connected host keeps its
+terminals live** — so two machines with a dozen busy terminals between them is a
+lot of live state in one tab. That is expected, not a leak.
+
+If it climbs higher than feels right, check these in order:
+
+1. **Renderer.** In Settings, the **Renderer** control has three modes — **Auto**,
+   **WebGL**, and **DOM**. Keep it on **Auto** (the default): Auto draws
+   recently-active tiles on the GPU and the rest with the lighter DOM renderer.
+   **DOM** uses the least GPU but noticeably more system RAM; **WebGL** forces every
+   tile onto the GPU and can thrash once you pass ~16 terminals. If you switched it
+   while debugging something, switch it back to Auto.
+2. **Close or sleep what you are done with.** A terminal you will not return to can
+   be closed, or put to **sleep** (the ☾ button) to release its shell and GPU
+   context while the tile stays on the canvas — see
+   [Power Features](/power-features#sleep-a-terminal). Disconnecting a
+   [remote host](/remote-hosts) you are not using frees all of its terminals at once.
+3. **Reload the tab.** Memory freed by closing terminals or hosts is reclaimed
+   immediately on a reload, and your terminals survive it — they live in the kaval
+   daemon, not the tab, so nothing is lost.
+
+The chrome bar shows a live memory figure for each process (server · client ·
+kaval), so you can watch which one is climbing; **Debug → Diagnostic info** in the
+palette has the per-terminal detail.
+
 ## Still stuck?
 
 <CardGrid>
