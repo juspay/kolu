@@ -36,7 +36,14 @@ export function useHostAttention(deps: {
   // The one delivery seam at the origin's ONE service worker (`../attentionNotify`,
   // shared with the per-terminal path) — never per window, so two open windows
   // can't double-ping (the tag replaces, never stacks).
-  if (enabled()) void notify.requestPermission();
+  //
+  // Request permission REACTIVELY off the same `enabled()` rule that gates every
+  // other leg: a one-shot read at construction would never ask when the user
+  // turns alerts on later (until a reload). The effect covers both construction
+  // and runtime-enable; `requestPermission` is idempotent, so re-runs are cheap.
+  createEffect(() => {
+    if (enabled()) void notify.requestPermission();
+  });
 
   // The eager per-host watcher: it subscribes EVERY bound host's urgency cell
   // (background hosts included — precisely the ones you need to hear from) and
@@ -70,6 +77,16 @@ export function useHostAttention(deps: {
   let lastCount = -1;
   createEffect(() => {
     if (!("setAppBadge" in navigator)) return;
+    // Gate the badge on the SAME single `activityAlerts` decision that gates the
+    // notification leg — one user choice, both outputs. With alerts off, clear
+    // any live badge and reset so a later re-enable repaints from a clean count.
+    if (!enabled()) {
+      if (lastCount !== 0) {
+        lastCount = 0;
+        void navigator.clearAppBadge();
+      }
+      return;
+    }
     let count = 0;
     for (const host of hostKeys()) {
       const watched = attention.get(host);
