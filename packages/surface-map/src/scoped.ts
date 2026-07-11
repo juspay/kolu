@@ -310,12 +310,32 @@ export function watchByEntry<
   cell: (entry: Entry<ES, Cause>) => WatchableCell<A>,
   items: (value: A) => I[],
   onRaise: (key: z.infer<KS>, raised: I[], value: A) => void,
+  opts?: {
+    /** Called when a watched entry's cell subscription ERRORS. Without this a
+     *  per-host cell failure would only dim the point read to `stale` (the badge
+     *  stops counting it) and otherwise VANISH — no log, no user surface. Defaults
+     *  to a stderr log (like `deriveCell`) so a failure is never invisible; pass a
+     *  handler to route it to a toast/health surface, or `() => {}` to opt into
+     *  silent-dim deliberately. This is the app's error CHANNEL — distinct from the
+     *  live/stale point read, matching the map API's other `use({ onError })` seams
+     *  rather than fattening `WatchedValue` with an error arm. */
+    onError?: (key: z.infer<KS>, err: Error) => void;
+  },
 ): WatchByEntry<z.infer<KS>, A> {
   type K = z.infer<KS>;
 
   requireOwner("watchByEntry");
 
   const { enc, memberKeys } = membershipKernel(client);
+
+  const onError =
+    opts?.onError ??
+    ((key: K, err: Error): void => {
+      console.error(
+        `watchByEntry: watched cell subscription errored for key ${String(enc(key))}`,
+        err,
+      );
+    });
 
   // EAGER: the source is the FULL member set, so every host gets a root the moment
   // it joins — a background host is subscribed and heard from without ever being
@@ -325,7 +345,12 @@ export function watchByEntry<
     { value: Accessor<A | undefined>; live: Accessor<boolean> }
   >(enc, memberKeys, (key) => {
     const entry = client.entry(key);
-    const { value, sub } = cell(entry).use();
+    // Route this entry's subscription error to the app's `onError` channel (default
+    // logs) so a per-host cell failure is never invisible — the `live` memo below
+    // dims the point read to `stale`, but the FAILURE itself surfaces here.
+    const { value, sub } = cell(entry).use({
+      onError: (err) => onError(key, err),
+    });
     // Raise detection RIDES `updated` (the change-iff-fired law) — a watcher with
     // no change channel would silently return values and never raise, defeating
     // its one job. Fail fast rather than degrade: a watched cell MUST be minted by

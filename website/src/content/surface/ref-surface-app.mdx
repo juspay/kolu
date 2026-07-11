@@ -137,7 +137,7 @@ is dropped, never routed. It returns a `Notify<D>`:
 | --- | --- |
 | `requestPermission()` | request OS permission; resolves `true` when granted (idempotent). Delivery is a no-op until granted |
 | `show({ tag, title, body?, icon?, data })` | show — or replace, by `tag` — a notification. A no-op (never a throw or a hang) where there is no worker, no active worker, or no permission; an operational failure is caught and logged, so a caller may fire-and-forget |
-| `onClick(handler)` | subscribe to clicks; the handler receives the clicked notification's **validated** `data`. Covers both the live postMessage path and the cold-start URL handoff (a click with no window open opens one carrying the payload in `NOTIFICATION_DATA_PARAM`, read once at startup). Returns an unsubscribe fn |
+| `onClick(handler)` | subscribe to clicks; the handler receives the clicked notification's **validated** `data`. Covers the live path (the worker retries `postMessage` under an ACK handshake so a still-LOADING window that has not installed its listener yet does not drop the click) and the cold-start URL handoff (no window open → opens one carrying the payload in `NOTIFICATION_DATA_PARAM`, read once at startup; a loading window that never acks is navigated to the same URL as a durable fallback). Returns an unsubscribe fn |
 
 Two landmines are why delivery is a framework piece — one seam at the origin's
 one service worker — rather than N windows each attempting their own:

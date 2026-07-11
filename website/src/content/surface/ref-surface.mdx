@@ -131,9 +131,9 @@ otherwise thread at every hook.
 
 | Member | Hook | Returns |
 | --- | --- | --- |
-| cell | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | an accessor; mutate with `.set(v)` / `.patch(p)` |
+| cell | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a result object `{ value, pending, error, set, patch, sub }` — `value` is the accessor, `sub` is the `Subscription` (its `.updated(...)` is the change channel); mutate with `.set(v)` / `.patch(p)` |
 | collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)` |
-| stream | `.streams.X.use(inputFn, { onError? })` | an accessor plus `.pending()` and `.error()` |
+| stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, and `.updated(...)` |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
 | procedure | `.rpc.surface.<ns>.<verb>(input)` | the typed result |
 

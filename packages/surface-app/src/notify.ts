@@ -32,7 +32,11 @@
  * `onClick` reads once at startup so the one-action click survives a cold start.
  */
 
-import { NOTIFICATION_DATA_PARAM, SW_MESSAGE_TYPE } from "./index";
+import {
+  NOTIFICATION_ACK_TYPE,
+  NOTIFICATION_DATA_PARAM,
+  SW_MESSAGE_TYPE,
+} from "./index";
 
 /** A notification to show. `tag` keys the multi-window replace; `data` is the
  *  opaque routing payload handed back to {@link Notify.onClick}. */
@@ -138,9 +142,25 @@ export function createNotify<D>(
 
     onClick(handler): () => void {
       if (!swAvailable()) return () => {};
+      // The worker retries `postMessage` until we ACK (a message is dropped if this
+      // page installed its listener AFTER the worker first posted — an open-but-still-
+      // loading window). So: ACK every delivery (stops the retry loop), but ROUTE
+      // once per click `id` (a retry can arrive before our ack lands).
+      const routedIds = new Set<string>();
       const listener = (event: MessageEvent): void => {
-        const msg = event.data as { type?: string; data?: unknown } | undefined;
+        const msg = event.data as
+          | { type?: string; data?: unknown; id?: unknown }
+          | undefined;
         if (msg?.type !== SW_MESSAGE_TYPE) return;
+        const id = typeof msg.id === "string" ? msg.id : undefined;
+        if (id !== undefined) {
+          navigator.serviceWorker.controller?.postMessage({
+            type: NOTIFICATION_ACK_TYPE,
+            id,
+          });
+          if (routedIds.has(id)) return; // already routed this click — a retry
+          routedIds.add(id);
+        }
         route(msg.data, handler);
       };
       navigator.serviceWorker.addEventListener("message", listener);

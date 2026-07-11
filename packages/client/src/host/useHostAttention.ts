@@ -77,20 +77,30 @@ export function useHostAttention(deps: {
   // dedups an unchanged count and serialises the async shell writes so a rapid
   // set→clear can't land out of order.
   //
-  // `lastCount` is the count last HANDED to the shell (undefined = never written
-  // yet — a distinct "no write" state, not a magic `-1` inside the real domain).
-  let lastCount: number | undefined;
-  // Badge writes are async and order-sensitive: chained through one tail so a
-  // later write always applies after an earlier one (never a stale set winning a
-  // race with a newer clear), and a rejection is reported, not left unhandled.
+  // `acked` is the count the OS has CONFIRMED applied (undefined = never written
+  // yet — a distinct "no write" state, not a magic `-1` inside the real domain). It
+  // advances ONLY after the async shell write resolves, so a REJECTED write leaves
+  // `acked` unchanged and the next effect rerun with the same count re-attempts it
+  // (a failed count is never silently treated as acknowledged).
+  let acked: number | undefined;
+  // Badge writes are async and order-sensitive: chained through one tail so a later
+  // write always applies after an earlier one (never a stale set winning a race with
+  // a newer clear), and a rejection is reported, not left unhandled.
   let badgeTail: Promise<unknown> = Promise.resolve();
   const paintBadge = (count: number): void => {
-    if (count === lastCount) return;
-    lastCount = count;
     badgeTail = badgeTail
-      .then(() =>
-        count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge(),
-      )
+      .then(async () => {
+        // Dedup at APPLY time against the CONFIRMED count — an already-applied count
+        // is skipped, but a count that failed (or a fresh one) is (re)attempted. A
+        // burst of effect reruns with the same new count queues a few cheap tail
+        // steps; the first applies and sets `acked`, the rest see `count === acked`
+        // and no-op.
+        if (count === acked) return;
+        await (count > 0
+          ? navigator.setAppBadge(count)
+          : navigator.clearAppBadge());
+        acked = count; // acknowledge ONLY on success
+      })
       .catch((err) =>
         console.warn("useHostAttention: app-badge write failed", err),
       );

@@ -624,6 +624,34 @@ describe("createSubscription", () => {
       });
     });
 
+    it("a change in a non-JSON value (distinct Dates) is NOT suppressed", async () => {
+      // The primitives are generic over arbitrary AsyncIterable<T>, and a value need
+      // not be JSON-shaped (a directLink passes objects through unserialized; Zod
+      // admits z.date()). A naive plain-object walk reads two Dates as equal (they
+      // have no enumerable keys) and would SUPPRESS a real change — the comparator
+      // must compare Dates by instant and, in general, never yield a false-positive.
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<{ at: Date }>();
+        const sub = createSubscription(async () => stream.iterate());
+        const seen: Array<{ prev: { at: Date }; next: { at: Date } }> = [];
+        sub.updated?.((c) => seen.push(c));
+
+        stream.push({ at: new Date(1000) });
+        await flush();
+        // Equal instant, fresh object — the law says silent.
+        stream.push({ at: new Date(1000) });
+        await flush();
+        expect(seen).toEqual([]);
+        // Different instant — a REAL change; must fire (the suppression bug).
+        stream.push({ at: new Date(2000) });
+        await flush();
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.prev.at.getTime()).toBe(1000);
+        expect(seen[0]?.next.at.getTime()).toBe(2000);
+        dispose();
+      });
+    });
+
     it("a handler added mid-stream sees only changes from that point on", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();

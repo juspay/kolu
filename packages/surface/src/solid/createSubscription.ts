@@ -107,15 +107,25 @@ export interface SubscriptionOptions<T, R = T> {
   onComplete?: () => void;
 }
 
-/** Structural value equality for cell frames — the change-iff-fired law's
- *  "equal reconnect snapshot never fires" needs VALUE equality, since a
- *  reconnect re-serializes the same content into a fresh object (reference
- *  equality would misread it as a change). Cell values are Zod-schema'd
- *  JSON-shaped data (primitives, arrays, plain objects), so a compact recursive
- *  compare is exact for them — a dedicated dependency would be heavier than the
- *  one shape this needs. Not exported as a general util: it is the frame
- *  comparator for {@link Subscription.updated} and its reactive twin. */
-export function framesEqual(a: unknown, b: unknown): boolean {
+/** Structural value equality for subscription frames — the change-iff-fired law's
+ *  "equal reconnect snapshot never fires" needs VALUE equality, since a reconnect
+ *  re-serializes the same content into a fresh object (reference equality would
+ *  misread it as a change).
+ *
+ *  **Conservative by construction: it NEVER yields a false-positive that hides a
+ *  real change.** The subscription primitives are generic over arbitrary
+ *  `AsyncIterable<T>` (and a `directLink` passes values through WITHOUT
+ *  serialization, and Zod admits `z.date()`/`z.map()`/`z.set()`), so a frame is not
+ *  guaranteed to be JSON-shaped. Rather than a naive plain-object walk that would
+ *  read two distinct `Date`s (or symbol-keyed objects) as equal and SUPPRESS a real
+ *  `updated`, this handles the common cases exactly — primitives, arrays, plain
+ *  objects (string keys), `Date` (by time), `Map`/`Set` — and returns `false` for
+ *  anything it cannot prove equal (class instances, `RegExp`, typed arrays,
+ *  symbol-keyed own props). A false-negative only fires a spurious `updated` with
+ *  `prev ≈ next` (harmless); a false-positive would drop a change (the bug). Not
+ *  exported: it is the private frame comparator for {@link Subscription.updated} and
+ *  its reactive twin. */
+function framesEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
   if (
     typeof a !== "object" ||
@@ -124,6 +134,12 @@ export function framesEqual(a: unknown, b: unknown): boolean {
     b === null
   ) {
     return false;
+  }
+  // Date — compare by instant. Only one being a Date ⇒ not equal.
+  if (a instanceof Date || b instanceof Date) {
+    return (
+      a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
+    );
   }
   const aArr = Array.isArray(a);
   if (aArr !== Array.isArray(b)) return false;
@@ -134,6 +150,41 @@ export function framesEqual(a: unknown, b: unknown): boolean {
       if (!framesEqual(a[i], bArr[i])) return false;
     }
     return true;
+  }
+  // Set — same size and every member present in both. Object members compare by
+  // identity via `has` (conservative: distinct-but-equal object members read as a
+  // change, never suppress one).
+  if (a instanceof Set || b instanceof Set) {
+    if (!(a instanceof Set && b instanceof Set) || a.size !== b.size) {
+      return false;
+    }
+    for (const v of a) if (!b.has(v)) return false;
+    return true;
+  }
+  // Map — same size and every key's value equal (keys by identity via `has`).
+  if (a instanceof Map || b instanceof Map) {
+    if (!(a instanceof Map && b instanceof Map) || a.size !== b.size) {
+      return false;
+    }
+    for (const [k, v] of a) {
+      if (!b.has(k) || !framesEqual(v, b.get(k))) return false;
+    }
+    return true;
+  }
+  // Plain objects ONLY. A non-plain prototype (class instance, RegExp, typed array,
+  // …) is treated as CHANGED — never claim an equality we can't prove, so a real
+  // change is never suppressed. Any own SYMBOL key likewise forces a `false`:
+  // `Object.keys` can't see symbol keys, so two objects differing only in a
+  // symbol-keyed value would otherwise read equal.
+  const protoA = Object.getPrototypeOf(a);
+  if (protoA !== Object.prototype && protoA !== null) return false;
+  const protoB = Object.getPrototypeOf(b);
+  if (protoB !== Object.prototype && protoB !== null) return false;
+  if (
+    Object.getOwnPropertySymbols(a).length > 0 ||
+    Object.getOwnPropertySymbols(b).length > 0
+  ) {
+    return false;
   }
   const aObj = a as Record<string, unknown>;
   const bObj = b as Record<string, unknown>;

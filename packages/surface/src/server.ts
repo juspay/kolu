@@ -62,7 +62,7 @@ import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
 // spot a reactor `derived.cell(...)` dep WITHOUT importing `reactor.ts` (which
 // imports the signals engine) — no import cycle, and the engine stays reachable
 // only through `reactor.ts`.
-import { isDerivedCellDeps } from "./reactorBrand";
+import { DERIVED_CELL_STORE, isDerivedCellDeps } from "./reactorBrand";
 
 /** This server process's start time (ms epoch), captured once when the serve path
  *  module loads — which, for a daemon that imports it at boot, is the process
@@ -1483,11 +1483,31 @@ function walkSurface<const S extends SurfaceSpec>(
     // resolution rule as `patch`.
     const equalsFn = cellSpec.equals ?? cellDeps.equals;
     const onWriteFn = cellDeps.onWrite;
+    // A derived cell's PUBLIC `store` is a read-only facade (its `set` throws — the
+    // graph is the one writer); the real WRITABLE backing store rides privately under
+    // `DERIVED_CELL_STORE`. Resolve the writable one here so `cellHandlers.get` and
+    // `ctxApply` both read/write the SAME store — never the throwing facade — while no
+    // external holder of the dep can reach it to poison the wire snapshot. A
+    // non-derived cell uses its `store` directly.
+    let store: CellStore<unknown>;
+    if (isDerivedCellDeps(cellDeps)) {
+      const writable = (cellDeps as unknown as Record<PropertyKey, unknown>)[
+        DERIVED_CELL_STORE
+      ] as CellStore<unknown> | undefined;
+      if (!writable) {
+        throw new Error(
+          `implementSurface: derived cell "${key}" is missing its private backing store — build it with reactor's derived.cell(...)`,
+        );
+      }
+      store = writable;
+    } else {
+      store = cellDeps.store;
+    }
     const handlers = cellHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.cells as any)[key] as Cell<string, unknown>,
       {
-        store: cellDeps.store,
+        store,
         bus,
         patch: patchFn,
         equals: equalsFn,
@@ -1514,8 +1534,8 @@ function walkSurface<const S extends SurfaceSpec>(
     // `cellHandlers.applyAndPublish`. Kept duplicated rather than
     // extracted to a shared helper so the two paths diverge loudly
     // (TypeScript errors / test failures) if anyone adds a step to
-    // only one side.
-    const store = cellDeps.store;
+    // only one side. (`store` — resolved above — is a derived cell's private
+    // writable backing, or a non-derived cell's own store.)
     // `force` bypasses the `equals` dedup for ONE write — a re-serve's rebind epoch
     // uses it so a fresh spawn re-confirming a value EQUAL to the pre-drain one still
     // republishes, letting a downstream holder tell "rebound and confirmed" from
@@ -1543,12 +1563,24 @@ function walkSurface<const S extends SurfaceSpec>(
     };
     // A derived cell is wire-read-only AND server-internal-read-only: the graph
     // is its one writer, and it reaches the store ONLY through `connect` (the
-    // private setter below). So a derived cell's `ctx.cells.<key>` exposes `get`
-    // ALONE — a procedure handler that tries to `.set`/`.patch` it hits an
-    // absent method (fail-fast), never a second writer publishing a value the
-    // graph never derived. Non-derived cells keep their server-internal writers.
+    // private `writeArm` below). So a derived cell's `ctx.cells.<key>` exposes `get`
+    // plus a THROWING `set`/`patch` — a fail-fast one-writer guard, not a live write
+    // path. Keeping the setters PRESENT (throwing) rather than absent makes the ctx
+    // TYPE honest: `CellCtxFor` promises `set`/`patch`, and a procedure handler that
+    // calls one gets a loud "graph-owned (one writer)" error, never a second writer
+    // publishing a value the graph never derived and never a bare "set is not a
+    // function". Non-derived cells keep their real server-internal writers.
+    const derivedWriteGuard = (): never => {
+      throw new Error(
+        `implementSurface: cell "${key}" is graph-owned (a derived cell) — the graph is its one writer; ctx.cells.${key}.set/patch is not a write path.`,
+      );
+    };
     cellsCtx[key] = isDerivedCellDeps(cellDeps)
-      ? { get: () => store.get() }
+      ? {
+          get: () => store.get(),
+          set: derivedWriteGuard,
+          ...(patchFn ? { patch: derivedWriteGuard } : {}),
+        }
       : { get: () => store.get(), ...writeArm };
 
     // Optional async-source republish: fire once after the cell ctx is

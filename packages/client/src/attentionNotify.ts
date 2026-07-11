@@ -16,7 +16,8 @@
  *  to be active, focusing the wrong host's terminal (or nothing). */
 
 import { createNotify } from "@kolu/surface-app/notify";
-import type { TerminalId } from "kolu-common/surface";
+import { decodeHostKey } from "kolu-common/hostKey";
+import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 
 /** The routing payload carried on an attention notification. `kind` is the
  *  discriminant the single `notify.onClick` router switches on; `host` is the
@@ -25,27 +26,50 @@ export type AttentionClick =
   | { kind: "terminal"; host: string; terminalId: TerminalId }
   | { kind: "host"; host: string; id: string };
 
+/** Whether a string is a CANONICAL encoded host key — the exact domain
+ *  `decodeHostKey` accepts (`"local"` or `"remote:<target>"`). Validated at the
+ *  parse boundary so a malformed `host` is DROPPED here rather than passed through to
+ *  throw inside `decodeHostKey` at click time. */
+function isEncodedHostKey(s: string): boolean {
+  try {
+    decodeHostKey(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Validate a click envelope the framework relays (a live postMessage or a
  *  cold-start URL param). A stale notification from before an app upgrade, or a
  *  `{}` a degraded worker substitutes, fails this and is dropped — never routed
- *  to `deps.focusTerminal(undefined)`. */
+ *  to `deps.focusTerminal(undefined)`. Boundary DOMAIN validation, not just "is a
+ *  string": the `host` must be a canonical encoded key (else `decodeHostKey` throws
+ *  at click time) and the terminal id a real UUID (`TerminalIdSchema`), so a
+ *  malformed value can never be cast to `TerminalId`/`HostKey` and routed. */
 function parseAttentionClick(data: unknown): AttentionClick | undefined {
   if (typeof data !== "object" || data === null) return undefined;
   const d = data as Record<string, unknown>;
   if (d.kind === "terminal") {
-    if (typeof d.host !== "string" || typeof d.terminalId !== "string") {
+    if (typeof d.host !== "string" || !isEncodedHostKey(d.host)) {
       return undefined;
     }
+    const terminalId = TerminalIdSchema.safeParse(d.terminalId);
+    if (!terminalId.success) return undefined;
     return {
       kind: "terminal",
       host: d.host,
-      terminalId: d.terminalId as TerminalId,
+      terminalId: terminalId.data as TerminalId,
     };
   }
   if (d.kind === "host") {
-    if (typeof d.host !== "string" || typeof d.id !== "string")
+    if (typeof d.host !== "string" || !isEncodedHostKey(d.host)) {
       return undefined;
-    return { kind: "host", host: d.host, id: d.id };
+    }
+    // `id` is a raised awaiting-terminal id — the click focuses it as a
+    // `TerminalId`, so validate it as one (not merely "a string").
+    const id = TerminalIdSchema.safeParse(d.id);
+    if (!id.success) return undefined;
+    return { kind: "host", host: d.host, id: id.data };
   }
   return undefined;
 }

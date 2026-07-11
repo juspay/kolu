@@ -11,6 +11,7 @@ import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
 import { derived, scan, source } from "./reactor";
+import { DERIVED_CELL_STORE } from "./reactorBrand";
 import type { CellStore } from "./server";
 import {
   implementSurface,
@@ -123,6 +124,31 @@ describe("source", () => {
     src.subscribe((n) => seen.push(n));
     expect(attempts).toBe(2);
     expect(seen).toEqual([7]);
+  });
+
+  it("fences the emitter a FAILED install retained (failed-A, success-B, late-A dropped)", () => {
+    // A failed install can capture its `emit` before throwing. Its generation must
+    // be invalidated on the failure so a SUCCESSFUL retry (which, with no teardown
+    // in between, would otherwise reuse the same generation) never receives the
+    // failed attempt's late callback as a current occurrence.
+    let attempts = 0;
+    let failedEmit!: (n: number) => void; // generation-A's emit, held across the throw
+    const src = source<number>((e) => {
+      attempts++;
+      if (attempts === 1) {
+        failedEmit = e; // retain A's emit, THEN throw
+        throw new Error("install failed");
+      }
+      return () => {}; // second attempt installs cleanly
+    });
+    expect(() => src.subscribe(() => {})).toThrow("install failed");
+
+    const seen: number[] = [];
+    src.subscribe((n) => seen.push(n)); // generation B's listener
+    expect(attempts).toBe(2);
+
+    failedEmit(99); // the STALE generation-A emit fires now — must be fenced
+    expect(seen).toEqual([]); // never delivered to generation B
   });
 });
 
@@ -245,8 +271,15 @@ describe("derived.cell", () => {
 
     // Seed by eager pull — never a fabricated default.
     expect(dc.store.get()).toBe(0);
+    // The public store is READ-ONLY (graph is the one writer): its `set` throws.
+    expect(() => dc.store.set(99)).toThrow(/graph-owned/);
 
-    const ctx = recordingCtx(dc.store, (a: number, b: number) => a === b);
+    // `implementSurface` writes the PRIVATE backing store (via `DERIVED_CELL_STORE`);
+    // simulate that gate here, never the throwing public facade.
+    const ctx = recordingCtx(
+      dc[DERIVED_CELL_STORE],
+      (a: number, b: number) => a === b,
+    );
     dc.connect(ctx);
     // The first (synchronous) connect run pushes the seed, deduped against the
     // identical store seed → nothing published at wiring.
@@ -270,7 +303,7 @@ describe("derived.cell", () => {
     }));
     const dc = derived.cell(alerts);
     const ctx = recordingCtx(
-      dc.store,
+      dc[DERIVED_CELL_STORE],
       (a: { level: string }, b: { level: string }) => a.level === b.level,
     );
     dc.connect(ctx);

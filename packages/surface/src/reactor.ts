@@ -38,7 +38,7 @@ import {
   type ReadonlySignal,
   signal,
 } from "@preact/signals-core";
-import { DERIVED_CELL_BRAND } from "./reactorBrand";
+import { DERIVED_CELL_BRAND, DERIVED_CELL_STORE } from "./reactorBrand";
 import { type CellStore, inMemoryStore } from "./server";
 
 // ── Graph node ───────────────────────────────────────────────────────────
@@ -137,7 +137,18 @@ export function source<T>(install: SourceInstall<T>, initial?: T): Source<T> {
     // uninstall) so a later subscriber can retry — not wedged installed-forever
     // with no way to emit. The just-added listener is removed by `subscribe`.
     const gen = generation;
-    const cleanup = install(makeEmit(gen)) ?? undefined;
+    let cleanup: (() => void) | undefined;
+    try {
+      cleanup = install(makeEmit(gen)) ?? undefined;
+    } catch (err) {
+      // A failed install may have retained its `emit` (bound to `gen`) before it
+      // threw. Advance the generation NOW so that emitter is fenced immediately —
+      // otherwise a successful retry reuses the same `gen` (no teardown ran on a
+      // failed attempt) and the failed attempt's late callback would pass the fence
+      // and reach the retry's listeners as a phantom occurrence.
+      generation++;
+      throw err;
+    }
     installed = true;
     uninstall = cleanup;
   };
@@ -261,7 +272,18 @@ export function scan<F, S>(
  *  runtime surgery — the same `{ store, connect }` shape `deriveCell` already
  *  uses — plus the derived brand the boot walk reads to enforce wire-read-only. */
 export interface DerivedCell<T> {
+  /** READ-ONLY by construction: `get` serves the current derived value; `set`
+   *  THROWS (the graph is the one writer). Typed `CellStore<T>` so a derived cell
+   *  still satisfies `CellImplDeps`, but the setter is a fail-fast one-writer guard,
+   *  not a live write path — no holder of this dep can poison the snapshot
+   *  `cellHandlers.get` serves. `implementSurface` writes the real backing store
+   *  through the private {@link DERIVED_CELL_STORE} handle (the `connect` seam),
+   *  never this facade. */
   readonly store: CellStore<T>;
+  /** The real writable backing store, reachable ONLY by `implementSurface` via the
+   *  module-private symbol — never on the public `CellStore` interface, so it is not
+   *  a poison vector the way a public `store.set` would be. */
+  readonly [DERIVED_CELL_STORE]: CellStore<T>;
   readonly connect: (cell: { set: (next: T) => void }) => void;
   /** Tear down the connect effect and the backing node. */
   readonly dispose: () => void;
@@ -290,7 +312,19 @@ export const derived = {
     let disposeEffect: (() => void) | undefined;
 
     return {
-      store,
+      // Public store is READ-ONLY: `get` serves the current derived value; `set`
+      // throws (fail-fast one-writer guard). The real writable `store` is carried
+      // privately under `DERIVED_CELL_STORE` for `implementSurface`; no external
+      // holder can `.store.set(fake)` to poison the wire snapshot.
+      store: {
+        get: () => store.get(),
+        set: () => {
+          throw new Error(
+            "derived cell store is graph-owned (one writer) — the graph is its only writer; do not set it directly",
+          );
+        },
+      },
+      [DERIVED_CELL_STORE]: store,
       [DERIVED_CELL_BRAND]: true,
       connect: (cell) => {
         // The connect seam: an engine effect subscribes the node's level and

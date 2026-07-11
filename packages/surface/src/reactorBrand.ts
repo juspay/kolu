@@ -20,6 +20,19 @@ export const DERIVED_CELL_BRAND: unique symbol = Symbol.for(
   "kolu.surface.reactor.derivedCell",
 );
 
+/** The PRIVATE handle a `derived.cell(...)` dep carries its WRITABLE backing store
+ *  under. The public `DerivedCell.store` is read-only (`get` + a throwing `set`) so
+ *  no holder of the dep can poison the snapshot `cellHandlers.get` serves; the graph
+ *  is the one writer, and `implementSurface` reaches the real store through THIS
+ *  symbol alone. A module-private `Symbol()` (NOT `Symbol.for`) so it is genuinely
+ *  unreachable — it can't be forged from the global registry the way the brand key
+ *  can. It never crosses a serialization boundary (a store is an object handed
+ *  reactor→server within one process), so it does not need the brand's cross-instance
+ *  `Symbol.for` robustness; the two are always the same `@kolu/surface`. */
+export const DERIVED_CELL_STORE: unique symbol = Symbol(
+  "kolu.surface.reactor.derivedCellStore",
+);
+
 /** Structural shape a `derived.cell(...)` dep carries so the boot walk can spot
  *  it without importing `reactor.ts`. */
 export interface DerivedCellBranded {

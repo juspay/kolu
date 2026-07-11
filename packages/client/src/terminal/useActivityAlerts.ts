@@ -29,12 +29,6 @@ function playSound() {
   });
 }
 
-/** Request notification permission eagerly so it's ready when the window is
- *  backgrounded. Delegates to the one `notify` seam (idempotent). */
-export function requestNotificationPermission() {
-  void notify.requestPermission();
-}
-
 /** Fire audio + an OS notification for a terminal that finished. The caller
  *  (`alertForTerminal`) owns the *when* — it only calls this when the user isn't
  *  actively watching that terminal — so there is NO window-visibility gate here:
