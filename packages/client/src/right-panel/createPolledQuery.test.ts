@@ -396,4 +396,53 @@ describe("createPolledQuery", () => {
     expect(res.pending).toBe(false); // never went pending (the "Loading…" flash)
     expect(res.calls).toBe(1); // no re-subscribe → no extra query
   });
+
+  it("a host-only change (same input value) still blanks + re-subscribes", async () => {
+    // The identical-repoPath edge `pulseHost`'s doc calls out: switching the
+    // active host while `input()`'s VALUE is unchanged (same repoPath present
+    // on two hosts) must still tear down the old host's pulse and blank —
+    // `inputState`'s key is over (input, host), not input alone.
+    const res = await new Promise<{
+      before: unknown;
+      afterSwitch: { v: unknown; pending: boolean };
+      after: unknown;
+      calls: number;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const [host, setHost] = createSignal("host-1");
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: "A" }),
+          live,
+          pulseProc,
+          pulseHost: host,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async (i) => {
+            calls += 1;
+            return `${i.repoPath}#${calls}`;
+          },
+        });
+        await flush();
+        pulse();
+        await flush();
+        const before = q();
+
+        setHost("host-2");
+        await flush();
+        const afterSwitch = { v: q(), pending: q.pending() };
+        pulse(); // the re-subscribed pulse's first frame, now keyed on host-2
+        await flush();
+        const after = q();
+
+        resolve({ before, afterSwitch, after, calls });
+        dispose();
+      });
+    });
+    expect(res.before).toBe("A#1");
+    expect(res.afterSwitch.v).toBe(undefined); // blanked on the host switch
+    expect(res.afterSwitch.pending).toBe(true);
+    expect(res.after).toBe("A#2"); // re-queried on the new host's pulse
+    expect(res.calls).toBe(2);
+  });
 });

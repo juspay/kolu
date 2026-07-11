@@ -24,12 +24,13 @@
  *     reconciled `.use()` would silently swallow). That is the value stream's
  *     reconnect-refresh, preserved without a skip-the-first-frame dance;
  *   - a requery updates the value IN PLACE (no blank), so a change never flashes
- *     the tree empty. Only an INPUT-VALUE change blanks + goes `pending` (the
- *     prior value is no longer authoritative) — the transient the #818
- *     pending-gate is written against. This is ENFORCED (not convention): the
- *     re-subscribe effect keys on a value-deduped input key, so a
- *     fresh-reference-but-equal-value input never blanks (a #1714-class trap,
- *     armed since #1652, closed here).
+ *     the tree empty. Only an (INPUT-VALUE, HOST) pair change blanks + goes
+ *     `pending` (the prior value is no longer authoritative) — the transient the
+ *     #818 pending-gate is written against; a bare host switch on the same
+ *     input value blanks too (see `pulseHost` above). This is ENFORCED (not
+ *     convention): the re-subscribe effect keys on a value-deduped
+ *     (input, host) key, so a fresh-reference-but-equal-value input on the same
+ *     host never blanks (a #1714-class trap, armed since #1652, closed here).
  *
  * The returned handle is a `Subscription<Result>` — a callable accessor with
  * `.pending` / `.error` — identical to what `app.streams.X.use(...)` returned,
