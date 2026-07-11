@@ -153,7 +153,7 @@ function readDockBucket(world: KoluWorld) {
 // Wipe the real agent session state between scenarios so a later scenario starts
 // clean; keep the seeded config (codex config.toml / claude settings.json). The
 // live TUI is torn down by hooks.ts's between-scenario killAll.
-function cleanupAgentSessions(word: string) {
+async function cleanupAgentSessions(word: string) {
   const home = process.env.KOLU_E2E_FIXTURE_HOME;
   if (!home) return;
   const dir = path.join(home, agent(word).sessionDir);
@@ -166,7 +166,20 @@ function cleanupAgentSessions(word: string) {
   const keep = new Set(["config.toml", "settings.json"]);
   for (const entry of entries) {
     if (keep.has(entry)) continue;
-    fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
+    const p = path.join(dir, entry);
+    // Retry on ENOTEMPTY/EBUSY: a lingering agent subprocess (e.g. codex's
+    // `.tmp/` writer) can re-populate a directory mid-removal — after killAll but
+    // before its own teardown flushes — so the recursive rmSync races the write.
+    // A short backoff lets the write settle; `force` already swallows ENOENT.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        fs.rmSync(p, { recursive: true, force: true });
+        break;
+      } catch (err) {
+        if (attempt >= 5) throw err;
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    }
   }
 }
 
