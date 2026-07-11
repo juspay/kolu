@@ -42,19 +42,52 @@ export const recentAgents = (): RecentAgent[] =>
 export const savedSession = (): SavedSession | null =>
   activeScope()?.wire.session.value() ?? null;
 
+/** Window an optional reactive owner (`select()`) into a floored `Subscription<T>`.
+ *
+ *  `savedSessionSub` and `terminalListSub` are the same concept — "window the active
+ *  host's RETAINED sub into a STABLE facade" — differing only in which member they
+ *  select and how they map its value. This helper is that concept, so the removal-race
+ *  floor rule lives in ONE place and can't drift from `Subscription`'s shape or be
+ *  re-stamped wrong at a new facade: `select()` is briefly `undefined` during the removal
+ *  race (the active host left the pool; `wire.ts`'s reconcile re-points `activeHost` a
+ *  tick later), and every field floors that gap the same way — `pending` to `true`
+ *  (nothing to report reads pre-first-value), `error` passes through, `complete` to
+ *  `false`, and the value to `floor` (the caller's empty form) when the source is absent
+ *  or yields nullish.
+ *
+ *  `complete` is FORWARDED, not dropped: `session.sub` / `terminalKeys` are minted by
+ *  this module's subscription factories, which always populate `complete` — omitting it
+ *  would silently strand a consumer that checks it (there is none today, but the
+ *  field-audit rule is "populate what the source has," not "only what today's readers
+ *  use"). */
+function windowedSub<S, T>(
+  select: () => Subscription<S> | undefined,
+  map: (v: NonNullable<S>) => T,
+  floor: T | undefined,
+): Subscription<T> {
+  return Object.assign(
+    (): T | undefined => {
+      const s = select();
+      const v = s?.();
+      return v == null ? floor : map(v as NonNullable<S>);
+    },
+    {
+      pending: (): boolean => select()?.pending() ?? true,
+      error: (): Error | undefined => select()?.error(),
+      complete: (): boolean => select()?.complete?.() ?? false,
+    },
+  );
+}
+
 /** The active host's saved-session Subscription handle — a STABLE facade (held by
  *  reference: `useSessionRestore`, `TerminalCanvas`) delegating to the retained session
  *  sub. Consumers read `savedSessionSub()` (the value) and `.pending()`; the reference is
  *  fixed while the value follows the active host. `pending()` floors to `true` during the
  *  removal race (no active host to report yet), matching a pre-first-value sub. */
-export const savedSessionSub: Subscription<SavedSession | null> = Object.assign(
-  (): SavedSession | null => activeScope()?.wire.session.sub() ?? null,
-  {
-    pending: (): boolean => activeScope()?.wire.session.sub.pending() ?? true,
-    error: (): Error | undefined => activeScope()?.wire.session.sub.error(),
-    complete: (): boolean =>
-      activeScope()?.wire.session.sub.complete?.() ?? false,
-  },
+export const savedSessionSub: Subscription<SavedSession | null> = windowedSub(
+  () => activeScope()?.wire.session.sub,
+  (v) => v,
+  null,
 );
 
 /** Subscription handle for the live terminal list of the active host — `{ id }` rows in
@@ -63,21 +96,8 @@ export const savedSessionSub: Subscription<SavedSession | null> = Object.assign(
  *  sub, so a switch-BACK reads the held keys in one frame (no resubscribe, no pending
  *  window). Consumers read `.map(t => t.id)` / `.pending()` exactly as before; `pending()`
  *  floors to `true` and the value to `undefined` during the removal race. */
-export const terminalListSub: Subscription<{ id: TerminalId }[]> =
-  Object.assign(
-    () =>
-      activeScope()
-        ?.wire.terminalKeys()
-        ?.map((id) => ({ id })),
-    {
-      pending: (): boolean =>
-        activeScope()?.wire.terminalKeys.pending() ?? true,
-      error: (): Error | undefined => activeScope()?.wire.terminalKeys.error(),
-      // Forwarded, not dropped: `terminalKeys` is a `createReactiveSubscription`, which
-      // always populates `complete` — omitting it here would silently strand a consumer
-      // that checks it (there is none today, but the field-audit rule is "populate what
-      // the source has," not "only what today's readers use").
-      complete: (): boolean =>
-        activeScope()?.wire.terminalKeys.complete?.() ?? false,
-    },
-  );
+export const terminalListSub: Subscription<{ id: TerminalId }[]> = windowedSub(
+  () => activeScope()?.wire.terminalKeys,
+  (ids) => ids.map((id) => ({ id })),
+  undefined,
+);
