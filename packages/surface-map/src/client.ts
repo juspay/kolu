@@ -586,8 +586,15 @@ export function connectSurfaceMap<
   return { entries, live, codec: map.codec, entry, useEntry, dispose };
 }
 
-// `scopedByEntry` — per-key CLIENT-side state owned by `entries` membership (the
-// retained-owner dual of `useEntry`'s dispose-on-switch). Lives here on the
-// inherently-Solid `@kolu/surface-map/client` entrypoint (the package has no
-// separate `/solid` subpath by design — see index.ts).
-export { type ScopedByEntry, scopedByEntry } from "./scoped";
+// `scopedByEntry` (lazy per-key state owned by membership) and `watchByEntry`
+// (the eager per-member attention watcher) — one shared membership kernel, two
+// laziness policies. Both live here on the inherently-Solid
+// `@kolu/surface-map/client` entrypoint (the package has no separate `/solid`
+// subpath by design — see index.ts).
+export {
+  type ScopedByEntry,
+  scopedByEntry,
+  type WatchByEntry,
+  watchByEntry,
+  type WatchedValue,
+} from "./scoped";

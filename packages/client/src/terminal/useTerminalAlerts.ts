@@ -12,7 +12,6 @@ import {
 import "kolu-common/test-hooks";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences } from "../wire";
-import { useStaleCheck } from "./staleness";
 import type { TerminalSubject } from "./terminalSubject";
 import {
   fireActivityAlert,
@@ -24,52 +23,20 @@ export function useTerminalAlerts(deps: {
   activate: (id: TerminalId) => void;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   getSubject: (id: TerminalId) => TerminalSubject;
-  hasBadgeAttention: (id: TerminalId) => boolean;
-  clearBadgeAttention: () => void;
   markUnread: (id: TerminalId) => void;
-  markBadgeAttention: (id: TerminalId) => void;
   terminalIds: Accessor<TerminalId[]>;
 }) {
   const activityAlerts = () => preferences().activityAlerts;
-  const isStale = useStaleCheck();
 
   // Request browser notification permission eagerly when alerts are enabled
   if (activityAlerts()) requestNotificationPermission();
 
-  // Stale terminals are excluded — but the attention mark itself
-  // stays, so a fresh agent transition (which bumps `lastActivityAt`
-  // and unparks) wakes the badge back up. `isStale` is purely
-  // temporal: a `waiting` agent past the activity window suppresses
-  // the badge along with every other stale terminal — by design, so a
-  // user who's been away long enough doesn't get a phantom badge from
-  // yesterday's queue. The dock still surfaces those terminals via
-  // their parked-row AgentIndicator; the OS badge is for "act now".
-  const isAttentionLive = (id: TerminalId) => {
-    if (!deps.hasBadgeAttention(id)) return false;
-    const meta = deps.getMetadata(id);
-    if (!meta) return false;
-    return !isStale(meta.lastActivityAt);
-  };
-
-  // Badge the PWA dock icon with terminals that need attention. The
-  // effect re-runs on every staleness tick (~60s), so guard against
-  // re-issuing the same count to the OS shell.
-  let lastBadgeCount = -1;
-  createEffect(() => {
-    if (!("setAppBadge" in navigator)) return;
-    const count = deps.terminalIds().filter(isAttentionLive).length;
-    if (count === lastBadgeCount) return;
-    lastBadgeCount = count;
-    if (count > 0) {
-      void navigator.setAppBadge(count);
-    } else {
-      void navigator.clearAppBadge();
-    }
-  });
-
-  makeEventListener(document, "visibilitychange", () => {
-    if (!document.hidden) deps.clearBadgeAttention();
-  });
+  // The OS app badge is no longer written here. It became a CROSS-HOST fact in
+  // W5 — the sum of every LIVE host's `urgency.awaitingIds.length`, owned by
+  // `useHostAttention` off the urgency projection the host chips already read —
+  // so a background host's awaiting agents reach the dock icon too, not only the
+  // active host's. This module keeps its per-active-host job: fire the OS
+  // notification + dock unread for a terminal you are not actively watching.
 
   // Route a click on an OS notification back to the terminal that finished. The
   // notification worker (`NOTIFICATION_SW_SOURCE`) handles `notificationclick`
@@ -129,11 +96,7 @@ export function useTerminalAlerts(deps: {
 
   function alertForTerminal(id: TerminalId) {
     const isBackground = id !== deps.activeId();
-    if (isBackground) {
-      deps.markUnread(id);
-    } else if (document.hidden) {
-      deps.markBadgeAttention(id);
-    }
+    if (isBackground) deps.markUnread(id);
     // Alert unless the user is *actively watching this very terminal* — i.e.
     // it's the active terminal AND kolu has focus. `document.hasFocus()` is the
     // right signal, not `document.hidden`: hidden is only true when kolu is fully

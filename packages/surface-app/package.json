@@ -14,6 +14,7 @@
     "./solid": "./src/solid/index.ts",
     "./connect": "./src/connect.ts",
     "./lifecycle": "./src/lifecycle.ts",
+    "./notify": "./src/notify.ts",
     "./vite": "./src/vite.ts",
     "./bun": "./src/bun.ts",
     "./client": "./src/client.d.ts"
