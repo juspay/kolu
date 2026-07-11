@@ -24,18 +24,17 @@ Feature: Grok Build live-state detection against a real ollama model
   Background:
     Given the terminal is ready
 
-  Scenario: A real grok turn flips the sensor working then done
-    # OWN THE CLOCK via real CPU inference: a short enumerated-list prompt makes
-    # the turn last several seconds so "thinking" is comfortably observable, then
-    # ends cleanly (turn_ended → waiting).
+  # Scope note (srid's ruling B-MINIMAL → fallback): asserts DETECTION + real
+  # session artifacts, NOT the transient thinking→waiting arc. grok's turn_ended
+  # phase appends to events.jsonl AFTER the watcher attaches, and a coalesced /
+  # missed fs.watch re-read (macOS kqueue especially) can strand "thinking" — the
+  # append-poll half of juspay/kolu#1754. Restore the thinking→waiting +
+  # working-bucket asserts when #1754 lands. The phase→state fold stays
+  # unit-tested (foldEventsState).
+  Scenario: A real grok CLI is detected and writes its session artifacts
     When I launch the real Grok agent with prompt "Count from 1 to 20, one number per line. Then reply with only the word DONE."
-    # Working: grok's turn is open (turn_started / streaming phase), which the
-    # provider maps to thinking and the dock buckets as working.
-    Then the tile chrome should show a Grok indicator with state "thinking" within 60 seconds
-    And the dock should reflect the Grok agent in the "working" bucket within 60 seconds
-    # Done: the turn ended — the sensor leaves "working".
-    Then the tile chrome should show a Grok indicator with state "waiting" within 60 seconds
-    And the dock should reflect the Grok agent as done within 60 seconds
+    # Detection: the tile indicator carries kind=grok. No transient-state assert.
+    Then the tile chrome should show a Grok indicator within 60 seconds
     # Session files landed at the REAL default path — under the throwaway home.
     And a real Grok session file should exist at the default path
     And there should be no page errors

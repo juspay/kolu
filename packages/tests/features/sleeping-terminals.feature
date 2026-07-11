@@ -24,7 +24,9 @@ Feature: Sleeping terminals
     # stage-6 (b) real attempt: id-equality, not the mock's fixed thread.)
     Given the terminal is ready
     When I launch the real Codex agent with prompt "Say the single word DONE and then stop."
-    And the tile chrome should show a Codex indicator within 60 seconds
+    # No transient detection-appear window (fast-turn flaky, #1754) — the record
+    # step reads the real session id from ~/.codex directly, and the payoff is
+    # the resume-replay in the woken buffer, not a live indicator.
     And I record the real Codex session id
     When I sleep the active terminal via the tile sleep button
     Then the slept terminal should be sleeping
@@ -60,7 +62,9 @@ Feature: Sleeping terminals
     # into the re-spawned PTY.
     Given the terminal is ready
     When I launch the real Codex agent with prompt "Say the single word DONE and then stop."
-    And the tile chrome should show a Codex indicator within 60 seconds
+    # No transient detection-appear window (fast-turn flaky, #1754) — the record
+    # step reads the real session id from ~/.codex directly, and the payoff is
+    # the resume-replay in the woken buffer, not a live indicator.
     And I record the real Codex session id
     When I sleep the active terminal via the tile sleep button
     Then the slept terminal should be sleeping

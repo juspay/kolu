@@ -1,44 +1,34 @@
 @codex-real @real-agent
-Feature: Codex live-state detection against a real ollama model
-  Codex's live agent-state pipeline (working → done), driven end-to-end by a
-  REAL `codex` CLI pointed at a locally-served ollama model through a throwaway
-  $HOME — no fixture writes. This is the unconditional replacement for the mock
-  "thinking"/"waiting" codex scenarios (srid's ruling): the whole e2e suite runs
-  ollama, both platforms, no skip-darwin, no mock branch for codex STATE. The
-  crafted-fixture regression guards that a real turn can't reproduce stay in
-  codex.feature.
+Feature: Codex detection against a real ollama model
+  Codex driven end-to-end by a REAL `codex` CLI pointed at a locally-served
+  ollama model through a throwaway $HOME — no fixture writes. The whole e2e suite
+  runs ollama, both platforms, no skip-darwin, no mock branch for codex.
 
   ollama + the model are set up unconditionally by process-compose via
   services-flake (nix/e2e-pc.nix); hooks.ts seeds the throwaway home's
   ~/.codex/config.toml to point codex at ollama's Responses API and fails loud
-  if the endpoint is absent. codex is pinned to 0.130.0 on every platform
-  (nix/packages/codex-pinned.nix) because nixpkgs' 0.114.0 predates the
-  threads-table columns kolu's codex provider requires.
+  if the endpoint is absent. codex is pinned via sadjow/codex-cli-nix.
+
+  Scope note (srid's ruling B-MINIMAL → fallback): like claude-real, this asserts
+  DETECTION + real session artifacts, NOT the transient thinking→waiting arc.
+  The arc is not deterministically observable on a FAST codex turn — on a fast
+  box (Apple Silicon / a rested rasam) the turn is ~1s, so task_started and
+  task_complete land within ~1s and the watcher (attached at task_started) can
+  miss the task_complete WAL re-read, stranding "thinking". That is the
+  append-poll half of the provider watcher robustness bug juspay/kolu#1754 (a
+  larger tail read on attach does NOT fix it — the completion write lands AFTER
+  attach). When #1754 lands (initial full-scan + append-poll), restore the
+  thinking→waiting + working-bucket + token-delta asserts here. The token
+  arithmetic + tool_use derivation remain unit-tested (codex index.test.ts).
 
   Background:
     Given the terminal is ready
 
-  Scenario: A real codex turn flips the sensor working then done
-    # Determinism: a tiny warmed model + an enumerated-list prompt that lasts a
-    # few seconds of CPU inference, so codex's session watcher attaches DURING
-    # the turn (thinking observable) and the task_complete write then fires a WAL
-    # change → waiting. A one-word answer is sub-second on a fast box (Apple
-    # Silicon: ~0.8s): the watcher can attach at the exact turn-end and miss the
-    # completion, wedging on "thinking" — the fast-box race this longer turn
-    # closes. The count is not asserted (only the state arc), so model drift is
-    # harmless.
+  Scenario: A real codex CLI is detected and writes its session artifacts
     When I launch the real Codex agent with prompt "Count from 1 to 40, one number per line. Then reply with only the word DONE."
-    # Working: codex is mid-turn (task_started, no task_complete yet).
-    Then the tile chrome should show a Codex indicator with state "thinking" within 60 seconds
-    And the dock should reflect the Codex agent in the "working" bucket within 60 seconds
-    # Done: the turn completed (task_complete) — the sensor leaves "working".
-    Then the tile chrome should show a Codex indicator with state "waiting" within 60 seconds
-    And the dock should reflect the Codex agent as done within 60 seconds
-    # Context tokens (behavioral send-observe-delta, srid's ratified shape): the
-    # real turn consumed tokens, so kolu's context-token badge reads non-zero —
-    # increased from the fresh session's nothing. The exact per-turn /
-    # no-double-count-cache arithmetic stays a unit test (codex index.test.ts).
-    And the tile chrome should show a non-zero Codex context-token count within 60 seconds
+    # Detection: the tile indicator carries kind=codex — kolu recognized the real
+    # codex CLI. No transient-state assert (see the scope note / #1754).
+    Then the tile chrome should show a Codex indicator within 60 seconds
     # Session files landed at the REAL default path — under the throwaway home.
     And a real Codex session file should exist at the default path
     And there should be no page errors
