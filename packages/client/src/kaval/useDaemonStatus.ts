@@ -144,7 +144,7 @@ const sub = createRoot(() =>
  *  applied once at ingestion so uptime (`now − startedAt`) never mixes two clocks. A
  *  non-numeric `startedAt` (or an absent status) passes through untouched; a null offset
  *  (host warming) collapses to `0`, which the dialogs already gate as "unknown". The ONE
- *  reprojection body shared by both `localDaemonStatusMemo` here and `HostDaemonChips`'s
+ *  reprojection body shared by both `localDaemonStatus` here and `HostDaemonChips`'s
  *  per-host `daemon` memo — memoization stays at each call site (each reads its own
  *  `host` during memo eval, so reactivity is preserved). */
 export function reprojectDaemonStatus(
@@ -168,9 +168,10 @@ export function reprojectDaemonStatus(
  *  consumer, rather than a fresh `{...status}` spread minted on each of the several
  *  reads a dialog does per render. Shares ONE {@link reprojectDaemonStatus} body with
  *  `HostDaemonChips`'s per-host `daemon` memo, so the repo has a single reprojection
- *  concept rather than two identical bodies kept in sync by hand. Module-lifetime root
- *  like `sub` above. */
-const localDaemonStatusMemo = createRoot(() =>
+ *  concept rather than two identical bodies kept in sync by hand. A memo is already a
+ *  callable accessor, so this IS `localDaemonStatus` — no pass-through wrapper. Module-
+ *  lifetime root like `sub` above. */
+export const localDaemonStatus = createRoot(() =>
   createMemo((): DaemonStatus | undefined =>
     reprojectDaemonStatus(
       activeHost(),
@@ -178,10 +179,6 @@ const localDaemonStatusMemo = createRoot(() =>
     ),
   ),
 );
-
-export function localDaemonStatus(): DaemonStatus | undefined {
-  return localDaemonStatusMemo();
-}
 
 // kolu-server's live view of its binding to the local padi, off koluSurface's server-
 // authored `padiLink` cell. koluSurface is served DIRECTLY by kolu-server, so this value
