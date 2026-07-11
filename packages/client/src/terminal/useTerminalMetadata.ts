@@ -168,15 +168,15 @@ export function useTerminalMetadata(deps: {
   // This is the ONE type bridge where the padi wire shape meets the client's domain
   // type.
   //
-  /** A terminal's composed TILE record — `undefined` until the server-composed
-   *  record has arrived, AND `undefined` for a PARKED record (a restore-card row,
-   *  not a tile). The `byKey` read is reactive, so this re-runs as the record
-   *  updates. The value is read field-wise by every one of the ~20 consumers inside
-   *  its own tracking scope — none compares it by identity — so per-key reactivity
-   *  stays granular (a change to one terminal notifies only readers of that
-   *  terminal). This is ALSO the read the ordering filters below use for
-   *  `parentId`: presence (a real tile record arrived) is the gate that excludes a
-   *  still-loading OR parked terminal from the order. */
+  /** A terminal's composed TILE record — the identity-stable REPROJECTED record,
+   *  read through the per-id projection (below). `undefined` until the
+   *  server-composed record has arrived, AND `undefined` for a PARKED record (a
+   *  restore-card row, not a tile). Reactivity comes from the keyed `slots[id]`
+   *  read (re-subscribes when this id's projection lands) plus the projection's
+   *  reconciled `store.v` — so a leaf reader (`meta.git.repoRoot`) tracks that leaf
+   *  and is notified ONLY when its value changes, never on an incidental reproject
+   *  to an unchanged value (the #1714 flicker fix). The ORDERING filters read the
+   *  clock-free `rawTile` instead (see its doc), not this reprojected path. */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
     return slots[id]?.read();
   }
