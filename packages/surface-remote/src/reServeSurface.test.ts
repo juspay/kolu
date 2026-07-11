@@ -316,6 +316,22 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     await teardown(session, done, upstream);
   });
 
+  it("a mirror serves NO frame until the authority's first real one (never the fabricated default)", async () => {
+    // Subscribe to the mirrored cell IMMEDIATELY — before the pump has bound and
+    // folded the upstream's first frame — and take exactly the FIRST frame. The
+    // authority's value is 7; the spec default is 0. Old behaviour served the
+    // seeded default (0) as the snapshot before any fold, so a reconnect could
+    // hand a consumer a value asserted by nobody. The fix withholds it: the very
+    // first frame the downstream ever sees is the authority's 7, never 0.
+    const { session, upstream, done, downstream } = setup(7);
+    const first = await take(
+      await downstream.surface.counter.get(undefined),
+      1,
+    );
+    expect(first).toEqual([7]);
+    await teardown(session, done, upstream);
+  });
+
   it("kills the middle hop on a DELTA member → the downstream stream terminates (no splice)", async () => {
     const { session, upstream, done, downstream } = setup(1);
     await delay(15);

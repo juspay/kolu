@@ -161,6 +161,18 @@ export interface CellHandlerDeps<T, P = T> {
    *  strand a value the mirror never reverts). The `@kolu/surface-remote`
    *  re-serve is the consumer. */
   forward?: CellForward<T, P>;
+  /** Mirror-never-fabricate gate (forward mirrors only). When present, `get`
+   *  withholds the opening snapshot until this returns `true` — i.e. until the
+   *  authority's first real frame has folded into `store`. Before that, the
+   *  seeded default is a fabrication asserted by NOBODY (the mirror needed
+   *  something to show), byte-indistinguishable from a value the authority
+   *  actually sent — the exact frame that makes a reconnect fire duplicate
+   *  notifications. Withholding it makes the reader's `T | undefined` ("no frame
+   *  yet") true end-to-end: the mirror relays truth or stays silent; the declared
+   *  default belongs to the ONE writer. Omitted (the authoring, non-mirror case)
+   *  means "always serve the snapshot" — that endpoint IS the authority, so its
+   *  default is legitimate. */
+  hasSnapshot?: () => boolean;
 }
 
 /** The write-forwarding handlers a re-serving mirror plugs into
@@ -219,8 +231,16 @@ export function cellHandlers<Name extends string, T, P = T>(
   if (forward) {
     return {
       get: async function* ({ signal }) {
-        yield deps.store.get();
-        for await (const v of deps.bus.subscribe(signal)) yield v;
+        // Subscribe BEFORE the snapshot decision, and make the two one
+        // synchronous step (no await between): the authority's first fold is
+        // then either already past (`hasSnapshot()` true → replay the folded
+        // value as the snapshot for a late subscriber) or still future (captured
+        // by `sub`, delivered as the first frame) — never missed, never
+        // double-served. Mirror-never-fabricate: withhold the seeded default
+        // until the fold has primed the store (`hasSnapshot()` false).
+        const sub = deps.bus.subscribe(signal);
+        if (deps.hasSnapshot?.() ?? true) yield deps.store.get();
+        for await (const v of sub) yield v;
       },
       set: ({ input }) => forward.set(input),
       patch: ({ input }) => forward.patch(input),
@@ -1118,6 +1138,8 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
       /** Write-forwarding seam for a re-serving mirror. See
        *  `CellHandlerDeps.forward`. */
       forward?: CellForward<T, P>;
+      /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
+      hasSnapshot?: () => boolean;
       /** Optional async-source republish. The runtime fires it ONCE after
        *  the cell is wired, handing it the cell ctx setter, so a
        *  late-arriving value flows through the same equals/onWrite/store.set/
@@ -1133,6 +1155,8 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
         /** Write-forwarding seam for a re-serving mirror. See
          *  `CellHandlerDeps.forward`. */
         forward?: CellForward<T, T>;
+        /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
+        hasSnapshot?: () => boolean;
         /** Optional async-source republish. The runtime fires it ONCE after
          *  the cell is wired, handing it the cell ctx setter, so a
          *  late-arriving value flows through the same equals/onWrite/
@@ -1415,6 +1439,7 @@ function walkSurface<const S extends SurfaceSpec>(
           onMutate?: (p: unknown, c: unknown) => void;
           onWrite?: (next: unknown) => void;
           forward?: CellForward<unknown, unknown>;
+          hasSnapshot?: () => boolean;
           connect?: (c: { set: (v: unknown) => void }) => void | Promise<void>;
         }
       | undefined;
@@ -1459,6 +1484,7 @@ function walkSurface<const S extends SurfaceSpec>(
         onMutate: cellDeps.onMutate,
         onWrite: onWriteFn,
         forward: cellDeps.forward,
+        hasSnapshot: cellDeps.hasSnapshot,
       },
     );
 
