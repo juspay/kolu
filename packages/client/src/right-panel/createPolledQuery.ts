@@ -24,9 +24,12 @@
  *     reconciled `.use()` would silently swallow). That is the value stream's
  *     reconnect-refresh, preserved without a skip-the-first-frame dance;
  *   - a requery updates the value IN PLACE (no blank), so a change never flashes
- *     the tree empty. Only an INPUT change blanks + goes `pending` (the prior
- *     value is no longer authoritative) — the transient the #818 pending-gate
- *     is written against.
+ *     the tree empty. Only an INPUT-VALUE change blanks + goes `pending` (the
+ *     prior value is no longer authoritative) — the transient the #818
+ *     pending-gate is written against. This is ENFORCED (not convention): the
+ *     re-subscribe effect keys on a value-deduped input key, so a
+ *     fresh-reference-but-equal-value input never blanks (a #1714-class trap,
+ *     armed since #1652, closed here).
  *
  * The returned handle is a `Subscription<Result>` — a callable accessor with
  * `.pending` / `.error` — identical to what `app.streams.X.use(...)` returned,
@@ -43,6 +46,7 @@ import {
 import {
   type Accessor,
   createEffect,
+  createMemo,
   createSignal,
   on,
   onCleanup,
@@ -155,55 +159,73 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   }
   onCleanup(() => controller?.abort());
 
+  // The input's VALUE identity — a canonical primitive key over (input, host).
+  // `on` fires its callback on every INVALIDATION of its tracked source, not on a
+  // value change; the pre-fix deps `() => ({ i: input(), host })` returned a fresh
+  // object each eval, so ANY incidental invalidation of `input`'s dependencies
+  // (e.g. an upstream metadata reference tick) re-ran the blank + pulse
+  // re-subscribe below even when repoPath/host were unchanged — the header's
+  // "Only an INPUT change blanks" was unenforced convention (armed since #1652).
+  // Keying the effect on this value-deduped memo enforces that contract: a
+  // fresh-reference-but-equal-value input re-issues NOTHING, and the effect runs
+  // only when the input VALUE or host actually changed. This is the consumer's
+  // own reset semantics ("blank iff MY input changed"), NOT a second dedup gate on
+  // the producer. The carried `i` rides along so the body keeps the live input
+  // object for `pulseInput(i)` / `runQuery(i)`.
+  const inputState = createMemo(
+    () => {
+      const i = input();
+      const host = pulseHost?.();
+      return { i, key: i === null ? null : JSON.stringify([i, host ?? null]) };
+    },
+    undefined,
+    { equals: (a, b) => a.key === b.key },
+  );
+
   createEffect(
-    on(
-      // Track BOTH the query input and the active host, so the pulse re-subscribes on a
-      // host switch even when the input (repoPath) is unchanged across the two hosts.
-      () => ({ i: input(), host: pulseHost?.() }),
-      ({ i }) => {
-        // Reset for the new input: blank + pending until the fresh read lands, and
-        // abort any in-flight read from the prior input. `rawStream`'s own
-        // onCleanup (registered on this effect's run) tears down the previous
-        // pulse subscription before this re-run.
-        controller?.abort();
-        controller = null;
-        setStore("v", undefined);
-        setError(undefined);
-        setPending(true);
-        setComplete(false);
-        if (i === null) return;
-        // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
-        // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
-        // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
-        // snapshot frame, so `runQuery` fires per frame INCLUDING each post-reconnect
-        // snapshot — the value stream's reconnect-refresh, preserved. It aborts on the next
-        // input change (this effect's `onCleanup`). A pulse failure routes into the SAME
-        // error/pending signals the requery does (via `surfaceError`), so a persistent
-        // watcher failure (inotify ENOSPC) surfaces a real error state, not just a toast.
-        // It is UNENROLLED (not the old whole-client `rawStream`) because the map has no
-        // single per-host client to fold health into — and kolu ignores that fold anyway.
-        const pulseCtl = new AbortController();
-        onCleanup(() => pulseCtl.abort());
-        void (async () => {
-          try {
-            for await (const _frame of await unenrolledStreamCall(
-              pulseProc(),
-              pulseInput(i),
-              { signal: pulseCtl.signal },
-            )) {
-              runQuery(i);
-            }
-            // Normal completion — the pulse iterable ended on its own (a typed end,
-            // e.g. the host/entry left membership), not an abort: an aborted loop
-            // never falls through the `for await` to here with `aborted` still
-            // false. Mirrors `createSubscription`'s own typed-end handling.
-            if (!pulseCtl.signal.aborted) setComplete(true);
-          } catch (err) {
-            if (!pulseCtl.signal.aborted) surfaceError(err);
+    on(inputState, ({ i }) => {
+      // Reset for the new input: blank + pending until the fresh read lands, and
+      // abort any in-flight read from the prior input. `rawStream`'s own
+      // onCleanup (registered on this effect's run) tears down the previous
+      // pulse subscription before this re-run.
+      controller?.abort();
+      controller = null;
+      setStore("v", undefined);
+      setError(undefined);
+      setPending(true);
+      setComplete(false);
+      if (i === null) return;
+      // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
+      // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
+      // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
+      // snapshot frame, so `runQuery` fires per frame INCLUDING each post-reconnect
+      // snapshot — the value stream's reconnect-refresh, preserved. It aborts on the next
+      // input change (this effect's `onCleanup`). A pulse failure routes into the SAME
+      // error/pending signals the requery does (via `surfaceError`), so a persistent
+      // watcher failure (inotify ENOSPC) surfaces a real error state, not just a toast.
+      // It is UNENROLLED (not the old whole-client `rawStream`) because the map has no
+      // single per-host client to fold health into — and kolu ignores that fold anyway.
+      const pulseCtl = new AbortController();
+      onCleanup(() => pulseCtl.abort());
+      void (async () => {
+        try {
+          for await (const _frame of await unenrolledStreamCall(
+            pulseProc(),
+            pulseInput(i),
+            { signal: pulseCtl.signal },
+          )) {
+            runQuery(i);
           }
-        })();
-      },
-    ),
+          // Normal completion — the pulse iterable ended on its own (a typed end,
+          // e.g. the host/entry left membership), not an abort: an aborted loop
+          // never falls through the `for await` to here with `aborted` still
+          // false. Mirrors `createSubscription`'s own typed-end handling.
+          if (!pulseCtl.signal.aborted) setComplete(true);
+        } catch (err) {
+          if (!pulseCtl.signal.aborted) surfaceError(err);
+        }
+      })();
+    }),
   );
 
   const sub = Object.assign(() => store.v, {
