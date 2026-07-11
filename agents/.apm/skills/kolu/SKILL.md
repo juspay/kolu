@@ -272,6 +272,17 @@ it: `kaval-tui list --socket "$KAVAL_SOCKET"`, `kaval-tui snapshot <id> --socket
 (autodiscovery would return "many"). Absent → you're not inside a kolu PTY, so
 fall back to `kaval-tui list`.
 
+**`$KAVAL_TERMINAL_ID` names *this* terminal.** Its self-knowledge twin: every
+kolu terminal also exports `$KAVAL_TERMINAL_ID` — the id of the terminal the agent
+is running in. So an agent can act on **itself** without being told which tile it
+is: `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"` reads its
+own screen, `padi-tui wait "$KAVAL_TERMINAL_ID" --until …` blocks on its own state.
+Re-owned for nested terminals (a kolu spawned inside a kolu terminal stamps its
+*own* id over the inherited one), so it's always *this* terminal, never the outer.
+Empty → fall back to `kaval-tui list` for the id: you're either not inside a
+kolu-spawned PTY, or in one that predates this var and hasn't been respawned yet
+(a fresh terminal — or sleep/wake — stamps it).
+
 > **Flags go AFTER the subcommand.** It's `kaval-tui list --socket <path>` and
 > `kaval-tui snapshot <id> --socket <path>` — **not** `kaval-tui --socket <path>
 > list`. A flag before the subcommand fails with "no command"; the CLI error says

@@ -5,8 +5,30 @@ import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
   type KoluWorld,
+  MOD_KEY,
   POLL_TIMEOUT,
 } from "../support/world.ts";
+
+/** Ensure the right panel is expanded for the ACTIVE terminal before touching
+ *  the Code tab. Panel collapse is PER-TERMINAL now (#1753): a freshly-created
+ *  or switched-to terminal starts collapsed under the e2e fixture (which seeds
+ *  new terminals collapsed via `newTerminalCollapsed`), so its Code tab is
+ *  hidden until opened. Idempotent — a no-op when the panel is already open (so
+ *  it never masks a scenario that deliberately left it collapsed); when
+ *  collapsed it presses the toggle and waits for the Code-tab button to paint.
+ *  `data-collapsed` is the RightPanel's canonical "not visible" marker. */
+async function ensurePanelOpen(world: KoluWorld): Promise<void> {
+  const collapsed =
+    (await world.page
+      .locator('[data-testid="right-panel"][data-collapsed]')
+      .count()) > 0;
+  if (!collapsed) return;
+  await world.page.keyboard.press(`${MOD_KEY}+Alt+b`);
+  await world.page
+    .locator('[data-testid="right-panel-tab-code"]')
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await world.waitForFrame();
+}
 
 // ── Pierre tree selectors ──
 //
@@ -76,6 +98,7 @@ async function waitForChangedFile(world: KoluWorld, path: string) {
 // ── Actions ──
 
 When("I click the Code tab", async function (this: KoluWorld) {
+  await ensurePanelOpen(this);
   const tab = this.page.locator('[data-testid="right-panel-tab-code"]');
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await tab.click();
@@ -329,6 +352,9 @@ Then("the Inspector tab should be active", async function (this: KoluWorld) {
 Then(
   "the Code tab should indicate no git repository",
   async function (this: KoluWorld) {
+    // The panel may be collapsed on a just-created/switched-to terminal
+    // (per-terminal collapse, #1753) — reveal it before reading its content.
+    await ensurePanelOpen(this);
     const msg = this.page.locator('[data-testid="diff-no-repo"]');
     await msg.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
@@ -689,8 +715,8 @@ Then(
 // runs at an opaque origin (`allow-scripts`, no `allow-same-origin`), but
 // Playwright resolves it through the browser frame tree, so `frameLocator`
 // reaches its `<body>` regardless of origin. Polling (not a single read)
-// because a save re-points the iframe `src` at a fresh `?v=<mtime>` URL: the
-// old frame detaches and the new one navigates, so `textContent` throws
+// because a save re-points the iframe `src` at a fresh `?v=<tag>` URL:
+// the old frame detaches and the new one navigates, so `textContent` throws
 // transiently mid-swap — a short per-read timeout + `.catch(() => null)`
 // lets the poll ride through the navigation until the new content lands.
 Then(
@@ -701,7 +727,7 @@ Then(
       .locator("body");
     // Hydration budget: the preview content arrives over a server
     // subscription (selection → fsReadFile, or an *edit* re-firing the live
-    // watch which re-points the iframe `src` at a fresh `?v=<mtime>`). That
+    // watch which re-points the iframe `src` at a fresh `?v=<tag>`). That
     // fs.watch → SSE → reload round-trip is the slow axis under darwin CI
     // load — the edit-then-refresh regression guard (code-tab.feature:1364)
     // froze on the pre-edit body for >20 s under the post-build storm.
@@ -724,10 +750,13 @@ Then(
 // storm, so the iframe freezes on the pre-edit body and the bare assertion
 // above (even at HYDRATION_TIMEOUT) waits forever — no further event ever
 // comes. Re-touch the edited file's mtime each poll tick: each touch is a
-// fresh notification, so a dropped one is recovered, and a new mtime re-points
-// the iframe `src` (`?v=<mtime>`) to force the reload. The file already holds
-// the post-edit content, so this recovers the lost event without changing what
-// is asserted — it does NOT mask a broken watch re-arm (a touch of a file the
+// fresh notification, so a dropped one is recovered. The touch itself no longer
+// changes the URL (the `?v=` cache-key hashes CONTENT, not mtime) — it only
+// re-fires the dropped watch; the requery then hashes the already-written
+// post-edit content, whose new hash re-points the iframe `src` and forces the
+// reload. The file already holds the post-edit content, so this recovers the
+// lost event without changing what is asserted — it does NOT mask a broken
+// watch re-arm (a touch of a file the
 // watch isn't armed on still fires nothing). `absFile` is the absolute on-disk
 // path the shell wrote (the scenario's repo cwd + relative path).
 Then(
@@ -747,6 +776,82 @@ Then(
         ),
       timeoutMs: HYDRATION_TIMEOUT,
     });
+  },
+);
+
+// Scroll the sandboxed preview iframe's OWN document to the bottom and capture
+// the landed scrollTop for the hold-steady regression below. `frameLocator`
+// reaches into the opaque-origin frame (same boundary the read step uses), so
+// `body.evaluate` runs in the iframe context and drives its `scrollingElement`.
+// We poll because the content needs a beat to lay out tall enough to scroll;
+// a captured scrollTop of 0 means the fixture wasn't scrollable — a setup bug,
+// surfaced here rather than as a silent pass downstream.
+When(
+  "I scroll the file preview iframe to the bottom",
+  async function (this: KoluWorld) {
+    const body = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .locator("body");
+    const top = await pollFor({
+      observe: () =>
+        body
+          .evaluate(() => {
+            const se = document.scrollingElement ?? document.documentElement;
+            se.scrollTop = se.scrollHeight;
+            return se.scrollTop;
+          })
+          .catch(() => 0),
+      isDone: (t) => t > 0,
+      onTimeout: (last) =>
+        new Error(
+          `preview iframe never scrolled (scrollTop stayed ${last}); is the fixture tall enough?`,
+        ),
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
+    this.savedPreviewIframeScrollTop = top;
+  },
+);
+
+// The scroll-jump regression, end-to-end: a `git checkout`-style rewrite bumps
+// mtime WITHOUT changing bytes, which under the old mtime-keyed `?v=` re-pointed
+// the iframe `src` and slammed a mid-scrolled preview to the top. Here we hold
+// the frame at its captured scroll position while firing the file-change watch
+// repeatedly via identical-mtime touches (`nudgeFiles` re-touches mtime — that
+// IS the same-bytes-new-mtime rewrite). Each touch re-queries
+// `fs.filePreviewTag`, whose CONTENT hash is unchanged, so the URL holds and the
+// frame is never re-pointed: scrollTop must not reset. Were the tag still keyed
+// on mtime, the first touch would reload and drop scrollTop to 0, failing here.
+// The scenario's following real-edit refresh step is the liveness guard — it
+// proves the watch DOES fire and DOES reload on a genuine change, so this
+// hold-steady window is not a vacuous pass on a dead watch.
+Then(
+  "the file preview iframe holds its scroll position through identical rewrites of {string}",
+  async function (this: KoluWorld, absFile: string) {
+    const anchor = this.savedPreviewIframeScrollTop;
+    if (anchor === undefined || anchor <= 0)
+      throw new Error(
+        "no captured preview scroll position to hold — scroll the iframe first",
+      );
+    const body = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .locator("body");
+    const deadline = Date.now() + 8_000;
+    while (Date.now() < deadline) {
+      nudgeFiles([absFile]);
+      const top = await body
+        .evaluate(() => {
+          const se = document.scrollingElement ?? document.documentElement;
+          return se.scrollTop;
+        })
+        .catch(() => null);
+      // A transient null (a read racing a swap) is ignored; a real drop toward
+      // the top means the `src` was re-pointed — the exact regression.
+      if (top !== null && top < anchor - 2)
+        throw new Error(
+          `preview iframe scroll reset from ${anchor} to ${top} after an identical-content rewrite — the URL was re-pointed`,
+        );
+      await new Promise((r) => setTimeout(r, 250));
+    }
   },
 );
 
@@ -1535,6 +1640,7 @@ async function activateCodeTabMode(
   world: KoluWorld,
   mode: CodeTabMode,
 ): Promise<void> {
+  await ensurePanelOpen(world);
   const tab = world.page.locator('[data-testid="right-panel-tab-code"]');
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await tab.click();

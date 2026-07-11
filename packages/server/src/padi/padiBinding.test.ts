@@ -556,7 +556,7 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // Simulate a kolu-server restart as a NEWER binder: drop the OLD binder's link
     // (padi + its detached kaval survive) WITHOUT touching padi, then re-bind with
     // a NEWER binderVersion. The running padi serves the real `PADI_SURFACE_VERSION`
-    // (1.0); a fake newer binder ("1.1") is how we exercise the drain arm without a
+    // (2.0); a fake newer binder ("2.1") is how we exercise the drain arm without a
     // second padiSurface build — the kit's probe reads the real identity, sees the skew,
     // and (drain-newer-else-refuse) drains it; the fresh spawn then connects genuinely
     // compatibly (real vs real), adopts the surviving kaval, and restores the session.

@@ -243,6 +243,7 @@ function rightPanelStateEqual(
   a: RightPanelPerTerminalState,
   b: RightPanelPerTerminalState,
 ): boolean {
+  if (a.collapsed !== b.collapsed) return false;
   if (a.activeTab !== b.activeTab || a.codeMode !== b.codeMode) return false;
   const am = a.selectedFileByMode;
   const bm = b.selectedFileByMode;

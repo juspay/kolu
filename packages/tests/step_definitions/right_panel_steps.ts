@@ -355,7 +355,7 @@ Then(
   async function (this: KoluWorld) {
     // The header toggle drops its `data-active` marker when the panel isn't
     // effectively open — which an empty workspace forces regardless of the
-    // collapsed preference.
+    // terminal's collapsed state.
     await this.page.waitForFunction(
       () => {
         const btn = document.querySelector(

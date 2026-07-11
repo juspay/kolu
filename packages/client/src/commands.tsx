@@ -445,7 +445,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ]
       : []),
 
-    // --- UI (panel/dock visibility — global UI chrome, not per-terminal) ---
+    // --- UI (panel/dock visibility) ---
+    // Dock visibility is global UI chrome; the right-panel toggle flips the
+    // ACTIVE terminal's per-terminal `collapsed` bit (the panel follows the
+    // terminal, #959) — the command is still gated on there being a terminal.
     // Hide "Toggle right panel" on an empty workspace: with no terminals the
     // panel host is unmounted (App's `showEmpty`) and `togglePanel()`
     // early-returns, so the command would close the palette and do nothing —

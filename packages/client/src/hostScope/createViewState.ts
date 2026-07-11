@@ -18,8 +18,11 @@
  *  close-all `reset()` clears. That split is deliberate: everything left in this
  *  factory is reset-on-close-all, so `reset()` clears its WHOLE state with no
  *  "clear these but not those" allow/deny list (the enumeration hazard W7 kills).
- *  The sticky filters/collapsed bit live in `createHostPrefs` precisely because
- *  they must SURVIVE a close-all. Only the momentary `centerActiveRequest` command
+ *  The sticky dock filters live in `createHostPrefs` precisely because
+ *  they must SURVIVE a close-all. (The right-panel collapsed bit is neither here
+ *  nor there: it travels with the TERMINAL via `TerminalMetadata.rightPanel`, not
+ *  the host scope — the panel follows the terminal, #959.) Only the momentary
+ *  `centerActiveRequest` command
  *  stays APP-level in the facade — a write-and-consume viewport impulse, never
  *  durable per-host state. The posture is PERSISTED per host
  *  (`kolu-canvasMaximized:<host>`, restoring the pre-W7 reload-survival that the
