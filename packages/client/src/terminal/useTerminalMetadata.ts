@@ -187,8 +187,12 @@ export function useTerminalMetadata(deps: {
    *  reprojected record `getMetadata` returns. One `createComputed` per live
    *  terminal reprojects its raw record and writes THROUGH `writeWrappedValue`
    *  (the framework's reconcile-or-assign gate — `surface/src/solid/writeValue.ts`,
-   *  the same one every subscription value rides) into a per-id `{ v }` store, so
-   *  the returned reference changes IFF the reprojected value changed.
+   *  the same one every subscription value rides) into a per-id `{ v }` store.
+   *  Because that gate `reconcile`s, `store.v`'s proxy stays STABLE across the
+   *  record's continuous lifetime — a changed field mutates the proxy in place and
+   *  notifies only that leaf (the `useTerminalMetadata.test.ts` `lastActivityAt`
+   *  case). The reference turns over only around absence/recreation: `undefined ⇄
+   *  record`, or a structural swap `reconcile` can't merge in place.
    *
    *  This restores an identity-stability GUARANTEE at the one knowing endpoint.
    *  #1714 broke it by having `getMetadata` return `reprojectClock(rawTile(id))`
