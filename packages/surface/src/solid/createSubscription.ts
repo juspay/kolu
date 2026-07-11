@@ -25,11 +25,42 @@ import { writeWrappedValue } from "./writeValue";
  * properties for error and pending follow the same pattern as
  * SolidJS's `createResource`.
  */
+/** A teardown handle — call to unsubscribe. */
+export type Dispose = () => void;
+
+/** A value change on a cell subscription: the value BEFORE this frame and the
+ *  value AFTER. Delivered by {@link Subscription.updated}. */
+export interface CellChange<T> {
+  readonly prev: T;
+  readonly next: T;
+}
+
 export interface Subscription<T> extends Accessor<T | undefined> {
   /** Stream error (undefined when healthy). */
   readonly error: Accessor<Error | undefined>;
   /** True while waiting for the first event from the stream. */
   readonly pending: Accessor<boolean>;
+  /** Subscribe to CHANGES — the missing half of an FRP `Dynamic`. Fires under
+   *  the **change-iff-fired** law:
+   *
+   *    - a FIRST frame is a value, not a change — it never fires (learning the
+   *      current truth is not news that something happened);
+   *    - a reconnect snapshot EQUAL to the last-seen value never fires (a link
+   *      flap replaying current truth changed nothing);
+   *    - a frame that DIFFERS fires exactly once, with `prev` = the last-seen
+   *      value.
+   *
+   *  Equality is by value (a reconnect re-serializes the same content into a
+   *  fresh object), matching the producer's own equals-dedup on deltas — so a
+   *  consumer that needs "what changed" gets honest `{prev, next}` pairs without
+   *  hand-holding a previous frame or classifying reconnect snapshots. A handler
+   *  added mid-stream sees only changes from that point on (read the accessor for
+   *  "what is"). Returns a `Dispose` to unsubscribe.
+   *
+   *  Optional for the same reason as `complete`: a hand-assembled
+   *  `Subscription`-shaped value need not provide it; every subscription minted
+   *  by this module's factories does. */
+  readonly updated?: (handler: (change: CellChange<T>) => void) => Dispose;
   /** True once the stream has ENDED NORMALLY (a typed end — never on abort).
    *  Latches permanently: once true, this subscription's value is FROZEN —
    *  it will never update again. Without this fact, an ended subscription
@@ -74,6 +105,45 @@ export interface SubscriptionOptions<T, R = T> {
    *  never reuses an ended stream. "A disposed subscription cannot report anything"
    *  extends here: an aborted subscription must not fire `onComplete`. */
   onComplete?: () => void;
+}
+
+/** Structural value equality for cell frames — the change-iff-fired law's
+ *  "equal reconnect snapshot never fires" needs VALUE equality, since a
+ *  reconnect re-serializes the same content into a fresh object (reference
+ *  equality would misread it as a change). Cell values are Zod-schema'd
+ *  JSON-shaped data (primitives, arrays, plain objects), so a compact recursive
+ *  compare is exact for them — a dedicated dependency would be heavier than the
+ *  one shape this needs. Not exported as a general util: it is the frame
+ *  comparator for {@link Subscription.updated} and its reactive twin. */
+export function framesEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (
+    typeof a !== "object" ||
+    typeof b !== "object" ||
+    a === null ||
+    b === null
+  ) {
+    return false;
+  }
+  const aArr = Array.isArray(a);
+  if (aArr !== Array.isArray(b)) return false;
+  if (aArr) {
+    const bArr = b as unknown[];
+    if (a.length !== bArr.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!framesEqual(a[i], bArr[i])) return false;
+    }
+    return true;
+  }
+  const aObj = a as Record<string, unknown>;
+  const bObj = b as Record<string, unknown>;
+  const aKeys = Object.keys(aObj);
+  if (aKeys.length !== Object.keys(bObj).length) return false;
+  for (const k of aKeys) {
+    if (!Object.hasOwn(bObj, k)) return false;
+    if (!framesEqual(aObj[k], bObj[k])) return false;
+  }
+  return true;
 }
 
 /** Convert an async stream into a SolidJS signal. `source` receives the
@@ -127,6 +197,36 @@ export function createSubscription<T, R = T>(
     writeWrappedValue(setStore, next as T | R | undefined);
   }
 
+  // The change-iff-fired half of the Dynamic. `lastSeen` is tracked from the
+  // very first frame — independent of whether any handler is registered — so the
+  // "first frame never fires" law holds no matter when a consumer subscribes.
+  const updatedHandlers = new Set<(change: CellChange<T | R>) => void>();
+  let lastSeen: { has: boolean; value: T | R } = {
+    has: false,
+    value: undefined as T | R,
+  };
+  function noteFrame(next: T | R): void {
+    if (!lastSeen.has) {
+      lastSeen = { has: true, value: next }; // first frame: a value, not a change
+      return;
+    }
+    if (framesEqual(lastSeen.value, next)) return; // equal reconnect snapshot: silent
+    const prev = lastSeen.value;
+    lastSeen = { has: true, value: next };
+    if (updatedHandlers.size === 0) return;
+    // Hand consumers a SNAPSHOT: the store writes these frames through Solid's
+    // `reconcile`, which adopts a frame and mutates it on the next write — a
+    // retained `{prev, next}` would silently mutate out from under the consumer.
+    // Clone only on a firing change with subscribers, so the hot no-op path pays
+    // nothing. (`framesEqual` above ran on the pre-write values, so the baseline
+    // compare is unaffected by the mutation.)
+    const change: CellChange<T | R> = {
+      prev: structuredClone(prev),
+      next: structuredClone(next),
+    };
+    for (const h of [...updatedHandlers]) h(change);
+  }
+
   function toError(err: unknown): Error {
     return err instanceof Error ? err : new Error(String(err));
   }
@@ -147,7 +247,9 @@ export function createSubscription<T, R = T>(
       const iterable = await source(abortSignal);
       for await (const item of iterable) {
         if (abortSignal.aborted) break;
-        updateValue(reduce ? reduce(store.v as T | R, item) : item);
+        const next = reduce ? reduce(store.v as T | R, item) : (item as T | R);
+        noteFrame(next); // fire `updated` on a genuine change, before the write
+        updateValue(next);
         if (pending()) setPending(false);
         if (error()) setError(undefined);
       }
@@ -173,6 +275,10 @@ export function createSubscription<T, R = T>(
     error,
     pending,
     complete,
+    updated: (handler: (change: CellChange<T | R>) => void): Dispose => {
+      updatedHandlers.add(handler);
+      return () => updatedHandlers.delete(handler);
+    },
   }) as Subscription<T | R>;
 
   if (options?.onError) {

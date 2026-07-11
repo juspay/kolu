@@ -561,4 +561,106 @@ describe("createSubscription", () => {
       expect(result.pending).toBe(false);
     });
   });
+
+  describe("updated() — the change-iff-fired law", () => {
+    it("a first frame is a value, not a change — it never fires", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+        const changes: Array<{ prev: number; next: number }> = [];
+        sub.updated?.((c) => changes.push(c));
+
+        stream.push(7);
+        await flush();
+        expect(readSub(sub)).toBe(7);
+        expect(changes).toEqual([]); // first frame: silent
+        dispose();
+      });
+    });
+
+    it("a differing frame fires once with prev = the last-seen value", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+        const changes: Array<{ prev: number; next: number }> = [];
+        sub.updated?.((c) => changes.push(c));
+
+        stream.push(1);
+        await flush();
+        stream.push(2);
+        await flush();
+        stream.push(5);
+        await flush();
+        expect(changes).toEqual([
+          { prev: 1, next: 2 },
+          { prev: 2, next: 5 },
+        ]);
+        dispose();
+      });
+    });
+
+    it("an equal reconnect snapshot (fresh object, same content) never fires", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<{ ids: number[] }>();
+        const sub = createSubscription(async () => stream.iterate());
+        const changes: Array<unknown> = [];
+        sub.updated?.((c) => changes.push(c));
+
+        stream.push({ ids: [1, 2] });
+        await flush();
+        // A link flap replays current truth as a byte-fresh object — value-equal
+        // to the last-seen, so the law says: silent.
+        stream.push({ ids: [1, 2] });
+        await flush();
+        expect(changes).toEqual([]);
+
+        // A genuine change still fires, with the structurally-correct prev.
+        stream.push({ ids: [1, 2, 3] });
+        await flush();
+        expect(changes).toEqual([
+          { prev: { ids: [1, 2] }, next: { ids: [1, 2, 3] } },
+        ]);
+        dispose();
+      });
+    });
+
+    it("a handler added mid-stream sees only changes from that point on", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+
+        stream.push(1);
+        await flush();
+        stream.push(2);
+        await flush();
+
+        // Subscribe AFTER two frames — no replay of the missed change.
+        const changes: Array<{ prev: number; next: number }> = [];
+        sub.updated?.((c) => changes.push(c));
+        stream.push(9);
+        await flush();
+        expect(changes).toEqual([{ prev: 2, next: 9 }]);
+        dispose();
+      });
+    });
+
+    it("dispose stops a handler firing", async () => {
+      await createRoot(async (dispose) => {
+        const stream = controllableStream<number>();
+        const sub = createSubscription(async () => stream.iterate());
+        const changes: number[] = [];
+        const off = sub.updated?.((c) => changes.push(c.next));
+
+        stream.push(1);
+        await flush();
+        stream.push(2);
+        await flush();
+        off?.();
+        stream.push(3);
+        await flush();
+        expect(changes).toEqual([2]); // 3's change never reached the disposed handler
+        dispose();
+      });
+    });
+  });
 });
