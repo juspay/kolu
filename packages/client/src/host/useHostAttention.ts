@@ -11,11 +11,11 @@
  *  and the click semantics are kolu's, right here. */
 
 import type { PadiUrgency } from "@kolu/padi/surface";
-import { createNotify } from "@kolu/surface-app/notify";
 import { watchByEntry } from "@kolu/surface-map/client";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, onCleanup } from "solid-js";
+import { notify } from "../attentionNotify";
 import {
   activeHost,
   hostKeys,
@@ -33,9 +33,9 @@ export function useHostAttention(deps: {
   focusTerminal: (id: TerminalId) => void;
 }): void {
   const enabled = (): boolean => preferences().activityAlerts;
-  // The one delivery seam at the origin's ONE service worker — never per window,
-  // so two open windows can't double-ping (the tag replaces, never stacks).
-  const notify = createNotify<{ host: string; id: string }>();
+  // The one delivery seam at the origin's ONE service worker (`../attentionNotify`,
+  // shared with the per-terminal path) — never per window, so two open windows
+  // can't double-ping (the tag replaces, never stacks).
   if (enabled()) void notify.requestPermission();
 
   // The eager per-host watcher: it subscribes EVERY bound host's urgency cell
@@ -56,7 +56,7 @@ export function useHostAttention(deps: {
         void notify.show({
           tag: `${encoded}/${id}`,
           title: `Terminal awaiting on ${label}`,
-          data: { host: encoded, id },
+          data: { kind: "host", host: encoded, id },
         });
       }
     },
@@ -81,13 +81,22 @@ export function useHostAttention(deps: {
     else void navigator.clearAppBadge();
   });
 
-  // The OS notification click is ONE action: switch to that host, then focus the
-  // terminal that wants you. After the switch, `focusTerminal` targets the
-  // now-active host; the center-on-active impulse pans once the tile renders.
+  // The SINGLE `notify.onClick` router for the whole client — one listener on the
+  // origin's one service-worker message channel, switching on the discriminated
+  // payload so a per-terminal click and a cross-host click can never
+  // cross-deliver. A `host` click is ONE action: switch to that host, then focus
+  // the terminal that wants you (after the switch, `focusTerminal` targets the
+  // now-active host; the center-on-active impulse pans once the tile renders). A
+  // `terminal` click (from the per-terminal activity-alert path) just focuses the
+  // finished terminal on the current host.
   onCleanup(
-    notify.onClick(({ host, id }) => {
-      setActiveHost(decodeHostKey(host));
-      deps.focusTerminal(id as TerminalId);
+    notify.onClick((data) => {
+      if (data.kind === "host") {
+        setActiveHost(decodeHostKey(data.host));
+        deps.focusTerminal(data.id as TerminalId);
+      } else {
+        deps.focusTerminal(data.terminalId);
+      }
     }),
   );
 }

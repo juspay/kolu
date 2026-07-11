@@ -2,8 +2,6 @@
  *  Watches metadata subscriptions for agent state changes (any AI coding agent). */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
-import { SW_MESSAGE_TYPE } from "@kolu/surface-app";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   type AgentInfo,
   alertClass,
@@ -37,20 +35,12 @@ export function useTerminalAlerts(deps: {
   // so a background host's awaiting agents reach the dock icon too, not only the
   // active host's. This module keeps its per-active-host job: fire the OS
   // notification + dock unread for a terminal you are not actively watching.
-
-  // Route a click on an OS notification back to the terminal that finished. The
-  // notification worker (`NOTIFICATION_SW_SOURCE`) handles `notificationclick`
-  // in the worker — it can't reach into the page — so it focuses the window and
-  // posts the alert's `data` here, where we have `activate`. (An installed-PWA
-  // notification has no page-level `Notification.onclick`.)
-  if ("serviceWorker" in navigator) {
-    makeEventListener(navigator.serviceWorker, "message", (event) => {
-      const msg = event.data;
-      if (msg?.type !== SW_MESSAGE_TYPE) return;
-      const id = msg.data?.terminalId as TerminalId | undefined;
-      if (id !== undefined) deps.activate(id);
-    });
-  }
+  //
+  // The click on an OS notification is routed by the SINGLE `notify.onClick`
+  // router in `useHostAttention` (the one seam that owns both the per-terminal
+  // and cross-host click payloads). This module no longer hand-rolls its own
+  // `serviceWorker` message listener — a second listener on the same channel
+  // would cross-deliver a `host` payload into a `terminal` handler.
 
   // Reactively watch agent state for all terminals.
   // SolidJS's on() tracks previous values natively — no manual Map needed.
@@ -106,7 +96,7 @@ export function useTerminalAlerts(deps: {
     // fired. `hasFocus()` is false whenever the doc is hidden too, so it
     // subsumes the old check and also covers "switched apps, kolu still visible".
     if (isBackground || !document.hasFocus())
-      void fireActivityAlert(deps.getSubject(id), { terminalId: id });
+      fireActivityAlert(deps.getSubject(id), id);
   }
 
   function simulateAlert(options?: { target?: "active" | "inactive" }) {
