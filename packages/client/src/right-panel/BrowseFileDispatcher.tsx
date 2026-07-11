@@ -70,7 +70,7 @@ import { OptionMenu } from "../ui/OptionMenu";
 import { activeHost, activePadiRpc, padiMap } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
-import { createPolledQuery } from "./createPolledQuery";
+import { perHostPolledQuery } from "./perHostPolledQuery";
 import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 import { openInCodeTab } from "./openInCodeTab";
@@ -137,7 +137,7 @@ type BrowseFileContent =
   | { kind: "binary"; url: string };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
-  const fileContent = createPolledQuery({
+  const fileContent = perHostPolledQuery({
     input: () => ({
       terminalId: props.terminalId,
       repoPath: props.repoPath,
@@ -179,10 +179,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     // — exactly as the old koluSurface value stream did (it just stopped
     // yielding); a raw ~150ms ENOENT error panel was a W1 regression.
     swallowError: (err) => err instanceof ORPCError && err.code === "NOT_FOUND",
-    // Retain per `(input, host)` so a switch BACK to a host whose file was open adopts
-    // the held content instantly rather than blanking to Loading (padi W9's Code-tab
-    // half); the file-change pulse still re-subscribes and refreshes.
-    retainAcrossKeys: true,
+    // Scoped PER HOST (padi W9): each host keeps its own retained file-content query,
+    // paused while backgrounded and resumed from its held content on switch-BACK — no
+    // blank — and disposed when the host leaves the pool (ownership, not a keep-last cache).
   });
 
   // ── Wikilink navigation ────────────────────────────────────────────

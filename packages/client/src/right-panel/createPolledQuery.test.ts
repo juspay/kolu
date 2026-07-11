@@ -446,72 +446,131 @@ describe("createPolledQuery", () => {
     expect(res.calls).toBe(2);
   });
 
-  it("retainAcrossKeys: a switch BACK to a previously-loaded key ADOPTS the cache (no blank), then the pulse refreshes (padi W9)", async () => {
-    // The Code-tab half of instant host switch-back: with `retainAcrossKeys`, a
-    // GENUINE host change to a key that was loaded before shows the held value
-    // instantly (no blank, not `pending`) while the re-subscribed pulse refreshes —
-    // instead of dropping the Code tab to "Loading…". A BRAND-NEW key still blanks,
-    // exactly as the default path (the sibling test above), so the value-keyed
-    // contract is untouched; only the SWITCH-BACK stops blanking.
+  it("active pause gate: pauses (value held, pulse torn down) while inactive, RESUMES with no blank + an immediate refresh (padi W9)", async () => {
+    // The Code-tab half of instant switch-back, by OWNERSHIP: `perHostPolledQuery`
+    // builds one instance per host and wires `active = ctx.isActive`. Backgrounding a
+    // host flips `active` false — the value is HELD and the pulse torn down (no
+    // background polling); switching BACK flips it true — the held value stays (NO
+    // blank) and the pulse re-subscribes to refresh immediately.
     const res = await new Promise<{
-      onHost1: unknown;
-      freshKeyBlank: { v: unknown; pending: boolean };
-      onHost2: unknown;
-      adopted: { v: unknown; pending: boolean };
-      refreshed: unknown;
+      shown: unknown;
+      whilePaused: { v: unknown; pending: boolean; calls: number };
+      onResume: { v: unknown; pending: boolean };
+      afterResume: unknown;
     }>((resolve) => {
       createRoot(async (dispose) => {
         let calls = 0;
-        const [host, setHost] = createSignal("host-1");
+        const [active, setActive] = createSignal(true);
         const { live, pulseProc, pulse } = fakeStream();
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
           live,
           pulseProc,
-          pulseHost: host,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
           },
-          retainAcrossKeys: true,
+          active,
         });
         await flush();
         pulse();
         await flush();
-        const onHost1 = q(); // "A#1" — cached under the (A, host-1) key
+        const shown = q(); // "A#1"
 
-        // Switch to host-2 (same repoPath, a NEW key): still blanks + pending, since
-        // this key has no cached value yet — the default host-change behavior.
-        setHost("host-2");
+        // PAUSE (host backgrounded): value held, pulse torn down. A pulse frame while
+        // paused hits the aborted stream and must NOT requery.
+        setActive(false);
         await flush();
-        const freshKeyBlank = { v: q(), pending: q.pending() };
         pulse();
         await flush();
-        const onHost2 = q(); // "A#2" — now cached under (A, host-2)
+        const whilePaused = { v: q(), pending: q.pending(), calls };
 
-        // Switch BACK to host-1: its key IS cached, so adopt "A#1" WITHOUT blanking…
-        setHost("host-1");
+        // RESUME (switch-BACK) with unchanged input: NO blank (value held), then the
+        // re-subscribed pulse's first frame refreshes it immediately.
+        setActive(true);
         await flush();
-        const adopted = { v: q(), pending: q.pending() };
-        // …and the re-subscribed pulse's first frame refreshes it in the background.
+        const onResume = { v: q(), pending: q.pending() };
         pulse();
         await flush();
-        const refreshed = q(); // "A#3"
+        const afterResume = q(); // "A#2"
 
-        resolve({ onHost1, freshKeyBlank, onHost2, adopted, refreshed });
+        resolve({ shown, whilePaused, onResume, afterResume });
         dispose();
       });
     });
-    expect(res.onHost1).toBe("A#1");
-    // A brand-new key still blanks + goes pending (unchanged from the default path).
-    expect(res.freshKeyBlank.v).toBeUndefined();
-    expect(res.freshKeyBlank.pending).toBe(true);
-    expect(res.onHost2).toBe("A#2");
-    // Switch-BACK adopts the cached value instantly — NO blank, NOT pending.
-    expect(res.adopted.v).toBe("A#1");
-    expect(res.adopted.pending).toBe(false);
-    // …and the pulse refreshes it in the background to the current on-disk value.
-    expect(res.refreshed).toBe("A#3");
+    expect(res.shown).toBe("A#1");
+    // Held while paused; no background poll fired (the pulse was torn down on pause).
+    expect(res.whilePaused.v).toBe("A#1");
+    expect(res.whilePaused.pending).toBe(false);
+    expect(res.whilePaused.calls).toBe(1);
+    // Resume: the held value is shown instantly — NO blank, NOT pending…
+    expect(res.onResume.v).toBe("A#1");
+    expect(res.onResume.pending).toBe(false);
+    // …and the pulse refreshes it in the background (the immediate refresh on activation).
+    expect(res.afterResume).toBe("A#2");
+  });
+
+  it("active pause gate: an input change WHILE paused blanks + re-queries on resume (a genuine query change is not silently stale)", async () => {
+    // If the query genuinely changed while a host was backgrounded (e.g. the user
+    // changed the diff mode), resuming must NOT show the stale held value: the key
+    // differs from what is shown, so it blanks + re-queries like any new input.
+    const res = await new Promise<{
+      shownA: unknown;
+      whilePaused: { v: unknown; pending: boolean };
+      onResume: { v: unknown; pending: boolean };
+      afterResume: unknown;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const [input, setInput] = createSignal<{ repoPath: string }>({
+          repoPath: "A",
+        });
+        const [active, setActive] = createSignal(true);
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input,
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async (i) => {
+            calls += 1;
+            return `${i.repoPath}#${calls}`;
+          },
+          active,
+        });
+        await flush();
+        pulse();
+        await flush();
+        const shownA = q(); // "A#1"
+
+        // Pause, then change the input WHILE paused (the effect no-ops while inactive,
+        // so the held value stays put — it does not blank yet).
+        setActive(false);
+        await flush();
+        setInput({ repoPath: "B" });
+        await flush();
+        const whilePaused = { v: q(), pending: q.pending() };
+
+        // Resume: the key changed (B ≠ the shown A), so it blanks + re-queries.
+        setActive(true);
+        await flush();
+        const onResume = { v: q(), pending: q.pending() };
+        pulse();
+        await flush();
+        const afterResume = q(); // "B#2"
+
+        resolve({ shownA, whilePaused, onResume, afterResume });
+        dispose();
+      });
+    });
+    expect(res.shownA).toBe("A#1");
+    // Paused: the held value stays (the effect does not act while inactive).
+    expect(res.whilePaused.v).toBe("A#1");
+    expect(res.whilePaused.pending).toBe(false);
+    // Resume with a changed query: blanks + goes pending (not silently stale).
+    expect(res.onResume.v).toBeUndefined();
+    expect(res.onResume.pending).toBe(true);
+    expect(res.afterResume).toBe("B#2");
   });
 });

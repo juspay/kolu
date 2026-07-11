@@ -17,7 +17,7 @@
 import type { Subscription } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
 import { activeHost, activePadiRpc, padiMap } from "../wire";
-import { createPolledQuery } from "./createPolledQuery";
+import { perHostPolledQuery } from "./perHostPolledQuery";
 
 export function createRepoPolledQuery<
   Input extends { repoPath: string },
@@ -30,17 +30,16 @@ export function createRepoPolledQuery<
   /** Surface query (and pulse) failures — matches `.use(..., { onError })`. */
   onError?: (err: Error) => void;
 }): Subscription<Result> {
-  return createPolledQuery({
+  // Scoped PER HOST (padi W9's Code-tab half): each host keeps its own retained query
+  // instance, paused while backgrounded and resumed from its held value on switch-BACK
+  // — instant, no blank, and disposed when the host leaves the pool (ownership, not a
+  // keep-last cache). `query`/`pulseProc` bind to `activePadiRpc`, which is always THIS
+  // instance's host while it is active, so the closures stay correct unchanged.
+  return perHostPolledQuery({
     ...config,
     live: () => padiMap.live(),
     pulseProc: () => activePadiRpc.surface.subscribeRepoChange.get,
     pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath }),
-    // Retain per `(input, host)` so a switch BACK to a previously-viewed host's repo
-    // adopts the held status/diff/file-list instantly instead of blanking to Loading
-    // (padi W9's Code-tab half — the `createPolledQuery` blank on a GENUINE host change).
-    // The pulse still re-subscribes and refreshes, so an adopted value is stale for at
-    // most one round-trip.
-    retainAcrossKeys: true,
   });
 }

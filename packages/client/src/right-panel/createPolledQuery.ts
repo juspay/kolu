@@ -35,6 +35,13 @@
  * The returned handle is a `Subscription<Result>` — a callable accessor with
  * `.pending` / `.error` — identical to what `app.streams.X.use(...)` returned,
  * so `q()`, `q.pending()`, `q.error()` all read verbatim downstream.
+ *
+ * The blank-on-host-switch above is the STANDALONE behavior (`active` defaults to
+ * always-on). For the Code tab, `perHostPolledQuery` instead builds ONE instance per
+ * host inside the `scopedByEntry` owner and wires the `active` gate, so a host switch
+ * PAUSES the leaving host's query (value held) and RESUMES the arriving host's from its
+ * retained value with no blank — padi W9's instant switch-back, by ownership. See the
+ * `active` config field.
  */
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
@@ -89,33 +96,26 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
    *  a file-gone predicate here so a delete-while-viewing keeps the last content
    *  until the selection changes, instead of flashing an ENOENT panel. */
   swallowError?: (err: Error) => boolean;
-  /** RETAIN the last result per `(input, host)` key, so a switch BACK to a
-   *  previously-loaded key ADOPTS the cached value — no blank, `pending` false —
-   *  while the pulse re-subscribes and refreshes in the background (padi W9's
-   *  Code-tab half: `createPolledQuery` used to blank the Code tab on every genuine
-   *  host change). OFF by default: a fresh key still blanks + goes `pending`, exactly
-   *  as before (so the value-keyed `#1714` contract and the host-change blank are
-   *  unchanged on the default path). The Code-tab repo/file queries opt in.
+  /** Whether this query is currently the SHOWN one — its polling gate. Defaults to
+   *  always-active (`() => true`), the standalone behavior. When it's `false` the
+   *  query PAUSES: the pulse subscription is torn down (no background polling) and
+   *  the last value + `pending` are FROZEN, held for a later resume. When it flips
+   *  back to `true` the query RESUMES: if the input is unchanged since it paused, the
+   *  held value stays (no blank) and the pulse re-subscribes to refresh it in the
+   *  background; if the input changed while paused, it blanks + re-queries like any
+   *  new input.
    *
-   *  REQUIRES `pulseHost` to be HOST-scoped: the retain key is `(input, host)`, so
-   *  without `pulseHost` the cache is input-only and two hosts sharing one input
-   *  would collide. Both opt-in call sites pass `pulseHost: activeHost`.
-   *
-   *  The retention is an in-memory LRU ({@link RETAIN_LRU}), NOT membership-tied:
-   *  unlike the per-host WIRE subs (which the `scopedByEntry` owner disposes the
-   *  instant a host leaves the pool), a key here is evicted only by the LRU tail as
-   *  other keys are seen. So a host removed-then-re-added can briefly ADOPT its
-   *  pre-removal value for ONE pulse before the fresh pulse frame refreshes it — the
-   *  same sub-second staleness window a normal switch-back has, bounded to
-   *  {@link RETAIN_LRU} entries and self-healing, never a durable wrong-host read. */
-  retainAcrossKeys?: boolean;
+   *  This is padi W9's Code-tab cure by OWNERSHIP, not keep-last: `perHostPolledQuery`
+   *  builds ONE `createPolledQuery` per host inside the `scopedByEntry` owner and wires
+   *  `active = ctx.isActive`, so each host's query state is retained in that host's
+   *  owned scope, paused while that host is backgrounded, resumed on switch-BACK
+   *  (instant, no blank), and disposed when the host leaves the pool. No cache, no key
+   *  enumeration, no LRU bound — the defect class the note targets is not merely
+   *  bounded but unrepresentable, symmetric with the retained wire subs. A key change
+   *  WHILE active still re-subscribes + blanks exactly as before (the `#1714`
+   *  value-keyed contract is untouched — the active-path behavior is unchanged). */
+  active?: Accessor<boolean>;
 }
-
-/** Max distinct `(input, host)` keys whose last value is held for switch-back
- *  adoption, per query instance. Small: switch-back reads a RECENT key, and the
- *  Code tab has a handful of live hosts, so a modest bound covers every real
- *  switch-back while keeping the cache from growing over a long session. */
-const RETAIN_LRU = 8;
 
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
@@ -129,24 +129,8 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     query,
     onError,
     swallowError,
-    retainAcrossKeys = false,
+    active = () => true,
   } = config;
-
-  // The per-key value cache for `retainAcrossKeys` (padi W9): the last result seen
-  // for each `(input, host)` key, so a switch BACK adopts it instead of blanking. A
-  // `Map` is insertion-ordered, which IS the LRU order here — `rememberValue` deletes
-  // then re-sets a key so a re-seen key moves to the tail, and the head (oldest) is
-  // evicted past `RETAIN_LRU`. Empty (and never touched) when `retainAcrossKeys` is off.
-  const retained = new Map<string, Result>();
-  function rememberValue(key: string, value: Result): void {
-    retained.delete(key);
-    retained.set(key, value);
-    while (retained.size > RETAIN_LRU) {
-      const oldest = retained.keys().next().value;
-      if (oldest === undefined) break;
-      retained.delete(oldest);
-    }
-  }
 
   const [store, setStore] = createStore<{ v: Result | undefined }>({
     v: undefined,
@@ -183,6 +167,13 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     if (pending()) setPending(false);
   }
 
+  // The input key the value currently in `store.v` corresponds to — `null` while
+  // blank. The resume decision reads it: on re-activation, an unchanged key means the
+  // held value is still the answer (keep it, refresh), a changed key means a new query
+  // (blank). One value per instance (NOT a cache/LRU) — the instance IS a single host's
+  // query, so it only ever holds that host's one current value.
+  let shownKey: string | null = null;
+
   let controller: AbortController | null = null;
   function runQuery(i: Input, key: string): void {
     controller?.abort();
@@ -193,11 +184,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
         const result = await query(i, ctl.signal);
         if (ctl.signal.aborted) return;
         writeWrappedValue<Result>(setStore, result);
-        // Remember this key's fresh value for a later switch-back adoption (W9). A
-        // no-op when `retainAcrossKeys` is off. The refresh keeps the cache current,
-        // so an adopted value is only ever stale for the one round-trip before the
-        // pulse's first frame requeries.
-        if (retainAcrossKeys) rememberValue(key, result);
+        shownKey = key;
         if (pending()) setPending(false);
         if (error()) setError(undefined);
       } catch (err) {
@@ -232,34 +219,43 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   );
 
   createEffect(
-    on(inputState, ({ i, key }) => {
-      // Abort any in-flight read from the prior input. `rawStream`'s own onCleanup
-      // (registered on this effect's run) tears down the previous pulse subscription
-      // before this re-run.
+    on([active, inputState], ([isActive, { i, key }]) => {
+      // The previous run's `onCleanup` (pulse abort) has already run. While PAUSED
+      // (this host is not the shown one), that is the whole story: the pulse is torn
+      // down — no background polling — and the held value + `pending` + `shownKey` are
+      // FROZEN for a later resume. Do NOT blank; a switch-BACK must find the value here.
+      // (The effect still re-runs when the ACTIVE host's `input` ticks while we are
+      // paused, since `input` reads shared state; each such run is this same no-op.)
+      if (!isActive) return;
+
+      // ACTIVE. The resume/blank decision is "does `store.v` already hold THIS key?".
       controller?.abort();
       controller = null;
       setError(undefined);
       setComplete(false);
-      // Switch-back adoption (W9): if this `(input, host)` key was loaded before and
-      // is still retained, ADOPT its held value — no blank, not `pending` — so a
-      // switch BACK shows the Code tab instantly while the pulse below re-subscribes
-      // and refreshes. Otherwise blank + `pending` until the fresh read lands, exactly
-      // as before (the default, `retainAcrossKeys`-off, path — unchanged). `key` is
-      // non-null whenever `i` is (see `inputState`).
-      const cached =
-        retainAcrossKeys && key !== null ? retained.get(key) : undefined;
-      if (cached !== undefined) {
-        writeWrappedValue<Result>(setStore, cached);
-        setPending(false);
-      } else {
+      if (i === null) {
+        // Idle input: no pulse, no query. (`key` is null exactly when `i` is.)
         setStore("v", undefined);
         setPending(true);
+        shownKey = null;
+        return;
       }
-      if (i === null) return;
       // `key` is non-null exactly when `i` is (both derive from `input()` in
-      // `inputState`), so past the guard above it is the canonical string to remember
-      // this run's fresh value under.
+      // `inputState`), so past the guard above it is the canonical string to compare
+      // against `shownKey` and stamp this run's value under.
       const activeKey = key as string;
+      if (activeKey === shownKey) {
+        // RESUME the same query we were showing — a switch-BACK with unchanged input:
+        // keep the held value (NO blank, stay non-`pending`); the pulse below refreshes
+        // it on its first frame (the immediate refresh on activation).
+      } else {
+        // A genuinely new query — a real input change while active, the first
+        // activation, or the query changed while we were paused: blank + `pending`
+        // until the fresh read lands (the `#1714` active-path behavior, unchanged).
+        setStore("v", undefined);
+        setPending(true);
+        shownKey = null;
+      }
       // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
       // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
       // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
