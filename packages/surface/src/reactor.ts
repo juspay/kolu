@@ -156,8 +156,18 @@ export function source<T>(install: SourceInstall<T>, initial?: T): Source<T> {
     if (!installed) return;
     installed = false;
     generation++; // invalidate the just-uninstalled tap's `emit`
-    uninstall?.();
+    // Clear the handle BEFORE invoking it, and CONTAIN a throw. `teardown` runs
+    // from inside `scan`'s stop-hold catch, itself inside the batched `emit`
+    // fan-out, so an uninstall that throws would starve sibling listeners of the
+    // current frame and propagate out of `emit()`. Log loudly, stay contained —
+    // the belt-and-braces twin of `install()`'s try/catch above.
+    const cleanup = uninstall;
     uninstall = undefined;
+    try {
+      cleanup?.();
+    } catch (err) {
+      console.error("reactor: source uninstall threw during teardown", err);
+    }
   };
 
   return {

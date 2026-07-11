@@ -133,7 +133,16 @@ export interface SubscriptionOptions<T, R = T> {
  *  and a child-cycle (`b.self` points elsewhere) DIVERGE here instead of reading
  *  equal, never suppressing a real change a consumer could observe via `x.self === x`.
  *  Not exported: it is the private frame comparator for {@link Subscription.updated}
- *  and its reactive twin. */
+ *  and its reactive twin.
+ *
+ *  Why hand-rolled and not `dequal` / `fast-deep-equal` (both already in the
+ *  lockfile): a deep-equal here MUST be cycle-safe (a `directLink` frame can be
+ *  cyclic) AND never false-positive (a false-positive DROPS a real change — the
+ *  bug). `dequal` and `fast-deep-equal` recurse without cycle tracking, so a
+ *  cyclic frame stack-overflows rather than compares — the exact case this
+ *  comparator's path-scoped `Pairing` is built for. The narrow, verifiable "prove
+ *  equal or return false" contract is the point; a general library that can't
+ *  make that guarantee is the wrong tool, not a missing dependency. */
 function framesEqual(a: unknown, b: unknown): boolean {
   return framesEqualOnPath(a, b, { aToB: new Map(), bToA: new Map() });
 }

@@ -73,6 +73,23 @@ describe("source", () => {
     expect(uninstalled).toBe(1); // last one left → tap removed
   });
 
+  it("contains a throwing uninstall during teardown (never propagates out of emit)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const src = source<number>(() => () => {
+        throw new Error("uninstall boom");
+      });
+      const off = src.subscribe(() => {});
+      // The last unsubscribe tears down the tap; a throwing uninstall must be
+      // caught and logged, not thrown — teardown runs from inside a scan's
+      // stop-hold catch, itself inside the batched emit fan-out.
+      expect(() => off()).not.toThrow();
+      expect(spy).toHaveBeenCalledOnce();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("delivers each emission to every subscriber as a distinct occurrence", () => {
     let emit!: (n: number) => void;
     const src = source<number>((e) => {

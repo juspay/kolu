@@ -49,29 +49,19 @@ function isEncodedHostKey(s: string): boolean {
 function parseAttentionClick(data: unknown): AttentionClick | undefined {
   if (typeof data !== "object" || data === null) return undefined;
   const d = data as Record<string, unknown>;
-  if (d.kind === "terminal") {
-    if (typeof d.host !== "string" || !isEncodedHostKey(d.host)) {
-      return undefined;
-    }
-    const terminalId = TerminalIdSchema.safeParse(d.terminalId);
-    if (!terminalId.success) return undefined;
-    return {
-      kind: "terminal",
-      host: d.host,
-      terminalId: terminalId.data as TerminalId,
-    };
-  }
-  if (d.kind === "host") {
-    if (typeof d.host !== "string" || !isEncodedHostKey(d.host)) {
-      return undefined;
-    }
-    // `id` is a raised awaiting-terminal id — the click focuses it as a
-    // `TerminalId`, so validate it as one (not merely "a string").
-    const id = TerminalIdSchema.safeParse(d.id);
-    if (!id.success) return undefined;
-    return { kind: "host", host: d.host, id: id.data };
-  }
-  return undefined;
+  if (d.kind !== "terminal" && d.kind !== "host") return undefined;
+  // BOTH variants carry the same two facts, so validate them ONCE: a canonical
+  // encoded `host` (the click switches to it — else `decodeHostKey` throws at
+  // click time) and a real terminal id (it focuses one — a `TerminalId`, not
+  // merely "a string"). The variants differ only in that id's field NAME
+  // (`terminalId` vs `id`), so only the final shape branches.
+  if (typeof d.host !== "string" || !isEncodedHostKey(d.host)) return undefined;
+  const idField = d.kind === "terminal" ? d.terminalId : d.id;
+  const id = TerminalIdSchema.safeParse(idField);
+  if (!id.success) return undefined;
+  return d.kind === "terminal"
+    ? { kind: "terminal", host: d.host, terminalId: id.data }
+    : { kind: "host", host: d.host, id: id.data };
 }
 
 /** The app-wide notification seam (module singleton — created once, shared). */

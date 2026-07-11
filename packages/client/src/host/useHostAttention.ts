@@ -15,6 +15,7 @@ import { watchByEntry } from "@kolu/surface-map/client";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, onCleanup } from "solid-js";
+import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import {
@@ -67,6 +68,16 @@ export function useHostAttention(deps: {
           data: { kind: "host", host: encoded, id },
         });
       }
+    },
+    {
+      // Surface a per-host urgency-subscription failure — the default only logs,
+      // and a silent failure is exactly the miss this feature exists to prevent:
+      // a background host whose urgency cell errored would drop out of the badge
+      // and never raise, indistinguishable from "nothing awaiting there".
+      onError: (host, err) =>
+        toast.error(
+          `Attention for ${hostLabel(host)} unavailable: ${err.message}`,
+        ),
     },
   );
 
