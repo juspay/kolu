@@ -29,7 +29,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 - Payloads must survive the shell unmangled; large briefs ride in a file with a short pointer.
 - Every brief carries a unique report-back token.
 - A dispatch has landed only when you observe it at the recipient — through whatever record its runtime exposes — never because the send succeeded or a snapshot suggested it.
-- Briefs point the implementing agent at the kolu skill for its own reports back — never hand-transcribe the messaging protocol into a brief. A hand-taught protocol loses steps: a finished report once sat unsent because the agent skipped the submission keystroke.
+- Briefs make LOADING the kolu skill for reports part of the brief itself — never a hand-transcribed protocol, never a parenthetical "two-step send" reminder: neither survives an implementer's long-context run, and a finished report once sat unsent on the input line until the human noticed. The skill's submit loop is the contract: each report submits with its own Enter keystroke and is snapshot-verified as landed.
 - A brief that authorizes dev-server or evidence work quotes the recorded-PIDs-only teardown rule verbatim: teardown kills only the exact PIDs recorded at spawn; pattern kills are banned; strays are reported, never hunted. The skill's own ban did not survive contact — an agent hand-rolled an equivalent `ps|grep` and killed production.
 
 ## Answering agents
