@@ -221,12 +221,25 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   createEffect(
     on([active, inputState], ([isActive, { i, key }]) => {
       // The previous run's `onCleanup` (pulse abort) has already run. While PAUSED
-      // (this host is not the shown one), that is the whole story: the pulse is torn
-      // down — no background polling — and the held value + `pending` + `shownKey` are
-      // FROZEN for a later resume. Do NOT blank; a switch-BACK must find the value here.
+      // (this host is not the shown one), the pulse is torn down — no background
+      // polling — and the held value + `pending` + `shownKey` are FROZEN for a later
+      // resume. Do NOT blank; a switch-BACK must find the value here.
       // (The effect still re-runs when the ACTIVE host's `input` ticks while we are
       // paused, since `input` reads shared state; each such run is this same no-op.)
-      if (!isActive) return;
+      if (!isActive) {
+        // ALSO tear down any in-flight REQUERY, not just the pulse: `onCleanup` aborts
+        // the pulse stream, but a `runQuery` already dispatched (its `controller` is
+        // separate) would otherwise land AFTER the switch and write THIS now-background
+        // host's retained store off the NOW-active host's reactive reads — e.g.
+        // `BrowseFileDispatcher`'s binary branch builds its URL from `activeHost()` AFTER
+        // its `filePreviewTag` await, so a late resolve would stamp the new host's URL
+        // with this host's tag into this host's store (a cross-host mix). Aborting makes
+        // the resolve early-return on `ctl.signal.aborted`; the held value + `pending` +
+        // `shownKey` stay frozen for the switch-BACK, so no blank and no late write.
+        controller?.abort();
+        controller = null;
+        return;
+      }
 
       // ACTIVE. The resume/blank decision is "does `store.v` already hold THIS key?".
       controller?.abort();

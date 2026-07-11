@@ -110,7 +110,6 @@ describe("perHostPolledQuery — per-host query ownership (padi W9)", () => {
           string
         >({
           input: () => ({ tick: 0 }),
-          live: () => true,
           pulseProc: () => (() => {}) as never,
           pulseInput: () => ({}),
           query: async () => {
@@ -159,7 +158,6 @@ describe("perHostPolledQuery — per-host query ownership (padi W9)", () => {
           string
         >({
           input: () => ({ tick: 0 }),
-          live: () => true,
           pulseProc: () => (() => {}) as never,
           pulseInput: () => ({}),
           query: async () => {

@@ -37,10 +37,25 @@ import { activeHost, padiMap } from "../wire";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 
 export function perHostPolledQuery<Input, PulseInput, Pulse, Result>(
-  config: Omit<PolledQueryConfig<Input, PulseInput, Pulse, Result>, "active">,
+  config: Omit<
+    PolledQueryConfig<Input, PulseInput, Pulse, Result>,
+    "active" | "live" | "pulseHost"
+  >,
 ): Subscription<Result> {
+  // `active`, `live`, and `pulseHost` are NOT caller knobs — they all derive from the
+  // SAME ownership authorities this adapter hardwires (`padiMap` / `activeHost`), so
+  // injecting them here (rather than accepting them) rules out an incoherent config
+  // whose ownership, liveness, and pulse host come from three different sources. `live`
+  // is the active host's transport liveness (an instance polls only while ITS host is
+  // active, so `padiMap.live()` is exactly its own host's) and `pulseHost` is `activeHost`
+  // (the pulse follows the active host, i.e. this instance's host while it runs).
   const scopes = scopedByEntry(padiMap, activeHost, (_host, ctx) =>
-    createPolledQuery({ ...config, active: ctx.isActive }),
+    createPolledQuery({
+      ...config,
+      live: () => padiMap.live(),
+      pulseHost: activeHost,
+      active: ctx.isActive,
+    }),
   );
   // A stable facade over the active host's retained query instance, via the shared
   // `windowedSub` floor helper. `undefined` during the removal race floors to a

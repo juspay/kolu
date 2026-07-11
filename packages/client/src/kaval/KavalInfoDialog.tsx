@@ -3,7 +3,8 @@
  *  See `PadiInfoDialog.tsx`'s header for the shared HOST-SCOPING CLASSIFICATION TABLE
  *  (every per-host field either re-keys on `activeHost` or is host-independent with a
  *  reason). This dialog's own fields are ALL host-scoped: `props.status` rides
- *  `localDaemonStatus()` (`padiMap.useEntry(activeHost).collections.daemonStatus`),
+ *  `localDaemonStatus()` (the active host's RETAINED per-host
+ *  `activeScope().wire.daemonStatus`, W9),
  *  `daemonChannelLive()` reads `padiMap.entry(activeHost())` directly, and
  *  `boundHostKavals()`/`localScanKavals()` ride `useHostInventory`/`useDaemonInventory`
  *  per that same table. */

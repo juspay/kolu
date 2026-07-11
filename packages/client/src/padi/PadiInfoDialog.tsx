@@ -18,7 +18,7 @@
  *
  *  | field                                          | classification                 |
  *  |-------------------------------------------------|---------------------------------|
- *  | `localDaemonStatus()` (kaval state/identity/…)   | host-scoped — `padiMap.useEntry(activeHost).collections.daemonStatus` |
+ *  | `localDaemonStatus()` (kaval state/identity/…)   | host-scoped, RETAINED per host (W9) — `activeScope().wire.daemonStatus` (windowed onto the active host) |
  *  | `activeEntryConnected()` / `daemonChannelLive()` | host-scoped — reads `padiMap.entry(activeHost())` directly |
  *  | `activeEntryState()` / `isActiveHostLocal()`     | host-scoped — same as above (the typed entry discriminant `canvasModeResolver` keys on: host-down cause + remote-provisioning ceiling) |
  *  | `boundHostKavals/Padis()`, `activePadi()`        | host-scoped — `padiMap.useEntry(activeHost).cells.hostInventory` |

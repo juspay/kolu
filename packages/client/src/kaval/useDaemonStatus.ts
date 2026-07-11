@@ -31,11 +31,7 @@ import { persistedPref } from "../persistedPref";
 import { getClockNow } from "../time/clock";
 import { activeHost, app, padiMap } from "../wire";
 import { channelLive, liveDownState, liveWarming } from "./daemonPresentation";
-import {
-  isPendingTimedOut,
-  type PendingWindow,
-  reanchorPendingWindow,
-} from "./pendingWindow";
+import { isPendingTimedOut } from "./pendingWindow";
 import { announceReattach } from "./reattachAnnounce";
 
 // Re-export the pure presentation so existing `from "./useDaemonStatus"` imports
@@ -81,7 +77,8 @@ export function daemonTransportLive(): boolean {
 }
 
 /** The active host entry's own connection — the SECOND leg of the daemonStatus delivery
- *  path (see {@link channelLive}). `daemonStatus` rides `useEntry(activeHost)`, so for a
+ *  path (see {@link channelLive}). `daemonStatus` rides the active host's RETAINED per-host
+ *  entry (`activeScope().wire.daemonStatus`, W9), so for a
  *  REMOTE host the server→remote link is part of the channel that refreshes it, a leg the
  *  ws (`daemonTransportLive`) alone doesn't reflect. When the active entry is not
  *  `connected` (ssh flap/warming/failed) the re-served status is FROZEN stale. For
@@ -244,42 +241,29 @@ export function daemonStatusPending(): boolean {
  *  agree on the same order of magnitude. */
 const LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS = 30_000;
 
-/** The CURRENT pending run's anchor — re-derived by {@link reanchorPendingWindow}
- *  every time the ACTIVE HOST changes, not just once at module load. `sub` (above)
- *  rides `padiMap.useEntry(activeHost)`, which RE-KEYS — tears down and rebuilds —
- *  on every host switch (W4 "the switch"), so a brand-new remote host's wait for
- *  its first status genuinely restarts, exactly like boot's. A single
- *  `Date.now()` snapshot frozen at module load would keep measuring the ORIGINAL
- *  (boot-time) wait's age forever, so switching to a freshly-connecting remote
- *  minutes into a session read the 30s ceiling as ALREADY passed the instant the
- *  switch happened — before the new host's own handshake even began — and
- *  resolved the terminal `dead`/"kaval didn't start" surface over a daemon that
- *  was simply warming (the first-connect race this fixes; see `pendingWindow.ts`'s
- *  header for the full narrative). A `createMemo` reducer: it only recomputes
- *  when `encodeHostKey(activeHost())` actually changes (the same key `sub`
- *  re-keys on), so it holds across every OTHER re-render. */
-const daemonStatusPendingWindow = createRoot(() =>
-  createMemo<PendingWindow>((prev) =>
-    reanchorPendingWindow(prev, encodeHostKey(activeHost()), Date.now()),
-  ),
-);
-
-/** True once the daemon-status stream's CURRENT pending run — anchored per
- *  {@link daemonStatusPendingWindow}, re-anchored on every host switch — has run
- *  longer than the local endpoint's own connect timeout ({@link
- *  LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS}). Feeds `resolveCanvasMode`'s
- *  `pendingTimedOut` fact: a padi endpoint that never comes up (a spawn/adopt
- *  failure — the #1713 adopt-path sibling is one cause) would otherwise leave
- *  `daemonStatusPending()` true FOREVER, and the canvas would spin at
- *  "Connecting…" with no way out. Reactive (reads the shared 1s clock), so a
- *  consumer inside a tracking scope re-renders the instant the ceiling passes —
- *  and re-renders `false` the instant a host switch re-anchors the window, so a
- *  fresh remote connect gets its own full grace period rather than inheriting a
- *  stale one. */
+/** True once the daemon-status stream's pending run — anchored ONCE per host in the
+ *  RETAINED per-host scope ({@link createHostWire}'s `daemonPendingAnchorMs`) — has
+ *  run longer than the local endpoint's own connect timeout ({@link
+ *  LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS}). Feeds `resolveCanvasMode`'s `pendingTimedOut`
+ *  fact: a padi endpoint that never comes up (a spawn/adopt failure — the #1713
+ *  adopt-path sibling is one cause) would otherwise leave `daemonStatusPending()`
+ *  true FOREVER, and the canvas would spin at "Connecting…" with no way out.
+ *
+ *  Reads the anchor from `activeScope().wire` so it tracks the SAME retained
+ *  lifetime as the `daemonStatus` sub it bounds: the wait begins on a host's first
+ *  activation and is NOT restarted on switch-back (the sub isn't re-subscribing
+ *  either), so a repeatedly-revisited wedged host keeps its original deadline and
+ *  the ceiling still fires — where a per-switch re-anchor would let it dodge the
+ *  timeout forever. During the removal race (no active host to anchor against) it
+ *  reads `false` — never a spurious timeout. Reactive (the shared 1s clock +
+ *  `activeScope()`), so a consumer inside a tracking scope re-renders the instant
+ *  the ceiling passes. */
 export function daemonStatusPendingTimedOut(): boolean {
+  const anchorMs = activeScope()?.wire.daemonPendingAnchorMs;
+  if (anchorMs === undefined) return false;
   return isPendingTimedOut(
     daemonStatusPending(),
-    daemonStatusPendingWindow(),
+    anchorMs,
     getClockNow()(),
     LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS,
   );

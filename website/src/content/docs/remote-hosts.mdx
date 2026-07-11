@@ -135,10 +135,15 @@ for your input — so a host you're not looking at can tell you it needs you wit
 your switching to it first. An [installed PWA](/install-pwa) surfaces the same
 counts as an app-badge and notifications across all your hosts.
 
-Because each host keeps its own canvas warm, its terminals stay **live in your
-browser** even while you're looking at another host — so browser memory scales with
-the number of connected hosts and their terminals. If a two-host session feels
-heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-is-using-a-lot-of-memory).
+Switching back to a host you've already visited is instant: kolu keeps each visited
+host's state — its terminal list, saved sessions, activity, and open file views —
+**warm in memory**, so a switch-back has nothing to reload. The terminals themselves
+keep running on their own host no matter which one you're looking at. Only the host
+you're viewing gets a live on-screen renderer (its terminals' WebGL/DOM canvases),
+which re-attaches in a blink when you switch back — kolu does not hold a live canvas
+per background host. Browser memory therefore scales with that retained per-host state
+and the number of connected hosts, not with a full canvas for every host. If a
+multi-host session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-is-using-a-lot-of-memory).
 
 ## When a host is down
 

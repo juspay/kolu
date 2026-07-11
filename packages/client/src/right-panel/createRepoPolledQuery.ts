@@ -16,7 +16,7 @@
 
 import type { Subscription } from "@kolu/surface/solid";
 import type { Accessor } from "solid-js";
-import { activeHost, activePadiRpc, padiMap } from "../wire";
+import { activePadiRpc } from "../wire";
 import { perHostPolledQuery } from "./perHostPolledQuery";
 
 export function createRepoPolledQuery<
@@ -35,11 +35,11 @@ export function createRepoPolledQuery<
   // — instant, no blank, and disposed when the host leaves the pool (ownership, not a
   // keep-last cache). `query`/`pulseProc` bind to `activePadiRpc`, which is always THIS
   // instance's host while it is active, so the closures stay correct unchanged.
+  // `live` / `pulseHost` are injected by `perHostPolledQuery` from the ownership
+  // authorities — not passed here.
   return perHostPolledQuery({
     ...config,
-    live: () => padiMap.live(),
     pulseProc: () => activePadiRpc.surface.subscribeRepoChange.get,
-    pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath }),
   });
 }

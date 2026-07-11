@@ -15,10 +15,12 @@
  * DELETED at W1.R7; terminal/git mutations now go through
  * `activePadiRpc.surface.*` (padiSurface). None of these are on `app.rpc`.
  *
- * The `preferences` / `recentRepos` / `savedSession` accessors below
- * collapse what used to be hand-rolled `usePreferences` / `useActivityFeed`
- * / `useSavedSession` modules into module-level subscriptions — every
- * consumer reads the same singleton without per-component lookups.
+ * The `preferences` accessor below collapses what used to be a hand-rolled
+ * `usePreferences` module into a module-level subscription — every consumer reads
+ * the same singleton without per-component lookups. The per-host `recentRepos` /
+ * `recentAgents` / `savedSession` readouts moved to `./hostScope/activeWire` (W9),
+ * where they WINDOW the active host's RETAINED wire subs (see the note near
+ * `preferences` below); they are no longer defined in this module.
  */
 
 import type { padiSurface } from "@kolu/padi/surface";

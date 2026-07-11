@@ -67,7 +67,7 @@ import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { activeHost, activePadiRpc, padiMap } from "../wire";
+import { activeHost, activePadiRpc } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { perHostPolledQuery } from "./perHostPolledQuery";
@@ -143,9 +143,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       repoPath: props.repoPath,
       filePath: props.filePath,
     }),
-    live: () => padiMap.live(),
+    // `live` / `pulseHost` are injected by `perHostPolledQuery` from the ownership
+    // authorities (`padiMap` / `activeHost`) — not passed here.
     pulseProc: () => activePadiRpc.surface.subscribeFileChange.get,
-    pulseHost: activeHost,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: async (i, signal): Promise<BrowseFileContent> => {
       if (isBinaryPreviewable(i.filePath)) {
