@@ -1,8 +1,8 @@
 /**
  * Sleeping terminals — step definitions for the Sleep/Wake journey e2e.
  *
- * NEW vocabulary only — everything reusable (open app, ready terminal, mock
- * agent, refresh, kaval restart, restore card, dock) is reused from the
+ * NEW vocabulary only — everything reusable (open app, ready terminal, real
+ * agent launch, refresh, kaval restart, restore card, dock) is reused from the
  * existing step library. These steps cover the genuinely new actions and
  * OUTCOME assertions:
  *
@@ -10,9 +10,9 @@
  *   - asserting a tile is DORMANT (`dormant-tile-body` + `data-sleeping="true"`,
  *     and crucially NO live `.xterm-screen`) vs. LIVE (a live xterm present);
  *   - waking via the dormant body's `wake-button`;
- *   - proving the agent RESUMED — the woken PTY replays the resume-by-id
- *     invocation (`codex resume <session-id>`, juspay/kolu#1495) in the SAME cwd,
- *     which a blank fresh agent never would (the agent-resume hole);
+ *   - proving the agent RESUMED — record the REAL codex thread id before sleep,
+ *     then assert the woken PTY replays `codex resume <that id>` (juspay/kolu#1495),
+ *     which a blank fresh or wrong-session agent never would (the resume hole);
  *   - dragging a dormant tile (via the canvas-layout RPC the drag handle drives)
  *     and asserting its persisted position survives a reload;
  *   - planting a good + a malformed sleeping record so cold restore drops the
@@ -409,36 +409,6 @@ Then(
 );
 
 // ── Resume-outcome assertions (the journey's payoff) ──
-
-Then(
-  "the woken terminal should replay the agent resume invocation {string}",
-  async function (this: KoluWorld, resumeInvocation: string) {
-    // The OUTCOME that proves the SAME conversation came back: on wake the
-    // server re-spawns the PTY on the SAME id and TYPES the agent's RESUME form
-    // into it (`proxy.write(resumeCommand)`). A fresh/blank terminal would type
-    // NOTHING — so finding the resume invocation in the re-spawned tile's live
-    // buffer is exactly what a fresh agent could never produce. Read the buffer
-    // of THIS woken tile (scoped by its stable id to its inner live terminal),
-    // not the focused one — the dormant-body Wake path doesn't refocus.
-    const id = sleptIdByWorld.get(this);
-    assert.ok(id, "No slept/woken terminal id captured");
-    const scopedSelector = `${CANVAS_TILE_SELECTOR}[data-terminal-id="${id}"] [data-terminal-id][data-visible]`;
-    try {
-      await waitForBufferContains(this.page, resumeInvocation, {
-        selector: scopedSelector,
-      });
-    } catch {
-      const dump = await readBufferText(this.page, scopedSelector).catch(
-        () => "",
-      );
-      throw new Error(
-        `Woken terminal never replayed resume invocation "${resumeInvocation}" ` +
-          `— a fresh/blank agent (the resume hole) would show exactly this. ` +
-          `Buffer:\n${dump.slice(0, 800)}`,
-      );
-    }
-  },
-);
 
 Then(
   "the woken terminal should replay the recorded Codex resume invocation",
