@@ -1,0 +1,150 @@
+---
+title: The surface framework's attention pieces, taught
+description: "A plain-words primer on the two-phase design behind W5's cross-host attention. Phase 1 is a surface refactor: the cell reader gains updated() — the missing half of an FRP Dynamic, change pairs under the change-iff-fired law — mirrors stop fabricating first frames, and derived members become declarations over the backend signal graph (the reactive bridge's phase 0). Phase 2 builds attention on top: level-state cells with one writer per host (kolu consumes padi's existing urgency cell; drishti's alerts is the one new wire member), the eager watchByEntry watcher in @kolu/surface-map whose raise detection is a set-diff over updated pairs, and tag-keyed service-worker delivery in @kolu/surface-app. kolu and drishti are the two consumers."
+parents: [pedagogy, padi]
+status: proposed
+maturity: seedling
+updated: 2026-07-11
+---
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import pieces from "../../diagrams/surface-attention-101-pieces.svg?raw";
+
+This is the third primer in the series. [The hosting side](surface-hosting-101.html) taught how **one** surface crosses a machine; [the client half](surface-map-101.html) taught **many** keyed surfaces over one socket. This note teaches the layer [padi W5](padi.html#w5) adds on top: turning a per-host fact ("these terminals need you", "this host's CPU is in trouble") into **attention you can trust** — a chip count, an app badge, an OS notification — without anyone hand-diffing frames. It shipped with W5 as one PR ([kolu#1759](https://github.com/juspay/kolu/pull/1759), merged 2026-07-11; the paired drishti PR, [srid/drishti#93](https://github.com/srid/drishti/pull/93), is still in review). The work landed in **two phases** inside it: first a surface refactor that completes the framework's primitives, then W5 itself riding them.
+
+<Svg svg={pieces} wide caption="Two phases. Phase 1 completes the primitives: the cell reader gains updated() (change pairs, fired iff the value changes), mirrors stop fabricating first frames, and derived members become declarations over the backend signal graph (the reactive bridge's phase 0). Phase 2 builds attention on those: one writer per host publishes a level-state cell (kolu's urgency exists on master; drishti's alerts is W5's one new member); watchByEntry raises new item ids by set-diffing updated pairs; notify delivers at the origin's one service worker; each app keeps its own aggregation and click semantics." />
+
+## Surface's primitives are FRP, under other names
+
+A surface's four member kinds are the classic FRP vocabulary — reflex's, to name the canonical one:
+
+| surface member | reflex name | the contract |
+| --- | --- | --- |
+| stream | `Behavior` | derived, read-only, sampled at will |
+| event | `Event` | an occurrence, not a value — no snapshot; a handler fires per occurrence |
+| collection | `Incremental` | changes travel as patches, never whole-value replaces |
+| cell | **half** a `Dynamic` | the current value — *without* the change event |
+
+The first three rows are the documented contracts ([why four primitives, not one](/surface/why-surfaces/#why-four-primitives-not-one)). The fourth row is the gap this design closes. A reflex `Dynamic` is a current value **plus** an `Event` of its changes, bound by one law: **the value changes if and only if the event fires**. A cell gives its consumers only the value half. So every consumer that needs "it changed" rebuilds the event half by hand — hold the last frame, diff each new one against it — and that hand-rebuilding is exactly where connection-state bugs breed: a hand-differ can't tell a fabricated frame from an asserted one, keeps its memory per browser window, and misreads reconnect snapshots as fresh news. Completing the `Dynamic` — once, in the framework, under the law — is phase 1.
+
+## Phase 1 — the primitives, completed
+
+Phase 1 is a surface refactor PR of its own, landing with paired kolu, drishti, and odu adoption PRs. Three pieces.
+
+### The cell reader gains `updated` (@kolu/surface)
+
+```ts
+interface Subscription<T> extends Accessor<T | undefined> {
+  // pending / error / complete as today, plus:
+  updated(handler: (change: { prev: T; next: T }) => void): Dispose;
+  // fires exactly when the value CHANGES (equals-deduped at the producer);
+  // a first frame is a value, not a change — it never fires;
+  // a reconnect snapshot equal to the last-seen value never fires;
+  // one that differs fires exactly once, prev = the last-seen value.
+}
+```
+
+This is the missing half of the `Dynamic`, and the comments are the law, spelled out per case. The `{prev, next}` pairs are derived **once, in the framework** — deduped by equality at the producer, so an equal write is not a change anywhere downstream. A consumer that needs "what changed" subscribes `updated` and receives honest pairs; a consumer that needs "what is" keeps calling the accessor. Nobody diffs frames, because the framework already knows which frames are changes — that is the *point* of the law: "fires iff the value changes" is a property of the primitive, testable once, instead of a hope re-implemented at every call site.
+
+The two subtle cases in the comment block deserve their names. **A first frame is a value, not a change** — when a subscription comes up, learning the current truth is not news that something *happened*; treating it as news is how every "notification storm on page load" starts. **An equal reconnect snapshot never fires** — a link flap ends with the authority replaying current truth; if that truth equals what you last saw, nothing changed, and `updated` stays silent.
+
+### A mirror never fabricates a value (@kolu/surface-remote)
+
+The reader's law is only as good as the frames feeding it, and mirroring has one dishonest habit to remove: a re-served cell's first frame is the **declared spec default**, served before the authority has said anything — and that fabricated frame is byte-indistinguishable from a value the authority asserted.
+
+Run the failure it causes. kolu-server restarts. A still-open page reconnects and reads padi's urgency cell: `{ awaitingIds: [] }` — the declared default, asserted by **nobody** — because the mirror needed something to show, so it showed the default. Then the authority's real value lands: the same two terminals that have needed you for an hour. Any hand-diff sees "empty → two ids" and fires **duplicate OS notifications** for old news. The consumer did nothing wrong; the wire handed it a fabrication and called it truth.
+
+The fix is subtraction: **a mirrored cell serves no frame until the authority's first real one.** The cell reader already models "no frame yet" — the accessor is `T | undefined` until the first frame — so the fix makes that `undefined` **true end-to-end**: undefined means *the authority hasn't spoken*, never *here's a guess*. The declared default belongs to the **one writer** (the serving endpoint materializes it when it has nothing better); mirrors relay truth or stay silent. With both pieces in place the change event cannot be triggered by fabrication — there is nothing to compare against until truth arrives, and the first truth is a value, not a change.
+
+### A derived member is declared, not hand-wired (the reactive bridge, phase 0)
+
+The third piece generalizes the first two: a **derived** member — a cell whose value is a projection of some other live thing — becomes a *declaration* over a backend **signal graph**, instead of a `.set()` a human remembers to wire. The graph's engine lives behind one module, `reactor.ts` in `@kolu/surface` (its deep import lint-banned everywhere else; the engine is **decided** — `@preact/signals-core` now, `@solidjs/signals` the named swap target, per [the engine note](surface-reactor-engine.html)), and reactor.ts exports only the sanctioned shapes: `derived.cell(nodeOrFn)`, the free-standing `scan(source, initial, step)`, and `source(...)` for external input (push or poll). Three guarantees ride every declaration: **one writer, structural** (a derived member has no ctx entry and no wire write verbs — a second writer is unrepresentable); **dedup at the member's spec `equals`, once** — the same gate that makes `updated()`'s law true; **the framework's reconnect story** — on the wire a derived cell is an ordinary cell, so consumers can't tell it was derived.
+
+W5 shipped exactly **phase 0** of this — the constructors above, riding existing seams, with drishti's alerts as the first consumer. The full design — the model, the laws, the worked examples, the later phases — is [the reactive bridge](surface-reactive-bridge.html).
+
+## Phase 2 — attention, riding the completed primitives
+
+**Attention is level state**: *what needs you now* — a plain value, in an ordinary per-entry cell, written by the **one endpoint per host that can actually know it**. For kolu that endpoint already exists, and so does the cell: **W5 mints no kolu wire member**. The per-terminal fact lives in padi's composed `terminals` collection (`PadiTerminalSchema`, discriminated on `state` — the active arm carries the agent state, and "awaiting the user" is a metadata fact), and its cross-host projection is **`cells.urgency`** (`packages/padi/src/surface.ts`): `PadiUrgencySchema = { awaitingIds: TerminalId[] }`, padi's registry fold the sole writer, read-only on the client. The contract is deliberately spare — ids and **no recency** (nothing cross-host ever compares two hosts' clocks), and **no count field** (a count that could disagree with `awaitingIds` would be a second source of truth for one fact, so every read site derives it as `awaitingIds.length` — the host strip's chips already do exactly this). For drishti the endpoint is the server, because the server holds the metrics history — threshold plus hysteresis need history, so they live there, never in the browser — and *its* cell does not exist yet: **`alerts` is the one new wire member in W5** (drishti's surface today carries system/process/cpu/net metric cells and no threshold fact in any member).
+
+In W5, kolu's urgency is **consume-only**: its production is unchanged (the re-production as a declared `derived.cell(($) => recomputeUrgency($.terminals()))` is bridge phase 1, sequenced after W5). drishti's alerts is born as a declared **scan published as a cell** (`derived.cell(scan(...))`), because hysteresis is *carried state*: "crossed 80 to raise, fell below 70 to clear" is undecidable from the current sample alone — the in/out level plus the recent window rides the scan. A scan can seed its state from a persistent store when survival is wanted; the alerts scan deliberately passes none — a fresh process re-derives its level from fresh samples, and the declaration makes that choice visible.
+
+Why does the tiny `urgency` member exist at all, when the `terminals` collection already holds the truth? Because of [W7's K1 ruling](padi.html#w7): wire subscriptions stay **active-host-only** — a background host keeps no full metadata subscription. `urgency` is the deliberately tiny projection kept hot per host, so hearing from every host costs a list of ids, not a fleet of `terminals` mirrors.
+
+Why a cell and not an event member? Check the contracts table: an event is an occurrence with **no snapshot** — a "terminal started awaiting" event fired while the browser is closed, or while the link is flapping, is simply *gone*. Attention must survive exactly those windows: the whole feature is "hear about the host you are *not* watching". The `urgency` cell replays current truth — the full `awaitingIds` — on every (re)connect, and phase 1's `updated` tells you honestly whether that replay changed anything. Level state plus honest change detection is the entire wire story.
+
+### `watchByEntry` — the eager watcher (@kolu/surface-map)
+
+[map-101](surface-map-101.html) taught `scopedByEntry`, whose membership kernel — *entries fold · codec identity · `keyArray` per-key roots · dispose-on-exit* — decides when a host's world exists. Attention needs the same lifecycle with the opposite laziness: `scopedByEntry` builds a key's world on first **activation** (background hosts you never visit cost nothing — right for client state), while an attention watcher must be **eager**, because a background host is precisely the one you need to hear from. One kernel, two policies; the kernel is shared, never re-derived.
+
+```ts
+function watchByEntry<A>(client, cell, items, onRaise): {
+  get(key): { kind: "live" | "stale"; value: A } | undefined;  // chips read this
+};  // deliberately NO total(): aggregation is app policy (the two consumers disagree)
+```
+
+`watchByEntry` subscribes every entry's cell eagerly and detects raises with a **pure set-diff over the framework's `updated` pairs**: for each change, `items(next) ∖ items(prev)` are the newly-raised ids. That one line is the payoff of phase 1 — no hand-held previous frame, no cross-stream classification, no per-window memory: the change-iff-fired law upstream is what makes a plain set-diff trustworthy. The app's sole obligation is the `items` extractor returning **stable ids** (a terminal id, `"cpu"`); stability is what makes "same item, not a new one" decidable at all. Point reads answer honestly: a host whose link is down keeps its last value, marked `stale` — chips dim rather than lie.
+
+The missing method is a teaching point of its own: there is **no `total()`**, because the two real consumers disagree about what "total" means — kolu sums *items* across live hosts (12 terminals need you); drishti counts *hosts in trouble* (3 machines are alerting — summing their alert items would be noise). When the framework can't pick without taking a side, it hands facts and the app folds. Same rule as [map-101's moral](surface-map-101.html): keyed volatility in the framework, policy in the app.
+
+### Delivery at the origin's one service worker (@kolu/surface-app)
+
+The last hop — actually showing an OS notification from a PWA — is short but mined. Two landmines, both real-world:
+
+- **`getRegistration()`, not `.ready`.** `navigator.serviceWorker.ready` resolves only when an active service worker exists — in any context where none registers (a dev server, a degraded boot), it **hangs forever**, and your notification path silently never runs. `getRegistration()` answers honestly, including "there isn't one", which you can handle.
+- **The service worker shows it, never `new Notification()`.** In an installed (standalone) PWA, the page-context constructor throws **`Illegal constructor`** — notifications must go through `registration.showNotification()`. Code that works in a browser tab dies precisely when the user commits to the app.
+
+Both are why delivery is a framework piece at all: one `notify` seam at the origin's **one** service worker, instead of N windows each attempting their own delivery:
+
+```ts
+// @kolu/surface-app — delivery at the origin's ONE service worker (never per window):
+notify.show({ tag: `${host}/${itemId}`, title, data: { host, itemId } });  // same tag replaces, never stacks
+notify.onClick(({ host, itemId }) => { /* the app routes */ });
+```
+
+The **tag** carries the multi-window discipline: two open windows must not both ping you, and with a tag-keyed `show` they can't — the OS *replaces* the same-tag notification instead of stacking a duplicate. And the click payload comes back to `onClick` as plain data (`{ host, itemId }`) that **the app routes** — the framework does not know what clicking attention *means*.
+
+## The two consumers, worked
+
+kolu (padi W5 — the phase this design serves; **nothing minted**, the member exists on master):
+
+```ts
+// padi — no new member, no production change in W5: cells.urgency ships today
+// (packages/padi/src/surface.ts). Its re-production as a declaration —
+// derived.cell(($) => recomputeUrgency($.terminals())) — is bridge PHASE 1,
+// sequenced after W5; cell, equals (urgencyEqual), and consumers unchanged.
+
+// client — chips, badge, notification:
+const att = watchByEntry(padiMap, e => e.cells.urgency, v => v.awaitingIds,
+  (host, raised) => raised.forEach(id =>
+    notify.show({ tag: `${host}/${id}`, title: `terminal awaiting on ${hostLabel(host)}`,
+                  data: { host, id } })));
+// chip(host): att.get(host) — count = value.awaitingIds.length, dimmed when stale
+// badge: Σ awaitingIds.length over LIVE hosts — kolu's own one-line fold
+notify.onClick(({ host, id }) => { switchHost(host); focusTerminal(id); });
+```
+
+drishti (the paired consumer — **the one new wire member**, since no member carries its threshold facts today):
+
+```ts
+// server — the one writer, declared (bridge phase 0's first consumer):
+const metrics = source<MetricsFrame>((emit) => installMetricsTap(emit));
+cells.alerts = derived.cell(scan(metrics, noAlerts, applyHysteresis));
+// no store — the alert level must not survive restarts;
+// step returning the prev reference ⇒ no publish
+// a held level publishes nothing (alerts' spec equals), so updated()
+// fires only on a genuine raise/clear
+
+// client:
+const att = watchByEntry(hostMap, e => e.cells.alerts, v => v.items.map(i => i.id),
+  (host, raised, v) => raised.forEach(id =>
+    notify.show({ tag: `${host}/${id}`, title: labelOf(v, id), data: { host, id } })));
+// badge: count of hosts with any live alert — drishti's own fold, NOT a sum
+notify.onClick(({ host }) => expandHost(host));
+```
+
+Read the two against each other and the boundary shows itself: the **wire member's provenance** differs (kolu consumes an existing projection; drishti mints W5's one new member), the **writer** differs (a stateless collection fold vs a stateful hysteresis scan — two folds that merely *rhyme*, deliberately not unified), the **value shape** differs (bare ids vs labeled items), the **aggregation** differs (a sum vs a count), the **click** differs (switch+focus vs expand). What's identical is everything in between — the honest frames, the change pairs, the watcher, the tag-keyed delivery — which is exactly the slice the framework takes.
+
+## What stays app-side, and why
+
+Deliberately outside the framework: the **domain folds and value shapes** (unifying two folds that merely rhyme would complect two domains into one type), **every aggregation** (the two consumers' honest disagreement is the proof it's policy), the **pixels** (chips, badges, cards), and the **click semantics**. The framework's whole contract is: honest frames in — change pairs, raised ids, live/stale values out.
