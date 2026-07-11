@@ -40,7 +40,7 @@ export const ROADMAP = [
   { d: 0, g: "✓", c: "ship", l: "W8 · remote terminals, documented honestly (docs phase)", m: "#1722 · #1727 · 2026-07-08", h: "#w8" },
   { d: 0, g: "✓", c: "ship", l: "W6 · the honest connect — the connection type made perfect + the connect overlay", m: "#1730 · drishti#92 · 2026-07-09", h: "#w6" },
   { d: 0, g: "✓", c: "ship", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "#1759 · drishti#93 in review · 2026-07-11", h: "#w5" },
-  { d: 0, g: "○", c: "prog", l: "W9 · instant host switch-back — retained per-host wire subscriptions (W7's K1)", m: "next — W5 ✓", h: "#w9" },
+  { d: 0, g: "▶", c: "prog", l: "W9 · instant host switch-back — retained per-host wire subscriptions (W7's K1)", m: "#1764 · in review", h: "#w9" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -167,7 +167,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W6" name="the honest connect — the connection type made perfect + the connect overlay" status="shipped" needs={["W4"]} links={[{ label: "#1730", href: "https://github.com/juspay/kolu/pull/1730" }]} />
 <Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="shipped" needs={["W4"]} links={[{ label: "#1759", href: "https://github.com/juspay/kolu/pull/1759" }]} />
 <Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
-<Phase id="W9" name="instant host switch-back — retained per-host wire subscriptions (completing W7's K1)" status="todo" needs={["W7"]} />
+<Phase id="W9" name="instant host switch-back — retained per-host wire subscriptions (completing W7's K1)" status="next" needs={["W7"]} links={[{ label: "#1764", href: "https://github.com/juspay/kolu/pull/1764" }]} />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **As of 2026-07-11, in order:**
@@ -180,7 +180,9 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 <a id="w9"></a>
 
-### W9 — instant host switch-back *(next up — completing W7's K1)*
+### W9 — instant host switch-back *(in review — completing W7's K1)*
+
+> **In review: <PrLink pr={1764} />.** Ships **both** halves of the symptom — the per-host wire subscriptions (the canvas) and the Code-tab `createPolledQuery` per-host scoping (the Code tab). No server/padi changes; xterm/WebGL stay active-host-only.
 
 **In simple words:** switching hosts is supposed to feel like switching tmux sessions — instant, the canvas already there. Today every switch-back rebuilds the whole canvas instead: the dock empties and refills, the terminal goes black, the Code tab drops to "Loading…" — about a second of churn for state the client held moments ago.
 
@@ -190,7 +192,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 **Deliberately excluded:** xterm/WebGL stay active-host-only — a sub-second re-attach paint remains, mitigable later via a per-host screen snapshot. No server or padi changes.
 
-**Same class, same cure, as a follow-on:** `createPolledQuery` still blanks the Code-tab queries on a *genuine* host change — scoping the query per host removes it. (<PrLink pr={1758} /> already fixed the *spurious* blank — a fresh-reference-but-equal-value input no longer blanks, pinned by tests — and W9 builds on that value-keyed contract, never undoes it.)
+**Same class, same cure — shipped in the same PR (<PrLink pr={1764} />):** `createPolledQuery` also blanked the Code-tab queries on a *genuine* host change; W9 scopes the query per host — an opt-in per-`(input, host)` value cache the Code-tab repo/file queries use, so a switch-BACK adopts the held result (no blank) while the pulse refreshes. Folding it in here kills the *whole* symptom (dock, RightPanel, **and** Code tab) at once. (<PrLink pr={1758} /> already fixed the *spurious* blank — a fresh-reference-but-equal-value input no longer blanks, pinned by tests — and W9 builds on that value-keyed contract, never undoes it: the cache is off by default, so that pinned behavior is unchanged.)
 
 <a id="cleanup"></a>
 
