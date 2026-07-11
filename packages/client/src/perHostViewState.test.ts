@@ -192,13 +192,11 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         vs.writeActive("term-1" as TerminalId);
         vs.setMruOrder(["term-1", "term-2"] as TerminalId[]);
         vs.markUnread("term-1" as TerminalId);
-        vs.markBadgeAttention("term-2" as TerminalId);
         vs.setCanvasMaximized(true);
         // Sanity: all four facts are non-default.
         expect(vs.activeId()).not.toBeNull();
         expect(vs.mruOrder().length).toBeGreaterThan(0);
         expect(vs.isUnread("term-1" as TerminalId)).toBe(true);
-        expect(vs.hasBadgeAttention("term-2" as TerminalId)).toBe(true);
         expect(vs.canvasMaximized()).toBe(true);
         // reset() must return EVERY fact to its default. A future reset-on-close-all
         // fact added to this factory but FORGOTTEN in reset() fails this assertion —
@@ -207,7 +205,6 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         expect(vs.activeId()).toBeNull();
         expect(vs.mruOrder()).toEqual([]);
         expect(vs.isUnread("term-1" as TerminalId)).toBe(false);
-        expect(vs.hasBadgeAttention("term-2" as TerminalId)).toBe(false);
         expect(vs.canvasMaximized()).toBe(false);
       } finally {
         dispose();

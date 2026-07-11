@@ -66,7 +66,7 @@ or to deeper reading where there is some.</p>
   <path class="link" d="M750,121 L800,121"/>
   <rect class="chip" x="800" y="94" width="340" height="54" rx="8"/>
   <text class="tool"   x="818" y="116">AskUserQuestion  (batched, once)</text>
-  <text class="skilln" x="818" y="135">Plan first?  ·  Task kind  ·  Ultracode?</text>
+  <text class="skilln" x="818" y="135">Plan first?  ·  Task kind</text>
 
   <!-- ============ §1 Set up ============ -->
   <rect class="phase" x="330" y="192" width="420" height="72" rx="12" fill="#E3E9FD" stroke="#0D32B2"/>
@@ -307,7 +307,7 @@ pin down a few choices up front rather than guessing.</li>
 already live) or another home — so it can decouple from kolu and be used
 anywhere. The kolu-specific pieces it leans on (the <a href="https://github.com/juspay/project-unknown/blob/main/.apm/skills/pu/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/pu</a> box,
 <a href="https://github.com/juspay/kolu/blob/master/.apm/skills/dev-server/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/dev-server</a>, the Atlas) are the seams that work would tease apart.</p>
-<p>The interview covers three things:</p>
+<p>The interview covers two things:</p>
 <ul>
 <li><strong>Plan first?</strong> Write the plan as an <a href="/atlas/meta.html">Atlas note</a> for review
 before implementing, or go straight to code. Default: straight, unless the task
@@ -315,8 +315,6 @@ is large or ambiguous.</li>
 <li><strong>Task kind</strong> — bug · feature · refactor. This picks the test strategy: a bug
 needs a red-then-green reproduction; a feature needs a covering test written
 first; a refactor leans on existing coverage.</li>
-<li><strong>Ultracode?</strong> — only asked when it isn’t already on. With it, the review
-gauntlet fans out deeper and adversarially verifies each finding.</li>
 </ul>
 <aside class="callout callout-note" data-astro-cid-q2ml7llr><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>Autonomy doesn’t inherit — it’s propagated.</strong> Every subagent <code>/be</code> delegates to
 is told <em>execute now, don’t wait for confirmation</em>. A subagent starts without the

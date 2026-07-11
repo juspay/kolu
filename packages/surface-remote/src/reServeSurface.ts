@@ -53,7 +53,6 @@ import {
   type ImplementSurfaceDeps,
   implementSurface,
   inMemoryChannelByName,
-  inMemoryStore,
 } from "@kolu/surface/server";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { implement } from "@orpc/server";
@@ -72,6 +71,29 @@ import {
   holdOpenStreamCore,
   type RelayPolicy,
 } from "./relayStream";
+
+/** A mirrored cell's local READ store, with the mirror-never-fabricate gate.
+ *  Seeds the declared default so `get()` is a typed `T`, and flips `hasSnapshot`
+ *  true on the first write — which, on a mirror, only ever comes from the fold
+ *  (`ctx.cells.<key>.set` in `makeSink`). The framework's `get` withholds the
+ *  seeded default until `hasSnapshot()` is true, so the mirror serves no frame
+ *  until the authority's first real one. */
+function mirrorReadStore(initial: unknown): {
+  get: () => unknown;
+  set: (v: unknown) => void;
+  hasSnapshot: () => boolean;
+} {
+  let value = initial;
+  let primed = false;
+  return {
+    get: () => value,
+    set: (v) => {
+      value = v;
+      primed = true;
+    },
+    hasSnapshot: () => primed,
+  };
+}
 
 export interface ReServeSurfaceOptions<S extends SurfaceSpec> {
   /** The surface the remote agent serves and this parent re-serves. */
@@ -242,10 +264,18 @@ export function reServeSurface<S extends SurfaceSpec>(
   };
   const cellsDeps: Record<string, unknown> = {};
   for (const [key, cellSpec] of Object.entries(spec.cells ?? {})) {
+    // A mirror never fabricates a value. The store still SEEDS the declared
+    // default (so `store.get()` is a typed `T`), but `hasSnapshot` stays false
+    // until the fold writes the authority's first real frame — the framework
+    // withholds the seeded default until then, so a re-served cell serves no
+    // frame until the authority speaks. The declared default belongs to the ONE
+    // writer, not to a mirror relaying a guess.
+    const store = mirrorReadStore((cellSpec as { default: unknown }).default);
     cellsDeps[key] = {
       // The local READ mirror — written ONLY by the fold (`ctx.cells.<key>.set`,
       // see `makeSink`), read by the framework's `get` handler.
-      store: inMemoryStore((cellSpec as { default: unknown }).default),
+      store,
+      hasSnapshot: store.hasSnapshot,
       forward: {
         set: (input: unknown) => forwardCellWrite(key, "set", input),
         patch: (input: unknown) => forwardCellWrite(key, "patch", input),

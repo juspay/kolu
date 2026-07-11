@@ -37,7 +37,11 @@ import { createStore, produce, reconcile } from "solid-js/store";
 import { perHostBoolPref } from "../persistedPref";
 import { padiRpcOf } from "../wire";
 
-type TerminalAttention = "unread" | "badge-only";
+// A terminal that has drawn attention while unwatched, surfaced as a dock unread
+// mark. (The former `"badge-only"` state drove the active-host OS badge; W5
+// moved the badge to the cross-host urgency sum in `useHostAttention`, so unread
+// is the only attention mark this per-host state carries now.)
+type TerminalAttention = "unread";
 
 export interface HostViewState {
   activeId: Accessor<TerminalId | null>;
@@ -50,10 +54,7 @@ export interface HostViewState {
     next: TerminalId[] | ((prev: TerminalId[]) => TerminalId[]),
   ) => void;
   markUnread: (id: TerminalId) => void;
-  markBadgeAttention: (id: TerminalId) => void;
-  clearBadgeAttention: () => void;
   isUnread: (id: TerminalId) => boolean;
-  hasBadgeAttention: (id: TerminalId) => boolean;
   // ── Per-host VIEW POSTURE (W7 TIER A) ────────────────────────────────
   /** Fullscreen-one-tile posture for THIS host. Persisted per host
    *  (`kolu-canvasMaximized:<host>`) so it survives reload — the pre-W7 behavior,
@@ -127,26 +128,8 @@ export function createViewState(host: HostKey): HostViewState {
     setAttention(id, "unread");
   }
 
-  function markBadgeAttention(id: TerminalId): void {
-    if (attention[id] !== "unread") setAttention(id, "badge-only");
-  }
-
-  function clearBadgeAttention(): void {
-    setAttention(
-      produce((s) => {
-        for (const id of Object.keys(s) as TerminalId[]) {
-          if (s[id] === "badge-only") delete s[id];
-        }
-      }),
-    );
-  }
-
   function isUnread(id: TerminalId): boolean {
     return attention[id] === "unread";
-  }
-
-  function hasBadgeAttention(id: TerminalId): boolean {
-    return attention[id] !== undefined;
   }
 
   function reset(): void {
@@ -170,10 +153,7 @@ export function createViewState(host: HostKey): HostViewState {
     writeActive,
     setMruOrder,
     markUnread,
-    markBadgeAttention,
-    clearBadgeAttention,
     isUnread,
-    hasBadgeAttention,
     canvasMaximized,
     setCanvasMaximized,
     reset,

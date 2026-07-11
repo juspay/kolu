@@ -37,10 +37,7 @@ export function useTerminals() {
     activate: store.activate,
     getMetadata: store.getMetadata,
     getSubject,
-    hasBadgeAttention: store.hasBadgeAttention,
-    clearBadgeAttention: store.clearBadgeAttention,
     markUnread: store.markUnread,
-    markBadgeAttention: store.markBadgeAttention,
     terminalIds: store.terminalIds,
   });
 
