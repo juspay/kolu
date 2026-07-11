@@ -37,8 +37,8 @@
  * so `q()`, `q.pending()`, `q.error()` all read verbatim downstream.
  *
  * The blank-on-host-switch above is the STANDALONE behavior (`active` defaults to
- * always-on). For the Code tab, `perHostPolledQuery` instead builds ONE instance per
- * host inside the `scopedByEntry` owner and wires the `active` gate, so a host switch
+ * always-on). For the Code tab, `hostCodeTab` instead builds ONE instance per host
+ * inside its `scopedByEntry` owner and wires the `active` gate, so a host switch
  * PAUSES the leaving host's query (value held) and RESUMES the arriving host's from its
  * retained value with no blank — padi W9's instant switch-back, by ownership. See the
  * `active` config field.
@@ -102,8 +102,8 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
    *  re-activation it RESUMES: an unchanged input keeps the held value (no blank) and
    *  the pulse refreshes it; a changed input blanks + re-queries like any new input.
    *  A key change WHILE active is unaffected (the `#1714` value-keyed blank is unchanged).
-   *  `perHostPolledQuery` wires this to `ctx.isActive` for per-host switch-back by
-   *  ownership — see its header for the why. */
+   *  `hostCodeTab` wires this to `ctx.isActive` for per-host switch-back by ownership —
+   *  see its header for the why. */
   active?: Accessor<boolean>;
 }
 

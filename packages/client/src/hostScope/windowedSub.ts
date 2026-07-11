@@ -8,8 +8,8 @@ import type { Subscription } from "@kolu/surface/solid";
  *  `Subscription`'s shape or be re-stamped wrong at a new facade.
  *
  *  Consumers that "window the active host's RETAINED sub into a STABLE facade" —
- *  `savedSessionSub` / `terminalListSub` in `activeWire.ts`, and `perHostPolledQuery`
- *  over the Code-tab query instance — are the same concept, differing only in which
+ *  `savedSessionSub` / `terminalListSub` in `activeWire.ts`, and the Code-tab query
+ *  facades in `hostCodeTab.ts` — are the same concept, differing only in which
  *  member they select and how they map its value: `select()` is briefly `undefined`
  *  during the removal race (the active host left the pool; `wire.ts`'s reconcile
  *  re-points `activeHost` a tick later), and every field floors that gap the same way

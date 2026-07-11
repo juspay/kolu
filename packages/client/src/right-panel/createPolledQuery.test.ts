@@ -447,7 +447,7 @@ describe("createPolledQuery", () => {
   });
 
   it("active pause gate: pauses (value held, pulse torn down) while inactive, RESUMES with no blank + an immediate refresh (padi W9)", async () => {
-    // The Code-tab half of instant switch-back, by OWNERSHIP: `perHostPolledQuery`
+    // The Code-tab half of instant switch-back, by OWNERSHIP: `hostCodeTab`
     // builds one instance per host and wires `active = ctx.isActive`. Backgrounding a
     // host flips `active` false — the value is HELD and the pulse torn down (no
     // background polling); switching BACK flips it true — the held value stays (NO
